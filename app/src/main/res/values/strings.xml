@@ -1,0 +1,34 @@
+<resources>
+    <string name="app_name">Filet</string>
+
+    <!-- Onboarding strings ported from Trawl, then edited for Filet. -->
+    <string name="onboard_1_body">A file manager for doing real work on your phone, without reaching for a PC. Open source, no ads, no accounts, no telemetry.</string>
+    <string name="onboard_2_body">Most of Filet works the way you would expect. These three do not, and they are the reason it exists.</string>
+    <string name="onboard_2_title">Three things worth knowing</string>
+    <string name="onboard_3_body">Only all-files access really matters, and even that can be refused — you will just be limited to folders you pick by hand.</string>
+    <string name="onboard_3_title">What it asks for</string>
+    <string name="onboard_4_body">Long-press to select, tap to add more. Copy or Move puts files on the clipboard; open another folder and paste from the top bar.
+
+This is early, and it is a one-person project. Expect rough edges.</string>
+    <string name="onboard_4_title">What to expect</string>
+    <string name="onboard_by">Built by</string>
+    <string name="onboard_by_handle">Niccc2007 (uukjtisa)</string>
+    <string name="onboard_next">Next</string>
+    <string name="onboard_skip">Skip</string>
+    <string name="onboard_start">Get started</string>
+    <string name="perm_all_set">All set</string>
+    <string name="perm_grant">GRANT</string>
+    <string name="perm_grant_all">Grant all</string>
+    <string name="perm_none_required">You can skip any of these. Filet still opens without them.</string>
+    <string name="perm_notify">Notifications</string>
+    <string name="perm_notify_why">Progress for long jobs — copying, indexing, signing. Optional.</string>
+    <string name="perm_optional">OPTIONAL</string>
+    <string name="perm_storage">Storage</string>
+    <string name="perm_storage_why">The ordinary storage permission, on Android versions that still have one.</string>
+    <string name="perm_all_files">All files access</string>
+    <string name="perm_all_files_why">Browse, move and edit anything on this device. Android asks for this on its own Settings screen, so you will be sent there and back. Without it, only folders you pick by hand are visible.</string>
+    <string name="perm_bridge_label">Filet bridge</string>
+    <string name="perm_bridge_desc">Lets apps signed with the same key read and write file provenance and the shared job ledger.</string>
+    <string name="widget_empty">Nothing here</string>
+    <string name="widget_folder_desc">A folder from your storage, on the home screen.</string>
+</resources>

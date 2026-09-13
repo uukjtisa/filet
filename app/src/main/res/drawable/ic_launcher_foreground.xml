@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Filet launcher icon — foreground layer.  Candidate E4, chosen 2026-09-13.
+
+  Two-tone open folder.  Body in the shade colour, flap in the accent.
+
+  The gap between the two shapes is INHERENT, not masked: the body path stops at
+  y=46 and the flap starts at y=53.  That is deliberate — VectorDrawable has no
+  mask support, and more importantly the monochrome layer collapses both shapes to
+  one colour, so a gap faked with a background-coloured shape on top would fill in
+  and the mark would become a blob.  Never reintroduce one.
+
+  Canvas 108x108.  The 72x72 safe zone is x/y 18..90; every structural edge is
+  inside it, so no launcher mask can crop the mark.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- body + tab (shade) -->
+    <path
+        android:fillColor="#4E7382"
+        android:pathData="M26,24h16l6,8h30a6,6 0 0 1 6,6v8H16V30a6,6 0 0 1 6,-6z" />
+
+    <!-- front flap (accent) -->
+    <path
+        android:fillColor="#7FA8B8"
+        android:pathData="M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z" />
+
+</vector>

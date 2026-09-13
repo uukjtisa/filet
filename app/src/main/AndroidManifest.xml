@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Nearby (M9): a LAN server and mDNS discovery. No INTERNET-only feature uses these. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!--
+      Package visibility (API 30+). Filet needs to see what can open a file in order to offer
+      "Open with" honestly, and to find Trawl for the bridge. Declared narrowly rather than
+      with QUERY_ALL_PACKAGES, which Play treats as a restricted permission and which F-Droid
+      reviewers rightly ask about.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <package android:name="dev.niccc2007.trawl" />
+        <package android:name="dev.niccc2007.trawl.debug" />
+    </queries>
+
+    <application
+        android:name=".FiletApp"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:requestLegacyExternalStorage="true"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
+        android:theme="@style/Theme.Filet">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|density|smallestScreenSize|uiMode"
+            android:theme="@style/Theme.Filet">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!--
+              Inbound routing (PLAN.md L2). Cast wide: being IN the Open-With list is manifest
+              work, being CHOSEN is the user's call and cannot be forced.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+
+            <!-- A file manager is a legitimate answer to "pick a file". -->
+            <intent-filter>
+                <action android:name="android.intent.action.GET_CONTENT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.OPENABLE" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Shown instead of the system "app has stopped" dialog. Its own task, excluded from
+          recents, and NOT exported: a crash report is the user's, and no other app has any
+          business being able to launch this screen with text of its choosing.
+        -->
+        <activity
+            android:name=".crash.CrashActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:process=":crash"
+            android:launchMode="singleInstance"
+            android:theme="@style/Theme.Filet" />
+
+        <!--
+          Shares files out. A raw file:// URI throws FileUriExposedException past API 24 and
+          cannot carry a read grant, so everything leaving the process goes through here.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!--
+          The Trawl bridge (PLAN.md §5.4). Guarded by a signature permission, so only apps
+          signed with the same key can read or write provenance and the job ledger. No server,
+          no account, works offline, and no third app can spoof a record.
+        -->
+        <provider
+            android:name=".bridge.FiletBridgeProvider"
+            android:authorities="${applicationId}.bridge"
+            android:exported="true"
+            android:readPermission="dev.niccc2007.filet.permission.BRIDGE"
+            android:writePermission="dev.niccc2007.filet.permission.BRIDGE"
+            android:grantUriPermissions="false" />
+
+        <!-- Tier 2 of the index scheduler: the OS wakes us when media changes. -->
+        <service
+            android:name=".index.MediaChangeJobService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
+
+        <!-- Tier 4: a full index the USER asked for. Visible, stoppable, and it stops itself. -->
+        <service
+            android:name=".index.IndexService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- Nearby (M9). dataSync, and only while a transfer is actually running. -->
+        <service
+            android:name=".nearby.NearbyService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- Shortcut launcher (M4): resolves a stable file ID to its current path. -->
+        <activity
+            android:name=".shortcuts.ShortcutRouterActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- Widgets (M4). -->
+        <receiver
+            android:name=".shortcuts.FolderWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_folder" />
+        </receiver>
+        <service
+            android:name=".shortcuts.FolderWidgetService"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:exported="false" />
+    </application>
+
+    <permission
+        android:name="dev.niccc2007.filet.permission.BRIDGE"
+        android:protectionLevel="signature"
+        android:label="@string/perm_bridge_label"
+        android:description="@string/perm_bridge_desc" />
+    <uses-permission android:name="dev.niccc2007.filet.permission.BRIDGE" />
+
+</manifest>

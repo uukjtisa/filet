@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  goes in res/mipmap-anydpi-v26/ic_launcher.xml AND ic_launcher_round.xml
+
+  TRANSPARENT background, by request.
+
+  An adaptive icon still needs a background LAYER - the format requires one - but the layer
+  may be fully transparent, and then the launcher composites the mark straight onto the
+  wallpaper instead of onto a tile. That is the look: a folder mark, not a badge.
+
+  Two consequences worth knowing rather than rediscovering:
+
+  * Launchers that force a shape (Pixel's circle, several OEM skins) mask a transparent
+    background to nothing visible, so the mark floats. That is the intent here.
+  * The foreground's own 72x72 safe zone still applies. Nothing moved, so no mask can crop
+    the mark - see the comment in ic_launcher_foreground.xml.
+
+  The monochrome layer is unaffected: themed icons draw the silhouette on the launcher's own
+  background regardless of what this layer says.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@android:color/transparent" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+</adaptive-icon>

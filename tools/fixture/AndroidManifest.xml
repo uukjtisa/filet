@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.niccc2007.fixture">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    <application android:label="Filet fixture" android:hasCode="true" android:debuggable="true">
+        <!--
+          Exported but NOT a launcher entry. It used to carry CATEGORY_LAUNCHER, which put an
+          8 KB test dummy in the app drawer of every device the gates ran on - and because it
+          finishes immediately it looks exactly like an app crashing. It is started by
+          component name from the gate script; it never needs an icon.
+        -->
+        <activity android:name=".MainActivity" android:exported="true" />
+    </application>
+</manifest>

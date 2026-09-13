@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{{DEVICE}} · Filet</title>
+<!--
+  The file browser, reached only through a grant the PIN minted.
+
+  It behaves like the app: folders are folders. You walk into a shared folder, the breadcrumb
+  follows you, Back and Up work, and a folder can be taken whole as a zip or opened and picked
+  through. That is the difference between "a share" and "a list of attachments".
+
+  Every request is relative to {{BASE}} (`/a/<token>`), so revoking the grant in the app kills
+  this page instantly and completely - no cookie to forget, no session to expire. A revoked
+  token redirects back to the lock screen on the next request.
+
+  Paths are still never in a URL. A subfolder is reachable only because something already
+  reachable listed it and minted its token, so traversal stays unrepresentable rather than
+  merely blocked.
+-->
+<style>
+{{THEME}}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: 40px;
+}
+a { color: inherit; text-decoration: none; }
+button { font: inherit; cursor: pointer; }
+
+header {
+  position: sticky; top: 0; z-index: 5;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line-soft);
+}
+.bar { max-width: 960px; margin: 0 auto; padding: 12px 18px; display: flex; align-items: center; gap: 11px; }
+.mark { width: 28px; height: 28px; border-radius: 9px; background: var(--accent-dim); display: grid; place-items: center; flex: none; }
+.mark svg { width: 15px; height: 15px; fill: none; stroke: var(--accent); stroke-width: 1.8; }
+.who { min-width: 0; flex: 1; }
+.who h1 { margin: 0; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.who p { margin: 0; font-size: 11.5px; color: var(--fg3); }
+
+.pill {
+  font-size: 12px; font-weight: 500; padding: 8px 12px; border-radius: 9px;
+  border: 1px solid var(--line-soft); background: var(--raised); color: var(--fg);
+  transition: filter .15s, transform .08s, opacity .15s;
+}
+.pill:active { transform: translateY(1px); }
+.pill.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.pill:disabled { opacity: .4; cursor: default; }
+.icon-pill { padding: 8px 10px; }
+
+/* Breadcrumb */
+.crumbs { max-width: 960px; margin: 0 auto; padding: 0 18px 11px; display: flex; align-items: center; gap: 3px; font-size: 12.5px; overflow-x: auto; scrollbar-width: none; }
+.crumbs::-webkit-scrollbar { display: none; }
+.crumbs .c { padding: 4px 7px; border-radius: 6px; white-space: nowrap; color: var(--fg2); cursor: pointer; }
+.crumbs .c:hover { background: var(--raised); }
+.crumbs .c.here { color: var(--fg); font-weight: 600; cursor: default; }
+.crumbs .sep { color: var(--fg3); }
+
+main { max-width: 960px; margin: 0 auto; padding: 16px 18px 0; }
+.tools { display: flex; gap: 8px; align-items: center; margin-bottom: 13px; flex-wrap: wrap; }
+#q {
+  flex: 1; min-width: 170px; font-size: 14px; padding: 11px 13px; border-radius: 11px;
+  border: 1px solid var(--line); background: var(--sunken); color: var(--fg); outline: none;
+}
+#q:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+
+ul { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line-soft); border-radius: 14px; overflow: hidden; background: var(--surface); }
+li { display: flex; align-items: center; gap: 12px; padding: 10px 13px; border-bottom: 1px solid var(--line-soft); transition: background .12s; }
+li:last-child { border-bottom: 0; }
+li:hover { background: var(--raised); }
+li.on { background: var(--sel); }
+li.dir .meta .n { font-weight: 550; }
+
+.tick { width: 19px; height: 19px; border-radius: 6px; border: 1.5px solid var(--line); display: grid; place-items: center; flex: none; cursor: pointer; }
+li.on .tick { background: var(--accent); border-color: var(--accent); }
+.tick svg { width: 11px; height: 11px; stroke: var(--on-accent); stroke-width: 2.6; fill: none; opacity: 0; }
+li.on .tick svg { opacity: 1; }
+
+.ico {
+  width: 40px; height: 40px; border-radius: 9px; background: var(--high);
+  display: grid; place-items: center; flex: none; overflow: hidden;
+  font-size: 10px; font-weight: 600; font-family: ui-monospace, monospace; color: var(--fg2); text-transform: uppercase;
+}
+.ico img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ico svg { width: 19px; height: 19px; fill: none; stroke: var(--fg2); stroke-width: 1.7; }
+
+.meta { min-width: 0; flex: 1; cursor: default; }
+li.dir .meta { cursor: pointer; }
+.meta .n { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta .s { font-size: 11.5px; color: var(--fg3); }
+.acts { display: flex; gap: 6px; flex: none; }
+.acts button { font-size: 12px; color: var(--accent); padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line-soft); background: transparent; }
+.acts button:hover { background: var(--accent-dim); }
+
+.empty { text-align: center; padding: 46px 20px; color: var(--fg3); font-size: 14px; }
+
+/* Upload */
+#drop { margin-top: 15px; border: 1.5px dashed var(--line); border-radius: 14px; padding: 24px; text-align: center; color: var(--fg2); font-size: 13.5px; transition: border-color .15s, background .15s; }
+#drop.hot { border-color: var(--accent); background: var(--accent-dim); color: var(--fg); }
+#drop b { color: var(--accent); cursor: pointer; }
+#drop input { display: none; }
+.prog { height: 4px; border-radius: 2px; background: var(--high); margin-top: 10px; overflow: hidden; }
+.prog i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .18s; }
+
+.bulk { position: sticky; bottom: 12px; margin-top: 14px; display: flex; gap: 8px; align-items: center; padding: 11px 13px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line-soft); box-shadow: 0 8px 28px -18px rgba(0,0,0,.8); }
+.bulk[hidden] { display: none; }
+.bulk .c { font-size: 13px; color: var(--fg2); flex: 1; }
+
+/* Transfers — the answer to "did my click do anything" */
+#jobs { position: fixed; right: 14px; bottom: 14px; z-index: 20; display: flex; flex-direction: column; gap: 8px; width: min(320px, calc(100vw - 28px)); }
+.job { background: var(--surface); border: 1px solid var(--line-soft); border-radius: 12px; padding: 10px 12px; box-shadow: 0 10px 30px -18px rgba(0,0,0,.9); animation: rise .18s ease-out; }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+.job .t { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.job .d { font-size: 11px; color: var(--fg3); margin-top: 2px; }
+.job.done .d { color: var(--good); }
+.job.bad .d { color: var(--bad); }
+
+footer { max-width: 960px; margin: 0 auto; padding: 20px 18px 30px; font-size: 11.5px; color: var(--fg3); }
+
+@media (max-width: 520px) {
+  .bar { padding: 11px 14px; }
+  main, .crumbs, footer { padding-left: 14px; padding-right: 14px; }
+  .acts button { padding: 7px 8px; }
+}
+@media (prefers-reduced-motion: reduce) { *, .job { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h3l2 2.5h6A2.5 2.5 0 0 1 20 10v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" stroke-linejoin="round"/></svg>
+    </div>
+    <div class="who">
+      <h1>{{DEVICE}}</h1>
+      <p id="count">Loading…</p>
+    </div>
+    <button class="pill icon-pill" id="up" title="Up one folder" disabled>↑</button>
+    <button class="pill icon-pill" id="refresh" title="Refresh">⟳</button>
+  </div>
+  <nav class="crumbs" id="crumbs"></nav>
+</header>
+
+<main>
+  <div class="tools">
+    <input id="q" type="search" placeholder="Filter this folder" autocomplete="off">
+    <button class="pill" id="all">Select all</button>
+  </div>
+
+  <ul id="list"><li class="empty">Loading…</li></ul>
+
+  <div class="bulk" id="bulk" hidden>
+    <span class="c" id="sel">0 selected</span>
+    <button class="pill" id="clear">Clear</button>
+    <button class="pill primary" id="zip">Download as .zip</button>
+  </div>
+
+  <div id="drop" hidden>
+    Drop files here, or <b id="pick">choose them</b> — they land in the phone's Received folder.
+    <div class="prog" hidden id="upprog"><i></i></div>
+  </div>
+  <input type="file" id="file" multiple style="display:none">
+</main>
+
+<div id="jobs"></div>
+
+<footer>Served by Filet over your local network. <a href="/">Lock again</a></footer>
+
+<noscript>
+  <p style="padding:0 18px">JavaScript is off. <a href="{{BASE}}/api/list">Open the raw listing</a> — every file downloads from <code>{{BASE}}/f/&lt;token&gt;</code>.</p>
+</noscript>
+
+<script>
+const BASE = "{{BASE}}";
+const UPLOADS = {{UPLOADS}};
+
+const list = document.getElementById('list');
+const count = document.getElementById('count');
+const crumbs = document.getElementById('crumbs');
+const bulk = document.getElementById('bulk');
+const selLabel = document.getElementById('sel');
+const upBtn = document.getElementById('up');
+const q = document.getElementById('q');
+const jobs = document.getElementById('jobs');
+
+let files = [];
+let trail = [];              // [{token,name}] from the share root down to here
+let at = '';                 // '' = the share root
+const chosen = new Set();
+
+// ── formatting ──
+const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
+function size(n) {
+  if (n < 0) return '';
+  let i = 0, v = n;
+  while (v >= 1024 && i < UNITS.length - 1) { v /= 1024; i++; }
+  return (i === 0 ? v : v.toFixed(v < 10 ? 1 : 0)) + ' ' + UNITS[i];
+}
+function when(ms) {
+  if (!ms) return '';
+  const d = new Date(ms), now = new Date();
+  return d.toDateString() === now.toDateString()
+    ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+// ── transfer notices ────────────────────────────────────────────────────────
+//
+// A browser gives no feedback between "link clicked" and "file appears in Downloads", and on
+// a phone over Wi-Fi that gap is long enough to make people tap again. So every transfer gets
+// a card the moment it is asked for, and the card says what is happening.
+function job(title, detail) {
+  const el = document.createElement('div');
+  el.className = 'job';
+  el.innerHTML = '<div class="t"></div><div class="d"></div>';
+  el.querySelector('.t').textContent = title;
+  el.querySelector('.d').textContent = detail || 'Starting…';
+  jobs.append(el);
+  return {
+    update(text) { el.querySelector('.d').textContent = text; },
+    done(text) { el.classList.add('done'); el.querySelector('.d').textContent = text || 'Done'; setTimeout(() => el.remove(), 3500); },
+    fail(text) { el.classList.add('bad'); el.querySelector('.d').textContent = text || 'Failed'; setTimeout(() => el.remove(), 6000); },
+  };
+}
+
+/**
+ * Start a download and say so.
+ *
+ * A hidden <a download> rather than fetch-into-a-Blob: the browser then streams straight to
+ * disk with its own progress UI, which matters when the file is four gigabytes and the phone
+ * has no RAM to spare. The card covers the part the browser is silent about - the wait before
+ * the first byte, which over Wi-Fi is where all the doubt lives.
+ */
+function download(url, name, label) {
+  const j = job(name, label || 'Asking the phone…');
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.rel = 'noopener';
+  document.body.append(a);
+  a.click();
+  a.remove();
+  // There is no event for "the browser took over", so this is a stated assumption rather than
+  // a measurement - and it says so.
+  setTimeout(() => j.done('Handed to your browser — check its downloads'), 1400);
+}
+
+// ── listing ──
+async function load(dirToken) {
+  const target = dirToken === undefined ? at : dirToken;
+  try {
+    const url = BASE + '/api/list' + (target ? '?d=' + encodeURIComponent(target) : '');
+    const r = await fetch(url);
+    if (r.redirected) { location.replace(r.url); return; }
+    if (!r.ok) throw new Error(r.status);
+    const data = await r.json();
+    if (data.error) { // the folder was un-shared while we were in it
+      at = ''; trail = [];
+      return load('');
+    }
+    files = data.files || [];
+    trail = data.trail || [];
+    at = target;
+    chosen.clear();
+    render();
+    updateBulk();
+  } catch (e) {
+    list.innerHTML = '<li class="empty">Lost contact with the phone. It may have stopped sharing.</li>';
+    count.textContent = 'Disconnected';
+  }
+}
+
+function renderCrumbs() {
+  crumbs.innerHTML = '';
+  const add = (label, token, here) => {
+    const el = document.createElement('span');
+    el.className = 'c' + (here ? ' here' : '');
+    el.textContent = label;
+    if (!here) el.addEventListener('click', () => load(token));
+    crumbs.append(el);
+  };
+  add('Shared', '', trail.length === 0);
+  trail.forEach((t, i) => {
+    const sep = document.createElement('span');
+    sep.className = 'sep'; sep.textContent = '/';
+    crumbs.append(sep);
+    add(t.name, t.token, i === trail.length - 1);
+  });
+  crumbs.scrollLeft = crumbs.scrollWidth;
+  upBtn.disabled = trail.length === 0;
+}
+
+function fileIcon(f) {
+  if (f.dir) return '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke-linejoin="round"/></svg>';
+  return null;
+}
+
+function render() {
+  renderCrumbs();
+  const needle = q.value.trim().toLowerCase();
+  const shown = needle ? files.filter(f => f.name.toLowerCase().includes(needle)) : files;
+
+  const dirs = files.filter(f => f.dir).length;
+  count.textContent = files.length
+    ? files.length + ' item' + (files.length === 1 ? '' : 's') + (dirs ? ' · ' + dirs + ' folder' + (dirs === 1 ? '' : 's') : '')
+    : 'Nothing here';
+
+  if (!shown.length) {
+    list.innerHTML = '<li class="empty">' +
+      (files.length ? 'Nothing matches that.' : 'This folder is empty.') + '</li>';
+    return;
+  }
+
+  list.innerHTML = '';
+  for (const f of shown) {
+    const li = document.createElement('li');
+    li.className = (f.dir ? 'dir' : '') + (chosen.has(f.token) ? ' on' : '');
+
+    const tick = document.createElement('div');
+    tick.className = 'tick';
+    tick.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    tick.addEventListener('click', e => {
+      e.stopPropagation();
+      chosen.has(f.token) ? chosen.delete(f.token) : chosen.add(f.token);
+      render(); updateBulk();
+    });
+
+    const ico = document.createElement('div');
+    ico.className = 'ico';
+    const svg = fileIcon(f);
+    if (svg) ico.innerHTML = svg;
+    else if (f.thumb) {
+      // Loaded lazily: a folder of 300 photos should not fetch 300 previews to show 12.
+      const img = document.createElement('img');
+      img.loading = 'lazy';
+      img.alt = '';
+      img.src = BASE + '/t/' + f.token;
+      img.addEventListener('error', () => { ico.textContent = (f.ext || '·').slice(0, 4); });
+      ico.append(img);
+    } else ico.textContent = (f.ext || '·').slice(0, 4);
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = f.name;
+    const sub = document.createElement('span'); sub.className = 's';
+    sub.textContent = [f.dir ? 'Folder' : size(f.size), when(f.mtime), f.linked ? 'shared in place' : null]
+      .filter(Boolean).join(' · ');
+    meta.append(n, sub);
+    if (f.dir) meta.addEventListener('click', () => load(f.token));
+
+    const acts = document.createElement('div');
+    acts.className = 'acts';
+    if (f.dir) {
+      const open = document.createElement('button');
+      open.textContent = 'Open';
+      open.addEventListener('click', () => load(f.token));
+      const zipIt = document.createElement('button');
+      zipIt.textContent = 'Download .zip';
+      zipIt.addEventListener('click', () =>
+        download(BASE + '/zd/' + f.token, f.name + '.zip', 'Zipping on the phone…'));
+      acts.append(open, zipIt);
+    } else {
+      const dl = document.createElement('button');
+      dl.textContent = 'Download';
+      dl.addEventListener('click', () => download(BASE + '/f/' + f.token, f.name));
+      acts.append(dl);
+    }
+
+    li.append(tick, ico, meta, acts);
+    list.append(li);
+  }
+}
+
+function updateBulk() {
+  bulk.hidden = chosen.size === 0;
+  selLabel.textContent = chosen.size + ' selected';
+}
+
+q.addEventListener('input', render);
+document.getElementById('refresh').addEventListener('click', () => load());
+upBtn.addEventListener('click', () => {
+  if (!trail.length) return;
+  load(trail.length >= 2 ? trail[trail.length - 2].token : '');
+});
+document.getElementById('clear').addEventListener('click', () => { chosen.clear(); render(); updateBulk(); });
+document.getElementById('all').addEventListener('click', () => {
+  const needle = q.value.trim().toLowerCase();
+  const shown = (needle ? files.filter(f => f.name.toLowerCase().includes(needle)) : files).filter(f => !f.dir);
+  const everyOn = shown.length > 0 && shown.every(f => chosen.has(f.token));
+  shown.forEach(f => everyOn ? chosen.delete(f.token) : chosen.add(f.token));
+  render(); updateBulk();
+});
+document.getElementById('zip').addEventListener('click', () => {
+  if (!chosen.size) return;
+  download(BASE + '/z?tokens=' + [...chosen].join(','), 'filet-selection.zip', 'Zipping on the phone…');
+});
+
+// Browser Back walks folders, not out of the page.
+window.addEventListener('popstate', e => load((e.state && e.state.at) || ''));
+const origLoad = load;
+load = async function (t) {
+  const before = at;
+  await origLoad(t);
+  if (at !== before) history.pushState({ at }, '', location.pathname);
+};
+
+// ── uploads ──
+if (UPLOADS) {
+  const drop = document.getElementById('drop');
+  const input = document.getElementById('file');
+  const prog = document.getElementById('upprog');
+  const bar = prog.querySelector('i');
+  drop.hidden = false;
+  document.getElementById('pick').addEventListener('click', () => input.click());
+  input.addEventListener('change', () => send([...input.files]));
+  ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('hot'); }));
+  ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('hot'); }));
+  drop.addEventListener('drop', e => send([...e.dataTransfer.files]));
+
+  // XHR rather than fetch, for one reason: `upload.onprogress`. fetch still cannot report
+  // request progress, and an upload with no progress bar is indistinguishable from a hang.
+  function send(chosenFiles) {
+    if (!chosenFiles.length) return;
+    let i = 0;
+    const next = () => {
+      if (i >= chosenFiles.length) { prog.hidden = true; setTimeout(() => load(), 500); return; }
+      const f = chosenFiles[i++];
+      const j = job(f.name, 'Sending…');
+      prog.hidden = false; bar.style.width = '0%';
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', BASE + '/u/' + encodeURIComponent(f.name));
+      xhr.upload.onprogress = ev => {
+        if (!ev.lengthComputable) return;
+        const pct = Math.round(ev.loaded / ev.total * 100);
+        bar.style.width = pct + '%';
+        j.update(pct + '% · ' + size(ev.loaded) + ' of ' + size(ev.total));
+      };
+      xhr.onload = () => { xhr.status < 300 ? j.done('Sent to the phone') : j.fail('The phone refused it'); next(); };
+      xhr.onerror = () => { j.fail('Connection lost'); next(); };
+      xhr.send(f);
+    };
+    next();
+  }
+}
+
+load('');
+// The phone's shared set changes while this page is open - a file dropped into the folder
+// from the other pane should appear without anyone pressing anything.
+setInterval(() => { if (!document.hidden) load(); }, 8000);
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# Line endings are checked in as LF and stay LF.
+#
+# `core.autocrlf=true` is the Windows default and it rewrites the working copy on
+# checkout. For most files that is merely noisy; for the shell scripts here it is
+# fatal — `gradlew`, `gw.sh` and `tools/*.sh` will not run on Linux or macOS with
+# CRLF line endings, and the error ("bad interpreter: /bin/sh^M") does not name
+# the cause. `-text` tells git to leave every file exactly as committed, so the
+# working copy, the blob and what a cloner gets are the same bytes.
+* -text
+
+# Language stats: the ledgers and design docs are prose about the app, not the
+# app. Without this GitHub would call a Kotlin project "Markdown".
+*.md linguist-documentation
+docs/** linguist-documentation

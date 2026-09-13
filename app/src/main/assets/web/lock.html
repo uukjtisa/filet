@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{{DEVICE}} · Filet</title>
+<!--
+  The lock screen, and nothing else.
+
+  It used to be one page that revealed a hidden section when the PIN was right, which left
+  the unlock form sitting above the file list forever. This is a separate document: typing
+  the PIN navigates to a URL the phone just minted, so the lock screen is *gone* afterwards
+  because it is no longer the page you are on.
+
+  {{THEME}} is the app's own palette. Switch Filet to Ember and this turns amber too.
+-->
+<style>
+{{THEME}}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.card {
+  width: min(380px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: 18px;
+  padding: 30px 26px 26px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.05), 0 16px 40px -24px rgba(0,0,0,.45);
+  position: relative;
+  overflow: hidden;
+}
+/* A thin accent seam along the top, the same cue the app's raised surfaces use. */
+.card::before {
+  content: "";
+  position: absolute; inset: 0 0 auto 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: .7;
+}
+
+.mark {
+  width: 34px; height: 34px; border-radius: 10px;
+  background: var(--accent-dim);
+  display: grid; place-items: center;
+  margin-bottom: 16px;
+}
+.mark svg { width: 18px; height: 18px; fill: none; stroke: var(--accent); stroke-width: 1.8; }
+
+h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+.sub { margin: 5px 0 22px; font-size: 13px; color: var(--fg2); }
+.sub b { color: var(--fg); font-weight: 600; }
+
+label { display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg3); margin-bottom: 8px; }
+
+/* One input, not six boxes: six boxes fight every password manager and every paste. */
+#pin {
+  width: 100%;
+  font: 600 26px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .34em;
+  text-indent: .34em;             /* centres the tracking, which otherwise drifts right */
+  padding: 14px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--sunken);
+  color: var(--fg);
+  text-align: center;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+#pin:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+#pin::placeholder { color: var(--fg3); letter-spacing: .34em; }
+
+.row { display: flex; gap: 8px; margin-top: 14px; }
+button {
+  font: 500 14px/1 inherit;
+  padding: 13px 16px;
+  border-radius: 11px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform .08s, filter .15s;
+}
+button:active { transform: translateY(1px); }
+#go { flex: 1; background: var(--accent); color: var(--on-accent); }
+#go:disabled { opacity: .45; cursor: default; }
+#paste { background: var(--raised); color: var(--fg); border-color: var(--line-soft); }
+
+.msg { margin-top: 14px; font-size: 13px; min-height: 20px; }
+.msg.bad { color: var(--bad); }
+.msg.ok  { color: var(--good); }
+
+.foot { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line-soft); font-size: 11.5px; color: var(--fg3); }
+.foot code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--fg2); }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="mark" aria-hidden="true">
+    <svg viewBox="0 0 24 24"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h3l2 2.5h6A2.5 2.5 0 0 1 20 10v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" stroke-linejoin="round"/></svg>
+  </div>
+
+  <h1>{{DEVICE}}</h1>
+  <p class="sub">Sharing over this network with <b>Filet</b>. Enter the code shown on the phone.</p>
+
+  <form id="form" autocomplete="off">
+    <label for="pin">Access code</label>
+    <input id="pin" name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+           placeholder="······" autocomplete="one-time-code" autofocus>
+    <div class="row">
+      <button id="go" type="submit" disabled>Unlock</button>
+      <button id="paste" type="button" title="Paste from clipboard">Paste</button>
+    </div>
+  </form>
+
+  <p class="msg" id="msg" role="status" aria-live="polite"></p>
+
+  <p class="foot">Serving from <code>{{HOST}}</code>. Nothing leaves your network.</p>
+</main>
+
+<script>
+const pin = document.getElementById('pin');
+const go = document.getElementById('go');
+const msg = document.getElementById('msg');
+
+function setMsg(text, kind) { msg.textContent = text; msg.className = 'msg' + (kind ? ' ' + kind : ''); }
+
+// Digits only, and submit itself once six are in - a six-digit code has exactly one moment
+// where it is complete, and making the user find a button afterwards is a wasted tap.
+pin.addEventListener('input', () => {
+  pin.value = pin.value.replace(/\D/g, '').slice(0, 6);
+  go.disabled = pin.value.length !== 6;
+  if (pin.value.length === 6) submit();
+});
+
+// Paste is a first-class action here. The code is on another screen an arm's length away,
+// and on a phone the OS paste bubble is easy to miss.
+document.getElementById('paste').addEventListener('click', async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    pin.value = (text || '').replace(/\D/g, '').slice(0, 6);
+    pin.dispatchEvent(new Event('input'));
+    pin.focus();
+  } catch (e) {
+    setMsg('Your browser would not share the clipboard — type it instead.', null);
+    pin.focus();
+  }
+});
+
+document.getElementById('form').addEventListener('submit', e => { e.preventDefault(); submit(); });
+
+let busy = false;
+async function submit() {
+  if (busy || pin.value.length !== 6) return;
+  busy = true; go.disabled = true;
+  setMsg('Checking…', null);
+  try {
+    const r = await fetch('/api/unlock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: pin.value })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.go) {
+      setMsg('Unlocked', 'ok');
+      // A real navigation, so the lock screen stops existing. `replace` keeps it out of
+      // history: Back from the file list should leave, not return to a code box.
+      location.replace(data.go);
+      return;
+    }
+    if (r.status === 429) setMsg('Too many attempts. Restart sharing on the phone.', 'bad');
+    else if (typeof data.left === 'number') setMsg('Wrong code — ' + data.left + ' left.', 'bad');
+    else setMsg('Wrong code.', 'bad');
+  } catch (e) {
+    setMsg('Could not reach the phone. Is it still sharing?', 'bad');
+  }
+  pin.value = ''; pin.focus();
+  busy = false;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      The test APK is a SEPARATE package signed with the same key, which is exactly the shape
+      Trawl has. Declaring the bridge permission here lets the M7 gate exercise the real
+      cross-package path - a signature permission plus a ContentProvider - instead of calling
+      the index directly from inside the app's own process and calling that a bridge test.
+    -->
+    <uses-permission android:name="dev.niccc2007.filet.permission.BRIDGE" />
+
+    <!-- The M6 gate writes the rebuilt APK somewhere `adb pull` can reach it. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+</manifest>
