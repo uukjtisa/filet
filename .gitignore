@@ -59,6 +59,7 @@ signing.properties
 # written to brief whoever was working on it next. Neither tells a reader
 # anything about the app.
 /SETUP.md
+/YOUR-CHECKS.md
 /CLAUDE.md
 /HANDOFF*.md
 /*-SPEC.md
