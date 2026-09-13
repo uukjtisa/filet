@@ -13,6 +13,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+# One run per branch. A push on top of a push makes the older run's answer
+# irrelevant, and an Android assemble is several minutes of a shared runner to
+# produce it.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
