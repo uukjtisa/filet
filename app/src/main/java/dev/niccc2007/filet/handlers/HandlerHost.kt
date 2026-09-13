@@ -52,6 +52,8 @@ import dev.niccc2007.filet.ui.theme.Filet
 fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
     val request by vm.openRequest.collectAsState()
     val chooser by vm.chooserFor.collectAsState()
+    val appPick by vm.appPickerFor.collectAsState()
+    val update by vm.update.collectAsState()
 
     Box(Modifier.fillMaxSize()) {
         content()
@@ -78,6 +80,31 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
             exit = fadeOut() + slideOutVertically { it / 3 },
         ) {
             chooser?.let { node -> OpenWithSheet(vm, node) }
+        }
+
+        // The second sheet: not "what can Filet do with this" but "which installed app".
+        // Two sheets rather than one list, because the questions are different and mixing
+        // Filet's own viewers with thirty third-party apps makes both harder to scan.
+        AnimatedVisibility(
+            visible = appPick != null,
+            enter = fadeIn() + slideInVertically { it / 3 },
+            exit = fadeOut() + slideOutVertically { it / 3 },
+        ) {
+            appPick?.let { pick ->
+                BackHandler(enabled = true) { vm.dismissAppPicker() }
+                AppPickerSheet(vm, pick)
+            }
+        }
+
+        AnimatedVisibility(
+            visible = update != null,
+            enter = fadeIn() + slideInVertically { it / 3 },
+            exit = fadeOut() + slideOutVertically { it / 3 },
+        ) {
+            update?.let { u ->
+                BackHandler(enabled = true) { vm.dismissUpdate() }
+                dev.niccc2007.filet.update.UpdateSheet(vm, u)
+            }
         }
     }
 }

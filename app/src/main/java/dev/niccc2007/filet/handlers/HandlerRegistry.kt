@@ -36,6 +36,18 @@ class HandlerRegistry(private val prefs: Prefs) {
     private val _overrides = MutableStateFlow(load())
     val overrides: StateFlow<Map<String, HandlerId>> = _overrides.asStateFlow()
 
+    /**
+     * Which installed app opens each extension, when the handler is [HandlerId.EXTERNAL].
+     *
+     * Separate from [overrides] because it answers a different question. The handler says
+     * *Filet hands this off*; this says *to whom*. An extension can have the second without
+     * the first (Filet's own viewer is still the default, but a chooser answered once is
+     * remembered for when you ask again), and it keeps the answer if the handler is switched
+     * back and forth.
+     */
+    private val _externals = MutableStateFlow(loadExternals())
+    val externals: StateFlow<Map<String, ExternalApp>> = _externals.asStateFlow()
+
     /** The handler a single tap should use. */
     fun handlerFor(node: VNode): HandlerId {
         val ext = node.extension.lowercase(Locale.US)
@@ -92,6 +104,7 @@ class HandlerRegistry(private val prefs: Prefs) {
     /** Forget every override at once. */
     fun clearAll() {
         _overrides.value = emptyMap()
+        _externals.value = emptyMap()
         save()
     }
 
@@ -99,6 +112,33 @@ class HandlerRegistry(private val prefs: Prefs) {
         path = dev.niccc2007.filet.vfs.VPath("local", "/probe." + ext.lowercase(Locale.US).trimStart('.')),
         isDir = false, size = 0, mtime = 0,
     )
+
+    // ── which app, not just "an app" ──
+
+    /** The app remembered for `.<ext>`, or null when Filet has never been told. */
+    fun externalFor(extension: String): ExternalApp? =
+        _externals.value[extension.lowercase(Locale.US)]
+
+    /**
+     * Remember an app for this extension.
+     *
+     * @param alsoRoute true when the user picked it as the default opener rather than for one
+     *   file. Then the handler flips to EXTERNAL as well, so a single tap goes straight there.
+     *   False when they only answered "open this one with", which should be remembered as the
+     *   suggestion without silently changing what a tap does.
+     */
+    fun setExternal(extension: String, app: ExternalApp, alsoRoute: Boolean) {
+        val ext = extension.lowercase(Locale.US)
+        if (ext.isEmpty()) return
+        _externals.value = _externals.value + (ext to app)
+        if (alsoRoute) _overrides.value = _overrides.value + (ext to HandlerId.EXTERNAL)
+        save()
+    }
+
+    fun clearExternal(extension: String) {
+        _externals.value = _externals.value - extension.lowercase(Locale.US)
+        save()
+    }
 
     /** "Always" in the chooser writes here, and the next single tap skips the sheet. */
     fun setDefault(extension: String, handler: HandlerId) {
@@ -109,7 +149,11 @@ class HandlerRegistry(private val prefs: Prefs) {
     }
 
     fun clearDefault(extension: String) {
-        _overrides.value = _overrides.value - extension.lowercase(Locale.US)
+        val ext = extension.lowercase(Locale.US)
+        _overrides.value = _overrides.value - ext
+        // The remembered app goes with it. Leaving it behind means "reset to default" resets
+        // what the row SAYS and not what the next tap DOES, which is the worst of both.
+        _externals.value = _externals.value - ext
         save()
     }
 
@@ -124,17 +168,48 @@ class HandlerRegistry(private val prefs: Prefs) {
         }.getOrElse { emptyMap() }
     }
 
+    private fun loadExternals(): Map<String, ExternalApp> {
+        val raw = prefs.getString(KEY_EXTERNAL) ?: return emptyMap()
+        return runCatching {
+            val o = JSONObject(raw)
+            o.keys().asSequence().mapNotNull { k ->
+                val e = o.optJSONObject(k) ?: return@mapNotNull null
+                val pkg = e.optString("pkg")
+                val act = e.optString("act")
+                if (pkg.isEmpty() || act.isEmpty()) null
+                else k to ExternalApp(pkg, act, e.optString("label").ifEmpty { pkg })
+            }.toMap()
+        }.getOrElse { emptyMap() }
+    }
+
     private fun save() {
         val o = JSONObject()
         _overrides.value.forEach { (k, v) -> o.put(k, v.name) }
         prefs.putString(KEY, o.toString())
+
+        val e = JSONObject()
+        _externals.value.forEach { (k, v) ->
+            e.put(k, JSONObject().put("pkg", v.packageName).put("act", v.activity).put("label", v.label))
+        }
+        prefs.putString(KEY_EXTERNAL, e.toString())
     }
 
-    private companion object { const val KEY = "handlers.v1" }
+    private companion object {
+        const val KEY = "handlers.v1"
+        const val KEY_EXTERNAL = "handlers.external.v1"
+    }
 }
 
 /** MIME guess from the extension, for outgoing intents. Never used for routing decisions. */
-fun mimeOf(node: VNode): String = when (node.extension.lowercase(Locale.US)) {
+fun mimeOf(node: VNode): String = mimeForExtension(node.extension)
+
+/**
+ * The same guess, from an extension alone.
+ *
+ * Settings asks "which app opens .mkv" with no file in hand, and intent resolution keys on
+ * the mime type, so the question has to be answerable without one.
+ */
+fun mimeForExtension(extension: String): String = when (extension.lowercase(Locale.US).trimStart('.')) {
     "png" -> "image/png"
     "jpg", "jpeg" -> "image/jpeg"
     "gif" -> "image/gif"

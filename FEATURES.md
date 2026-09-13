@@ -169,7 +169,7 @@ ledger was tidied: **F22** (a shortcut's id died with the crawl's generation swe
 
 | # | Feature | L | M | Status | Notes |
 |---|---|---|---|---|---|
-| F46 | In-app updater | Signet | M0 | SHIPPED | GitHub Releases. **`github` flavour only** — F-Droid forbids self-updaters. |
+| F46 | In-app updater | Signet | M0 | SHIPPED | GitHub Releases, `HttpURLConnection` + `org.json` so it adds no dependency. Checks, shows the notes, downloads with progress, hands the APK to the system installer which still asks. Distinguishes "nothing published" from "could not reach GitHub" - a null cannot, and reporting the first as the second sends the user to check their wifi. **`github` flavour only**: F-Droid forbids self-updaters. |
 | F47 | Update / changelog page | Signet | M0 | SHIPPED | |
 | F48 | First-run introduction wizard | Signet | M0 | SHIPPED | |
 | F49 | Signature motion language | Signet | M0 | SHIPPED | Nic's house style, ported from the portfolio. |

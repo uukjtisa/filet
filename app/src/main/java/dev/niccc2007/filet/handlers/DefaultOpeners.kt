@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -121,8 +122,12 @@ private fun ExtensionRow(vm: BrowserViewModel, ext: String, onPick: (String) -> 
     val colors = Filet.colors
     // Subscribed, so a change made in the chooser sheet shows here without a revisit.
     val overrides by vm.handlers.overrides.collectAsState()
+    val externals by vm.handlers.externals.collectAsState()
     val chosen = overrides[ext] ?: vm.handlers.builtInFor(ext)
     val custom = ext in overrides
+    // "Another app" on its own is not an answer a user can check. Name it.
+    val app = externals[ext]
+    val label = if (chosen == HandlerId.EXTERNAL && app != null) app.label else chosen.label
     Row(
         Modifier
             .fillMaxWidth()
@@ -136,12 +141,21 @@ private fun ExtensionRow(vm: BrowserViewModel, ext: String, onPick: (String) -> 
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.width(64.dp),
         )
-        Text(
-            chosen.label,
-            fontSize = 12.sp,
-            color = if (custom) colors.accent else colors.fg2,
-            modifier = Modifier.weight(1f),
-        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                label,
+                fontSize = 12.sp,
+                color = if (custom) colors.accent else colors.fg2,
+            )
+            // Shown even when this type is NOT routed externally: it is the app a chooser
+            // answered once, and knowing it is remembered is the whole point of the feature.
+            if (app != null && chosen != HandlerId.EXTERNAL) {
+                Text(
+                    "hand-off goes to ${app.label}",
+                    fontSize = 9.5.sp, color = colors.fg3,
+                )
+            }
+        }
         if (custom) {
             Icon(
                 FiletIcons.Close, "Reset to default", tint = colors.fg3,
@@ -215,10 +229,45 @@ private fun AddExtensionRow(vm: BrowserViewModel, onPick: (String) -> Unit) {
 @Composable
 fun OpenerPicker(vm: BrowserViewModel, extension: String, onDismiss: () -> Unit) {
     val colors = Filet.colors
+    val context = LocalContext.current
     val candidates = remember(extension) { vm.handlers.candidatesForExtension(extension) }
     val builtIn = remember(extension) { vm.handlers.builtInFor(extension) }
     val overrides by vm.handlers.overrides.collectAsState()
+    val externals by vm.handlers.externals.collectAsState()
     val current = overrides[extension] ?: builtIn
+
+    // Second stage: "Another app" is not an answer until it names one.
+    var pickingApp by remember(extension) { mutableStateOf(false) }
+    if (pickingApp) {
+        val apps = remember(extension) {
+            ExternalApps.candidates(context, mimeForExtension(extension))
+        }
+        // An empty sheet is indistinguishable from a broken one, so say which it is.
+        if (apps.isEmpty()) {
+            AlertDialog(
+                onDismissRequest = { pickingApp = false },
+                title = { Text("No app for .$extension", fontSize = 15.sp) },
+                text = {
+                    Text(
+                        "Nothing installed on this device registers itself as able to open " +
+                            "${mimeForExtension(extension)} files. Filet's own viewers still can — " +
+                            "pick one of those instead.",
+                        fontSize = 12.sp, lineHeight = 16.sp,
+                    )
+                },
+                confirmButton = { TextButton(onClick = { pickingApp = false }) { Text("Back") } },
+            )
+            return
+        }
+        AppPickerForExtension(extension, apps) { app ->
+            pickingApp = false
+            if (app != null) {
+                vm.handlers.setExternal(extension, app, alsoRoute = true)
+                onDismiss()
+            }
+        }
+        return
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -232,12 +281,18 @@ fun OpenerPicker(vm: BrowserViewModel, extension: String, onDismiss: () -> Unit)
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .clickable {
-                                // Choosing Filet's own pick CLEARS the override rather than
-                                // pinning it. Otherwise the row silently stops following a
-                                // future default, which is not what "same as before" means.
-                                if (id == builtIn) vm.handlers.clearDefault(extension)
-                                else vm.handlers.setDefault(extension, id)
-                                onDismiss()
+                                when {
+                                    // "Another app" opens the list of installed apps. Storing
+                                    // EXTERNAL without a target is what produced the bug this
+                                    // fixes: a default that still asked every time.
+                                    id == HandlerId.EXTERNAL -> pickingApp = true
+                                    // Choosing Filet's own pick CLEARS the override rather
+                                    // than pinning it. Otherwise the row silently stops
+                                    // following a future default, which is not what "same as
+                                    // before" means.
+                                    id == builtIn -> { vm.handlers.clearDefault(extension); onDismiss() }
+                                    else -> { vm.handlers.setDefault(extension, id); onDismiss() }
+                                }
                             }
                             .padding(horizontal = 8.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -252,7 +307,12 @@ fun OpenerPicker(vm: BrowserViewModel, extension: String, onDismiss: () -> Unit)
                                 Text("Filet's default for this type", fontSize = 10.sp, color = colors.fg3)
                             }
                             if (id == HandlerId.EXTERNAL) {
-                                Text("Hands the file to another app", fontSize = 10.sp, color = colors.fg3)
+                                val app = externals[extension]
+                                Text(
+                                    if (app == null) "Pick which app — it is remembered"
+                                    else "Currently ${app.label} — tap to change",
+                                    fontSize = 10.sp, color = colors.fg3,
+                                )
                             }
                         }
                         if (on) {

@@ -4,8 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.niccc2007.filet.FiletGraph
 import dev.niccc2007.filet.ops.Clipboard
+import dev.niccc2007.filet.handlers.ExternalApp
+import dev.niccc2007.filet.handlers.ExternalApps
 import dev.niccc2007.filet.handlers.HandlerId
 import dev.niccc2007.filet.ops.PendingOp
+import dev.niccc2007.filet.update.Download
+import dev.niccc2007.filet.update.Release
+import dev.niccc2007.filet.update.Updater
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.provider.ArchiveProvider
@@ -13,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -58,6 +64,42 @@ data class VolumeInfo(val node: VNode, val label: String, val free: Long?, val t
 
 /** The APK toolchain's actions, for the one function that says whether each can run. */
 enum class ApkAction { DECOMPILE, REBUILD, SIGN, MANIFEST, INSTALL }
+
+/** Where an update check has got to. One type, so the sheet is a single `when`. */
+sealed interface UpdateState {
+    data object Checking : UpdateState
+    data class Available(val release: Release) : UpdateState
+    data class UpToDate(val release: Release) : UpdateState
+    data class Downloading(
+        val release: Release,
+        val percent: Int,
+        val bytes: Long,
+        val total: Long,
+    ) : UpdateState
+    /**
+     * Downloaded and waiting.
+     *
+     * Carries no file handle on purpose. R3 keeps storage types below the VFS, and a view
+     * model passing `java.io.File` around is exactly the leak that rule is for - so the
+     * updater remembers where it put the APK and this only says that it did.
+     */
+    data class Ready(val release: Release, val bytes: Long) : UpdateState
+    data class Failed(val reason: String) : UpdateState
+
+    /** GitHub answered and there is nothing published. Not an error, just not an update. */
+    data object NoReleases : UpdateState
+}
+
+/**
+ * A file, and the apps on this device that could open it.
+ *
+ * @param forceRemember null to let the sheet ask; non-null when the answer is already given.
+ */
+data class AppPick(
+    val node: VNode,
+    val apps: List<ExternalApp>,
+    val forceRemember: Boolean? = null,
+)
 
 /** A file plus the handler that should show it. */
 data class OpenRequest(val node: VNode, val handler: HandlerId)
@@ -598,7 +640,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         if (remember) graph.registry.setDefault(node.extension, handler)
         _chooserFor.value = null
         when (handler) {
-            HandlerId.EXTERNAL -> openExternally(node)
+            // "Another app" is half an answer - it says hand it off, not to whom. Ask, and
+            // carry the Always/Just-once the user already gave rather than asking twice.
+            HandlerId.EXTERNAL -> askWhichApp(node, forceRemember = if (remember) true else null)
             HandlerId.ARCHIVE -> mountArchive(node)
             HandlerId.APK -> openApk(node)
             else -> _openRequest.value = OpenRequest(node, handler)
@@ -607,15 +651,95 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun closeHandler() { _openRequest.value = null }
 
-    /** Hand the file to whatever else on the device can open it. */
-    fun openExternally(node: VNode) {
+    // ── handing a file to another app, and remembering which one ──
+
+    private val _appPickerFor = MutableStateFlow<AppPick?>(null)
+
+    /** Non-null while Filet is asking which installed app should open something. */
+    val appPickerFor: StateFlow<AppPick?> = _appPickerFor.asStateFlow()
+
+    fun dismissAppPicker() { _appPickerFor.value = null }
+
+    /**
+     * Hand the file to another app - the same one as last time, if there was one.
+     *
+     * The old code called `Intent.createChooser` and that is why "hand to another app" asked
+     * every single time. Android runs that chooser and never says what was picked, so there
+     * was nothing to remember. Filet lists the candidates itself now, launches the component
+     * directly, and writes the answer down.
+     *
+     * @param force true to ask again even when an app is remembered - the "Open with" action,
+     *   as opposed to a plain tap.
+     */
+    fun openExternally(node: VNode, force: Boolean = false) {
+        val ext = node.extension
+        val remembered = if (force) null else graph.registry.externalFor(ext)
+        if (remembered != null && ExternalApps.resolves(graph.app, remembered)) {
+            launchIn(node, remembered)
+            return
+        }
+        // Remembered but gone - say so rather than silently reopening the picker, because
+        // "it used to open in X" is the thing the user will be confused about.
+        if (remembered != null) {
+            graph.registry.clearExternal(ext)
+            toast("${remembered.label} is no longer installed — pick another")
+        }
+        askWhichApp(node)
+    }
+
+    /**
+     * Raise Filet's own app list for this file.
+     *
+     * @param forceRemember non-null when the user has already said whether this should stick,
+     *   so the sheet states the decision instead of asking for it a second time.
+     */
+    fun askWhichApp(node: VNode, forceRemember: Boolean? = null) {
+        val mime = dev.niccc2007.filet.handlers.mimeOf(node)
+        val apps = ExternalApps.candidates(graph.app, mime)
+        if (apps.isEmpty()) {
+            toast("No app on this device opens ${node.extension.ifEmpty { "this" }} files.")
+            return
+        }
+        _appPickerFor.value = AppPick(node, apps, forceRemember)
+    }
+
+    /**
+     * The user picked an app.
+     *
+     * @param remember write it into the per-extension defaults. Always true on the first
+     *   answer for a type - that is what "it should remember" means, and a setting the user
+     *   has to go and find afterwards is one they will not find.
+     */
+    fun openWithApp(node: VNode, app: ExternalApp, remember: Boolean) {
+        _appPickerFor.value = null
+        if (remember && node.extension.isNotEmpty()) {
+            // alsoRoute only when the handler already says EXTERNAL. Answering "open this one
+            // in VLC" should not silently stop Filet's own player being the default for mp4.
+            val routed = graph.registry.handlerForExtension(node.extension) == HandlerId.EXTERNAL
+            graph.registry.setExternal(node.extension, app, alsoRoute = routed)
+        }
+        launchIn(node, app)
+    }
+
+    private fun launchIn(node: VNode, app: ExternalApp) {
         viewModelScope.launch {
             val uri = runCatching { localUriForShare(node) }.getOrNull()
             if (uri == null) { toast("This file cannot be handed to another app."); return@launch }
             val i = android.content.Intent(android.content.Intent.ACTION_VIEW)
                 .setDataAndType(uri, dev.niccc2007.filet.handlers.mimeOf(node))
-                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            onIntent?.invoke(android.content.Intent.createChooser(i, "Open with"))
+                .setComponent(app.component)
+                .addFlags(
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                )
+            val cb = onIntent
+            if (cb == null) { toast("Cannot open another app right now."); return@launch }
+            // An explicit component that refuses the intent throws rather than showing a
+            // chooser, so the failure has to be caught and named here.
+            runCatching { cb(i) }.onFailure {
+                graph.registry.clearExternal(node.extension)
+                toast("${app.label} would not open it — that default is cleared")
+            }
         }
     }
 
@@ -762,9 +886,86 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         else openUrl("https://github.com/uukjtisa/Trawl")
     }
 
+    // -- updates (github flavour only) --
+
+    private val _update = MutableStateFlow<UpdateState?>(null)
+
+    /** Non-null while the update sheet should be on screen. */
+    val update: StateFlow<UpdateState?> = _update.asStateFlow()
+
+    private var downloadJob: Job? = null
+
+    fun dismissUpdate() {
+        downloadJob?.cancel()
+        downloadJob = null
+        _update.value = null
+    }
+
+    /**
+     * Look for a newer build.
+     *
+     * Shows the sheet either way. "You are up to date" is information the user asked for by
+     * pressing the button, and answering a deliberate press with silence reads as a dead
+     * control.
+     */
     fun checkForUpdates() {
-        val cb = onCheckUpdates
-        if (cb == null) toast("This build gets updates from where you installed it.") else cb()
+        if (!dev.niccc2007.filet.BuildConfig.UPDATER_ENABLED) {
+            toast("This build gets updates from where you installed it.")
+            return
+        }
+        if (_update.value is UpdateState.Checking) return
+        _update.value = UpdateState.Checking
+        viewModelScope.launch {
+            val result = Updater.latest()
+            val release = result.getOrNull()
+            _update.value = when {
+                result.isFailure -> UpdateState.Failed(
+                    "Could not reach GitHub. Check the connection and try again."
+                )
+                // Reachable, and nothing published. Saying so beats blaming the network for
+                // a repository that simply has no releases yet.
+                release == null -> UpdateState.NoReleases
+                release.version > Updater.installed -> UpdateState.Available(release)
+                else -> UpdateState.UpToDate(release)
+            }
+        }
+    }
+
+    fun downloadUpdate(release: Release) {
+        downloadJob?.cancel()
+        downloadJob = viewModelScope.launch {
+            Updater.download(graph.app, release).collect { step ->
+                _update.value = when (step) {
+                    is Download.Progress -> UpdateState.Downloading(release, step.percent, step.bytes, step.total)
+                    is Download.Finished -> UpdateState.Ready(release, step.bytes)
+                    is Download.Failed -> UpdateState.Failed(step.reason)
+                }
+            }
+        }
+    }
+
+    /**
+     * Hand the APK to the system installer.
+     *
+     * The sheet stays up rather than closing. The installer is a separate activity the user
+     * can cancel, and coming back to a screen that has forgotten what it was doing is worse
+     * than coming back to one still offering Install.
+     */
+    fun installUpdate() {
+        val intent = Updater.install(graph.app)
+        if (intent == null) { toast("Could not hand the update to the installer."); return }
+        val cb = onIntent
+        if (cb == null) { toast("Could not open the installer."); return }
+        runCatching { cb(intent) }.onFailure { toast("The installer refused it: ${it.message}") }
+    }
+
+    fun openReleasePage(url: String) {
+        if (url.isEmpty()) return
+        runCatching {
+            onIntent?.invoke(
+                android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+            )
+        }
     }
 
     fun copyPathToClipboard(path: VPath?) {
@@ -1432,7 +1633,14 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             }
             val handler = handlerOverride
                 ?.let { h -> runCatching { HandlerId.valueOf(h) }.getOrNull() }
-            if (handler != null) openWith(node, handler, remember = false) else openWithRegistered(node)
+            when {
+                // A shortcut pinned to "another app" means the app that type opens in, not a
+                // prompt. Tapping a home-screen icon and being asked a question is the exact
+                // opposite of what a shortcut is for.
+                handler == HandlerId.EXTERNAL -> openExternally(node)
+                handler != null -> openWith(node, handler, remember = false)
+                else -> openWithRegistered(node)
+            }
         }
     }
 

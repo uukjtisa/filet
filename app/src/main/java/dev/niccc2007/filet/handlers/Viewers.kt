@@ -169,7 +169,7 @@ fun MediaScreen(vm: BrowserViewModel, node: VNode) {
             onClose = { vm.closeHandler() },
         ) {
             ViewerAction(FiletIcons.Share, "Share") { vm.shareOne(node) }
-            ViewerAction(FiletIcons.Link, "Open elsewhere") { vm.openExternally(node) }
+            ViewerAction(FiletIcons.Link, "Open elsewhere") { vm.openExternally(node, force = true) }
         }
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), Alignment.Center) {
             val u = uri

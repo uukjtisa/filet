@@ -141,6 +141,9 @@ object FiletIcons {
     val Play = stroke("play", "m7 4 13 8-13 8z")
     val Up = stroke("up", "M12 20V5", "m5.5 11.5 6.5-6.5 6.5 6.5", width = 1.9f)
     val Back = stroke("back", "M20 12H4", "m10.5 5.5-6.5 6.5 6.5 6.5", width = 1.9f)
+
+    /** Back's mirror. Drawn rather than rotated so the two read as a matched pair. */
+    val Forward = stroke("forward", "M4 12h16", "m13.5 5.5 6.5 6.5-6.5 6.5", width = 1.9f)
     val Close = stroke("close", "M6 6l12 12M18 6 6 18", width = 1.9f)
     val Plus = stroke("plus", "M12 5v14M5 12h14", width = 1.9f)
     val NewFolder = stroke("newfolder", "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", "M12 10v6M9 13h6")

@@ -45,6 +45,11 @@ const ALLOWED = [
   // The app layer's single documented bridge: app-private working storage, and the
   // FileProvider hand-off that Android requires for anything leaving the process.
   "app/src/main/java/dev/niccc2007/filet/data/AppFiles.kt",
+  // The package installer takes a FileProvider URI over a real file and accepts nothing
+  // else, so an update has to land on disk before it can be installed. App-private
+  // external storage, one filename, never a user path - and the handle stops here rather
+  // than travelling up into the view model.
+  "app/src/main/java/dev/niccc2007/filet/update/Updater.kt",
   // apksig, smali and ARSCLib all take java.io.File and refuse streams. Every path this
   // package touches came from Vfs.osPath or from AppFiles.
   "app/src/main/java/dev/niccc2007/filet/apk/",

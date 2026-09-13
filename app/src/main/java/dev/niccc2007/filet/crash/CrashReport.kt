@@ -26,6 +26,21 @@ object CrashReport {
     private const val KEEP = 10
     private const val DIR = "crash"
 
+    /**
+     * The visible copy, on the shared volume.
+     *
+     * App-private storage is the safe place for a crash report and it is also a place nobody
+     * can reach without adb. A dotted folder keeps it out of the gallery scanner and out of
+     * the way in a listing, while still being somewhere you can open, read and attach to a
+     * bug report from the phone itself.
+     *
+     * Best effort on purpose. Without all-files access this write fails, and a crash reporter
+     * that throws while reporting a crash is worse than one that quietly keeps the private
+     * copy it already has.
+     */
+    private const val PUBLIC_DIR = "/storage/emulated/0/.filet_logs"
+    private const val PUBLIC_KEEP = 30
+
     /** A report, as it is shown and as it is stored. */
     data class Report(val file: File, val at: Long, val headline: String, val text: String)
 
@@ -69,16 +84,42 @@ object CrashReport {
     }
 
     private fun write(context: Context, text: String) {
+        val stamp = System.currentTimeMillis()
         runCatching {
             val dir = File(context.filesDir, DIR).apply { mkdirs() }
-            File(dir, "crash-${System.currentTimeMillis()}.txt").writeText(text)
-            prune(dir)
+            File(dir, "crash-$stamp.txt").writeText(text)
+            prune(dir, KEEP)
+        }
+        // Second, and independently: one failing must not take the other with it.
+        runCatching {
+            val dir = File(PUBLIC_DIR, DIR).apply { mkdirs() }
+            File(dir, "crash-" + FILE_STAMP.format(Date(stamp)) + ".txt").writeText(text)
+            prune(dir, PUBLIC_KEEP)
         }
     }
 
-    private fun prune(dir: File) {
+    /** Where the visible reports go, for the About screen to name. */
+    fun publicDir(): File = File(PUBLIC_DIR, DIR)
+
+    /**
+     * A line in the running log, for things that are worth recording and are not crashes.
+     *
+     * Same folder, one file per day. Deliberately thin: this is for the handful of events that
+     * explain a later crash report - an update installed, storage access revoked, a script
+     * denied - and not a debug firehose. A log nobody reads is a log that costs writes and
+     * buys nothing.
+     */
+    fun note(line: String) {
+        runCatching {
+            val dir = File(PUBLIC_DIR).apply { mkdirs() }
+            File(dir, "filet-" + DAY_STAMP.format(Date()) + ".log")
+                .appendText(STAMP.format(Date()) + "  " + line + "\n")
+        }
+    }
+
+    private fun prune(dir: File, keep: Int) {
         val files = dir.listFiles()?.sortedByDescending { it.lastModified() } ?: return
-        files.drop(KEEP).forEach { runCatching { it.delete() } }
+        files.drop(keep).forEach { runCatching { it.delete() } }
     }
 
     fun recent(context: Context): List<Report> {
@@ -107,4 +148,9 @@ object CrashReport {
 
     const val EXTRA_REPORT = "filet.crashReport"
     private val STAMP = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+
+    // Filename stamps, not display ones. Colons are legal on ext4 and not on every volume a
+    // report might be copied to, so the filename forms avoid them.
+    private val FILE_STAMP = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US)
+    private val DAY_STAMP = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 }

@@ -280,3 +280,62 @@ because "found on the way" is how most of them were found.
     with CRLF, which makes them unrunnable on Unix with an error ("bad interpreter: /bin/sh^M")
     that does not name its cause. `.gitattributes` pins `* -text`, so the working copy, the
     blob and what a cloner gets are the same bytes.
+
+---
+
+## Round 5 - while he was testing
+
+- [x] X5: "Hand to another app" remembers which app
+  EVIDENCE: it could not. `Intent.createChooser` is Android's chooser and it never tells the
+    calling app what was picked, so EXTERNAL could be saved as a default with nothing to save
+    beside it and the chooser came back every time. Filet resolves the candidates itself now
+    and launches the component directly, storing package + activity per extension. First use
+    remembers with the box already ticked; Settings can pre-set one before a file is ever
+    opened; a shortcut pinned to "another app" opens the remembered one instead of prompting.
+    VERIFIED on the Huawei: `.mkv` set to Video Player, written to `handlers.external.v1` as
+    `com.lenovo.anyshare.gps/com.lenovo.anyshare.VideoPlayer`, row renamed to match, reset
+    cleared both keys.
+
+- [x] X6: Settings ▸ Default openers is findable, and its app list appears
+  EVIDENCE: two faults. It sat second-to-last, under a Tracked-folders list that runs to a
+    dozen rows, so "where is that?" was the honest reaction; it is now third from the top,
+    directly under Browsing. And tapping "Another app" did nothing at all: the picker was a
+    `Box(fillMaxSize)` emitted from `SettingsPage` right after its `LazyColumn(fillMaxSize)`,
+    two siblings, so it laid out at zero height. It is a real `Dialog` window now, which is
+    the only reason the `AlertDialog` beside it had ever worked.
+
+- [x] X7: An app that never declared the type can still be chosen
+  EVIDENCE: the declared list is correct and incomplete - an app may declare only `file://`,
+    or a vendor mime, or nothing, and then looks uninstalled. Two tiers: the resolved
+    handlers, then "All apps on this phone" with each row labelled by what it does declare.
+    The second tier can fail, which is stated on the divider, and a default that refuses the
+    file is cleared automatically.
+
+- [x] X8: Music files show their cover art, in the listing and on a shortcut
+  EVIDENCE: `MediaMetadataRetriever.embeddedPicture`, two-pass decoded like an image file
+    because cover art is routinely 1200x1200 and a 40dp row does not need that. Read from the
+    file's own tags rather than MediaStore's album-art table, which only knows what it has
+    scanned and answers per album, so one mistagged track would give a whole folder the wrong
+    cover. Shortcuts share the engine, so they inherit it.
+
+- [x] X9: Back, forward, up and refresh, the way a desktop file manager has them
+  EVIDENCE: the pane already kept the history; there was no way to reach it but the system
+    back gesture. Four buttons left of the path bar, disabled rather than hidden so the set
+    keeps its width and the breadcrumb does not shuffle sideways under your thumb after every
+    navigation. 32dp wide, 28dp narrow. The first cut dropped Forward on a phone; measured on
+    a 1080px screen the row had room to spare, so all four stay at every width.
+
+- [x] X10: The in-app updater actually updates
+  EVIDENCE: F46 was scaffolding - a flavour flag, a button, and a toast. `update/Updater.kt`
+    reads GitHub Releases over `HttpURLConnection` and `org.json`, adding no dependency;
+    `UpdateSheet` shows the notes, the download progress and Install. It never installs
+    anything itself: the system package installer opens and asks. The downloaded file handle
+    stops inside the updater rather than travelling up into the view model, because R3 caught
+    it doing exactly that. VERIFIED on the Huawei against the live repo: reached GitHub and
+    answered "No releases published yet" rather than blaming the network.
+
+- [x] X11: Crash reports are readable without a cable
+  EVIDENCE: app-private storage is the safe place for a stack trace and also a place nobody
+    can reach without adb. Reports are mirrored to `/storage/emulated/0/.filet_logs/crash/`,
+    dotted to stay out of the gallery scanner, capped at 30, best-effort so a failed mirror
+    never replaces a crash report with a second crash.

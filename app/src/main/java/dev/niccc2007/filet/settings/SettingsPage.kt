@@ -133,6 +133,10 @@ fun SettingsPage(vm: BrowserViewModel) {
             }
         }
 
+        // Directly under Browsing, not at the bottom. It was below the Tracked-folders list,
+        // which can run to a dozen rows, and "where is that?" was the result.
+        defaultOpenersSection(vm) { pickingOpenerFor = it }
+
         item { SectionLabel("Index") }
         item {
             ToggleRow(
@@ -181,8 +185,6 @@ fun SettingsPage(vm: BrowserViewModel) {
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
             )
         }
-
-        defaultOpenersSection(vm) { pickingOpenerFor = it }
 
         item { SectionLabel("Storage access") }
         item { StorageAccessCard(vm) }

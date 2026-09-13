@@ -360,6 +360,7 @@ private fun TopBar(vm: BrowserViewModel, app: AppState, active: PaneController?,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // The menu button now lives on the tab row, level with the tabs.
+        NavCluster(vm, active, s, wide)
         PathBar(vm, active, s, Modifier.weight(1f))
 
         Box {
@@ -379,6 +380,68 @@ private fun TopBar(vm: BrowserViewModel, app: AppState, active: PaneController?,
             MoreMenu(vm, active, s, moreMenu) { moreMenu = false }
         }
     }
+}
+
+/**
+ * Back, forward, up, refresh. The cluster every desktop file manager puts left of the path.
+ *
+ * ## Why they are disabled rather than hidden
+ *
+ * The set has to keep its width. If Forward vanished whenever there was nothing to go forward
+ * to, every navigation would shuffle the other three sideways and the breadcrumb would jump
+ * with them - so the button you were aiming at moves out from under your thumb. Greyed and in
+ * place, which is what Explorer does and for the same reason.
+ *
+ * ## Why it narrows instead of dropping one
+ *
+ * Four buttons plus a breadcrumb plus three existing tools is a lot for a phone width, and
+ * this row is already the densest in the app. The first cut shed Forward on a narrow pane;
+ * measured on a 1080px phone the row had room to spare and all that did was make the set
+ * incomplete on the device it matters most on. So all four stay at every width and the
+ * targets shrink instead - 32dp wide, 28dp narrow, both above the 24dp floor where a
+ * fingertip starts missing.
+ */
+@Composable
+private fun NavCluster(
+    vm: BrowserViewModel,
+    active: PaneController?,
+    s: PaneState?,
+    wide: Boolean,
+) {
+    val colors = Filet.colors
+    val folder = s?.kind == PaneKind.FOLDER
+    val size = if (wide) 32.dp else 28.dp
+
+    NavButton(FiletIcons.Back, "Back", size, enabled = s?.canGoBack == true) { active?.goBack() }
+    NavButton(FiletIcons.Forward, "Forward", size, enabled = s?.canGoForward == true) {
+        active?.goForward()
+    }
+    NavButton(
+        FiletIcons.Up, "Up one folder", size,
+        enabled = folder && s?.cwd?.parent != null,
+    ) { active?.goUp() }
+    NavButton(FiletIcons.Refresh, "Refresh", size, enabled = active != null) { active?.refresh() }
+    Spacer(Modifier.width(2.dp))
+}
+
+@Composable
+private fun NavButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    size: androidx.compose.ui.unit.Dp,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = Filet.colors
+    Icon(
+        icon, label,
+        tint = if (enabled) colors.fg2 else colors.fg3.copy(alpha = 0.3f),
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(size * 0.22f),
+    )
 }
 
 @Composable

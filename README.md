@@ -1,119 +1,221 @@
+<div align="center">
+
+<img src="docs/icon.png" width="112" height="112" alt="Filet">
+
 # Filet
 
-**An Android file manager for doing real work on your phone, without reaching for a PC.**
+**A file manager for doing real work on your phone, without reaching for a PC.**
 
-Open source, no ads, no accounts, no telemetry. GPL-3.0.
+[![Licence](https://img.shields.io/badge/Licence-GPL--3.0-4E7382?style=for-the-badge)](LICENSE)
+[![Android](https://img.shields.io/badge/Android-8.0%2B-4E7382?style=for-the-badge&logo=android&logoColor=white)](#building-it-yourself)
+[![Kotlin](https://img.shields.io/badge/Kotlin-Compose-4E7382?style=for-the-badge&logo=kotlin&logoColor=white)](#building-it-yourself)
+[![Status](https://img.shields.io/badge/early%20development-C25E3A?style=for-the-badge)](FIXES.md)
 
-Filet browses local storage, SD cards, SAF grants, network shares and root — and it browses
-*into* archives and APKs the same way it browses a folder. It searches a whole device in
-milliseconds, runs sandboxed Lua over your files, and hands a file to a laptop over Wi-Fi
-with nothing installed on the laptop.
+Companion to **[Trawl](https://github.com/uukjtisa/trawl)**.
+Built by **[Niccc2007](https://github.com/uukjtisa)**.
 
-> Companion to [Trawl](https://github.com/uukjtisa/trawl), by **Niccc2007**
-> ([@uukjtisa](https://github.com/uukjtisa)). Early development — `0.1.0`.
+</div>
 
----
-
-## Screenshots
-
-| | | |
-|:--:|:--:|:--:|
-| ![Browsing](docs/screenshots/01-browse.png) | ![Split view](docs/screenshots/02-split.png) | ![Search](docs/screenshots/03-search.png) |
-| **Browsing** — six view densities, thumbnails for images, video and APKs | **Two panes** — labelled A and B, drag a file from one to the other | **Search** — scope chips, a query language, whole-device results |
-| ![Inside an APK](docs/screenshots/04-apk.png) | ![Lua scripts](docs/screenshots/05-scripts.png) | ![Nearby](docs/screenshots/06-nearby.png) |
-| **An APK, inspected** — signature, SDK levels, every dex openable as smali | **Lua** — each script states what it may touch before it runs | **Nearby** — a QR, a PIN you can set, and every address it can be reached on |
-
-![The web UI](docs/screenshots/07-web.png)
-
-**And a browser on the same network sees this** — no app, no account, no cable. Folders open,
-whole folders download as a streamed zip, thumbnails are generated on the phone, and the page
-wears whatever theme the app is wearing.
-
-*Every screenshot uses a seeded demo folder, not real files.*
+> [!WARNING]
+> **Early development.** I built this for my own phone and I'm still finding things wrong with
+> it. There's no store listing and no release yet. Everything below is what the code does
+> today, not what I want it to do later.
 
 ---
 
-## What it does
+## Table of Contents
 
-**Browse anything as a folder.** Local storage, SD cards, SAF grants, WebDAV — and zip, tar
-and APK archives, addressed as `zip:///path/a.zip!/inner`. Inside an APK, `classes.dex` opens
-as a browsable tree of smali. Everything above the storage layer speaks one interface, so a
-new backend is a new file, not a new special case.
-
-**Search that answers before you finish typing.** SQL narrows 200k rows to 500, then an
-fzf-class scorer reranks them in memory: subsequence matching, word-boundary and camelCase
-bonuses, Damerau-Levenshtein typo tolerance, and frecency. `dwnld` finds Downloads; `AM`
-finds AndroidManifest.xml. There is a real query language — `type: size: modified: in: from:
-pkg: class: perm: inzip: dup:` with AND/OR/NOT and grouping — and invalid syntax degrades to
-a substring search instead of erroring at you.
-
-**Search *inside* APKs.** `pkg:`, `label:` and `perm:` come from the resource table;
-`class:` from deduplicated package prefixes in the dex. Roughly 2 KB of facts per APK, not
-2 MB. As far as I know nothing else on Android does this.
-
-**An APK toolchain that runs on the phone.** Inspect signatures and protection status, edit
-the binary manifest, disassemble dex to smali, edit it, rebuild and re-sign. The rebuild
-reads minSdk from the APK being rebuilt, so the dex format it emits is one the target device
-can actually load.
-
-**Sandboxed Lua.** Scripts get a `fs` table scoped to the VFS and a permission header they
-must declare up front; there is no `io`, no `os.execute`, no network. Seven worked examples
-ship with the app, and there is a copyable prompt that explains the whole API to an AI agent
-so you can append what you want in plain words.
-
-**Nearby sharing that treats a peer as a volume, not a target.** Start a share and any
-browser on the network can open it — list, preview, download a file or a whole folder as a
-streamed zip, and upload back. Paths never enter a URL: a URL is `/f/<token>`, so traversal
-is unrepresentable rather than merely blocked. PIN on by default, every granted session is
-listed live and revocable, and nothing expires unless you ask it to.
-
-**Home-screen shortcuts that survive a move.** A shortcut stores a file's index id, not its
-path — move the file and the shortcut follows it. Delete it and the shortcut says so instead
-of doing nothing.
-
-Full ledger: [`FEATURES.md`](FEATURES.md) — 69 shipped, with per-feature notes.
+- [What Filet is](#what-filet-is)
+- [A glimpse of it](#a-glimpse-of-it)
+- [Browsing](#browsing)
+- [Search](#search)
+- [Containers and APKs](#containers-and-apks)
+- [Scripting](#scripting)
+- [Sharing over your network](#sharing-over-your-network)
+- [Shortcuts and surfaces](#shortcuts-and-surfaces)
+- [How it's built](#how-its-built)
+- [Building it yourself](#building-it-yourself)
+- [Permissions](#permissions)
+- [Licence](#licence)
 
 ---
 
-## The rules it is built to
+## What Filet is
 
-Four rules outrank every feature, and they are the reason the app is shaped the way it is.
+Most Android file managers treat storage as one place: the internal volume, listed. Reach an
+archive and you get an extract button. Reach a network share and you get a different app.
 
-**R1 — No dead switches.** If it does not work, it does not exist in the UI. No "coming
-soon", no toggle whose handler is a TODO, no menu entry that opens an empty screen. Where a
-control genuinely cannot work right now it is greyed **and says why when you tap it** —
-a phone has no hover, so a plain disabled button is a dead end.
+Filet has one storage interface underneath everything, and every backend is a plugin behind
+it. A zip is a folder. An APK is a folder, and `classes.dex` inside it is a browsable tree of
+smali. A WebDAV share is a folder. So a feature written once works in all of them, and that's
+why the Lua scripting can run over a file on a network share it has never seen before.
 
-**R2 — Working beats beautiful, and beautiful is not optional later.** The visual layer is
-built once, up front, and then never blocks a feature.
+The rest of the app is what falls out of that:
 
-**R3 — Everything above the storage layer talks only to the VFS.** No `java.io.File` outside
-the local provider, enforced by `tools/check-r3.mjs` on every push. The allow-list is 13 files
-long and every entry has a written reason. This is the single rule that separates Filet from most
-open-source Android file managers: it is what makes archives, network shares and root all
-work through one code path instead of three.
-
-**R4 — Every claim is checkable.** Each milestone has gates with a command and an expected
-output ([`GATES.md`](GATES.md)), and each bug found in review is tracked to a demonstrated
-outcome ([`FIXES.md`](FIXES.md)) — 50 of 50 met, including 66 on-device tests.
-
-### Layers
-
-```
-L5  Surfaces     Compose UI, panes, tabs, split
-L4  Runtime      Lua scripts, jobs, the activity ledger
-L3  Handlers     viewers, editors, the APK toolchain
-L2  Routing      what opens what, inbound and internal
-L1  Index        SQLite FTS5 + trigram, retrieve-then-rerank
-L0  VFS          FileSystemProvider per backend; VPath, VNode
-```
+- Whole-device search that answers in milliseconds, including **inside** APKs
+- An APK toolchain that decompiles, edits, rebuilds and re-signs on the phone
+- Sharing to any browser on your network, with nothing installed on the other end
 
 ---
 
-## Building it
+## A glimpse of it
 
-Needs the Android SDK and a JDK 21. Android Studio's bundled JBR is the one that is known to
-work; `gw.sh` points `JAVA_HOME` at it.
+<p align="center">
+  <img src="docs/screenshots/01-browse.png" width="31%" alt="Browsing with thumbnails">
+  <img src="docs/screenshots/02-split.png" width="31%" alt="Split view, two panes">
+  <img src="docs/screenshots/03-search.png" width="31%" alt="Whole-device search">
+</p>
+<p align="center">
+  <img src="docs/screenshots/04-apk.png" width="31%" alt="APK inspector">
+  <img src="docs/screenshots/05-scripts.png" width="31%" alt="Lua scripts">
+  <img src="docs/screenshots/06-nearby.png" width="31%" alt="Nearby sharing">
+</p>
+
+<p align="center"><sub>
+Browsing &middot; split panes &middot; search &middot; APK inspector &middot; Lua scripts &middot; sharing
+</sub></p>
+
+<p align="center">
+  <img src="docs/screenshots/07-web.png" width="86%" alt="The web page a browser sees">
+</p>
+
+<p align="center"><sub>
+And what a laptop on the same network sees. No app, no account, no cable.
+</sub></p>
+
+<p align="center"><sub>
+Screenshots use a seeded demo folder, not real files.
+</sub></p>
+
+---
+
+## Browsing
+
+- **Two panes**, labelled A and B, each with its own history and selection
+- **Drag between them.** Same volume moves, a different volume copies, and the ghost under
+  your finger says which before you let go
+- **Six view densities** on one slider, from a compact list to a large grid
+- **Thumbnails** for images, video frames, album art and APK icons, cached on content so a
+  rename doesn't re-decode anything
+- **Back, forward, up and refresh** in the toolbar, greyed when there's nowhere to go
+- **Type a path** and press Go, bare paths like `/sdcard/Download` included
+- **Per-extension default openers**, and when you hand a file to another app it remembers
+  which app
+
+---
+
+## Search
+
+Search runs in two stages. SQL narrows two hundred thousand rows down to five hundred, then a
+scorer reranks those in memory. Neither half is asked to do the other's job.
+
+- **Fuzzy matching** with word-boundary and camelCase bonuses. `dwnld` finds Downloads, `AM`
+  finds AndroidManifest.xml
+- **Typo tolerance**, Damerau-Levenshtein, applied only to the five hundred candidates and
+  never as retrieval
+- **Frecency**, so what you open often and recently floats up
+- **A query language**: `type: size: modified: in: from: pkg: class: perm: inzip: dup:` with
+  AND, OR, NOT and grouping. Bad syntax degrades to a substring search instead of erroring
+- **Four scopes** as chips: this folder, subfolders, whole device, provenance
+- **Verified before display.** Every hit is re-checked against the filesystem, so the index
+  can be stale without you ever seeing a stale result
+
+---
+
+## Containers and APKs
+
+- **Browse into zip, tar and APK** as folders, addressed as `zip:///path/a.zip!/inner`
+- **`classes.dex` opens as a tree of smali** you can read and edit
+- **Search inside APKs.** `pkg:`, `label:` and `perm:` come from the resource table, `class:`
+  from deduplicated package prefixes in the dex. About 2 KB of facts per APK, not 2 MB
+- **Inspect** signature schemes, signer, SDK levels, native ABIs and protection status
+- **Edit the binary manifest** without needing aapt2
+- **Rebuild and re-sign**, reading minSdk from the APK being rebuilt so the dex format it
+  emits is one the target device can actually load
+
+---
+
+## Scripting
+
+Lua, bound to the storage layer rather than to the filesystem, so a script that works on
+internal storage also works inside an archive or on a network share.
+
+- **A permission header** each script declares up front, and you approve it before it runs
+- **No `io`, no `os.execute`, no network.** The `fs` table is the whole surface
+- **Seven worked examples** ship with the app
+- **A copyable prompt** that explains the entire API to an AI agent, so you can paste it and
+  append what you want in plain words
+
+---
+
+## Sharing over your network
+
+- **Any browser can open it.** Nothing installed on the other machine
+- **Every address the phone can be reached on**, labelled Wi-Fi, hotspot or wired, with the
+  unreachable ones marked and the reason given
+- **Paths never enter a URL.** A URL is `/f/<token>`, which makes traversal unrepresentable
+  rather than blocked
+- **A PIN by default**, settable and copyable, with a QR code
+- **Every session listed live and revocable**, and nothing expires unless you ask it to
+- **Folders open in the browser**, or download whole as a streamed zip with the tree intact
+- **Zero-copy streaming.** Sharing a 4 GB video costs no extra space and starts instantly
+
+---
+
+## Shortcuts and surfaces
+
+- **Home-screen shortcuts that survive a move.** A shortcut stores the file's index ID rather
+  than its path, so moving the file doesn't break it, and deleting it makes the shortcut say
+  so instead of doing nothing
+- **Shortcuts to scripts and to app actions**, not only to files
+- **All of them listed inside the app**, renameable and cleanable, because a pinned shortcut
+  is otherwise write-only
+- **A folder widget**
+- **Crash reports on screen** instead of "app has stopped", kept locally and never uploaded
+
+---
+
+## How it's built
+
+Six layers, and only the bottom one is allowed to touch a filesystem.
+
+| Layer | What lives there |
+|---|---|
+| **L5** Surfaces | Compose UI, panes, tabs, split view |
+| **L4** Runtime | Lua scripts, background jobs, the activity ledger |
+| **L3** Handlers | Viewers, editors, the APK toolchain |
+| **L2** Routing | What opens what, inbound and internal |
+| **L1** Index | SQLite FTS5 and trigram, retrieve then rerank |
+| **L0** VFS | `FileSystemProvider` per backend, `VPath`, `VNode` |
+
+### The VFS is the whole design
+
+Nothing above L0 constructs a platform path. There's no `java.io.File` outside the local
+provider, and `tools/check-r3.mjs` fails the build if one turns up. The allow-list is fourteen
+files long and every entry carries a written reason for being there.
+
+That one constraint is what makes archives, network shares, SAF grants and root all work
+through a single code path instead of five special cases. It's also why a new backend is a new
+file rather than a new set of exceptions scattered through the app.
+
+### Everything is checked rather than claimed
+
+- **[`FEATURES.md`](FEATURES.md)** is the feature register, 69 shipped, with per-feature notes
+- **[`GATES.md`](GATES.md)** is the per-milestone evidence, including the one gate that was
+  abandoned and why
+- **[`FIXES.md`](FIXES.md)** tracks every bug found in review to a demonstrated outcome
+- **[`PLAN.md`](PLAN.md)**, **[`SEARCH.md`](SEARCH.md)** and **[`NEARBY.md`](NEARBY.md)** are
+  the design documents
+
+66 instrumented tests run on a real device, three JVM suites run on the JVM, and CI runs
+everything that doesn't need a phone. 57 review items, all of them closed with evidence.
+
+---
+
+## Building it yourself
+
+You'll need the Android SDK and a JDK 21. Android Studio's bundled JBR is the one that's known
+to work, and `gw.sh` points `JAVA_HOME` at it.
 
 ```bash
 git clone https://github.com/uukjtisa/filet
@@ -122,49 +224,50 @@ cd filet
 adb install -r -g app/build/outputs/apk/github/debug/app-github-debug.apk
 ```
 
-Two flavours: `github` (with the in-app updater) and `fdroid` (without — F-Droid forbids
-self-updaters). Debug builds get a `.debug` application id so they sit beside a release one.
+Two flavours:
 
-`minSdk 26`, `targetSdk 37`, Kotlin 2.2, Compose Material3.
+- **`github`** has the in-app updater
+- **`fdroid`** compiles it out, because F-Droid forbids an app that updates itself
+
+Debug builds get a `.debug` application ID so they sit beside a release one. `minSdk 26`,
+`targetSdk 37`, Kotlin 2.2, Compose Material3.
 
 ### Running the checks
 
 ```bash
 ./gw.sh :core-vfs:test :core-index:test :app:testGithubDebugUnitTest   # JVM suites
-node tools/check-r3.mjs                                                # R3: no storage API above L0
-./tools/run-gates.sh <adb-serial>                                      # 66 on-device gates
+node tools/check-r3.mjs                                                # no storage API above L0
+./tools/run-gates.sh <adb-serial>                                      # 66 on-device tests
 ```
 
 `run-gates.sh` exists because `connectedAndroidTest` reinstalls the app between runs, which
-resets the all-files appop and deletes the artifacts the gates just produced — both of which
-look like feature failures and are neither. It installs once, grants, runs the
-instrumentation directly, and collects what the tests wrote.
+resets the all-files appop and deletes the artifacts the tests just wrote. Both look like
+feature failures and are neither. It installs once, grants, runs the instrumentation directly,
+and collects what the tests produced.
 
-`tools/testservers/webdav.py` is a minimal WebDAV server for exercising the network provider
-from a device over `adb reverse`.
-
-CI runs everything that does not need a phone: R3, the house-rule checks, the JVM suites and
-both flavours. The on-device suite is deliberately left out of it — it needs real storage, a
-real launcher and a real package installer, and an emulator on a runner would turn a
-meaningful pass into a decorative one. `GATES.md` records where that suite was measured and on
-what hardware.
+`tools/testservers/webdav.py` is a small WebDAV server for exercising the network provider from
+a device over `adb reverse`.
 
 ---
 
-## Permissions, and why
+## Permissions
 
 | Permission | Why |
 |---|---|
-| All-files access | To browse the shared volume. Filet works without it — only folders you pick by hand are visible, which is narrower, not broken. |
-| Foreground service (data sync) | Two uses, both user-initiated and both visible with a Stop: a full index you asked for, and an active Nearby share. |
-| Internet / local network | Nearby sharing and network storage. No analytics, no crash reporting, no outbound connection Filet makes on its own. |
-| Install packages | Only when you tap Install on an APK. |
+| All-files access | To browse the shared volume. Filet works without it, but then only folders you pick by hand are visible |
+| Foreground service (data sync) | Two uses, both started by you and both visible with a Stop: a full index, and an active share |
+| Internet and local network | Sharing and network storage. No analytics, no crash reporting, nothing outbound you didn't ask for |
+| Install packages | Only when you tap Install on an APK, or install an update. The system installer still asks |
 
-Crash reports are written to app-private storage and shown to you. They are never uploaded
-anywhere — a file manager's stack traces carry your paths.
+Crash reports go to app-private storage and are mirrored to `/.filet_logs/` so you can read
+them on the phone. They're never uploaded anywhere, because a file manager's stack traces carry
+your paths.
 
 ---
 
 ## Licence
 
 GPL-3.0. See [`LICENSE`](LICENSE).
+
+Filet bundles ARSCLib (Apache-2.0), smali and dexlib2 (BSD), LuaJ (MIT), and a build of SQLite
+with FTS5 and trigram enabled. Full attribution is on the About screen in the app.

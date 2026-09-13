@@ -42,11 +42,19 @@ object Thumbnails {
     /** Extensions we will attempt. Asking is cheap; opening a 4 GB mkv to find out is not. */
     private val IMAGE = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif", "avif")
     private val VIDEO = setOf("mp4", "mkv", "webm", "3gp", "mov", "m4v", "avi", "ts")
+
+    /**
+     * Formats that can carry embedded cover art.
+     *
+     * Not every audio format can: a bare WAV has no tag container at all. Listing the ones
+     * that can keeps a pointless extractor spin-up off every .wav in a folder.
+     */
+    private val AUDIO = setOf("mp3", "m4a", "aac", "flac", "ogg", "opus", "wma", "mp4a", "m4b")
     private const val APK = "apk"
 
     fun canPreview(extension: String): Boolean {
         val e = extension.lowercase()
-        return e in IMAGE || e in VIDEO || e == APK
+        return e in IMAGE || e in VIDEO || e in AUDIO || e == APK
     }
 
     private fun keyOf(path: VPath, size: Long, mtime: Long, px: Int) =
@@ -69,6 +77,7 @@ object Thumbnails {
             when {
                 ext in IMAGE -> fromImage(vfs, path, os, px)
                 ext in VIDEO -> os?.let { fromVideo(it, px) }
+                ext in AUDIO -> os?.let { fromAudio(it, px) }
                 ext == APK -> os?.let { fromApk(context, it, px) }
                 else -> null
             }
@@ -153,6 +162,37 @@ object Thumbnails {
 
     private fun MediaMetadataRetriever.frameAtTimeCompat(): Bitmap? =
         runCatching { getFrameAtTime(0) }.getOrNull()
+
+    // ── audio ──
+
+    /**
+     * Cover art out of the file's own tags.
+     *
+     * `embeddedPicture` reads the art the file carries, which is the art the user put there.
+     * The tempting alternative is MediaStore's album-art table, and it is wrong twice over: it
+     * only knows files it has scanned, so anything sideloaded or sitting in a working folder
+     * has no entry, and it answers per ALBUM rather than per file, so one mistagged track
+     * gives the whole folder somebody else's cover.
+     */
+    private fun fromAudio(os: String, px: Int): Bitmap? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(os)
+            val bytes = retriever.embeddedPicture ?: return null
+            // Two-pass decode, same as an image file: cover art is routinely 1200x1200 and
+            // decoding that full-size for a 40dp row is most of a megabyte per track.
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            val opts = BitmapFactory.Options().apply {
+                inSampleSize = sampleFor(bounds.outWidth, bounds.outHeight, px)
+            }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.let { scaleTo(it, px) }
+        } catch (e: Throwable) {
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
 
     // ── apk ──
 
