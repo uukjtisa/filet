@@ -95,7 +95,7 @@ work through one code path instead of three.
 
 **R4 — Every claim is checkable.** Each milestone has gates with a command and an expected
 output ([`GATES.md`](GATES.md)), and each bug found in review is tracked to a demonstrated
-outcome ([`FIXES.md`](FIXES.md)) — 46 of 46 met, including 66 on-device tests.
+outcome ([`FIXES.md`](FIXES.md)) — 50 of 50 met, including 66 on-device tests.
 
 ### Layers
 

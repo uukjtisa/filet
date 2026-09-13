@@ -238,3 +238,45 @@ Build and install the current state with:
     the sealed copy now lives in app-private storage), and a fixture left behind by an
     interrupted run was rejected as a signature mismatch, which reads exactly like Filet having
     produced a broken APK.
+
+---
+
+## Found while closing the ledger
+
+Not on Nic's list — these surfaced while verifying the gates above, and are recorded here
+because "found on the way" is how most of them were found.
+
+- [x] X1: An empty search result says why it is empty
+  EVIDENCE: whole-device search on a cold index returned nothing and said "Try Subfolders or
+    Whole device" — advice to do the thing you are already doing, on a search the app knew the
+    answer to. `lastRunAt` is only stamped after a crawl that ran to completion, so it is
+    exactly the "has the index ever seen the whole device" flag; the note now distinguishes a
+    genuinely empty folder, an index that is off, one still building, and one that has never
+    finished a pass. Verified on emulator-5554: the same query returned all three invoices
+    once the crawl had reached them.
+
+- [x] X2: The launcher icon fits the mask that is applied to it
+  EVIDENCE: the drawable's own comment claimed "every structural edge is inside [the safe
+    zone], so no launcher mask can crop the mark". Measured: the body reached x=16 and the
+    flap x=92, both outside 18..90, and the splash screen was visibly clipping them. Both
+    layers now carry an identical 0.945 group scale about the canvas centre, and
+    `tools/check-icon.mjs` flattens the paths and decides it rather than a comment asserting
+    it. Exercised against a positive control — set the scale back to 1.0 and it fails, naming
+    both edges.
+
+- [x] X3: The shell scripts are executable on a fresh clone
+  CHECK: git ls-files -s gradlew gw.sh tools/run-gates.sh
+  EXPECT: 100755
+  EVIDENCE: CI failed with exit 126 — found, but not executable. Git on Windows does not track
+    the executable bit unless it is already in the index, so `gradlew` and every `tools/`
+    script went in as 100644 and nothing on a Linux or macOS clone could run them. Fixed with
+    `git update-index --chmod=+x`, not with a `chmod` step in the workflow, which would have
+    hidden the same problem from anyone cloning by hand.
+
+- [x] X4: Line endings survive a Windows checkout
+  CHECK: git check-attr text -- gradlew
+  EXPECT: text: unset
+  EVIDENCE: `core.autocrlf=true` on this machine would have committed `gradlew` and `gw.sh`
+    with CRLF, which makes them unrunnable on Unix with an error ("bad interpreter: /bin/sh^M")
+    that does not name its cause. `.gitattributes` pins `* -text`, so the working copy, the
+    blob and what a cloner gets are the same bytes.
