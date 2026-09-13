@@ -11,6 +11,8 @@ import { join } from "node:path";
 
 const res = "app/src/main/res";
 const fail = (m) => { console.error("FAIL: " + m); process.exit(1); };
+/** Measured, stated, not fatal — for the things that are a judgement rather than a defect. */
+const warn = (m) => console.warn("note: " + m);
 
 for (const f of ["drawable/ic_launcher_foreground.xml", "drawable/ic_launcher_monochrome.xml"]) {
   if (!existsSync(join(res, f))) fail(`missing ${f}`);
@@ -185,6 +187,24 @@ for (const [name, xml] of [["foreground", fg], ["monochrome", mono]]) {
   if (sy1 > 90) out.push(`bottom edge at ${sy1.toFixed(1)}`);
   if (out.length) {
     fail(`${name} leaves the 18..90 safe zone: ${out.join(", ")}. A launcher mask will crop it.`);
+  }
+
+  // The square is the floor, not the guarantee.
+  //
+  // 72x72 is what a SQUARE mask shows. Every mask - circle, squircle, teardrop -
+  // is inscribed in that viewport, and the shape common to all of them is the
+  // 66dp circle: radius 33 about the centre. A mark that fills the square still
+  // loses its extremes to a round launcher, which is what the splash screen was
+  // showing. Reported, not failed: how bold the mark is against how much of it
+  // survives a circle is a design decision, and a checker does not get to make
+  // it. It does get to stop anyone guessing at the number.
+  const halfDiag = Math.hypot((sx1 - sx0) / 2, (sy1 - sy0) / 2);
+  if (halfDiag > 33) {
+    warn(
+      `${name} fills the square but not the 66dp circle every mask shares ` +
+      `(half-diagonal ${halfDiag.toFixed(1)} against 33). A round launcher crops the ` +
+      `sides; scale ${(33 / halfDiag).toFixed(3)} of current would fit it entirely.`
+    );
   }
 }
 

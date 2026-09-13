@@ -23,6 +23,15 @@
   x=92, and an aggressively-masking launcher clipped both.  tools/check-icon.mjs
   now flattens the paths, computes the bounds and fails if they leave the zone, so
   the claim cannot drift back into being decorative.
+
+  ONE THING IS STILL NOT TRUE, and is stated rather than papered over: fitting the
+  72x72 square is not the same as surviving every mask.  Circle, squircle and
+  teardrop masks are all inscribed in that viewport, and what they share is the
+  66dp CIRCLE - radius 33 about the centre.  This mark's half-diagonal is 46.3, so
+  a round launcher still trims its left and right extremes.  Fitting the circle
+  outright needs another 0.712 of scale, which makes a noticeably smaller mark.
+  That is a design trade - bold versus wholly uncropped - and it is Nic's to make,
+  so check-icon.mjs prints the number every run and does not decide it.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
