@@ -248,12 +248,13 @@ Huawei is not rooted either. Closing this needs a Magisk-patched image or rooted
 
 ## Handoffs
 
-- **H1 — the public identity on the About/onboarding screen.** Onboarding reads
-  "Built by Niccc2007 (uukjtisa)". The standing rule is that the handle is the public face and
-  the legal name stays on private and legal documents, so the *shape* is right - but the two
-  handles are both there and an API check in an earlier session found `niccc2007` 404ing while
-  `uukjtisa` 200s. **Nic's call which one the app should carry.** The `applicationId`
-  `dev.niccc2007.filet` is deliberate and stays; it freezes at first release.
+- **H1 — RESOLVED 2026-09-14.** There was never a conflict: `Niccc2007` is the **display
+  name** on the GitHub account and `uukjtisa` is the **account handle**. Re-checked live -
+  `api.github.com/users/niccc2007` 404s, `uukjtisa` 200s and answers `login: uukjtisa,
+  name: Niccc2007`. So "Built by Niccc2007 (uukjtisa)" is correct as written, and every
+  `github.com/uukjtisa/...` URL in the app already points somewhere real. The repo is at
+  **github.com/uukjtisa/filet**. The `applicationId` `dev.niccc2007.filet` is deliberate and
+  stays; it freezes at first release.
 
 - **H2 — RESOLVED.** AVD `filet37` created by hand (no `cmdline-tools` in this SDK, so the two
   ini files were written directly). Superseded in practice: every gate above was measured on
