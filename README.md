@@ -88,8 +88,8 @@ a phone has no hover, so a plain disabled button is a dead end.
 built once, up front, and then never blocks a feature.
 
 **R3 — Everything above the storage layer talks only to the VFS.** No `java.io.File` outside
-the local provider, enforced by `tools/check-r3.mjs` in CI. The allow-list is 13 files long
-and every entry has a written reason. This is the single rule that separates Filet from most
+the local provider, enforced by `tools/check-r3.mjs` on every push. The allow-list is 13 files
+long and every entry has a written reason. This is the single rule that separates Filet from most
 open-source Android file managers: it is what makes archives, network shares and root all
 work through one code path instead of three.
 
@@ -142,6 +142,12 @@ instrumentation directly, and collects what the tests wrote.
 
 `tools/testservers/webdav.py` is a minimal WebDAV server for exercising the network provider
 from a device over `adb reverse`.
+
+CI runs everything that does not need a phone: R3, the house-rule checks, the JVM suites and
+both flavours. The on-device suite is deliberately left out of it — it needs real storage, a
+real launcher and a real package installer, and an emulator on a runner would turn a
+meaningful pass into a decorative one. `GATES.md` records where that suite was measured and on
+what hardware.
 
 ---
 

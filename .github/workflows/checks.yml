@@ -1,0 +1,43 @@
+# The checks that do not need a phone.
+#
+# The on-device suite (tools/run-gates.sh, 66 tests) is deliberately NOT here: it
+# needs real storage, a real launcher and a real package installer, and an
+# emulator on a CI runner would turn a meaningful pass into a decorative one.
+# GATES.md records where that suite was measured and on what.
+
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: R3 — no storage API above the VFS
+        run: node tools/check-r3.mjs
+
+      - name: House rules — module graph, app id, icon, theme
+        run: |
+          node tools/check-modules.mjs
+          node tools/check-appid.mjs
+          node tools/check-icon.mjs
+          node tools/check-theme.mjs
+
+      - name: JVM unit suites
+        run: ./gradlew --no-daemon :core-vfs:test :core-index:test :app:testGithubDebugUnitTest
+
+      - name: Assemble both flavours
+        run: ./gradlew --no-daemon :app:assembleGithubDebug :app:assembleFdroidDebug
