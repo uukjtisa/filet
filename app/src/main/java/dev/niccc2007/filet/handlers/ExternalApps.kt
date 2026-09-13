@@ -56,6 +56,13 @@ object ExternalApps {
         val pm = context.packageManager
         val own = context.packageName
 
+        // An unknown type is not a filter. Querying `*/*` matches every app with a wildcard
+        // VIEW filter - Certificate Installer, HTML Viewer, Manage SIM contacts - and putting
+        // those under "apps that handle this type" is a list that is both useless and a lie.
+        // Empty here means the sheet says nothing claims it and offers the all-apps tier,
+        // which is the honest version of the same offer.
+        if (mime == ANY_TYPE) return emptyList()
+
         // Two queries, and the second is not redundant. Asking with a content: URI is the
         // honest question - it is exactly the intent Filet will fire - but an activity whose
         // filter names a scheme Filet does not use drops out of it. The type-only query is

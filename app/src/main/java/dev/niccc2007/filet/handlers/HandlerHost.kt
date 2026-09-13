@@ -164,12 +164,14 @@ private fun OpenWithSheet(vm: BrowserViewModel, node: dev.niccc2007.filet.vfs.VN
             }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End) {
-                SheetButton("Just once", primary = false, enabled = chosen != null) {
-                    chosen?.let { vm.openWith(node, it, remember = false) }
+                // "Always" is the one that writes a routing default, so it is not the one
+                // wearing the primary colour. Same rule as the app picker's unticked box.
+                SheetButton("Always", primary = false, enabled = chosen != null) {
+                    chosen?.let { vm.openWith(node, it, remember = true) }
                 }
                 Spacer(Modifier.width(8.dp))
-                SheetButton("Always", primary = true, enabled = chosen != null) {
-                    chosen?.let { vm.openWith(node, it, remember = true) }
+                SheetButton("Just once", primary = true, enabled = chosen != null) {
+                    chosen?.let { vm.openWith(node, it, remember = false) }
                 }
             }
         }

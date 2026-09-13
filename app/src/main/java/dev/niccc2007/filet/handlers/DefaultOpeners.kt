@@ -46,9 +46,10 @@ import dev.niccc2007.filet.ui.theme.Filet
  * which answers the question "what can I change?" with "you tell me". Someone who wants
  * `.mkv` to stop opening in the built-in player should find `.mkv` already on the list.
  */
-private data class OpenerPreset(val title: String, val extensions: List<String>)
+/** Internal only so `MimeTableTest` can prove every offered extension resolves to a type. */
+internal data class OpenerPreset(val title: String, val extensions: List<String>)
 
-private val PRESETS = listOf(
+internal val OPENER_PRESETS = listOf(
     OpenerPreset("Text and code", listOf("txt", "md", "log", "json", "xml", "kt", "java", "py", "lua", "c", "h", "sh")),
     OpenerPreset("Images", listOf("png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "heic")),
     OpenerPreset("Video and audio", listOf("mp4", "mkv", "webm", "avi", "mov", "mp3", "m4a", "flac", "opus", "wav")),
@@ -66,7 +67,7 @@ private val PRESETS = listOf(
 fun LazyListScope.defaultOpenersSection(vm: BrowserViewModel, onPick: (String) -> Unit) {
     item { SectionLabel("Default openers") }
     item { OpenersIntro(vm) }
-    for (preset in PRESETS) {
+    for (preset in OPENER_PRESETS) {
         item(key = "openers-" + preset.title) { PresetHeader(preset.title) }
         items(preset.extensions, key = { "opener-$it" }) { ext ->
             ExtensionRow(vm, ext, onPick)
@@ -281,17 +282,17 @@ fun OpenerPicker(vm: BrowserViewModel, extension: String, onDismiss: () -> Unit)
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .clickable {
-                                when {
-                                    // "Another app" opens the list of installed apps. Storing
-                                    // EXTERNAL without a target is what produced the bug this
-                                    // fixes: a default that still asked every time.
-                                    id == HandlerId.EXTERNAL -> pickingApp = true
-                                    // Choosing Filet's own pick CLEARS the override rather
-                                    // than pinning it. Otherwise the row silently stops
-                                    // following a future default, which is not what "same as
-                                    // before" means.
-                                    id == builtIn -> { vm.handlers.clearDefault(extension); onDismiss() }
-                                    else -> { vm.handlers.setDefault(extension, id); onDismiss() }
+                                // One tested function decides this; see OpenerChoice.kt.
+                                // The order of its branches is the fix, and the .docx case in
+                                // OpenerChoiceTest is what holds that order in place.
+                                when (val choice = openerChoice(id, builtIn)) {
+                                    is OpenerChoice.PickApp -> pickingApp = true
+                                    is OpenerChoice.ClearOverride -> {
+                                        vm.handlers.clearDefault(extension); onDismiss()
+                                    }
+                                    is OpenerChoice.SetHandler -> {
+                                        vm.handlers.setDefault(extension, choice.id); onDismiss()
+                                    }
                                 }
                             }
                             .padding(horizontal = 8.dp, vertical = 10.dp),

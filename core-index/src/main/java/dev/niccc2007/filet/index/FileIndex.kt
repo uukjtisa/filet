@@ -55,6 +55,14 @@ data class IndexStatus(
      * (PLAN.md R1).
      */
     val containerFacts: Boolean = false,
+    /**
+     * The query the running crawl has been bent toward, or null.
+     *
+     * Non-null only while a crawl is running and somebody has searched during it. The search
+     * screen shows it, because a detour that happens silently looks like the index being
+     * slow rather than the index working on your behalf.
+     */
+    val steeredFor: String? = null,
 ) {
     /**
      * SEARCH.md §7.11 - the controls are only honest if the readout beside them is real.
@@ -175,6 +183,20 @@ interface FileIndex {
      *   checkpoint.
      */
     suspend fun crawl(roots: List<VPath>, budgetMs: Long, onProgress: (Long) -> Unit = {}): CrawlResult
+
+    /**
+     * Bend a running crawl toward [query] for a while.
+     *
+     * Searching during the first crawl finds nothing, because the crawler is walking in its
+     * own order and has not reached what you meant. This reorders what is still pending so
+     * the likely folders are walked next, then lets go on its own after [DETOUR_MS].
+     *
+     * A reordering, never a filter: see `CrawlPriority.kt`. Nothing is skipped, and ending
+     * the detour puts the remaining queue back into discovery order exactly.
+     *
+     * No-op when no crawl is running. Blank clears it.
+     */
+    fun steerCrawl(query: String)
 
     /**
      * Files that are byte-for-byte identical to at least one other file (FEATURES.md F62).

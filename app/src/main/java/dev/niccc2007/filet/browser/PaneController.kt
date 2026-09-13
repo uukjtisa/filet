@@ -73,6 +73,13 @@ class PaneController(
     private val prefs: Prefs,
     private val scope: CoroutineScope,
     private val searchSources: List<SearchSource>,
+    /**
+     * Told what was searched for, so a crawl that is still running can be bent toward it.
+     *
+     * A function rather than the index itself: the pane has no other business with the index,
+     * and handing it one would be handing it every other thing an index can do.
+     */
+    private val onSearched: (String) -> Unit = {},
     private val onOpened: (VNode) -> Unit = {},
 ) {
     private val _state = MutableStateFlow(PaneState(id = id))
@@ -281,6 +288,9 @@ class PaneController(
         if (open) it.copy(search = it.search.copy(open = true))
         else {
             searchJob?.cancel()
+            // Closing search ends any detour it caused. Leaving one running would keep a crawl
+            // bent toward a query nobody is looking at any more.
+            onSearched("")
             it.copy(search = SearchUi(scope = it.search.scope))
         }
     }
@@ -298,6 +308,7 @@ class PaneController(
     private fun runSearch(q: String) {
         searchJob?.cancel()
         if (q.isBlank()) {
+            onSearched("")
             _state.update { it.copy(search = it.search.copy(hits = emptyList(), running = false, painted = false)) }
             return
         }
@@ -313,6 +324,9 @@ class PaneController(
         searchJob = scope.launch {
             // Debounce 120 ms: 300 feels laggy, under 100 wastes queries (SEARCH.md §5.5).
             delay(120)
+            // After the debounce, so a crawl is not re-steered on every keystroke. No-op
+            // unless something is actually crawling - see FileIndex.steerCrawl.
+            onSearched(q)
             _state.update { it.copy(search = it.search.copy(running = true, painted = false)) }
 
             val collected = ArrayList<SearchHit>()

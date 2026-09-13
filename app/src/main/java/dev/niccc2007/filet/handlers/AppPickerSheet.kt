@@ -104,10 +104,11 @@ private fun TierHeader(sub: String) {
  * reports what the user picked, so nothing could be remembered and "hand to another app"
  * asked every single time. See [ExternalApps].
  *
- * **Remembering is the default, and the toggle is visible rather than hidden behind a second
- * button.** A chooser with "Just once" and "Always" as two buttons makes the user decide a
- * policy question while they are trying to open a file; a checkbox that is already ticked
- * states what will happen and lets them untick it.
+ * **The toggle is visible and it starts OFF.** Round 5 shipped it pre-ticked, reasoning that a
+ * setting you have to go and find is one you never find. That was wrong: it wrote a permanent
+ * routing default every time somebody opened one file in one app once, which is the thing Nic
+ * asked it not to do. Opening a file is not a policy decision unless you say it is, so the
+ * checkbox states what will happen and waits to be ticked. See [remembersByDefault].
  */
 @Composable
 fun AppPickerSheet(vm: BrowserViewModel, pick: AppPick) {
@@ -118,7 +119,7 @@ fun AppPickerSheet(vm: BrowserViewModel, pick: AppPick) {
     // Always or Just once there; asking the same question twice in two sheets is worse than
     // either answer.
     var always by remember(pick.node.path) {
-        mutableStateOf(pick.forceRemember ?: ext.isNotEmpty())
+        mutableStateOf(pick.forceRemember ?: remembersByDefault())
     }
     val askAlways = pick.forceRemember == null && ext.isNotEmpty()
 

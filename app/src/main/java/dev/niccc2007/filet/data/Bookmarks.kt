@@ -7,7 +7,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class Bookmark(val label: String, val path: VPath)
+/**
+ * @param isDir null for a bookmark saved before this field existed. Those get resolved with a
+ *   stat instead of a guess: guessing "folder" is the bug this fixes, and guessing "file"
+ *   would break every bookmark anyone already has.
+ */
+data class Bookmark(val label: String, val path: VPath, val isDir: Boolean? = null)
 
 /**
  * Starred locations, shown in the rail beside the real volumes.
@@ -21,9 +26,25 @@ class Bookmarks(private val prefs: Prefs) {
     private val _items = MutableStateFlow(load())
     val items: StateFlow<List<Bookmark>> = _items.asStateFlow()
 
-    fun add(path: VPath, label: String = path.name.ifEmpty { path.scheme }) {
+    /**
+     * @param isDir what this points at, recorded now because now is when it is known for
+     *   free. Null only from a caller that genuinely cannot say.
+     */
+    fun add(
+        path: VPath,
+        label: String = path.name.ifEmpty { path.scheme },
+        isDir: Boolean? = null,
+    ) {
         if (_items.value.any { it.path == path }) return
-        _items.value = _items.value + Bookmark(label, path)
+        _items.value = _items.value + Bookmark(label, path, isDir)
+        save()
+    }
+
+    /** Fill in the flag for a bookmark saved before it existed, so it costs one stat once. */
+    fun learnKind(path: VPath, isDir: Boolean) {
+        val current = _items.value.firstOrNull { it.path == path } ?: return
+        if (current.isDir == isDir) return
+        _items.value = _items.value.map { if (it.path == path) it.copy(isDir = isDir) else it }
         save()
     }
 
@@ -37,7 +58,8 @@ class Bookmarks(private val prefs: Prefs) {
         save()
     }
 
-    fun toggle(path: VPath) = if (contains(path)) remove(path) else add(path)
+    fun toggle(path: VPath, isDir: Boolean? = null) =
+        if (contains(path)) remove(path) else add(path, isDir = isDir)
 
     fun contains(path: VPath): Boolean = _items.value.any { it.path == path }
 
@@ -56,7 +78,14 @@ class Bookmarks(private val prefs: Prefs) {
             (0 until arr.length()).mapNotNull { i ->
                 val o = arr.getJSONObject(i)
                 val p = runCatching { VPath.parse(o.getString("path")) }.getOrNull() ?: return@mapNotNull null
-                Bookmark(o.optString("label", p.name), p)
+                Bookmark(
+                    o.optString("label", p.name),
+                    p,
+                    // `has` rather than a bare `optBoolean`: a missing key means unknown, and
+                    // optBoolean flattens unknown to false, which would call every old
+                    // bookmark a file. Same bug, other direction.
+                    if (o.has("dir")) o.optBoolean("dir") else null,
+                )
             }
         }.getOrElse { emptyList() }   // a corrupt blob loses bookmarks, never the app
     }
@@ -64,7 +93,11 @@ class Bookmarks(private val prefs: Prefs) {
     private fun save() {
         val arr = JSONArray()
         for (b in _items.value) {
-            arr.put(JSONObject().put("label", b.label).put("path", b.path.toString()))
+            val o = JSONObject().put("label", b.label).put("path", b.path.toString())
+            // Written only when known, so unknown survives a save instead of quietly
+            // becoming false on the next write.
+            b.isDir?.let { o.put("dir", it) }
+            arr.put(o)
         }
         prefs.putString(KEY, arr.toString())
     }

@@ -35,7 +35,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Starred locations. Tapping one navigates the pane it is shown in, not some other pane. */
+/**
+ * Starred locations. Tapping one navigates the pane it is shown in, not some other pane.
+ *
+ * A bookmark can be a file - Nic bookmarked a .pptx - so a tap goes through
+ * [BrowserViewModel.openPlace] rather than straight to `navigateTo`.
+ */
 @Composable
 fun BookmarksBody(vm: BrowserViewModel, pane: PaneController) {
     val items by vm.bookmarks.items.collectAsState()
@@ -48,9 +53,15 @@ fun BookmarksBody(vm: BrowserViewModel, pane: PaneController) {
             PlaceRow(
                 title = b.label,
                 subtitle = b.path.path,
-                icon = FiletIcons.Star,
+                // A star on every row said "this is a place" and nothing about what it is.
+                // Unknown keeps the star, which is honest: nobody recorded it yet.
+                icon = when (b.isDir) {
+                    true -> FiletIcons.Folder
+                    false -> FiletIcons.File
+                    null -> FiletIcons.Star
+                },
                 trailing = "",
-                onClick = { pane.navigateTo(b.path) },
+                onClick = { vm.openPlace(b.path, b.isDir, pane) },
                 onLongClick = { vm.bookmarks.remove(b.path); vm.toast("Bookmark removed") },
             )
         }

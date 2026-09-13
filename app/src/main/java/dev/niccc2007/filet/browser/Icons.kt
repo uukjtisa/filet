@@ -162,4 +162,29 @@ object FiletIcons {
     val Terminal = stroke("terminal", "M4 5h16v14H4z", "m8 10 2 2-2 2M12.5 14h3.5")
     val Archive = stroke("archive", "M4 6h16v4H4z", "M5.5 10h13v9h-13z", "M10 13.5h4")
     val Trawl = stroke("trawl", "M4 12s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5", "M15 12h.01", "m20 8 1.5 4-1.5 4")
+
+    // -- transport --
+    // Solid, unlike the outlined Play above: these sit inside a filled button where an
+    // outline reads as a hole, and a transport row is the one place a phone user expects
+    // the same shapes every other player uses.
+    val PlaySolid = filled("playsolid", "M7.5 4.4v15.2L20 12z")
+    val Pause = filled("pause", "M7.5 5h3.2v14H7.5z", "M13.3 5h3.2v14h-3.2z")
+    val Prev = filled("prev", "M6 5h2.4v14H6z", "M20 5v14l-10-7z")
+    val Next = filled("next", "M15.6 5H18v14h-2.4z", "M4 5v14l10-7z")
+    val Shuffle = stroke("shuffle", "M16 4h4v4", "M4 20 20 4", "M16 20h4v-4", "m4 4 6 6", "m15 15 5 5")
+    val Repeat = stroke("repeat", "M4 11V9a3 3 0 0 1 3-3h10", "m14 3 3 3-3 3", "M20 13v2a3 3 0 0 1-3 3H7", "m10 21-3-3 3-3")
+    val Expand = stroke("expand", "M4 9V4h5", "M20 9V4h-5", "M4 15v5h5", "M20 15v5h-5")
+
+    // -- image editing --
+    val Crop = stroke("crop", "M6 2v16h16", "M2 6h16v16")
+    val Draw = stroke("draw", "m3 21 1.3-4.3L14.6 6.4l3 3L7.3 19.7z", "m13 8 3 3", "M16.8 4.2 19.8 7.2l-2.2 2.2-3-3z")
+    val RotateRight = stroke("rotr", "M4 12a8 8 0 1 0 2.6-5.9", "M4 4v4h4")
+    val RotateLeft = stroke("rotl", "M20 12a8 8 0 1 1-2.6-5.9", "M20 4v4h-4")
+    val FlipH = stroke("fliph", "M12 3v18", "M9 7 4 12l5 5z", "m15 7 5 5-5 5z")
+    val FlipV = stroke("flipv", "M3 12h18", "M7 9 12 4l5 5z", "m7 15 5 5 5-5z")
+    val Invert = stroke("invert", "M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0", "M12 3.5v17", "M15 7h3.2M14 10h5.2M14 14h5.2M15 17h3.2")
+    val Grey = stroke("grey", "M4 6h16v12H4z", "M9 6v12M14 6v12")
+    val Stretch = stroke("stretch", "M4 9V4h5", "M20 15v5h-5", "m4 4 6 6", "m20 20-6-6")
+    val Save = stroke("save", "M5 4h11l3 3v13H5z", "M8.5 4v5h6.5V4", "M8.5 13h7v7h-7z")
+    val Undo = stroke("undo", "M4.5 10h10a5 5 0 0 1 0 10H8.5", "m4.5 10 4-4M4.5 10l4 4")
 }

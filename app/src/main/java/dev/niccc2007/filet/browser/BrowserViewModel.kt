@@ -7,6 +7,7 @@ import dev.niccc2007.filet.ops.Clipboard
 import dev.niccc2007.filet.handlers.ExternalApp
 import dev.niccc2007.filet.handlers.ExternalApps
 import dev.niccc2007.filet.handlers.HandlerId
+import dev.niccc2007.filet.handlers.editedName
 import dev.niccc2007.filet.ops.PendingOp
 import dev.niccc2007.filet.update.Download
 import dev.niccc2007.filet.update.Release
@@ -189,6 +190,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             prefs = graph.prefs,
             scope = viewModelScope,
             searchSources = graph.searchSources,
+            onSearched = { q -> graph.index.steerCrawl(q) },
             onOpened = { node -> openNode(node) },
         )
         pane.rootsForDevice = _state.value.volumes.map { it.node.path }
@@ -523,8 +525,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun toast(msg: String?) = _state.update { it.copy(toast = msg) }
     fun consumeToast() = _state.update { it.copy(toast = null) }
 
+    /** Always a folder: this is the toolbar star, and it bookmarks where you are standing. */
     fun toggleBookmark(path: VPath) {
-        graph.bookmarks.toggle(path)
+        graph.bookmarks.toggle(path, isDir = true)
         toast(if (graph.bookmarks.contains(path)) "Bookmarked" else "Bookmark removed")
     }
 
@@ -695,20 +698,19 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      */
     fun askWhichApp(node: VNode, forceRemember: Boolean? = null) {
         val mime = dev.niccc2007.filet.handlers.mimeOf(node)
+        // Empty is a normal answer, not a refusal. Nothing declares a `.blend` or a `.sav`,
+        // and the sheet's second tier - every launchable app - is exactly the case for it.
+        // Turning that away with a toast was the dead end.
         val apps = ExternalApps.candidates(graph.app, mime)
-        if (apps.isEmpty()) {
-            toast("No app on this device opens ${node.extension.ifEmpty { "this" }} files.")
-            return
-        }
         _appPickerFor.value = AppPick(node, apps, forceRemember)
     }
 
     /**
      * The user picked an app.
      *
-     * @param remember write it into the per-extension defaults. Always true on the first
-     *   answer for a type - that is what "it should remember" means, and a setting the user
-     *   has to go and find afterwards is one they will not find.
+     * @param remember write it into the per-extension defaults. Off unless the user ticked
+     *   the box in the sheet - see [remembersByDefault]. Round 5 defaulted this on, which
+     *   turned opening one file in one app once into a permanent routing rule.
      */
     fun openWithApp(node: VNode, app: ExternalApp, remember: Boolean) {
         _appPickerFor.value = null
@@ -776,6 +778,62 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             }
         }
     }
+
+    /**
+     * Write an edited image beside the original.
+     *
+     * Never over it. [editedName] picks a name that is not taken and is not the original's,
+     * and this is the only path that writes an edit - so "the editor ate my photo" is not a
+     * bug this app can have. The caller hands over encoded bytes rather than a bitmap, which
+     * keeps the image format decision with the editor that knows whether alpha matters.
+     *
+     * @param extension what the bytes actually are, which is not always what the original
+     *   was: a `.heic` edited and re-encoded comes back as JPEG and must be named as one.
+     * @param onSaved the name that was actually used, so the editor can say it out loud.
+     */
+    fun saveEditedImage(node: VNode, bytes: ByteArray, extension: String, onSaved: (String) -> Unit) {
+        viewModelScope.launch {
+            val folder = node.path.parent
+            if (folder == null) { toast("There is nowhere to save this."); return@launch }
+            if (!graph.vfs.canWrite(folder)) { toast("This folder is read-only."); return@launch }
+            val id = ledger.start("Saving", node.name)
+            runCatching {
+                val taken = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching { graph.vfs.list(folder).map { it.name }.toHashSet() }
+                        .getOrDefault(HashSet())
+                }
+                val name = editedName(node.name, extension) { it in taken }
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    graph.vfs.openWrite(folder.child(name)).use { out -> out.write(bytes) }
+                }
+                name
+            }.onSuccess { name ->
+                ledger.finish(id)
+                toast("Saved as $name")
+                refreshPanes()
+                onSaved(name)
+            }.onFailure {
+                val why = dev.niccc2007.filet.ops.FileOperations.readable(it)
+                ledger.fail(id, why)
+                toast("Could not save: $why")
+            }
+        }
+    }
+
+    /**
+     * Everything sitting next to a file, for the player's queue.
+     *
+     * Returns the file alone if the folder cannot be listed - a track on a share that has
+     * dropped out should still play from the copy already open, not refuse because its
+     * neighbours are unreachable.
+     */
+    suspend fun siblingsOf(node: VNode): List<VNode> {
+        val folder = node.path.parent ?: return listOf(node)
+        return runCatching { graph.vfs.list(folder) }.getOrElse { listOf(node) }
+    }
+
+    /** The sort the user is looking at, so a queue runs in the order on screen. */
+    val currentSort: dev.niccc2007.filet.data.SortSpec get() = graph.prefs.sort.value
 
     fun osPathOf(node: VNode): String? = graph.vfs.osPath(node.path)
 
@@ -1422,7 +1480,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun bookmarkSelection() {
         val items = focusedPane()?.selectedNodes().orEmpty()
         if (items.isEmpty()) return
-        items.forEach { graph.bookmarks.add(it.path, it.name) }
+        items.forEach { graph.bookmarks.add(it.path, it.name, isDir = it.isDir) }
         focusedPane()?.clearSelection()
         toast(if (items.size == 1) "Bookmarked" else "Bookmarked ${items.size}")
     }
@@ -1580,7 +1638,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     fun bookmarkOne(node: VNode) {
-        graph.bookmarks.add(node.path, node.name)
+        graph.bookmarks.add(node.path, node.name, isDir = node.isDir)
         toast("Bookmarked")
     }
 
@@ -1622,6 +1680,34 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     /** A pinned shortcut or a widget row resolved to a path and handed us the result. */
+    /**
+     * Open a saved place from the bookmark list.
+     *
+     * The decision is [placeAction], which is tested; this only carries the outcomes out.
+     * Both non-folder outcomes need a [VNode] and therefore a stat, so they share one. The
+     * difference is that a record with no stored kind gets the answer written back, so an old
+     * bookmark pays for that stat once rather than on every tap.
+     *
+     * @param pane the pane the list is drawn in, so a tap moves that pane and not another.
+     */
+    fun openPlace(path: VPath, isDir: Boolean?, pane: PaneController) {
+        val action = placeAction(path, isDir)
+        if (action is PlaceAction.Navigate) { pane.navigateTo(action.path); return }
+        val learn = action is PlaceAction.Resolve
+        viewModelScope.launch {
+            val node = runCatching { graph.vfs.stat(path) }.getOrNull()
+            if (node == null) {
+                toast("That bookmark no longer points anywhere.")
+                return@launch
+            }
+            if (learn) graph.bookmarks.learnKind(path, node.isDir)
+            when (placeActionResolved(path, node.isDir)) {
+                is PlaceAction.Navigate -> pane.navigateTo(path)
+                else -> openNode(node)
+            }
+        }
+    }
+
     fun openResolvedTarget(raw: String, handlerOverride: String?) {
         val path = runCatching { VPath.parse(raw) }.getOrNull() ?: return
         viewModelScope.launch {

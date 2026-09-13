@@ -208,8 +208,38 @@ fun mimeOf(node: VNode): String = mimeForExtension(node.extension)
  *
  * Settings asks "which app opens .mkv" with no file in hand, and intent resolution keys on
  * the mime type, so the question has to be answerable without one.
+ *
+ * Three steps, in this order:
+ *
+ * 1. [knownMime], the table below. Explicit, pure, and tested - and it is deliberately not
+ *    short, because the types people actually route by hand are the Office ones.
+ * 2. Android's own `MimeTypeMap`, which knows several hundred more.
+ * 3. [ANY_TYPE], the wildcard, meaning "no idea".
+ *
+ * Step 1 existed alone before, and the hole it left was not cosmetic: `.pptx` fell through to
+ * the wildcard, and querying the package manager with that matches every app carrying a
+ * wildcard VIEW filter. The "apps that handle this type" list for a PowerPoint deck came back as
+ * Certificate Installer, HTML Viewer and Manage SIM contacts.
  */
-fun mimeForExtension(extension: String): String = when (extension.lowercase(Locale.US).trimStart('.')) {
+fun mimeForExtension(extension: String): String {
+    val ext = extension.lowercase(Locale.US).trimStart('.')
+    knownMime(ext)?.let { return it }
+    val fromAndroid = runCatching {
+        android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+    }.getOrNull()
+    return fromAndroid?.takeIf { it.isNotBlank() } ?: ANY_TYPE
+}
+
+/** "No idea what this is." A query with it matches wildcard filters and nothing meaningful. */
+const val ANY_TYPE = "*/*"
+
+/**
+ * The types Filet names itself, rather than asking the platform.
+ *
+ * Pure, so `MimeTableTest` can hold the Office entries in place: those are the ones somebody
+ * sets by hand, and they are the ones whose absence was invisible.
+ */
+fun knownMime(extension: String): String? = when (extension.lowercase(Locale.US).trimStart('.')) {
     "png" -> "image/png"
     "jpg", "jpeg" -> "image/jpeg"
     "gif" -> "image/gif"
@@ -231,5 +261,51 @@ fun mimeForExtension(extension: String): String = when (extension.lowercase(Loca
     "html", "htm" -> "text/html"
     "json" -> "application/json"
     "xml" -> "text/xml"
-    else -> "*/*"
+
+    // Office. The reason this function grew: every one of these used to be `*/*`.
+    "doc" -> "application/msword"
+    "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    "xls" -> "application/vnd.ms-excel"
+    "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    "ppt" -> "application/vnd.ms-powerpoint"
+    "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    "odt" -> "application/vnd.oasis.opendocument.text"
+    "ods" -> "application/vnd.oasis.opendocument.spreadsheet"
+    "odp" -> "application/vnd.oasis.opendocument.presentation"
+    "rtf" -> "application/rtf"
+    "csv" -> "text/csv"
+    "epub" -> "application/epub+zip"
+
+    // More of what a file manager meets every day.
+    "bmp" -> "image/bmp"
+    "heic", "heif" -> "image/heic"
+    "avif" -> "image/avif"
+    "ico" -> "image/x-icon"
+    "avi" -> "video/x-msvideo"
+    "mov" -> "video/quicktime"
+    "wmv" -> "video/x-ms-wmv"
+    "ts" -> "video/mp2t"
+    "flv" -> "video/x-flv"
+    "aac" -> "audio/aac"
+    "wma" -> "audio/x-ms-wma"
+    "amr" -> "audio/amr"
+    "mid", "midi" -> "audio/midi"
+    "jar" -> "application/java-archive"
+    // Not a real registered type, and deliberately so: a dex is a zip-ish blob nothing else
+    // opens, and naming it keeps it out of the wildcard branch where every app claims it.
+    "dex", "odex", "vdex" -> "application/octet-stream"
+    "7z" -> "application/x-7z-compressed"
+    "rar" -> "application/vnd.rar"
+    "tar" -> "application/x-tar"
+    "gz", "tgz" -> "application/gzip"
+    "torrent" -> "application/x-bittorrent"
+    "srt" -> "application/x-subrip"
+    "vtt" -> "text/vtt"
+    "css" -> "text/css"
+    "js" -> "text/javascript"
+    "yml", "yaml", "toml", "ini", "cfg", "conf", "properties" -> "text/plain"
+    "kt", "kts", "java", "py", "lua", "c", "h", "cpp", "hpp", "rs", "go", "rb", "php",
+    "sh", "bash", "smali", "gradle", "sql" -> "text/plain"
+
+    else -> null
 }

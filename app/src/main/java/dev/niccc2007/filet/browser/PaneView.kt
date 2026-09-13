@@ -130,11 +130,13 @@ fun PaneView(
             )
 
             if (s.search.open) {
+                val index = vm.indexStatus.collectAsState().value
                 ScopeChips(s.search.scope) { pane.setScope(it) }
                 FieldChips(
-                    containerFacts = vm.indexStatus.collectAsState().value.containerFacts,
+                    containerFacts = index.containerFacts,
                     onPick = { token -> pane.setQuery(appendToken(s.search.query, token)) },
                 )
+                CrawlNotice(index)
             }
 
             when {
@@ -253,6 +255,44 @@ private fun PaneSearchField(pane: PaneController, s: PaneState, modifier: Modifi
             FiletIcons.Close, "Close search", tint = colors.fg2,
             modifier = Modifier.size(22.dp).clip(RoundedCornerShape(5.dp))
                 .clickable { pane.openSearch(false) }.padding(3.dp),
+        )
+    }
+}
+
+/**
+ * What the index is doing, while you are searching it.
+ *
+ * Searching during the first crawl used to look like the search being broken: the folder you
+ * wanted had not been walked yet, so it returned nothing and said nothing. The crawl is now
+ * steered toward the query (`CrawlPriority.kt`), and this is the half of that the user can
+ * see - because a detour nobody is told about is indistinguishable from a slow index.
+ */
+@Composable
+private fun CrawlNotice(index: dev.niccc2007.filet.index.IndexStatus) {
+    if (!index.running) return
+    val colors = Filet.colors
+    val steered = index.steeredFor
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(colors.sel)
+            .padding(horizontal = 11.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 1.6.dp, color = colors.accent)
+        Spacer(Modifier.width(9.dp))
+        Text(
+            if (steered == null) {
+                "Still indexing — ${index.scanned} files so far. Results may be incomplete."
+            } else {
+                // Named rather than generic: the point of the detour is that it is working on
+                // THIS query, and saying which one is what makes the wait legible.
+                "Indexing rerouted to \"$steered\" — ${index.scanned} files so far. " +
+                    "Results keep arriving as the scan reaches them."
+            },
+            fontSize = 9.5.sp,
+            color = colors.fg2,
+            modifier = Modifier.weight(1f),
         )
     }
 }

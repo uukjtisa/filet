@@ -472,6 +472,39 @@ class SqliteIndex(
 
     // ────────────────────────── crawl ──────────────────────────
 
+    /**
+     * The detour a search has asked for, if any.
+     *
+     * Volatile and plain rather than a flow: it is written from the UI thread and read once
+     * per directory by the crawl coroutine, and a flow would add a collector to a loop whose
+     * whole job is to not allocate.
+     */
+    @Volatile
+    private var detour: Detour? = null
+
+    override fun steerCrawl(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) {
+            detour = null
+            _status.update { it.copy(steeredFor = null) }
+            return
+        }
+        // Only while something is actually running. Steering a crawl that is not happening
+        // would put a notice on screen promising work nobody is doing.
+        if (!_status.value.running) return
+        detour = Detour(trimmed, System.currentTimeMillis())
+        _status.update { it.copy(steeredFor = trimmed) }
+    }
+
+    /** The detour, or null once it has run out of time. Clears the notice as it expires. */
+    private fun liveDetour(now: Long): Detour? {
+        val d = detour ?: return null
+        if (!d.expired(now)) return d
+        detour = null
+        _status.update { it.copy(steeredFor = null) }
+        return null
+    }
+
     override suspend fun crawl(roots: List<VPath>, budgetMs: Long, onProgress: (Long) -> Unit): CrawlResult =
         lock.withLock {
             withContext(io) {
@@ -494,11 +527,30 @@ class SqliteIndex(
                     for (root in roots) {
                         val volId = ensureVolume(root)
                         val rootId = upsertNode(volId, null, root.name.ifEmpty { root.scheme }, true, -1, 0, gen)
-                        val queue = ArrayDeque(listOf(rootId to root))
+                        // Pending entries carry the order they were discovered in, so a
+                        // detour is a sort and undoing one is a sort back - see CrawlPriority.
+                        var discovered = 0L
+                        val queue = ArrayDeque(listOf(Pending(discovered++, rootId, root)))
+                        var steeredFor: String? = null
                         while (queue.isNotEmpty()) {
                             currentCoroutineContext().ensureActive()
-                            if (System.currentTimeMillis() > deadline) { complete = false; break }
-                            val (parentId, dir) = queue.removeFirst()
+                            val now = System.currentTimeMillis()
+                            if (now > deadline) { complete = false; break }
+
+                            val want = liveDetour(now)?.query
+                            if (want != steeredFor) {
+                                // Once per change of query, not once per directory: sorting a
+                                // queue of tens of thousands on every step would cost more
+                                // than the crawl it is trying to help.
+                                val reordered = steer(queue.toList(), want.orEmpty())
+                                queue.clear()
+                                queue.addAll(reordered)
+                                steeredFor = want
+                            }
+
+                            val pending = queue.removeFirst()
+                            val parentId = pending.nodeId
+                            val dir = pending.path
                             visited++
 
                             val children = runCatching { vfs.list(dir) }.getOrNull() ?: continue
@@ -522,7 +574,7 @@ class SqliteIndex(
                                         hidden = child.hidden,
                                         inode = child.inode,
                                     )
-                                    if (child.isDir) queue.addLast(id to child.path)
+                                    if (child.isDir) queue.addLast(Pending(discovered++, id, child.path))
                                     // Look inside only when the file is new or has actually
                                     // changed. Re-parsing every APK on every crawl would turn a
                                     // cheap metadata pass into a minutes-long one.
@@ -570,10 +622,12 @@ class SqliteIndex(
                         dbh.putMeta(META_LAST_RUN, System.currentTimeMillis().toString())
                     }
                 } finally {
+                    // The detour cannot outlive the crawl it was steering.
+                    detour = null
                     val files = countFiles()
                     _status.update {
                         it.copy(
-                            running = false, phase = "", scanned = seen,
+                            running = false, phase = "", scanned = seen, steeredFor = null,
                             files = files, available = files > 0,
                             lastRunAt = if (complete) System.currentTimeMillis() else it.lastRunAt,
                         )

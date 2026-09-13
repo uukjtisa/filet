@@ -66,3 +66,6 @@ signing.properties
 
 # Source art for the launcher icon. The rendered assets ship in app/src/main/res.
 /icon/
+
+# Working ledgers for a review round. Scaffolding, not the product.
+.unlazy/

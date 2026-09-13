@@ -182,6 +182,8 @@ private class NullIndex : FileIndex {
     ) = emptyList<List<dev.niccc2007.filet.vfs.VPath>>()
     override suspend fun crawl(roots: List<dev.niccc2007.filet.vfs.VPath>, budgetMs: Long, onProgress: (Long) -> Unit) =
         dev.niccc2007.filet.index.CrawlResult(0, 0, 0, true, 0)
+    /** Nothing is crawling, so there is nothing to steer and nothing to promise on screen. */
+    override fun steerCrawl(query: String) = Unit
     override suspend fun forget(path: dev.niccc2007.filet.vfs.VPath) = Unit
     override suspend fun clear() = Unit
     override fun close() = Unit

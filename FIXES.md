@@ -3,7 +3,7 @@
 OWNS: app/**, core-vfs/**, core-index/**, tools/**, FIXES.md
 
 Scope: every bug and feature Nic raised while reviewing the M1–M9 build, tracked to a
-demonstrated outcome. Four rounds of feedback are consolidated here; nothing is dropped and
+demonstrated outcome. Six rounds of feedback are consolidated here; nothing is dropped and
 nothing is closed without evidence.
 
 **How to read this.** A gate with `CHECK`/`EXPECT` is decided by a command. A gate without one
@@ -339,3 +339,130 @@ because "found on the way" is how most of them were found.
     can reach without adb. Reports are mirrored to `/storage/emulated/0/.filet_logs/crash/`,
     dotted to stay out of the gallery scanner, capped at 30, best-effort so a failed mirror
     never replaces a crash report with a second crash.
+
+---
+
+## Round 6 — two urgent bugs, the choosers, the three viewers, and search during a crawl
+
+Round 6 went in with its own working ledger (`.unlazy/viewers/GATES.md`, 27 gates, all met).
+The rule it added: **a decision that can be wrong gets extracted into a pure function with a
+test.** Both urgent bugs below existed because the decision lived inside an `onClick`, where
+nothing could reach it to prove it wrong.
+
+- [x] Y1: A bookmarked file opens as a file
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*PlaceOpenTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: `Places.kt` called `pane.navigateTo` on every bookmark row and `Bookmark` carried
+    no kind, so a bookmarked `.pptx` was handed to the lister as a directory. The record now
+    stores `isDir`, recorded at the moment of bookmarking because that is when it is free.
+    Records saved before the field existed store nothing rather than guessing: `placeAction`
+    returns `Resolve`, the caller stats once and writes the answer back. Guessing "folder" is
+    the bug; guessing "file" would break every bookmark anyone already has. Verified on the
+    Huawei with his own bookmark - PowerPoint took focus, and the stored record gained
+    `"dir":false`.
+
+- [x] Y2: An extension already routed to an app can be pointed at a different one
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*OpenerChoiceTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: on a type whose built-in already IS "Another app" - a `.pptx`, a `.docx` - the
+    picker treated tapping that row as "you chose the default" and cleared the override
+    instead of offering the app list. The only way out was to set the type to something else
+    and back. `openerChoice` checks the external branch FIRST, and `OpenerChoiceTest` pins
+    that ordering with the `.docx` case that made it wrong.
+
+- [x] Y3: A chooser does not remember unless it is told to
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*OpenerChoiceTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: this reverses round 5, and the reversal is his call: "do not auto remember unless
+    said so". Round 5 shipped the box pre-ticked on the reasoning that a setting you have to
+    go and find is one you never find; what that actually did was write a permanent routing
+    rule every time somebody opened one file in one app once. The tick box starts off and
+    says what it will do. The handler sheet's Just once now carries the primary colour,
+    because Always is the button with the lasting consequence.
+
+- [x] Y4: The filtered app list is filtered
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*MimeTableTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: found while verifying Y2. `.pptx` had no entry in the type table, fell through to
+    the wildcard, and a package-manager query with a wildcard matches every app that declares
+    one - so "apps that handle this type" for a PowerPoint deck was Certificate Installer,
+    HTML Viewer and Manage SIM contacts. The table now names the Office, document, archive
+    and media types explicitly, falls back to Android's `MimeTypeMap`, and only then shrugs.
+    A shrug now returns an empty filtered tier rather than dressing junk up as an answer, and
+    `MimeTableTest` fails if a Settings preset ever offers an extension with no type. On the
+    Huawei the same sheet now lists Docs, WPS Office and Huawei Print.
+
+- [x] Y5: The image viewer edits: crop, draw, rotate, flip, invert, greyscale, resize
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*ImageOpsTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: every pixel operation is a pure function over an ARGB buffer in `ImageOps.kt`, so
+    a transposed rotation or a crop that is one pixel out fails a build instead of quietly
+    ruining a photo. The buffers in the test are deliberately not square and not symmetric,
+    which are the two shapes that hide an axis swap. Invert leaves alpha alone, because
+    complementing all 32 bits turns a transparent PNG inside out and reads as a broken decode.
+    The crop frame is held in image pixels and converted through one tested `FitBox`, so the
+    rectangle you draw is the rectangle you get. Verified on the Huawei end to end: cropped to
+    the middle 70% of a 1200x800 PNG and inverted it, and the file pulled back off the phone
+    is 840x560 and matches `crop(180,120,1020,680)` then invert at every sampled pixel.
+
+- [x] Y6: An edit never writes over the original
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*ImageOpsTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: the save path does not get to choose a name. `editedName` returns one that is
+    neither the original's nor any name already in the folder, it does not grow a suffix per
+    save, and it renames the extension when the editor had to re-encode - a `.heic` comes back
+    as JPEG, and a JPEG called `.heic` is a file nothing on the phone will open.
+
+- [x] Y7: The music player is a player
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*QueueTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: what was there was a progress line, a filename, and three buttons - one of which
+    was the Close icon standing in for Pause. Now: cover art and tags read from the file
+    itself, a scrub bar with elapsed and remaining, a real transport, shuffle and repeat, and
+    the folder you opened it from as a queue you can see and jump around in. The queue runs in
+    the sort order that is on screen, because a queue that disagrees with the listing behind
+    it looks like a shuffle nobody asked for. `QueueTest` covers the edges that a composable
+    cannot: a folder of one, a track that arrived from search and is not in the listing, a
+    track deleted underneath, and the wrap at both ends.
+
+- [x] Y8: The video player scrubs under your finger, and its chrome is Filet's
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*SeekGestureTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: "odd looking and old" was `android.widget.MediaController`, the 2010 stock chrome,
+    which draws in the platform's colours and whose bar only responds if you catch a thumb the
+    width of a pencil. Replaced. Drag anywhere on the picture to scrub, with the time under
+    the finger; the bar itself maps absolutely from the first touch, so putting a thumb halfway
+    along means halfway along. Double tap left or right to jump ten seconds, and keep tapping
+    to keep adding; the middle third is play/pause instead, because a thumb rests there and
+    jumping the video because of that is the behaviour the band exists to prevent.
+
+    **A real bug this found.** The chrome and the gesture layer started as two full-screen
+    siblings, so a drag along the bar was delivered to both - the bar mapped it absolutely,
+    the picture mapped it relatively, and whichever wrote last won. On the Huawei, dragging
+    the bar from three quarters along to a fifth moved the video by the distance rather than
+    to the place under the finger. They are laid out now rather than stacked: the gestures own
+    the band between the bars, so one touch has exactly one owner. That is a layout fact
+    rather than a race that happens to come out right. Re-measured: the same drag lands on
+    0:09, which is where the finger left the bar.
+
+- [x] Y9: Every viewer can hand the file to another app
+  EVIDENCE: he found this looking at a PNG - the in-app viewer had no way out. Image, audio
+    and video all carry it now, and it forces the picker rather than reusing a remembered app,
+    which is what "open this somewhere else" means.
+
+- [x] Y10: Searching during a crawl steers the crawl, and says so
+  CHECK: ./gw.sh --no-daemon :core-index:testDebugUnitTest --tests "*CrawlPriorityTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: his report, and his fix. Search during the first crawl found nothing, because the
+    crawler walks in its own order and had not reached the folder you meant. A query now bends
+    the pending queue toward it for 45 seconds: folders whose name carries a query word first,
+    shallow before deep, and the machine-written trees - `Android/data`, `Android/obb`,
+    `.thumbnails`, `node_modules` - to the back for the duration.
+
+    Two rules keep it safe, and both are what `CrawlPriorityTest` pins. **Nothing is dropped**:
+    a detour is a reordering, never a filter, because a crawl that silently skips folders would
+    then have the generation sweep delete everything in them. **The original order comes back
+    exactly**: every pending entry carries the sequence number it was discovered with, so
+    ending the detour is a sort rather than a hope. On the Huawei, searching "invoice" during a
+    live crawl shows: *Indexing rerouted to "invoice" — 11591 files so far. Results keep
+    arriving as the scan reaches them.*
