@@ -10,8 +10,19 @@
   one colour, so a gap faked with a background-coloured shape on top would fill in
   and the mark would become a blob.  Never reintroduce one.
 
-  Canvas 108x108.  The 72x72 safe zone is x/y 18..90; every structural edge is
-  inside it, so no launcher mask can crop the mark.
+  Canvas 108x108, safe zone x/y 18..90.
+
+  The paths are drawn at their natural size, which spans x 16..92 - four units
+  WIDER than the safe zone - and a group scales them to fit rather than the
+  coordinates being rewritten.  Two reasons for the group: the numbers stay
+  readable as the shape someone drew, and the scale is one value to change if the
+  mark is ever redrawn.
+
+  This was measured, not assumed.  The comment here used to assert every edge was
+  already inside the safe zone; it was not, the body reached x=16 and the flap
+  x=92, and an aggressively-masking launcher clipped both.  tools/check-icon.mjs
+  now flattens the paths, computes the bounds and fails if they leave the zone, so
+  the claim cannot drift back into being decorative.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -19,14 +30,22 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- body + tab (shade) -->
-    <path
-        android:fillColor="#4E7382"
-        android:pathData="M26,24h16l6,8h30a6,6 0 0 1 6,6v8H16V30a6,6 0 0 1 6,-6z" />
+    <!-- 0.945 about the canvas centre: 76 units of mark into a 72-unit safe zone. -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.945"
+        android:scaleY="0.945">
 
-    <!-- front flap (accent) -->
-    <path
-        android:fillColor="#7FA8B8"
-        android:pathData="M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z" />
+        <!-- body + tab (shade) -->
+        <path
+            android:fillColor="#4E7382"
+            android:pathData="M26,24h16l6,8h30a6,6 0 0 1 6,6v8H16V30a6,6 0 0 1 6,-6z" />
+
+        <!-- front flap (accent) -->
+        <path
+            android:fillColor="#7FA8B8"
+            android:pathData="M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z" />
+    </group>
 
 </vector>

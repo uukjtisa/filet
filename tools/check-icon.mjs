@@ -39,6 +39,155 @@ const mono = readFileSync(join(res, "drawable/ic_launcher_monochrome.xml"), "utf
 const monoFills = [...mono.matchAll(/android:fillColor="([^"]+)"/g)].map(x => x[1].toUpperCase());
 if (new Set(monoFills).size !== 1) fail("monochrome layer must use exactly one fill colour");
 
+/**
+ * Sample an SVG elliptical arc, endpoint parameterisation (SVG spec F.6.5).
+ *
+ * Returns points along the curve, including both endpoints. Sampling rather than
+ * solving for extrema: 24 points on a corner radius is well under a tenth of a
+ * unit of error on this canvas, and the alternative is four more pages of algebra
+ * for a bound that is already exact enough to decide an 18..90 question.
+ */
+function arcPoints(x1, y1, rx, ry, rotDeg, largeArc, sweep, x2, y2) {
+  if (rx === 0 || ry === 0) return [[x1, y1], [x2, y2]];
+  rx = Math.abs(rx); ry = Math.abs(ry);
+  const phi = (rotDeg * Math.PI) / 180;
+  const cosP = Math.cos(phi), sinP = Math.sin(phi);
+  const dx2 = (x1 - x2) / 2, dy2 = (y1 - y2) / 2;
+  const x1p = cosP * dx2 + sinP * dy2;
+  const y1p = -sinP * dx2 + cosP * dy2;
+
+  // Scale the radii up if they are too small to span the chord (spec step 3).
+  const lambda = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry);
+  if (lambda > 1) { const k = Math.sqrt(lambda); rx *= k; ry *= k; }
+
+  const sign = largeArc === sweep ? -1 : 1;
+  const num = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p;
+  const den = rx * rx * y1p * y1p + ry * ry * x1p * x1p;
+  const co = sign * Math.sqrt(Math.max(0, num / den));
+  const cxp = (co * rx * y1p) / ry;
+  const cyp = (-co * ry * x1p) / rx;
+  const cx = cosP * cxp - sinP * cyp + (x1 + x2) / 2;
+  const cy = sinP * cxp + cosP * cyp + (y1 + y2) / 2;
+
+  const ang = (ux, uy, vx, vy) => {
+    const dot = ux * vx + uy * vy;
+    const len = Math.hypot(ux, uy) * Math.hypot(vx, vy);
+    const a = Math.acos(Math.min(1, Math.max(-1, dot / len)));
+    return ux * vy - uy * vx < 0 ? -a : a;
+  };
+  const t1 = ang(1, 0, (x1p - cxp) / rx, (y1p - cyp) / ry);
+  let dt = ang((x1p - cxp) / rx, (y1p - cyp) / ry, (-x1p - cxp) / rx, (-y1p - cyp) / ry);
+  if (!sweep && dt > 0) dt -= 2 * Math.PI;
+  if (sweep && dt < 0) dt += 2 * Math.PI;
+
+  const out = [];
+  const steps = 24;
+  for (let k = 0; k <= steps; k++) {
+    const t = t1 + (dt * k) / steps;
+    const px = cx + cosP * rx * Math.cos(t) - sinP * ry * Math.sin(t);
+    const py = cy + sinP * rx * Math.cos(t) + cosP * ry * Math.sin(t);
+    out.push([px, py]);
+  }
+  return out;
+}
+
+// ── the safe zone, measured rather than asserted ──
+//
+// An adaptive icon's foreground is 108x108 and only the middle 72x72 (18..90 on
+// both axes) survives every launcher mask. The drawable's own comment used to
+// claim the mark was inside it; the mark reached x=16 and x=91.9, and nothing
+// checked. So this computes the bounds and decides.
+//
+// The parser is deliberately crude - it walks the pen and records every endpoint
+// and control point rather than flattening curves. That OVER-estimates a bezier's
+// extent, never under-estimates it, which is the safe direction for a bounds check.
+function bounds(pathData) {
+  const toks = pathData.match(/[MmLlHhVvCcSsQqTtAaZz]|-?\d*\.?\d+/g) || [];
+  let x = 0, y = 0, cmd = null, i = 0;
+  const xs = [], ys = [];
+  const num = (k) => parseFloat(toks[i + k]);
+  while (i < toks.length) {
+    if (/[A-Za-z]/.test(toks[i])) { cmd = toks[i]; i++; continue; }
+    const rel = cmd === cmd.toLowerCase();
+    switch (cmd.toUpperCase()) {
+      case "M": case "L":
+        x = rel ? x + num(0) : num(0); y = rel ? y + num(1) : num(1); i += 2; break;
+      case "H": x = rel ? x + num(0) : num(0); i += 1; break;
+      case "V": y = rel ? y + num(0) : num(0); i += 1; break;
+      case "C":
+        for (const k of [0, 2, 4]) {
+          xs.push(rel ? x + num(k) : num(k));
+          ys.push(rel ? y + num(k + 1) : num(k + 1));
+        }
+        { const nx = rel ? x + num(4) : num(4), ny = rel ? y + num(5) : num(5); x = nx; y = ny; }
+        i += 6; break;
+      case "S": case "Q":
+        for (const k of [0, 2]) {
+          xs.push(rel ? x + num(k) : num(k));
+          ys.push(rel ? y + num(k + 1) : num(k + 1));
+        }
+        { const nx = rel ? x + num(2) : num(2), ny = rel ? y + num(3) : num(3); x = nx; y = ny; }
+        i += 4; break;
+      case "T":
+        { const nx = rel ? x + num(0) : num(0), ny = rel ? y + num(1) : num(1); x = nx; y = ny; }
+        i += 2; break;
+      case "A": {
+        // Arcs are FLATTENED, not bounded by their radii.
+        //
+        // The obvious shortcut - "an arc reaches at most rx,ry from where it
+        // started" - is true and useless: on a rounded 6-unit corner it claims
+        // twelve units of travel in every direction and reports the mark as
+        // twelve units outside a zone it is comfortably inside. A checker that
+        // cries wolf gets deleted, so this does the real parameterisation.
+        const [rx0, ry0, rot] = [num(0), num(1), num(2)];
+        const [laf, sf] = [num(3), num(4)];
+        const ex = rel ? x + num(5) : num(5);
+        const ey = rel ? y + num(6) : num(6);
+        for (const [px, py] of arcPoints(x, y, rx0, ry0, rot, laf, sf, ex, ey)) {
+          xs.push(px); ys.push(py);
+        }
+        x = ex; y = ey;
+        i += 7; break;
+      }
+      case "Z": i = toks.length; break;
+      default: i++; continue;
+    }
+    xs.push(x); ys.push(y);
+  }
+  return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+}
+
+/** The uniform scale a <group> applies about the canvas centre, or 1 when there is none. */
+function groupScale(xml) {
+  const sx = xml.match(/android:scaleX="([\d.]+)"/);
+  const sy = xml.match(/android:scaleY="([\d.]+)"/);
+  if (!sx || !sy) return 1;
+  if (sx[1] !== sy[1]) fail("icon group scales X and Y differently — that distorts the mark");
+  const pivot = xml.match(/android:pivotX="([\d.]+)"/);
+  if (!pivot || parseFloat(pivot[1]) !== 54) fail("icon group must pivot on the canvas centre (54)");
+  return parseFloat(sx[1]);
+}
+
+for (const [name, xml] of [["foreground", fg], ["monochrome", mono]]) {
+  const k = groupScale(xml);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const [, d] of xml.matchAll(/android:pathData="([^"]+)"/g)) {
+    const b = bounds(d);
+    x0 = Math.min(x0, b.x0); x1 = Math.max(x1, b.x1);
+    y0 = Math.min(y0, b.y0); y1 = Math.max(y1, b.y1);
+  }
+  const at = (v) => 54 + (v - 54) * k;
+  const [sx0, sx1, sy0, sy1] = [at(x0), at(x1), at(y0), at(y1)];
+  const out = [];
+  if (sx0 < 18) out.push(`left edge at ${sx0.toFixed(1)}`);
+  if (sx1 > 90) out.push(`right edge at ${sx1.toFixed(1)}`);
+  if (sy0 < 18) out.push(`top edge at ${sy0.toFixed(1)}`);
+  if (sy1 > 90) out.push(`bottom edge at ${sy1.toFixed(1)}`);
+  if (out.length) {
+    fail(`${name} leaves the 18..90 safe zone: ${out.join(", ")}. A launcher mask will crop it.`);
+  }
+}
+
 let raster = 0;
 for (const d of readdirSync(res)) {
   if (!/^mipmap-.*dpi$/.test(d)) continue;
@@ -46,4 +195,4 @@ for (const d of readdirSync(res)) {
 }
 if (raster > 0) fail(`${raster} generated raster launcher icon(s) still present`);
 
-console.log(`ICON OK  (2 foreground paths, 1-colour monochrome, ${found} adaptive config(s), 0 raster)`);
+console.log(`ICON OK  (2 foreground paths, 1-colour monochrome, ${found} adaptive config(s), 0 raster, both layers inside the 18..90 safe zone)`);
