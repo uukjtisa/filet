@@ -14,15 +14,15 @@
     android:viewportHeight="108">
 
     <!--
-      The same 0.945 the foreground uses, for the same reason and it must stay the
+      The same 0.8 the foreground uses, for the same reason and it must stay the
       same number. A themed icon and a normal one that differ in size by five per
       cent look like a rendering bug on the home screen, not like two layers.
     -->
     <group
         android:pivotX="54"
         android:pivotY="54"
-        android:scaleX="0.945"
-        android:scaleY="0.945">
+        android:scaleX="0.8"
+        android:scaleY="0.8">
 
         <path
             android:fillColor="#FFFFFF"

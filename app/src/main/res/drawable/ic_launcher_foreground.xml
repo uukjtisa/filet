@@ -24,14 +24,25 @@
   now flattens the paths, computes the bounds and fails if they leave the zone, so
   the claim cannot drift back into being decorative.
 
-  ONE THING IS STILL NOT TRUE, and is stated rather than papered over: fitting the
-  72x72 square is not the same as surviving every mask.  Circle, squircle and
-  teardrop masks are all inscribed in that viewport, and what they share is the
-  66dp CIRCLE - radius 33 about the centre.  This mark's half-diagonal is 46.3, so
-  a round launcher still trims its left and right extremes.  Fitting the circle
-  outright needs another 0.712 of scale, which makes a noticeably smaller mark.
-  That is a design trade - bold versus wholly uncropped - and it is Nic's to make,
-  so check-icon.mjs prints the number every run and does not decide it.
+  THE SQUARE IS NOT THE BINDING CONSTRAINT.  Circle, squircle and teardrop masks
+  are all inscribed in the 72x72 viewport, and what they share is the 66dp CIRCLE -
+  radius 33 about the centre.  A mark that fills the square loses its left and
+  right extremes to a round launcher, which is exactly what the splash screen was
+  showing: the folder rendered as a bowl.
+
+  Three scales were rendered under both masks and looked at, not reasoned about:
+
+    0.945  fills the square.  On a circle the folder loses both side edges and
+           stops reading as a folder at all.
+    0.800  SHIPPED.  On a circle only the outer corners of the flap are kissed;
+           it still reads unmistakably as a folder, and on a squircle it is as
+           bold as before.
+    0.697  measured as the largest scale whose INK never leaves the circle.
+           Safe, and visibly timid - a small mark adrift in dead margin.
+
+  0.8 is a judgement, and it is one number to change if Nic wants it bolder or
+  safer.  check-icon.mjs still prints how far the mark reaches on every run, so
+  whichever way it moves, the cost is on screen rather than in someone's head.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -39,12 +50,13 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- 0.945 about the canvas centre: 76 units of mark into a 72-unit safe zone. -->
+    <!-- 0.8 about the canvas centre. Not the 0.945 that merely fits the square:
+         see the header - a round mask is the binding constraint, not the square one. -->
     <group
         android:pivotX="54"
         android:pivotY="54"
-        android:scaleX="0.945"
-        android:scaleY="0.945">
+        android:scaleX="0.8"
+        android:scaleY="0.8">
 
         <!-- body + tab (shade) -->
         <path

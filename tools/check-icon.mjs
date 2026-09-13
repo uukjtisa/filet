@@ -200,10 +200,17 @@ for (const [name, xml] of [["foreground", fg], ["monochrome", mono]]) {
   // it. It does get to stop anyone guessing at the number.
   const halfDiag = Math.hypot((sx1 - sx0) / 2, (sy1 - sy0) / 2);
   if (halfDiag > 33) {
+    // The ratio below is derived from the bounding BOX, so it is an upper bound on
+    // what would fit and slightly optimistic - a mark whose widest ink sits on a
+    // straight edge, as this folder's does, needs a little less. Measured against
+    // the rasterised ink, this mark fits at 0.697 absolute where the box maths
+    // says 0.712 relative. Close, and in the unsafe direction, so it is labelled.
     warn(
       `${name} fills the square but not the 66dp circle every mask shares ` +
-      `(half-diagonal ${halfDiag.toFixed(1)} against 33). A round launcher crops the ` +
-      `sides; scale ${(33 / halfDiag).toFixed(3)} of current would fit it entirely.`
+      `(its box corner reaches ${halfDiag.toFixed(1)} from centre against 33). A round ` +
+      `launcher ` +
+      `crops the sides; about ${(33 / halfDiag).toFixed(2)} of current would fit, and ` +
+      `that is an upper bound - check it against the rendered mark, not this number.`
     );
   }
 }
