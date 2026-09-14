@@ -4,6 +4,11 @@ Filet is written with heavy AI assistance. This page says exactly what that mean
 because the phrase covers everything from "autocomplete finished my variable name" to "I
 typed a prompt and pushed whatever came out", and those are not the same project.
 
+This page is written the same way the project is. **"Why I am telling you" below is mine** - my words and my
+argument, with nothing done to them but the spelling. The rest of this page was drafted by AI
+against a brief from me and edited by me, which would be a silly thing to hide on a page about
+exactly that.
+
 ## Who decided what
 
 I designed the system. That is the part that determines what this app is:
@@ -17,7 +22,7 @@ I designed the system. That is the part that determines what this app is:
 - **What goes in and what does not.** Read `FIXES.md` and `GATES.md`: the rejections are
   mine, the scope calls are mine, and so is the decision to mark the root gate failed rather
   than quietly drop it.
-- **The review loop.** I use this app every day on my own phone, on my own files. Seven
+- **The review loop.** I use this app every day on my own phone, on my own files. Eight
   rounds of that are written down in `FIXES.md`, item by item, with what was wrong and what
   the evidence is that it is fixed now.
 
@@ -26,20 +31,14 @@ drafting, and the exploratory work of finding out whether an approach is viable 
 
 ## Why I am telling you
 
-Two reasons, and neither is an apology.
+There's a culture of people that likes to call stuff AI slop without considering the thought
+and work put into designing the pipelines of a project.
 
-The first is that you should know what you are reading before you judge it. If a design
-decision in here is wrong, it is wrong because I decided it, and I would rather be argued
-with about the decision than credited for the typing.
+And I used AI here to boost my productivity. I like to create, and I don't wanna take all year
+creating something, cause I have a lot of ideas popping in mind and it's like "scratching your
+own itch" type of shi. I like to create stuff that will solve my smallest to biggest problems.
+And AI use has helped me with that a lot.
 
-The second is that "AI-assisted" is doing a lot of work as an insult right now, usually
-aimed at code nobody checked. So here is the check: every milestone in `GATES.md` is a
-demonstrated outcome, not an assertion. The gates caught three features that were built,
-looked finished, and were dead. A pinned shortcut whose id died the moment the file moved,
-which was the entire point of the feature. Every rebuilt APK emitting a DEX version that
-cannot run below API 35. A WebDAV client that had never worked, because Android's
-`HttpURLConnection` refuses the PROPFIND verb outright. None of those would have surfaced
-from reading the diff, and none of them would have surfaced from trusting a summary.
 
 ## What that means for you as a user or a contributor
 

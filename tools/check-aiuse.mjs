@@ -31,8 +31,21 @@ const MUST_MENTION = [
  *
  * Not a style opinion: "vibe coded" and "just prompted" are the exact readings he asked the
  * page to avoid, and a later edit reaching for them would undo the point of the page.
+ *
+ * **"AI slop" was in this list as a bare phrase, and that was wrong.** Nic then wrote the
+ * page's own "Why I am telling you" section and used the phrase to name the culture he is
+ * arguing with - *"There's a culture of people that likes to call stuff AI slop"* - which is
+ * the opposite of an apology, and this checker failed him for making the page's own point.
+ * The rule now bans the phrase only where it is turned on THIS project. Quoting it at
+ * somebody else is allowed, and has to be: a page defending the method cannot be forbidden
+ * from naming the accusation it is answering.
  */
-const MUST_NOT_SAY = [/vibe[- ]cod/i, /\bjust prompted\b/i, /\bAI slop\b/i, /\bfully automated\b/i];
+const MUST_NOT_SAY = [
+  /vibe[- ]cod/i,
+  /\bjust prompted\b/i,
+  /\bfully automated\b/i,
+  /\b(?:this|it|filet|the code|the app)\b[^.\n]{0,60}\bAI slop\b/i,
+];
 
 function check(root) {
   const problems = [];
@@ -73,6 +86,9 @@ function selftest() {
     ["missing note", () => {}, /missing/],
     ["note with no human half", () => write("docs/AI_USE.md", "AI wrote implementation. ".repeat(50) + " GPL-3.0 L0 check-r3"), /human|decided/i],
     ["note that apologises", () => write("docs/AI_USE.md", good + "\\n\\nIt was vibe coded."), /vibe/i],
+    // The narrowed slop rule needs its own control, or it is a deleted rule with a comment
+    // in front of it. This is the sentence the rule still has to catch.
+    ["note that calls ITSELF slop", () => write("docs/AI_USE.md", good + "\\n\\nHonestly this is AI slop."), /AI slop/i],
     ["readme that advertises it", () => { write("docs/AI_USE.md", good); write("README.md", "see docs/AI_USE.md"); }, /advertised/],
   ];
   let failures = 0;
@@ -92,7 +108,9 @@ function selftest() {
     console.error(`AIUSE SELFTEST: ${failures} case(s) not caught`);
     process.exit(1);
   }
-  console.log("AIUSE SELFTEST OK  (4 negative controls all caught)");
+  // Counted, not typed. A hardcoded number here went stale the moment a case was added, and
+  // a selftest that misreports how much it tested is worse than one that says nothing.
+  console.log(`AIUSE SELFTEST OK  (${cases.length} negative controls all caught)`);
 }
 
 if (process.argv.includes("--selftest")) {
