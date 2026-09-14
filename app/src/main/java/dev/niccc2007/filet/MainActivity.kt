@@ -48,6 +48,7 @@ import dev.niccc2007.filet.shortcuts.shortcutRoute
 import dev.niccc2007.filet.signet.OnboardingScreen
 import dev.niccc2007.filet.signet.markOnboardingComplete
 import dev.niccc2007.filet.signet.onboardingComplete
+import dev.niccc2007.filet.update.UpdateNotifier
 import dev.niccc2007.filet.ui.theme.FiletTheme
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
@@ -142,6 +143,10 @@ class MainActivity : ComponentActivity() {
                     DisposableEffect(Unit) {
                         graph.onFirstScreen()
                         handleIncoming(intent, browser)
+                        // Throttled to twice a day and silent about failure - see
+                        // UpdatePrompt.kt. Fires after handleIncoming so that a tap on the
+                        // update notification is not racing a fresh check for the same thing.
+                        browser.checkForUpdatesQuietly()
                         onDispose { }
                     }
                 }
@@ -173,6 +178,14 @@ class MainActivity : ComponentActivity() {
      * verbs and are deliberately not collapsed: one opens a viewer, the other starts a paste.
      */
     private fun handleIncoming(intent: Intent?, browser: BrowserViewModel) {
+        // An update notification. Checked before the shortcut routing because it carries
+        // neither a target nor an action and would otherwise fall through to "open the app and
+        // do nothing", which is the shape of the bug that took two reports to find below.
+        if (intent?.hasExtra(UpdateNotifier.EXTRA_UPDATE) == true) {
+            browser.openUpdateFromNotification(intent.getStringExtra(UpdateNotifier.EXTRA_UPDATE))
+            return
+        }
+
         // A pinned shortcut or a widget row has already resolved an ID to a path, so it
         // arrives as a Filet target rather than as a content URI. An action shortcut carries
         // no path at all.

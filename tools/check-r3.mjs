@@ -50,6 +50,11 @@ const ALLOWED = [
   // external storage, one filename, never a user path - and the handle stops here rather
   // than travelling up into the view model.
   "app/src/main/java/dev/niccc2007/filet/update/Updater.kt",
+  // The release notes' screenshot cache. BitmapFactory decodes from a path or a stream and
+  // nothing else, and the two-pass decode that keeps a 4000px screenshot from becoming an OOM
+  // has to read the same bytes twice. cacheDir, hashed filenames, never a user path, and the
+  // handles stop here - the composable above it only ever sees an ImageBitmap.
+  "app/src/main/java/dev/niccc2007/filet/update/NoteImages.kt",
   // apksig, smali and ARSCLib all take java.io.File and refuse streams. Every path this
   // package touches came from Vfs.osPath or from AppFiles.
   "app/src/main/java/dev/niccc2007/filet/apk/",

@@ -1,6 +1,8 @@
 package dev.niccc2007.filet.update
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -100,6 +102,7 @@ fun UpdateSheet(vm: BrowserViewModel, state: UpdateState) {
                             if (state.release.apkBytes > 0) "  ·  ${humanSize(state.release.apkBytes)} download" else "",
                     )
                     Notes(vm, state.release)
+                    RemindRow(vm, state.release)
                     Buttons(
                         primary = (if (state.release.apkUrl != null) "Download" else null)
                             to { vm.downloadUpdate(state.release) },
@@ -265,6 +268,65 @@ private fun Notes(vm: BrowserViewModel, release: Release) {
     ) {
         ReleaseNotesView(notes, Modifier.verticalScroll(rememberScrollState()))
     }
+}
+
+/**
+ * When to be asked again.
+ *
+ * Nic: *"add a remind me again in how many days or jsut close and remidn again after opening..
+ * and a dont remind me ever again option too."* All six answers, in one row of chips rather than
+ * behind a menu, because the whole point is that saying "not now" is as easy as saying yes -
+ * an update prompt whose only exit is the X is one people learn to dread.
+ *
+ * Deliberately below the notes and above the buttons: somebody decides how long to postpone
+ * after reading what they are postponing.
+ */
+@Composable
+private fun RemindRow(vm: BrowserViewModel, release: Release) {
+    val colors = Filet.colors
+    Spacer(Modifier.height(12.dp))
+    Text(
+        "Ask me again",
+        fontSize = 10.sp,
+        color = colors.fg3,
+        letterSpacing = 0.7.sp,
+        modifier = Modifier.padding(bottom = 6.dp),
+    )
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        for (choice in RemindChoice.entries) {
+            Chip(
+                text = choice.label(),
+                // The two that are not postponements read differently, because they are
+                // different in kind: one ends this release, one ends the whole business.
+                muted = choice == RemindChoice.SKIP_VERSION || choice == RemindChoice.NEVER,
+                onClick = { vm.answerReminder(choice, release) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun Chip(text: String, muted: Boolean, onClick: () -> Unit) {
+    val colors = Filet.colors
+    Text(
+        text,
+        fontSize = 11.5.sp,
+        maxLines = 1,
+        color = if (muted) colors.fg3 else colors.fg2,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (muted) Color.Transparent else colors.raised)
+            .border(
+                width = 1.dp,
+                color = if (muted) colors.lineSoft else Color.Transparent,
+                shape = RoundedCornerShape(50),
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+    )
 }
 
 @Composable

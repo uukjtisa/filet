@@ -14,13 +14,24 @@ import dev.niccc2007.filet.vfs.provider.archiveName
 import dev.niccc2007.filet.ops.PendingOp
 import dev.niccc2007.filet.update.Download
 import dev.niccc2007.filet.update.Release
+import dev.niccc2007.filet.update.RemindChoice
+import dev.niccc2007.filet.update.ReminderState
+import dev.niccc2007.filet.update.UpdateNotifier
 import dev.niccc2007.filet.update.Updater
+import dev.niccc2007.filet.update.applyChoice
+import dev.niccc2007.filet.update.label
+import dev.niccc2007.filet.update.reenable
+import dev.niccc2007.filet.update.shouldCheck
+import dev.niccc2007.filet.update.shouldPrompt
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.provider.ArchiveProvider
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -1100,6 +1111,118 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 else -> UpdateState.UpToDate(release)
             }
         }
+    }
+
+    /**
+     * The check that nobody asked for, on app start.
+     *
+     * Everything about whether to run it and whether to say anything is in `UpdatePrompt.kt`;
+     * this is the wiring. Failures are silent by design - a background check that could not
+     * reach GitHub is not news, and a toast about it would be the app interrupting to report
+     * that nothing happened.
+     */
+    fun checkForUpdatesQuietly() {
+        if (!dev.niccc2007.filet.BuildConfig.UPDATER_ENABLED) return
+        val now = System.currentTimeMillis()
+        if (!shouldCheck(reminderState(), now)) return
+        viewModelScope.launch {
+            val release = Updater.latest().getOrNull()
+            // Recorded whether or not anything was found, so an unreachable GitHub does not
+            // mean a check on every single launch.
+            storeReminder(reminderState().copy(lastCheckedAt = System.currentTimeMillis()))
+            if (release == null) return@launch
+            if (!shouldPrompt(release.version, Updater.installed, reminderState(), now, LAUNCH_ID)) return@launch
+            pendingRelease = release
+            UpdateNotifier.notify(graph.app, release)
+        }
+    }
+
+    /**
+     * Open the sheet for the release a notification was about.
+     *
+     * Falls back to a fresh check rather than doing nothing: the notification may have outlived
+     * the process that posted it, and a tap that opens the app and then sits there is the same
+     * as a broken notification.
+     */
+    fun openUpdateFromNotification(tag: String?) {
+        UpdateNotifier.clear(graph.app)
+        val held = pendingRelease
+        if (held != null && (tag == null || held.tag == tag)) {
+            _update.value = UpdateState.Available(held)
+        } else {
+            checkForUpdates()
+        }
+    }
+
+    /** The user answered the "when should I ask again" row. */
+    fun answerReminder(choice: RemindChoice, release: Release) {
+        storeReminder(
+            applyChoice(choice, release.version.toString(), System.currentTimeMillis(), reminderState(), LAUNCH_ID)
+        )
+        UpdateNotifier.clear(graph.app)
+        dismissUpdate()
+        toast(
+            when (choice) {
+                RemindChoice.NEVER ->
+                    "No more update notifications. Check for updates still works, and About can turn them back on."
+                RemindChoice.SKIP_VERSION -> "Skipping ${release.version}. A newer one will still say."
+                RemindChoice.LATER -> "Back next time you open Filet."
+                else -> "Asking again ${choice.label().lowercase()}."
+            }
+        )
+    }
+
+    /** The Settings switch. Turning it back on forgets whatever silenced it. */
+    fun setUpdateNotifications(on: Boolean) {
+        val state = reminderState()
+        storeReminder(if (on) reenable(state) else state.copy(notificationsOff = true))
+        if (!on) UpdateNotifier.clear(graph.app)
+    }
+
+    val updateNotificationsOn: StateFlow<Boolean> = graph.prefs.updateNotificationsOff
+        .map { !it }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, !graph.prefs.updateNotificationsOff.value)
+
+    /** The release a notification is currently about, if this process posted it. */
+    private var pendingRelease: Release? = null
+
+    /**
+     * This run of the app, as a number.
+     *
+     * Only ever compared for equality, so any value unique to the process will do; the start
+     * time is one that is already lying around. It is what makes "Later" mean "until Filet is
+     * opened again" rather than "for zero milliseconds".
+     */
+    private val LAUNCH_ID: Long = android.os.Process.getStartElapsedRealtime().takeIf { it > 0 }
+        ?: System.nanoTime()
+
+    private fun reminderState() = ReminderState(
+        silencedUntil = graph.prefs.updateSilencedUntil.value,
+        silencedLaunch = silencedLaunchThisRun,
+        silencedVersion = graph.prefs.updateSilencedVersion.value,
+        skippedVersion = graph.prefs.updateSkippedVersion.value,
+        notificationsOff = graph.prefs.updateNotificationsOff.value,
+        lastCheckedAt = graph.prefs.updateLastCheckedAt.value,
+    )
+
+    /**
+     * "Later", said during this run.
+     *
+     * Held in memory on purpose rather than in prefs: "remind me after opening" has to stop
+     * meaning anything once the app is opened again, and the only honest way to store
+     * "until the process dies" is in the process.
+     */
+    private var silencedLaunchThisRun = 0L
+
+    private fun storeReminder(state: ReminderState) {
+        silencedLaunchThisRun = state.silencedLaunch
+        graph.prefs.setUpdateReminder(
+            silencedUntil = state.silencedUntil,
+            silencedVersion = state.silencedVersion,
+            skippedVersion = state.skippedVersion,
+            notificationsOff = state.notificationsOff,
+            lastCheckedAt = state.lastCheckedAt,
+        )
     }
 
     fun downloadUpdate(release: Release) {

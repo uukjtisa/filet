@@ -65,6 +65,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val hidden by prefs.showHidden.collectAsState()
     val sort by prefs.sort.collectAsState()
     val indexOn by prefs.indexEnabled.collectAsState()
+    val updatesOn by vm.updateNotificationsOn.collectAsState()
     val tabSize by prefs.tabSize.collectAsState()
     var pickingOpenerFor by remember { mutableStateOf<String?>(null) }
     val tracked by vm.tracked.paths.collectAsState()
@@ -149,6 +150,21 @@ fun SettingsPage(vm: BrowserViewModel) {
             }
         }
         item { IndexStatusCard(vm) }
+
+        // Only on the flavour that has an updater at all. R1, no dead switches: on F-Droid
+        // this would be a control over something that is compiled out.
+        if (dev.niccc2007.filet.BuildConfig.UPDATER_ENABLED) {
+            item { SectionLabel("Updates") }
+            item {
+                ToggleRow(
+                    "Tell me about new versions",
+                    "Checks GitHub twice a day and posts a notification when there is one. " +
+                        "Off, nothing is checked and nothing is posted - About, Check for " +
+                        "updates still works whenever you ask it to.",
+                    updatesOn,
+                ) { vm.setUpdateNotifications(it) }
+            }
+        }
 
         item { SectionLabel("Tracked folders") }
         item {

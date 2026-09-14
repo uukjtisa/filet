@@ -52,7 +52,7 @@ android {
         minSdk = 26
         targetSdk = 37
         versionCode = 1
-        versionName = "0.0.9"   // TEMPORARY: updater end-to-end test
+        versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -83,9 +83,15 @@ android {
     /**
      * Distribution flavours (PLAN.md §4).
      *
-     * The updater is a build concern, not a runtime setting: F-Droid handles updates itself
-     * and objects to self-updaters, so REQUEST_INSTALL_PACKAGES must not even appear in that
-     * manifest.
+     * The updater is a build concern, not a runtime setting: F-Droid updates its own apps and
+     * rejects one that updates itself, so `fdroid` compiles the whole thing out - the check,
+     * the notification and the button.
+     *
+     * `REQUEST_INSTALL_PACKAGES` stays on BOTH flavours, and an earlier version of this comment
+     * claiming otherwise was wrong. The APK inspector's Install button needs it, that is an
+     * ordinary file-manager feature rather than self-updating, and F-Droid lists the permission
+     * as something to disclose rather than something to refuse. Stripping it would have killed
+     * a working button on that flavour to satisfy a rule that does not say that.
      */
     flavorDimensions += "distribution"
     productFlavors {
