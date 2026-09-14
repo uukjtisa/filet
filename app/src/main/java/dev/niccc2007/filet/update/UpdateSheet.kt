@@ -273,8 +273,8 @@ private fun Notes(vm: BrowserViewModel, release: Release) {
 /**
  * When to be asked again.
  *
- * Nic: *"add a remind me again in how many days or jsut close and remidn again after opening..
- * and a dont remind me ever again option too."* All six answers, in one row of chips rather than
+ * Nic asked for three things here: remind me in N days, close it and ask again next time the
+ * app opens, and never ask again. All six answers, in one row of chips rather than
  * behind a menu, because the whole point is that saying "not now" is as easy as saying yes -
  * an update prompt whose only exit is the X is one people learn to dread.
  *

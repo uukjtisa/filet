@@ -84,9 +84,9 @@ class Prefs(context: Context) {
     /**
      * Storage cards the user has hidden, by VPath.
      *
-     * Per card, not the whole section. His words: *"when i said a hide button for certain
-     * cards.. i meant certain card not the whole storage shortcuts.. liek bruh i wanna be able
-     * to hide the media card the storage card and etc.. cause those doesnt even work"*.
+     * Per card, not the whole section - his correction. The first version hid the entire
+     * storage block; what he wanted was to hide individual cards, particularly the ones that
+     * led nowhere.
      *
      * A phone's `/storage` holds directories that pass for volumes and are not usable ones -
      * `media` on this Huawei is the example - and Filet cannot tell them apart from a genuinely

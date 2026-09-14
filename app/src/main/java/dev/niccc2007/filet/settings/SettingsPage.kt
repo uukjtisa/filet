@@ -60,8 +60,9 @@ import dev.niccc2007.filet.ui.theme.Filet
 /**
  * A section heading that actually separates.
  *
- * Nic: *"make the settigns be properly segregated.. its so packked.. thers no dsitinciton
- * betewen ui settings general and etc."* He is right. The old heading was 9.5sp grey micro-caps
+ * Nic asked for Settings to be properly segregated - it was packed, with no visual
+ * distinction between the interface options, the general ones and the rest. He is right. The
+ * old heading was 9.5sp grey micro-caps
  * with 7dp of padding - technically a label, visually a row like any other, so eleven controls
  * read as one undifferentiated list.
  *

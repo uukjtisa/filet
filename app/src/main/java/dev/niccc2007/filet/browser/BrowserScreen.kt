@@ -224,9 +224,9 @@ private fun TabStrip(
         }
 
         Box(Modifier.weight(1f)) {
-            // The shared cue, same as every other sideways-scrolling row in the app. Nic:
-            // *"you didnt apply it for hte tabs.. lol. have it appleiad nicely. for anwyehre
-            // horizontal and scrollable or shit"*. It had been exempted on the grounds that
+            // The shared cue, same as every other sideways-scrolling row in the app. Nic
+            // pointed out the tab strip had been left out, and asked for it anywhere something
+            // scrolls horizontally. It had been exempted on the grounds that
             // the strip auto-scrolls to the active tab and a static chevron would contradict
             // that - which was a reason, and not his. A chevron that says "there are more
             // tabs that way" is true whether or not the strip moved on its own.

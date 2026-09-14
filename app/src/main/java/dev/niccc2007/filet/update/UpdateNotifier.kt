@@ -27,7 +27,10 @@ import dev.niccc2007.filet.R
 object UpdateNotifier {
 
     private const val CHANNEL = "filet.updates"
-    private const val ID = 4_201
+    // Was 4_201, which is the same number as NearbyService's 4201 written differently -
+    // so cancelling this cancelled a running foreground service's notification and the
+    // service restarted in a loop. See dev.niccc2007.filet.Notifications.
+    private val ID = dev.niccc2007.filet.Notifications.UPDATE
 
     /** The sheet opens straight to this release rather than re-checking. */
     const val EXTRA_UPDATE = "dev.niccc2007.filet.extra.UPDATE"

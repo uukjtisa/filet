@@ -3,9 +3,8 @@
  * Anything that scrolls sideways says so, or writes down why it does not have to.
  *
  * Nic reported this twice. Round 7 about the selection bar, round 8 about the update sheet's
- * chips: *"those scrollabled horizontally give it the distinction that it is scrollable
- * horizontally lol.. i can barely tell it was scrollable until i dragged it.. fix it bruh.. and
- * make that the gold standard"*.
+ * chips: a row that scrolls sideways gave no sign that it did, and he only found out by
+ * dragging it. He asked for the affordance to become the standard everywhere, not a one-off.
  *
  * The reason it needed reporting twice is the reason this file exists. The first fix was local:
  * one fade, in one composable, in one file. The next row somebody wrote had no idea it was

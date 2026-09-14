@@ -5,10 +5,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 /**
  * What you can do with a selection, as data.
  *
- * Nic: *"why dont you make an option so that instead of a scrollable option on what to do with
- * a selected fodler/s or file/s.. instead have a conext menu pop up yknow? and make it fit
- * properly.. and make it the default.. but optionall legacy type non context menu render for
- * options in the settings"*.
+ * Nic asked for the selection's actions to appear as a context menu that fits the screen,
+ * made the default, with the old scrolling bar kept as an option in Settings.
  *
  * Two renderings of the same thing is exactly how the two drift apart: an action added to the
  * menu and forgotten in the bar, or blocked in one and live in the other. So the list is built

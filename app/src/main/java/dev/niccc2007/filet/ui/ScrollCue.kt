@@ -32,9 +32,9 @@ import dev.niccc2007.filet.ui.theme.Filet
  * A row that scrolls sideways **and looks like it does**.
  *
  * Nic, twice. Round 7 about the selection bar: *"it looks bad.. it looks unscrolable too ules
- * you slide it"*. Round 8 about the update sheet's chips: *"those scrollabled horizontally give
- * it the distinction that it is scrollable horizontally lol.. i can barely tell it was
- * scrollable until i dragged it.. fix it bruh.. and make that the gold standard"*.
+ * you slide it"*. Round 8, about the update sheet's chips: the row gave no sign it scrolled
+ * sideways and he only found out by dragging it, and he asked for the affordance to become the
+ * standard for every such row rather than a fix in one place.
  *
  * The second report is the important one, because the first had already been "fixed" - the
  * selection bar did have a fade. A 7% gradient into the panel colour is not a cue; it reads as

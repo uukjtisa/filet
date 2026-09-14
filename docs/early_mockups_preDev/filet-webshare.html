@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Thirdy's A54 — Filet</title>
+<style>
+/* ============================================================
+   FILET — the page served to a browser on the LAN.
+   Self-contained: no CDN, no framework, no external font.
+   Slate palette, same tokens as the app.
+   The plain list and single downloads work with JS disabled.
+   ============================================================ */
+:root{
+  --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --line-soft:#232320;
+  --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --accent-dim:#31434B; --accent-fg:#0E1417;
+  --good:#8FB894; --warn:#C9A36A; --bad:#C97F7F;
+  --sel:#243036; --hover:#23231F;
+  --e:cubic-bezier(.2,.85,.3,1);
+}
+@media (prefers-color-scheme: light){
+  :root{
+    --bg:#F5F4F0; --surface:#FFFFFF; --raised:#FAF9F6; --sunken:#EBE9E3; --high:#E4E1DA;
+    --line:#DDDAD2; --line-soft:#E9E6DF;
+    --fg:#22211E; --fg2:#615D55; --fg3:#8B867C;
+    --accent:#3E6E82; --accent-dim:#CBDDE4; --accent-fg:#FFFFFF;
+    --good:#4B7A52; --warn:#8A6A2E; --bad:#9B4A4A;
+    --sel:#E3EDF1; --hover:#F0EEE8;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);
+  font:15px/1.5 system-ui,"Segoe UI",Roboto,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+.mono{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace}
+.wrap{max-width:940px;margin:0 auto;padding:0 20px}
+
+/* ---------- header ---------- */
+header{border-bottom:1px solid var(--line);background:var(--surface);position:sticky;top:0;z-index:20}
+.hd{display:flex;align-items:center;gap:14px;padding:15px 0}
+.mk{width:34px;height:34px;flex:none;color:var(--accent)}
+.mk svg{width:100%;height:100%}
+.who{flex:1;min-width:0}
+.who b{display:block;font-size:16px;font-weight:600;letter-spacing:-.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who small{display:block;color:var(--fg3);font-size:12px}
+.pill{font-size:11.5px;padding:4px 10px;border-radius:20px;border:1px solid var(--line);
+  color:var(--fg2);white-space:nowrap;flex:none}
+.pill.ok{border-color:var(--good);color:var(--good)}
+.pill.warn{border-color:var(--warn);color:var(--warn)}
+
+/* ---------- PIN gate ---------- */
+.gate{min-height:78vh;display:grid;place-items:center;padding:30px 20px}
+.gate.hide{display:none}
+.gatebox{width:100%;max-width:330px;text-align:center}
+.gatebox .mk{width:52px;height:52px;margin:0 auto 18px}
+.gatebox h1{margin:0 0 6px;font-size:21px;font-weight:650;letter-spacing:-.015em}
+.gatebox p{margin:0 0 24px;color:var(--fg3);font-size:13.5px;line-height:1.55}
+.pins{display:flex;gap:8px;justify-content:center;margin-bottom:16px}
+.pins input{width:44px;height:56px;text-align:center;font-size:22px;font-weight:600;
+  background:var(--sunken);color:var(--fg);border:1px solid var(--line);border-radius:11px;
+  outline:0;transition:border-color .15s var(--e),background .15s var(--e)}
+.pins input:focus{border-color:var(--accent);background:var(--bg)}
+.pins.bad input{border-color:var(--bad);animation:shake .32s}
+@keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+.gateerr{color:var(--bad);font-size:12.5px;min-height:18px;margin-bottom:10px}
+.btn{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg2);
+  font:inherit;font-size:13.5px;padding:10px 18px;border-radius:10px;cursor:pointer;
+  transition:all .15s var(--e)}
+.btn:hover{border-color:var(--fg3);color:var(--fg)}
+.btn:active{transform:scale(.98)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+.btn.pri:hover{filter:brightness(1.08)}
+.btn[disabled]{opacity:.4;cursor:default;transform:none}
+
+/* ---------- main ---------- */
+main.hide{display:none}
+.bar{display:flex;align-items:center;gap:10px;padding:14px 0;flex-wrap:wrap}
+.bar .grow{flex:1}
+.cnt{font-size:13px;color:var(--fg3)}
+.cnt b{color:var(--fg)}
+
+.list{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface)}
+.row{display:grid;grid-template-columns:22px 26px 1fr auto auto 38px;gap:12px;align-items:center;
+  padding:0 14px;height:52px;border-bottom:1px solid var(--line-soft);
+  transition:background .12s var(--e)}
+.row:last-child{border-bottom:0}
+.row:hover{background:var(--hover)}
+.row.on{background:var(--sel)}
+.row input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;margin:0}
+.row .ic{width:19px;height:19px;color:var(--fg3);justify-self:center}
+.row.dir .ic,.row .ic.acc{color:var(--accent)}
+.nm{min-width:0;display:flex;align-items:center;gap:8px}
+.nm a{color:var(--fg);text-decoration:none;font-weight:450;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.nm a:hover{color:var(--accent);text-decoration:underline}
+.chip{font-size:10px;line-height:1.6;padding:0 6px;border-radius:4px;border:1px solid var(--line);
+  color:var(--fg2);flex:none;font-family:ui-monospace,Consolas,monospace}
+.chip.link{border-color:var(--accent-dim);color:var(--accent);background:var(--accent-dim)}
+.sz,.dt{font-size:12px;color:var(--fg3);white-space:nowrap;text-align:right;
+  font-family:ui-monospace,Consolas,monospace}
+.dt{min-width:92px}
+.sz{min-width:64px}
+.dl{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--fg3);
+  justify-self:end;transition:background .12s,color .12s,transform .1s var(--e)}
+.dl:hover{background:var(--high);color:var(--accent)}
+.dl:active{transform:scale(.9)}
+.dl svg{width:17px;height:17px}
+
+/* ---------- upload ---------- */
+.up{margin:18px 0 0;border:1.5px dashed var(--line);border-radius:14px;padding:26px 18px;
+  text-align:center;color:var(--fg3);transition:all .18s var(--e);cursor:pointer}
+.up:hover,.up.over{border-color:var(--accent);background:var(--sel);color:var(--fg2)}
+.up svg{width:26px;height:26px;margin-bottom:8px;color:var(--fg3)}
+.up.over svg,.up:hover svg{color:var(--accent)}
+.up b{display:block;color:var(--fg);font-weight:550;font-size:14px;margin-bottom:3px}
+.up small{font-size:12px}
+.up.off{display:none}
+
+/* ---------- footer ---------- */
+footer{margin:34px 0 46px;padding-top:18px;border-top:1px solid var(--line);
+  color:var(--fg3);font-size:12.5px;line-height:1.6;display:flex;gap:16px;
+  justify-content:space-between;flex-wrap:wrap}
+footer .warn{color:var(--warn)}
+
+/* ---------- toast ---------- */
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,16px);opacity:0;
+  background:var(--high);border:1px solid var(--line);border-radius:10px;padding:10px 16px;
+  font-size:13px;pointer-events:none;transition:all .22s var(--e);z-index:50;
+  box-shadow:0 12px 30px -10px rgba(0,0,0,.6)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* ---------- mock harness (NOT part of the page) ---------- */
+#harness{position:fixed;right:14px;bottom:14px;z-index:99;display:flex;gap:6px;
+  background:#131312;border:1px solid #2E2D2A;border-radius:9px;padding:6px}
+#harness button{appearance:none;border:1px solid #2E2D2A;background:#1A1A18;color:#9C988F;
+  font:inherit;font-size:11.5px;padding:4px 9px;border-radius:6px;cursor:pointer}
+#harness button:hover{background:#26241F;color:#E8E5DF}
+
+@media (max-width:640px){
+  .row{grid-template-columns:22px 24px 1fr auto 34px;gap:9px;padding:0 11px;height:56px}
+  .row .dt{display:none}
+  .hd{padding:12px 0}
+  .who b{font-size:15px}
+}
+@media (max-width:400px){ .row .sz{display:none} }
+</style></head>
+<body>
+
+<svg style="display:none"><defs>
+<symbol id="i-mark" viewBox="0 0 108 108"><path fill="currentColor" d="M26 24h16l6 8h30a6 6 0 0 1 6 6v28H22a6 6 0 0 1-6-6V30a6 6 0 0 1 6-6z" opacity=".55"/><path fill="currentColor" d="M24 53h64a4 4 0 0 1 3.9 4.9l-5.6 24A6 6 0 0 1 80.4 86H21a4 4 0 0 1-3.9-4.9l5.6-24A6 6 0 0 1 24 53z"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+<symbol id="i-apk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 15V9l3 4 3-4v6"/></symbol>
+<symbol id="i-zip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M11 6h2M11 9h2M11 12h2M11 15h2"/></symbol>
+<symbol id="i-vid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/></symbol>
+<symbol id="i-img" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m4 17 5-5 4 4 3-3 4 4"/></symbol>
+<symbol id="i-audio" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></symbol>
+<symbol id="i-dl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M8 11l4 4 4-4M5 20h14"/></symbol>
+<symbol id="i-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V9M8 13l4-4 4 4M5 4h14"/></symbol>
+</defs></svg>
+
+<!-- ─────────────── PIN GATE ─────────────── -->
+<section class="gate" id="gate">
+  <div class="gatebox">
+    <div class="mk"><svg><use href="#i-mark"/></svg></div>
+    <h1>Thirdy's A54</h1>
+    <p>Enter the 6-digit code shown in Filet on the phone.</p>
+    <form id="pinform" autocomplete="off">
+      <div class="pins" id="pins">
+        <input inputmode="numeric" maxlength="1" aria-label="digit 1">
+        <input inputmode="numeric" maxlength="1" aria-label="digit 2">
+        <input inputmode="numeric" maxlength="1" aria-label="digit 3">
+        <input inputmode="numeric" maxlength="1" aria-label="digit 4">
+        <input inputmode="numeric" maxlength="1" aria-label="digit 5">
+        <input inputmode="numeric" maxlength="1" aria-label="digit 6">
+      </div>
+      <div class="gateerr" id="gateerr"></div>
+      <button class="btn pri" type="submit" style="width:100%">Unlock</button>
+    </form>
+  </div>
+</section>
+
+<!-- ─────────────── FILE LIST ─────────────── -->
+<header class="hide" id="hdr">
+  <div class="wrap hd">
+    <span class="mk"><svg><use href="#i-mark"/></svg></span>
+    <span class="who"><b>Thirdy's A54</b><small>Shared via Filet · 192.168.1.42</small></span>
+    <span class="pill ok">Connected</span>
+  </div>
+</header>
+
+<main class="hide" id="main"><div class="wrap">
+  <div class="bar">
+    <label class="cnt"><input type="checkbox" id="all" style="accent-color:var(--accent);vertical-align:-2px"> Select all</label>
+    <span class="grow"></span>
+    <span class="cnt" id="sel"></span>
+    <button class="btn pri" id="zip" disabled>Download selected</button>
+  </div>
+
+  <div class="list" id="list"></div>
+
+  <div class="up" id="up">
+    <svg><use href="#i-up"/></svg>
+    <b>Drop files here to send them to the phone</b>
+    <small>Or click to choose. They land in the phone's Shared folder.</small>
+    <input type="file" id="file" multiple hidden>
+  </div>
+
+  <footer>
+    <span>Served by <b style="color:var(--fg2)">Filet 0.1.0</b> · 8 items · 1.4 GB</span>
+    <span class="warn">Only works for devices on this network. Transfer is not encrypted.</span>
+  </footer>
+</div></main>
+
+<div class="toast" id="toast"></div>
+
+<div id="harness">
+  <button data-a="gate">PIN screen</button>
+  <button data-a="list">File list</button>
+  <button data-a="up">Uploads on/off</button>
+</div>
+
+<script>
+const FILES = [
+  {n:'domus-demo-clip.mp4',         t:'vid',   s:'58.3 MB', d:'2026-09-09', link:true},
+  {n:'filet-v0.1.0.apk',            t:'apk',   s:'14.2 MB', d:'2026-09-10'},
+  {n:'backup-2026-09-01.zip',       t:'zip',   s:'482 MB',  d:'2026-09-01', link:true},
+  {n:'bench-photo-01.jpg',          t:'img',   s:'2.4 MB',  d:'2026-09-06'},
+  {n:'schematic-rev3.png',          t:'img',   s:'842 KB',  d:'2026-08-28'},
+  {n:'lecture-04-signals.m4a',      t:'audio', s:'22.6 MB', d:'2026-09-09'},
+  {n:'lecture-notes-ece.pdf',       t:'file',  s:'3.1 MB',  d:'2026-09-05'},
+  {n:'notes.txt',                   t:'file',  s:'1.1 KB',  d:'2026-09-03'},
+];
+const IC={vid:'i-vid',apk:'i-apk',zip:'i-zip',img:'i-img',audio:'i-audio',file:'i-file'};
+
+// Rendered server-side in the real thing — the list and every single download
+// are plain <a href>, so the page works with JavaScript disabled.
+document.getElementById('list').innerHTML = FILES.map((f,i)=>`
+  <div class="row" data-i="${i}">
+    <input type="checkbox" aria-label="select ${f.n}">
+    <svg class="ic ${f.t==='apk'?'acc':''}"><use href="#${IC[f.t]}"/></svg>
+    <span class="nm"><a href="/f/tok${i}" download>${f.n}</a>
+      ${f.link?'<span class="chip link">↗ linked</span>':''}</span>
+    <span class="sz">${f.s}</span>
+    <span class="dt">${f.d}</span>
+    <a class="dl" href="/f/tok${i}" download aria-label="download ${f.n}"><svg><use href="#i-dl"/></svg></a>
+  </div>`).join('');
+
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');
+  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2100);}
+
+function sync(){
+  const on=$$('.row input:checked').length;
+  $('#sel').textContent = on ? on+' selected' : '';
+  $('#zip').disabled = !on;
+  $('#zip').textContent = on>1 ? `Download ${on} as .zip` : 'Download selected';
+  $$('.row').forEach(r=>r.classList.toggle('on', r.querySelector('input').checked));
+  $('#all').checked = on===FILES.length;
+}
+$$('.row input').forEach(c=>c.onchange=sync);
+$('#all').onchange=e=>{$$('.row input').forEach(c=>c.checked=e.target.checked);sync();};
+$('#zip').onclick=()=>toast('Streaming zip — never buffered to the phone');
+
+/* upload */
+const up=$('#up');
+up.onclick=()=>$('#file').click();
+['dragenter','dragover'].forEach(e=>up.addEventListener(e,ev=>{ev.preventDefault();up.classList.add('over')}));
+['dragleave','drop'].forEach(e=>up.addEventListener(e,ev=>{ev.preventDefault();up.classList.remove('over')}));
+up.addEventListener('drop',ev=>{const n=ev.dataTransfer.files.length;
+  toast(n?`Sending ${n} file${n>1?'s':''} to the phone`:'Nothing dropped')});
+$('#file').onchange=e=>{const n=e.target.files.length;if(n)toast(`Sending ${n} file${n>1?'s':''} to the phone`)};
+
+/* PIN gate */
+const pins=$$('#pins input');
+pins.forEach((p,i)=>{
+  p.oninput=()=>{if(p.value&&i<5)pins[i+1].focus()};
+  p.onkeydown=e=>{if(e.key==='Backspace'&&!p.value&&i>0)pins[i-1].focus()};
+});
+$('#pinform').onsubmit=e=>{
+  e.preventDefault();
+  const v=pins.map(p=>p.value).join('');
+  if(v.length<6){$('#gateerr').textContent='Enter all six digits.';return}
+  if(v!=='418207'){
+    $('#pins').classList.add('bad');
+    $('#gateerr').textContent='Wrong code. 4 attempts left.';
+    setTimeout(()=>$('#pins').classList.remove('bad'),340);
+    pins.forEach(p=>p.value='');pins[0].focus();return;
+  }
+  show('list');
+};
+function show(v){
+  $('#gate').classList.toggle('hide', v!=='gate');
+  $('#hdr').classList.toggle('hide', v==='gate');
+  $('#main').classList.toggle('hide', v==='gate');
+  if(v==='gate'){pins.forEach(p=>p.value='');$('#gateerr').textContent='';pins[0].focus();}
+}
+$('#harness').onclick=e=>{
+  const a=e.target.dataset.a; if(!a)return;
+  if(a==='up'){up.classList.toggle('off');return}
+  show(a);
+};
+show('gate');
+</script>
+</body></html>

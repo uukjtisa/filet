@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Filet — icon candidates</title>
+<style>
+:root{
+  --ink:#7FA8B8;        /* Slate accent */
+  --ink2:#4E7382;       /* shade */
+  --ground:#1E1F1D;     /* icon background */
+  --page:#0C0C0B;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:#DAD7D0;
+  font:14px/1.5 system-ui,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+header{padding:16px 24px;border-bottom:1px solid #262523;display:flex;gap:22px;align-items:center;
+  position:sticky;top:0;background:#131312;z-index:10}
+header b{font-weight:650;color:#EDEAE4}
+header small{color:#7C7871}
+.seg{display:flex;border:1px solid #2E2D2A;border-radius:7px;overflow:hidden;background:#1A1A18}
+.seg button{appearance:none;border:0;background:transparent;color:#9C988F;font:inherit;font-size:12.5px;
+  padding:5px 12px;cursor:pointer}
+.seg button+button{border-left:1px solid #2E2D2A}
+.seg button[aria-pressed=true]{background:#2C2B27;color:#F0EDE7}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:26px;padding:26px 24px 60px}
+.cand{border:1px solid #262523;border-radius:16px;padding:18px;background:#141413}
+.cand h3{margin:0 0 3px;font-size:15px;color:#E8E5DF;letter-spacing:-.01em}
+.cand p{margin:0 0 16px;font-size:12px;color:#87837C;line-height:1.5;min-height:34px}
+.row{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}
+.spec{text-align:center}
+.spec u{display:block;margin-top:6px;font-size:9.5px;color:#6C6861;text-decoration:none;
+  letter-spacing:.06em;text-transform:uppercase}
+
+/* adaptive icon: 108 canvas, 72 safe zone */
+.ad{position:relative;background:var(--ground);overflow:hidden}
+.ad svg{position:absolute;inset:0;width:100%;height:100%}
+.m-circle{border-radius:50%}
+.m-squircle{border-radius:26%}
+.m-round{border-radius:22%}
+.safe{position:absolute;inset:16.6%;border:1px dashed #ffffff22;border-radius:50%;pointer-events:none}
+body.nosafe .safe{display:none}
+
+.s108{width:108px;height:108px}
+.s72{width:72px;height:72px}
+.s48{width:48px;height:48px}
+.s24{width:24px;height:24px}
+
+/* monochrome (themed icons, Android 13+) */
+.mono{background:#D8D3CA}
+.mono svg .ic{fill:#2A2825 !important;stroke:#2A2825 !important}
+
+body.light{--ground:#F2EFE9;--ink:#3E6E82;--ink2:#7FA8B8}
+body.ember{--ink:#EE9B5F;--ink2:#A5613A;--ground:#201913}
+
+.note{margin:0 24px 50px;max-width:900px;color:#8A867F;font-size:13px;line-height:1.65}
+.note h4{color:#D6D2CB;font-size:14px;margin:22px 0 7px}
+.note code{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;background:#1C1C1A;
+  border:1px solid #2A2926;border-radius:4px;padding:1px 5px;color:#B5B1A9}
+.note ul{padding-left:19px;margin:6px 0}
+</style></head>
+<body>
+
+<header>
+  <b>Filet — icon candidates</b>
+  <div class="seg" id="pal">
+    <button data-v="slate" aria-pressed="true">Slate</button>
+    <button data-v="ember">Ember</button>
+    <button data-v="light">Light</button>
+  </div>
+  <div class="seg" id="safe">
+    <button data-v="on" aria-pressed="true">Safe zone</button>
+    <button data-v="off">Hide</button>
+  </div>
+  <small>108dp canvas · dashed ring = 72dp safe zone · masks: circle / squircle / rounded</small>
+</header>
+
+<div class="grid" id="grid"></div>
+
+<div class="note">
+  <h4>What the icon has to survive</h4>
+  <ul>
+    <li><b>Adaptive icon geometry.</b> 108dp canvas, but only the centre <b>72dp</b> is guaranteed
+      visible — every OEM applies its own mask. Anything outside the dashed ring can be cropped.</li>
+    <li><b>48px in a launcher</b> is the real viewing size. Anything that needs detail to read is
+      already wrong.</li>
+    <li><b>A monochrome layer</b> (Android 13+ themed icons) — one flat silhouette, no colour,
+      no gradient. If the idea only works in two tones, it fails here.</li>
+    <li><b>24px</b> in the status bar as a notification glyph.</li>
+  </ul>
+
+  <h4>The idea being tested</h4>
+  <p><b>Filet</b> = a clean cut that opens something and shows what is inside. The app's own
+  signature is the <b>dual pane</b> — a vertical division. Those are the same shape, which is why
+  every candidate below is some version of <i>a folder with a cut through it</i>. The cut is the
+  name, the product, and the layout, in one mark.</p>
+
+  <p>Deliberately <b>not</b> used: the handwritten N. That is Nic's maker's mark and belongs on the
+  About screen and the F-Droid author field, not on the product — the workshop has a name, the
+  craftsman stamps his own mark on what leaves it.</p>
+</div>
+
+<script>
+const C = {
+  ground:'var(--ground)', ink:'var(--ink)', ink2:'var(--ink2)'
+};
+
+/* Every candidate draws into a 108x108 viewBox.
+   Safe zone is the centre 72 => inset 18 on each side. */
+const CANDS = [
+
+  { id:'e4', name:'E4 — Two-tone open  ★ your pick',
+    d:'Unchanged. Body in the shade colour, flap in the accent, seam is a real gap so mono still works.',
+    svg:`
+      <defs><mask id="mE4"><rect width="108" height="108" fill="#fff"/>
+        <path d="M22 46h68v7H22z" fill="#000"/></mask></defs>
+      <g mask="url(#mE4)">
+        <path class="ic" fill="${C.ink2}" d="M26 24h16l6 8h30a6 6 0 0 1 6 6v28H22a6 6 0 0 1-6-6V30a6 6 0 0 1 6-6z"/>
+        <path class="ic" fill="${C.ink}" d="M24 53h64a4 4 0 0 1 3.9 4.9l-5.6 24A6 6 0 0 1 80.4 86H21a4 4 0 0 1-3.9-4.9l5.6-24A6 6 0 0 1 24 53z"/>
+      </g>` },
+
+  { id:'e7old', name:'E7 — as it was',
+    d:'The version you liked. Interior is only 18 units tall, so at 48px the slot has ~8px to live in and reads as a nick in the top edge.',
+    svg:`
+      <defs><mask id="mE7o"><rect width="108" height="108" fill="#fff"/>
+        <path d="M20 40h70v8H20z" fill="#000"/>
+        <rect x="51" y="29" width="7" height="13" fill="#000"/></mask></defs>
+      <g mask="url(#mE7o)">
+        <path class="ic" fill="${C.ink}" d="M26 22h16l6 8h28a6 6 0 0 1 6 6v22H22a6 6 0 0 1-6-6V28a6 6 0 0 1 6-6z"/>
+        <path class="ic" fill="${C.ink}" d="M27 48h62a4 4 0 0 1 3.9 5l-7.4 29A6 6 0 0 1 79.7 87H19a4 4 0 0 1-3.9-5l7.4-29A6 6 0 0 1 27 48z"/>
+      </g>` },
+
+  { id:'e7b', name:'E7b — Divider, room to breathe',
+    d:'Same idea, interior raised to 28 units. The slot is fully inset with solid above and below, so it divides a space instead of nicking an edge.',
+    svg:`
+      <defs><mask id="mE7b"><rect width="108" height="108" fill="#fff"/>
+        <path d="M20 54h70v7H20z" fill="#000"/>
+        <rect x="50" y="30" width="8" height="24" fill="#000"/></mask></defs>
+      <g mask="url(#mE7b)">
+        <path class="ic" fill="${C.ink}" d="M26 16h16l6 8h30a6 6 0 0 1 6 6v34H22a6 6 0 0 1-6-6V22a6 6 0 0 1 6-6z"/>
+        <path class="ic" fill="${C.ink}" d="M26 61h62a4 4 0 0 1 3.9 4.9l-4.8 21A6 6 0 0 1 81.2 92H20a4 4 0 0 1-3.9-4.9l4.8-21A6 6 0 0 1 26 61z"/>
+      </g>` },
+
+  { id:'e7c', name:'E7c — E4 + divider',
+    d:'Your two favourites combined: two-tone body for depth, divided interior for the dual pane. The tone change makes the division legible at smaller sizes.',
+    svg:`
+      <defs><mask id="mE7c"><rect width="108" height="108" fill="#fff"/>
+        <path d="M20 54h70v7H20z" fill="#000"/>
+        <rect x="50" y="30" width="8" height="24" fill="#000"/></mask></defs>
+      <g mask="url(#mE7c)">
+        <path class="ic" fill="${C.ink2}" d="M26 16h16l6 8h30a6 6 0 0 1 6 6v34H22a6 6 0 0 1-6-6V22a6 6 0 0 1 6-6z"/>
+        <path class="ic" fill="${C.ink}" d="M26 61h62a4 4 0 0 1 3.9 4.9l-4.8 21A6 6 0 0 1 81.2 92H20a4 4 0 0 1-3.9-4.9l4.8-21A6 6 0 0 1 26 61z"/>
+      </g>` },
+
+  { id:'e7d', name:'E7d — Two real panes',
+    d:'Not a slot through a panel — the interior IS two panes, narrow left and wide right, matching the actual layout. Most literal.',
+    svg:`
+      <defs><mask id="mE7d"><rect width="108" height="108" fill="#fff"/>
+        <path d="M20 54h70v7H20z" fill="#000"/>
+        <path d="M16 24h76v34H16z" fill="#000"/></mask></defs>
+      <g mask="url(#mE7d)">
+        <path class="ic" fill="${C.ink2}" d="M26 16h16l6 8h30a6 6 0 0 1 6 6v34H22a6 6 0 0 1-6-6V22a6 6 0 0 1 6-6z"/>
+        <path class="ic" fill="${C.ink}" d="M26 61h62a4 4 0 0 1 3.9 4.9l-4.8 21A6 6 0 0 1 81.2 92H20a4 4 0 0 1-3.9-4.9l4.8-21A6 6 0 0 1 26 61z"/>
+      </g>
+      <rect class="ic" x="24" y="30" width="22" height="24" rx="4" fill="${C.ink}"/>
+      <rect class="ic" x="52" y="30" width="32" height="24" rx="4" fill="${C.ink}"/>` },
+
+  { id:'e7e', name:'E7e — Two panes, one tone',
+    d:'E7d without the tonal split, so the whole mark is one colour. Closest to how the monochrome layer will look on a themed launcher.',
+    svg:`
+      <defs><mask id="mE7e"><rect width="108" height="108" fill="#fff"/>
+        <path d="M20 54h70v7H20z" fill="#000"/>
+        <path d="M16 24h76v34H16z" fill="#000"/></mask></defs>
+      <g mask="url(#mE7e)">
+        <path class="ic" fill="${C.ink}" d="M26 16h16l6 8h30a6 6 0 0 1 6 6v34H22a6 6 0 0 1-6-6V22a6 6 0 0 1 6-6z"/>
+        <path class="ic" fill="${C.ink}" d="M26 61h62a4 4 0 0 1 3.9 4.9l-4.8 21A6 6 0 0 1 81.2 92H20a4 4 0 0 1-3.9-4.9l4.8-21A6 6 0 0 1 26 61z"/>
+      </g>
+      <rect class="ic" x="24" y="30" width="22" height="24" rx="4" fill="${C.ink}"/>
+      <rect class="ic" x="52" y="30" width="32" height="24" rx="4" fill="${C.ink}"/>` },
+];
+
+const SIZES = [
+  {cls:'s108 ad m-squircle', label:'108 · squircle', safe:true},
+  {cls:'s72  ad m-circle',   label:'72 · circle',   safe:false},
+  {cls:'s48  ad m-round',    label:'48 · launcher', safe:false},
+  {cls:'s48  ad mono m-circle', label:'48 · mono',  safe:false},
+  {cls:'s24  ad mono m-circle', label:'24 · status',safe:false},
+];
+
+document.getElementById('grid').innerHTML = CANDS.map(c=>`
+  <div class="cand">
+    <h3>${c.name}</h3><p>${c.d}</p>
+    <div class="row">${SIZES.map(s=>`
+      <div class="spec">
+        <div class="${s.cls}">
+          <svg viewBox="0 0 108 108">${c.svg}</svg>
+          ${s.safe?'<span class="safe"></span>':''}
+        </div>
+        <u>${s.label}</u>
+      </div>`).join('')}
+    </div>
+  </div>`).join('');
+
+document.getElementById('pal').onclick = e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  document.querySelectorAll('#pal button').forEach(x=>x.setAttribute('aria-pressed',x===b));
+  document.body.classList.remove('light','ember');
+  if(b.dataset.v!=='slate') document.body.classList.add(b.dataset.v);
+};
+document.getElementById('safe').onclick = e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  document.querySelectorAll('#safe button').forEach(x=>x.setAttribute('aria-pressed',x===b));
+  document.body.classList.toggle('nosafe', b.dataset.v==='off');
+};
+</script>
+</body></html>

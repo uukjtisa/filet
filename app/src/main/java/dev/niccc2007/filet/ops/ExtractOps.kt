@@ -15,11 +15,9 @@ import kotlinx.coroutines.ensureActive
 /**
  * Extraction, in two halves: work out what will happen, then do exactly that.
  *
- * Nic, round 9:
- *
- * > "before extracting make it confirm for hte user on how it will look like when extracted..
- * > cause theres this porblem when extracting archive sometiemsi expect it to be extracted as
- * > `<archivename>/content` but it ends up bombing me by extracting `/content`"
+ * Reported by Nic in round 9: extracting an archive he expected to produce
+ * `<archive name>/contents` instead scattered the contents straight into the destination. He
+ * asked for a confirmation showing what the result will look like BEFORE it runs.
  *
  * The design rule that follows from that, and the reason this file is split the way it is:
  * **[plan] produces an [ExtractPlan], the preview draws that value, and [run] walks that same

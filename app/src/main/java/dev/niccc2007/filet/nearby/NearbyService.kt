@@ -137,7 +137,9 @@ class NearbyService : Service() {
     companion object {
         const val ACTION_STOP = "dev.niccc2007.filet.nearby.STOP"
         private const val CHANNEL = "filet.nearby"
-        private const val ID = 4201
+        // Declared in dev.niccc2007.filet.Notifications: an id is a key across the whole
+        // app, and declaring one locally is what let the updater collide with this.
+        private val ID = dev.niccc2007.filet.Notifications.NEARBY
 
         fun start(context: Context) {
             val intent = Intent(context, NearbyService::class.java)

@@ -24,8 +24,8 @@ enum class RemindChoice {
     /**
      * Close it. It comes back the next time the app starts.
      *
-     * Deliberately NOT "wait zero milliseconds": his words were *"jsut close and remidn again
-     * after opening"*, and "after opening" is a launch, not a clock reading. Expressed as a
+     * Deliberately NOT "wait zero milliseconds". What Nic asked for was to close it and be
+     * asked again after opening the app, and that is a LAUNCH, not a clock reading. Expressed as a
      * clock it either fires again a millisecond later in the same session, or needs an
      * invented duration nobody asked for. So it stores the launch it was said in.
      */

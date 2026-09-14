@@ -618,8 +618,8 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
 - [x] J5: The changelog pane opens big and can be resized
   CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*SheetSizeTest*"
   EXPECT: BUILD SUCCESSFUL
-  EVIDENCE: his report — *"its kidna small.. theres a lot of content and only a small amount of
-    space"*. It opens at 58% of the screen and drags between 22% and 78%, and the size is
+  EVIDENCE: his report: the pane was small against how much content a release body holds.
+    It opens at 58% of the screen and drags between 22% and 78%, and the size is
     remembered. The drag arithmetic is a pure function with a test because it contains a sign
     flip — dragging the handle UP must make the sheet BIGGER — and that is exactly the kind of
     thing that is wrong in one direction only.
@@ -675,8 +675,8 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
     compiling and still drawing.
 
 - [x] J11: Settings is grouped instead of being one long list
-  EVIDENCE: his report — *"its so packked.. thers no dsitinciton betewen ui settings general
-    and etc"*. General, appearance, browsing, safety, about.
+  EVIDENCE: his report: it was packed, with no visual distinction between the interface
+    options, the general ones and the rest. General, appearance, browsing, safety, about.
 
 - [x] J12: Shortcuts for folders, actions and scripts do what they say — third report
   CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*ShortcutRouteTest*"
@@ -721,9 +721,9 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
     refusal is now a licence boundary that is stated rather than a gap that is implied.
 
 - [x] J16: Paste is offered where you are standing
-  EVIDENCE: his report, and the whole point of it — *"i thought there would be an easy one click
-    paste here i nthis active splti view or fodler but no it was in that unintuitive top right
-    triple dot"*. After copy or move, a pill appears **in the pane**, saying how many items and
+  EVIDENCE: his report, and the whole point of it: after copying something he expected a
+    one-tap paste in the pane he was standing in, and the only one was a row inside the
+    three-dot menu at the top right. After copy or move, a pill appears **in the pane**, saying how many items and
     where they will land. A floating pill rather than a full-width bar, which was his call.
 
 - [x] J17: A long press extends a selection across the gap, like shift-clicking

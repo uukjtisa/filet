@@ -2,9 +2,8 @@
 /**
  * There is a published release, the app can find it, and the README agrees.
  *
- * Nic, twice: *"the readme says no release yet.. why dont you make the github release now? for
- * v0.1.0 and make hte updater finally work jsut liek the trawl one"*. Round 5 verified only
- * the negative case - the updater correctly reporting that nothing was published - which is
+ * Nic asked twice for v0.1.0 to be published and the updater to work the way Trawl's does -
+ * the README still said there was no release. Round 5 verified only the negative case - the updater correctly reporting that nothing was published - which is
  * exactly the kind of green tick that means nothing.
  *
  * This checks the three things that have to line up, because the failure modes are quiet ones:

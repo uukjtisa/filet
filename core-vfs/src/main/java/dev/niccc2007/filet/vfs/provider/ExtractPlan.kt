@@ -3,13 +3,11 @@ package dev.niccc2007.filet.vfs.provider
 /**
  * What an extraction is about to do to a folder, worked out before a byte is written.
  *
- * Nic, round 9:
+ * Nic identified this in round 9: an archive he expected to extract as
+ * `<archive name>/contents` scattered its contents straight into the destination instead.
  *
- * > "theres this porblem when extracting archive sometiemsi expect it to be extracted as
- * > `<archivename>/content` but it ends up bombing me by extracting `/content`"
- *
- * That is a tarbomb, and the fix is not a better default - it is showing him the answer before
- * he commits to it. So the preview and the extractor read **the same value**: this file
+ * That is a tarbomb, and the fix is not a better default - it is showing the answer before
+ * anyone commits to it. So the preview and the extractor read **the same value**: this file
  * produces an [ExtractPlan], the preview draws it, and the extractor walks it. If those two
  * ever came from different code the preview would be a drawing of something that then does not
  * happen, which is a worse feature than no preview at all.

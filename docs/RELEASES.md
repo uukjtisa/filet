@@ -75,9 +75,8 @@ about source files, and it cannot see whether the writing is any good.
 
 Nic, round 8:
 
-> "use the rule of hte trawl too in its claude md or somewhre where when yo umake a new release
-> it must be fomratted and has images and etc.. or whatever trawl saids it is.. liek a fancy
-> format yknow? wiht images and markdown rendered"
+Nic asked for Trawl's release-writing rule to apply here too: a release body is a formatted
+document with images in it, rendered, rather than a changelog.
 
 The rule is Trawl's, which has the same renderer and the same reason for it. Both apps are
 sideloaded, neither has a store listing, and in both the release body is doing a job that a

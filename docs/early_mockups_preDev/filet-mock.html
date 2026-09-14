@@ -1,0 +1,1317 @@
+<!doctype html>
+<html lang="en" data-theme="slate">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Filet — UI mock R2</title>
+<style>
+/* ============================================================
+   FILET — UI MOCK · ROUND 2
+   Device frames are CSS containers: one markup, real breakpoints.
+   Motion easings are lifted from Trawl's TrawlSwitcher.kt so the
+   two apps move the same way.
+   ============================================================ */
+
+:root{
+  --e-out:cubic-bezier(.2,.85,.3,1);      /* Trawl MenuItemEasing */
+  --e-push:cubic-bezier(.5,.05,.15,1);    /* Trawl PushEasing     */
+  --e-soft:cubic-bezier(.4,0,.2,1);
+  --t-fast:.14s; --t-mid:.22s; --t-slow:.34s;
+}
+
+[data-theme="slate"]{
+  --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --line-soft:#232320;
+  --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --accent-dim:#31434B; --accent-fg:#0E1417;
+  --good:#8FB894; --warn:#C9A36A; --bad:#C97F7F;
+  --sel:#243036; --hover:#23231F; --drop:#2C4049;
+}
+[data-theme="ember"]{
+  --bg:#181310; --surface:#1F1915; --raised:#28211B; --sunken:#130F0C; --high:#302720;
+  --line:#342A22; --line-soft:#28211B;
+  --fg:#EFE7DE; --fg2:#A29383; --fg3:#71655A;
+  --accent:#EE9B5F; --accent-dim:#523925; --accent-fg:#1A1109;
+  --good:#9BB88A; --warn:#D9B36A; --bad:#D08A78;
+  --sel:#332518; --hover:#261F19; --drop:#4A3520;
+}
+[data-theme="paper"]{
+  --bg:#F5F4F0; --surface:#FFFFFF; --raised:#FAF9F6; --sunken:#EBE9E3; --high:#E4E1DA;
+  --line:#DDDAD2; --line-soft:#E9E6DF;
+  --fg:#22211E; --fg2:#615D55; --fg3:#8B867C;
+  --accent:#3E6E82; --accent-dim:#CBDDE4; --accent-fg:#FFFFFF;
+  --good:#4B7A52; --warn:#8A6A2E; --bad:#9B4A4A;
+  --sel:#E3EDF1; --hover:#F0EEE8; --drop:#CFE3EA;
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:#0C0C0B;color:#DAD7D0;
+  font:14px/1.45 system-ui,"Segoe UI Variable Text","Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+.mono{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace}
+
+/* ============================ HARNESS ============================ */
+.ctl{position:sticky;top:0;z-index:60;display:flex;flex-wrap:wrap;gap:16px;align-items:center;
+  padding:11px 20px;background:#131312;border-bottom:1px solid #262523}
+.ctl .brand{font-weight:650;letter-spacing:-.01em;color:#EDEAE4}
+.ctl .brand small{color:#7C7871;font-weight:400;margin-left:8px}
+.grp{display:flex;align-items:center;gap:7px}
+.grp>label{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:#75716A}
+.seg{display:flex;border:1px solid #2E2D2A;border-radius:7px;overflow:hidden;background:#1A1A18}
+.seg button{appearance:none;border:0;background:transparent;color:#9C988F;font:inherit;font-size:12.5px;
+  padding:5px 11px;cursor:pointer;transition:background var(--t-fast),color var(--t-fast)}
+.seg button+button{border-left:1px solid #2E2D2A}
+.seg button[aria-pressed="true"]{background:#2C2B27;color:#F0EDE7}
+.seg button:hover:not([aria-pressed="true"]){background:#222220;color:#CFCBC4}
+select.sel{appearance:none;background:#1A1A18;color:#CFCBC4;border:1px solid #2E2D2A;border-radius:7px;
+  padding:5px 26px 5px 10px;font:inherit;font-size:12.5px;cursor:pointer;
+  background-image:linear-gradient(45deg,transparent 50%,#7C7871 50%),linear-gradient(135deg,#7C7871 50%,transparent 50%);
+  background-position:calc(100% - 14px) 13px,calc(100% - 9px) 13px;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+.hint{font-size:12px;color:#6E6A63;margin-left:auto;max-width:300px;text-align:right;line-height:1.4}
+
+#stage{padding:24px 20px 10px;display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
+#stage.focus{justify-content:center;padding-top:30px}
+.dev{display:flex;flex-direction:column;gap:8px}
+.dev-cap{font-size:11.5px;color:#7E7A73;display:flex;gap:9px;align-items:baseline;flex-wrap:wrap}
+.dev-cap b{color:#CAC6BE;font-weight:600}
+.dev-cap .dim{font-family:"Cascadia Mono",Consolas,monospace;font-size:11px;color:#6C6861}
+.dev-cap .cls{font-size:10px;text-transform:uppercase;letter-spacing:.08em;border:1px solid #33322E;
+  border-radius:4px;padding:1px 6px;color:#8B8880}
+.dev-cap .cls[data-c="expanded"]{border-color:#3C5560;color:#8FB6C4}
+.dev-cap .cls[data-c="medium"]{border-color:#4A452F;color:#C1B183}
+.scaler{position:relative}
+.scaler>.frame{position:absolute;top:0;left:0;transform-origin:0 0}
+.frame{background:var(--bg);border:1px solid #34332F;border-radius:16px;overflow:hidden;
+  box-shadow:0 18px 50px -18px rgba(0,0,0,.85),0 0 0 5px #131312}
+.screen{width:100%;height:100%;container-type:size;container-name:screen;position:relative;overflow:hidden;background:var(--bg)}
+
+/* ==================== TRAWL WINDOW SWITCHER ====================
+   Contract from TrawlSwitcher.kt:
+   translateX(50% of own width) scale(.78), radius 26, 500ms, PushEasing.
+   Menu rows from -30px, 460ms, 50ms stagger, 60ms first delay, MenuItemEasing.
+   NO 3D rotation — explicitly rejected upstream. Flat push only.        */
+.switcher{position:absolute;inset:0}
+.swmenu{position:absolute;inset:0;padding:26px 0 0;overflow:hidden;opacity:0;
+  background:linear-gradient(180deg,var(--high) 0%,var(--surface) 45%,var(--bg) 100%);
+  transition:opacity var(--t-slow) var(--e-soft)}
+.sw-brand{display:flex;align-items:center;gap:10px;padding:0 22px 16px;color:var(--fg)}
+.sw-brand .mk{width:30px;height:30px;border-radius:50%;border:1.5px solid var(--accent);
+  display:grid;place-items:center;color:var(--accent);font-weight:700;font-size:14px;flex:none}
+.sw-brand b{font-size:15px;letter-spacing:-.01em}
+.sw-brand small{display:block;color:var(--fg3);font-size:10.5px;font-weight:400}
+.swi{display:flex;align-items:center;gap:13px;height:42px;margin:0 12px;padding:0 12px;border-radius:11px;
+  color:var(--fg2);cursor:pointer;opacity:0;transform:translateX(-30px);white-space:nowrap;
+  transition:background var(--t-fast)}
+.swi svg{width:19px;height:19px;flex:none}
+.swi span{font-size:13.5px}
+.swi:hover{background:var(--hover);color:var(--fg)}
+.swi.on{background:var(--sel);color:var(--accent)}
+.swi .cnt{margin-left:auto;font-size:10.5px;color:var(--fg3)}
+.sw-sep{height:1px;background:var(--line);margin:9px 22px}
+.sw-tip{position:absolute;left:0;right:0;bottom:30px;text-align:center;font-size:10px;font-weight:700;
+  letter-spacing:.14em;color:var(--accent);opacity:0;transition:opacity var(--t-slow)}
+.card{position:absolute;inset:0;transform-origin:50% 50%;overflow:hidden;
+  transition:transform 500ms var(--e-push),border-radius 500ms var(--e-push),box-shadow 500ms var(--e-push)}
+.switcher.open .card{transform:translateX(50%) scale(.78);border-radius:26px;
+  box-shadow:0 26px 60px -12px rgba(0,0,0,.72);cursor:pointer}
+.switcher.open .swmenu{opacity:1}
+.switcher.open .sw-tip{opacity:.85;transition-delay:.28s}
+.switcher.open .swi{opacity:1;transform:none;
+  transition:opacity 460ms var(--e-out),transform 460ms var(--e-out),background var(--t-fast)}
+.switcher.open .swi:nth-child(1){transition-delay:60ms}
+.switcher.open .swi:nth-child(2){transition-delay:110ms}
+.switcher.open .swi:nth-child(3){transition-delay:160ms}
+.switcher.open .swi:nth-child(4){transition-delay:210ms}
+.switcher.open .swi:nth-child(5){transition-delay:260ms}
+.switcher.open .swi:nth-child(6){transition-delay:310ms}
+.switcher.open .swi:nth-child(7){transition-delay:360ms}
+.switcher.open .swi:nth-child(8){transition-delay:410ms}
+.switcher.open .card>*{pointer-events:none}
+
+/* ============================ APP SHELL ============================ */
+.app{position:absolute;inset:0;display:grid;grid-template-columns:auto 1fr;
+  grid-template-rows:auto auto 1fr auto;
+  grid-template-areas:"tabs tabs" "bar bar" "rail body" "rail foot";
+  background:var(--bg);color:var(--fg);font-size:13px}
+
+/* ---- tab strip ---- */
+.tabs{grid-area:tabs;display:flex;align-items:flex-end;gap:2px;height:36px;padding:5px 6px 0;
+  background:var(--sunken);border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{display:flex;align-items:center;gap:7px;height:31px;padding:0 7px 0 10px;border-radius:9px 9px 0 0;
+  background:transparent;color:var(--fg3);cursor:pointer;white-space:nowrap;max-width:180px;flex:none;
+  border:1px solid transparent;border-bottom:0;position:relative;
+  transition:background var(--t-fast),color var(--t-fast)}
+.tab svg{width:14px;height:14px;flex:none;transition:transform var(--t-mid) var(--e-out)}
+.tab b{font-weight:450;font-size:12px;overflow:hidden;text-overflow:ellipsis}
+.tab:hover{background:var(--hover);color:var(--fg2)}
+.tab:hover svg{transform:scale(1.12)}
+.tab.on{background:var(--bg);color:var(--fg);border-color:var(--line)}
+.tab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:var(--bg)}
+.tab .x{width:17px;height:17px;border-radius:5px;display:grid;place-items:center;opacity:0;
+  color:var(--fg3);font-size:13px;line-height:1;transition:opacity var(--t-fast),background var(--t-fast)}
+.tab:hover .x,.tab.on .x{opacity:1}
+.tab .x:hover{background:var(--high);color:var(--fg)}
+.tab-add{width:26px;height:26px;margin-bottom:3px;border-radius:7px;display:grid;place-items:center;
+  color:var(--fg3);cursor:pointer;flex:none;font-size:15px;
+  transition:background var(--t-fast),color var(--t-fast),transform var(--t-mid) var(--e-out)}
+.tab-add:hover{background:var(--hover);color:var(--accent);transform:rotate(90deg)}
+
+/* ---- bar ---- */
+.bar{grid-area:bar;position:relative;display:flex;align-items:center;gap:6px;height:44px;padding:0 7px;
+  border-bottom:1px solid var(--line);background:var(--surface)}
+.ibtn{appearance:none;border:0;background:transparent;color:var(--fg2);width:30px;height:30px;border-radius:8px;
+  display:grid;place-items:center;cursor:pointer;flex:none;
+  transition:background var(--t-fast),color var(--t-fast),transform .1s var(--e-out)}
+.ibtn:hover{background:var(--hover);color:var(--fg)}
+.ibtn:active{transform:scale(.9)}
+.ibtn.on{color:var(--accent);background:var(--sel)}
+.ibtn svg{width:17px;height:17px}
+
+/* ---- editable path bar ---- */
+.path{display:flex;align-items:center;gap:3px;height:30px;padding:0 4px 0 8px;flex:1;min-width:0;
+  background:var(--sunken);border:1px solid var(--line);border-radius:8px;cursor:text;
+  transition:border-color var(--t-fast),background var(--t-fast)}
+.path:hover{border-color:var(--fg3)}
+.path.edit{border-color:var(--accent);background:var(--bg)}
+.crumb{display:flex;align-items:center;gap:0;min-width:0;flex:1;overflow:hidden}
+.crumb span{color:var(--fg2);padding:2px 5px;border-radius:5px;white-space:nowrap;font-size:12px;
+  transition:background var(--t-fast),color var(--t-fast)}
+.crumb span:hover{background:var(--high);color:var(--fg)}
+.crumb span:last-of-type{color:var(--fg);font-weight:600}
+.crumb i{color:var(--fg3);font-style:normal;opacity:.5;font-size:11px}
+.path input{display:none;flex:1;min-width:0;background:transparent;border:0;outline:0;color:var(--fg);
+  font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;padding:2px 4px}
+.path.edit .crumb{display:none}
+.path.edit input{display:block}
+.path .pbtn{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--fg3);
+  cursor:pointer;flex:none;transition:background var(--t-fast),color var(--t-fast)}
+.path .pbtn:hover{background:var(--high);color:var(--accent)}
+.path .pbtn svg{width:14px;height:14px}
+
+/* ---- PER-PANE SEARCH — a search belongs to the pane that has a location ---- */
+.ph-s{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;color:var(--fg3);
+  cursor:pointer;flex:none;transition:background var(--t-fast),color var(--t-fast)}
+.ph-s:hover{background:var(--high);color:var(--accent)}
+.ph-s svg{width:14px;height:14px}
+.psearch{display:none;flex:1;align-items:center;gap:7px;min-width:0}
+.psearch>svg{width:14px;height:14px;color:var(--accent);flex:none}
+.psearch input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:var(--fg);
+  font:inherit;font-size:12px;padding:0}
+.psearch input::placeholder{color:var(--fg3)}
+.psearch .pn{font-size:10.5px;color:var(--fg3);font-family:"Cascadia Mono",Consolas,monospace;flex:none}
+.psearch .px{width:20px;height:20px;border-radius:5px;display:grid;place-items:center;color:var(--fg3);
+  cursor:pointer;flex:none;font-size:12px;transition:background var(--t-fast),color var(--t-fast)}
+.psearch .px:hover{background:var(--high);color:var(--fg)}
+.pane.searching .phead{background:var(--sel)}
+.pane.searching .phead .dot,.pane.searching .phead .p,
+.pane.searching .phead .mini,.pane.searching .ph-s{display:none}
+.pane.searching .psearch{display:flex}
+.scopes{display:none;gap:5px;padding:6px 8px;background:var(--surface);
+  border-bottom:1px solid var(--line-soft);flex:none;overflow-x:auto;scrollbar-width:none}
+.scopes::-webkit-scrollbar{display:none}
+.pane.searching .scopes{display:flex}
+.scopes span{font-size:10.5px;padding:3px 8px;border-radius:12px;cursor:pointer;white-space:nowrap;
+  border:1px solid var(--line);color:var(--fg2);transition:all var(--t-fast)}
+.scopes span:hover{border-color:var(--fg3);color:var(--fg)}
+.scopes span.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent);font-weight:600}
+.row.hidden{display:none !important}
+.nores{padding:22px 12px;text-align:center;color:var(--fg3);font-size:12px;display:none}
+.pane.noresults .nores{display:block}
+
+/* ---- VIEW POPOVER — the slider moved out of the bar ---- */
+.vpop{position:absolute;top:calc(100% + 5px);right:6px;z-index:30;width:236px;padding:12px 13px 13px;
+  background:var(--raised);border:1px solid var(--line);border-radius:13px;
+  box-shadow:0 16px 38px -14px rgba(0,0,0,.75);
+  opacity:0;transform:translateY(-8px) scale(.97);transform-origin:100% 0;pointer-events:none;
+  transition:opacity var(--t-mid) var(--e-out),transform var(--t-mid) var(--e-out)}
+.app.vpop-open .vpop{opacity:1;transform:none;pointer-events:auto}
+.vpop h6{margin:0 0 10px;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg3);
+  font-weight:600;display:flex;align-items:center}
+.vpop h6 b{margin-left:auto;color:var(--accent);font-size:11px;letter-spacing:0;text-transform:none;font-weight:600}
+.vrow{display:flex;align-items:center;gap:9px}
+.vrow svg{color:var(--fg3);flex:none}
+.vrow svg:first-child{width:13px;height:13px}
+.vrow svg:last-child{width:17px;height:17px}
+.vpop input[type=range]{appearance:none;flex:1;height:3px;border-radius:3px;background:var(--line);outline:0;cursor:pointer}
+.vpop input[type=range]::-webkit-slider-thumb{appearance:none;width:13px;height:13px;border-radius:50%;
+  background:var(--accent);border:2px solid var(--raised);cursor:grab;
+  transition:transform var(--t-mid) var(--e-out),box-shadow var(--t-mid)}
+.vpop input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.3);box-shadow:0 0 0 5px var(--accent-dim)}
+.vticks{display:flex;justify-content:space-between;padding:5px 20px 0}
+.vticks i{width:2px;height:4px;border-radius:1px;background:var(--line)}
+.vsort{margin-top:12px;padding-top:11px;border-top:1px solid var(--line)}
+.vseg{display:flex;gap:4px;margin-top:7px}
+.vseg span{flex:1;text-align:center;font-size:11.5px;padding:5px 0;border-radius:7px;cursor:pointer;
+  color:var(--fg2);border:1px solid var(--line);transition:all var(--t-fast)}
+.vseg span:hover{border-color:var(--fg3);color:var(--fg)}
+.vseg span.on{background:var(--sel);border-color:var(--accent);color:var(--accent);font-weight:600}
+
+/* ---- THE VIEW SCALE — every step drives type, icon, row and tile together ---- */
+/* ic/fs/rowh/tile drive the FILE LIST. ich/fsh/rowhh/tileh drive the HOME overview —
+   Home is always a list, so it follows a damped curve instead of the grid's jump to 56px. */
+.app{--ic:16px;--fs:13px;--fsm:10.5px;--fsc:10px;--rowh:34px;--tile:120px;
+     --ich:15px;--fsh:12.5px;--rowhh:32px;--tileh:210px}
+.app[data-view="1"]{--ic:14px;--fs:11.5px;--fsm:9.5px;--fsc:9px;--rowh:26px;
+     --ich:13px;--fsh:11.5px;--rowhh:27px;--tileh:186px}
+.app[data-view="2"]{--ic:16px;--fs:13px;--fsm:10.5px;--fsc:10px;--rowh:34px;
+     --ich:15px;--fsh:12.5px;--rowhh:32px;--tileh:210px}
+.app[data-view="3"]{--ic:21px;--fs:13.5px;--fsm:11px;--fsc:10.5px;--rowh:48px;
+     --ich:18px;--fsh:13.5px;--rowhh:38px;--tileh:228px}
+.app[data-view="4"]{--ic:30px;--fs:11.5px;--fsm:10px;--fsc:9.5px;--tile:92px;
+     --ich:20px;--fsh:14px;--rowhh:41px;--tileh:238px}
+.app[data-view="5"]{--ic:42px;--fs:13px;--fsm:11px;--fsc:10.5px;--tile:130px;
+     --ich:23px;--fsh:15.5px;--rowhh:47px;--tileh:256px}
+.app[data-view="6"]{--ic:56px;--fs:14.5px;--fsm:12px;--fsc:11.5px;--tile:174px;
+     --ich:27px;--fsh:17px;--rowhh:54px;--tileh:280px}
+
+/* ---- rail ---- */
+.rail{grid-area:rail;width:50px;background:var(--surface);border-right:1px solid var(--line);
+  padding:7px 0;display:flex;flex-direction:column;gap:1px;overflow:hidden}
+.rail .rgrp{font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--fg3);
+  padding:9px 12px 3px;display:none;white-space:nowrap}
+.ritem{display:flex;align-items:center;gap:11px;height:33px;margin:0 6px;padding:0 8px;border-radius:8px;
+  color:var(--fg2);cursor:pointer;white-space:nowrap;
+  transition:background var(--t-fast),color var(--t-fast)}
+.ritem svg{width:17px;height:17px;flex:none;transition:transform var(--t-mid) var(--e-out)}
+.ritem span{display:none;font-size:12.5px}
+.ritem:hover{background:var(--hover);color:var(--fg)}
+.ritem:hover svg{transform:translateX(2px) scale(1.08)}
+.ritem.on{background:var(--sel);color:var(--accent)}
+.ritem .badge{display:none;margin-left:auto;font-size:10px;background:var(--accent-dim);color:var(--accent);
+  border-radius:9px;padding:0 6px;line-height:16px}
+.rail .spacer{flex:1}
+
+/* ---- panes ---- */
+.body{grid-area:body;display:grid;grid-template-columns:1fr;min-width:0;min-height:0}
+.pane{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg);position:relative;
+  /* each pane is its own container: a 180dp pane lays its rows out like a 180dp screen,
+     which is what makes a lengthwise split on a phone usable instead of useless. */
+  container-type:inline-size;container-name:pane}
+.pane+.pane{border-left:1px solid var(--line)}
+.pane.b{display:none}
+.app[data-split="h"] .body{grid-template-columns:var(--sa,50%) 5px 1fr}
+.app[data-split="h"] .pane.b{display:flex}
+.app[data-split="v"] .body{grid-template-columns:1fr;grid-template-rows:var(--sa,50%) 5px 1fr}
+.app[data-split="v"] .pane.b{display:flex;border-left:0}
+/* ---- RESIZABLE SPLIT ---- */
+.divider{display:none;background:var(--line);position:relative;flex:none;
+  transition:background var(--t-fast)}
+.divider::after{content:"";position:absolute;inset:-5px;z-index:5}
+.divider::before{content:"";position:absolute;border-radius:3px;background:var(--fg3);
+  opacity:.32;transition:opacity var(--t-fast),background var(--t-fast)}
+.app[data-split="h"] .divider{display:block;cursor:col-resize}
+.app[data-split="h"] .divider::before{left:1px;right:1px;top:50%;height:26px;margin-top:-13px}
+.app[data-split="v"] .divider{display:block;cursor:row-resize}
+.app[data-split="v"] .divider::before{top:1px;bottom:1px;left:50%;width:26px;margin-left:-13px}
+.divider:hover,.divider.drag{background:var(--accent)}
+.divider:hover::before,.divider.drag::before{opacity:.55;background:var(--accent-fg)}
+.app.resizing{user-select:none}
+.app.resizing .pane{pointer-events:none}
+
+.pane.drop::after{content:"";position:absolute;inset:4px;border:2px dashed var(--accent);border-radius:10px;
+  background:var(--drop);opacity:.32;pointer-events:none;animation:pulse 1.1s infinite}
+@keyframes pulse{50%{opacity:.14}}
+
+.phead{display:flex;align-items:center;gap:6px;height:31px;padding:0 6px 0 10px;flex:none;
+  border-bottom:1px solid var(--line-soft);background:var(--surface);transition:background var(--t-mid)}
+.phead .p{font-family:"Cascadia Mono",Consolas,monospace;font-size:11px;color:var(--fg2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.pane.act .phead{background:var(--sel)}
+.pane.act .phead .p{color:var(--fg)}
+.phead .dot{width:5px;height:5px;border-radius:50%;background:var(--line);flex:none;transition:background var(--t-mid)}
+.pane.act .phead .dot{background:var(--accent)}
+.phead .mini{font-size:10px;color:var(--fg3);white-space:nowrap}
+
+.list{overflow:auto;flex:1;padding:3px 0 10px}
+.list::-webkit-scrollbar{width:9px}
+.list::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px;border:3px solid var(--bg)}
+.list::-webkit-scrollbar-thumb:hover{background:var(--fg3)}
+
+/* ---- LIST ROW (view 1-3) — everything sized from the view scale ---- */
+.row{display:grid;grid-template-columns:calc(var(--ic) + 7px) 1fr auto auto;align-items:center;gap:9px;
+  height:var(--rowh);padding:0 10px;cursor:pointer;border-left:2px solid transparent;
+  animation:rowIn .26s var(--e-out) both;
+  transition:background var(--t-fast),border-color var(--t-fast),transform .1s var(--e-out)}
+@keyframes rowIn{from{opacity:0;transform:translateY(-5px)}}
+.row:hover{background:var(--hover)}
+.row:hover .ic{transform:scale(1.14)}
+.row:active{transform:scale(.996)}
+.row.sel{background:var(--sel);border-left-color:var(--accent)}
+.row.drop{background:var(--drop);border-left-color:var(--accent);outline:1px solid var(--accent);outline-offset:-1px}
+.row.dragging{opacity:.35}
+.row .ic{width:var(--ic);height:var(--ic);color:var(--fg3);justify-self:center;
+  transition:transform var(--t-mid) var(--e-out),width var(--t-mid) var(--e-out),height var(--t-mid) var(--e-out)}
+.row.dir .ic{color:var(--accent)}
+.row .nm{display:flex;align-items:center;gap:7px;min-width:0;overflow:hidden;white-space:nowrap}
+.row .nm b{font-weight:450;font-size:var(--fs);color:var(--fg);overflow:hidden;text-overflow:ellipsis;
+  transition:font-size var(--t-mid) var(--e-out)}
+.row.dir .nm b{font-weight:600}
+.row .nm small{display:none;color:var(--fg3);font-size:var(--fsm)}
+.row .sz,.row .dt{font-family:"Cascadia Mono",Consolas,monospace;font-size:var(--fsm);color:var(--fg3);
+  white-space:nowrap;text-align:right;transition:font-size var(--t-mid) var(--e-out)}
+.row .dt{min-width:84px}.row .sz{min-width:56px}
+.app[data-view="3"] .row .nm{flex-direction:column;align-items:flex-start;gap:1px}
+.app[data-view="3"] .row .nm small{display:block}
+
+/* ---- GRID TILE (view 4-6) ---- */
+.app[data-view="4"] .list,.app[data-view="5"] .list,.app[data-view="6"] .list{
+  display:grid;gap:8px;padding:10px;align-content:start;
+  /* min() floors the tile against the pane, so a narrow pane still gets two columns
+     instead of one absurd tile — the failure mode at 360dp / Large icons. */
+  grid-template-columns:repeat(auto-fill,minmax(min(var(--tile),44%),1fr))}
+.app[data-view="4"] .row,.app[data-view="5"] .row,.app[data-view="6"] .row{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:auto;
+  aspect-ratio:1/.94;padding:12px 8px;border-radius:12px;border-left:0;background:var(--surface);
+  border:1px solid var(--line-soft);text-align:center;
+  transition:transform var(--t-mid) var(--e-out),box-shadow var(--t-mid),background var(--t-fast),border-color var(--t-fast)}
+.app[data-view="4"] .row:hover,.app[data-view="5"] .row:hover,.app[data-view="6"] .row:hover{
+  transform:translateY(-4px);box-shadow:0 10px 22px -10px rgba(0,0,0,.6);border-color:var(--fg3)}
+.app[data-view="4"] .row.sel,.app[data-view="5"] .row.sel,.app[data-view="6"] .row.sel{
+  background:var(--sel);border-color:var(--accent)}
+.app[data-view="4"] .row .nm,.app[data-view="5"] .row .nm,.app[data-view="6"] .row .nm{
+  flex-direction:column;gap:5px;white-space:normal;max-width:100%}
+.app[data-view="4"] .row .nm b,.app[data-view="5"] .row .nm b,.app[data-view="6"] .row .nm b{
+  line-height:1.28;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;word-break:normal;overflow-wrap:anywhere;hyphens:auto}
+.app[data-view="4"] .row .dt,.app[data-view="5"] .row .dt,.app[data-view="6"] .row .dt{display:none}
+.app[data-view="4"] .row .sz,.app[data-view="5"] .row .sz,.app[data-view="6"] .row .sz{min-width:0}
+.app[data-view="4"] .row .sz{display:none}
+/* folders have no meaningful size — don't print an em dash under every tile */
+.app[data-view="4"] .row.dir .sz,.app[data-view="5"] .row.dir .sz,.app[data-view="6"] .row.dir .sz{display:none}
+
+.chip{font-size:var(--fsc);line-height:1.5;padding:1px 5px;border-radius:4px;border:1px solid var(--line);
+  color:var(--fg2);flex:none;font-family:"Cascadia Mono",Consolas,monospace;
+  transition:filter var(--t-fast),font-size var(--t-mid) var(--e-out)}
+.chip:hover{filter:brightness(1.35)}
+.chip.src{border-color:var(--accent-dim);color:var(--accent);background:var(--accent-dim)}
+.chip.apk{border-color:var(--warn);color:var(--warn)}
+.chip.run{border-color:var(--good);color:var(--good)}
+
+/* ---- HOME / new-tab overview — scales on the damped home curve ---- */
+.home{overflow:auto;flex:1;padding:16px 16px 22px}
+.home::-webkit-scrollbar{width:9px}
+.home::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px;border:3px solid var(--bg)}
+.hsec{margin-bottom:20px;animation:rowIn .34s var(--e-out) both}
+.hsec:nth-child(2){animation-delay:.05s}.hsec:nth-child(3){animation-delay:.1s}.hsec:nth-child(4){animation-delay:.15s}
+.hsec h5{margin:0 0 9px;font-size:calc(var(--fsh) * .78);transition:font-size var(--t-mid) var(--e-out);letter-spacing:.1em;text-transform:uppercase;color:var(--fg3);
+  font-weight:600;display:flex;align-items:center;gap:7px}
+.hsec h5 .tr{border:1px solid var(--line);border-radius:4px;padding:0 5px;font-size:9px;
+  letter-spacing:.04em;color:var(--good);border-color:var(--good)}
+.drives{display:grid;gap:9px;grid-template-columns:repeat(auto-fill,minmax(min(var(--tileh),100%),1fr))}
+.drive{display:flex;gap:11px;padding:11px 12px;border:1px solid var(--line);border-radius:11px;
+  background:var(--surface);cursor:pointer;align-items:center;
+  transition:transform var(--t-mid) var(--e-out),border-color var(--t-fast),box-shadow var(--t-mid)}
+.drive:hover{transform:translateY(-3px);border-color:var(--accent);box-shadow:0 10px 22px -12px rgba(0,0,0,.6)}
+.drive svg{width:calc(var(--ich) * 1.7);height:calc(var(--ich) * 1.7);color:var(--fg3);flex:none;
+  transition:width var(--t-mid) var(--e-out),height var(--t-mid) var(--e-out)}
+.drive:hover svg{color:var(--accent)}
+.drive .d{flex:1;min-width:0}
+.drive .d b{display:block;font-size:var(--fsh);transition:font-size var(--t-mid) var(--e-out);font-weight:550;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.drive .d small{font-size:calc(var(--fsh) * .84);color:var(--fg3);font-family:"Cascadia Mono",Consolas,monospace}
+.cap{height:5px;border-radius:3px;background:var(--high);overflow:hidden;margin:6px 0 4px}
+.cap i{display:block;height:100%;border-radius:3px;background:var(--accent);width:0;
+  animation:capFill .75s var(--e-out) .2s both}
+.cap.hot i{background:var(--bad)}
+@keyframes capFill{to{width:var(--w)}}
+.hlist{display:flex;flex-direction:column;gap:1px}
+.hrow{display:grid;grid-template-columns:calc(var(--ich) + 6px) minmax(0,1fr) auto;gap:9px;align-items:center;height:var(--rowhh);
+  padding:0 8px;border-radius:8px;cursor:pointer;
+  transition:background var(--t-fast),transform .1s var(--e-out),height var(--t-mid) var(--e-out)}
+.hrow:hover{background:var(--hover)}
+.hrow:hover svg{transform:scale(1.14)}
+.hrow:active{transform:scale(.995)}
+.hrow svg{width:var(--ich);height:var(--ich);color:var(--fg3);justify-self:center;
+  transition:transform var(--t-mid) var(--e-out),width var(--t-mid) var(--e-out),height var(--t-mid) var(--e-out)}
+.hrow .n{display:flex;align-items:center;gap:7px;min-width:0;overflow:hidden;white-space:nowrap}
+.hrow .n b{flex:1 1 auto;min-width:0}
+.hrow .n small{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.hrow .n b{font-weight:450;font-size:var(--fsh);transition:font-size var(--t-mid) var(--e-out);overflow:hidden;text-overflow:ellipsis}
+.hrow .n small{color:var(--fg3);font-size:calc(var(--fsh) * .8);font-family:"Cascadia Mono",Consolas,monospace;flex:none}
+.hrow .w{font-size:calc(var(--fsh) * .84);color:var(--fg3);font-family:"Cascadia Mono",Consolas,monospace;white-space:nowrap}
+
+/* ============================================================
+   ABOUT — Trawl's AboutPage contract, Filet's palette.
+   Banner: radius 22, diagonal gradient surfaceHigh -> container -> surface,
+   1px glass border, 18px padding. Mark watermark 158px at BottomEnd,
+   offset +26/+34, rotate -12deg, alpha .07 -- bleeds off so it reads printed.
+   Glare: 2600ms sweep + 6400ms rest = 9s cycle, band 42% of the name.
+   Rule draws ONCE on arrival: 1100ms, 120ms delay.
+   ============================================================ */
+.about{overflow:auto;flex:1;padding:14px 16px 24px}
+.about::-webkit-scrollbar{width:9px}
+.about::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px;border:3px solid var(--bg)}
+.sig{position:relative;overflow:hidden;border-radius:22px;padding:18px;margin:6px 0 16px;
+  border:1px solid var(--line);
+  background:linear-gradient(135deg,var(--high) 0%,var(--raised) 46%,var(--surface) 100%)}
+.sig .wm{position:absolute;right:-26px;bottom:-34px;width:158px;height:158px;
+  transform:rotate(-12deg);opacity:.07;color:var(--accent);pointer-events:none}
+.sig .wm svg{width:100%;height:100%}
+.sig .eyebrow{display:flex;align-items:center;gap:8px;color:var(--fg2);
+  font-size:9.5px;letter-spacing:.22em;font-weight:700}
+.sig .eyebrow svg{width:19px;height:19px;color:var(--accent);flex:none}
+.sig .nm{font-family:Georgia,"Fraunces","Times New Roman",serif;font-size:37px;line-height:1.0;
+  font-weight:700;margin:9px 0 0;color:var(--accent);
+  background:linear-gradient(100deg,var(--accent) 0%,var(--accent) 34%,var(--fg) 50%,
+    var(--accent) 66%,var(--accent) 100%);
+  background-size:240% 100%;background-position:120% 0;
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  padding-right:.14em;margin-right:-.14em}
+.sig .rule{height:1px;background:var(--accent);opacity:.45;margin:13px 0 11px;
+  transform:scaleX(0);transform-origin:0 50%}
+.sig p{margin:0;color:var(--fg2);font-size:12px;line-height:1.55;max-width:44em}
+@media (prefers-reduced-motion: no-preference){
+  .sig .nm{animation:glare 9s var(--e-soft) infinite}
+  .sig .rule{animation:ruleIn 1.1s .12s var(--e-soft) forwards}
+}
+@media (prefers-reduced-motion: reduce){ .sig .rule{transform:none} }
+@keyframes glare{
+  0%{background-position:120% 0} 28.9%{background-position:-20% 0} 100%{background-position:-20% 0}}
+@keyframes ruleIn{to{transform:scaleX(1)}}
+.sig:hover .nm{animation-duration:2.6s}
+
+.alabel{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg3);
+  font-weight:700;margin:16px 4px 7px}
+.arow{display:grid;grid-template-columns:26px 1fr auto;gap:11px;align-items:center;
+  padding:9px 8px;border-radius:11px;cursor:pointer;
+  transition:background var(--t-fast),transform .1s var(--e-out)}
+.arow:hover{background:var(--hover)}
+.arow:hover svg:first-child{transform:scale(1.14)}
+.arow:active{transform:scale(.995)}
+.arow>svg:first-child{width:18px;height:18px;color:var(--fg3);justify-self:center;
+  transition:transform var(--t-mid) var(--e-out)}
+.arow .t{min-width:0}
+.arow .t b{display:block;font-weight:500;font-size:13px;color:var(--fg)}
+.arow .t small{display:block;font-size:11px;color:var(--fg3);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.arow .go{color:var(--fg3);font-size:14px}
+.credits{border:1px solid var(--line);border-radius:16px;padding:13px 14px;background:var(--surface)}
+.credits .c{display:grid;grid-template-columns:1fr auto;gap:10px;padding:5px 0;align-items:baseline}
+.credits .c+.c{border-top:1px solid var(--line-soft)}
+.credits .c b{font-weight:500;font-size:12.5px;color:var(--fg)}
+.credits .c small{display:block;color:var(--fg3);font-size:10.5px}
+.credits .c .lic{font-size:10px;color:var(--fg2);font-family:"Cascadia Mono",Consolas,monospace;
+  border:1px solid var(--line);border-radius:4px;padding:1px 5px;white-space:nowrap}
+
+/* ---- selection bar / bottom nav ---- */
+.foot{grid-area:foot;display:none;align-items:center;gap:3px;height:46px;padding:0 6px;
+  background:var(--raised);border-top:1px solid var(--line);animation:footIn .24s var(--e-out)}
+@keyframes footIn{from{transform:translateY(100%)}}
+.app.picking .foot{display:flex}
+.foot .cnt{font-size:12px;color:var(--fg);padding:0 8px;white-space:nowrap;font-weight:600}
+.foot .sp{flex:1}
+.fbtn{appearance:none;border:0;background:transparent;color:var(--fg2);cursor:pointer;display:flex;
+  flex-direction:column;align-items:center;gap:2px;padding:4px 9px;border-radius:8px;font:inherit;font-size:10px;
+  transition:background var(--t-fast),color var(--t-fast),transform .1s var(--e-out)}
+.fbtn svg{width:17px;height:17px}
+.fbtn:hover{background:var(--hover);color:var(--fg)}
+.fbtn:active{transform:scale(.9)}
+.fbtn.key{color:var(--accent)}
+.bnav{grid-area:foot;display:none;align-items:stretch;height:50px;background:var(--surface);border-top:1px solid var(--line)}
+.bnav a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  color:var(--fg3);font-size:10px;cursor:pointer;transition:color var(--t-fast)}
+.bnav a svg{width:18px;height:18px;transition:transform var(--t-mid) var(--e-out)}
+.bnav a:hover svg{transform:translateY(-2px) scale(1.1)}
+.bnav a.on{color:var(--accent)}
+
+/* ---- sheets ---- */
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:20;background:var(--raised);
+  border-top:1px solid var(--line);padding:9px 12px 12px;transform:translateY(105%);
+  box-shadow:0 -14px 34px -16px rgba(0,0,0,.8);transition:transform var(--t-slow) var(--e-out)}
+.app.jobs-open .jobs,.app.pick-open .chooser{transform:none}
+.sheet h4{margin:0 0 8px;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--fg3);
+  font-weight:600;display:flex;align-items:center;gap:8px}
+.sheet h4 .x{margin-left:auto;cursor:pointer;color:var(--fg3);transition:color var(--t-fast)}
+.sheet h4 .x:hover{color:var(--fg)}
+.job{display:grid;grid-template-columns:16px 1fr auto;gap:9px;align-items:center;padding:4px 0}
+.job svg{width:14px;height:14px;color:var(--fg3)}
+.job .t{min-width:0;overflow:hidden}
+.job .t b{display:block;font-weight:450;font-size:12px;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.job .t small{color:var(--fg3);font-size:10.5px;font-family:"Cascadia Mono",Consolas,monospace}
+.job .pc{font-size:11px;color:var(--accent);font-family:"Cascadia Mono",Consolas,monospace}
+.job .pc.ok{color:var(--good)}
+.bar-p{height:2px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:3px}
+.bar-p i{display:block;height:100%;background:var(--accent)}
+
+/* open-with chooser */
+.opt{display:grid;grid-template-columns:26px 1fr auto;gap:10px;align-items:center;padding:7px 6px;
+  border-radius:9px;cursor:pointer;transition:background var(--t-fast),transform .1s var(--e-out)}
+.opt:hover{background:var(--hover)}
+.opt:active{transform:scale(.995)}
+.opt.on{background:var(--sel)}
+.opt .ap{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;background:var(--high);color:var(--fg2)}
+.opt .ap svg{width:15px;height:15px}
+.opt .m{min-width:0}
+.opt .m b{display:block;font-size:12.5px;font-weight:500;color:var(--fg)}
+.opt .m small{display:block;font-size:9.5px;color:var(--fg3);font-family:"Cascadia Mono",Consolas,monospace;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.opt .tick{color:var(--accent);opacity:0;transition:opacity var(--t-fast)}
+.opt.on .tick{opacity:1}
+.opt .tick svg{width:15px;height:15px}
+.chooser .acts{display:flex;gap:8px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
+.abtn{flex:1;text-align:center;padding:8px;border-radius:9px;font-size:12px;cursor:pointer;
+  border:1px solid var(--line);color:var(--fg2);transition:all var(--t-fast)}
+.abtn:hover{border-color:var(--fg3);color:var(--fg)}
+.abtn.pri{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+.abtn.pri:hover{filter:brightness(1.1)}
+
+/* toast */
+.toast{position:absolute;left:50%;bottom:16px;transform:translate(-50%,16px);z-index:40;
+  background:var(--high);color:var(--fg);border:1px solid var(--line);border-radius:9px;
+  padding:7px 13px;font-size:12px;white-space:nowrap;opacity:0;pointer-events:none;
+  box-shadow:0 10px 26px -10px rgba(0,0,0,.7);transition:all var(--t-mid) var(--e-out)}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* drag ghost */
+.ghost{position:fixed;z-index:999;background:var(--accent);color:var(--accent-fg);border-radius:8px;
+  padding:5px 11px;font-size:12px;font-weight:600;pointer-events:none;opacity:0;
+  box-shadow:0 8px 20px -6px rgba(0,0,0,.6)}
+
+/* ============================================================
+   CONTAINER QUERIES — M3 window size classes
+   ============================================================ */
+@container screen (max-width: 599px){
+  .app{grid-template-columns:1fr;grid-template-areas:"tabs" "bar" "body" "foot"}
+  .rail{display:none}
+  .bnav{display:flex}
+  .app.picking .bnav{display:none}
+  .search{display:none}
+  .row{height:calc(var(--rowh) + 4px)}
+  /* split stays LENGTHWISE on a phone — two narrow columns, not stacked halves.
+     The pane container queries below make 180dp panes actually work. */
+}
+@container screen (min-width: 600px){ .bnav{display:none} }
+@container screen (min-width: 840px){
+  .rail{width:182px}
+  .rail .rgrp{display:block}
+  .ritem span,.ritem .badge{display:block}
+}
+@container screen (min-width: 1180px){
+  .row .sz{min-width:72px}.row .dt{min-width:112px}
+}
+@container screen (max-height: 480px){
+  .bar{height:38px}.tabs{height:30px}.tab{height:26px}
+  .row{height:30px}.bnav{height:42px}.phead{height:26px}
+  .home{padding:10px}
+  .hsec{margin-bottom:12px}
+}
+@container screen (min-width: 700px) and (max-height: 480px){
+  .app{grid-template-columns:auto 1fr;grid-template-areas:"tabs tabs" "bar bar" "rail body" "rail foot"}
+  .rail{display:flex;width:44px}
+  .bnav{display:none}.search{display:flex;width:150px}.phead{display:flex}
+}
+@container screen (max-width: 340px){
+  .row{grid-template-columns:20px 1fr auto;gap:7px;padding:0 7px}
+  .row .sz{min-width:48px}
+  .crumb span{padding:2px 3px;font-size:11px}
+}
+
+/* ---- PANE-level queries: a narrow pane sheds columns before it sheds legibility ---- */
+/* A narrow pane overrides the slider. Six view steps need room the pane does not have,
+   so it clamps to one scale that fits and the slider stops mattering below this width. */
+@container pane (max-width: 270px){
+  .pane{--ic:19px;--fs:12px;--fsm:9.5px;--fsc:9px;--rowh:34px;--tile:76px;
+        --ich:16px;--fsh:12px;--rowhh:33px;--tileh:150px}
+  .home{padding:11px 10px 16px}
+  .hsec{margin-bottom:14px}
+  .drive{padding:9px 10px;gap:8px}
+  .drive .d small{font-size:9.5px;line-height:1.35}
+}
+@container pane (max-width: 240px){
+  /* the name gets the width; the timestamp moves under it rather than competing */
+  .hrow{grid-template-columns:calc(var(--ich) + 6px) minmax(0,1fr);
+        grid-template-rows:auto auto;height:auto;padding:6px 8px;row-gap:0}
+  .hrow svg{grid-row:1/3;align-self:center}
+  .hrow .w{grid-column:2;text-align:left;font-size:calc(var(--fsh) * .78);opacity:.8}
+  .app[data-view="4"] .row .nm b,.app[data-view="5"] .row .nm b,
+  .app[data-view="6"] .row .nm b{-webkit-line-clamp:3}
+}
+@container pane (max-width: 200px){
+  .pane{--ic:17px;--fs:11.5px;--tile:64px;--ich:15px;--fsh:11.5px}
+  .drive{flex-direction:column;align-items:flex-start;gap:6px}
+  .hrow .n small{display:none}
+}
+@container pane (max-width: 330px){ .row .dt{display:none} }
+@container pane (max-width: 240px){
+  .row{grid-template-columns:calc(var(--ic) + 6px) 1fr auto;gap:7px;padding:0 7px}
+  .row .sz{min-width:0;font-size:calc(var(--fsm) * .92)}
+  .phead .mini{display:none}
+}
+@container pane (max-width: 180px){
+  .row .sz{display:none}
+  .row .chip{display:none}
+}
+
+/* milestone filter */
+body[data-m="1"] [data-m="2"],body[data-m="1"] [data-m="4"],body[data-m="1"] [data-m="6"],body[data-m="1"] [data-m="7"],
+body[data-m="2"] [data-m="4"],body[data-m="2"] [data-m="6"],body[data-m="2"] [data-m="7"],
+body[data-m="4"] [data-m="6"],body[data-m="4"] [data-m="7"],
+body[data-m="6"] [data-m="7"]{display:none !important}
+
+/* TEMPLATE.md rule 2 — respect reduced motion */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;animation-delay:0 !important;
+    transition-duration:.001ms !important}
+}
+
+/* ============================ LOG ============================ */
+.log{margin:34px 20px 60px;max-width:1000px;color:#8A867F;font-size:13px;line-height:1.6}
+.log h3{color:#D6D2CB;font-size:14px;margin:26px 0 8px}
+.log h3:first-child{margin-top:0}
+.log ul{margin:6px 0;padding-left:19px}.log li{margin:3px 0}
+.log code{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;background:#1C1C1A;
+  border:1px solid #2A2926;border-radius:4px;padding:1px 5px;color:#B5B1A9}
+.log .q{border-left:2px solid #3A3934;padding-left:13px;color:#79756E;margin:10px 0}
+</style>
+</head>
+<body data-m="all">
+
+<svg style="display:none"><defs>
+<symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+<symbol id="i-apk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 15V9l3 4 3-4v6"/></symbol>
+<symbol id="i-zip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M11 6h2M11 9h2M11 12h2M11 15h2"/></symbol>
+<symbol id="i-audio" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></symbol>
+<symbol id="i-img" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m4 17 5-5 4 4 3-3 4 4"/></symbol>
+<symbol id="i-vid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/></symbol>
+<symbol id="i-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m9 8-4 4 4 4M15 8l4 4-4 4"/></symbol>
+<symbol id="i-dex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 7v10l8 4 8-4V7z"/><path d="M4 7l8 4 8-4M12 21V11"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+<symbol id="i-more" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></symbol>
+<symbol id="i-panes" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/></symbol>
+<symbol id="i-panesv" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 12h18"/></symbol>
+<symbol id="i-storage" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+<symbol id="i-sd" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M10 3v4M13 3v4M16 4v3"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+<symbol id="i-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m12 4 2.4 5 5.6.8-4 3.9 1 5.5-5-2.7-5 2.7 1-5.5-4-3.9 5.6-.8z"/></symbol>
+<symbol id="i-jobs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 18V9M9.5 18V5M15 18v-6M20.5 18v-9"/></symbol>
+<symbol id="i-script" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h9l4 4v12H6z"/><path d="m10 12 2 2-2 2M13.5 16h2.5"/></symbol>
+<symbol id="i-cog" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"/></symbol>
+<symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 6 3 3H7l3-3z"/><path d="M12 13v7"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></symbol>
+<symbol id="i-move" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16M4 12h16M12 4 9 7M12 4l3 3M12 20l-3-3M12 20l3-3M4 12l3-3M4 12l3 3M20 12l-3-3M20 12l-3 3"/></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 7h14M10 7V5h4v2M6.5 7l1 13h9l1-13"/></symbol>
+<symbol id="i-dl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M8 11l4 4 4-4M5 20h14"/></symbol>
+<symbol id="i-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="m14 6 4 4"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></symbol>
+<symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m4 11 8-7 8 7v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/></symbol>
+<symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="6.5" height="6.5" rx="1.4"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.4"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.4"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.4"/></symbol>
+<symbol id="i-rows" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8v.01"/></symbol>
+<symbol id="i-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18V6l12 12V6"/><path d="M4.5 20.4c5-1.6 11-2.2 15 .2"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m7 4 13 8-13 8z"/></symbol>
+</defs></svg>
+
+<div class="ctl">
+  <div class="brand">Filet <small>UI mock · round 2</small></div>
+  <div class="grp"><label>Theme</label><div class="seg" id="theme">
+    <button data-v="slate" aria-pressed="true">Slate</button><button data-v="ember">Ember</button><button data-v="paper">Paper</button></div></div>
+  <div class="grp"><label>View</label><div class="seg" id="view">
+    <button data-v="gallery" aria-pressed="true">All devices</button><button data-v="focus">One device</button></div></div>
+  <div class="grp"><label>Device</label><select class="sel" id="device"></select></div>
+  <div class="grp"><label>Milestone</label><select class="sel" id="mile">
+    <option value="all">Full target</option><option value="1">M1</option><option value="2">M2</option>
+    <option value="4">M4</option><option value="6">M6</option></select></div>
+  <div class="hint">☰ opens the Trawl switcher · ⌕ in a pane header searches THAT pane · click the path to edit it · drag between panes</div>
+</div>
+
+<div id="stage" class="gallery"></div>
+<div class="ghost" id="ghost"></div>
+
+<div class="log">
+  <h3>Round 5 — 2026-09-13</h3>
+  <ul>
+    <li><b>The split divider drags.</b> Grab it to resize, double-click to reset to 50/50, and the
+      fraction persists. It works in both orientations and is clamped so neither pane can go under
+      132 logical px — below that a pane stops being a pane. The maths uses <i>fractions</i> of the
+      body rect, which is scale-independent, so it behaves identically in every scaled device frame.</li>
+    <li>The grip is <b>always faintly visible</b> (32%), not hover-only. A drag handle nobody can see
+      is not a drag handle — and on touch there is no hover to reveal it.</li>
+    <li><b>About page</b>, from Trawl's <code>AboutPage.kt</code>, restyled to Slate. The Signature
+      Banner keeps Trawl's contract exactly: radius 22, diagonal
+      <code>surfaceHigh → container → surface</code> gradient, 1px glass border, and the mark as a
+      <b>158px watermark rotated -12° at 7% opacity, bleeding off the bottom-right</b> so the panel
+      reads as printed rather than assembled. The name carries the glare sweep — 2.6 s streak,
+      6.4 s rest, 9 s cycle, band at 42% of the name — and hovering it speeds the cycle up. The rule
+      under it draws <b>once</b> on arrival (1100 ms, 120 ms delay), not on every glare loop; that was
+      a bug worth not repeating.</li>
+    <li>Sections follow Trawl's shape: Project (source · licence · Trawl) → <b>Built on</b> credit card
+      with per-dependency licences → Version. Filet is greenfield, so "Built on" credits the
+      dependency stack rather than an upstream fork.</li>
+  </ul>
+
+  <h3>Round 4 — 2026-09-13</h3>
+  <ul>
+    <li><b>Search is per pane, not global.</b> One search field in the top bar was ambiguous the
+      moment a second pane or a second tab existed — it never said what it was searching. The field
+      is gone from the bar; every pane header now carries its own ⌕. <b>A pane is the thing that has
+      a location, so a pane is the thing that owns a search.</b> Two panes ⇒ two independent searches,
+      each showing its own hit count; every tab keeps its own.</li>
+    <li><b>Scope is explicit</b>, not guessed: <i>This folder · Subfolders · Whole device · Provenance</i>.
+      The second ambiguity after "which pane" is "how far", and it should never be implicit.</li>
+    <li>The pane header is now visible at every width — it carries the search, so it can no longer be
+      the first thing dropped on a phone.</li>
+    <li><b><code>SEARCH.md</code> written</b> — the full index model: bundled SQLite + FTS5 trigram,
+      <code>parent_id</code> tree, NIO/JNI crawl, and the four-layer freshness stack. Headline rule:
+      <i>the index is a candidate generator, the filesystem is the truth</i> — nothing is painted
+      without a stat confirming it, so a dead file cannot reach the screen.</li>
+  </ul>
+
+  <h3>Round 3 — 2026-09-11 / 13</h3>
+  <ul>
+    <li><b>The slider left the toolbar.</b> It crowded the bar and was unreadable on a phone. It now
+      lives in a <b>View popover</b> behind one ⊞ button — slider, live step name, tick marks, and Sort
+      (Name / Date / Size) in the same panel. Bar is back to: menu · path · search · view · split · more.</li>
+    <li><b>The whole view scales, not just the icon.</b> Each step drives one variable set —
+      <code>--ic</code> icon, <code>--fs</code> name, <code>--fsm</code> metadata, <code>--fsc</code> chips,
+      <code>--rowh</code> row height, <code>--tile</code> tile width — so text, chips and icons grow together
+      and the change animates.</li>
+    <li><b>The Home overview scales too</b>, on its own damped curve
+      (<code>--ich / --fsh / --rowhh / --tileh</code>). Home is always a list, so it must not follow the
+      grid's jump to a 56px icon. Storage cards, tracked-download rows and timestamps all move with it.</li>
+    <li><b>Split is LENGTHWISE at every width</b> — two narrow columns on a phone, the MT Manager layout,
+      not stacked halves. Stacked is still available as an explicit third state on the split button.</li>
+    <li><b>Each pane is its own CSS container.</b> A 180dp pane now lays its rows out like a 180dp screen:
+      it sheds the date column at 330px, the size column and chips at 180px, and below 270px it
+      <i>overrides the slider entirely</i> — six view steps need room a narrow pane does not have.</li>
+    <li>Narrow-pane fixes found by screenshot: home rows put the timestamp on its own line instead of
+      competing with the filename; drive cards stack; tile labels break at <code>.</code> and <code>-</code>
+      via <code>&lt;wbr&gt;</code> instead of snapping <code>classes.dex</code> into <code>classes.de / x</code>.</li>
+    <li>Folder tiles no longer print a bare <code>—</code> where a size would be.</li>
+  </ul>
+
+  <h3>Round 2 — 2026-09-10</h3>
+  <ul>
+    <li><b>Tabs.</b> Explorer-style, persisted to <code>localStorage</code> (stand-in for the real config).
+      New tab always opens the <b>Home overview</b>. Pinned shortcuts open as a new tab.</li>
+    <li><b>Home overview.</b> Storage with capacity bars, then <b>Recent</b>, <b>New downloads</b> and
+      <b>Recently edited</b> — the last two fed by <i>tracked folders</i> (Download is tracked by default),
+      which is the same provenance/watcher machinery from PLAN §5.1, surfaced as a landing page.</li>
+    <li><b>View slider.</b> Six steps: compact list → list → comfortable (2-line) → small / medium / large grid.
+      Explorer's slider, one control.</li>
+    <li><b>Split is manual now</b>, not just automatic. The panes button cycles
+      <code>single → side-by-side → stacked</code>, at any width. Compact widths force side-by-side to stack,
+      because two 180dp panes are useless.</li>
+    <li><b>Drag &amp; drop</b> works — drag a row onto a folder row or the other pane. Drop targets pulse,
+      a ghost follows the cursor, and the toast reports the move.</li>
+    <li><b>Double-click</b> opens with the registered default. No default ⇒ the chooser sheet, listing
+      real <b>activity names</b> (<code>…/.MusicActivity</code>) with <i>Just once</i> / <i>Always</i>.
+      Choosing Always writes the handler registry (PLAN L2) and the next double-click skips the sheet.</li>
+    <li><b>Editable path bar.</b> Click it → the breadcrumb becomes the raw path, selected. Type, Enter navigates,
+      Esc cancels. The copy button copies the path.</li>
+    <li><b>The Trawl switcher.</b> ☰ pushes the whole app card away —
+      <code>translateX(50%) scale(.78)</code>, radius 26, 500ms on <code>cubic-bezier(.5,.05,.15,1)</code>,
+      menu rows in from -30px at 460ms / 50ms stagger / 60ms first delay on
+      <code>cubic-bezier(.2,.85,.3,1)</code>. Values read straight out of
+      <code>TrawlSwitcher.kt</code>, not eyeballed. <b>No 3D rotation</b> — upstream rejected it and the comment
+      says why. Tap the shrunken card to come back.</li>
+    <li><b>Motion pass.</b> Rows stagger in, icons scale on hover, tiles lift, buttons dip on press,
+      the + rotates, capacity bars fill, sheets slide, drop targets pulse. All of it dies under
+      <code>prefers-reduced-motion</code>, per TEMPLATE.md rule 2.</li>
+  </ul>
+  <h3>Round 1</h3>
+  <ul>
+    <li>Slate/Ember/Paper themes · 10 device frames as CSS containers · dual pane at 840dp ·
+      landscape-phone override · source chips · jobs ledger · APK-as-directory in pane B ·
+      milestone filter enforcing R1.</li>
+  </ul>
+  <h3>Still open</h3>
+  <ul>
+    <li>Row density default — slider sits at 2; is that the right resting place?</li>
+    <li>Accent colour still a guess. Sage/clay are one line.</li>
+    <li>Real thumbnails in grid view (images/video) — currently type icons.</li>
+    <li>Signet onboarding + updater + About — separate mock or more tabs here?</li>
+  </ul>
+</div>
+
+<script>
+/* ===================== data ===================== */
+const DEVICES=[
+ {n:"Small phone",m:"320×640",w:320,h:640,c:"compact"},
+ {n:"Phone",m:"360×800",w:360,h:800,c:"compact"},
+ {n:"Phone L",m:"412×915",w:412,h:915,c:"compact"},
+ {n:"Foldable · closed",m:"344×882",w:344,h:882,c:"compact"},
+ {n:"Phone · landscape",m:"915×412",w:915,h:412,c:"expanded"},
+ {n:"Foldable · open",m:"674×841",w:674,h:841,c:"medium"},
+ {n:"Tablet 7\"",m:"600×960",w:600,h:960,c:"medium"},
+ {n:"Tablet 10\" · port",m:"800×1280",w:800,h:1280,c:"medium"},
+ {n:"Tablet 10\" · land",m:"1280×800",w:1280,h:800,c:"expanded"},
+ {n:"Desktop / DeX",m:"1920×1080",w:1920,h:1080,c:"expanded"}];
+
+const VIEW_NAMES=["","Compact list","List","Detailed","Small icons","Medium icons","Large icons"];
+const IC={dir:"i-folder",file:"i-file",apk:"i-apk",zip:"i-zip",audio:"i-audio",img:"i-img",
+  code:"i-code",dex:"i-dex",vid:"i-vid"};
+
+const DIRS={
+ home:{title:"Home",icon:"i-home",path:"filet://home",home:true},
+ about:{title:"About",icon:"i-info",path:"filet://about",about:true},
+ root:{title:"Internal",icon:"i-storage",path:"/storage/emulated/0",items:[
+  {t:"dir",n:"Android",sz:"—",d:"2026-08-04",sub:"system"},
+  {t:"dir",n:"DCIM",sz:"—",d:"2026-09-08",sub:"1,204 items"},
+  {t:"dir",n:"Documents",sz:"—",d:"2026-09-02",sub:"38 items"},
+  {t:"dir",n:"Download",sz:"—",d:"2026-09-10",sub:"tracked · 91 items"},
+  {t:"dir",n:"Music",sz:"—",d:"2026-09-09",sub:"210 items"},
+  {t:"dir",n:"Trawl",sz:"—",d:"2026-09-10",sub:"tracked",chips:[["src","▸ trawl",7]]},
+  {t:"zip",n:"backup-2026-09-01.zip",sz:"482 MB",d:"2026-09-01",sub:"zip archive",chips:[["","browse",1]]},
+  {t:"apk",n:"filet-v0.1.0.apk",sz:"14.2 MB",d:"2026-09-10",sub:"android package",chips:[["apk","v1 v2 v3",6]]},
+  {t:"code",n:"tag-and-file.lua",sz:"1.4 KB",d:"2026-09-06",sub:"lua script",chips:[["run","run",5]]},
+  {t:"file",n:"lecture-notes-ece.pdf",sz:"3.1 MB",d:"2026-09-05",sub:"pdf document"},
+  {t:"img",n:"schematic-rev3.png",sz:"842 KB",d:"2026-08-28",sub:"png image"}]},
+ dl:{title:"Download",icon:"i-dl",path:"/storage/emulated/0/Download",items:[
+  {t:"audio",n:"Never Gonna Give You Up.opus",sz:"3.8 MB",d:"2026-09-10",sub:"opus audio",chips:[["src","▸ youtube",7]]},
+  {t:"audio",n:"lecture-04-signals.m4a",sz:"22.6 MB",d:"2026-09-09",sub:"m4a audio",chips:[["src","▸ drive",7]]},
+  {t:"vid",n:"domus-demo-clip.mp4",sz:"58.3 MB",d:"2026-09-09",sub:"mp4 video",chips:[["src","▸ trawl",7]]},
+  {t:"apk",n:"MP-Manager-1.4.apk",sz:"31.7 MB",d:"2026-09-08",sub:"android package",chips:[["apk","v2 v3",6]]},
+  {t:"zip",n:"ARSCLib-sources.zip",sz:"6.9 MB",d:"2026-09-07",sub:"zip archive",chips:[["","browse",1]]},
+  {t:"img",n:"bench-photo-01.jpg",sz:"2.4 MB",d:"2026-09-06",sub:"jpeg image"},
+  {t:"file",n:"RA9292.pdf",sz:"780 KB",d:"2026-09-04",sub:"pdf document"},
+  {t:"file",n:"notes.txt",sz:"1.1 KB",d:"2026-09-03",sub:"plain text"}]},
+ apk:{title:"filet-v0.1.0.apk",icon:"i-apk",path:"apk:///storage/emulated/0/filet-v0.1.0.apk",items:[
+  {t:"dir",n:"META-INF",sz:"—",d:"2026-09-10",sub:"signatures"},
+  {t:"dir",n:"res",sz:"—",d:"2026-09-10",sub:"resources"},
+  {t:"dir",n:"lib",sz:"—",d:"2026-09-10",sub:"native libs"},
+  {t:"dex",n:"classes.dex",sz:"4.9 MB",d:"2026-09-10",sub:"dalvik executable",chips:[["","2,481 classes",6]]},
+  {t:"dex",n:"classes2.dex",sz:"2.1 MB",d:"2026-09-10",sub:"dalvik executable",chips:[["","1,090 classes",6]]},
+  {t:"code",n:"AndroidManifest.xml",sz:"9.4 KB",d:"2026-09-10",sub:"binary xml",chips:[["","AXML",6]]},
+  {t:"file",n:"resources.arsc",sz:"1.3 MB",d:"2026-09-10",sub:"resource table",chips:[["","ARSC",6]]}]}};
+
+const APPS={audio:[["Musicolet","com.musicolet/.player.MusicActivity","i-audio"],
+                   ["Filet · media","io.github.uukjtisa.filet/.handler.MediaActivity","i-play"],
+                   ["VLC","org.videolan.vlc/.gui.video.VideoPlayerActivity","i-vid"]],
+            def:[["Filet · text editor","io.github.uukjtisa.filet/.handler.EditorActivity","i-code"],
+                 ["Filet · hex","io.github.uukjtisa.filet/.handler.HexActivity","i-code"],
+                 ["Google Drive","com.google.android.apps.docs/.OpenUrlActivity","i-file"]]};
+const DEFAULTS={};   /* handler registry — filled by "Always" */
+
+/* ===================== markup ===================== */
+/* Tile labels wrap at tile width. Browsers offer no break opportunity at "." or "-",
+   so "classes.dex" snaps to "classes.de / x". <wbr> supplies the break points; list
+   views are white-space:nowrap so they ignore them. */
+const wbr=n=>n.replace(/([._-])/g,"$1<wbr>");
+
+function rowsHTML(key){
+  const d=DIRS[key]; if(!d.items) return "";
+  return d.items.map((f,i)=>{
+    const chips=(f.chips||[]).map(([c,t,m])=>`<span class="chip ${c}"${m?` data-m="${m}"`:""}>${t}</span>`).join("");
+    return `<div class="row ${f.t==="dir"?"dir":""}" draggable="true" data-i="${i}" data-t="${f.t}" data-n="${f.n}"
+      style="animation-delay:${Math.min(i*16,220)}ms">
+      <svg class="ic"><use href="#${IC[f.t]||"i-file"}"/></svg>
+      <span class="nm"><b>${wbr(f.n)}</b>${chips}<small>${f.sub||""}</small></span>
+      <span class="sz">${f.sz}</span><span class="dt">${f.d}</span></div>`;}).join("");
+}
+
+function homeHTML(){return `<div class="home">
+  <div class="hsec"><h5>Storage</h5><div class="drives">
+    <div class="drive" data-go="root"><svg><use href="#i-storage"/></svg><div class="d">
+      <b>Internal storage</b><div class="cap hot"><i style="--w:82%"></i></div>
+      <small>21.4 GB free of 118 GB</small></div></div>
+    <div class="drive"><svg><use href="#i-sd"/></svg><div class="d">
+      <b>SD card</b><div class="cap"><i style="--w:38%"></i></div>
+      <small>142 GB free of 232 GB</small></div></div>
+  </div></div>
+
+  <div class="hsec"><h5>New downloads <span class="tr">tracked</span></h5><div class="hlist">
+    <div class="hrow"><svg><use href="#i-audio"/></svg><span class="n"><b>Never Gonna Give You Up.opus</b>
+      <small data-m="7">▸ youtube</small></span><span class="w">2 min ago</span></div>
+    <div class="hrow"><svg><use href="#i-vid"/></svg><span class="n"><b>domus-demo-clip.mp4</b>
+      <small data-m="7">▸ trawl</small></span><span class="w">1 h ago</span></div>
+    <div class="hrow"><svg><use href="#i-apk"/></svg><span class="n"><b>MP-Manager-1.4.apk</b>
+      <small data-m="7">▸ github</small></span><span class="w">yesterday</span></div>
+  </div></div>
+
+  <div class="hsec"><h5>Recently edited <span class="tr">tracked</span></h5><div class="hlist">
+    <div class="hrow"><svg><use href="#i-code"/></svg><span class="n"><b>tag-and-file.lua</b>
+      <small>/Internal</small></span><span class="w">18 min ago</span></div>
+    <div class="hrow"><svg><use href="#i-file"/></svg><span class="n"><b>notes.txt</b>
+      <small>/Download</small></span><span class="w">3 h ago</span></div>
+  </div></div>
+
+  <div class="hsec"><h5>Recent</h5><div class="hlist">
+    <div class="hrow" data-go="apk"><svg><use href="#i-apk"/></svg><span class="n"><b>filet-v0.1.0.apk</b>
+      <small>opened as folder</small></span><span class="w">just now</span></div>
+    <div class="hrow" data-go="dl"><svg><use href="#i-folder"/></svg><span class="n"><b>Download</b>
+      <small>/storage/emulated/0</small></span><span class="w">10 min ago</span></div>
+    <div class="hrow"><svg><use href="#i-img"/></svg><span class="n"><b>schematic-rev3.png</b>
+      <small>/Internal</small></span><span class="w">yesterday</span></div>
+  </div></div></div>`;}
+
+/* Trawl's AboutPage, restyled. Name shown is the HANDLE — public surfaces carry
+   niccc2007, never the legal name. */
+function aboutHTML(){return `<div class="about">
+  <div class="sig">
+    <span class="wm"><svg><use href="#i-mark"/></svg></span>
+    <div class="eyebrow"><svg><use href="#i-mark"/></svg>BUILT BY</div>
+    <div class="nm">niccc2007</div>
+    <div class="rule"></div>
+    <p>A file manager for people who want to do real work on their phone without a PC.
+       Open source, GPL-3.0, no ads, no accounts, no telemetry.</p>
+  </div>
+
+  <div class="alabel">Project</div>
+  <div class="arow"><svg><use href="#i-code"/></svg><div class="t"><b>Source</b>
+    <small>github.com/uukjtisa/filet</small></div><span class="go">↗</span></div>
+  <div class="arow"><svg><use href="#i-file"/></svg><div class="t"><b>Licence</b>
+    <small>GNU General Public License v3.0</small></div><span class="go">↗</span></div>
+  <div class="arow"><svg><use href="#i-dl"/></svg><div class="t"><b>Trawl</b>
+    <small>The companion downloader — installed</small></div><span class="go">↗</span></div>
+
+  <div class="alabel">Built on</div>
+  <div class="credits">
+    <div class="c"><div><b>ARSCLib</b><small>resources.arsc + AXML, no aapt2</small></div><span class="lic">Apache-2.0</span></div>
+    <div class="c"><div><b>smali / dexlib2</b><small>dex ↔ smali</small></div><span class="lic">Apache-2.0</span></div>
+    <div class="c"><div><b>apksig</b><small>v1–v4 signing</small></div><span class="lic">Apache-2.0</span></div>
+    <div class="c"><div><b>sora-editor</b><small>code editor, TextMate + tree-sitter</small></div><span class="lic">LGPL-2.1</span></div>
+    <div class="c"><div><b>LuaJ</b><small>script runtime</small></div><span class="lic">BSD</span></div>
+  </div>
+
+  <div class="alabel">Version</div>
+  <div class="arow"><svg><use href="#i-cog"/></svg><div class="t"><b>v0.1.0 · niccc2007</b>
+    <small>Check for updates</small></div><span class="go">↗</span></div>
+</div>`;}
+
+function crumbHTML(key){
+  const p=DIRS[key].path;
+  if(DIRS[key].home) return `<span>Home</span>`;
+  if(DIRS[key].about) return `<span>About</span>`;
+  const parts=p.replace(/^[a-z]+:\/\//,"").split("/").filter(Boolean);
+  return parts.map((s,i)=>`${i?'<i>/</i>':'<i>/</i>'}<span>${s}</span>`).join("");
+}
+
+function paneHTML(key,cls){
+  const d=DIRS[key];
+  return `<section class="pane ${cls}" data-dir="${key}">
+    <div class="phead"><span class="dot"></span><span class="p">${d.path}</span>
+      <span class="mini">${d.items?d.items.length+" items":(d.about?"about":"overview")}</span>
+      <div class="psearch"><svg><use href="#i-search"/></svg>
+        <input placeholder="search ${d.title} — or from:youtube" spellcheck="false">
+        <span class="pn"></span><span class="px">✕</span></div>
+      <span class="ph-s"><svg><use href="#i-search"/></svg></span></div>
+    <div class="scopes"><span class="on">This folder</span><span>Subfolders</span>
+      <span data-m="3">Whole device</span><span data-m="7">Provenance</span></div>
+    ${d.home?homeHTML():d.about?aboutHTML():`<div class="list">${rowsHTML(key)}</div>`}
+    <div class="nores">No match in this folder.<br>Try <b>Subfolders</b> or <b>Whole device</b>.</div>
+  </section>`;
+}
+
+function tabsHTML(tabs,active){
+  return tabs.map((k,i)=>`<div class="tab ${i===active?"on":""}" data-tab="${i}">
+    <svg><use href="#${DIRS[k].icon}"/></svg><b>${DIRS[k].title}</b><span class="x">✕</span></div>`).join("")
+    +`<div class="tab-add">+</div>`;
+}
+
+function app(state){
+ const cur=state.tabs[state.active];
+ return `<div class="switcher"><div class="swmenu">
+   <div class="sw-brand"><span class="mk">N</span><span><b>Filet</b><small>0.1.0 · internal</small></span></div>
+   <div class="swi on"><svg><use href="#i-storage"/></svg><span>Internal storage</span><span class="cnt">118 GB</span></div>
+   <div class="swi"><svg><use href="#i-sd"/></svg><span>SD card</span><span class="cnt">232 GB</span></div>
+   <div class="swi"><svg><use href="#i-clock"/></svg><span>Recent</span></div>
+   <div class="swi"><svg><use href="#i-star"/></svg><span>Bookmarks</span><span class="cnt">6</span></div>
+   <div class="swi" data-m="5"><svg><use href="#i-script"/></svg><span>Scripts</span><span class="cnt">4</span></div>
+   <div class="swi"><svg><use href="#i-jobs"/></svg><span>Activity</span><span class="cnt">3</span></div>
+   <div class="swi"><svg><use href="#i-cog"/></svg><span>Settings</span></div>
+   <div class="swi js-about"><svg><use href="#i-info"/></svg><span>About</span></div>
+   <div class="sw-tip">TAP WINDOW TO OPEN</div></div>
+
+ <div class="card"><div class="app" data-view="${state.view}" data-split="${state.split}" style="--sa:${state.sa}%">
+  <div class="tabs">${tabsHTML(state.tabs,state.active)}</div>
+
+  <div class="bar">
+    <button class="ibtn js-menu"><svg><use href="#i-menu"/></svg></button>
+    <div class="path"><div class="crumb">${crumbHTML(cur)}</div>
+      <input class="mono" value="${DIRS[cur].path}" spellcheck="false">
+      <span class="pbtn js-copy" title="copy path"><svg><use href="#i-copy"/></svg></span>
+      <span class="pbtn js-edit" title="edit path"><svg><use href="#i-edit"/></svg></span></div>
+    <button class="ibtn js-vbtn"><svg><use href="#i-grid"/></svg></button>
+    <button class="ibtn js-split ${state.split!=="0"?"on":""}" data-m="2">
+      <svg><use href="#${state.split==="v"?"i-panesv":"i-panes"}"/></svg></button>
+    <button class="ibtn"><svg><use href="#i-more"/></svg></button>
+
+    <div class="vpop">
+      <h6>View <b class="js-vname">${VIEW_NAMES[state.view]}</b></h6>
+      <div class="vrow"><svg><use href="#i-rows"/></svg>
+        <input type="range" min="1" max="6" value="${state.view}" class="js-view">
+        <svg><use href="#i-grid"/></svg></div>
+      <div class="vticks"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="vsort"><h6>Sort by</h6>
+        <div class="vseg js-sort"><span class="on">Name</span><span>Date</span><span>Size</span></div></div>
+    </div>
+  </div>
+
+  <nav class="rail">
+    <div class="rgrp">Storage</div>
+    <div class="ritem on"><svg><use href="#i-storage"/></svg><span>Internal</span></div>
+    <div class="ritem"><svg><use href="#i-sd"/></svg><span>SD card</span></div>
+    <div class="rgrp">Places</div>
+    <div class="ritem"><svg><use href="#i-clock"/></svg><span>Recent</span></div>
+    <div class="ritem"><svg><use href="#i-star"/></svg><span>Bookmarks</span></div>
+    <div class="ritem" data-m="5"><svg><use href="#i-script"/></svg><span>Scripts</span></div>
+    <div class="spacer"></div>
+    <div class="ritem js-jobs"><svg><use href="#i-jobs"/></svg><span>Activity</span><span class="badge">3</span></div>
+    <div class="ritem"><svg><use href="#i-cog"/></svg><span>Settings</span></div>
+    <div class="ritem js-about"><svg><use href="#i-info"/></svg><span>About</span></div>
+  </nav>
+
+  <div class="body">${paneHTML(cur,"a act")}<div class="divider" title="drag to resize · double-click to reset"></div>${paneHTML("apk","b")}</div>
+
+  <div class="foot"><span class="cnt js-cnt">1 selected</span><span class="sp"></span>
+    <button class="fbtn"><svg><use href="#i-copy"/></svg>Copy</button>
+    <button class="fbtn"><svg><use href="#i-move"/></svg>Move</button>
+    <button class="fbtn key js-pin" data-m="4"><svg><use href="#i-pin"/></svg>Pin</button>
+    <button class="fbtn"><svg><use href="#i-trash"/></svg>Delete</button>
+    <button class="fbtn"><svg><use href="#i-more"/></svg>More</button></div>
+
+  <nav class="bnav"><a class="on"><svg><use href="#i-storage"/></svg>Files</a>
+    <a><svg><use href="#i-search"/></svg>Search</a>
+    <a class="js-jobs"><svg><use href="#i-jobs"/></svg>Activity</a>
+    <a data-m="5"><svg><use href="#i-script"/></svg>Scripts</a></nav>
+
+  <div class="sheet jobs"><h4>Activity <span class="x js-close">✕</span></h4>
+    <div class="job"><svg><use href="#i-dl"/></svg><div class="t"><b>Never Gonna Give You Up.opus</b>
+      <small>Trawl · youtube.com</small><div class="bar-p"><i style="width:62%"></i></div></div><span class="pc">62%</span></div>
+    <div class="job"><svg><use href="#i-search"/></svg><div class="t"><b>Indexing internal storage</b>
+      <small>12,480 of 41,206 files</small><div class="bar-p"><i style="width:30%"></i></div></div><span class="pc">30%</span></div>
+    <div class="job" data-m="6"><svg><use href="#i-apk"/></svg><div class="t"><b>Signed filet-v0.1.0.apk</b>
+      <small>apksig · v1 v2 v3 · 2s ago</small></div><span class="pc ok">done</span></div></div>
+
+  <div class="sheet chooser"><h4>Open with <span class="js-ext mono"></span><span class="x js-close">✕</span></h4>
+    <div class="js-opts"></div>
+    <div class="acts"><div class="abtn js-once">Just once</div><div class="abtn pri js-always">Always</div></div></div>
+
+  <div class="toast"></div>
+ </div></div></div>`;}
+
+/* ===================== render ===================== */
+const stage=document.getElementById("stage"),devSel=document.getElementById("device"),ghost=document.getElementById("ghost");
+DEVICES.forEach((d,i)=>devSel.add(new Option(`${d.n} — ${d.m}`,i)));
+devSel.value=8;
+
+const LS=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
+const LSet=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
+const state={tabs:JSON.parse(LS("filet.tabs")||'["home","root","dl"]'),
+             active:+(LS("filet.active")||1), view:LS("filet.view")||"2", split:LS("filet.split")||"h",
+             sa:+(LS("filet.sa")||50)};
+const save=()=>{LSet("filet.tabs",JSON.stringify(state.tabs));LSet("filet.active",state.active);
+                LSet("filet.view",state.view);LSet("filet.split",state.split);LSet("filet.sa",state.sa)};
+
+function frame(d,scale){
+  const el=document.createElement("div");el.className="dev";
+  el.innerHTML=`<div class="dev-cap"><b>${d.n}</b><span class="dim">${d.m} dp</span>
+      <span class="cls" data-c="${d.c}">${d.c}</span></div>
+    <div class="scaler" style="width:${d.w*scale}px;height:${d.h*scale}px">
+      <div class="frame" style="width:${d.w}px;height:${d.h}px;transform:scale(${scale})">
+        <div class="screen">${app(state)}</div></div></div>`;
+  return el;
+}
+function render(){
+  const focus=document.querySelector('#view [aria-pressed="true"]').dataset.v==="focus";
+  stage.className=focus?"focus":"gallery";stage.innerHTML="";
+  if(focus){const d=DEVICES[devSel.value];
+    stage.appendChild(frame(d,Math.min(1,(innerWidth-90)/d.w,(innerHeight-230)/d.h)));}
+  else DEVICES.forEach(d=>stage.appendChild(frame(d,Math.min(.62,430/d.w,620/d.h))));
+  wire();
+}
+const rerender=()=>{save();render()};
+
+/* ===================== interaction ===================== */
+function toast(app,msg){const t=app.querySelector(".toast");t.textContent=msg;t.classList.add("show");
+  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("show"),1900);}
+
+function wire(){
+ document.querySelectorAll(".switcher").forEach(sw=>{
+  const app=sw.querySelector(".app");
+
+  /* --- Trawl switcher --- */
+  sw.querySelector(".js-menu").onclick=e=>{e.stopPropagation();sw.classList.add("open")};
+  sw.querySelector(".card").onclick=()=>{app.classList.remove("vpop-open");
+    if(sw.classList.contains("open"))sw.classList.remove("open")};
+
+  /* --- tabs --- */
+  app.querySelectorAll(".tab").forEach(t=>{
+    t.onclick=e=>{if(e.target.classList.contains("x")){
+        if(state.tabs.length>1){state.tabs.splice(+t.dataset.tab,1);
+          state.active=Math.min(state.active,state.tabs.length-1);rerender();}
+        return;}
+      state.active=+t.dataset.tab;rerender();};});
+  app.querySelector(".tab-add").onclick=()=>{state.tabs.push("home");state.active=state.tabs.length-1;rerender()};
+
+  /* --- editable path bar --- */
+  const path=app.querySelector(".path"),inp=path.querySelector("input");
+  const startEdit=()=>{path.classList.add("edit");inp.focus();inp.select()};
+  path.onclick=e=>{if(!e.target.closest(".pbtn")&&!path.classList.contains("edit"))startEdit()};
+  path.querySelector(".js-edit").onclick=startEdit;
+  path.querySelector(".js-copy").onclick=()=>{
+    try{navigator.clipboard.writeText(inp.value)}catch(e){}
+    toast(app,"Path copied");};
+  inp.onkeydown=e=>{
+    if(e.key==="Enter"){const v=inp.value.trim().toLowerCase();
+      const hit=Object.keys(DIRS).find(k=>DIRS[k].path.toLowerCase()===v);
+      path.classList.remove("edit");
+      if(hit){state.tabs[state.active]=hit;rerender();}
+      else toast(app,"No such path — try /storage/emulated/0/Download");}
+    if(e.key==="Escape"){inp.value=DIRS[state.tabs[state.active]].path;path.classList.remove("edit")}};
+  inp.onblur=()=>path.classList.remove("edit");
+
+  /* --- view slider --- */
+  const vbtn=app.querySelector(".js-vbtn");
+  vbtn.onclick=e=>{e.stopPropagation();
+    document.querySelectorAll(".app").forEach(a=>{if(a!==app)a.classList.remove("vpop-open")});
+    app.classList.toggle("vpop-open");};
+  app.querySelector(".vpop").onclick=e=>e.stopPropagation();
+  app.querySelector(".js-view").oninput=e=>{state.view=e.target.value;
+    document.querySelectorAll(".app").forEach(a=>a.dataset.view=state.view);
+    document.querySelectorAll(".js-view").forEach(s=>s.value=state.view);
+    document.querySelectorAll(".js-vname").forEach(n=>n.textContent=VIEW_NAMES[state.view]);save();};
+  app.querySelectorAll(".js-sort span").forEach(s=>s.onclick=()=>{
+    app.querySelectorAll(".js-sort span").forEach(x=>x.classList.remove("on"));s.classList.add("on");});
+
+  /* --- split cycle --- */
+  app.querySelector(".js-split").onclick=()=>{
+    state.split=state.split==="0"?"h":state.split==="h"?"v":"0";rerender();};
+
+  /* --- rows: select / dblclick / drag --- */
+  app.querySelectorAll(".pane").forEach(pane=>{
+    pane.addEventListener("mousedown",()=>{app.querySelectorAll(".pane").forEach(p=>p.classList.remove("act"));
+      pane.classList.add("act")});
+
+    pane.querySelectorAll(".row").forEach(r=>{
+      r.onclick=e=>{if(!e.ctrlKey&&!e.shiftKey)pane.querySelectorAll(".row").forEach(x=>{if(x!==r)x.classList.remove("sel")});
+        r.classList.toggle("sel");
+        const n=app.querySelectorAll(".row.sel").length;
+        app.classList.toggle("picking",n>0);
+        const c=app.querySelector(".js-cnt");if(c)c.textContent=n+" selected";};
+
+      r.ondblclick=()=>{
+        if(r.dataset.t==="dir"){toast(app,"Opening "+r.dataset.n);return}
+        const t=r.dataset.t, d=DEFAULTS[t];
+        if(d){toast(app,"Opening in "+d);return}
+        const list=APPS[t]||APPS.def;
+        app.querySelector(".js-ext").textContent="."+r.dataset.n.split(".").pop();
+        app.querySelector(".js-opts").innerHTML=list.map((a,i)=>
+          `<div class="opt ${i===0?"on":""}" data-app="${a[0]}"><span class="ap"><svg><use href="#${a[2]}"/></svg></span>
+           <span class="m"><b>${a[0]}</b><small>${a[1]}</small></span>
+           <span class="tick"><svg><use href="#i-check"/></svg></span></div>`).join("");
+        app.querySelectorAll(".opt").forEach(o=>o.onclick=()=>{
+          app.querySelectorAll(".opt").forEach(x=>x.classList.remove("on"));o.classList.add("on")});
+        app._type=t;app.classList.add("pick-open");};
+
+      /* drag & drop */
+      r.ondragstart=e=>{const sel=[...app.querySelectorAll(".row.sel")];
+        const items=sel.length&&sel.includes(r)?sel:[r];
+        items.forEach(x=>x.classList.add("dragging"));
+        app._drag=items;e.dataTransfer.effectAllowed="move";
+        e.dataTransfer.setData("text/plain",items.map(x=>x.dataset.n).join());
+        const img=new Image();img.src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+        e.dataTransfer.setDragImage(img,0,0);
+        ghost.textContent=items.length>1?items.length+" items":r.dataset.n;ghost.style.opacity="1";};
+      r.ondrag=e=>{if(e.clientX){ghost.style.left=(e.clientX+14)+"px";ghost.style.top=(e.clientY+12)+"px"}};
+      r.ondragend=()=>{(app._drag||[]).forEach(x=>x.classList.remove("dragging"));
+        ghost.style.opacity="0";app.querySelectorAll(".drop").forEach(x=>x.classList.remove("drop"))};
+
+      if(r.dataset.t==="dir"){
+        r.ondragover=e=>{e.preventDefault();e.stopPropagation();r.classList.add("drop")};
+        r.ondragleave=()=>r.classList.remove("drop");
+        r.ondrop=e=>{e.preventDefault();e.stopPropagation();r.classList.remove("drop");
+          const n=(app._drag||[]).length;toast(app,`Moved ${n} item${n>1?"s":""} → ${r.dataset.n}`);};}
+    });
+
+    pane.ondragover=e=>{e.preventDefault();if(!(app._drag||[])[0]||pane.contains(app._drag[0]))return;pane.classList.add("drop")};
+    pane.ondragleave=e=>{if(!pane.contains(e.relatedTarget))pane.classList.remove("drop")};
+    pane.ondrop=e=>{e.preventDefault();pane.classList.remove("drop");
+      if(!(app._drag||[])[0]||pane.contains(app._drag[0]))return;
+      const n=app._drag.length;toast(app,`Moved ${n} item${n>1?"s":""} → ${DIRS[pane.dataset.dir].title}`);};
+
+    pane.querySelectorAll(".hrow[data-go],.drive[data-go]").forEach(h=>h.onclick=()=>{
+      state.tabs[state.active]=h.dataset.go;rerender()});
+
+    /* --- per-pane search: scoped to THIS pane, because a pane is what has a location --- */
+    const psBtn=pane.querySelector(".ph-s"),ps=pane.querySelector(".psearch");
+    if(psBtn){
+      const inp=ps.querySelector("input"),pn=ps.querySelector(".pn");
+      const filter=()=>{
+        const q=inp.value.trim().toLowerCase();
+        const rows=[...pane.querySelectorAll(".row")];
+        let n=0;
+        rows.forEach(r=>{const hit=!q||r.dataset.n.toLowerCase().includes(q);
+          r.classList.toggle("hidden",!hit);if(hit)n++;});
+        pn.textContent=q?n+" hit"+(n===1?"":"s"):"";
+        pane.classList.toggle("noresults",!!q&&n===0);
+      };
+      const exit=()=>{pane.classList.remove("searching","noresults");inp.value="";filter();};
+      psBtn.onclick=e=>{e.stopPropagation();pane.classList.add("searching");inp.focus();};
+      ps.querySelector(".px").onclick=e=>{e.stopPropagation();exit()};
+      inp.oninput=filter;
+      inp.onkeydown=e=>{if(e.key==="Escape")exit()};
+      pane.querySelectorAll(".scopes span").forEach(c=>c.onclick=e=>{e.stopPropagation();
+        pane.querySelectorAll(".scopes span").forEach(x=>x.classList.remove("on"));
+        c.classList.add("on");toast(app,"Scope: "+c.textContent);});
+      filter();   // apply any pre-filled value on first wire
+    }
+  });
+
+  /* --- resizable split: fractions are scale-independent because both the pointer
+         offset and the body rect are transformed by the same frame scale --- */
+  const div=app.querySelector(".divider"),body=app.querySelector(".body");
+  if(div){
+    const logicalW=parseFloat(app.closest(".frame").style.width)||360;
+    const logicalH=parseFloat(app.closest(".frame").style.height)||800;
+    const MIN=132;   // logical px a pane may not go below
+    div.addEventListener("pointerdown",e=>{
+      e.preventDefault();div.setPointerCapture(e.pointerId);
+      div.classList.add("drag");app.classList.add("resizing");
+    });
+    div.addEventListener("pointermove",e=>{
+      if(!div.classList.contains("drag"))return;
+      const r=body.getBoundingClientRect(),vert=state.split==="v";
+      const raw=vert?(e.clientY-r.top)/r.height:(e.clientX-r.left)/r.width;
+      const span=vert?logicalH:logicalW;
+      const lo=MIN/span, hi=1-MIN/span;
+      const f=Math.max(lo,Math.min(hi,raw));
+      if(hi<=lo)return;                       // pane too small to split meaningfully
+      state.sa=Math.round(f*1000)/10;
+      document.querySelectorAll(".app").forEach(a=>a.style.setProperty("--sa",state.sa+"%"));
+    });
+    const end=e=>{if(!div.classList.contains("drag"))return;
+      div.classList.remove("drag");app.classList.remove("resizing");
+      try{div.releasePointerCapture(e.pointerId)}catch(_){ }
+      save();};
+    div.addEventListener("pointerup",end);
+    div.addEventListener("pointercancel",end);
+    div.addEventListener("dblclick",()=>{state.sa=50;
+      document.querySelectorAll(".app").forEach(a=>a.style.setProperty("--sa","50%"));
+      save();toast(app,"Split reset to 50 / 50");});
+  }
+
+  /* --- About opens as a tab --- */
+  sw.querySelectorAll(".js-about").forEach(b=>b.onclick=e=>{e.stopPropagation();
+    sw.classList.remove("open");
+    if(state.tabs[state.active]!=="about"){state.tabs.push("about");state.active=state.tabs.length-1;}
+    rerender();});
+
+  /* --- chooser --- */
+  const close=()=>app.classList.remove("pick-open","jobs-open");
+  app.querySelectorAll(".js-close").forEach(x=>x.onclick=close);
+  app.querySelector(".js-once").onclick=()=>{
+    toast(app,"Opening in "+app.querySelector(".opt.on").dataset.app);close()};
+  app.querySelector(".js-always").onclick=()=>{
+    const a=app.querySelector(".opt.on").dataset.app;DEFAULTS[app._type]=a;
+    toast(app,a+" is now the default");close()};
+
+  app.querySelectorAll(".js-jobs").forEach(b=>b.onclick=()=>app.classList.toggle("jobs-open"));
+  const pin=app.querySelector(".js-pin");if(pin)pin.onclick=()=>toast(app,"Pinned to home screen");
+ });
+}
+
+document.getElementById("theme").onclick=e=>{const b=e.target.closest("button");if(!b)return;
+  document.querySelectorAll("#theme button").forEach(x=>x.setAttribute("aria-pressed",x===b));
+  document.documentElement.dataset.theme=b.dataset.v;};
+document.getElementById("view").onclick=e=>{const b=e.target.closest("button");if(!b)return;
+  document.querySelectorAll("#view button").forEach(x=>x.setAttribute("aria-pressed",x===b));render();};
+devSel.onchange=()=>document.querySelector('#view [data-v="focus"]').click();
+document.getElementById("mile").onchange=e=>document.body.dataset.m=e.target.value;
+addEventListener("resize",()=>{if(stage.className==="focus")render()});
+render();
+</script>
+</body>
+</html>

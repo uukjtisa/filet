@@ -134,7 +134,7 @@ class IndexService : Service() {
         const val ACTION_STOP = "dev.niccc2007.filet.index.STOP"
         const val ACTION_DONE = "dev.niccc2007.filet.index.DONE"
         private const val CHANNEL = "filet.index"
-        private const val ID = 4301
+        private val ID = dev.niccc2007.filet.Notifications.INDEX
 
         fun start(context: Context) {
             val intent = Intent(context, IndexService::class.java)
