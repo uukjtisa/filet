@@ -317,4 +317,43 @@ class ExtractPlanTest {
         assertTrue(plan.items.isEmpty())
         assertEquals(2, plan.refused.size)
     }
+
+    // ── where each item is read FROM ──
+
+    @Test fun every_item_says_where_to_read_it_from_inside_the_archive() {
+        // The extractor walks this list rather than re-deriving the strip and the wrap. If it
+        // re-derived them, the preview and the extraction would be two implementations of one
+        // decision - which is the bug this whole file exists to prevent.
+        // A readme beside the inner folder, so only ONE level is redundant and the item keeps
+        // a path with a folder in it - which is what makes source and path differ visibly.
+        val entries = listOf(
+            d("archive"), d("archive/inner"), f("archive/inner/a.txt"), f("archive/readme.txt"),
+        )
+        val plan = ExtractPlanner.plan("archive.zip", entries)
+        assertEquals(listOf("archive"), plan.strippedFolders)
+        val item = plan.items.first { it.path == "inner/a.txt" }
+        assertEquals("archive/inner/a.txt", item.source)
+    }
+
+    @Test fun wrapping_changes_where_a_file_lands_and_not_where_it_comes_from() {
+        val plan = ExtractPlanner.plan("photos.zip", listOf(f("a.jpg"), f("b.jpg")))
+        val item = plan.items.first { it.path == "photos/a.jpg" }
+        assertEquals("a.jpg", item.source)
+    }
+
+    @Test fun an_invented_folder_has_no_source_because_nothing_is_read_for_it() {
+        val plan = ExtractPlanner.plan("photos.zip", listOf(f("a.jpg"), f("b.jpg")))
+        assertEquals("", plan.items.first { it.added }.source)
+    }
+
+    @Test fun keeping_both_copies_still_reads_from_the_original_entry() {
+        // The destination name changes to "report (1).txt"; the archive still holds
+        // "report.txt", and reading from the renamed path would find nothing.
+        val plan = ExtractPlanner.plan(
+            "x.zip", listOf(f("report.txt")), existingPaths = setOf("report.txt"),
+            options = ExtractOptions(wrap = WrapChoice.FORCE_OFF, onCollision = CollisionChoice.KEEP_BOTH),
+        )
+        assertEquals("report.txt", plan.items.single().source)
+        assertEquals("report (1).txt", plan.items.single().path)
+    }
 }

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug overrides.
+
+  Nic, round 9: *"in my device htere are two filet.. whihc ones whihc? is the other one debug?
+  cause when i udpated for mtheat suspected debug vrsion it created another instance instead of
+  updating it"*
+
+  Nothing was duplicated. `dev.niccc2007.filet` and `dev.niccc2007.filet.debug` are two
+  different applications by design - that is what round 8's B-series made possible - so an
+  install of one never updates the other. The bug was that they were indistinguishable: same
+  name, same icon, no way to tell which you were opening.
+
+  Trawl already solved this and the answer is the obvious one: give the debug build its own
+  name and its own colours.
+-->
+<resources>
+    <string name="app_name">Filet Debug</string>
+</resources>

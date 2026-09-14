@@ -37,6 +37,47 @@ const paths = [...fg.matchAll(/android:pathData="([^"]+)"/g)];
 if (paths.length !== 2) fail(`foreground should be exactly 2 paths (body + flap), found ${paths.length}`);
 if (/#1E1F1D/i.test(fg)) fail("foreground paints the ground colour — that is a faked cut and dies in mono");
 
+/**
+ * The debug build must be tellable apart from the release one, at a glance.
+ *
+ * Nic had both installed and could not tell which was which - same name, same icon - and read
+ * that as the app having duplicated itself. They are two different applications by design, so
+ * the fix is presentational: `app/src/debug/res` overrides the label and the mark's colours.
+ *
+ * Checked rather than left to a comment, because a debug override is exactly the kind of file
+ * that survives one refactor and not the next. Two assertions, and they pull in opposite
+ * directions on purpose: the SHAPE must be identical, so it still reads as Filet, and the
+ * COLOURS must differ, or the whole point is lost.
+ */
+const debugRes = "app/src/debug/res";
+if (existsSync(debugRes)) {
+  const dbgIcon = join(debugRes, "drawable/ic_launcher_foreground.xml");
+  if (!existsSync(dbgIcon)) fail("app/src/debug/res exists but has no ic_launcher_foreground.xml");
+  const dbg = readFileSync(dbgIcon, "utf8");
+
+  const shape = (x) => [...x.matchAll(/android:pathData="([^"]+)"/g)].map((m) => m[1]);
+  const fills = (x) => [...x.matchAll(/android:fillColor="(#[0-9A-Fa-f]+)"/g)].map((m) => m[1].toUpperCase());
+
+  if (JSON.stringify(shape(dbg)) !== JSON.stringify(shape(fg))) {
+    fail("the debug icon's geometry has drifted from the release icon's — it should be the same mark");
+  }
+  const same = fills(dbg).filter((c) => fills(fg).includes(c));
+  if (same.length) {
+    fail(`the debug icon reuses the release colour(s) ${same.join(", ")} — the two must be tellable apart`);
+  }
+
+  const dbgStrings = join(debugRes, "values/strings.xml");
+  if (!existsSync(dbgStrings)) fail("the debug build has no strings.xml, so it carries the release name");
+  const label = /<string name="app_name">([^<]+)<\/string>/.exec(readFileSync(dbgStrings, "utf8"));
+  if (!label) fail("the debug strings.xml does not override app_name");
+  const mainLabel = /<string name="app_name">([^<]+)<\/string>/.exec(
+    readFileSync(join(res, "values/strings.xml"), "utf8"),
+  );
+  if (mainLabel && label[1].trim() === mainLabel[1].trim()) {
+    fail(`the debug build is also called "${label[1]}" — the launcher shows two identical apps`);
+  }
+}
+
 const mono = readFileSync(join(res, "drawable/ic_launcher_monochrome.xml"), "utf8");
 const monoFills = [...mono.matchAll(/android:fillColor="([^"]+)"/g)].map(x => x[1].toUpperCase());
 if (new Set(monoFills).size !== 1) fail("monochrome layer must use exactly one fill colour");

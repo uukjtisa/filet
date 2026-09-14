@@ -67,11 +67,20 @@ data class ExtractOptions(
     val onCollision: CollisionChoice = CollisionChoice.SKIP,
 )
 
-/** One thing that will exist afterwards, at [path] relative to the destination. */
+/**
+ * One thing that will exist afterwards, at [path] relative to the destination.
+ *
+ * @param source where to read it FROM, relative to the archive root. Not the same string as
+ *   [path] once anything has been stripped or wrapped, and carrying both is what lets the
+ *   extractor walk this list directly instead of re-deriving the transform. If it re-derived
+ *   it, the preview and the extraction would be two implementations of one decision, which is
+ *   the thing this whole file exists to prevent. Empty for a folder the plan invents.
+ */
 data class PlannedItem(
     val path: String,
     val isDir: Boolean,
     val size: Long,
+    val source: String = "",
     /** True for a folder this plan invents, which the preview highlights. */
     val added: Boolean = false,
     /** Non-null when something is already there and this is what will happen to it. */
@@ -265,7 +274,18 @@ object ExtractPlanner {
                 }
             }
             taken.add(finalPath)
-            items.add(PlannedItem(finalPath, e.isDir, e.size, added = false, collides = collides))
+            items.add(
+                PlannedItem(
+                    path = finalPath,
+                    isDir = e.isDir,
+                    size = e.size,
+                    // The path INSIDE the archive, before stripping and wrapping. The extractor
+                    // reads from here and writes to `path`, so the two never disagree.
+                    source = if (prefix.isEmpty()) e.path else prefix + e.path,
+                    added = false,
+                    collides = collides,
+                ),
+            )
 
             // Skipped files are not written, so they do not count toward the space needed.
             val willWrite = !e.isDir && (collides == null || options.onCollision != CollisionChoice.SKIP)
