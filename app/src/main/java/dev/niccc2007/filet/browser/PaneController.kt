@@ -245,12 +245,33 @@ class PaneController(
     // ── selection ──
 
     fun toggleSelect(node: VNode) = _state.update {
+        anchor = node.path
         val next = if (node.path in it.selected) it.selected - node.path else it.selected + node.path
         it.copy(selected = next)
     }
 
-    fun selectOnly(node: VNode) = _state.update { it.copy(selected = setOf(node.path)) }
-    fun clearSelection() = _state.update { it.copy(selected = emptySet()) }
+    fun selectOnly(node: VNode) = _state.update { anchor = node.path; it.copy(selected = setOf(node.path)) }
+    /**
+     * The last row picked deliberately, which a range extends FROM.
+     *
+     * Not the lowest selected index: using that would make a second range run from the wrong
+     * end as soon as somebody had selected upwards.
+     */
+    private var anchor: VPath? = null
+
+    /** Shift-click. See `RangeSelect.kt` for the arithmetic and why it is separate. */
+    fun extendSelectionTo(node: VNode) = _state.update { s ->
+        val next = rangeSelect(
+            visible = s.visible.map { it.path },
+            current = s.selected,
+            anchor = anchor,
+            target = node.path,
+        )
+        anchor = node.path
+        s.copy(selected = next)
+    }
+
+    fun clearSelection() = _state.update { anchor = null; it.copy(selected = emptySet()) }
     fun selectAll() = _state.update { s -> s.copy(selected = s.visible.map { it.path }.toSet()) }
 
     fun invertSelection() = _state.update { s ->

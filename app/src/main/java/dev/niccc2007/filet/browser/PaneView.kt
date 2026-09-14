@@ -140,13 +140,20 @@ fun PaneView(
                 CrawlNotice(index)
             }
 
-            when {
-                s.loading && s.entries.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp)
+            Box(Modifier.weight(1f)) {
+                when {
+                    s.loading && s.entries.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+                        CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp)
+                    }
+                    s.kind == PaneKind.FOLDER ->
+                        FolderBody(pane, vm, s, app, metrics, side, registry, onGhost)
+                    else -> SpecialBody(pane, vm, s)
                 }
-                s.kind == PaneKind.FOLDER ->
-                    FolderBody(pane, vm, s, app, metrics, side, registry, onGhost)
-                else -> SpecialBody(pane, vm, s)
+                // Floating, and in EVERY pane rather than only the focused one. His words:
+                // *"why not this pending bar in each pane. but a floating button less
+                // obstructive?"* - the per-pane part is what makes split view unambiguous,
+                // because "Paste" then means THIS side and there is nothing to work out.
+                PastePill(pane, vm, s, app, Modifier.align(Alignment.BottomEnd))
             }
         }
     }
@@ -387,6 +394,37 @@ private fun FolderBody(
     registry: DropRegistry,
     onGhost: (Offset?) -> Unit,
 ) {
+    // Where a held press landed, so the menu opens at the finger rather than at the top of the
+    // screen. Null when no menu is open.
+    var menuAt by remember { mutableStateOf<Pair<VNode, Offset>?>(null) }
+    // True when the menu selected the row itself rather than being opened on a real selection -
+    // dismissing without choosing then puts the selection back how it was.
+    var menuSelectedIt by remember { mutableStateOf(false) }
+
+    val onHeldStill: (VNode, Offset) -> Unit = { node, at ->
+        val current = pane.state.value
+        when (longPressAction(current.selected.size, node.path in current.selected)) {
+            // A range extension is its own feedback: the rows light up and the bar counts them.
+            // Opening a menu on top of that would bury the thing the gesture just did.
+            LongPressAction.EXTEND -> Unit
+            LongPressAction.MENU -> { menuSelectedIt = true; menuAt = node to at }
+            LongPressAction.MENU_FOR_SELECTION -> { menuSelectedIt = false; menuAt = node to at }
+        }
+    }
+
+    menuAt?.let { (node, at) ->
+        PaneContextMenu(
+            pane = pane,
+            vm = vm,
+            node = node,
+            at = at,
+            onDismiss = {
+                if (menuSelectedIt) pane.clearSelection()
+                menuAt = null
+            },
+        )
+    }
+
     val rows = s.visible
     if (rows.isEmpty()) {
         EmptyNote(
@@ -412,7 +450,7 @@ private fun FolderBody(
                     metrics = metrics,
                     selected = node.path in s.selected,
                     dropTarget = (app.drag?.over as? DropTarget.Folder)?.path == node.path,
-                    modifier = dragModifier(node, pane, vm, side, registry, onGhost),
+                    modifier = dragModifier(node, pane, vm, side, registry, onGhost, onHeldStill),
                     thumbnails = metrics.step.icon >= 20,
                     onClick = { rowClick(pane, vm, side, node) },
                     // No long-click here on purpose: the drag detector in `dragModifier` owns
@@ -441,7 +479,7 @@ private fun FolderBody(
                         metrics = metrics,
                         selected = node.path in s.selected,
                         dropTarget = (app.drag?.over as? DropTarget.Folder)?.path == node.path,
-                        modifier = dragModifier(node, pane, vm, side, registry, onGhost),
+                        modifier = dragModifier(node, pane, vm, side, registry, onGhost, onHeldStill),
                         // Below ~20 dp the glyph is a few pixels across and a photo in it is
                         // an unreadable smear; the icon says more at that size.
                         thumbnails = metrics.step.icon >= 20,
@@ -518,6 +556,7 @@ private fun dragModifier(
     side: Side,
     registry: DropRegistry,
     onGhost: (Offset?) -> Unit,
+    onHeldStill: (VNode, Offset) -> Unit,
 ): Modifier {
     var origin by remember(node.path) { mutableStateOf(Offset.Zero) }
     var pointer by remember(node.path) { mutableStateOf(Offset.Zero) }
@@ -545,8 +584,15 @@ private fun dragModifier(
                     pointer = origin + local
                     vm.focusSide(side)
                     val current = pane.state.value
-                    val items = if (node.path in current.selected) pane.selectedNodes() else listOf(node)
-                    if (node.path !in current.selected) pane.selectOnly(node)
+                    // What a long press means depends on what is already selected. Decided by
+                    // `longPressAction` rather than inline, because a press that quietly does
+                    // the other thing reads as the app ignoring you.
+                    when (longPressAction(current.selected.size, node.path in current.selected)) {
+                        LongPressAction.EXTEND -> pane.extendSelectionTo(node)
+                        LongPressAction.MENU -> pane.selectOnly(node)
+                        LongPressAction.MENU_FOR_SELECTION -> Unit
+                    }
+                    val items = pane.selectedNodes().ifEmpty { listOf(node) }
                     vm.beginDrag(items, pane.id)
                     onGhost(pointer)
                 },
@@ -561,7 +607,17 @@ private fun dragModifier(
                     onGhost(null)
                     // Move or copy is the plan's call, not the caller's - same volume moves,
                     // a different one copies, exactly as a desktop file manager does.
-                    if (moved) vm.endDrag() else vm.cancelDrag()
+                    if (moved) {
+                        vm.endDrag()
+                    } else {
+                        // Long-pressed and held STILL. That is the right-click gesture, and it
+                        // is free: the drag detector already had to tell the two apart to know
+                        // whether a drop happened. Press and move drags, press and hold opens
+                        // the menu - which is what press-and-hold means everywhere else on a
+                        // touchscreen.
+                        vm.cancelDrag()
+                        onHeldStill(node, pointer)
+                    }
                 },
                 onDragCancel = { onGhost(null); vm.cancelDrag() },
             )
@@ -574,4 +630,136 @@ private fun countLabel(s: PaneState): String = when {
     s.kind != PaneKind.FOLDER -> ""
     s.total != s.entries.size -> "${s.entries.size} of ${s.total}"
     else -> "${s.entries.size} items"
+}
+
+/**
+ * The context menu for whatever the press landed on.
+ *
+ * Built from the same `selectionActions` list the selection bar and the Actions menu use, so an
+ * action cannot exist in one surface and be missing from another. The extras below it are the
+ * ones that only make sense from an item: Select, which starts a multi-selection without needing
+ * a second gesture, and Copy path.
+ */
+@Composable
+private fun PaneContextMenu(
+    pane: PaneController,
+    vm: BrowserViewModel,
+    node: VNode,
+    at: Offset,
+    onDismiss: () -> Unit,
+) {
+    val state = pane.state.value
+    val count = state.selected.size.coerceAtLeast(1)
+    val readOnly = vm.writeBlockReason(state.cwd)
+
+    val base = selectionActions(
+        count = count,
+        readOnly = readOnly,
+        icons = SelectionIcons(
+            copy = FiletIcons.Copy, cut = FiletIcons.Cut, share = FiletIcons.Share,
+            delete = FiletIcons.Delete, zip = FiletIcons.Zip, rename = FiletIcons.Rename,
+            open = FiletIcons.Open, info = FiletIcons.Info, star = FiletIcons.Star,
+            wifi = FiletIcons.Wifi, home = FiletIcons.Home,
+        ),
+        on = SelectionCallbacks(
+            copy = { vm.copySelection() },
+            move = { vm.cutSelection() },
+            send = { vm.shareSelection() },
+            delete = { vm.confirmDelete() },
+            compress = { vm.askCompress() },
+            rename = { vm.renameSelection() },
+            openWith = { vm.openWithSelection() },
+            details = { vm.detailsForSelection() },
+            bookmark = { vm.bookmarkSelection() },
+            nearby = { vm.shareSelectionNearby() },
+            shortcut = { vm.shortcutSelection() },
+        ),
+    )
+
+    val extras = listOf(
+        // Keeps the row selected instead of clearing it on dismiss, which is the whole point:
+        // it is the way into a multi-selection that does not require knowing a gesture.
+        menuAction("select", "Select", FiletIcons.Check) { },
+        menuAction("copypath", "Copy path", FiletIcons.Copy) { vm.copyPathsOfSelection() },
+    )
+    val (quick, rest) = splitForContextMenu(base)
+
+    ContextMenu(
+        title = if (state.selected.size > 1) "${state.selected.size} items" else node.name,
+        subtitle = if (state.selected.size > 1) null else node.path.path.substringBeforeLast('/'),
+        quick = quick,
+        rest = extras + rest,
+        onDismiss = onDismiss,
+        onBlocked = vm::toast,
+        offsetX = at.x.toInt(),
+        offsetY = at.y.toInt(),
+    )
+}
+
+/**
+ * Where a copy or a move finishes.
+ *
+ * Nic: *"i thought there would be an easy one click paste here in this active split view or
+ * folder but no it was in that unintuitive top right triple dot"*. He is right, and the failure
+ * is worse than one of discoverability: after Copy, the app holds state that nothing on screen
+ * mentions. A clipboard you cannot see is a clipboard you forget you filled.
+ *
+ * So the moment something is copied or cut, every pane grows a pill that says how many and
+ * offers to put them here. Compact rather than a full-width bar, because it sits over a file
+ * list somebody is still reading; per-pane rather than focused-pane, because "here" has to be
+ * a place and not a guess.
+ *
+ * It refuses with a reason on a read-only volume rather than disappearing - a control that
+ * vanishes leaves you wondering whether the copy survived.
+ */
+@Composable
+private fun PastePill(
+    pane: PaneController,
+    vm: BrowserViewModel,
+    s: PaneState,
+    app: AppState,
+    modifier: Modifier = Modifier,
+) {
+    val clip = app.clipboard ?: return
+    if (s.kind != PaneKind.FOLDER || s.cwd == null) return
+    val colors = Filet.colors
+    val readOnly = vm.writeBlockReason(s.cwd)
+    val verb = if (clip.op == dev.niccc2007.filet.ops.PendingOp.MOVE) "Move" else "Paste"
+    val count = clip.items.size
+
+    Row(
+        modifier
+            .padding(end = 12.dp, bottom = 12.dp)
+            .clip(RoundedCornerShape(50))
+            .background(if (readOnly == null) colors.accent else colors.high)
+            .clickable {
+                if (readOnly != null) vm.toast(readOnly) else vm.pasteInto(pane)
+            }
+            .padding(start = 14.dp, end = 6.dp, top = 9.dp, bottom = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            // Names the folder, so in split view there is no question which side it lands in.
+            "$verb $count here",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = if (readOnly == null) MaterialTheme.colorScheme.onPrimary else colors.fg3,
+        )
+        Spacer(Modifier.width(4.dp))
+        // Cancelling has to be as reachable as pasting, or the pill is something you have to
+        // obey rather than something you can dismiss.
+        Box(
+            Modifier
+                .size(24.dp)
+                .clip(RoundedCornerShape(50))
+                .clickable { vm.clearClipboard() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "×",
+                fontSize = 14.sp,
+                color = if (readOnly == null) MaterialTheme.colorScheme.onPrimary else colors.fg3,
+            )
+        }
+    }
 }

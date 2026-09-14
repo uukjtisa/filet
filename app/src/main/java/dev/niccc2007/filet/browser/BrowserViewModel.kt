@@ -452,6 +452,22 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
     }
 
+    /**
+     * Paste into a NAMED pane rather than into whichever one has focus.
+     *
+     * The paste pill is drawn in every pane, so the pane that was tapped is the destination.
+     * Going through `focused` here would make the pill in the unfocused half of a split silently
+     * paste into the other one, which is the exact confusion the per-pane pill exists to remove.
+     */
+    fun pasteInto(pane: PaneController) {
+        val side = sideOf(pane) ?: return
+        focusSide(side)
+        paste(side)
+    }
+
+    private fun sideOf(pane: PaneController): Side? =
+        Side.entries.firstOrNull { paneFor(it)?.id == pane.id }
+
     fun clearClipboard() = _state.update { it.copy(clipboard = null) }
 
     // ── operations ──
