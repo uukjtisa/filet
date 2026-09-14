@@ -241,6 +241,8 @@ file rather than a new set of exceptions scattered through the app.
 - **[`FIXES.md`](FIXES.md)** tracks every bug found in review to a demonstrated outcome
 - **[`PLAN.md`](PLAN.md)**, **[`SEARCH.md`](SEARCH.md)** and **[`NEARBY.md`](NEARBY.md)** are
   the design documents
+- **[`docs/RELEASES.md`](docs/RELEASES.md)** is how a release body has to be written, because
+  the app renders it and for most people it is the only documentation they will ever read
 
 66 instrumented tests run on a real device, three JVM suites run on the JVM, and CI runs
 everything that doesn't need a phone. 57 review items, all of them closed with evidence.

@@ -36,12 +36,32 @@ jobs:
       - name: R3 — no storage API above the VFS
         run: node tools/check-r3.mjs
 
-      - name: House rules — module graph, app id, icon, theme
+      - name: House rules — module graph, app id, icon, theme, licences, docs
         run: |
           node tools/check-modules.mjs
           node tools/check-appid.mjs
           node tools/check-icon.mjs
           node tools/check-theme.mjs
+          node tools/check-licences.mjs
+          node tools/check-aiuse.mjs
+          node tools/check-webui.mjs
+
+      # Every checker that can fail without the network must also be able to fail WITH a
+      # deliberately broken input, or a passing run proves nothing. These are the selftests.
+      - name: Checkers can fail
+        run: |
+          node tools/check-appid.mjs --selftest
+          node tools/check-licences.mjs --selftest
+          node tools/check-aiuse.mjs --selftest
+          node tools/check-webui.mjs --selftest
+          node tools/check-release.mjs --selftest
+          node tools/check-releasedoc.mjs --selftest
+
+      # These two ask GitHub, so they are allowed to be the only network-dependent step.
+      - name: The published release, and how it is written
+        run: |
+          node tools/check-release.mjs
+          node tools/check-releasedoc.mjs
 
       - name: JVM unit suites
         run: ./gradlew --no-daemon :core-vfs:test :core-index:test :app:testGithubDebugUnitTest
