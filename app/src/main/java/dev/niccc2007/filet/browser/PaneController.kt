@@ -189,9 +189,19 @@ class PaneController(
         }
     }
 
-    fun goUp(): Boolean {
+    /**
+     * Up one folder.
+     *
+     * @param push whether this counts as a navigation the Back button can undo. True for the
+     *   toolbar's Up arrow, which is a deliberate move. **False for the Back button itself**,
+     *   and that is not a detail: with it true, back-as-up pushed the folder you just left onto
+     *   the history, so the NEXT back found history and went straight back down into it. Back
+     *   then oscillated between two folders forever and the screen never left. Reachable from a
+     *   cold start - open Filet at a storage root and press back twice.
+     */
+    fun goUp(push: Boolean = true): Boolean {
         val parent = _state.value.cwd?.parent ?: return false
-        navigateTo(parent)
+        navigateTo(parent, push = push)
         return true
     }
 

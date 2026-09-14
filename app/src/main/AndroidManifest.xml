@@ -93,11 +93,44 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
 
+        </activity>
+
+        <!--
+          Filet answering "choose a file" for another app.
+
+          This filter used to sit on MainActivity, which is singleTask - and a singleTask
+          activity does not run in the caller's task, so setResult goes nowhere and the caller
+          is handed RESULT_CANCELED the instant it starts. Filet was therefore OFFERED in every
+          chooser on the device and could never return anything, which is rule R1 happening
+          inside somebody else's app.
+
+          So: its own activity, standard launch mode, and tools/check-picker.mjs fails the build
+          if that ever changes or if a picker filter appears on something that returns nothing.
+
+          Not here, and deliberately: OPEN_DOCUMENT, CREATE_DOCUMENT and OPEN_DOCUMENT_TREE are
+          served by a DocumentsProvider rather than an activity. No filter puts an app in that
+          picker, so claiming them here would put Filet in a list it cannot answer.
+        -->
+        <activity
+            android:name=".pick.PickActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:excludeFromRecents="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|density|smallestScreenSize|uiMode"
+            android:theme="@style/Theme.Filet">
+
             <!-- A file manager is a legitimate answer to "pick a file". -->
             <intent-filter>
                 <action android:name="android.intent.action.GET_CONTENT" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.OPENABLE" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+
+            <!-- The older verb, still used by plenty of apps. -->
+            <intent-filter>
+                <action android:name="android.intent.action.PICK" />
+                <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>

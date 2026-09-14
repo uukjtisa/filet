@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only additions. Merged into the manifest for the debug build and absent from every
+  release, which is the whole reason the probe below is allowed to exist at all.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!--
+          A caller for the file picker, so gate P10 can be answered from outside Filet.
+
+          Nothing inside the app can prove that another app receives the file: setResult looks
+          the same from in here whether or not the caller gets anything, which is precisely how
+          the picker managed to be broken in every release without anybody noticing. This asks
+          for real, reads the URI it gets back, and logs what it found.
+
+          Exported, but behind a permission only the shell holds.
+
+          It has to be exported at all because this device refuses `am start` on a non-exported
+          activity even from adb - START_ANY_ACTIVITY is not granted to shell here, which is a
+          vendor decision rather than the AOSP default. Leaving it plainly exported would put an
+          activity that launches a file picker on demand within reach of every app on the phone,
+          so it carries `android:permission="android.permission.DUMP"`: shell has it, ordinary
+          apps do not. Debug source set only, so none of this exists in a release.
+        -->
+        <activity
+            android:name=".pick.PickProbeActivity"
+            android:exported="true"
+            android:permission="android.permission.DUMP"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <!--
+          NOT android:noHistory. It was, and the probe then never saw a result at all: a
+          noHistory activity is finished the moment it stops being visible, which is exactly
+          when the picker it just launched comes to the front. onActivityResult never runs and
+          the caller looks like it cancelled. Worth writing down - it is the same class of
+          silent loss this whole round is about, and it bit the test harness first.
+        -->
+    </application>
+</manifest>

@@ -42,6 +42,11 @@ data class SelectionAction(
  *   that is unavailable, it is a thing that makes no sense, and blocking it would fill the menu
  *   with sentences nobody needs.
  * @param otherPane true when the view is split, so there is another pane to extract into.
+ * @param picking true when Filet is running as another app's file picker. Delete is dropped:
+ *   somebody who reached this screen through a chooser came to CHOOSE a file, and a destructive
+ *   action one tap from the one they meant is a screen failing them rather than a mistake they
+ *   made. Everything non-destructive stays, because a picker that cannot even show properties
+ *   is a worse file manager than the one it replaced.
  */
 fun selectionActions(
     count: Int,
@@ -50,6 +55,7 @@ fun selectionActions(
     on: SelectionCallbacks,
     archive: Boolean = false,
     otherPane: Boolean = false,
+    picking: Boolean = false,
 ): List<SelectionAction> {
     val single = count == 1
     // Written out rather than inlined three times: these two sentences are the whole of what a
@@ -130,14 +136,17 @@ fun selectionActions(
                 group = SelectionAction.Group.PLACE, run = on.shortcut,
             ),
         )
-        // Last, and on its own, because it is the one that cannot be undone.
-        add(
-            SelectionAction(
-                "delete", "Delete", icons.delete,
-                blocked = readOnly, danger = true,
-                group = SelectionAction.Group.PLACE, run = on.delete,
-            ),
-        )
+        // Last, and on its own, because it is the one that cannot be undone - which is also
+        // why it is absent entirely while picking rather than merely blocked.
+        if (!picking) {
+            add(
+                SelectionAction(
+                    "delete", "Delete", icons.delete,
+                    blocked = readOnly, danger = true,
+                    group = SelectionAction.Group.PLACE, run = on.delete,
+                ),
+            )
+        }
     }
 }
 

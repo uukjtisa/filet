@@ -33,37 +33,20 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: R3 — no storage API above the VFS
-        run: node tools/check-r3.mjs
-
-      - name: House rules — module graph, app id, icon, theme, licences, docs
-        run: |
-          node tools/check-modules.mjs
-          node tools/check-appid.mjs
-          node tools/check-icon.mjs
-          node tools/check-theme.mjs
-          node tools/check-licences.mjs
-          node tools/check-aiuse.mjs
-          node tools/check-webui.mjs
-          node tools/check-scrollcue.mjs
-
-      # Every checker that can fail without the network must also be able to fail WITH a
-      # deliberately broken input, or a passing run proves nothing. These are the selftests.
-      - name: Checkers can fail
-        run: |
-          node tools/check-appid.mjs --selftest
-          node tools/check-licences.mjs --selftest
-          node tools/check-aiuse.mjs --selftest
-          node tools/check-webui.mjs --selftest
-          node tools/check-scrollcue.mjs --selftest
-          node tools/check-release.mjs --selftest
-          node tools/check-releasedoc.mjs --selftest
-
-      # These two ask GitHub, so they are allowed to be the only network-dependent step.
-      - name: The published release, and how it is written
-        run: |
-          node tools/check-release.mjs
-          node tools/check-releasedoc.mjs
+      # Every checker in tools/, plus every checker's own selftest.
+      #
+      # Deliberately NOT an enumerated list. This step used to name eight checkers and seven
+      # selftests by hand, and it went stale exactly as you would expect: six checkers were
+      # added over two rounds and none of them ran here, so a green tick covered rules nobody
+      # was enforcing. The runner discovers tools/check-*.mjs, so a new checker is covered by
+      # existing rather than by somebody remembering this file.
+      #
+      # It also treats exit code 2 as a SKIP with the reason printed, not as a pass and not as
+      # a failure. Two of these read the live GitHub release, and GitHub serves an HTML error
+      # page under rate limiting often enough to matter; a red build for network weather is a
+      # build people learn to ignore.
+      - name: Every checker, and every checker's selftest
+        run: node tools/check-all.mjs
 
       - name: JVM unit suites
         run: ./gradlew --no-daemon :core-vfs:test :core-index:test :app:testGithubDebugUnitTest

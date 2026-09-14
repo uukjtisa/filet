@@ -69,13 +69,20 @@ The rest of the app is what falls out of that:
   <img src="docs/screenshots/03-search.png" width="31%" alt="Whole-device search">
 </p>
 <p align="center">
+  <img src="docs/screenshots/11-compress.png" width="31%" alt="The compress window, with options that fit the format">
+  <img src="docs/screenshots/12-extract.png" width="31%" alt="The extraction preview, showing the folder it will create">
+  <img src="docs/screenshots/13-archive-save.png" width="31%" alt="Saving a file edited inside an archive">
+</p>
+<p align="center">
   <img src="docs/screenshots/04-apk.png" width="31%" alt="APK inspector">
   <img src="docs/screenshots/05-scripts.png" width="31%" alt="Lua scripts">
   <img src="docs/screenshots/06-nearby.png" width="31%" alt="Nearby sharing">
 </p>
 
 <p align="center"><sub>
-Browsing &middot; split panes &middot; search &middot; APK inspector &middot; Lua scripts &middot; sharing
+Browsing &middot; split panes &middot; search<br>
+Compressing &middot; previewing an extraction before it happens &middot; editing a file inside an archive<br>
+APK inspector &middot; Lua scripts &middot; sharing
 </sub></p>
 
 <p align="center">

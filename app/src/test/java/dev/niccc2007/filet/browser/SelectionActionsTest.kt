@@ -46,7 +46,8 @@ class SelectionActionsTest {
         readOnly: String? = null,
         archive: Boolean = false,
         otherPane: Boolean = false,
-    ) = selectionActions(count, readOnly, icons, callbacks, archive, otherPane)
+        picking: Boolean = false,
+    ) = selectionActions(count, readOnly, icons, callbacks, archive, otherPane, picking)
 
     private val extractIds = listOf("extracthere", "extractto", "extractother")
 
@@ -198,5 +199,33 @@ class SelectionActionsTest {
             all.getValue(id).run()
             assertEquals(id, expected, ran)
         }
+    }
+
+    // -- picking for another app --
+
+    @Test fun delete_is_absent_while_picking_rather_than_merely_blocked() {
+        // Somebody who reached this screen through another app's chooser came to CHOOSE a
+        // file. A destructive action one tap away from the one they meant is the screen
+        // failing them. Blocked would not be enough: a blocked row is still a row they can
+        // press, and the answer would be a sentence about why they cannot delete during a
+        // pick, which nobody asked.
+        val ids = actions(1, picking = true).map { it.id }
+        assertTrue("delete must not be offered while picking", "delete" !in ids)
+    }
+
+    @Test fun everything_that_is_not_destructive_survives_a_pick() {
+        // The other half, and the reason this is a removal of one row rather than a stripped
+        // screen: a picker you cannot search, copy a path from or look at properties in is a
+        // worse file manager than the one it was called to replace.
+        val ids = actions(1, picking = true).map { it.id }
+        for (id in listOf("copy", "send", "openwith", "details", "bookmark", "shortcut")) {
+            assertTrue("$id should survive a pick", id in ids)
+        }
+    }
+
+    @Test fun picking_changes_nothing_else_about_the_list() {
+        val normal = actions(1).map { it.id }
+        val picker = actions(1, picking = true).map { it.id }
+        assertEquals(normal.filter { it != "delete" }, picker)
     }
 }

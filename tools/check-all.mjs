@@ -11,9 +11,11 @@
  * checker which cannot fail is not evidence, and the only way to know it can is to feed it
  * something broken and watch it say so.
  *
- * Some checkers need a built APK or a device attached. Those are SKIPPED rather than failed,
- * by name, and the skip is printed - an unexplained absence is how a check quietly stops
- * running.
+ * A checker that needs something this box cannot guarantee is SKIPPED by name with what it
+ * needed, never silently. That list is kept as short as it can honestly be: an over-cautious
+ * entry is worse than none, because it skips a check that would have run. `check-icon` was in
+ * it for "needs both built APKs" and needs no such thing - it reads resource XML, and CI had
+ * been running it directly all along.
  *
  * **Exit code 2 means "could not run", and is a skip, not a pass.** Two of these checkers read
  * the live GitHub release, and GitHub answers an HTML error page under rate limiting perhaps
@@ -38,20 +40,12 @@ const DIR = "tools";
  * requirement it runs like everything else rather than being permanently excused.
  */
 const NEEDS = {
-  "check-release.mjs": { what: "a built release APK", present: () => builtApks().length > 0 },
-  "check-releasedoc.mjs": { what: "a built release APK", present: () => builtApks().length > 0 },
-  "check-icon.mjs": { what: "both built APKs", present: () => builtApks().length >= 2 },
-  "check-archives.mjs": { what: "7-Zip", present: () => existsSync("C:/Program Files/7-Zip/7z.exe") },
+  // Third-party reader, used deliberately: zip4j writing and zip4j reading proves only that
+  // the two halves agree. Absent on a CI runner, present on the development box.
+  "check-archives.mjs": { what: "7-Zip", present: () => existsSync(SEVEN_ZIP) },
 };
 
-function builtApks() {
-  const out = [];
-  for (const dir of ["app/build/outputs/apk/github/debug", "app/build/outputs/apk/github/release"]) {
-    if (!existsSync(dir)) continue;
-    for (const f of readdirSync(dir)) if (f.endsWith(".apk")) out.push(join(dir, f));
-  }
-  return out;
-}
+const SEVEN_ZIP = "C:/Program Files/7-Zip/7z.exe";
 
 const checkers = readdirSync(DIR)
   .filter((f) => f.startsWith("check-") && f.endsWith(".mjs") && f !== "check-all.mjs")

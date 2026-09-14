@@ -634,6 +634,32 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * and `Archives.canList` is where it lives, so a format added to the table shows its
      * extract rows without anybody editing a menu.
      */
+    // -- picking, when another app asked for a file --
+
+    /**
+     * Non-null while Filet is running as somebody else's file picker.
+     *
+     * A plain property rather than a flow: it is set once before the first composition and
+     * never changes, because the request came in on the Intent that started the activity.
+     * Everything that reads it is asking "am I a picker right now", which is a fact about the
+     * activity rather than a piece of state that moves.
+     */
+    var pickRequest: dev.niccc2007.filet.pick.PickRequest? = null
+
+    val picking: Boolean get() = pickRequest != null
+
+    /** The asking app's name, for the notice strip. Null when the caller could not be named. */
+    var pickCaller: String? = null
+
+    /** Hand the selection back to the app that asked. Set by the picker activity. */
+    var onPickConfirm: (() -> Unit)? = null
+
+    /** Give up and return a cancel. Set by the picker activity. */
+    var onPickCancel: (() -> Unit)? = null
+
+    /** What the picker would hand over: the focused pane's selection, files and folders both. */
+    fun pickSelection(): List<VNode> = focusedPane()?.selectedNodes().orEmpty()
+
     fun selectionIsArchive(): Boolean {
         val items = focusedPane()?.selectedNodes() ?: return false
         return items.size == 1 && !items[0].isDir && Archives.canList(items[0].name)

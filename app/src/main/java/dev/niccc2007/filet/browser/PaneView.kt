@@ -680,6 +680,7 @@ private fun PaneContextMenu(
         ),
         archive = vm.selectionIsArchive(),
         otherPane = vm.isSplit(),
+        picking = vm.picking,
     )
 
     val extras = listOf(

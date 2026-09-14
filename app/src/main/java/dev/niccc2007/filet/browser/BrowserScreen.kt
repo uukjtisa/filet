@@ -113,7 +113,9 @@ fun BrowserScreen(vm: BrowserViewModel) {
             activeState?.search?.open == true -> active.openSearch(false)
             activeState?.selecting == true -> active.clearSelection()
             active?.goBack() == true -> Unit
-            active?.goUp() == true -> Unit
+            // push = false: see PaneController.goUp. Pushing here makes back and up fight each
+            // other and the screen never closes.
+            active?.goUp(push = false) == true -> Unit
             else -> vm.requestExit()
         }
     }
@@ -149,6 +151,13 @@ fun BrowserScreen(vm: BrowserViewModel) {
                 TabStrip(vm, tabs, app, showMenu = !wide)
                 TopBar(vm, app, active, wide)
                 HorizontalDivider(color = colors.lineSoft)
+
+                // Below the tabs and the toolbar on purpose. It sat ABOVE both at first and
+                // Nic read it exactly right: a strip over the top of the whole app looks like
+                // a system dialog wrapped around Filet rather than like Filet doing something.
+                // Down here it is one of the app's own bars, and the action that completes the
+                // pick lives in the selection bar with every other action.
+                if (vm.picking) PickNotice(vm, activeState?.selected?.size ?: 0)
 
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     if (wide) {
@@ -928,6 +937,7 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
         ),
         archive = vm.selectionIsArchive(),
         otherPane = vm.isSplit(),
+        picking = vm.picking,
     )
 
     Column(Modifier.fillMaxWidth().background(colors.raised)) {
@@ -943,6 +953,23 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
                 color = colors.accent,
             )
             Spacer(Modifier.weight(1f))
+            // While picking, the thing that finishes the job sits with the other actions
+            // rather than in a bar of its own, and it is the emphasised one because it is the
+            // only reason this screen is open.
+            if (vm.picking) {
+                Text(
+                    if (count > 1) "Use these" else "Use this",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.accent,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colors.sel)
+                        .clickable { vm.onPickConfirm?.invoke() }
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+            }
             if (style == SelectionStyle.MENU) {
                 Box {
                     Text(
@@ -1183,4 +1210,69 @@ private fun Toast(message: String, onDone: () -> Unit) {
                 .padding(horizontal = 14.dp, vertical = 7.dp),
         )
     }
+}
+
+/**
+ * The strip that says a file is being chosen for somebody else.
+ *
+ * The only thing on screen explaining why Filet opened without being opened, so it is always
+ * visible while picking - but it is a line of the app's own chrome rather than a lid over it.
+ * It carries the count as it changes, so "nothing chosen yet" and "2 chosen" are the same
+ * sentence moving rather than a bar appearing from nowhere.
+ *
+ * Cancel lives here because there has to be a way out that is not the back button, and the
+ * confirm deliberately does NOT: it belongs with the other actions, in the selection bar, where
+ * somebody looks after choosing something.
+ */
+@Composable
+private fun PickNotice(vm: BrowserViewModel, count: Int) {
+    val colors = Filet.colors
+    val request = vm.pickRequest ?: return
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(colors.high)
+            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            FiletIcons.Check,
+            contentDescription = null,
+            tint = colors.accent,
+            modifier = Modifier.size(13.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                vm.pickCaller?.let { "Choosing ${request.what} for $it" } ?: "Choosing ${request.what}",
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                when {
+                    count == 0 && request.allowMultiple -> "Hold a file to select — one or more"
+                    count == 0 -> "Hold a file to select it"
+                    count == 1 -> "1 chosen — Use this, below"
+                    else -> "$count chosen — Use these, below"
+                },
+                fontSize = 9.5.sp,
+                color = colors.fg3,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            "Cancel",
+            fontSize = 11.5.sp,
+            color = colors.fg2,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { vm.onPickCancel?.invoke() }
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
+    HorizontalDivider(color = colors.lineSoft)
 }
