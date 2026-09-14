@@ -117,11 +117,12 @@ class FiletGraph(context: Context) {
     }.getOrElse { NullIndex() }
 
     val watcher = HotWatcher(vfs) { changed ->
-        // A watched directory moved. Re-read it, and let Home re-read its tracked folders.
-        scope.launch {
-            runCatching { index.crawl(listOf(changed), budgetMs = 4_000) }
-            home.refresh()
-        }
+        // The cheap thing first. This used to run a four-second crawl and only then refresh
+        // the feed, so the update Home actually shows queued behind the one nobody sees -
+        // which is most of why the feed "takes time to update". The feed coalesces its own
+        // bursts, so calling it per event is fine.
+        home.onChanged()
+        scope.launch { runCatching { index.crawl(listOf(changed), budgetMs = 4_000) } }
     }
 
     val indexCoordinator = IndexCoordinator(app, index, prefs, ledger, scope)
@@ -142,7 +143,15 @@ class FiletGraph(context: Context) {
             scripts.seedExamples()
             home.refresh()
             index.status.value.let { if (it.enabled) indexCoordinator.onStart(roots) }
-            watcher.watch(tracked.paths.value)
+            // Follow the tracked list rather than sampling it once at startup. A folder
+            // tracked afterwards was never watched at all, so it only ever updated when Home
+            // was reopened - the other half of "its not latest".
+            scope.launch {
+                tracked.paths.collect { paths ->
+                    watcher.watch(paths)
+                    home.refresh()
+                }
+            }
             // Provenance is what makes the Source chip real; wiring it here rather than in
             // the UI keeps Home ignorant of whether an index exists.
             home.originLookup = { path ->

@@ -231,19 +231,37 @@ private fun TabStrip(
             }
             // Edge fades, shown only on the side there is actually more to see. A row of
             // tabs that overflows with a hard edge looks like a row of tabs that ends.
+            //
+            // `matchParentSize`, NOT `fillMaxHeight`. This is the tab bug Nic reported as
+            // "when making tabs and it exceeds some kind of tabs shown limit it freakin
+            // glitches, when i click anywhere its empty and messed up". A fade only renders
+            // once the strip overflows - which is exactly "some number of tabs" - and
+            // `fillMaxHeight` inside a Box whose own height is still being decided resolves
+            // against the incoming maximum, so the strip grew to the height of the screen and
+            // pushed the whole file list off it. `matchParentSize` measures against the
+            // parent's RESOLVED size and contributes nothing to it, which is what an overlay
+            // is supposed to do.
             if (scroll.value > 0) {
                 Box(
-                    Modifier.align(Alignment.CenterStart).fillMaxHeight().width(18.dp)
+                    Modifier.align(Alignment.CenterStart).matchParentSize()
                         .background(
-                            Brush.horizontalGradient(listOf(colors.sunken, Color.Transparent))
+                            Brush.horizontalGradient(
+                                0f to colors.sunken,
+                                0.06f to Color.Transparent,
+                                1f to Color.Transparent,
+                            )
                         )
                 )
             }
             if (scroll.value < scroll.maxValue) {
                 Box(
-                    Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(18.dp)
+                    Modifier.align(Alignment.CenterEnd).matchParentSize()
                         .background(
-                            Brush.horizontalGradient(listOf(Color.Transparent, colors.sunken))
+                            Brush.horizontalGradient(
+                                0f to Color.Transparent,
+                                0.94f to Color.Transparent,
+                                1f to colors.sunken,
+                            )
                         )
                 )
             }
@@ -997,18 +1015,15 @@ private fun FootDivider() {
 /** The overflow cue: more that way. */
 @Composable
 private fun BoxScope.EdgeFade(ground: Color, side: Alignment) {
-    Box(
-        Modifier
-            .align(side)
-            .fillMaxHeight()
-            .width(22.dp)
-            .background(
-                Brush.horizontalGradient(
-                    if (side == Alignment.CenterStart) listOf(ground, Color.Transparent)
-                    else listOf(Color.Transparent, ground)
-                )
-            )
-    )
+    // `matchParentSize` rather than `fillMaxHeight`, for the reason written out at the tab
+    // strip: an overlay that fills the height can decide the parent's height instead of
+    // following it, and the failure only shows once the row overflows.
+    val stops = if (side == Alignment.CenterStart) {
+        arrayOf(0f to ground, 0.07f to Color.Transparent, 1f to Color.Transparent)
+    } else {
+        arrayOf(0f to Color.Transparent, 0.93f to Color.Transparent, 1f to ground)
+    }
+    Box(Modifier.matchParentSize().background(Brush.horizontalGradient(*stops)))
 }
 
 /**

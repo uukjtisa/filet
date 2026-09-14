@@ -11,6 +11,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 
@@ -147,12 +152,53 @@ class HomeFeed(
     /** Supplies the Source chip once provenance exists. Set by the bridge at M7. */
     var originLookup: (suspend (VPath) -> String?)? = null
 
+    /** The last time a change arrived, and the first one of the current burst. */
+    private var burstStartedAt = 0L
+    private var lastChangeAt = 0L
+    private var pending: Job? = null
+
+    /**
+     * Something changed in a watched folder.
+     *
+     * Coalesced rather than serviced per event: copying twenty files in fires twenty
+     * notifications, and twenty full re-reads of every tracked folder is exactly why the feed
+     * felt slow. See [coalesceDelay] for why there are two clocks.
+     */
+    fun onChanged() {
+        val now = System.currentTimeMillis()
+        if (pending?.isActive != true) burstStartedAt = now
+        lastChangeAt = now
+        if (pending?.isActive == true) return
+        pending = scope.launch {
+            while (true) {
+                val wait = coalesceDelay(
+                    sinceFirstChange = System.currentTimeMillis() - burstStartedAt,
+                    sinceLastChange = System.currentTimeMillis() - lastChangeAt,
+                )
+                if (wait <= 0L) break
+                delay(wait)
+            }
+            refresh()
+        }
+    }
+
     fun refresh() {
         scope.launch {
             _loading.value = true
-            val items = ArrayList<FeedItem>()
-            for (folder in tracked.folders.value) {
-                collect(folder.path, folder.recursive, depth = 0, into = items)
+            // Read the tracked folders at the same time rather than one after another. Twelve
+            // tracked folders on an SD card used to be twelve round trips end to end, and the
+            // feed is the first thing on the first screen.
+            val folders = tracked.folders.value
+            val items = coroutineScope {
+                folders.chunked(FEED_PARALLELISM).flatMap { batch ->
+                    batch.map { folder ->
+                        async {
+                            val out = ArrayList<FeedItem>()
+                            collect(folder.path, folder.recursive, depth = 0, into = out)
+                            out
+                        }
+                    }.awaitAll()
+                }.flatten()
             }
             _downloads.value = items.sortedByDescending { it.at }.take(SHOWN)
             _loading.value = false

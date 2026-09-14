@@ -304,15 +304,40 @@ function fileIcon(f) {
   return null;
 }
 
-function render() {
-  renderCrumbs();
+/**
+ * How many rows go into the page at once.
+ *
+ * A shared folder of several thousand entries used to be built in one pass: one <li> per
+ * entry, each with an inline SVG, a thumbnail and four children. A desktop browser absorbs
+ * fifty thousand DOM nodes and a phone does not, which is exactly the split Nic saw - fine on
+ * his PC, unresponsive on the phone. A hundred and fifty is a couple of screenfuls, and the
+ * rest arrive as you reach them.
+ */
+const PAGE = 150;
+let windowSize = PAGE;
+let sentinelWatcher = null;
+
+function visibleFiles() {
   const needle = q.value.trim().toLowerCase();
-  const shown = needle ? files.filter(f => f.name.toLowerCase().includes(needle)) : files;
+  return needle ? files.filter(f => f.name.toLowerCase().includes(needle)) : files;
+}
+
+function render(keepWindow) {
+  if (!keepWindow) windowSize = PAGE;
+  renderCrumbs();
+  const shown = visibleFiles();
 
   const dirs = files.filter(f => f.dir).length;
-  count.textContent = files.length
-    ? files.length + ' item' + (files.length === 1 ? '' : 's') + (dirs ? ' · ' + dirs + ' folder' + (dirs === 1 ? '' : 's') : '')
+  const total = files.length
+    ? files.length + ' item' + (files.length === 1 ? '' : 's') + (dirs ? ' \u00b7 ' + dirs + ' folder' + (dirs === 1 ? '' : 's') : '')
     : 'Nothing here';
+  // Say how much of it is on screen. A page that silently shows the first 150 of 4,000 is
+  // a page that has lost your files as far as you can tell.
+  count.textContent = shown.length > windowSize
+    ? total + ' \u00b7 showing ' + windowSize
+    : total;
+
+  if (sentinelWatcher) { sentinelWatcher.disconnect(); sentinelWatcher = null; }
 
   if (!shown.length) {
     list.innerHTML = '<li class="empty">' +
@@ -320,8 +345,10 @@ function render() {
     return;
   }
 
-  list.innerHTML = '';
-  for (const f of shown) {
+  // One fragment, one layout pass. Appending to a live list re-lays out the page per row.
+  const frag = document.createDocumentFragment();
+  const slice = shown.slice(0, windowSize);
+  for (const f of slice) {
     const li = document.createElement('li');
     li.className = (f.dir ? 'dir' : '') + (chosen.has(f.token) ? ' on' : '');
 
@@ -331,7 +358,8 @@ function render() {
     tick.addEventListener('click', e => {
       e.stopPropagation();
       chosen.has(f.token) ? chosen.delete(f.token) : chosen.add(f.token);
-      render(); updateBulk();
+      // Keep the window: ticking a box on row 400 must not throw you back to row 1.
+      render(true); updateBulk();
     });
 
     const ico = document.createElement('div');
@@ -376,7 +404,34 @@ function render() {
     }
 
     li.append(tick, ico, meta, acts);
-    list.append(li);
+    frag.append(li);
+  }
+
+  list.innerHTML = '';
+  list.append(frag);
+
+  if (shown.length > windowSize) {
+    const more = document.createElement('li');
+    more.className = 'empty';
+    more.textContent = 'Loading the next ' +
+      Math.min(PAGE, shown.length - windowSize) + ' of ' + (shown.length - windowSize) + '\u2026';
+    list.append(more);
+    // Grows as you reach the bottom. No button to find, and no thousands of rows to build
+    // for somebody who only wanted the first one.
+    if ('IntersectionObserver' in window) {
+      sentinelWatcher = new IntersectionObserver(entries => {
+        if (entries.some(e => e.isIntersecting)) {
+          windowSize += PAGE;
+          render(true);
+        }
+      }, { rootMargin: '400px' });
+      sentinelWatcher.observe(more);
+    } else {
+      // No observer on a very old browser, so it becomes a button rather than a dead end.
+      more.textContent = 'Show ' + Math.min(PAGE, shown.length - windowSize) + ' more';
+      more.style.cursor = 'pointer';
+      more.addEventListener('click', () => { windowSize += PAGE; render(true); });
+    }
   }
 }
 
@@ -391,13 +446,14 @@ upBtn.addEventListener('click', () => {
   if (!trail.length) return;
   load(trail.length >= 2 ? trail[trail.length - 2].token : '');
 });
-document.getElementById('clear').addEventListener('click', () => { chosen.clear(); render(); updateBulk(); });
+document.getElementById('clear').addEventListener('click', () => { chosen.clear(); render(true); updateBulk(); });
 document.getElementById('all').addEventListener('click', () => {
-  const needle = q.value.trim().toLowerCase();
-  const shown = (needle ? files.filter(f => f.name.toLowerCase().includes(needle)) : files).filter(f => !f.dir);
+  // Everything that matches the filter, not just what is rendered - otherwise "select
+  // all" would quietly mean "select the first 150".
+  const shown = visibleFiles().filter(f => !f.dir);
   const everyOn = shown.length > 0 && shown.every(f => chosen.has(f.token));
   shown.forEach(f => everyOn ? chosen.delete(f.token) : chosen.add(f.token));
-  render(); updateBulk();
+  render(true); updateBulk();
 });
 document.getElementById('zip').addEventListener('click', () => {
   if (!chosen.size) return;

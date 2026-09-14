@@ -34,6 +34,16 @@ class Prefs(context: Context) {
     val showHidden: StateFlow<Boolean> = _showHidden.asStateFlow()
 
     /**
+     * Hide the storage cards on Home.
+     *
+     * On a phone with one volume they are a fifth of the first screen restating something you
+     * already know. Off by default, because on a phone WITH an SD card they are the fastest
+     * way to reach it.
+     */
+    private val _hideStorage = MutableStateFlow(sp.getBoolean(K_HIDE_STORAGE, false))
+    val hideStorage: StateFlow<Boolean> = _hideStorage.asStateFlow()
+
+    /**
      * One control for the whole view, exactly as the mock settled it: six steps from a
      * compact list to a large grid. Two separate knobs (mode + density) let a user pick
      * combinations that do not exist, which is how the mock's slider replaced them.
@@ -63,6 +73,7 @@ class Prefs(context: Context) {
     }
 
     fun setShowHidden(v: Boolean) { _showHidden.value = v; sp.edit().putBoolean(K_HIDDEN, v).apply() }
+    fun setHideStorage(v: Boolean) { _hideStorage.value = v; sp.edit().putBoolean(K_HIDE_STORAGE, v).apply() }
 
     fun setViewStep(v: Int) {
         val c = v.coerceIn(1, 6)
@@ -100,6 +111,7 @@ class Prefs(context: Context) {
         const val K_SPLIT = "browse.split"
         const val K_INDEX = "index.enabled"
         const val K_TAB_SIZE = "browse.tabSize"
+        const val K_HIDE_STORAGE = "home.hideStorage"
     }
 }
 

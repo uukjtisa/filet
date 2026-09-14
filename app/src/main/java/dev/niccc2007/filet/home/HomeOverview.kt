@@ -65,25 +65,50 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     val app by vm.state.collectAsState()
     val downloads by vm.home.downloads.collectAsState()
     val recents by vm.recents.items.collectAsState()
+    val tracked by vm.tracked.folders.collectAsState()
+    val hideStorage by vm.prefs.hideStorage.collectAsState()
     val colors = Filet.colors
     var menuFor by remember { mutableStateOf<VNode?>(null) }
 
     LaunchedEffect(app.revision) { vm.home.refresh() }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {
-        item { SectionLabel("Storage") }
-        items(app.volumes.size) { i ->
-            val v = app.volumes[i]
-            DriveCard(
-                label = v.label,
-                free = v.free,
-                total = v.total,
-                onClick = { pane.navigateTo(v.node.path) },
-            )
+        // Hideable, because on a phone with one volume the card is a fifth of the first
+        // screen saying something you already know. The heading stays either way, so turning
+        // it off does not look like the cards failed to load.
+        item {
+            Row(
+                Modifier.fillMaxWidth().padding(end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SectionLabel("Storage", Modifier.weight(1f))
+                Text(
+                    if (hideStorage) "Show" else "Hide",
+                    fontSize = 10.sp,
+                    color = colors.fg3,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { vm.prefs.setHideStorage(!hideStorage) }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+        if (!hideStorage) {
+            items(app.volumes.size) { i ->
+                val v = app.volumes[i]
+                DriveCard(
+                    label = v.label,
+                    free = v.free,
+                    total = v.total,
+                    onClick = { pane.navigateTo(v.node.path) },
+                )
+            }
         }
 
         if (downloads.isNotEmpty()) {
-            item { SectionLabel("New downloads · tracked") }
+            // Not "downloads": a folder pushed over Nearby, an extracted archive and a file
+            // saved by another app all land here, and none of them was downloaded.
+            item { SectionLabel("New files and folders") }
             items(downloads.size) { i ->
                 val d = downloads[i]
                 FeedRow(
@@ -92,6 +117,21 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                     sub = d.origin,
                     onClick = { vm.openHomeEntry(d.node) },
                     onLongClick = { menuFor = d.node },
+                )
+            }
+        }
+
+        // What is being watched, and a way to stop. Without this the tracked list was
+        // write-only: you could add a folder from its menu and never see the set again.
+        if (tracked.isNotEmpty()) {
+            item { SectionLabel("Tracked folders (${tracked.size})") }
+            items(tracked.size) { i ->
+                val t = tracked[i]
+                TrackedRow(
+                    folder = t,
+                    onOpen = { pane.navigateTo(t.path) },
+                    onToggleDeep = { vm.tracked.setRecursive(t.path, !t.recursive); vm.home.refresh() },
+                    onStop = { vm.tracked.remove(t.path); vm.home.refresh() },
                 )
             }
         }
@@ -276,5 +316,67 @@ private fun FeedRow(
         }
         Spacer(Modifier.width(8.dp))
         Text(when_, fontSize = 10.sp, color = colors.fg3)
+    }
+}
+
+/**
+ * One tracked folder, with the two things you ever want to do to it.
+ *
+ * Subfolders is a per-folder switch rather than a global one because the cost is per folder:
+ * the tracked list is also the inotify watch list, inotify charges one watch per directory,
+ * and the ceiling is around 8192. Tracking Download deeply is free; tracking the volume root
+ * deeply is the whole budget.
+ */
+@Composable
+private fun TrackedRow(
+    folder: dev.niccc2007.filet.home.TrackedFolder,
+    onOpen: () -> Unit,
+    onToggleDeep: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val colors = Filet.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(FiletIcons.Eye, null, tint = colors.accent, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(11.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                folder.path.name.ifEmpty { folder.path.scheme },
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                folder.path.path,
+                fontSize = 9.5.sp,
+                color = colors.fg3,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            if (folder.recursive) "Subfolders on" else "Subfolders off",
+            fontSize = 9.5.sp,
+            color = if (folder.recursive) colors.accent else colors.fg3,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onToggleDeep)
+                .padding(horizontal = 7.dp, vertical = 4.dp),
+        )
+        Icon(
+            FiletIcons.Close, "Stop tracking", tint = colors.fg3,
+            modifier = Modifier
+                .size(24.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onStop)
+                .padding(5.dp),
+        )
     }
 }

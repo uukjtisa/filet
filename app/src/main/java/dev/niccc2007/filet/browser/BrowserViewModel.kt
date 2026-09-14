@@ -226,10 +226,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             return
         }
         _tabs.value = list.filterIndexed { i, _ -> i != index }
+        val left = _tabs.value.size
+        // Clamping BEFORE decrementing was the bug: the clamp had already taken one off for
+        // the tab that just went, then the decrement took another, so with enough tabs the
+        // pointer landed past the end and `paneFor` returned null - a blank pane. See Tabs.kt.
         _state.update {
-            val a = it.activeA.coerceAtMost(_tabs.value.lastIndex).let { v -> if (index < it.activeA) v - 1 else v }
-            val b = it.activeB.coerceAtMost(_tabs.value.lastIndex).let { v -> if (index < it.activeB) v - 1 else v }
-            it.copy(activeA = a.coerceAtLeast(0), activeB = b.coerceAtLeast(0))
+            it.copy(
+                activeA = indexAfterClose(it.activeA, index, left),
+                activeB = indexAfterClose(it.activeB, index, left),
+            )
         }
         persistTabs()
     }
@@ -275,19 +280,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         _tabs.value = list.movedItem(from, to)
         _state.update {
             it.copy(
-                activeA = followingMove(it.activeA, from, to),
-                activeB = followingMove(it.activeB, from, to),
+                activeA = indexAfterMove(it.activeA, from, to),
+                activeB = indexAfterMove(it.activeB, from, to),
             )
         }
         persistTabs()
-    }
-
-    /** Where an index ends up after the item at [from] is moved to [to]. */
-    private fun followingMove(index: Int, from: Int, to: Int): Int = when {
-        index == from -> to
-        from < to && index in (from + 1)..to -> index - 1
-        to < from && index in to until from -> index + 1
-        else -> index
     }
 
     /**
@@ -339,11 +336,19 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun focusSide(side: Side) = _state.update { it.copy(focused = side) }
 
+    /**
+     * The pane a side is showing.
+     *
+     * Clamped rather than nullable-on-overflow. Every path that changes the tab list is meant
+     * to keep the pointers valid, and the one that did not rendered a blank screen instead of
+     * failing - so the point of use clamps as well. Null now means what it says: there are no
+     * tabs at all.
+     */
     fun paneFor(side: Side): PaneController? {
         val s = _state.value
         val list = _tabs.value
         val idx = if (side == Side.A) s.activeA else s.activeB
-        return list.getOrNull(idx)
+        return safeTabIndex(idx, list.size)?.let { list[it] }
     }
 
     fun focusedPane(): PaneController? = paneFor(_state.value.focused)
