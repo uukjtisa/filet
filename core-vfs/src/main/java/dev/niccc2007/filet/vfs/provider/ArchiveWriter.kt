@@ -8,13 +8,11 @@ import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
+import org.apache.commons.compress.compressors.gzip.GzipParameters
 import org.apache.commons.compress.compressors.xz.XZCompressorOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
-import java.util.zip.CRC32
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
 /**
  * Making an archive, in whichever format was picked.
@@ -47,8 +45,15 @@ class ArchiveSource(
 
 object ArchiveWriter {
 
-    /** 7z indexes as it writes and has to seek back, so it cannot go straight to a stream. */
-    fun needsRealFile(format: ArchiveFormat): Boolean = format.kind == ArchiveKind.SEVEN_ZIP
+    /**
+     * Whether this archive has to be written to a real file rather than to a stream.
+     *
+     * Two unrelated reasons, which is why it takes the options as well as the format: 7z
+     * indexes as it writes and has to seek back, and a SPLIT zip is not one stream at all -
+     * zip4j opens each `.z01`, `.z02` volume itself as the previous one fills.
+     */
+    fun needsRealFile(format: ArchiveFormat, options: ArchiveOptions = ArchiveOptions.NONE): Boolean =
+        format.kind == ArchiveKind.SEVEN_ZIP || (format.kind == ArchiveKind.ZIP && options.isSplit)
 
     /**
      * Extensions already compressed to within a percent of their entropy.
@@ -73,14 +78,29 @@ object ArchiveWriter {
         format: ArchiveFormat,
         out: OutputStream,
         sources: List<ArchiveSource>,
+        options: ArchiveOptions = ArchiveOptions.NONE,
         onEntry: (String) -> Unit = {},
     ) {
-        require(!needsRealFile(format)) { "${format.label} needs a real file; use writeToFile" }
+        require(!needsRealFile(format, options)) { "${format.label} needs a real file; use writeToFile" }
+        refuseImpossibleOptions(format, options)
         when (format.kind) {
-            ArchiveKind.ZIP -> writeZip(out, sources, onEntry)
-            ArchiveKind.TAR -> writeTar(format, out, sources, onEntry)
+            ArchiveKind.ZIP -> ZipWriter.write(out, sources, options, onEntry)
+            ArchiveKind.TAR -> writeTar(format, out, sources, options, onEntry)
             else -> throw IllegalArgumentException("${format.label} cannot be created")
         }
+    }
+
+    /**
+     * Refuse a combination the format cannot honour, before a byte is written.
+     *
+     * The failure this prevents is the quiet one: a password handed to a writer that has no
+     * encryption produces a perfectly good archive with no protection on it, and it looks
+     * identical to a protected one until somebody opens it without the password. Checked here
+     * rather than trusted to the dialog, because the dialog is one of two callers.
+     */
+    private fun refuseImpossibleOptions(format: ArchiveFormat, options: ArchiveOptions) {
+        val why = options.problemFor(ArchiveCapabilities.of(format))
+        require(why == null) { why!! }
     }
 
     /**
@@ -93,17 +113,24 @@ object ArchiveWriter {
         format: ArchiveFormat,
         osPath: String,
         sources: List<ArchiveSource>,
+        options: ArchiveOptions = ArchiveOptions.NONE,
         onEntry: (String) -> Unit = {},
-    ) = writeToFile(format, File(osPath), sources, onEntry)
+    ) = writeToFile(format, File(osPath), sources, options, onEntry)
 
-    /** The 7z path. The caller gives a real file because the writer seeks in it. */
+    /** The paths that need a real file: 7z always, and a split zip. */
     suspend fun writeToFile(
         format: ArchiveFormat,
         file: File,
         sources: List<ArchiveSource>,
+        options: ArchiveOptions = ArchiveOptions.NONE,
         onEntry: (String) -> Unit = {},
     ) {
-        require(format.kind == ArchiveKind.SEVEN_ZIP) { "${format.label} does not need a file" }
+        require(needsRealFile(format, options)) { "${format.label} does not need a file" }
+        refuseImpossibleOptions(format, options)
+        if (format.kind == ArchiveKind.ZIP) {
+            ZipWriter.writeSplit(file, sources, options, onEntry)
+            return
+        }
         SevenZOutputFile(file).use { z ->
             for (s in sources) {
                 currentCoroutineContext().ensureActive()
@@ -120,49 +147,28 @@ object ArchiveWriter {
         }
     }
 
-    private suspend fun writeZip(out: OutputStream, sources: List<ArchiveSource>, onEntry: (String) -> Unit) {
-        ZipOutputStream(out.buffered()).use { zos ->
-            for (s in sources) {
-                currentCoroutineContext().ensureActive()
-                onEntry(s.entryPath)
-                if (s.isDir) {
-                    zos.putNextEntry(ZipEntry(s.entryPath.trimEnd('/') + "/"))
-                    zos.closeEntry()
-                    continue
-                }
-                val open = s.open ?: continue
-                val stored = s.entryPath.substringAfterLast('.', "").lowercase() in ALREADY_COMPRESSED
-                val entry = ZipEntry(s.entryPath)
-                if (s.mtime > 0) entry.time = s.mtime
-                if (stored) {
-                    // A STORED entry carries its size and CRC in the header, so the source has
-                    // to be read twice. Worth it - deflating an mp4 burns minutes to save
-                    // nothing - and it is why `open` may be called more than once for these.
-                    val crc = CRC32()
-                    var size = 0L
-                    open().use { input -> pump(input) { b, n -> crc.update(b, 0, n); size += n } }
-                    entry.method = ZipEntry.STORED
-                    entry.size = size
-                    entry.compressedSize = size
-                    entry.crc = crc.value
-                }
-                zos.putNextEntry(entry)
-                open().use { input -> pump(input) { b, n -> zos.write(b, 0, n) } }
-                zos.closeEntry()
-            }
-        }
-    }
-
     private suspend fun writeTar(
         format: ArchiveFormat,
         out: OutputStream,
         sources: List<ArchiveSource>,
+        options: ArchiveOptions,
         onEntry: (String) -> Unit,
     ) {
+        // Each wrapper takes its setting in its OWN units - a gzip level, a bzip2 block size, an
+        // LZMA2 preset - which is why the capability table keeps them as three separate scales
+        // rather than one shared 0-9.
+        val level = options.levelFor(ArchiveCapabilities.of(format))
         val compressed: OutputStream = when {
-            format.id == "tar.gz" -> GzipCompressorOutputStream(out.buffered())
-            format.id == "tar.bz2" -> BZip2CompressorOutputStream(out.buffered())
-            format.id == "tar.xz" -> XZCompressorOutputStream(out.buffered())
+            format.id == "tar.gz" -> GzipCompressorOutputStream(
+                out.buffered(),
+                GzipParameters().apply { if (level != null) compressionLevel = level },
+            )
+            format.id == "tar.bz2" ->
+                if (level != null) BZip2CompressorOutputStream(out.buffered(), level)
+                else BZip2CompressorOutputStream(out.buffered())
+            format.id == "tar.xz" ->
+                if (level != null) XZCompressorOutputStream(out.buffered(), level)
+                else XZCompressorOutputStream(out.buffered())
             else -> out.buffered()
         }
         TarArchiveOutputStream(compressed).use { tar ->

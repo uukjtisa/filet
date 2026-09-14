@@ -28,6 +28,10 @@ import { tmpdir } from "node:os";
  */
 const KNOWN = {
   "commons-compress": { licence: "Apache-2.0", ok: true },
+  // Round 9. `java.util.zip` cannot encrypt a zip at all and cannot write a volume set,
+  // so both of Nic's zip asks are outside it. Apache-2.0 and pure Java, unlike every
+  // RAR decoder, which is the comparison worth keeping in mind here.
+  zip4j: { licence: "Apache-2.0", ok: true },
   xz: { licence: "Public domain", ok: true },
   json: { licence: "JSON License", ok: true, note: "test-only, never shipped in the APK" },
   "sora-editor": { licence: "LGPL-2.1", ok: true, note: "linked unmodified, never vendored" },

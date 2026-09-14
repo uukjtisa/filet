@@ -313,7 +313,8 @@ your paths.
 GPL-3.0. See [`LICENSE`](LICENSE).
 
 Filet bundles ARSCLib (Apache-2.0), smali and dexlib2 (BSD), LuaJ (MIT), Apache
-commons-compress (Apache-2.0) and XZ for Java (public domain) for the archive formats,
+commons-compress (Apache-2.0), XZ for Java (public domain) and zip4j (Apache-2.0) for
+the archive formats,
 sora-editor (LGPL-2.1, linked unmodified), and a build of SQLite with FTS5 and trigram
 enabled. Full attribution is on the About screen in the app.
 
