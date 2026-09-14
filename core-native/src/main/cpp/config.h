@@ -15,6 +15,13 @@
 #ifndef FILET_LIBARCHIVE_CONFIG_H
 #define FILET_LIBARCHIVE_CONFIG_H
 
+/*
+ * libarchive's own guard, which several private headers assert on with
+ * #error "Should have include config.h first!". Defining it is how a hand-written config
+ * announces itself as the config.
+ */
+#define __LIBARCHIVE_CONFIG_H_INCLUDED 1
+
 /* Android is a Linux, bionic is close enough to glibc for everything used here. */
 #define HAVE_DECL_INT32_MAX 1
 #define HAVE_DECL_INT32_MIN 1
@@ -149,9 +156,14 @@
  *                              code pages RAR filenames use.
  */
 
-#define ARCHIVE_CRYPTO_MD5_LIBC 0
-#define ARCHIVE_CRYPTO_SHA1_LIBC 0
-#define ARCHIVE_CRYPTO_SHA256_LIBC 0
+/*
+ * The ARCHIVE_CRYPTO_* backends are deliberately NOT defined at all.
+ *
+ * Not defined to 0 - libarchive tests several of them with #ifdef rather than #if, so a zero
+ * still selects the backend and then fails to find its header. Absent is the only way to say
+ * no. Without any of them the RAR readers use libarchive's own digest code, which is what they
+ * want for checksums anyway.
+ */
 
 /* Filled in by CMakeLists.txt from the vendored tree's own version. */
 #ifndef VERSION

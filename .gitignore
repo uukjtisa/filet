@@ -69,3 +69,7 @@ signing.properties
 
 # Working ledgers for a review round. Scaffolding, not the product.
 .unlazy/
+
+# The NDK build tree. The vendored libarchive SOURCE is committed; its objects are not.
+/core-native/build/
+/core-native/.cxx/

@@ -129,15 +129,21 @@ scorer reranks those in memory. Neither half is asked to do the other's job.
 
 - **Browse into an archive as a folder**, addressed as `zip:///path/a.tar.gz!/inner`. Zip and
   everything zip-shaped (apk, jar, aar, epub, cbz), tar on its own or through gzip, bzip2 or
-  xz, 7z, and a single compressed file such as `notes.txt.gz`
+  xz, 7z, RAR and RAR5 including solid archives, and a single compressed file such as
+  `notes.txt.gz`
 - **Make one** in zip, tar, tar.gz, tar.bz2, tar.xz or 7z, with the format picked at the time
   and the suffix taken from the format rather than from what you typed
 - **Extract** to a folder named after the archive, with the whole suffix stripped, so a
   `photos.tar.gz` gives you `photos` and not `photos.tar`
 - **Search inside them.** `inzip:` reads member names from every format above
-- **RAR is not supported, and here is why:** every Java decoder for it descends from the
-  UnRAR source, whose licence forbids using it to build an archiver. Filet is GPL-3.0, so it
-  cannot ship one. Opening a `.rar` says exactly that instead of failing as a corrupt file
+- **RAR reads, and Filet cannot create one — that distinction is a licence, not a gap.**
+  Every RAR decoder published for the JVM descends from RARLAB's UnRAR source, whose licence
+  forbids using it to build a RAR-compatible archiver. That is a field-of-use restriction and
+  GPL-3 §7 does not allow one to be added, so none of them can ship here. **libarchive's RAR
+  readers are different**: `archive_read_support_format_rar.c` and `…rar5.c` are independent
+  implementations under BSD-2-Clause, which GPL-3 can take. They are vendored in
+  [`core-native/`](core-native/README.md) — about 130 KB per ABI, the only native code in the
+  app. Writing a RAR is the part RARLAB's licence actually protects, so Filet does not
 - **`classes.dex` opens as a tree of smali** you can read and edit
 - **Search inside APKs.** `pkg:`, `label:` and `perm:` come from the resource table, `class:`
   from deduplicated package prefixes in the dex. About 2 KB of facts per APK, not 2 MB
@@ -191,8 +197,8 @@ internal storage also works inside an archive or on a network share.
 ## Installing it
 
 Grab the APK from **[Releases](https://github.com/uukjtisa/filet/releases/latest)**. Android 8.0
-or newer, one file, every phone - Filet ships no native code of its own, so there is nothing to
-split by CPU.
+or newer, one file, every phone. The only native code in Filet is libarchive's RAR readers, at
+about 130 KB per ABI, so a universal APK carries all four and there is nothing worth splitting.
 
 | File | For |
 |---|---|

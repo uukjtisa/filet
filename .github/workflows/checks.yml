@@ -69,4 +69,7 @@ jobs:
         run: ./gradlew --no-daemon :core-vfs:test :core-index:test :app:testGithubDebugUnitTest
 
       - name: Assemble both flavours
+        # This now builds the NDK module too - libarchive's RAR readers. The runner has the
+        # NDK, and a green build here is what proves the vendored C tree still compiles for
+        # all four ABIs after any change to it.
         run: ./gradlew --no-daemon :app:assembleGithubDebug :app:assembleFdroidDebug

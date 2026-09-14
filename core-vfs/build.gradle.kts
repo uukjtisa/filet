@@ -20,6 +20,9 @@ android {
 }
 
 dependencies {
+    // The RAR readers. Native, because every JVM RAR decoder carries the UnRAR licence's
+    // field-of-use restriction and GPL-3 cannot take one; libarchive's are BSD-2-Clause.
+    api(project(":core-native"))
     implementation(libs.kotlinx.coroutines.android)
     // The APK-as-a-filesystem provider (PLAN.md L0): a dex entry is a walkable tree of
     // smali, which means the disassembler belongs to the provider, not to a screen.

@@ -130,6 +130,9 @@ android {
 }
 
 dependencies {
+    // The RAR readers (libarchive, BSD-2-Clause). Pulled in through :core-vfs as well,
+    // named here so the .so is packaged into the APK.
+    implementation(project(":core-native"))
     implementation(project(":core-vfs"))
     implementation(project(":core-index"))
     implementation(libs.androidx.work)

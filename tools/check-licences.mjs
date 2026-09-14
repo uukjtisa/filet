@@ -16,7 +16,7 @@
  *
  * Prints "LICENCES OK" / "LICENCES SELFTEST OK" only after every assertion passes.
  */
-import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -47,7 +47,8 @@ const KNOWN = {
   "sqlite-android": { licence: "Apache-2.0", ok: true },
   "work-runtime-ktx": { licence: "Apache-2.0", ok: true },
   documentfile: { licence: "Apache-2.0", ok: true },
-  // Never. Kept here so the reason is where somebody would go looking.
+  // Never. Kept here so the reason is where somebody would go looking - and note that
+  // libarchive below is the reason RAR is readable anyway, WITHOUT any of these.
   junrar: {
     licence: "UnRAR",
     ok: false,
@@ -63,6 +64,26 @@ const KNOWN = {
 
 /** Anything matching these is refused whatever the catalogue calls it. */
 const FORBIDDEN_PATTERNS = [/unrar/i, /junrar/i, /sevenzipjbinding/i];
+
+/**
+ * Third-party source vendored into the tree, which a Gradle catalogue cannot see.
+ *
+ * A copied-in C library is exactly the kind of dependency that escapes a dependency check, and
+ * this one is load-bearing: libarchive's BSD-2-Clause RAR readers are the entire reason RAR is
+ * readable in a GPL-3 app. If its licence file ever goes missing, the claim goes with it.
+ */
+const VENDORED = {
+  "core-native/src/main/cpp/libarchive": {
+    what: "libarchive (RAR and RAR5 readers only)",
+    licence: "BSD-2-Clause",
+    licenceFile: "COPYING",
+    // Proof it is the BSD tree and not something else dropped in with the same folder name.
+    mustContain: ["archive_read_support_format_rar5.c", "archive_read_support_format_rar.c"],
+    mustSay: /Redistribution and use in source and binary forms/,
+    // And proof it is NOT the thing this project refused.
+    mustNotSay: /unrar|RARLAB/i,
+  },
+};
 
 function parseCatalogue(toml) {
   const out = [];
@@ -102,14 +123,51 @@ function check(toml, readme) {
     }
   }
 
+  // The vendored C tree, which no dependency list mentions.
+  for (const [dir, rule] of Object.entries(VENDORED)) {
+    if (!existsSync(dir)) {
+      problems.push(`${rule.what} is recorded as vendored at ${dir}, which does not exist`);
+      continue;
+    }
+    const licencePath = join(dir, rule.licenceFile);
+    if (!existsSync(licencePath)) {
+      problems.push(`${dir} has no ${rule.licenceFile}; vendored source must keep its licence`);
+    } else {
+      const text = readFileSync(licencePath, "utf8");
+      if (!rule.mustSay.test(text)) {
+        problems.push(`${licencePath} does not read like ${rule.licence} any more`);
+      }
+    }
+    for (const file of rule.mustContain) {
+      if (!existsSync(join(dir, file))) {
+        problems.push(`${dir} is missing ${file}; this is not the tree that was audited`);
+      } else if (rule.mustNotSay.test(readFileSync(join(dir, file), "utf8"))) {
+        problems.push(
+          `${file} mentions UnRAR. The whole reason this tree is usable is that its RAR ` +
+            `readers are independent of RARLAB's source - check before shipping it.`,
+        );
+      }
+    }
+    if (!readme.includes("libarchive")) {
+      problems.push("the README does not credit libarchive, which is vendored into the APK");
+    }
+  }
+
   // The archive formats are the user-visible ones, so the README has to name them.
   for (const needed of ["commons-compress", "XZ"]) {
     if (!readme.includes(needed)) {
       problems.push(`the README does not credit ${needed}`);
     }
   }
+  // RAR is now READ but never WRITTEN, and the README has to be straight about which.
   if (!/RAR/.test(readme)) {
-    problems.push("the README does not say that RAR is not supported, or why");
+    problems.push("the README does not mention RAR at all");
+  }
+  if (!/cannot create|not create|no RAR creation|does not create/i.test(readme)) {
+    problems.push(
+      "the README does not say Filet cannot CREATE a RAR. Reading is fine under BSD; " +
+        "creating a RAR-compatible archive is the part RARLAB's licence protects.",
+    );
   }
   return problems;
 }
@@ -134,7 +192,19 @@ if (process.argv.includes("--selftest")) {
       /no recorded licence/,
     ],
     ["the README stops crediting the archive libraries", toml, readme.replace(/commons-compress/g, "something"), /commons-compress/],
-    ["the README stops mentioning RAR", toml, readme.replace(/RAR/g, "zip"), /RAR is not supported/],
+    ["the README stops mentioning RAR", toml, readme.replace(/RAR/g, "zip"), /does not mention RAR/],
+    [
+      "the README starts implying Filet can make a RAR",
+      toml,
+      readme.replace(/cannot create one/g, "makes one too"),
+      /cannot CREATE a RAR/,
+    ],
+    [
+      "the vendored tree loses its licence file",
+      toml,
+      readme.replace(/libarchive/g, "somelib"),
+      /does not credit libarchive/,
+    ],
   ];
   let failures = 0;
   for (const [name, t, r, expected] of cases) {

@@ -6,6 +6,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -212,14 +213,23 @@ class ArchiveProviderTest {
         assertEquals("line", vfs.openRead(mountOf(b).child("log.txt")).use { String(it.readBytes()) })
     }
 
-    @Test fun a_rar_is_refused_with_the_reason_rather_than_read_as_rubbish() = runTest {
-        // Not a real RAR: the point is that Filet refuses on the NAME, before it reads a byte,
-        // so the message is the licence rather than "corrupt archive".
+    @Test fun a_broken_rar_fails_as_a_broken_archive_rather_than_as_a_licence_problem() = runTest {
+        // This file has a RAR signature and nothing behind it. It used to be refused on the
+        // NAME, before a byte was read, because no decoder could ship - and the message was
+        // about the UnRAR licence. libarchive's BSD readers changed that, so the honest answer
+        // is now the ordinary one: this archive cannot be read.
+        //
+        // On the JVM there is no libarchive at all (`RarNative.available` is false, the .so is
+        // an Android artefact), so this also pins the no-native-library path: a refusal, never
+        // a crash on a missing symbol.
         val f = File(tmp, "archive.rar")
         f.writeBytes(byteArrayOf(0x52, 0x61, 0x72, 0x21))
         val e = runCatching { vfs.list(mountOf(f)) }.exceptionOrNull()
         assertTrue("expected a refusal, got $e", e is VfsException.Unsupported)
-        assertTrue("the refusal must name the licence", e!!.message!!.contains("UnRAR"))
+        assertFalse(
+            "the licence is no longer the reason RAR might fail",
+            e!!.message.orEmpty().contains("UnRAR"),
+        )
     }
 
     @Test fun a_member_missing_from_any_format_is_not_found_rather_than_empty() = runTest {

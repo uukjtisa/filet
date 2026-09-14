@@ -231,7 +231,7 @@ internal class StreamReader(private val file: File) : ArchiveReader {
  * purpose - six archives is more than anyone has open at once, and each entry is a list of
  * strings that can run to tens of thousands.
  */
-private object MemberCache {
+internal object MemberCache {
 
     private const val CAPACITY = 6
 
@@ -256,7 +256,10 @@ internal fun readerFor(file: File, format: ArchiveFormat?): ArchiveReader? = whe
     ArchiveKind.TAR -> TarReader(file)
     ArchiveKind.SEVEN_ZIP -> SevenZipReader(file)
     ArchiveKind.STREAM -> StreamReader(file)
-    ArchiveKind.RAR, null -> null
+    // RAR goes through libarchive, and only when its .so actually loaded. A build without the
+    // native module reports "cannot read" rather than crashing on a missing symbol.
+    ArchiveKind.RAR -> if (RarNative.available) RarReader(file) else null
+    null -> null
 }
 
 /**

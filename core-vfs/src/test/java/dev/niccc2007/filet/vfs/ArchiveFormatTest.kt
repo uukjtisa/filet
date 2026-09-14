@@ -55,14 +55,24 @@ class ArchiveFormatTest {
         assertNull(Archives.of("gunzip"))
     }
 
-    @Test fun rar_is_recognised_refused_and_says_why() {
+    @Test fun rar_can_be_read_and_must_never_be_creatable() {
+        // The asymmetry is the whole point and it is a licence, not a missing feature.
+        // libarchive's RAR readers are BSD-2-Clause and independent of RARLAB's UnRAR source,
+        // so reading is fine. Creating a RAR-compatible archive is precisely what that licence
+        // protects, so `canCreate` must stay false forever - this assertion is the guard
+        // against somebody "completing" the format table one day.
         val rar = Archives.of("archive.rar")
         assertNotNull(rar)
-        assertFalse(rar!!.canList)
-        assertFalse(rar.canCreate)
-        assertTrue("the refusal must name the reason", (rar.refusal ?: "").length > 40)
-        assertTrue("the reason is the licence", rar.refusal!!.contains("UnRAR"))
-        assertFalse(Archives.canList("archive.rar"))
+        assertTrue("RAR reads through libarchive", rar!!.canList)
+        assertFalse("creating a RAR is the part that is not ours to do", rar.canCreate)
+        assertTrue(Archives.canList("archive.rar"))
+        assertTrue("a comic archive is a RAR too", Archives.canList("issue.cbr"))
+    }
+
+    @Test fun no_creatable_format_is_rar() {
+        // Said twice, deliberately: once about the entry, once about the list the Compress
+        // dialog is built from. The dialog offering RAR would be the visible bug.
+        assertTrue(Archives.creatable.none { it.kind == ArchiveKind.RAR })
     }
 
     @Test fun a_format_that_cannot_be_listed_always_says_why_and_one_that_can_never_does() {

@@ -107,13 +107,15 @@ object Archives {
             id = "xz", label = "XZ", kind = ArchiveKind.STREAM,
             extensions = listOf("xz"),
         ),
+        // Read, never written. libarchive's RAR readers are independent of RARLAB's UnRAR
+        // source and BSD-2-Clause, which is what makes reading possible at all in a GPL-3 app;
+        // WRITING RAR is the part that licence actually protects, and Filet does not claim it.
         ArchiveFormat(
             id = "rar", label = "RAR", kind = ArchiveKind.RAR,
             extensions = listOf("rar", "cbr"),
-            canList = false,
-            refusal = "Filet cannot open RAR. Every Java decoder for it is derived from the " +
-                "UnRAR source, whose licence forbids using it to build an archiver - so it " +
-                "cannot ship in a GPL-3 app. Hand the file to another app instead.",
+            canList = true,
+            canCreate = false,
+            needsRealPath = true,
         ),
     )
 
