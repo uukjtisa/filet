@@ -224,47 +224,14 @@ private fun TabStrip(
         }
 
         Box(Modifier.weight(1f)) {
-            Row(
-                Modifier.horizontalScroll(scroll),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            // The shared cue, same as every other sideways-scrolling row in the app. Nic:
+            // *"you didnt apply it for hte tabs.. lol. have it appleiad nicely. for anwyehre
+            // horizontal and scrollable or shit"*. It had been exempted on the grounds that
+            // the strip auto-scrolls to the active tab and a static chevron would contradict
+            // that - which was a reason, and not his. A chevron that says "there are more
+            // tabs that way" is true whether or not the strip moved on its own.
+            HScroll(ground = colors.sunken, state = scroll) {
                 TabStripContent(vm, tabs, app)
-            }
-            // Edge fades, shown only on the side there is actually more to see. A row of
-            // tabs that overflows with a hard edge looks like a row of tabs that ends.
-            //
-            // `matchParentSize`, NOT `fillMaxHeight`. This is the tab bug Nic reported as
-            // "when making tabs and it exceeds some kind of tabs shown limit it freakin
-            // glitches, when i click anywhere its empty and messed up". A fade only renders
-            // once the strip overflows - which is exactly "some number of tabs" - and
-            // `fillMaxHeight` inside a Box whose own height is still being decided resolves
-            // against the incoming maximum, so the strip grew to the height of the screen and
-            // pushed the whole file list off it. `matchParentSize` measures against the
-            // parent's RESOLVED size and contributes nothing to it, which is what an overlay
-            // is supposed to do.
-            if (scroll.value > 0) {
-                Box(
-                    Modifier.align(Alignment.CenterStart).matchParentSize()
-                        .background(
-                            Brush.horizontalGradient(
-                                0f to colors.sunken,
-                                0.06f to Color.Transparent,
-                                1f to Color.Transparent,
-                            )
-                        )
-                )
-            }
-            if (scroll.value < scroll.maxValue) {
-                Box(
-                    Modifier.align(Alignment.CenterEnd).matchParentSize()
-                        .background(
-                            Brush.horizontalGradient(
-                                0f to Color.Transparent,
-                                0.94f to Color.Transparent,
-                                1f to colors.sunken,
-                            )
-                        )
-                )
             }
         }
     }
@@ -688,6 +655,12 @@ private fun Breadcrumb(s: PaneState, modifier: Modifier, onNavigate: (VPath) -> 
     val crumbs = remember(cwd) { crumbsOf(cwd) }
     val scroll = rememberScrollState()
     LaunchedEffect(cwd) { scroll.scrollTo(scroll.maxValue) }
+    // Deliberately NOT HScroll, and this is the exception the checker records. His call:
+    // *"i see you also appleid the arrow horizontal scroll indicator to the path view.. o
+    // ntop.. dont do that lol.. its bad.. keep the old version for that"*. He is right -
+    // the breadcrumb already auto-scrolls to the deepest crumb on every navigation, so a
+    // chevron sits there pointing back at a path you just came from, in the densest strip
+    // on the screen.
     Row(modifier.horizontalScroll(scroll), verticalAlignment = Alignment.CenterVertically) {
         Text(
             cwd.scheme,

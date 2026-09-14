@@ -42,12 +42,14 @@ const EXEMPT = {
   "app/src/main/java/dev/niccc2007/filet/crash/CrashActivity.kt":
     "a stack trace. Runs when the app has already died, so it must not depend on the theme " +
     "or on any component that could be the thing that crashed.",
+  "app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt":
+    "the breadcrumb, and ONLY the breadcrumb - the tab strip in the same file uses HScroll. " +
+    "Nic's call after seeing it: the path strip already auto-scrolls to the deepest crumb on " +
+    "every navigation, so a chevron points back at where you just came from, in the densest " +
+    "strip on screen.",
   "app/src/main/java/dev/niccc2007/filet/update/ReleaseNotesView.kt":
     "a fenced code block inside release notes. Ported from Trawl unchanged, and a command " +
     "line that overflows is read by dragging it, not by being pointed at.",
-  "app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt":
-    "the tab strip and the breadcrumb. Both already draw their own overflow treatment and " +
-    "both auto-scroll to the active end, so a static chevron would contradict them.",
 };
 
 const SANCTIONED = "HScroll";

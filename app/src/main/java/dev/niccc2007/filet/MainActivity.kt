@@ -163,7 +163,10 @@ class MainActivity : ComponentActivity() {
     private fun wire(browser: BrowserViewModel) {
         vm = browser
         browser.onIntent = { i -> runCatching { startActivity(i) }.onFailure { browser.toast("Nothing on this device can do that.") } }
-        browser.onPickFolder = { runCatching { pickFolder.launch(null) }.onFailure { browser.toast("No folder picker on this device.") } }
+        browser.onPickFolder = { hint ->
+            runCatching { pickFolder.launch(hint) }
+                .onFailure { browser.toast("No folder picker on this device.") }
+        }
         browser.onExit = { finish() }
         browser.onShare = { nodes -> share(nodes, browser) }
         browser.onCheckUpdates = if (BuildConfig.UPDATER_ENABLED) {

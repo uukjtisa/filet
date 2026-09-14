@@ -137,6 +137,17 @@ class SafProvider(private val context: Context) : FileSystemProvider {
     companion object {
         const val SCHEME = "saf"
 
+        /**
+         * A document URI for another app's DocumentsProvider, to hint the picker where to open.
+         *
+         * Here rather than in the app layer because `DocumentsContract` is a storage API and
+         * R3 keeps those below the VFS - the check caught this exact thing when the Termux
+         * integration was first written in `app/`. The app layer knows Termux's authority and
+         * the path it wants; turning that into a content URI is this layer's job.
+         */
+        fun documentUriFor(authority: String, documentId: String): android.net.Uri =
+            android.provider.DocumentsContract.buildDocumentUri(authority, documentId)
+
         private val COLS = arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,

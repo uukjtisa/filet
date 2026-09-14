@@ -694,7 +694,8 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     // a picker or a chooser.
 
     var onIntent: ((android.content.Intent) -> Unit)? = null
-    var onPickFolder: (() -> Unit)? = null
+    /** @param startAt where the picker should open, or null for wherever it likes. */
+    var onPickFolder: ((android.net.Uri?) -> Unit)? = null
     var onExit: (() -> Unit)? = null
     var onShare: ((List<VNode>) -> Unit)? = null
     var onCheckUpdates: (() -> Unit)? = null
@@ -707,9 +708,40 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         else onIntent?.invoke(intent)
     }
 
-    fun requestFolderGrant() {
+    fun requestFolderGrant(startAt: android.net.Uri? = null) {
         val cb = onPickFolder
-        if (cb == null) toast("Cannot open the folder picker right now.") else cb()
+        if (cb == null) toast("Cannot open the folder picker right now.") else cb(startAt)
+    }
+
+    // ── Termux ──
+
+    /** Whether Termux is on this phone, decided once. */
+    val termuxInstalled: Boolean by lazy {
+        dev.niccc2007.filet.integrations.Termux.isInstalled(graph.app)
+    }
+
+    /**
+     * Ask for access to Termux's own directory.
+     *
+     * Its files are in another app's private data, so nothing on an unrooted phone can read
+     * them directly - Termux's own DocumentsProvider is the supported way in, and Filet already
+     * treats a granted SAF tree as an ordinary volume. One tap, once per install, and after
+     * that Termux is a pane you can drag files into.
+     */
+    fun connectTermux(home: Boolean = true) {
+        if (!termuxInstalled) { toast("Termux is not installed."); return }
+        requestFolderGrant(dev.niccc2007.filet.integrations.Termux.pickerHint(home))
+        toast(
+            if (home) "Pick Termux's home folder to give Filet access."
+            else "Pick Termux's files folder - usr/bin lives inside it."
+        )
+    }
+
+    /** Open Termux itself. */
+    fun launchTermux() {
+        val intent = dev.niccc2007.filet.integrations.Termux.launch(graph.app)
+        if (intent == null) toast("Termux is not installed.")
+        else onIntent?.invoke(intent)
     }
 
     /** A granted SAF tree becomes a first-class volume, not a special case. */

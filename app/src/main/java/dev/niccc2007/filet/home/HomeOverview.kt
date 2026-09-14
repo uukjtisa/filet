@@ -67,6 +67,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     val recents by vm.recents.items.collectAsState()
     val tracked by vm.tracked.folders.collectAsState()
     val hideStorage by vm.prefs.hideStorage.collectAsState()
+    val hiddenCards by vm.prefs.hiddenCards.collectAsState()
     val colors = Filet.colors
     var menuFor by remember { mutableStateOf<VNode?>(null) }
 
@@ -76,14 +77,29 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         // Hideable, because on a phone with one volume the card is a fifth of the first
         // screen saying something you already know. The heading stays either way, so turning
         // it off does not look like the cards failed to load.
+        val shown = app.volumes.filter { it.node.path.toString() !in hiddenCards }
+        val hiddenCount = app.volumes.size - shown.size
         item {
             Row(
                 Modifier.fillMaxWidth().padding(end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 SectionLabel("Storage", Modifier.weight(1f))
+                // Bringing back what was hidden, one card or the section. Without this the
+                // per-card X is a one-way door, which is not a control, it is a trap.
+                if (hiddenCount > 0) {
+                    Text(
+                        "$hiddenCount hidden - show",
+                        fontSize = 10.sp,
+                        color = colors.fg3,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { vm.prefs.showAllCards() }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
                 Text(
-                    if (hideStorage) "Show" else "Hide",
+                    if (hideStorage) "Show all" else "Hide all",
                     fontSize = 10.sp,
                     color = colors.fg3,
                     modifier = Modifier
@@ -94,14 +110,53 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
             }
         }
         if (!hideStorage) {
-            items(app.volumes.size) { i ->
-                val v = app.volumes[i]
+            items(shown.size) { i ->
+                val v = shown[i]
                 DriveCard(
                     label = v.label,
                     free = v.free,
                     total = v.total,
                     onClick = { pane.navigateTo(v.node.path) },
+                    onHide = { vm.prefs.hideCard(v.node.path.toString()) },
                 )
+            }
+        }
+
+        // Termux, if it is here. Shown only when installed, so this is not a permanent
+        // advertisement for an app somebody does not have - and it disappears once its tree is
+        // granted, because at that point it is a volume in the list above like any other.
+        if (vm.termuxInstalled && app.volumes.none { dev.niccc2007.filet.integrations.Termux.isTermuxTree(android.net.Uri.parse(it.node.path.path)) || it.label.startsWith("Termux") }) {
+            item { SectionLabel("Termux") }
+            item {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.dp, colors.lineSoft, RoundedCornerShape(10.dp))
+                        .background(colors.raised)
+                        .clickable { vm.connectTermux(home = true) }
+                        .padding(11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(FiletIcons.Terminal, null, tint = colors.accent, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(11.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Connect Termux",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            "Its home and usr/bin, as a volume you can drag files into. " +
+                                "Android needs you to grant it once.",
+                            fontSize = 10.sp,
+                            lineHeight = 13.sp,
+                            color = colors.fg3,
+                        )
+                    }
+                }
             }
         }
 
@@ -233,7 +288,13 @@ private fun SheetAction(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun DriveCard(label: String, free: Long?, total: Long?, onClick: () -> Unit) {
+private fun DriveCard(
+    label: String,
+    free: Long?,
+    total: Long?,
+    onClick: () -> Unit,
+    onHide: () -> Unit,
+) {
     val colors = Filet.colors
     Row(
         Modifier
@@ -284,9 +345,22 @@ private fun DriveCard(label: String, free: Long?, total: Long?, onClick: () -> U
             } else if (free != null) {
                 Text("${humanSize(free)} free", fontSize = 10.sp, color = colors.fg3)
             } else {
-                Text("Tap to open", fontSize = 10.sp, color = colors.fg3)
+                // "Tap to open" was a promise this card could not keep. A volume with no
+                // readable size is usually one of /storage's pseudo-directories - `media` on
+                // this phone - and tapping it did nothing at all, which is what he reported.
+                // Saying so, and offering the X, beats an invitation that fails.
+                Text("Size unknown - may not be readable", fontSize = 10.sp, color = colors.fg3)
             }
         }
+        Text(
+            "×",
+            fontSize = 15.sp,
+            color = colors.fg3,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onHide)
+                .padding(horizontal = 9.dp, vertical = 3.dp),
+        )
     }
 }
 

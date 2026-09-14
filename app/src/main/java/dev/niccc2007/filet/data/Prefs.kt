@@ -81,6 +81,21 @@ class Prefs(context: Context) {
     )
     val selectionStyle: StateFlow<dev.niccc2007.filet.browser.SelectionStyle> = _selectionStyle.asStateFlow()
 
+    /**
+     * Storage cards the user has hidden, by VPath.
+     *
+     * Per card, not the whole section. His words: *"when i said a hide button for certain
+     * cards.. i meant certain card not the whole storage shortcuts.. liek bruh i wanna be able
+     * to hide the media card the storage card and etc.. cause those doesnt even work"*.
+     *
+     * A phone's `/storage` holds directories that pass for volumes and are not usable ones -
+     * `media` on this Huawei is the example - and Filet cannot tell them apart from a genuinely
+     * mounted card it lacks permission for. Guessing would eventually hide somebody's SD card,
+     * so the user decides and the decision sticks.
+     */
+    private val _hiddenCards = MutableStateFlow(sp.getStringSet(K_HIDDEN_CARDS, emptySet())!!.toSet())
+    val hiddenCards: StateFlow<Set<String>> = _hiddenCards.asStateFlow()
+
     // ── updates ──
 
     /**
@@ -117,6 +132,18 @@ class Prefs(context: Context) {
 
     fun setShowHidden(v: Boolean) { _showHidden.value = v; sp.edit().putBoolean(K_HIDDEN, v).apply() }
     fun setHideStorage(v: Boolean) { _hideStorage.value = v; sp.edit().putBoolean(K_HIDE_STORAGE, v).apply() }
+
+    fun hideCard(path: String) = setHiddenCards(_hiddenCards.value + path)
+
+    fun showAllCards() = setHiddenCards(emptySet())
+
+    private fun setHiddenCards(v: Set<String>) {
+        _hiddenCards.value = v
+        // A COPY into the editor. SharedPreferences keeps the very set it is handed and
+        // documents that mutating it afterwards is undefined; handing it the same instance the
+        // StateFlow holds is the classic way that becomes a bug nobody can reproduce.
+        sp.edit().putStringSet(K_HIDDEN_CARDS, HashSet(v)).apply()
+    }
 
     fun setSelectionStyle(v: dev.niccc2007.filet.browser.SelectionStyle) {
         _selectionStyle.value = v
@@ -190,6 +217,7 @@ class Prefs(context: Context) {
         const val K_INDEX = "index.enabled"
         const val K_TAB_SIZE = "browse.tabSize"
         const val K_HIDE_STORAGE = "home.hideStorage"
+        const val K_HIDDEN_CARDS = "home.hiddenCards"
         const val K_SELECTION_STYLE = "browse.selectionStyle"
         const val K_NOTES_FRACTION = "update.notesFraction"
         const val K_UPD_UNTIL = "update.silencedUntil"
