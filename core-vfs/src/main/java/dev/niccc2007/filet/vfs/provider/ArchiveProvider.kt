@@ -102,10 +102,27 @@ class ArchiveProvider : FileSystemProvider {
      * error an app can produce.
      */
     private fun readerOf(archive: String, path: VPath): ArchiveReader {
-        val file = File(archive)
+        val asked = File(archive)
+
+        // Tapping any part of a multi-part set opens the whole archive. Which file actually
+        // does the opening differs per scheme, and for a numbered set the parts have to be
+        // joined first - see MultiPartOpen.
+        val set = MultiPartOpen.resolve(asked)
+        set.refusal?.let { throw VfsException.Unsupported(it) }
+
+        val file = when {
+            set.join != null -> JoinedSets.materialise(set.setName ?: asked.name, set.join)
+            else -> set.openWith
+        }
+
         val format = Archives.of(file.name)
         format?.refusal?.let { throw VfsException.Unsupported(it) }
-        if (format == null) throw VfsException.Unsupported("${file.name} is not an archive Filet knows.")
+        if (format == null) throw VfsException.Unsupported("${asked.name} is not an archive Filet knows.")
+
+        // A zip volume set needs a reader that follows volumes; the ordinary one looks for the
+        // central directory in the file it was handed and a set puts it in the last part.
+        if (set.style == PartStyle.ZIP_VOLUMES) return SplitZipReader(file)
+
         return readerFor(file, format) ?: throw VfsException.Unsupported(format.label + " is not readable here.")
     }
 
