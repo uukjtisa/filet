@@ -377,6 +377,7 @@ private fun tabIcon(s: PaneState) = when (s.kind) {
     PaneKind.SETTINGS -> FiletIcons.Cog
     PaneKind.BOOKMARKS -> FiletIcons.Star
     PaneKind.RECENT -> FiletIcons.Clock
+    PaneKind.HISTORY -> FiletIcons.Clock
     PaneKind.SHORTCUTS -> FiletIcons.Home
     PaneKind.ACTIVITY -> FiletIcons.Jobs
     PaneKind.SCRIPTS -> FiletIcons.Script

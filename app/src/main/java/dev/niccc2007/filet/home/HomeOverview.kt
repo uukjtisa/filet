@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
+import dev.niccc2007.filet.browser.PaneKind
 import dev.niccc2007.filet.browser.CapacityBar
 import dev.niccc2007.filet.browser.FileKind
 import dev.niccc2007.filet.browser.FiletIcons
@@ -171,11 +172,18 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         }
 
         if (downloads.isNotEmpty()) {
-            // "Files", not "New files and folders". It was renamed once already, away from
-            // "New downloads", because a file pushed over Nearby or saved by another app is not
-            // a download - and now again, because the feed no longer lists folders at all. A
-            // heading that names something the list cannot contain is a small lie.
-            item { SectionLabel("Files") }
+            // "New files", and the name has moved twice for the same reason each time: it has
+            // to describe what the list can actually contain. It was "New downloads" (a file
+            // pushed over Nearby is not a download), then "New files and folders" (the feed
+            // stopped listing folders), then briefly "Files" - which Nic corrected, because
+            // that claims the whole device and this watches a handful of tracked folders.
+            item {
+                SectionHeaderWithAction(
+                    label = "New files",
+                    action = "Expand",
+                    onAction = { pane.openSpecial(PaneKind.HISTORY, "New files") },
+                )
+            }
             items(downloads.size) { i ->
                 val d = downloads[i]
                 FeedRow(
@@ -463,6 +471,33 @@ private fun TrackedRow(
                 .clip(RoundedCornerShape(6.dp))
                 .clickable(onClick = onStop)
                 .padding(5.dp),
+        )
+    }
+}
+
+/**
+ * A section heading with one thing you can do to it.
+ *
+ * Used for New files, whose full history is a screen of its own - the card shows the newest
+ * eight and "Expand" opens the rest. A row rather than a chevron on the heading because the
+ * action has to name itself: an unlabelled affordance on a heading reads as decoration.
+ */
+@Composable
+private fun SectionHeaderWithAction(label: String, action: String, onAction: () -> Unit) {
+    val colors = Filet.colors
+    Row(
+        Modifier.fillMaxWidth().padding(end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f)) { SectionLabel(label) }
+        Text(
+            action,
+            fontSize = 11.sp,
+            color = colors.accent,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onAction)
+                .padding(horizontal = 9.dp, vertical = 4.dp),
         )
     }
 }

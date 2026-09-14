@@ -1324,6 +1324,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     val indexStatus get() = graph.index.status
     val home get() = graph.home
+
+    /**
+     * When each tracked file was first noticed in a tracked folder.
+     *
+     * Beside the feed rather than inside it, because the feed writes these and the history
+     * screen reads them; owning it on one side would mean reaching through that side to get at
+     * it from the other.
+     */
+    val firstSeen = dev.niccc2007.filet.home.FirstSeenStore(prefs)
     val tracked get() = graph.tracked
 
     fun onIndexToggled(enabled: Boolean) {

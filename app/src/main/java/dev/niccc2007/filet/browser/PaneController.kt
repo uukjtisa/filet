@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** What a pane is currently showing. Not every pane shows a directory. */
-enum class PaneKind { HOME, FOLDER, ABOUT, BOOKMARKS, RECENT, SETTINGS, ACTIVITY, SCRIPTS, NEARBY, REMOTES, SHORTCUTS }
+enum class PaneKind { HOME, FOLDER, ABOUT, BOOKMARKS, RECENT, SETTINGS, ACTIVITY, SCRIPTS, NEARBY, REMOTES, SHORTCUTS, HISTORY }
 
 data class SearchUi(
     val open: Boolean = false,

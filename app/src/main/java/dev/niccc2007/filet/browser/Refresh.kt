@@ -83,6 +83,10 @@ fun refreshPlan(kind: PaneKind): RefreshPlan = when (kind) {
     PaneKind.SCRIPTS -> RefreshPlan(setOf(RefreshTarget.SCRIPTS), "Scripts")
     PaneKind.BOOKMARKS -> RefreshPlan(setOf(RefreshTarget.BOOKMARKS), "Bookmarks")
     PaneKind.RECENT -> RefreshPlan(setOf(RefreshTarget.RECENTS), "Recent")
+
+    // The expanded new-files history is the same feed the home card shows, so refreshing it
+    // re-runs the same pass rather than a second one of its own.
+    PaneKind.HISTORY -> RefreshPlan(setOf(RefreshTarget.HOME_FEED), "New files")
     PaneKind.ACTIVITY -> RefreshPlan(setOf(RefreshTarget.JOBS), "Activity")
     PaneKind.REMOTES -> RefreshPlan(setOf(RefreshTarget.REMOTES), "Remotes")
 

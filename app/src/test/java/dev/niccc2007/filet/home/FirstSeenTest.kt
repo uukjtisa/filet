@@ -176,4 +176,80 @@ class FirstSeenTest {
         val firstSeen = s.of("/old.txt") ?: mtime
         assertEquals(mtime, firstSeen)
     }
+
+    // ── the first run ──
+
+    @Test fun an_empty_store_is_seeded_from_each_files_own_date() {
+        // Found on the device rather than in review: opening the history for the first time
+        // stamped 4,010 files with the clock and showed them all under "Today, 11:37pm". That
+        // is not a history and it is not true - nothing was first seen at that moment, the
+        // store simply did not exist yet.
+        val s = Fake().store()
+        s.record(mapOf("/a.txt" to 1_000L, "/b.txt" to 2_000L), now = 9_999L)
+        assertEquals(1_000L, s.of("/a.txt"))
+        assertEquals(2_000L, s.of("/b.txt"))
+    }
+
+    @Test fun after_the_seeding_window_a_genuinely_new_file_is_stamped_with_the_clock() {
+        // And this is why seeding cannot simply become the rule: a file COPIED in later keeps
+        // whatever mtime it was written with, and only the clock records that it turned up when
+        // it did. Measured past the window, because inside it every new path is still part of
+        // the first scan.
+        val s = Fake().store()
+        s.record(mapOf("/old.txt" to 1_000L), now = 5_000L)
+        val later = 5_000L + FirstSeenStore.SEED_WINDOW + 1
+        s.record(mapOf("/old.txt" to 1_000L, "/copied.txt" to 1L), now = later)
+        assertEquals("a seeded file moved", 1_000L, s.of("/old.txt"))
+        assertEquals("a later arrival should carry the clock", later, s.of("/copied.txt"))
+    }
+
+    @Test fun a_seeded_file_with_no_usable_mtime_falls_back_to_the_clock() {
+        // Zero is 1970. A file whose mtime could not be read is better placed at now than at
+        // the bottom of the list forever.
+        val s = Fake().store()
+        s.record(mapOf("/broken.txt" to 0L), now = 7_000L)
+        assertEquals(7_000L, s.of("/broken.txt"))
+    }
+
+    @Test fun a_partial_first_pass_does_not_end_the_seeding() {
+        // Found on the device, not in review. The feed publishes a fast partial result before
+        // its full scan finishes, so "the store is empty" stopped being true after six files
+        // and the remaining four thousand were stamped with the clock a second later - the same
+        // symptom as the bug it was meant to fix. The window is what makes the whole first scan
+        // one first run, however many passes it arrives in.
+        val s = Fake().store()
+        s.record(mapOf("/a.txt" to 1_000L), now = 5_000L)
+        s.record(mapOf("/b.txt" to 2_000L), now = 6_000L)
+        assertEquals(1_000L, s.of("/a.txt"))
+        assertEquals("the rest of the first scan should still seed", 2_000L, s.of("/b.txt"))
+    }
+
+    @Test fun once_the_window_closes_a_new_file_takes_the_clock() {
+        val s = Fake().store()
+        s.record(mapOf("/a.txt" to 1_000L), now = 5_000L)
+        val later = 5_000L + FirstSeenStore.SEED_WINDOW + 1
+        s.record(mapOf("/copied.txt" to 1L), now = later)
+        assertEquals("a file arriving later carries the clock", later, s.of("/copied.txt"))
+    }
+
+    @Test fun the_window_survives_a_restart() {
+        // It is stored alongside the paths, so a first scan that spans an app restart is still
+        // one first run rather than half a seeded history and half a wall of "Today".
+        val fake = Fake()
+        fake.store().record(mapOf("/a.txt" to 1_000L), now = 5_000L)
+        val reopened = fake.store()
+        reopened.record(mapOf("/b.txt" to 2_000L), now = 7_000L)
+        assertEquals(2_000L, reopened.of("/b.txt"))
+    }
+
+    @Test fun clearing_reopens_the_seeding_window() {
+        // After a deliberate clear the next pass is a first run again, and should not stamp
+        // everything with the moment the button was pressed.
+        val s = Fake().store()
+        s.record(mapOf("/a.txt" to 1_000L), now = 5_000L)
+        val late = 5_000L + FirstSeenStore.SEED_WINDOW + 1
+        s.clear()
+        s.record(mapOf("/a.txt" to 1_000L), now = late)
+        assertEquals(1_000L, s.of("/a.txt"))
+    }
 }

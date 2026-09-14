@@ -188,6 +188,20 @@ class HomeFeed(
     private val _downloads = MutableStateFlow<List<FeedItem>>(emptyList())
     val downloads: StateFlow<List<FeedItem>> = _downloads.asStateFlow()
 
+    /**
+     * Everything the last pass found, untrimmed.
+     *
+     * The expanded history is this list; the home card is the first [SHOWN] of it. Kept as one
+     * value rather than a second scan, which was Nic's own point when the feature was
+     * specified - there is already an architecture for what is being watched, and a second
+     * scanner would drift from the feed and disagree with it about what is new.
+     *
+     * Provenance is deliberately NOT resolved for these. It costs a lookup per file and the
+     * expanded list can hold thousands; the visible rows get it, the rest do not need it.
+     */
+    private val _all = MutableStateFlow<List<FeedItem>>(emptyList())
+    val all: StateFlow<List<FeedItem>> = _all.asStateFlow()
+
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
@@ -329,7 +343,9 @@ class HomeFeed(
      * from minutes to immediate.
      */
     private fun publish(all: Collection<List<FeedItem>>) {
-        val top = all.flatten().distinctBy { it.node.path }.sortedByDescending { it.at }.take(SHOWN)
+        val everything = all.flatten().distinctBy { it.node.path }.sortedByDescending { it.at }
+        _all.value = everything
+        val top = everything.take(SHOWN)
         _downloads.value = top
         val lookup = originLookup ?: return
         // Off the critical path: the rows are already on screen, and the Source chip fills in

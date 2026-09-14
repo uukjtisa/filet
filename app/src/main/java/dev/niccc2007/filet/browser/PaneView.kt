@@ -502,6 +502,7 @@ private fun SpecialBody(pane: PaneController, vm: BrowserViewModel, s: PaneState
         PaneKind.SETTINGS -> SettingsPage(vm)
         PaneKind.BOOKMARKS -> BookmarksBody(vm, pane)
         PaneKind.RECENT -> RecentBody(vm, pane)
+        PaneKind.HISTORY -> dev.niccc2007.filet.home.FileHistoryScreen(vm, pane)
         PaneKind.SCRIPTS -> dev.niccc2007.filet.script.ScriptsScreen(vm)
         PaneKind.NEARBY -> dev.niccc2007.filet.nearby.NearbyScreen(vm)
         PaneKind.REMOTES -> dev.niccc2007.filet.remotes.RemotesScreen(vm)
