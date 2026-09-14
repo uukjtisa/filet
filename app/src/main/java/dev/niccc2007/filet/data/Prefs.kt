@@ -66,6 +66,34 @@ class Prefs(context: Context) {
     private val _tabSize = MutableStateFlow(TabSize.valueOfOr(sp.getString(K_TAB_SIZE, null), TabSize.NORMAL))
     val tabSize: StateFlow<TabSize> = _tabSize.asStateFlow()
 
+    // ── updates ──
+
+    /**
+     * How much of the screen the release notes get, as a fraction.
+     *
+     * Stored rather than reset each time because it is a reading preference, and somebody who
+     * pulled the pane open to read a long changelog wants it open for the next one too.
+     * 0 means never set; the clamping lives in `usableNotesFraction`.
+     */
+    private val _notesFraction = MutableStateFlow(sp.getFloat(K_NOTES_FRACTION, 0f))
+    val notesFraction: StateFlow<Float> = _notesFraction.asStateFlow()
+
+    /** Everything the update nag has been told. See `UpdatePrompt.kt`. */
+    private val _updateSilencedUntil = MutableStateFlow(sp.getLong(K_UPD_UNTIL, 0L))
+    val updateSilencedUntil: StateFlow<Long> = _updateSilencedUntil.asStateFlow()
+
+    private val _updateSilencedVersion = MutableStateFlow(sp.getString(K_UPD_VERSION, "").orEmpty())
+    val updateSilencedVersion: StateFlow<String> = _updateSilencedVersion.asStateFlow()
+
+    private val _updateSkippedVersion = MutableStateFlow(sp.getString(K_UPD_SKIPPED, "").orEmpty())
+    val updateSkippedVersion: StateFlow<String> = _updateSkippedVersion.asStateFlow()
+
+    private val _updateNotificationsOff = MutableStateFlow(sp.getBoolean(K_UPD_OFF, false))
+    val updateNotificationsOff: StateFlow<Boolean> = _updateNotificationsOff.asStateFlow()
+
+    private val _updateLastCheckedAt = MutableStateFlow(sp.getLong(K_UPD_CHECKED, 0L))
+    val updateLastCheckedAt: StateFlow<Long> = _updateLastCheckedAt.asStateFlow()
+
     fun setSort(s: SortSpec) {
         _sort.value = s
         sp.edit().putString(K_SORT, s.key.name).putBoolean(K_SORT_DESC, s.descending)
@@ -74,6 +102,36 @@ class Prefs(context: Context) {
 
     fun setShowHidden(v: Boolean) { _showHidden.value = v; sp.edit().putBoolean(K_HIDDEN, v).apply() }
     fun setHideStorage(v: Boolean) { _hideStorage.value = v; sp.edit().putBoolean(K_HIDE_STORAGE, v).apply() }
+
+    fun setNotesFraction(v: Float) { _notesFraction.value = v; sp.edit().putFloat(K_NOTES_FRACTION, v).apply() }
+
+    /**
+     * Write the whole reminder state at once.
+     *
+     * One call rather than five setters: the fields only make sense together - a deadline
+     * without the version it belongs to silences the wrong release - and five separate writes
+     * is five chances to persist half of an answer.
+     */
+    fun setUpdateReminder(
+        silencedUntil: Long,
+        silencedVersion: String,
+        skippedVersion: String,
+        notificationsOff: Boolean,
+        lastCheckedAt: Long,
+    ) {
+        _updateSilencedUntil.value = silencedUntil
+        _updateSilencedVersion.value = silencedVersion
+        _updateSkippedVersion.value = skippedVersion
+        _updateNotificationsOff.value = notificationsOff
+        _updateLastCheckedAt.value = lastCheckedAt
+        sp.edit()
+            .putLong(K_UPD_UNTIL, silencedUntil)
+            .putString(K_UPD_VERSION, silencedVersion)
+            .putString(K_UPD_SKIPPED, skippedVersion)
+            .putBoolean(K_UPD_OFF, notificationsOff)
+            .putLong(K_UPD_CHECKED, lastCheckedAt)
+            .apply()
+    }
 
     fun setViewStep(v: Int) {
         val c = v.coerceIn(1, 6)
@@ -112,6 +170,12 @@ class Prefs(context: Context) {
         const val K_INDEX = "index.enabled"
         const val K_TAB_SIZE = "browse.tabSize"
         const val K_HIDE_STORAGE = "home.hideStorage"
+        const val K_NOTES_FRACTION = "update.notesFraction"
+        const val K_UPD_UNTIL = "update.silencedUntil"
+        const val K_UPD_VERSION = "update.silencedVersion"
+        const val K_UPD_SKIPPED = "update.skippedVersion"
+        const val K_UPD_OFF = "update.notificationsOff"
+        const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
 }
 

@@ -1,6 +1,9 @@
 package dev.niccc2007.filet.update
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,9 +25,16 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -75,7 +85,7 @@ fun UpdateSheet(vm: BrowserViewModel, state: UpdateState) {
 
                 is UpdateState.UpToDate -> {
                     Head("You are on the newest build", "Filet ${Updater.installed}")
-                    Notes(state.release)
+                    Notes(vm, state.release)
                     Buttons(
                         primary = null,
                         secondary = "Release page" to { vm.openReleasePage(state.release.url) },
@@ -89,7 +99,7 @@ fun UpdateSheet(vm: BrowserViewModel, state: UpdateState) {
                         "You are on ${Updater.installed}" +
                             if (state.release.apkBytes > 0) "  ·  ${humanSize(state.release.apkBytes)} download" else "",
                     )
-                    Notes(state.release)
+                    Notes(vm, state.release)
                     Buttons(
                         primary = (if (state.release.apkUrl != null) "Download" else null)
                             to { vm.downloadUpdate(state.release) },
@@ -191,31 +201,69 @@ private fun Head(title: String, sub: String) {
 }
 
 /**
- * The release notes, scrollable and capped.
+ * The release notes: big by default, and draggable by the handle above them.
  *
- * Rendered as plain text rather than markdown. Release notes are short and a markdown renderer
- * is a dependency and a rendering bug surface; the raw text of a changelog reads fine.
+ * This used to say that plain text "reads fine" and that a markdown renderer was a dependency
+ * not worth taking. The first half was wrong and the second half was a false choice. A GitHub
+ * release body is markdown, so what the reader actually got was `**First release.**` and
+ * `### What is in it` printed as literal characters, with the author's hard line breaks left
+ * ragged on a phone. And there is no dependency: [ReleaseNotes] is a parser ported from Trawl
+ * with its tests, and [ReleaseNotesView] is the paint.
+ *
+ * This is the last thing somebody reads before deciding to install an APK. It should look like
+ * the app is talking.
+ *
+ * The pane was a flat 260dp, which was already mean for text and became absurd once the notes
+ * started carrying 208dp screenshot strips - one strip filled it. It is now [NOTES_DEFAULT_FRACTION]
+ * of the screen and the handle resizes it; see `SheetSize.kt` for the arithmetic and why the
+ * drag direction is inverted.
  */
 @Composable
-private fun Notes(release: Release) {
+private fun Notes(vm: BrowserViewModel, release: Release) {
     val notes = release.notes.trim()
     if (notes.isEmpty()) return
-    Spacer(Modifier.height(12.dp))
+
+    val stored by vm.prefs.notesFraction.collectAsState()
+    // Local while dragging, written back on release: persisting every frame of a drag is a
+    // SharedPreferences write per pixel.
+    var fraction by remember(stored) { mutableFloatStateOf(usableNotesFraction(stored)) }
+    val screenPx = with(LocalDensity.current) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
+
+    Spacer(Modifier.height(10.dp))
+
+    // The handle. Sized generously in touch terms and drawn small, which is the only way a
+    // 4dp-tall grip is actually grabbable.
     Box(
         Modifier
             .fillMaxWidth()
-            .heightIn(max = 260.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(Filet.colors.raised)
-            .padding(12.dp),
+            .draggable(
+                orientation = Orientation.Vertical,
+                state = rememberDraggableState { delta ->
+                    fraction = nextNotesFraction(fraction, delta, screenPx)
+                },
+                onDragStopped = { vm.prefs.setNotesFraction(fraction) },
+            )
+            .padding(vertical = 7.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(
-            notes,
-            fontSize = 11.5.sp,
-            lineHeight = 16.sp,
-            color = Filet.colors.fg2,
-            modifier = Modifier.verticalScroll(rememberScrollState()),
+        Box(
+            Modifier
+                .width(34.dp)
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(Filet.colors.fg3.copy(alpha = 0.45f)),
         )
+    }
+
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(with(LocalDensity.current) { (screenPx * fraction).toDp() })
+            .clip(RoundedCornerShape(12.dp))
+            .background(Filet.colors.raised)
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+    ) {
+        ReleaseNotesView(notes, Modifier.verticalScroll(rememberScrollState()))
     }
 }
 

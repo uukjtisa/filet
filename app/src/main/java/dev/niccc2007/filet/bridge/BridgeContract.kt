@@ -12,15 +12,37 @@ import android.net.Uri
  * a camera app, a torrent client or a share-sheet target can write provenance too, and every
  * one of them gets `from:` search for free.
  *
- * Access is guarded by `dev.niccc2007.filet.permission.BRIDGE`, declared
- * `protectionLevel="signature"`. Both apps are signed with the same key, so no third app can
- * spoof provenance or inject a job. No server, no account, works offline.
+ * Access is guarded by a `protectionLevel="signature"` permission, so no third app can spoof
+ * provenance or inject a job. No server, no account, works offline.
+ *
+ * Two things about that permission are easy to get wrong, and both were:
+ *
+ * 1. **The name carries the application id.** A hardcoded name is declared identically by the
+ *    debug and the release build, and Android refuses to install an app that redefines
+ *    another app's permission. The two builds could not coexist on one phone at all.
+ * 2. **Signature means the same signing key, not the same developer.** Filet and Trawl are
+ *    signed with different keys today, so a `signature` permission would not be granted
+ *    between them. Whoever implements the writer side has to settle that first: either the
+ *    two apps share a key, or this moves to `signature|knownSigner` with the other app's
+ *    certificate digest (API 31+). Writing the record here so it is decided rather than
+ *    discovered.
  */
 object BridgeContract {
 
     const val AUTHORITY_RELEASE = "dev.niccc2007.filet.bridge"
     const val AUTHORITY_DEBUG = "dev.niccc2007.filet.debug.bridge"
-    const val PERMISSION = "dev.niccc2007.filet.permission.BRIDGE"
+
+    const val PERMISSION_RELEASE = "dev.niccc2007.filet.permission.BRIDGE"
+    const val PERMISSION_DEBUG = "dev.niccc2007.filet.debug.permission.BRIDGE"
+
+    /**
+     * The permission that guards [authority].
+     *
+     * A writer that found a provider has to ask for the permission belonging to *that* build,
+     * not to whichever one it was compiled against. One constant for both was the bug.
+     */
+    fun permissionFor(authority: String): String =
+        if (authority == AUTHORITY_DEBUG) PERMISSION_DEBUG else PERMISSION_RELEASE
 
     /**
      * Both package names are enumerated, always.

@@ -133,13 +133,20 @@
           The Trawl bridge (PLAN.md §5.4). Guarded by a signature permission, so only apps
           signed with the same key can read or write provenance and the job ledger. No server,
           no account, works offline, and no third app can spoof a record.
+
+          The permission name carries ${applicationId} for the same reason the authority does.
+          Hardcoded, it was declared identically by the debug and the release build, and
+          Android refuses to install an app that redefines another app's permission: "the app
+          attempted to define a permission that has already been defined by another app".
+          Found the first time a release APK met a debug one on the same phone - which is
+          every user who ever builds from source, and was me testing the updater.
         -->
         <provider
             android:name=".bridge.FiletBridgeProvider"
             android:authorities="${applicationId}.bridge"
             android:exported="true"
-            android:readPermission="dev.niccc2007.filet.permission.BRIDGE"
-            android:writePermission="dev.niccc2007.filet.permission.BRIDGE"
+            android:readPermission="${applicationId}.permission.BRIDGE"
+            android:writePermission="${applicationId}.permission.BRIDGE"
             android:grantUriPermissions="false" />
 
         <!-- Tier 2 of the index scheduler: the OS wakes us when media changes. -->
@@ -186,10 +193,10 @@
     </application>
 
     <permission
-        android:name="dev.niccc2007.filet.permission.BRIDGE"
+        android:name="${applicationId}.permission.BRIDGE"
         android:protectionLevel="signature"
         android:label="@string/perm_bridge_label"
         android:description="@string/perm_bridge_desc" />
-    <uses-permission android:name="dev.niccc2007.filet.permission.BRIDGE" />
+    <uses-permission android:name="${applicationId}.permission.BRIDGE" />
 
 </manifest>
