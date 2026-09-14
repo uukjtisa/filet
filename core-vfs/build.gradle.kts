@@ -40,6 +40,9 @@ dependencies {
     // the app layer builds archives with the same writers the provider reads with, and two
     // copies of that decision is how the reader and the writer drift apart.
     api(libs.commons.compress)
+    // Round 9: zip passwords and split volumes. `api` for the same reason as commons-compress
+    // - the app layer creates archives through these writers and must see the same types.
+    api(libs.zip4j)
     api(libs.xz)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

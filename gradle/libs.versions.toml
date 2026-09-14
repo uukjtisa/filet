@@ -55,6 +55,10 @@ commons-compress = { group = "org.apache.commons", name = "commons-compress", ve
 # XZ and LZMA2, which commons-compress delegates to for .xz and for most 7z archives. Public
 # domain. Without it a .7z reads as unsupported rather than as broken, but most are LZMA2.
 xz = { group = "org.tukaani", name = "xz", version = "1.10" }
+# Round 9: a zip writer that can actually encrypt. `java.util.zip` has no password support at
+# all, and the zip format's own AES extension is what every other tool reads. Apache-2.0, pure
+# Java, no NDK. Also the only sane way to write zip's multi-volume layout.
+zip4j = { group = "net.lingala.zip4j", name = "zip4j", version = "2.11.5" }
 
 # `org.json` is a STUB inside android.jar: every method throws "not mocked" in a JVM unit
 # test. The real implementation on the test classpath is what lets the persistence code be

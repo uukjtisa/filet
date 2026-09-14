@@ -149,12 +149,14 @@ class SharedSet(
      * Tokens are minted only for things that were listed, so a token IS the permission - but
      * a token outliving a revoke would otherwise keep a subtree reachable. Checking the
      * ancestry on every walk means un-sharing a folder closes everything under it at once.
+     *
+     * The decision itself lives in [ShareReach] with a test on it, because the version inlined
+     * here was wrong in a way only visible from another device: it refused the quarantine
+     * folder by name even when the folder had been deliberately shared, so the listing offered
+     * **Received** and opening it answered `{"error":"gone"}`.
      */
-    fun isReachable(path: VPath): Boolean {
-        if (path == folder || folder.contains(path)) return true
-        if (path == quarantine) return false
-        return _entries.value.any { it.path == path || it.path.contains(path) }
-    }
+    fun isReachable(path: VPath): Boolean =
+        ShareReach.isReachable(path, folder, quarantine, _entries.value.map { it.path })
 
     /** Where a directory token sits relative to the share root, for the browser's breadcrumb. */
     fun trailTo(token: String): List<Pair<String, String>> {
