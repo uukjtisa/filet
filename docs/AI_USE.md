@@ -32,11 +32,11 @@ drafting, and the exploratory work of finding out whether an approach is viable 
 ## Why I am telling you
 
 There's a culture of people that likes to call stuff AI slop without considering the thought
-and work put into designing the pipelines of a project.
+and work put into designing the pipelines or the face of a project.
 
 And I used AI here to boost my productivity. I like to create, and I don't wanna take all year
-creating something, cause I have a lot of ideas popping in mind and it's like "scratching your
-own itch" type of shi. I like to create stuff that will solve my smallest to biggest problems.
+creating something, cause I have a lot of ideas popping in mind. It's the "scratching your own
+itch" thing. I like to create stuff that will solve my smallest to biggest problems.
 And AI use has helped me with that a lot.
 
 

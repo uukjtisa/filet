@@ -57,7 +57,7 @@ object ArchiveWriter {
      * The tar family gets no per-entry choice - the compressor wraps the whole stream - which
      * is a real reason to offer plain `.tar` for a folder of video.
      */
-    private val ALREADY_COMPRESSED = setOf(
+    internal val ALREADY_COMPRESSED = setOf(
         "jpg", "jpeg", "png", "gif", "webp", "heic", "avif", "mp3", "m4a", "aac", "ogg",
         "opus", "flac", "mp4", "mkv", "webm", "mov", "avi", "zip", "7z", "rar", "gz", "bz2",
         "xz", "apk", "jar", "epub", "pdf",
