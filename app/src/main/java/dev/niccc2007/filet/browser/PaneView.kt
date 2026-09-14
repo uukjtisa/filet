@@ -66,6 +66,7 @@ import dev.niccc2007.filet.home.HomeOverview
 import dev.niccc2007.filet.index.IndexStatus
 import dev.niccc2007.filet.index.SearchScope
 import dev.niccc2007.filet.settings.SettingsPage
+import dev.niccc2007.filet.ui.HScroll
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 
@@ -305,11 +306,11 @@ private fun CrawlNotice(index: dev.niccc2007.filet.index.IndexStatus) {
 @Composable
 private fun ScopeChips(current: SearchScope, onPick: (SearchScope) -> Unit) {
     val colors = Filet.colors
-    Row(
-        Modifier.fillMaxWidth().background(colors.raised)
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 8.dp, vertical = 5.dp),
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    HScroll(
+        modifier = Modifier.background(colors.raised).padding(vertical = 5.dp),
+        ground = colors.raised,
+        contentPadding = 8.dp,
+        spacing = 5.dp,
     ) {
         for (scope in SearchScope.entries) {
             val on = scope == current
@@ -348,11 +349,11 @@ private fun FieldChips(containerFacts: Boolean, onPick: (String) -> Unit) {
         if (containerFacts) addAll(listOf("pkg:", "class:", "perm:", "label:", "inzip:"))
         add("dup:1")
     }
-    Row(
-        Modifier.fillMaxWidth().background(colors.raised)
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    HScroll(
+        modifier = Modifier.background(colors.raised).padding(vertical = 4.dp),
+        ground = colors.raised,
+        contentPadding = 8.dp,
+        spacing = 5.dp,
     ) {
         for (field in fields) {
             Text(

@@ -66,6 +66,21 @@ class Prefs(context: Context) {
     private val _tabSize = MutableStateFlow(TabSize.valueOfOr(sp.getString(K_TAB_SIZE, null), TabSize.NORMAL))
     val tabSize: StateFlow<TabSize> = _tabSize.asStateFlow()
 
+    /**
+     * How the actions for a selection are shown.
+     *
+     * Default MENU. The bar had to scroll to hold eleven actions, and an action off the edge of
+     * a row nobody knows scrolls does not exist. BAR is kept because one tap beats two when you
+     * already know where the button is.
+     */
+    private val _selectionStyle = MutableStateFlow(
+        dev.niccc2007.filet.browser.SelectionStyle.valueOfOr(
+            sp.getString(K_SELECTION_STYLE, null),
+            dev.niccc2007.filet.browser.SelectionStyle.MENU,
+        )
+    )
+    val selectionStyle: StateFlow<dev.niccc2007.filet.browser.SelectionStyle> = _selectionStyle.asStateFlow()
+
     // ── updates ──
 
     /**
@@ -102,6 +117,11 @@ class Prefs(context: Context) {
 
     fun setShowHidden(v: Boolean) { _showHidden.value = v; sp.edit().putBoolean(K_HIDDEN, v).apply() }
     fun setHideStorage(v: Boolean) { _hideStorage.value = v; sp.edit().putBoolean(K_HIDE_STORAGE, v).apply() }
+
+    fun setSelectionStyle(v: dev.niccc2007.filet.browser.SelectionStyle) {
+        _selectionStyle.value = v
+        sp.edit().putString(K_SELECTION_STYLE, v.name).apply()
+    }
 
     fun setNotesFraction(v: Float) { _notesFraction.value = v; sp.edit().putFloat(K_NOTES_FRACTION, v).apply() }
 
@@ -170,6 +190,7 @@ class Prefs(context: Context) {
         const val K_INDEX = "index.enabled"
         const val K_TAB_SIZE = "browse.tabSize"
         const val K_HIDE_STORAGE = "home.hideStorage"
+        const val K_SELECTION_STYLE = "browse.selectionStyle"
         const val K_NOTES_FRACTION = "update.notesFraction"
         const val K_UPD_UNTIL = "update.silencedUntil"
         const val K_UPD_VERSION = "update.silencedVersion"

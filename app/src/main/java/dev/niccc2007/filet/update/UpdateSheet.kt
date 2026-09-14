@@ -2,7 +2,6 @@ package dev.niccc2007.filet.update
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -44,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.UpdateState
 import dev.niccc2007.filet.browser.humanSize
+import dev.niccc2007.filet.ui.HScroll
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
@@ -292,10 +292,7 @@ private fun RemindRow(vm: BrowserViewModel, release: Release) {
         letterSpacing = 0.7.sp,
         modifier = Modifier.padding(bottom = 6.dp),
     )
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-    ) {
+    HScroll(ground = MaterialTheme.colorScheme.surface, spacing = 7.dp) {
         for (choice in RemindChoice.entries) {
             Chip(
                 text = choice.label(),

@@ -45,6 +45,7 @@ jobs:
           node tools/check-licences.mjs
           node tools/check-aiuse.mjs
           node tools/check-webui.mjs
+          node tools/check-scrollcue.mjs
 
       # Every checker that can fail without the network must also be able to fail WITH a
       # deliberately broken input, or a passing run proves nothing. These are the selftests.
@@ -54,6 +55,7 @@ jobs:
           node tools/check-licences.mjs --selftest
           node tools/check-aiuse.mjs --selftest
           node tools/check-webui.mjs --selftest
+          node tools/check-scrollcue.mjs --selftest
           node tools/check-release.mjs --selftest
           node tools/check-releasedoc.mjs --selftest
 

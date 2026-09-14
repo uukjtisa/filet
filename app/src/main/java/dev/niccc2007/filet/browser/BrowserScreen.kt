@@ -80,6 +80,7 @@ import dev.niccc2007.filet.data.TabSize
 import dev.niccc2007.filet.data.ViewStep
 import dev.niccc2007.filet.jobs.ActivitySheet
 import dev.niccc2007.filet.ui.Motion
+import dev.niccc2007.filet.ui.HScroll
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VPath
 import kotlin.math.roundToInt
@@ -912,22 +913,49 @@ private fun NavItem(
     }
 }
 
+/**
+ * What you can do with the current selection.
+ *
+ * Two renderings of one list (`SelectionActions.kt`), chosen in Settings. The default is the
+ * menu, at Nic's request: the bar had to scroll to hold eleven actions, and an action that is
+ * off the edge of a bar nobody knows scrolls does not exist. A menu is bounded by the screen
+ * instead of by the width of a row, so it always fits and every action is readable at once.
+ */
 @Composable
 private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
     val colors = Filet.colors
-    // Actions that only make sense for exactly one file are DISABLED, not hidden.
-    //
-    // Hiding them makes the bar jump every time the second item is picked, and leaves the
-    // user wondering where "Open with" went. Greying it out answers the question - you
-    // selected two things - which is the whole point of R1 applied to a toolbar.
+    val style by vm.prefs.selectionStyle.collectAsState()
+    var menuOpen by remember { mutableStateOf(false) }
     val single = count == 1
-    val scroll = rememberScrollState()
-    val onlyOne = if (single) null else "Pick one file — this opens a single file"
+
+    val actions = selectionActions(
+        count = count,
+        readOnly = readOnly,
+        icons = SelectionIcons(
+            copy = FiletIcons.Copy, cut = FiletIcons.Cut, share = FiletIcons.Share,
+            delete = FiletIcons.Delete, zip = FiletIcons.Zip, rename = FiletIcons.Rename,
+            open = FiletIcons.Open, info = FiletIcons.Info, star = FiletIcons.Star,
+            wifi = FiletIcons.Wifi, home = FiletIcons.Home,
+        ),
+        on = SelectionCallbacks(
+            copy = { vm.copySelection() },
+            move = { vm.cutSelection() },
+            send = { vm.shareSelection() },
+            delete = { vm.confirmDelete() },
+            compress = { vm.askCompress() },
+            rename = { vm.renameSelection() },
+            openWith = { vm.openWithSelection() },
+            details = { vm.detailsForSelection() },
+            bookmark = { vm.bookmarkSelection() },
+            nearby = { vm.shareSelectionNearby() },
+            shortcut = { vm.shortcutSelection() },
+        ),
+    )
 
     Column(Modifier.fillMaxWidth().background(colors.raised)) {
         HorizontalDivider(color = colors.lineSoft)
         Row(
-            Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 7.dp),
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 7.dp, bottom = if (style == SelectionStyle.MENU) 7.dp else 0.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -937,6 +965,28 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
                 color = colors.accent,
             )
             Spacer(Modifier.weight(1f))
+            if (style == SelectionStyle.MENU) {
+                Box {
+                    Text(
+                        "Actions",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.fg2,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.high)
+                            .clickable { menuOpen = true }
+                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                    )
+                    SelectionMenu(
+                        expanded = menuOpen,
+                        actions = actions,
+                        onDismiss = { menuOpen = false },
+                        onBlocked = vm::toast,
+                    )
+                }
+                Spacer(Modifier.width(6.dp))
+            }
             Text(
                 "Clear",
                 fontSize = 11.5.sp,
@@ -948,54 +998,86 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
             )
         }
 
-        // The row is scrollable and now SAYS so: a fading edge on whichever side has more
-        // behind it. Nic's complaint was not that it could not scroll - it was that nothing
-        // on screen suggested it could, so the last three actions may as well not exist.
-        val atStart = scroll.value <= 2
-        val atEnd = scroll.value >= scroll.maxValue - 2
-        Box(Modifier.fillMaxWidth()) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(scroll)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
+        if (style == SelectionStyle.BAR) {
+            // The legacy rendering. Now on the shared scroller, so it carries the same
+            // chevron every other sideways-scrolling row in the app does.
+            HScroll(
+                ground = colors.raised,
+                contentPadding = 8.dp,
+                spacing = 3.dp,
+                modifier = Modifier.padding(vertical = 6.dp),
             ) {
-                // The four that work on any number of files, and the four people reach for.
-                FootButton(FiletIcons.Copy, "Copy", onBlocked = vm::toast) { vm.copySelection() }
-                FootButton(FiletIcons.Cut, "Move", blocked = readOnly, onBlocked = vm::toast) { vm.cutSelection() }
-                FootButton(FiletIcons.Share, "Send", onBlocked = vm::toast) { vm.shareSelection() }
-                FootButton(
-                    FiletIcons.Delete, "Delete", colors.bad,
-                    blocked = readOnly, onBlocked = vm::toast,
-                ) { vm.confirmDelete() }
-
-                FootDivider()
-
-                FootButton(FiletIcons.Zip, "Compress", blocked = readOnly, onBlocked = vm::toast) { vm.askCompress() }
-                FootButton(
-                    FiletIcons.Rename, "Rename",
-                    blocked = readOnly ?: if (single) null else "Pick one file — rename takes one name at a time",
-                    onBlocked = vm::toast,
-                ) { vm.renameSelection() }
-                FootButton(FiletIcons.Open, "Open with", blocked = onlyOne, onBlocked = vm::toast) { vm.openWithSelection() }
-                FootButton(
-                    FiletIcons.Info, "Details",
-                    blocked = if (single) null else "Pick one file — details describe one file",
-                    onBlocked = vm::toast,
-                ) { vm.detailsForSelection() }
-
-                FootDivider()
-
-                FootButton(FiletIcons.Star, "Bookmark", onBlocked = vm::toast) { vm.bookmarkSelection() }
-                FootButton(FiletIcons.Wifi, "Nearby", onBlocked = vm::toast) { vm.shareSelectionNearby() }
-                FootButton(FiletIcons.Home, "Shortcut", onBlocked = vm::toast) { vm.shortcutSelection() }
+                var previous: SelectionAction.Group? = null
+                for (action in actions) {
+                    if (previous != null && previous != action.group) FootDivider()
+                    previous = action.group
+                    FootButton(
+                        action.icon,
+                        action.label,
+                        if (action.danger) colors.bad else colors.fg2,
+                        blocked = action.blocked,
+                        onBlocked = vm::toast,
+                        onClick = action.run,
+                    )
+                }
             }
-            // Drawn over the row, so a half-visible button fades into the edge rather than
-            // being cut off mid-icon - which is what made it read as a broken layout.
-            if (!atStart) EdgeFade(colors.raised, Alignment.CenterStart)
-            if (!atEnd) EdgeFade(colors.raised, Alignment.CenterEnd)
+        }
+    }
+}
+
+/**
+ * The actions as a popup.
+ *
+ * A `DropdownMenu` rather than a bottom sheet: it is anchored to the button that opened it,
+ * the platform keeps it on screen by itself, and it scrolls if a small screen cannot hold
+ * eleven rows. "Make it fit properly" is the requirement, and the cheapest way to meet it is
+ * to use the thing whose entire job is fitting.
+ *
+ * A blocked row is shown, greyed, and STILL TAPPABLE - it answers with the reason instead of
+ * acting. Same rule as the bar: a phone has no hover, so a dead control tells nobody anything.
+ */
+@Composable
+private fun SelectionMenu(
+    expanded: Boolean,
+    actions: List<SelectionAction>,
+    onDismiss: () -> Unit,
+    onBlocked: (String) -> Unit,
+) {
+    val colors = Filet.colors
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        containerColor = colors.high,
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        var previous: SelectionAction.Group? = null
+        for (action in actions) {
+            if (previous != null && previous != action.group) {
+                HorizontalDivider(color = colors.lineSoft, modifier = Modifier.padding(vertical = 4.dp))
+            }
+            previous = action.group
+            val tint = when {
+                action.blocked != null -> colors.fg3
+                action.danger -> colors.bad
+                else -> colors.fg2
+            }
+            DropdownMenuItem(
+                text = {
+                    Column {
+                        Text(action.label, fontSize = 13.sp, color = tint)
+                        // The reason, in the menu, rather than only in a toast after the tap.
+                        action.blocked?.let {
+                            Text(it, fontSize = 10.sp, color = colors.fg3, lineHeight = 13.sp)
+                        }
+                    }
+                },
+                leadingIcon = { Icon(action.icon, action.label, tint = tint, modifier = Modifier.size(17.dp)) },
+                onClick = {
+                    val why = action.blocked
+                    if (why != null) onBlocked(why) else action.run()
+                    onDismiss()
+                },
+            )
         }
     }
 }

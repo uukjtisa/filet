@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -56,6 +57,42 @@ import dev.niccc2007.filet.ui.theme.Filet
  * Every row here changes something observable immediately. PLAN.md R1 forbids a toggle whose
  * handler is a TODO, so a setting that is not wired is simply absent from this file.
  */
+/**
+ * A section heading that actually separates.
+ *
+ * Nic: *"make the settigns be properly segregated.. its so packked.. thers no dsitinciton
+ * betewen ui settings general and etc."* He is right. The old heading was 9.5sp grey micro-caps
+ * with 7dp of padding - technically a label, visually a row like any other, so eleven controls
+ * read as one undifferentiated list.
+ *
+ * Three changes, and the first is the one that does the work: **space above**. A group is
+ * defined by the gap before it far more than by its title. Then a title at reading size rather
+ * than caption size, and a sentence saying what the group is for, which doubles as the answer
+ * to "which section is this setting in".
+ */
+@Composable
+private fun SettingsSection(title: String, subtitle: String, first: Boolean = false) {
+    val colors = Filet.colors
+    Column(Modifier.fillMaxWidth().padding(top = if (first) 8.dp else 26.dp)) {
+        Text(
+            title,
+            fontSize = 13.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.fg2,
+            modifier = Modifier.padding(start = 14.dp, end = 14.dp),
+        )
+        Text(
+            subtitle,
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+            color = colors.fg3,
+            modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 9.dp),
+        )
+        HorizontalDivider(color = colors.lineSoft)
+        Spacer(Modifier.height(6.dp))
+    }
+}
+
 @Composable
 fun SettingsPage(vm: BrowserViewModel) {
     val prefs = vm.prefs
@@ -66,13 +103,14 @@ fun SettingsPage(vm: BrowserViewModel) {
     val sort by prefs.sort.collectAsState()
     val indexOn by prefs.indexEnabled.collectAsState()
     val updatesOn by vm.updateNotificationsOn.collectAsState()
+    val selectionStyle by prefs.selectionStyle.collectAsState()
     val tabSize by prefs.tabSize.collectAsState()
     var pickingOpenerFor by remember { mutableStateOf<String?>(null) }
     val tracked by vm.tracked.paths.collectAsState()
     val colors = Filet.colors
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
-        item { SectionLabel("Appearance") }
+        item { SettingsSection("Appearance", "Theme, accent, and how much fits on a screen.", first = true) }
         item {
             SegmentRow("Theme", ThemeChoice.entries.map { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } }, theme.ordinal) {
                 prefs.setTheme(ThemeChoice.entries[it])
@@ -112,7 +150,7 @@ fun SettingsPage(vm: BrowserViewModel) {
             )
         }
 
-        item { SectionLabel("Browsing") }
+        item { SettingsSection("Files and folders", "Sorting, hidden files, and what happens when you pick things.") }
         item {
             ToggleRow("Show hidden files", "Dotfiles and anything the volume marks hidden", hidden) {
                 prefs.setShowHidden(it)
@@ -134,11 +172,34 @@ fun SettingsPage(vm: BrowserViewModel) {
             }
         }
 
+        item {
+            SegmentRow(
+                "When you select files",
+                listOf("Menu", "Bar"),
+                if (selectionStyle == dev.niccc2007.filet.browser.SelectionStyle.MENU) 0 else 1,
+            ) {
+                vm.prefs.setSelectionStyle(
+                    if (it == 0) dev.niccc2007.filet.browser.SelectionStyle.MENU
+                    else dev.niccc2007.filet.browser.SelectionStyle.BAR
+                )
+            }
+        }
+        item {
+            Text(
+                "Menu puts the eleven actions in a popup that fits the screen. Bar is the old " +
+                    "row along the bottom - one tap instead of two, but it has to scroll.",
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                color = colors.fg3,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
+            )
+        }
+
         // Directly under Browsing, not at the bottom. It was below the Tracked-folders list,
         // which can run to a dozen rows, and "where is that?" was the result.
         defaultOpenersSection(vm) { pickingOpenerFor = it }
 
-        item { SectionLabel("Index") }
+        item { SettingsSection("Search index", "The database that makes whole-device search answer instantly.") }
         item {
             ToggleRow(
                 "Keep an index",
@@ -154,7 +215,7 @@ fun SettingsPage(vm: BrowserViewModel) {
         // Only on the flavour that has an updater at all. R1, no dead switches: on F-Droid
         // this would be a control over something that is compiled out.
         if (dev.niccc2007.filet.BuildConfig.UPDATER_ENABLED) {
-            item { SectionLabel("Updates") }
+            item { SettingsSection("Updates", "Filet is sideloaded, so it looks for its own new versions.") }
             item {
                 ToggleRow(
                     "Tell me about new versions",
@@ -166,7 +227,7 @@ fun SettingsPage(vm: BrowserViewModel) {
             }
         }
 
-        item { SectionLabel("Tracked folders") }
+        item { SettingsSection("Tracked folders", "Watched closely, so Home shows what just arrived.") }
         item {
             Text(
                 "Watched closely, so Home shows what just arrived. Keep this list short: each " +
@@ -202,7 +263,7 @@ fun SettingsPage(vm: BrowserViewModel) {
             )
         }
 
-        item { SectionLabel("Storage access") }
+        item { SettingsSection("Storage access", "What Android lets Filet see.") }
         item { StorageAccessCard(vm) }
     }
 

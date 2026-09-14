@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.FileKind
 import dev.niccc2007.filet.handlers.HandlerId
+import dev.niccc2007.filet.ui.HScroll
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 
@@ -84,10 +85,7 @@ fun ShortcutSheet(
                 Spacer(Modifier.height(12.dp))
                 Text("Opens with", fontSize = 11.sp, color = colors.fg3)
                 Spacer(Modifier.height(6.dp))
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                HScroll(ground = colors.raised) {
                     for ((id, name) in options) {
                         val on = id == handler
                         Text(
