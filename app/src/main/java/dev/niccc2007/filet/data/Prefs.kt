@@ -96,6 +96,16 @@ class Prefs(context: Context) {
     private val _hiddenCards = MutableStateFlow(sp.getStringSet(K_HIDDEN_CARDS, emptySet())!!.toSet())
     val hiddenCards: StateFlow<Set<String>> = _hiddenCards.asStateFlow()
 
+    /**
+     * Hide the Termux card on Home.
+     *
+     * His ask: *"add a hide for the termux option.. and put it somewhere in the settings when
+     * hidden"*. Hidden means hidden from HOME, not switched off - the connect action stays in
+     * Settings, because an option that vanishes completely is one nobody can find again.
+     */
+    private val _hideTermux = MutableStateFlow(sp.getBoolean(K_HIDE_TERMUX, false))
+    val hideTermux: StateFlow<Boolean> = _hideTermux.asStateFlow()
+
     // ── updates ──
 
     /**
@@ -132,6 +142,8 @@ class Prefs(context: Context) {
 
     fun setShowHidden(v: Boolean) { _showHidden.value = v; sp.edit().putBoolean(K_HIDDEN, v).apply() }
     fun setHideStorage(v: Boolean) { _hideStorage.value = v; sp.edit().putBoolean(K_HIDE_STORAGE, v).apply() }
+
+    fun setHideTermux(v: Boolean) { _hideTermux.value = v; sp.edit().putBoolean(K_HIDE_TERMUX, v).apply() }
 
     fun hideCard(path: String) = setHiddenCards(_hiddenCards.value + path)
 
@@ -218,6 +230,7 @@ class Prefs(context: Context) {
         const val K_TAB_SIZE = "browse.tabSize"
         const val K_HIDE_STORAGE = "home.hideStorage"
         const val K_HIDDEN_CARDS = "home.hiddenCards"
+        const val K_HIDE_TERMUX = "home.hideTermux"
         const val K_SELECTION_STYLE = "browse.selectionStyle"
         const val K_NOTES_FRACTION = "update.notesFraction"
         const val K_UPD_UNTIL = "update.silencedUntil"

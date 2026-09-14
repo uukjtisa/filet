@@ -26,6 +26,18 @@ import dev.niccc2007.filet.vfs.provider.SafProvider
  * that the tree is an ordinary volume - two panes, drag between them, copy in either direction.
  *
  * The grant is persistent, so this is once per install rather than once per use.
+ *
+ * ## What this does NOT reach, verified on the device
+ *
+ * Termux's provider offers its **home** directory as the root - `.cache`, `.ssh`, `.termux`,
+ * `storage` and whatever you have cloned. `usr/bin`, where everything Termux installs actually
+ * lives, is a sibling of `home` under `files/` and is **outside that root**. So this gives you
+ * the place you work, not the place your binaries are installed.
+ *
+ * Nothing here can widen it: the root is Termux's decision, made in its own manifest and its
+ * own provider, and there is no non-root way around another app's private storage. Reaching
+ * `usr/bin` needs either root, or Termux publishing a wider root, or moving what you want into
+ * `~` from the Termux shell - which is one `cp` and is what most people do anyway.
  */
 object Termux {
 

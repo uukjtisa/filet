@@ -731,10 +731,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun connectTermux(home: Boolean = true) {
         if (!termuxInstalled) { toast("Termux is not installed."); return }
         requestFolderGrant(dev.niccc2007.filet.integrations.Termux.pickerHint(home))
-        toast(
-            if (home) "Pick Termux's home folder to give Filet access."
-            else "Pick Termux's files folder - usr/bin lives inside it."
-        )
+        // Says WHERE, because that is the part he could not find: the picker opens on internal
+        // storage and Termux is behind the hamburger menu, not on the first screen. The
+        // EXTRA_INITIAL_URI hint is sent and this phone's picker ignores it, so the
+        // instruction is the thing that actually works.
+        toast("Open the menu in the picker and choose Termux, then Use this folder.")
     }
 
     /** Open Termux itself. */

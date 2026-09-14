@@ -68,6 +68,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     val tracked by vm.tracked.folders.collectAsState()
     val hideStorage by vm.prefs.hideStorage.collectAsState()
     val hiddenCards by vm.prefs.hiddenCards.collectAsState()
+    val hideTermux by vm.prefs.hideTermux.collectAsState()
     val colors = Filet.colors
     var menuFor by remember { mutableStateOf<VNode?>(null) }
 
@@ -125,7 +126,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         // Termux, if it is here. Shown only when installed, so this is not a permanent
         // advertisement for an app somebody does not have - and it disappears once its tree is
         // granted, because at that point it is a volume in the list above like any other.
-        if (vm.termuxInstalled && app.volumes.none { dev.niccc2007.filet.integrations.Termux.isTermuxTree(android.net.Uri.parse(it.node.path.path)) || it.label.startsWith("Termux") }) {
+        if (vm.termuxInstalled && !hideTermux && app.volumes.none { dev.niccc2007.filet.integrations.Termux.isTermuxTree(android.net.Uri.parse(it.node.path.path)) || it.label.startsWith("Termux") }) {
             item { SectionLabel("Termux") }
             item {
                 Row(
@@ -156,14 +157,25 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                             color = colors.fg3,
                         )
                     }
+                    Text(
+                        "×",
+                        fontSize = 15.sp,
+                        color = colors.fg3,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { vm.prefs.setHideTermux(true) }
+                            .padding(horizontal = 9.dp, vertical = 3.dp),
+                    )
                 }
             }
         }
 
         if (downloads.isNotEmpty()) {
-            // Not "downloads": a folder pushed over Nearby, an extracted archive and a file
-            // saved by another app all land here, and none of them was downloaded.
-            item { SectionLabel("New files and folders") }
+            // "Files", not "New files and folders". It was renamed once already, away from
+            // "New downloads", because a file pushed over Nearby or saved by another app is not
+            // a download - and now again, because the feed no longer lists folders at all. A
+            // heading that names something the list cannot contain is a small lie.
+            item { SectionLabel("Files") }
             items(downloads.size) { i ->
                 val d = downloads[i]
                 FeedRow(

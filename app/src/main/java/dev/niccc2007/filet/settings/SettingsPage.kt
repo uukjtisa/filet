@@ -104,6 +104,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val indexOn by prefs.indexEnabled.collectAsState()
     val updatesOn by vm.updateNotificationsOn.collectAsState()
     val selectionStyle by prefs.selectionStyle.collectAsState()
+    val hideTermux by prefs.hideTermux.collectAsState()
     val tabSize by prefs.tabSize.collectAsState()
     var pickingOpenerFor by remember { mutableStateOf<String?>(null) }
     val tracked by vm.tracked.paths.collectAsState()
@@ -224,6 +225,36 @@ fun SettingsPage(vm: BrowserViewModel) {
                         "updates still works whenever you ask it to.",
                     updatesOn,
                 ) { vm.setUpdateNotifications(it) }
+            }
+        }
+
+        // Only when Termux is actually on the phone. An integration section advertising an
+        // app somebody does not have is the definition of a dead switch.
+        if (vm.termuxInstalled) {
+            item {
+                SettingsSection(
+                    "Termux",
+                    "Its files live in another app's private storage, so Android has to grant " +
+                        "access once. After that it is an ordinary volume.",
+                )
+            }
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SmallButton("Connect home") { vm.connectTermux(home = true) }
+                    SmallButton("Connect files") { vm.connectTermux(home = false) }
+                    SmallButton("Open Termux") { vm.launchTermux() }
+                }
+            }
+            item {
+                ToggleRow(
+                    "Show it on Home",
+                    "The card disappears from Home once its folder is granted anyway. These " +
+                        "buttons stay here either way.",
+                    !hideTermux,
+                ) { prefs.setHideTermux(!it) }
             }
         }
 

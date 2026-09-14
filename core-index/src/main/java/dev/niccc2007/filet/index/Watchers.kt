@@ -20,7 +20,14 @@ import java.io.File
  */
 class HotWatcher(
     private val vfs: Vfs,
-    private val onChanged: (VPath) -> Unit,
+    /**
+     * @param dir the watched directory.
+     * @param name the entry inside it that changed, when the kernel said. Passing this on
+     *   rather than discarding it is what lets a listener react to ONE file instead of
+     *   re-reading the directory - which matters enormously for a folder holding 1700
+     *   screenshots, where the listing is seconds and the stat is microseconds.
+     */
+    private val onChanged: (dir: VPath, name: String?) -> Unit,
 ) {
     private val watches = HashMap<String, FileObserver>()
 
@@ -63,12 +70,12 @@ class HotWatcher(
             FileObserver.MOVED_TO or FileObserver.CLOSE_WRITE
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             object : FileObserver(f, mask) {
-                override fun onEvent(event: Int, path: String?) = onChanged(vpath)
+                override fun onEvent(event: Int, path: String?) = onChanged(vpath, path)
             }
         } else {
             @Suppress("DEPRECATION")
             object : FileObserver(os, mask) {
-                override fun onEvent(event: Int, path: String?) = onChanged(vpath)
+                override fun onEvent(event: Int, path: String?) = onChanged(vpath, path)
             }
         }
     }

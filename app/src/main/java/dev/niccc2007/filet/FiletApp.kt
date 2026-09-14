@@ -116,12 +116,12 @@ class FiletGraph(context: Context) {
         )
     }.getOrElse { NullIndex() }
 
-    val watcher = HotWatcher(vfs) { changed ->
-        // The cheap thing first. This used to run a four-second crawl and only then refresh
-        // the feed, so the update Home actually shows queued behind the one nobody sees -
-        // which is most of why the feed "takes time to update". The feed coalesces its own
-        // bursts, so calling it per event is fine.
-        home.onChanged()
+    val watcher = HotWatcher(vfs) { changed, name ->
+        // The cheap thing first, and now the SPECIFIC thing. This used to run a four-second
+        // crawl and only then refresh the feed, so the update Home actually shows queued
+        // behind the one nobody sees. Handing the changed directory through means the feed
+        // re-reads that one folder and nothing else - one listing, and the file is on Home.
+        home.onChanged(changed, name)
         scope.launch { runCatching { index.crawl(listOf(changed), budgetMs = 4_000) } }
     }
 
@@ -140,6 +140,9 @@ class FiletGraph(context: Context) {
         scope.launch {
             val roots = runCatching { vfs.roots().map { it.path } }.getOrElse { emptyList() }
             tracked.seedDefaults(roots)
+            // One-time cleanup of what the old seeding did: a Download folder on every root,
+            // including remotes. See pruneSeededRemotes for why it is this narrow.
+            tracked.pruneSeededRemotes()
             scripts.seedExamples()
             home.refresh()
             index.status.value.let { if (it.enabled) indexCoordinator.onStart(roots) }
