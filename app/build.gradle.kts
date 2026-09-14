@@ -1,10 +1,48 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
 
+/**
+ * The release signing key, if this machine has it.
+ *
+ * Present only on the machine that publishes: `keystore.properties` and every key format are
+ * in `.gitignore`, and a clone without them still builds - it just produces an unsigned
+ * release APK, which is what CI and anyone building from source should get.
+ *
+ * The key itself is not a detail that can be changed later. Android identifies an app by its
+ * signature, so an update signed by a different key is refused as a different app and the only
+ * way past it is uninstall-and-lose-your-data. From v0.1.0 onwards this file is as
+ * irreplaceable as the source.
+ */
+val keystorePropertiesFile: File = rootProject.file("keystore.properties")
+
 android {
     namespace = "dev.niccc2007.filet"
+
+    if (keystorePropertiesFile.exists()) {
+        val keystoreProperties = Properties()
+        FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
+        signingConfigs {
+            create("githubPublish") {
+                keyAlias = keystoreProperties["keyAlias"].toString()
+                keyPassword = keystoreProperties["keyPassword"].toString()
+                storeFile = file(keystoreProperties["storeFile"]!!)
+                storePassword = keystoreProperties["storePassword"].toString()
+                // v2 is what minSdk 26 actually needs. v3 is asked for anyway because it is
+                // the only scheme that carries a proof-of-rotation record - without it in the
+                // FIRST published APK, this key can never be replaced, only lost. v1 is off
+                // (nothing below API 24 can install this) and v4 is an adb-incremental
+                // sidecar file that a GitHub release has nowhere to put.
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
     compileSdk {
         version = release(37)
     }
@@ -26,10 +64,18 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("githubPublish")
+            }
         }
         debug {
-            // A different package, so a development build cannot see the release Trawl and
-            // vice versa. Bridge discovery enumerates both names (PLAN.md §5.4).
+            // A different package, so a development build cannot see the release install and
+            // vice versa. Bridge discovery enumerates both names (PLAN.md 5.4).
+            //
+            // Deliberately left on the default debug key rather than the publishing one. That
+            // key can push an update to every installed copy of Filet, and a debug APK is the
+            // build most likely to be left on a machine or passed around; the default key also
+            // keeps a debug build installable over the previous debug build.
             applicationIdSuffix = ".debug"
         }
     }

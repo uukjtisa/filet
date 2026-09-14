@@ -9,6 +9,7 @@
 [![Licence](https://img.shields.io/badge/Licence-GPL--3.0-4E7382?style=for-the-badge)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-4E7382?style=for-the-badge&logo=android&logoColor=white)](#building-it-yourself)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Compose-4E7382?style=for-the-badge&logo=kotlin&logoColor=white)](#building-it-yourself)
+[![Release](https://img.shields.io/github/v/release/uukjtisa/filet?style=for-the-badge&color=4E7382&label=release)](https://github.com/uukjtisa/filet/releases/latest)
 [![Status](https://img.shields.io/badge/early%20development-C25E3A?style=for-the-badge)](FIXES.md)
 
 Companion to **[Trawl](https://github.com/uukjtisa/trawl)**.
@@ -18,8 +19,9 @@ Built by **[Niccc2007](https://github.com/uukjtisa)**.
 
 > [!WARNING]
 > **Early development.** I built this for my own phone and I'm still finding things wrong with
-> it. There's no store listing and no release yet. Everything below is what the code does
-> today, not what I want it to do later.
+> it. There's no store listing - [Releases](https://github.com/uukjtisa/filet/releases) is the
+> only place it comes from. Everything below is what the code does today, not what I want it
+> to do later.
 
 ---
 
@@ -29,10 +31,11 @@ Built by **[Niccc2007](https://github.com/uukjtisa)**.
 - [A glimpse of it](#a-glimpse-of-it)
 - [Browsing](#browsing)
 - [Search](#search)
-- [Containers and APKs](#containers-and-apks)
+- [Archives and APKs](#archives-and-apks)
 - [Scripting](#scripting)
 - [Sharing over your network](#sharing-over-your-network)
 - [Shortcuts and surfaces](#shortcuts-and-surfaces)
+- [Installing it](#installing-it)
 - [How it's built](#how-its-built)
 - [Building it yourself](#building-it-yourself)
 - [Permissions](#permissions)
@@ -122,9 +125,19 @@ scorer reranks those in memory. Neither half is asked to do the other's job.
 
 ---
 
-## Containers and APKs
+## Archives and APKs
 
-- **Browse into zip, tar and APK** as folders, addressed as `zip:///path/a.zip!/inner`
+- **Browse into an archive as a folder**, addressed as `zip:///path/a.tar.gz!/inner`. Zip and
+  everything zip-shaped (apk, jar, aar, epub, cbz), tar on its own or through gzip, bzip2 or
+  xz, 7z, and a single compressed file such as `notes.txt.gz`
+- **Make one** in zip, tar, tar.gz, tar.bz2, tar.xz or 7z, with the format picked at the time
+  and the suffix taken from the format rather than from what you typed
+- **Extract** to a folder named after the archive, with the whole suffix stripped, so a
+  `photos.tar.gz` gives you `photos` and not `photos.tar`
+- **Search inside them.** `inzip:` reads member names from every format above
+- **RAR is not supported, and here is why:** every Java decoder for it descends from the
+  UnRAR source, whose licence forbids using it to build an archiver. Filet is GPL-3.0, so it
+  cannot ship one. Opening a `.rar` says exactly that instead of failing as a corrupt file
 - **`classes.dex` opens as a tree of smali** you can read and edit
 - **Search inside APKs.** `pkg:`, `label:` and `perm:` come from the resource table, `class:`
   from deduplicated package prefixes in the dex. About 2 KB of facts per APK, not 2 MB
@@ -172,6 +185,28 @@ internal storage also works inside an archive or on a network share.
   is otherwise write-only
 - **A folder widget**
 - **Crash reports on screen** instead of "app has stopped", kept locally and never uploaded
+
+---
+
+## Installing it
+
+Grab the APK from **[Releases](https://github.com/uukjtisa/filet/releases/latest)**. Android 8.0
+or newer, one file, every phone - Filet ships no native code of its own, so there is nothing to
+split by CPU.
+
+| File | For |
+|---|---|
+| `Filet-<version>.apk` | Anything running Android 8.0 or newer. |
+
+You will have to allow installing from unknown sources, and Android will call the installer
+untrusted: the APK is signed with my own key rather than a store key, which is what a sideloaded
+build looks like. That key is also why an update has to come from the same place the first
+install did - Android refuses an update signed by anything else.
+
+Once it is installed, the **About** page - from the side rail, the menu, or the switcher - has a
+**Check for updates** button that asks GitHub directly and offers the next release when there is
+one. That button is compiled out of the `fdroid` flavour, because F-Droid updates its own apps
+and refuses ones that update themselves.
 
 ---
 
@@ -269,5 +304,12 @@ your paths.
 
 GPL-3.0. See [`LICENSE`](LICENSE).
 
-Filet bundles ARSCLib (Apache-2.0), smali and dexlib2 (BSD), LuaJ (MIT), and a build of SQLite
-with FTS5 and trigram enabled. Full attribution is on the About screen in the app.
+Filet bundles ARSCLib (Apache-2.0), smali and dexlib2 (BSD), LuaJ (MIT), Apache
+commons-compress (Apache-2.0) and XZ for Java (public domain) for the archive formats,
+sora-editor (LGPL-2.1, linked unmodified), and a build of SQLite with FTS5 and trigram
+enabled. Full attribution is on the About screen in the app.
+
+Every one of those is compatible with GPL-3.0, and `tools/check-licences.mjs` fails the build
+if a dependency is added that is not. That check is also where the RAR decision is recorded:
+the available Java decoders carry the UnRAR licence, which restricts what the software may be
+used to build, and a GPL-3 project cannot accept that restriction.
