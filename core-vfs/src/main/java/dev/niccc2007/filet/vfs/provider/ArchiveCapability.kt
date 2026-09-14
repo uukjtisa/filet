@@ -107,7 +107,8 @@ enum class SplitStyle {
 /**
  * What happens when one file inside an existing archive is changed.
  *
- * His ask was *"without recompressing it again or shit"*, and whether that is possible is a
+ * His ask was to save an edit back without recompressing the whole archive, and whether that
+ * is possible is a
  * property of the container rather than of how clever the code is.
  */
 enum class EditMode {
@@ -178,8 +179,20 @@ object ArchiveCapabilities {
     private const val NO_ENCRYPTION_IN_FORMAT =
         "This format has no encryption in it. Compress to zip if the archive needs a password."
 
+    /**
+     * The 7z password refusal, and it names the real cause rather than shrugging.
+     *
+     * 7z supports AES-256 perfectly well - the format is not the problem, so a sentence saying
+     * "not supported" would be false and would send somebody looking for a setting. What is
+     * missing is a writer: no GPL-3-compatible library writes an encrypted 7z. libarchive's 7z
+     * writer contains no encryption at all (checked against v3.7.7 - zero occurrences of
+     * `passphrase`, `aes`, `encrypt` or `crypt` in 2,356 lines), commons-compress writes 7z
+     * without it, and the one encoder that does is 7-Zip's own C++ tree, which is a vendoring
+     * project rather than a feature. The whole measurement is in `core-native/README.md`.
+     */
     private const val NO_7Z_WRITER =
-        "7z supports AES-256, but this build cannot write it. Compress to zip for a password."
+        "7z supports AES-256, but nothing Filet can legally ship writes an encrypted one. " +
+            "Compress to zip instead - Filet's zip does AES-256."
 
     private const val CANNOT_CREATE =
         "Filet reads this format and cannot create one, so there is nothing to set."
@@ -205,11 +218,14 @@ object ArchiveCapabilities {
     /**
      * What [format] supports.
      *
-     * @param nativeWriter whether the native 7z writer is compiled in and loaded. Passed rather
-     *   than read from a global so both answers are testable, and so the UI cannot accidentally
-     *   offer 7z encryption on a build that does not have it.
+     * There is no "if the native 7z writer is present" branch here, and that is deliberate.
+     * One existed while the native writer was still an open question; it was removed when the
+     * answer came back no, because a branch nothing can reach is a claim that the feature might
+     * arrive, and the next person to find it would have to re-derive why it never fires. Rule
+     * R1 applied to a table rather than a button: the capability table says what this build can
+     * do, not what some build might.
      */
-    fun of(format: ArchiveFormat, nativeWriter: Boolean = false): ArchiveCapability {
+    fun of(format: ArchiveFormat): ArchiveCapability {
         if (!format.canCreate) {
             return ArchiveCapability(
                 formatId = format.id,
@@ -250,17 +266,7 @@ object ArchiveCapabilities {
             "7z" -> ArchiveCapability(
                 formatId = "7z",
                 strength = LZMA2_PRESET,
-                password = if (nativeWriter) {
-                    PasswordSupport(
-                        supported = true,
-                        methods = listOf(EncryptionMethod.AES_256),
-                        // 7z really can encrypt the header, unlike zip. This is the one place
-                        // "encrypt file names too" is an honest offer.
-                        canEncryptNames = true,
-                    )
-                } else {
-                    PasswordSupport(supported = false, refusal = NO_7Z_WRITER)
-                },
+                password = PasswordSupport(supported = false, refusal = NO_7Z_WRITER),
                 // 7-Zip's own volumes are a plain byte split of the finished archive, so this
                 // is the same mechanism as the tar family and produces sets 7-Zip opens.
                 split = SplitStyle.NUMBERED_STREAM,
@@ -288,8 +294,7 @@ object ArchiveCapabilities {
     )
 
     /** Convenience for the creation window, in the picker's order. */
-    fun creatable(nativeWriter: Boolean = false): List<ArchiveCapability> =
-        Archives.creatable.map { of(it, nativeWriter) }
+    fun creatable(): List<ArchiveCapability> = Archives.creatable.map { of(it) }
 
     /** What editing a member of [name] can offer, without the caller re-deriving the format. */
     fun editModeFor(name: String): EditMode {
@@ -297,7 +302,7 @@ object ArchiveCapabilities {
         // A stream format holds exactly one member; replacing it IS rewriting the file, and
         // there is nothing to copy across, so it is a rebuild rather than a patch.
         if (format.kind == ArchiveKind.STREAM) return EditMode.REBUILD
-        return of(format, nativeWriter = false).edit
+        return of(format).edit
     }
 
     /**

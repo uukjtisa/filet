@@ -20,8 +20,7 @@ import org.junit.Test
 class ArchiveCapabilityTest {
 
     private fun format(id: String) = Archives.ALL.first { it.id == id }
-    private fun cap(id: String, native: Boolean = false) =
-        ArchiveCapabilities.of(format(id), nativeWriter = native)
+    private fun cap(id: String) = ArchiveCapabilities.of(format(id))
 
     // ── every creatable format has an entry, and nothing else decides these ──
 
@@ -139,42 +138,34 @@ class ArchiveCapabilityTest {
         }
     }
 
-    @Test fun seven_zip_without_the_native_writer_blames_the_build_not_the_format() {
-        // Gate C4. "Not supported" would be false - 7z supports AES-256 perfectly well. The
-        // thing that cannot do it is this build, and the sentence has to say that.
-        val p = cap("7z", native = false).password
+    @Test fun seven_zip_blames_the_missing_writer_and_not_the_format() {
+        // Gate C4, and gate E13 after the native writer was abandoned. "Not supported" would be
+        // false - 7z supports AES-256 perfectly well, and somebody told that would go looking
+        // for a setting. What is missing is a writer, and the sentence has to say so and then
+        // say what to do instead.
+        val p = cap("7z").password
         assertFalse(p.supported)
-        assertTrue(p.refusal!!.contains("this build cannot write it"))
+        assertTrue("it must name AES-256 as real: ${p.refusal}", p.refusal!!.contains("AES-256"))
         assertFalse("it must not read as a limitation of 7z", p.refusal.contains("no encryption in it"))
+        assertTrue("it must say what to do instead: ${p.refusal}", p.refusal.contains("zip"))
     }
 
-    @Test fun seven_zip_with_the_native_writer_takes_a_password_and_hides_names() {
-        val p = cap("7z", native = true).password
-        assertTrue(p.supported)
-        assertEquals(EncryptionMethod.AES_256, p.default)
-        assertTrue("7z really can encrypt its header", p.canEncryptNames)
-        assertNull(p.refusal)
-    }
-
-    @Test fun the_native_writer_changes_seven_zip_and_nothing_else() {
-        // A flag that quietly altered zip or tar would be a much harder bug to see than one
-        // that fails loudly, so the blast radius is pinned.
-        for (id in listOf("zip", "tar", "tar.gz", "tar.bz2", "tar.xz")) {
-            assertEquals(id, cap(id, native = false), cap(id, native = true))
-        }
+    @Test fun no_format_claims_a_password_it_cannot_write() {
+        // The blast radius of the abandonment. Exactly one format encrypts, and it is the one
+        // with a tested writer behind it.
+        val encrypting = Archives.ALL.filter { ArchiveCapabilities.of(it).password.supported }.map { it.id }
+        assertEquals(listOf("zip"), encrypting)
     }
 
     @Test fun a_refusal_is_present_exactly_when_a_password_is_not() {
-        for (native in listOf(false, true)) {
-            for (f in Archives.ALL) {
-                val p = ArchiveCapabilities.of(f, native).password
-                assertEquals(
-                    "${f.id} native=$native: supported=${p.supported} refusal=${p.refusal}",
-                    p.supported,
-                    p.refusal == null,
-                )
-                if (!p.supported) assertTrue("${f.id} offers methods it refuses", p.methods.isEmpty())
-            }
+        for (f in Archives.ALL) {
+            val p = ArchiveCapabilities.of(f).password
+            assertEquals(
+                "${f.id}: supported=${p.supported} refusal=${p.refusal}",
+                p.supported,
+                p.refusal == null,
+            )
+            if (!p.supported) assertTrue("${f.id} offers methods it refuses", p.methods.isEmpty())
         }
     }
 

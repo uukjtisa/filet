@@ -768,3 +768,129 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
 on this phone and three attempts to drive the scope chips landed on the wrong one. That is a
 harness problem, not evidence, and it is recorded as unverified rather than assumed from the
 fact that the code path is shared with the browser's.
+
+---
+
+## Round 9 — archives, the shared folder, the two Filets, and the history
+
+Full ledger with every gate's evidence in `.unlazy/round9/GATES.md`: **57 gates, 49 met, 5
+abandoned in writing, 3 device checks outstanding.** What follows is what was actually wrong,
+rather than what was added.
+
+### Bugs he reported mid-round
+
+- [x] K1: A shared folder could be listed and not opened
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*ShareReachTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: **reproduced from his PC against his phone before anything was changed**, which is
+    what made it a one-line fix instead of a hunt. `curl` against the phone's web UI answered
+    what his browser answered: the root listing offered `Received`, and asking for its contents
+    returned `{"error":"gone"}`.
+
+    `Received` is the upload quarantine, and `isReachable` refused it by name before it checked
+    whether anything had been deliberately shared — so a decision made by the person holding the
+    phone was overridden by a default. Offered in the listing and refused on open is rule R1 in
+    a different coat, and it is only visible from another device.
+
+    A control was run in the same session: a folder created inside `Filet/Shared` listed
+    correctly. That named the cause rather than leaving it to guesswork. The order is the fix —
+    explicit share, then quarantine subtree, then shared folder — and it now lives in
+    `ShareReach` as a function with 14 tests, because the ordering IS the decision.
+
+    The refusal it replaced was also tightened: the old check compared the quarantine for
+    equality only, so a file *inside* it was never refused by that clause at all.
+
+- [x] K2: The debug build restarted itself in a loop, with a flickering notification
+  CHECK: node tools/check-notifications.mjs
+  EXPECT: NOTIFICATIONS OK
+  EVIDENCE: diagnosed from `logcat` rather than theorised — `fg_duration=24 … stop`, over and
+    over. `UpdateNotifier.ID = 4_201` and `NearbyService.ID = 4201` are the same number written
+    two ways, so a grep for one never found the other. A notification id is a global key across
+    the app: posting the update notification replaced the foreground service's, and cancelling it
+    stopped the service, which then restarted.
+
+    Now one file owns every id, and `check-notifications.mjs` fails the build on a duplicate
+    **or on an id posted as a literal** — the literal is what let two spellings of one number
+    hide from a search.
+
+- [x] K3: Two indistinguishable Filets on his phone
+  CHECK: node tools/check-icon.mjs
+  EXPECT: ICON OK
+  EVIDENCE: nothing had duplicated. `pm list packages` showed exactly two, `dev.niccc2007.filet`
+    and `dev.niccc2007.filet.debug`, which are two applications by design — installing one never
+    updates the other. The real defect was that they were **indistinguishable**: same name, same
+    icon, so his reading of what the launcher showed him was a fair one.
+
+    The debug build now says so: **Filet Debug** in amber against the release teal, read out of
+    the two built APKs rather than assumed. The checker guards the copy — same `pathData`, no
+    shared fill colour, different label — with three negative controls.
+
+### The history, and two bugs that only a real device produced
+
+- [x] K4: Four thousand files all stamped "Today 11:37pm"
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*FirstSeenTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: "first seen" has to be recorded, because the filesystem cannot answer it — a file
+    copied in yesterday carries last year's mtime. Stamping every file with the clock on first
+    use produced a history where nothing had a history: 4,010 files at one minute.
+
+    Seeding from each file's own mtime fixed it, gated on the store being empty — **and that fix
+    had the same bug inside it.** The feed publishes a fast partial result before its full scan
+    finishes, so the store stopped being empty after six files and the remaining four thousand
+    were stamped a second later with the identical symptom. It is a time window now, so one
+    first run counts as one first run however many passes it arrives in. Both are pinned by
+    tests that name the device symptom.
+
+### Bugs the tests found before a device could
+
+- [x] K5: A wiped password still read as present
+  CHECK: ./gw.sh --no-daemon :core-vfs:testDebugUnitTest --tests "*ArchiveEncryptTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: `ArchiveOptions.hasPassword` checked the array's LENGTH. A password is held as a
+    `CharArray` precisely so it can be wiped, and a wiped one is full of NULs at its original
+    length — so after clearing it, the writer would still have been told to encrypt, with a key
+    of nothing. Caught by its own test before it reached a device.
+
+- [x] K6: A part set of 2 billion entries
+  CHECK: ./gw.sh --no-daemon :core-vfs:testDebugUnitTest --tests "*PartSetTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: a zip volume set ends in `.zip`, not in a number, so the final part was indexed at
+    `Int.MAX_VALUE` to sort it last — and the range that walked the parts then tried to allocate
+    two billion of them. A sentinel now marks the tail. The test that found it is the one that
+    opens a real volume set.
+
+- [x] K7: The compression checker was wrong, and it failed first
+  CHECK: node tools/check-archives.mjs
+  EXPECT: ARCHIVES OK
+  EVIDENCE: `check-archives.mjs` uses 7-Zip as an independent reader, because zip4j writing and
+    zip4j reading proves only that the two halves agree. Its first run failed — and the checker
+    was the thing that was wrong: it measured compression level on random bytes, where deflate
+    adds framing overhead, so "store" beat "maximum" and it reported a bug that was not there.
+    Rewritten on compressible text, where the difference is 176,155 bytes against 701.
+
+    A checker that fails for its own reasons is worse than no checker, because the next failure
+    is assumed to be the same one.
+
+### The one that was measured and then not built
+
+- [x] K8: The native 7z writer, costed rather than attempted
+  CHECK: node tools/check-nativewriter.mjs
+  EXPECT: NATIVEWRITER OK
+  EVIDENCE: he committed to it after asking what it would cost, so it was measured before being
+    judged. **libarchive 3.7.7's 7z writer contains no encryption at all** — zero occurrences of
+    `passphrase`, `aes`, `encrypt` or `crypt` in 2,356 lines, against eleven and `aes128`/
+    `aes256` options in the zip writer of the same release, which is the control. Encryption was
+    the entire point: Filet already writes 7z through commons-compress.
+
+    So it does not ship, and neither does half of it. `ArchiveCapabilities.of` had a
+    `nativeWriter` parameter whose true branch handed 7z AES-256; nothing set it and nothing ever
+    will, so it was a dead claim sitting in the one table the compress window reads. Removed.
+    The password field now names the real reason instead of shrugging at "this build".
+
+    The route that would work is written down rather than hidden — 7-Zip's own encoder is
+    LGPL-2.1+ and GPL-3 can take it. It is a vendoring project, not a feature. Full measurement
+    in `core-native/README.md`.
+
+**Still open from round 8:** a file landing in Termux's `usr/bin` from Filet (his to try), and
+`inzip:` search inside a RAR. Neither is verified and neither is claimed. Round 7's 18 device
+checks are also still outstanding. A new round starting does not close them.

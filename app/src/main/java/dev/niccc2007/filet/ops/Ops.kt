@@ -7,6 +7,7 @@ import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
 import dev.niccc2007.filet.vfs.VfsException
 import dev.niccc2007.filet.vfs.provider.ArchiveFormat
+import dev.niccc2007.filet.vfs.provider.ArchiveOptions
 import dev.niccc2007.filet.vfs.provider.ArchiveSource
 import dev.niccc2007.filet.vfs.provider.ArchiveWriter
 import dev.niccc2007.filet.vfs.provider.Archives
@@ -95,6 +96,7 @@ class FileOperations(private val vfs: Vfs, private val ledger: JobLedger) {
         dest: VPath,
         format: ArchiveFormat,
         scratch: (String) -> VPath,
+        options: ArchiveOptions = ArchiveOptions.NONE,
     ): OpResult {
         val id = ledger.start("Compressing ${items.size} item(s)", dest.name)
         val failed = ArrayList<Pair<VPath, String>>()
@@ -107,7 +109,7 @@ class FileOperations(private val vfs: Vfs, private val ledger: JobLedger) {
                     .onSuccess { count++ }
                     .onFailure { failed += node.path to readable(it) }
             }
-            if (ArchiveWriter.needsRealFile(format)) {
+            if (ArchiveWriter.needsRealFile(format, options)) {
                 // 7z seeks back through what it has written to build its index, so it cannot
                 // go straight down a VFS stream. Built in app-private scratch space, then
                 // copied into place - which is also why it is not the default.
@@ -115,7 +117,7 @@ class FileOperations(private val vfs: Vfs, private val ledger: JobLedger) {
                 val os = vfs.osPath(tmp)
                     ?: throw VfsException.Unsupported("Nowhere to build a 7z on this device.")
                 try {
-                    ArchiveWriter.writeToPath(format, os, sources) { ledger.progress(id, null, it) }
+                    ArchiveWriter.writeToPath(format, os, sources, options) { ledger.progress(id, null, it) }
                     vfs.openWrite(dest).use { out ->
                         vfs.openRead(tmp).use { it.copyTo(out) }
                     }
@@ -124,7 +126,7 @@ class FileOperations(private val vfs: Vfs, private val ledger: JobLedger) {
                 }
             } else {
                 vfs.openWrite(dest).use { out ->
-                    ArchiveWriter.writeToStream(format, out, sources) { ledger.progress(id, null, it) }
+                    ArchiveWriter.writeToStream(format, out, sources, options) { ledger.progress(id, null, it) }
                 }
             }
         } catch (e: Throwable) {

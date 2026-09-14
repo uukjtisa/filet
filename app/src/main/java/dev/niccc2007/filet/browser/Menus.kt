@@ -147,6 +147,7 @@ fun MoreMenu(
     // the write entries here is what keeps the refusal out of an error message, and the note
     // is what stops half a menu going missing looking like a bug.
     val readOnly = vm.writeBlockReason(s.cwd)
+    val split = vm.state.collectAsState().value.split != SplitMode.OFF
 
     DropdownMenu(expanded = true, onDismissRequest = onDismiss) {
         if (inFolder) {
@@ -179,7 +180,19 @@ fun MoreMenu(
             if (readOnly == null) {
                 Item(FiletIcons.Zip, "Compress") { onDismiss(); vm.askCompress() }
                 if (selection.size == 1 && dev.niccc2007.filet.vfs.provider.Archives.canList(selection[0].name)) {
+                    // Three destinations, one code path: each opens the same preview, and the
+                    // only difference between them is where it is aimed. Reported by the repo
+                    // owner - a single "Extract here" makes the current folder the only answer,
+                    // so extracting anywhere else meant extracting then moving.
                     Item(FiletIcons.Archive, "Extract here") { onDismiss(); vm.extract(selection[0]) }
+                    Item(FiletIcons.FolderOpen, "Extract to\u2026") { onDismiss(); vm.extractToPicked(selection[0]) }
+                    if (split) {
+                        // The one a two-pane file manager should always have had: the other
+                        // side is on screen, and it is usually where the files are going.
+                        Item(FiletIcons.Forward, "Extract to the other pane") {
+                            onDismiss(); vm.extractToOtherPane(selection[0])
+                        }
+                    }
                 }
             }
             Item(FiletIcons.Share, "Share") { onDismiss(); vm.shareSelection() }

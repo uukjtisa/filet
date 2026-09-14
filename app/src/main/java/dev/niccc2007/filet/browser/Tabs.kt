@@ -3,9 +3,9 @@ package dev.niccc2007.filet.browser
 /**
  * Which tab stays active when the tab list changes.
  *
- * The bug Nic hit: *"when making tabs and it exceeds some kind of tabs shown limit it freakin
- * glitches the tabs, when i click anywhere its empty and messed up."* It is not a limit, and
- * it is not the strip. It is this, in `closeTab`:
+ * Reported by Nic: past some number of open tabs the strip started misbehaving and tapping
+ * anywhere left the pane blank. It is not a limit, and it is not the strip. It is this, in
+ * `closeTab`:
  *
  * ```
  * val a = it.activeA.coerceAtMost(lastIndex).let { v -> if (index < it.activeA) v - 1 else v }
@@ -15,8 +15,8 @@ package dev.niccc2007.filet.browser
  * long strip, `coerceAtMost` has already taken one off for the tab that just went, and then
  * the decrement takes another - so the pointer lands two tabs early, or below zero, or
  * outside the list entirely. `paneFor` then returns null and the whole pane renders as
- * nothing, which is what "empty and messed up" looks like. It needs several tabs to show up
- * because with two or three the clamp rarely bites.
+ * nothing, which is the blank pane in the report. It needs several tabs to show up, because
+ * with two or three the clamp rarely bites.
  *
  * Two small functions with a test, rather than one clever expression with none.
  */

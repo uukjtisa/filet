@@ -7,7 +7,7 @@ import java.util.TimeZone
 /**
  * The expanded new-files history: which day each file belongs to, and what a day weighs.
  *
- * Nic asked for *"a listed date by date nicely segregated sutff"*, with Windows Explorer's
+ * Nic asked for the history grouped date by date, with Windows Explorer's
  * Downloads view as the starting point and an explicit *"i know you can do better than that"*.
  * What is better, and what this file does that Explorer's does not:
  *

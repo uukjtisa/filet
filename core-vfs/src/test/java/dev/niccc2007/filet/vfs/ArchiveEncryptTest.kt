@@ -208,7 +208,13 @@ class ArchiveEncryptTest {
         val format = Archives.ALL.first { it.id == "7z" }
         val problem = ArchiveOptions(password = "pw".toCharArray()).problemFor(ArchiveCapabilities.of(format))
         assertNotNull(problem)
-        assertTrue(problem!!.contains("this build cannot write it"))
+        // The reason moved when the native writer was measured and abandoned (gate E13). It
+        // used to say "this build cannot write it", which shrugs; it now names the real cause
+        // and points at the format that does work.
+        assertTrue("it must not read as a limitation of 7z: $problem",
+            !problem!!.contains("no encryption in it"))
+        assertTrue("AES-256 is real and 7z supports it: $problem", problem.contains("AES-256"))
+        assertTrue("it has to say what to do instead: $problem", problem.contains("zip"))
     }
 
     @Test fun asking_a_zip_to_hide_its_names_is_refused() = runTest {

@@ -656,9 +656,8 @@ private fun Breadcrumb(s: PaneState, modifier: Modifier, onNavigate: (VPath) -> 
     val crumbs = remember(cwd) { crumbsOf(cwd) }
     val scroll = rememberScrollState()
     LaunchedEffect(cwd) { scroll.scrollTo(scroll.maxValue) }
-    // Deliberately NOT HScroll, and this is the exception the checker records. His call:
-    // *"i see you also appleid the arrow horizontal scroll indicator to the path view.. o
-    // ntop.. dont do that lol.. its bad.. keep the old version for that"*. He is right -
+    // Deliberately NOT HScroll, and this is the exception the checker records. Nic rejected
+    // the scroll cue here specifically and asked for the plain version back. He is right -
     // the breadcrumb already auto-scrolls to the deepest crumb on every navigation, so a
     // chevron sits there pointing back at a path you just came from, in the densest strip
     // on the screen.
@@ -923,7 +922,12 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
             bookmark = { vm.bookmarkSelection() },
             nearby = { vm.shareSelectionNearby() },
             shortcut = { vm.shortcutSelection() },
+            extractHere = { vm.extractSelection() },
+            extractTo = { vm.extractSelectionToPicked() },
+            extractToOtherPane = { vm.extractSelectionToOtherPane() },
         ),
+        archive = vm.selectionIsArchive(),
+        otherPane = vm.isSplit(),
     )
 
     Column(Modifier.fillMaxWidth().background(colors.raised)) {

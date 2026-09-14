@@ -9,6 +9,11 @@ import dev.niccc2007.filet.handlers.ExternalApps
 import dev.niccc2007.filet.handlers.HandlerId
 import dev.niccc2007.filet.handlers.editedName
 import dev.niccc2007.filet.vfs.provider.ArchiveFormat
+import dev.niccc2007.filet.vfs.provider.ArchiveEdits
+import dev.niccc2007.filet.vfs.provider.ArchiveOptions
+import dev.niccc2007.filet.vfs.provider.EditCosts
+import dev.niccc2007.filet.vfs.provider.ExtractOptions
+import dev.niccc2007.filet.vfs.provider.ExtractPlan
 import dev.niccc2007.filet.vfs.provider.Archives
 import dev.niccc2007.filet.vfs.provider.archiveName
 import dev.niccc2007.filet.ops.PendingOp
@@ -514,30 +519,225 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      *   from the typed name, so picking Tar + gzip and leaving "Photos.zip" in the box makes
      *   a `Photos.tar.gz` and not a gzipped tar wearing a zip's name.
      */
-    fun compressSelection(typed: String, format: ArchiveFormat) = withSelection { items ->
+    fun compressSelection(
+        typed: String,
+        format: ArchiveFormat,
+        options: ArchiveOptions = ArchiveOptions.NONE,
+    ) = withSelection { items ->
         val dest = focusedPane()?.state?.value?.cwd ?: return@withSelection
         viewModelScope.launch {
             val base = Archives.baseName(typed.trim()).ifEmpty { "Archive" }
             val existing = runCatching { graph.vfs.list(dest).map { it.name }.toHashSet() }
                 .getOrDefault(HashSet())
             val name = archiveName(base, format) { it in existing }
-            val r = graph.ops.compress(items, dest.child(name), format) { graph.files.scratchPath(it) }
+            val r = graph.ops.compress(
+                items, dest.child(name), format, { graph.files.scratchPath(it) }, options,
+            )
+            // Blanked whatever happened. The array exists so it can be wiped, and a password
+            // left in the heap after a failed compress is the same password left after a
+            // successful one.
+            options.clearPassword()
             reportAndRefresh(r.succeeded, r.failed.size, "compressed into $name")
         }
     }
 
+    /**
+     * Roughly how much the current selection weighs.
+     *
+     * Only the top level, deliberately: it feeds the split-size check, which needs an order of
+     * magnitude rather than an exact figure, and walking a selection of folders to get an exact
+     * one would make opening the Compress dialog a job of its own.
+     */
+    fun selectionBytes(): Long =
+        focusedPane()?.selectedNodes()?.sumOf { it.size.coerceAtLeast(0L) } ?: 0L
+
+    /**
+     * Name and size for everything selected, for the output-size estimate.
+     *
+     * A folder reports -1 rather than 0: the estimator says "at least" when it cannot measure
+     * something, and a folder counted as zero bytes would turn an unknown into a confident
+     * wrong answer.
+     */
+    fun selectionSizes(): List<Pair<String, Long>> =
+        focusedPane()?.selectedNodes()?.map { it.name to if (it.isDir) -1L else it.size } ?: emptyList()
+
     /** Every format Compress offers, in the order the table declares them. */
     val archiveFormats: List<ArchiveFormat> get() = Archives.creatable
 
-    fun extract(node: VNode) {
-        val dest = focusedPane()?.state?.value?.cwd ?: return
+    // ── extraction: plan first, then run exactly that ──
+
+    /**
+     * What the pending extraction will do, or null when none is pending.
+     *
+     * Held here rather than in the sheet so that adjusting an option re-plans through the same
+     * code the extractor will walk. A sheet that kept its own copy and edited it would be a
+     * second implementation of the decision, which is the thing this whole design avoids.
+     */
+    private val _extractPlan = MutableStateFlow<PendingExtract?>(null)
+    val extractPlan: StateFlow<PendingExtract?> = _extractPlan.asStateFlow()
+
+    data class PendingExtract(
+        val archiveRoot: VPath,
+        val into: VPath,
+        val label: String,
+        val options: ExtractOptions,
+        val plan: ExtractPlan,
+        val busy: Boolean = false,
+    )
+
+    /** Open the preview. Nothing is written until it is confirmed. */
+    fun extract(node: VNode, into: VPath? = null) {
+        val dest = into ?: focusedPane()?.state?.value?.cwd ?: return
+        val root = if (node.path.scheme == ArchiveProvider.SCHEME) node.path
+        else ArchiveProvider.mount(node.path.path)
         viewModelScope.launch {
-            val root = if (node.path.scheme == ArchiveProvider.SCHEME) node.path
-            else ArchiveProvider.mount(node.path.path)
-            val r = graph.ops.extract(root, dest, node.name)
+            val options = ExtractOptions()
+            val plan = graph.extractOps.plan(root, dest, node.name, options)
+            _extractPlan.value = PendingExtract(root, dest, node.name, options, plan)
+        }
+    }
+
+    /** Extract into the other pane, which is what a two-pane file manager is for. */
+    fun extractToOtherPane(node: VNode) {
+        val here = _state.value.focused
+        val other = paneFor(if (here == Side.A) Side.B else Side.A)?.state?.value?.cwd ?: return
+        extract(node, other)
+    }
+
+    /** Re-plan with changed options. The preview always shows the current answer. */
+    fun adjustExtract(change: (ExtractOptions) -> ExtractOptions) {
+        val current = _extractPlan.value ?: return
+        val options = change(current.options)
+        viewModelScope.launch {
+            val plan = graph.extractOps.plan(current.archiveRoot, current.into, current.label, options)
+            _extractPlan.value = current.copy(options = options, plan = plan)
+        }
+    }
+
+    fun cancelExtract() { _extractPlan.value = null }
+
+    /** Carry out exactly the plan on screen. */
+    fun confirmExtract() {
+        val pending = _extractPlan.value ?: return
+        _extractPlan.value = pending.copy(busy = true)
+        viewModelScope.launch {
+            val r = graph.extractOps.run(pending.archiveRoot, pending.into, pending.plan, pending.label)
+            _extractPlan.value = null
             reportAndRefresh(r.succeeded, r.failed.size, "extracted")
         }
     }
+
+    /**
+     * True when the selection is exactly one archive Filet can read.
+     *
+     * Asked by the menu builder rather than decided in it: "is this an archive" is one answer
+     * and `Archives.canList` is where it lives, so a format added to the table shows its
+     * extract rows without anybody editing a menu.
+     */
+    fun selectionIsArchive(): Boolean {
+        val items = focusedPane()?.selectedNodes() ?: return false
+        return items.size == 1 && !items[0].isDir && Archives.canList(items[0].name)
+    }
+
+    /** True when there is a second pane on screen to extract into. */
+    fun isSplit(): Boolean = _state.value.split != SplitMode.OFF
+
+    /** The three destinations, from a selection rather than from a node. */
+    fun extractSelection() = withSelection { items -> extract(items[0]) }
+
+    fun extractSelectionToPicked() = withSelection { items -> extractToPicked(items[0]) }
+
+    fun extractSelectionToOtherPane() = withSelection { items -> extractToOtherPane(items[0]) }
+
+    /** His "extract to ...": browse to a folder, then preview the extraction into that. */
+    fun extractToPicked(node: VNode) {
+        pickFolder("Extract ${node.name} to", "Extract into this") { dest -> extract(node, dest) }
+    }
+
+    // -- choosing a destination by browsing --
+
+    /**
+     * A folder being chosen, and what to do once it is.
+     *
+     * Deliberately not a [Dialog] case: it carries a callback, and that family is a set of value
+     * types compared for equality. Generic on purpose too - extracting is the first caller, not
+     * the only conceivable one.
+     */
+    class FolderPick(
+        val title: String,
+        val confirmLabel: String,
+        val at: VPath,
+        val entries: List<VNode>,
+        val loading: Boolean,
+        val atRoot: Boolean,
+        val onPick: (VPath) -> Unit,
+    )
+
+    private val _folderPick = MutableStateFlow<FolderPick?>(null)
+    val folderPick: StateFlow<FolderPick?> = _folderPick.asStateFlow()
+
+    fun pickFolder(
+        title: String,
+        confirmLabel: String,
+        start: VPath? = null,
+        onPick: (VPath) -> Unit,
+    ) {
+        val at = start ?: focusedPane()?.state?.value?.cwd ?: return
+        _folderPick.value = FolderPick(
+            title, confirmLabel, at, emptyList(), loading = true, atRoot = isVolumeRoot(at), onPick = onPick,
+        )
+        loadPick(at)
+    }
+
+    /** Move the picker. The callback survives; only the location changes. */
+    fun browsePick(to: VPath) {
+        val current = _folderPick.value ?: return
+        _folderPick.value = FolderPick(
+            current.title, current.confirmLabel, to, emptyList(), true, isVolumeRoot(to), current.onPick,
+        )
+        loadPick(to)
+    }
+
+    fun pickUp() {
+        val current = _folderPick.value ?: return
+        if (current.atRoot) return
+        browsePick(current.at.parent ?: return)
+    }
+
+    fun cancelPick() { _folderPick.value = null }
+
+    /** Take the folder that is open. Picking is always "this one", never a selected row. */
+    fun confirmPick() {
+        val current = _folderPick.value ?: return
+        _folderPick.value = null
+        current.onPick(current.at)
+    }
+
+    private fun loadPick(at: VPath) {
+        viewModelScope.launch {
+            // Folders only. A file is never a destination, and listing them would make the
+            // chooser a second file browser in which two rows in three cannot be tapped.
+            val entries = runCatching { graph.vfs.list(at).filter { it.isDir } }
+                .getOrElse { emptyList() }
+                .sortedBy { it.name.lowercase() }
+            val current = _folderPick.value ?: return@launch
+            // Someone can tap through faster than a slow volume lists. Only the listing for
+            // where the picker actually is may be applied.
+            if (current.at != at) return@launch
+            _folderPick.value = FolderPick(
+                current.title, current.confirmLabel, at, entries, false, current.atRoot, current.onPick,
+            )
+        }
+    }
+
+    /**
+     * True at the top of a volume.
+     *
+     * Walking above one lands on a path the provider cannot list, so the picker stops here
+     * rather than showing an empty folder with no way back out of it.
+     */
+    private fun isVolumeRoot(p: VPath): Boolean =
+        p.isRoot || _state.value.volumes.any { it.node.path == p }
 
     private inline fun withSelection(block: (List<VNode>) -> Unit) {
         val pane = focusedPane() ?: return
@@ -914,7 +1114,133 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     suspend fun readText(node: VNode): String =
         graph.vfs.openRead(node.path).use { String(it.readBytes(), Charsets.UTF_8) }
 
+    /**
+     * A save of a file that lives inside an archive, waiting on the choice.
+     *
+     * Null when no such save is pending. Held rather than resolved immediately because the
+     * answer is the user's: updating a 7z rewrites the whole thing, and that is a decision, not
+     * a detail.
+     */
+    private val _archiveSave = MutableStateFlow<PendingArchiveSave?>(null)
+    val archiveSave: StateFlow<PendingArchiveSave?> = _archiveSave.asStateFlow()
+
+    class PendingArchiveSave(
+        val node: VNode,
+        val text: String,
+        val archiveName: String,
+        /** What updating the archive would cost, in a sentence. */
+        val cost: String,
+        /** Non-null when the archive cannot hold the edit at all - then only the other way out. */
+        val refusal: String?,
+        val busy: Boolean = false,
+        val onSaved: () -> Unit,
+    )
+
+    /** Update the archive in place, having shown what it costs. */
+    fun confirmArchiveSave() {
+        val pending = _archiveSave.value ?: return
+        if (pending.refusal != null) return
+        _archiveSave.value = PendingArchiveSave(
+            pending.node, pending.text, pending.archiveName, pending.cost, null, true, pending.onSaved,
+        )
+        viewModelScope.launch {
+            val id = ledger.start("Saving into", pending.archiveName)
+            runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val bytes = pending.text.toByteArray(Charsets.UTF_8)
+                    ArchiveEdits.replace(pending.node.path) { java.io.ByteArrayInputStream(bytes) }
+                }
+            }.onSuccess {
+                ledger.finish(id)
+                _archiveSave.value = null
+                pending.onSaved()
+                toast("Saved into ${pending.archiveName}")
+                refreshPanes()
+            }.onFailure {
+                val why = dev.niccc2007.filet.ops.FileOperations.readable(it)
+                ledger.fail(id, why)
+                _archiveSave.value = null
+                toast("Could not save: $why")
+            }
+        }
+    }
+
+    /**
+     * The other answer, and the one that is offered for every format including the ones that
+     * cannot be written at all: put the edited file somewhere else and leave the archive alone.
+     */
+    fun saveArchiveMemberElsewhere() {
+        val pending = _archiveSave.value ?: return
+        _archiveSave.value = null
+        pickFolder("Save ${pending.node.name} to", "Save here") { folder ->
+            viewModelScope.launch {
+                val id = ledger.start("Saving", pending.node.name)
+                runCatching {
+                    val taken = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching { graph.vfs.list(folder).map { it.name }.toHashSet() }
+                            .getOrDefault(hashSetOf())
+                    }
+                    // Never silently over something already there. The whole reason somebody
+                    // picks this option is that they did not want to overwrite anything.
+                    val name = freeName(pending.node.name, taken)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        graph.vfs.create(folder.child(name), isDir = false)
+                        graph.vfs.openWrite(folder.child(name)).use {
+                            it.write(pending.text.toByteArray(Charsets.UTF_8))
+                        }
+                    }
+                    name
+                }.onSuccess { name ->
+                    ledger.finish(id)
+                    pending.onSaved()
+                    toast("Saved as $name")
+                    refreshPanes()
+                }.onFailure {
+                    val why = dev.niccc2007.filet.ops.FileOperations.readable(it)
+                    ledger.fail(id, why)
+                    toast("Could not save: $why")
+                }
+            }
+        }
+    }
+
+    fun cancelArchiveSave() { _archiveSave.value = null }
+
+    /** `notes.txt` -> `notes (2).txt`, counting up until nothing is in the way. */
+    private fun freeName(name: String, taken: Set<String>): String {
+        if (name !in taken) return name
+        val dot = name.lastIndexOf('.')
+        val stem = if (dot <= 0) name else name.substring(0, dot)
+        val ext = if (dot <= 0) "" else name.substring(dot)
+        var n = 2
+        while ("$stem ($n)$ext" in taken) n++
+        return "$stem ($n)$ext"
+    }
+
     fun saveText(node: VNode, text: String, onSaved: () -> Unit) {
+        // A file inside an archive cannot simply be written to - the provider refuses, and it
+        // is right to. This is the prompt he asked for instead: update the archive, or put the
+        // edited file somewhere else.
+        if (ArchiveEdits.isMember(node.path)) {
+            viewModelScope.launch {
+                val refusal = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching { ArchiveEdits.refusalFor(node.path) }.getOrElse { it.message }
+                }
+                val cost = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching { EditCosts.describe(ArchiveEdits.costOf(node.path)) }
+                        .getOrElse { "Filet could not read this archive well enough to say what a save would cost." }
+                }
+                _archiveSave.value = PendingArchiveSave(
+                    node = node,
+                    text = text,
+                    archiveName = ArchiveEdits.archiveName(node.path),
+                    cost = cost,
+                    refusal = refusal,
+                    onSaved = onSaved,
+                )
+            }
+            return
+        }
         viewModelScope.launch {
             val id = ledger.start("Saving", node.name)
             runCatching {

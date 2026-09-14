@@ -37,12 +37,19 @@ data class SelectionAction(
  *
  * @param count how many items are selected.
  * @param readOnly why the volume cannot be written to, or null.
+ * @param archive true when the selection is exactly one archive Filet can read. The extract
+ *   rows are absent rather than blocked when it is false - "Extract" on a photo is not a thing
+ *   that is unavailable, it is a thing that makes no sense, and blocking it would fill the menu
+ *   with sentences nobody needs.
+ * @param otherPane true when the view is split, so there is another pane to extract into.
  */
 fun selectionActions(
     count: Int,
     readOnly: String?,
     icons: SelectionIcons,
     on: SelectionCallbacks,
+    archive: Boolean = false,
+    otherPane: Boolean = false,
 ): List<SelectionAction> {
     val single = count == 1
     // Written out rather than inlined three times: these two sentences are the whole of what a
@@ -51,46 +58,87 @@ fun selectionActions(
     val needsOneName = if (single) null else "Pick one file — rename takes one name at a time"
     val needsOneInfo = if (single) null else "Pick one file — details describe one file"
 
-    return listOf(
-        SelectionAction("copy", "Copy", icons.copy, run = on.copy),
-        SelectionAction("move", "Move", icons.cut, blocked = readOnly, run = on.move),
-        SelectionAction("send", "Send", icons.share, run = on.send),
-        SelectionAction(
-            "compress", "Compress", icons.zip,
-            blocked = readOnly, group = SelectionAction.Group.EDIT, run = on.compress,
-        ),
-        SelectionAction(
-            "rename", "Rename", icons.rename,
-            blocked = readOnly ?: needsOneName,
-            group = SelectionAction.Group.EDIT, run = on.rename,
-        ),
-        SelectionAction(
-            "openwith", "Open with", icons.open,
-            blocked = needsOne, group = SelectionAction.Group.EDIT, run = on.openWith,
-        ),
-        SelectionAction(
-            "details", "Details", icons.info,
-            blocked = needsOneInfo, group = SelectionAction.Group.EDIT, run = on.details,
-        ),
-        SelectionAction(
-            "bookmark", "Bookmark", icons.star,
-            group = SelectionAction.Group.PLACE, run = on.bookmark,
-        ),
-        SelectionAction(
-            "nearby", "Nearby", icons.wifi,
-            group = SelectionAction.Group.PLACE, run = on.nearby,
-        ),
-        SelectionAction(
-            "shortcut", "Shortcut", icons.home,
-            group = SelectionAction.Group.PLACE, run = on.shortcut,
-        ),
+    return buildList {
+        add(SelectionAction("copy", "Copy", icons.copy, run = on.copy))
+        add(SelectionAction("move", "Move", icons.cut, blocked = readOnly, run = on.move))
+        add(SelectionAction("send", "Send", icons.share, run = on.send))
+        add(
+            SelectionAction(
+                "compress", "Compress", icons.zip,
+                blocked = readOnly, group = SelectionAction.Group.EDIT, run = on.compress,
+            ),
+        )
+        // The three destinations, next to Compress because they are its other direction. Each
+        // opens the same preview; the only difference is where it is aimed. Present only for an
+        // archive, because that is the only selection for which any of them means anything.
+        if (archive) {
+            add(
+                SelectionAction(
+                    "extracthere", "Extract here", icons.zip,
+                    blocked = readOnly, group = SelectionAction.Group.EDIT, run = on.extractHere,
+                ),
+            )
+            add(
+                SelectionAction(
+                    "extractto", "Extract to\u2026", icons.open,
+                    group = SelectionAction.Group.EDIT, run = on.extractTo,
+                ),
+            )
+            if (otherPane) {
+                add(
+                    SelectionAction(
+                        "extractother", "Extract to the other pane", icons.share,
+                        group = SelectionAction.Group.EDIT, run = on.extractToOtherPane,
+                    ),
+                )
+            }
+        }
+        add(
+            SelectionAction(
+                "rename", "Rename", icons.rename,
+                blocked = readOnly ?: needsOneName,
+                group = SelectionAction.Group.EDIT, run = on.rename,
+            ),
+        )
+        add(
+            SelectionAction(
+                "openwith", "Open with", icons.open,
+                blocked = needsOne, group = SelectionAction.Group.EDIT, run = on.openWith,
+            ),
+        )
+        add(
+            SelectionAction(
+                "details", "Details", icons.info,
+                blocked = needsOneInfo, group = SelectionAction.Group.EDIT, run = on.details,
+            ),
+        )
+        add(
+            SelectionAction(
+                "bookmark", "Bookmark", icons.star,
+                group = SelectionAction.Group.PLACE, run = on.bookmark,
+            ),
+        )
+        add(
+            SelectionAction(
+                "nearby", "Nearby", icons.wifi,
+                group = SelectionAction.Group.PLACE, run = on.nearby,
+            ),
+        )
+        add(
+            SelectionAction(
+                "shortcut", "Shortcut", icons.home,
+                group = SelectionAction.Group.PLACE, run = on.shortcut,
+            ),
+        )
         // Last, and on its own, because it is the one that cannot be undone.
-        SelectionAction(
-            "delete", "Delete", icons.delete,
-            blocked = readOnly, danger = true,
-            group = SelectionAction.Group.PLACE, run = on.delete,
-        ),
-    )
+        add(
+            SelectionAction(
+                "delete", "Delete", icons.delete,
+                blocked = readOnly, danger = true,
+                group = SelectionAction.Group.PLACE, run = on.delete,
+            ),
+        )
+    }
 }
 
 /** The icons, passed in so this file stays free of the icon set and testable on the JVM. */
@@ -121,6 +169,9 @@ data class SelectionCallbacks(
     val bookmark: () -> Unit,
     val nearby: () -> Unit,
     val shortcut: () -> Unit,
+    val extractHere: () -> Unit = {},
+    val extractTo: () -> Unit = {},
+    val extractToOtherPane: () -> Unit = {},
 )
 
 /** How the selection's actions are presented. */

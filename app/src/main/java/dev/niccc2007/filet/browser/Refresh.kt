@@ -3,8 +3,8 @@ package dev.niccc2007.filet.browser
 /**
  * What the refresh button has to re-read, for each kind of pane.
  *
- * Nic, in capitals: *"FOR FUCK SAKE I HAVE TO CLOSE THE APP AND RESTART TO UPDATE THE stale
- * STATES."* The cause is one line - `PaneController.refresh()` began with
+ * Reported by Nic: every pane except a folder held stale state until the app was killed and
+ * restarted. The cause is one line - `PaneController.refresh()` began with
  * `if (s.kind == PaneKind.FOLDER)` and returned otherwise - so on Nearby, Home, Shortcuts,
  * Scripts, Recent and Settings the button was drawn, enabled, tappable, and did nothing at
  * all. That is precisely the dead control R1 exists to forbid, sitting in the toolbar for

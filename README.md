@@ -133,8 +133,36 @@ scorer reranks those in memory. Neither half is asked to do the other's job.
   `notes.txt.gz`
 - **Make one** in zip, tar, tar.gz, tar.bz2, tar.xz or 7z, with the format picked at the time
   and the suffix taken from the format rather than from what you typed
-- **Extract** to a folder named after the archive, with the whole suffix stripped, so a
-  `photos.tar.gz` gives you `photos` and not `photos.tar`
+- **Options tailored to the format, and nothing that does not apply.** Compression strength in
+  the encoder's own units — deflate 0-9, LZMA2's preset, bzip2's *block size*, which is not an
+  effort setting at all — a password where the format has encryption, and a split size where
+  the format can be split. Each control is drawn from one capability table, so a format cannot
+  show a switch its writer will refuse later
+- **Zip encryption that is real**: AES-256, AES-128, or the old ZipCrypto, offered and labelled
+  weak rather than hidden, because some readers take nothing else. Verified by opening Filet's
+  own archives in 7-Zip, including checking that the wrong password is refused
+- **Split archives**, both ways: zip volumes or a numbered `.001` byte split when you make one,
+  and a `.part1.rar` / `.r00` / `.zip.001` set someone sent you reads as a single archive
+- **An estimate of what it will weigh**, as a range with a reason. Already-compressed media is
+  counted separately, so a folder of mp4s is never promised a saving it will not get
+- **Extract here, to a folder you pick, or straight into the other pane** — and every one of
+  them shows you the result first
+- **A preview of the extraction, before it happens.** It draws the destination as it will be:
+  the folder it is about to invent is marked, a redundant parent it lifted away is struck
+  through, and it tells you what would be overwritten, whether it fits, how many files and how
+  many bytes, and how many entries tried to write outside the folder. Two buttons reverse the
+  two decisions, one tap each. The preview and the extractor are the same value — not a drawing
+  of what a separate code path might do
+- **It wraps and unwraps on its own, and it is right about it.** An archive with loose files at
+  the top lands in a folder named after it, so nothing is dumped over your Downloads; an archive
+  that is nothing but one folder holding one folder is unwrapped, all the way down while each
+  level holds exactly one thing
+- **Edit a file inside an archive.** Saving offers to update the archive or to write the file
+  somewhere else. A zip or a plain tar re-compresses only the file you changed — the others are
+  copied across as raw compressed bytes — while a `tar.gz` or a 7z is one compression stream and
+  has to be rebuilt whole, which it tells you, with the count and the size, before it starts. An
+  encrypted archive is refused rather than rewritten, because rewriting one entry would leave
+  the rest protected and that one not
 - **Search inside them.** `inzip:` reads member names from every format above
 - **RAR reads, and Filet cannot create one — that distinction is a licence, not a gap.**
   Every RAR decoder published for the JVM descends from RARLAB's UnRAR source, whose licence
@@ -144,6 +172,14 @@ scorer reranks those in memory. Neither half is asked to do the other's job.
   implementations under BSD-2-Clause, which GPL-3 can take. They are vendored in
   [`core-native/`](core-native/README.md) — about 130 KB per ABI, the only native code in the
   app. Writing a RAR is the part RARLAB's licence actually protects, so Filet does not
+- **A 7z cannot be given a password, and that is also a licence answer rather than laziness.**
+  The format supports AES-256 perfectly well; nothing Filet can legally ship *writes* it.
+  libarchive's 7z writer contains no encryption at all — zero occurrences of `passphrase`,
+  `aes`, `encrypt` or `crypt` in its 2,356 lines, against eleven and an `aes256` option in the
+  zip writer of the same release — and commons-compress writes 7z without it. The one encoder
+  that does is 7-Zip's own C++ tree, which GPL-3 *can* take; it is a vendoring project rather
+  than a feature. The whole measurement is in [`core-native/`](core-native/README.md), and the
+  dialog says this instead of showing a grey box. Use zip if the archive needs a password
 - **`classes.dex` opens as a tree of smali** you can read and edit
 - **Search inside APKs.** `pkg:`, `label:` and `perm:` come from the resource table, `class:`
   from deduplicated package prefixes in the dex. About 2 KB of facts per APK, not 2 MB

@@ -11,10 +11,17 @@ Status: `IDEA` → `SPEC` → `BUILT` → `SHIPPED` · or `CUT`
 
 ---
 
-## Where this stands — 2026-09-13, after the M1..M9 pass
+## Where this stands — 2026-09-15, after round 9
 
-**69 SHIPPED · 13 BUILT · 4 IDEA · 3 CUT.** Measured on a HUAWEI NCO-LX1 (API 31); see
-`GATES.md` for the per-milestone evidence and the one abandoned gate.
+**83 SHIPPED · 13 BUILT · 4 IDEA · 4 CUT.** Measured on a HUAWEI NCO-LX1 (API 31); see
+`GATES.md` for the per-milestone evidence and the abandoned gates.
+
+Round 9 added fifteen rows and cut one. **The cut is the one worth reading**: F94, the native
+7z writer, was committed to and then measured rather than attempted — no library Filet can
+legally ship writes an encrypted 7z, and encryption was the only reason to want one. What ships
+instead is the refusal with the true reason in it, and the switch that would have turned the
+feature on was removed rather than left sitting in the capability table where nothing could
+reach it.
 
 `BUILT` here means one of exactly two things, and never "written but untried":
 
@@ -175,6 +182,35 @@ ledger was tidied: **F22** (a shortcut's id died with the crawl's generation swe
 | F49 | Signature motion language | Signet | M0 | SHIPPED | Nic's house style, ported from the portfolio. |
 | F50 | Theme system — gray default, warm optional | Signet | M0 | SHIPPED | "Minimalistic but detailed, cozy but greyer." Filet ships `Slate`; `Ember` is the warm option. |
 | F51 | About screen with the signature mark | Signet | M0 | SHIPPED | Maker's mark, not the app icon. |
+
+## Archives — round 9
+
+Two asks and a licence answer. The creation window had one control for every format; extraction
+had one destination and no way to see what it was about to do. Both are now decided by a table
+and a plan rather than by a `when` over format ids.
+
+| # | Feature | L | M | Status | Notes |
+|---|---|---|---|---|---|
+| F84 | Per-format compress options | L0/L5 | M9e | SHIPPED | Strength, password, encryption method and split size, each drawn from `ArchiveCapability` and nothing else. The scales are in their own encoder's units — deflate 0-9, LZMA2 preset 0-9, bzip2's *block size* — because pretending they share one is how a slider ends up meaning nothing. `check-archiveui.mjs` fails the build on a control rendered outside its capability check, or on a `format.id ==` anywhere in that file. |
+| F85 | Zip AES-256 / AES-128 / ZipCrypto | L0 | M9e | SHIPPED | zip4j, Apache-2.0. ZipCrypto is offered and labelled weak rather than hidden — some readers take nothing else. Verified by 7-Zip as an independent reader, including that the wrong password is refused. `java.util.zip` can do none of this. |
+| F86 | Split archives (create) | L0 | M9e | SHIPPED | Zip volumes for zip; a plain numbered `.001` byte split for everything else, which is what 7-Zip itself produces. A minimum part size per format, because a part too small for the format's own headers fails at part 1 of 400. |
+| F87 | Multi-part archives (read) | L0 | M9e | SHIPPED | `PartSet` resolves `.part1.rar` / `.r00` / `.zip.001` / `.001` into one archive. A numeric suffix only counts as a part when the base name is itself an archive, so `report.7z.001` is a part and `photo.001` is a file. |
+| F88 | Estimated output size | L0/L5 | M9e | SHIPPED | A range with a reason, never a figure. Already-compressed media is counted separately from the same set the zip writer uses to decide what to store, so the estimate and the writer cannot disagree. A folder in the selection makes it "at least", not a confident wrong number. |
+| F89 | Extract here / to… / to the other pane | L5 | M9e | SHIPPED | One hardcoded destination was the whole complaint. All three open the same preview; none of them writes anything first. |
+| F90 | Extraction preview | L0/L5 | M9e | SHIPPED | **The round's centre.** `ExtractPlanner.plan()` returns the value the preview draws *and* the value the extractor walks — the same object, so the drawing cannot be of something that then does not happen. Says what would be overwritten, whether it fits, what the archive costs, and how many entries tried to write outside the folder. |
+| F91 | Smart wrap / unwrap | L0 | M9e | SHIPPED | An archive with loose files at the top gets a folder named after it; a single redundant parent is lifted away, all the way down the chain while each level holds exactly one folder and nothing else. Never both. Both are one tap to reverse from the preview, and reversing re-plans rather than editing the plan. |
+| F92 | Edit a file inside an archive | L0/L5 | M9e | SHIPPED | Save prompts: update the archive, or write the file somewhere else. A zip or a plain tar re-compresses **only the changed member** — untouched entries are copied as raw deflated bytes. A `tar.gz` or a 7z is one compression stream and must be rebuilt, and the prompt says so with the count and the size before it starts. The rewrite lands in a temp file and is renamed in, so an interrupted save leaves the original openable. |
+| F93 | Refuse to edit an encrypted archive | L0 | M9e | SHIPPED | Rewriting one entry into an AES zip without the password leaves the others protected and the new one not — an archive that opens in nothing and looks like corruption. Refused with the reason, and "save somewhere else" is offered for every archive including the ones that cannot be written at all. |
+| F94 | ~~Native 7z writer~~ | L0 | M9e | **CUT** | Costed, not skipped. libarchive 3.7.7's 7z writer contains **no encryption at all** — zero occurrences of `passphrase`, `aes`, `encrypt` or `crypt` in 2,356 lines, against 11 and `aes128`/`aes256` in the zip writer of the same release. Encryption was the entire point: Filet already writes 7z through commons-compress. The one encoder that does write it is 7-Zip's own C++ tree, which GPL-3 *can* take — it is a vendoring project, not a feature. Measured in `core-native/README.md`; the 7z password field says this reason rather than shrugging. |
+
+## Home — round 9
+
+| # | Feature | L | M | Status | Notes |
+|---|---|---|---|---|---|
+| F95 | Expanded "New files" history | L5 | M9e | SHIPPED | The tracked-folder feed without its eight-row cap — the same walk, not a second scanner. Grouped by real local dates with a count and a size on each header, collapsible, loading 80 rows at a time as the end comes into view. |
+| F96 | First seen, recorded | L1 | M9e | SHIPPED | The filesystem cannot answer "when did this appear here": a file copied in yesterday carries last year's mtime. One timestamp per path, written once, bounded and pruned against what a scan actually saw. Seeded from mtime on a genuinely first run, so an existing device does not get four thousand files all stamped with the clock. |
+| F97 | First seen / Last changed, and By day / Flat | L5 | M9e | SHIPPED | Two orderings that genuinely differ — the test that matters puts one file in two different groups — and a plain list for navigating without headers. |
+| F98 | Date picker jumps to a day | L5 | M9e | SHIPPED | A jump, not a filter: the history stays either side of the day asked for. A day with nothing in it lands between its neighbours rather than doing nothing. |
 
 ---
 

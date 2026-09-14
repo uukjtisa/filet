@@ -84,6 +84,10 @@ class FiletGraph(context: Context) {
 
     val vfs = Vfs(providers.toList())
     val ops = FileOperations(vfs, ledger)
+
+    // Extraction is its own object because it is two operations - work out what will happen,
+    // then carry out exactly that - and the preview reads the first without the second.
+    val extractOps = dev.niccc2007.filet.ops.ExtractOperations(vfs, ledger)
     val scripts = dev.niccc2007.filet.script.ScriptStore(app, prefs)
     val scriptEngine = dev.niccc2007.filet.script.ScriptEngine(vfs)
     val signingKeys = dev.niccc2007.filet.apk.SigningKeys(app, prefs)

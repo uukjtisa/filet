@@ -23,9 +23,9 @@ import java.io.OutputStream
 /**
  * Replacing one file inside an existing archive.
  *
- * Nic: *"add a feature for editing archives realtime.. so without recompressing it again or
- * shit.. liek if i edit a file text inside a zip if i click check it prompts me to eitehr
- * update the archive state or save the file somewhere else."*
+ * Asked for by Nic: edit a member of an archive in place, without recompressing the whole
+ * thing, and on save offer the choice between updating the archive and writing the edited
+ * file somewhere else.
  *
  * The "without recompressing" part is achievable, but only for some containers, and which ones
  * is a property of the format rather than of how clever this code is. [ArchiveCapabilities]

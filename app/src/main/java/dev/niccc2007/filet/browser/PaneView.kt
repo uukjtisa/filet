@@ -674,7 +674,12 @@ private fun PaneContextMenu(
             bookmark = { vm.bookmarkSelection() },
             nearby = { vm.shareSelectionNearby() },
             shortcut = { vm.shortcutSelection() },
+            extractHere = { vm.extractSelection() },
+            extractTo = { vm.extractSelectionToPicked() },
+            extractToOtherPane = { vm.extractSelectionToOtherPane() },
         ),
+        archive = vm.selectionIsArchive(),
+        otherPane = vm.isSplit(),
     )
 
     val extras = listOf(

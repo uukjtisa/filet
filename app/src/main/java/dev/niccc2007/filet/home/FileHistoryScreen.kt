@@ -15,7 +15,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,7 +46,9 @@ import androidx.compose.ui.draw.rotate
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.browser.FileKind
 import dev.niccc2007.filet.ui.theme.Filet
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import java.util.TimeZone
 
 /**
@@ -64,6 +71,7 @@ import java.util.TimeZone
  * The arithmetic - which day, what a day weighs, where a picked date lands - is in
  * [FileHistory] with tests on it. This file is only the drawing.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
     val colors = Filet.colors
@@ -73,6 +81,8 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
     var grouped by remember { mutableStateOf(true) }
     var shown by remember { mutableIntStateOf(PAGE) }
     var collapsed by remember { mutableStateOf(setOf<String>()) }
+    var picking by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     // Record first-seen for whatever the feed found, so the ordering has something to sort on,
     // and prune what is gone. Both are cheap and idempotent - the store only writes when
@@ -123,6 +133,30 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
             }
     }
 
+    if (picking) {
+        val state = rememberDatePickerState(initialSelectedDateMillis = now)
+        DatePickerDialog(
+            onDismissRequest = { picking = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    picking = false
+                    val chosen = state.selectedDateMillis ?: return@TextButton
+                    // The picker hands back UTC midnight for the day tapped, so it is read in
+                    // UTC and re-keyed - reading it in the local zone shifts the answer by a
+                    // day for everyone not on Greenwich.
+                    val key = FileHistory.dayKey(chosen, TimeZone.getTimeZone("UTC"))
+                    // A JUMP, not a filter. The history stays either side of the day asked for,
+                    // and a day with nothing in it lands between its neighbours rather than
+                    // appearing to do nothing.
+                    scope.launch { listState.scrollToItem(FileHistory.jumpIndex(groups, key).coerceAtMost(shown)) }
+                }) { Text("Go") }
+            },
+            dismissButton = { TextButton(onClick = { picking = false }) { Text("Cancel") } },
+        ) {
+            DatePicker(state = state, title = null)
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -132,6 +166,12 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
             Spacer(Modifier.width(6.dp))
             Toggle("Last changed", sort == HistorySort.LAST_CHANGED) { sort = HistorySort.LAST_CHANGED }
             Spacer(Modifier.weight(1f))
+            // Only offered while the list is grouped: jumping to a day in a flat list would
+            // land somewhere with nothing on screen to say which day you had reached.
+            if (grouped) {
+                Toggle("Date", false) { picking = true }
+                Spacer(Modifier.width(2.dp))
+            }
             Toggle(if (grouped) "By day" else "Flat", true) { grouped = !grouped }
         }
 

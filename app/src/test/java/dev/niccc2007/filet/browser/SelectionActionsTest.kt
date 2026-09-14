@@ -36,10 +36,19 @@ class SelectionActionsTest {
         bookmark = { ran = "bookmark" },
         nearby = { ran = "nearby" },
         shortcut = { ran = "shortcut" },
+        extractHere = { ran = "extractHere" },
+        extractTo = { ran = "extractTo" },
+        extractToOtherPane = { ran = "extractToOtherPane" },
     )
 
-    private fun actions(count: Int, readOnly: String? = null) =
-        selectionActions(count, readOnly, icons, callbacks)
+    private fun actions(
+        count: Int,
+        readOnly: String? = null,
+        archive: Boolean = false,
+        otherPane: Boolean = false,
+    ) = selectionActions(count, readOnly, icons, callbacks, archive, otherPane)
+
+    private val extractIds = listOf("extracthere", "extractto", "extractother")
 
     @Test fun the_same_actions_exist_whatever_is_selected() {
         // Disabled, never hidden. Hiding makes the menu change length between one file and two,
@@ -131,5 +140,63 @@ class SelectionActionsTest {
     @Test fun the_legacy_bar_is_still_selectable() {
         // R1, no dead switches: the option in Settings has to reach a real rendering.
         assertEquals(SelectionStyle.BAR, SelectionStyle.valueOfOr("BAR", SelectionStyle.MENU))
+    }
+
+    // -- extracting, which is the one family of rows that is absent rather than blocked --
+
+    @Test fun a_selection_that_is_not_an_archive_has_no_extract_rows_at_all() {
+        // Absent, not disabled, and this is the one exception to the rule above. "Extract" on a
+        // photo is not a thing that is unavailable, it is a thing that means nothing - and a
+        // blocked row would need a sentence explaining that a JPEG is not an archive.
+        val ids = actions(1, archive = false).map { it.id }
+        for (id in extractIds) assertTrue("$id should not be offered", id !in ids)
+    }
+
+    @Test fun an_archive_gets_here_and_to_but_the_other_pane_only_when_there_is_one() {
+        val single = actions(1, archive = true).map { it.id }
+        assertTrue("extracthere" in single)
+        assertTrue("extractto" in single)
+        // No second pane on screen, so no row pointing at one.
+        assertTrue("extractother" !in single)
+
+        val split = actions(1, archive = true, otherPane = true).map { it.id }
+        assertTrue("extractother" in split)
+    }
+
+    @Test fun extracting_here_is_blocked_on_a_read_only_volume_and_extracting_elsewhere_is_not() {
+        val all = actions(1, readOnly = "This volume is read-only.", archive = true).associateBy { it.id }
+        // Writing into the current folder needs the current folder to be writable.
+        assertNotNull(all.getValue("extracthere").blocked)
+        // Picking a folder does not: the whole point of it is that the destination is elsewhere,
+        // and an archive being browsed inside a read-only volume is exactly when it is needed.
+        assertNull(all.getValue("extractto").blocked)
+    }
+
+    @Test fun the_extract_rows_sit_with_compress_rather_than_among_the_places() {
+        val all = actions(1, archive = true, otherPane = true).associateBy { it.id }
+        for (id in extractIds) {
+            assertEquals(id, SelectionAction.Group.EDIT, all.getValue(id).group)
+        }
+    }
+
+    @Test fun adding_the_extract_rows_changes_nothing_else() {
+        // The blast radius. A flag that quietly reordered or reworded the other rows would be a
+        // much harder bug to see than one that fails here.
+        val without = actions(1, archive = false).map { it.id }
+        val with = actions(1, archive = true, otherPane = true).map { it.id }
+        assertEquals(without, with.filter { it !in extractIds })
+    }
+
+    @Test fun each_extract_row_reaches_its_own_callback() {
+        val all = actions(1, archive = true, otherPane = true).associateBy { it.id }
+        for ((id, expected) in listOf(
+            "extracthere" to "extractHere",
+            "extractto" to "extractTo",
+            "extractother" to "extractToOtherPane",
+        )) {
+            ran = ""
+            all.getValue(id).run()
+            assertEquals(id, expected, ran)
+        }
     }
 }
