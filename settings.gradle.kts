@@ -29,3 +29,4 @@ rootProject.name = "Filet"
 include(":app")
 include(":core-vfs")
 include(":core-index")
+include(":core-native")

@@ -26,6 +26,8 @@ import dev.niccc2007.filet.update.shouldPrompt
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.provider.ArchiveProvider
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -1907,12 +1909,56 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     /** A shortcut tapped on the home screen that is not a file. */
+    /**
+     * A pane to act on, waiting for one if the app has only just started.
+     *
+     * **This is the whole shortcut bug, reported three times.** A shortcut launches the app
+     * cold, so `handleIncoming` runs during the first composition - and at that moment
+     * `restoreTabs` has not finished, `_tabs` is empty, and `focusedPane()` is null. Every
+     * action then ran `focusedPane()?.something()`, which on null is not an error: it is a
+     * no-op. The app opened, looked completely normal, and did nothing.
+     *
+     * A file shortcut worked throughout, which is exactly why this survived three reports:
+     * opening a file goes to a handler overlay and never touches a pane, so the one case
+     * anybody tested was the one case that could not fail.
+     *
+     * The timeout is a real answer rather than a guard: if tabs cannot be restored in five
+     * seconds something is badly wrong, and silently waiting forever would reproduce the
+     * original bug with extra steps.
+     */
+    private suspend fun paneForShortcut(): PaneController? {
+        if (_tabsReady.value) return focusedPane()
+        return withTimeoutOrNull(5_000) {
+            _tabsReady.first { it }
+            focusedPane()
+        }
+    }
+
+    /**
+     * Whether [restoreTabs] has finished, including deciding which tab is active.
+     *
+     * Separate from `_tabs.isNotEmpty()` on purpose - see the comment where it is set.
+     */
+    private val _tabsReady = MutableStateFlow(false)
+
     fun runShortcutAction(raw: String) {
+        viewModelScope.launch { runShortcutActionNow(raw) }
+    }
+
+    private suspend fun runShortcutActionNow(raw: String) {
+        val pane = paneForShortcut()
+        if (pane == null) {
+            toast("Filet could not open a tab for that shortcut.")
+            return
+        }
         dev.niccc2007.filet.shortcuts.scriptIdOrNull(raw)?.let { id ->
             val script = graph.scripts.scripts.value.firstOrNull { it.id == id }
             if (script == null) toast("That script no longer exists.")
             else if (graph.scripts.isApproved(script)) runScript(script)
-            else { focusedPane()?.openSpecial(PaneKind.SCRIPTS, "Scripts"); toast("Approve it once, then it can run from the home screen.") }
+            else {
+                pane.openSpecial(PaneKind.SCRIPTS, "Scripts")
+                toast("Approve it once, then it can run from the home screen.")
+            }
             return
         }
         // `parse`, not `valueOf`: a launcher icon outlives the version that made it, and a
@@ -1920,12 +1966,12 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         when (dev.niccc2007.filet.shortcuts.AppAction.parse(raw)) {
             dev.niccc2007.filet.shortcuts.AppAction.INDEX_NOW -> reindexNow()
             dev.niccc2007.filet.shortcuts.AppAction.SHARE_NEARBY -> {
-                focusedPane()?.openSpecial(PaneKind.NEARBY, "Nearby")
+                pane.openSpecial(PaneKind.NEARBY, "Nearby")
                 graph.nearby.start()
             }
-            dev.niccc2007.filet.shortcuts.AppAction.SEARCH -> focusedPane()?.openSearch(true)
+            dev.niccc2007.filet.shortcuts.AppAction.SEARCH -> pane.openSearch(true)
             dev.niccc2007.filet.shortcuts.AppAction.RECENT ->
-                focusedPane()?.openSpecial(PaneKind.RECENT, "Recent")
+                pane.openSpecial(PaneKind.RECENT, "Recent")
             null -> toast("That shortcut points at something Filet no longer has.")
         }
     }
@@ -1965,7 +2011,12 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             val node = runCatching { graph.vfs.stat(path) }.getOrNull()
             if (node == null) { toast("That file is no longer there."); return@launch }
             if (node.isDir) {
-                focusedPane()?.navigateTo(path)
+                val pane = paneForShortcut()
+                if (pane == null) { toast("Filet could not open a tab for that folder."); return@launch }
+                pane.navigateTo(path)
+                // The tab is named after the folder, so a shortcut to Download does not leave a
+                // tab still calling itself Home.
+                focusSide(_state.value.focused)
                 return@launch
             }
             val handler = handlerOverride
@@ -2049,6 +2100,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
         val roots = _state.value.volumes.map { it.node.path }
         restored.forEach { it.rootsForDevice = roots }
+        // LAST. Anything waiting on a usable pane waits on this, not on the tab list becoming
+        // non-empty: the list is populated a moment before `activeA` is set, and waiting on
+        // the list alone meant a shortcut acted on tab 0 while the user was looking at tab 2.
+        _tabsReady.value = true
     }
 
     private fun volumeLabel(node: VNode): String = when {
