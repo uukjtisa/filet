@@ -3,7 +3,7 @@
 OWNS: app/**, core-vfs/**, core-index/**, tools/**, FIXES.md
 
 Scope: every bug and feature Nic raised while reviewing the M1–M9 build, tracked to a
-demonstrated outcome. Six rounds of feedback are consolidated here; nothing is dropped and
+demonstrated outcome. Eight rounds of feedback are consolidated here; nothing is dropped and
 nothing is closed without evidence.
 
 **How to read this.** A gate with `CHECK`/`EXPECT` is decided by a command. A gate without one
@@ -466,3 +466,305 @@ nothing could reach it to prove it wrong.
     ending the detour is a sort rather than a hope. On the Huawei, searching "invoice" during a
     live crawl shows: *Indexing rerouted to "invoice" — 11591 files so far. Results keep
     arriving as the scan reaches them.*
+
+---
+
+## Round 7 — archives, the first release, and a ledger that was not kept
+
+Round 7's own working ledger (`.unlazy/round7/GATES.md`, 52 gates) was **authored and then not
+maintained**: the work shipped, the boxes never got ticked, and every evidence line sat at
+`pending` until 2026-09-14, when each gate carrying a command was re-run and written up from
+what it actually printed. That is recorded here rather than quietly cleaned up, because a
+ledger nobody keeps is worse than no ledger — it looks like evidence and is not.
+
+Where it landed: **32 met, 18 unmet device checks, 2 abandoned.**
+
+- [x] G1: Filet reads and creates the archive formats a phone actually meets
+  CHECK: ./gw.sh --no-daemon :core-vfs:testDebugUnitTest --tests "*ArchiveProviderTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: tar, tar.gz, tar.bz2, tar.xz, 7z and a single compressed file (gz, bz2, xz) all
+    list through the VFS and read back byte for byte; zip, tar, the three tar variants and 7z
+    can be created. One `Archives` table decides what can be listed, created, and what needs a
+    real path — nothing else in the app answers those questions, so a format cannot be
+    half-supported by two places disagreeing.
+
+- [x] G2: There is a release, and the app can find it
+  CHECK: node tools/check-release.mjs
+  EXPECT: RELEASE OK
+  EVIDENCE: his ask, twice. v0.1.0 was tagged and published with a signed APK attached. The
+    checker asserts the three things that break quietly — a tag with no release, a release with
+    no APK, and a release whose asset name the updater's own selector would skip — each of
+    which looks fine on the releases page while "Check for updates" does nothing.
+
+- [x] G3: Where a shortcut routes is one tested decision
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*ShortcutRouteTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: 11 tests. **And it was not enough** — see J9. The routing function was correct the
+    whole time; the caller had nothing to route into. A green test on the right function is
+    not evidence that the feature works, and this is the clearest example of it in the project.
+
+- [x] G4: Dragging a list into a new order is a tested decision
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*ReorderTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: 13 tests over the move arithmetic, which is where a drag-to-reorder goes wrong:
+    moving an item down is off by one against moving it up, and nothing about that is visible
+    until somebody drags the last item.
+
+- [x] G5: How this was built is written down, honestly
+  CHECK: node tools/check-aiuse.mjs
+  EXPECT: AIUSE OK
+  EVIDENCE: `docs/AI_USE.md` divides the work rather than waving at it. It is deliberately
+    **not** linked from the README — it is there for anyone who looks, not a badge.
+
+- [x] G6: A shared folder of thousands of files does not lock up the browser looking at it
+  CHECK: node tools/check-webui.mjs
+  EXPECT: WEBUI OK
+  EVIDENCE: the listing is windowed, rows are built off-document and thumbnails load lazily.
+    A phone serving a folder to a laptop was the case that made this necessary: the phone is
+    fine, the browser was not.
+
+- [x] G7: Indexing carries on after the search that steered it is closed
+  CHECK: ./gw.sh --no-daemon :core-index:testDebugUnitTest --tests "*CrawlPriorityTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: 14 tests. A detour is a **reordering, never a filter** — a crawl that silently
+    skipped folders would let the generation sweep delete everything in them — and the original
+    order comes back exactly, because every pending entry carries the sequence number it was
+    discovered with.
+
+- [x] G8: Refresh means something specific on every pane, with no kind left out
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*RefreshTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: 9 tests, and the assertion that matters is that no pane kind falls through to a
+    default. A refresh button that does nothing on one screen is worse than no button, because
+    it teaches people the data is current when it is not.
+
+- [x] G9: A tracked folder can include everything beneath it, in one choice
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*TrackedFoldersTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: 6 tests. Tracking `Download` and meaning "and everything in it" is one toggle on
+    the folder, not a second entry per subfolder.
+
+- [x] G10: Which tab is active survives every way the tab list can change
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*TabsTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: 14 tests — closing the active tab, closing one before it, reordering, restoring.
+    The index-based bug this pins is the one where closing tab 2 silently moves you to a
+    different tab than the one you were looking at.
+
+- [x] G11: The feed reads its folders at once, and a burst of changes is one refresh
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*FeedTimingTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: 7 tests. Folders are read several at a time but not all at once, and a copy that
+    writes forty files produces one refresh rather than forty. The quiet window is long enough
+    for a copy and short enough to feel instant — and J16 is where that claim was finally
+    made true rather than merely timed.
+
+- [x] G12: The formats table, the licence table and the README agree about RAR
+  CHECK: node tools/check-licences.mjs
+  EXPECT: LICENCES OK
+  EVIDENCE: at the time, RAR was refused and every surface said so for the same reason. Round 8
+    reversed the conclusion — see J12 — and the same checker is what kept the reversal honest
+    across all of them.
+
+**Still open from round 7, and not claimed:** compress/extract driven from a phone selection
+(A7), cancelling a long compress (A8), `inzip:` inside a `.tar.gz` on the device (A10), the
+unpinnable-shortcut message (K4), the four video-player gates (V1–V4), tab drag surviving a
+restart (U4), both Nearby receive gates (N1, N2), subfolder navigation in the web UI (W2),
+three search gates (Q1, Q3, Q4) and two refresh gates (F2, F4), and many-tabs behaviour (T2).
+Eighteen device checks nobody has run. **Abandoned:** A9, whose command names a test that was
+never written; H1, which Nic reversed in round 8 — the feed tracks files now, not folders.
+
+---
+
+## Round 8 — the release, the rendered changelog, RAR, and making copy and paste findable
+
+- [x] J1: The updater works the way Trawl's does, end to end
+  CHECK: node tools/check-release.mjs
+  EXPECT: RELEASE OK
+  EVIDENCE: his "[very important]". v0.1.0 published, then v0.1.2. A phone on 0.1.0 is offered
+    the real release, names the version and the download size, and hands off to the system
+    installer rather than installing silently. The APK is signed v2+v3 — v3 is the only scheme
+    that carries a proof-of-rotation record, so signing without it means the key can never be
+    changed without every installed copy refusing the update.
+
+- [x] J2: The release APK installs on a phone that already has a debug build
+  CHECK: node tools/check-appid.mjs
+  EXPECT: APPID CONSISTENT
+  EVIDENCE: found by the release test, not by a user. The two builds declared the **same**
+    private permission name, because it was written out literally instead of built from the
+    application id, and Android refuses to install a second app defining a permission another
+    one owns. Both names are templated now, pinned by a test rather than only by the manifest,
+    and the checker fails on a literal id anywhere it matters. Proven on the device: both
+    builds installed side by side, then upgraded in place to 0.1.2.
+
+- [x] J3: The update sheet draws the release notes instead of printing markup
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*ReleaseNotesTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: his ask was explicit about not rebuilding what already exists — *"use trawl
+    renderer its beautiful"* — so the parser and the renderer are Trawl's, ported, with two
+    swaps: its image loader for one that does not add a dependency, and its custom font for
+    the default family. Headings, paragraphs, bold, italics, inline code, bullets, links,
+    block quotes, tables and centred image strips all draw, checked against the live v0.1.2
+    body on the phone rather than against a fixture.
+
+- [x] J4: A bullet that wraps onto a second line stays one bullet
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*ReleaseNotesTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: a real bug in the ported parser, found by feeding it a real release body: a list
+    item whose text wrapped in the source became two list items on screen. The parser now
+    buffers the open item until something ends it. **This belongs back in Trawl**, which has
+    the same bug.
+
+- [x] J5: The changelog pane opens big and can be resized
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*SheetSizeTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: his report — *"its kidna small.. theres a lot of content and only a small amount of
+    space"*. It opens at 58% of the screen and drags between 22% and 78%, and the size is
+    remembered. The drag arithmetic is a pure function with a test because it contains a sign
+    flip — dragging the handle UP must make the sheet BIGGER — and that is exactly the kind of
+    thing that is wrong in one direction only.
+
+- [x] J6: There is a notification when an update exists, and it can be answered
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*UpdatePromptTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: his ask, in full — remind me in N days, remind me next launch, and *"a dont remind
+    me ever again option too"*. All three, plus skip-this-version, decided by pure functions
+    over (what is available, what is installed, what was chosen, what time it is) rather than
+    by state scattered through the UI. Two rules are worth naming: **"never remind me" stops
+    the network check as well as the notification**, because a switch that keeps polling is a
+    lie; and **postponing one release does not silence the next one**, because the thing being
+    postponed is a version, not the feature.
+
+- [x] J7: "Never remind me" is reversible from Settings, and the switch is not dead
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*UpdatePromptTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: rule R1, no dead switches. An off switch with no way back on is a trap, and it is
+    the single easiest thing to ship without noticing, because the person who wrote it never
+    turns it off.
+
+- [x] J8: How a release body must be written is recorded in the repository
+  CHECK: node tools/check-releasedoc.mjs
+  EXPECT: RELEASEDOC OK
+  EVIDENCE: `docs/RELEASES.md`, ported from Trawl's rule at his request and kept in the repo
+    rather than in a prompt, so it outlives any one session and applies to the next app. Open
+    with pictures pinned at the tag; say what changed and what it means; never talk about the
+    code; say what it cannot do. The checker is blunt on purpose and says so — it can see
+    whether there are images and sections and whether the prose has slipped into naming source
+    files, and it cannot see whether the writing is any good.
+
+- [x] J9: Anything that scrolls sideways looks like it does, before it is touched
+  CHECK: node tools/check-scrollcue.mjs
+  EXPECT: SCROLLCUE OK
+  EVIDENCE: his report — *"i can barely tell it was scrollable until i dragged it"*. One shared
+    component: a fade and a chevron at whichever edge has more behind it. Applied to the
+    reminder row, the tab strip and the selection bar; a checker now fails a horizontal
+    scroller that has no cue, with an exemption list where each entry carries a reason. **Not**
+    applied to the breadcrumb — he looked at it and said no, and that refusal is recorded next
+    to the rule so it does not get "fixed" later.
+
+- [x] J10: Acting on a selection opens a context menu, and it fits
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*ContextMenuTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: his ask, with the reference — *"a familiarity of windows 11 context right click
+    menu in the exporer"*. It opens at the finger, not anchored to a row: a row of five icons
+    for copy, move, rename, share and delete, then labelled rows underneath. Blocked actions
+    stay put and answer with the reason instead of disappearing, so the same verb is always
+    under the same finger. The old scrolling bar is still there, in Settings, and it is not a
+    dead switch. Both surfaces are built from **one** action list, which is what the tests
+    pin — `QUICK_IDS` matches by string, so a rename leaves it pointing at nothing while still
+    compiling and still drawing.
+
+- [x] J11: Settings is grouped instead of being one long list
+  EVIDENCE: his report — *"its so packked.. thers no dsitinciton betewen ui settings general
+    and etc"*. General, appearance, browsing, safety, about.
+
+- [x] J12: Shortcuts for folders, actions and scripts do what they say — third report
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*ShortcutRouteTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: **the most important entry in this round**, because it had been reported three
+    times and "fixed" twice. Both earlier fixes corrected the routing function, which was never
+    wrong. The actual cause: a shortcut launches the app cold, and the code that acts on the
+    shortcut ran before the saved tabs had finished restoring, so there was no pane to route
+    into and the app simply opened at home. It now waits for the restore to signal that it has
+    **finished** — not for the tab list to look non-empty, which was the first fix and which
+    acted on whichever tab happened to exist first. Diagnosed by instrumenting rather than
+    theorising: a diagnostic message proved the shortcut's target arrived intact, and a
+    screenshot proved the tabs had not.
+
+- [x] J13: Home cards hide one at a time, and dead cards are explained or gone
+  EVIDENCE: his correction — *"i meant certain card not the whole storage shortcuts"*. Each
+    storage card has its own hide control, with a count of what is hidden and a way to bring
+    them back. A card that could not report a size now says **"Size unknown — may not be
+    readable"** rather than showing a zero, because a volume Android will not stat is a fact
+    about the volume, not a bug to hide.
+
+- [x] J14: Termux is detected, and its files are reachable — with the limit stated
+  EVIDENCE: he asked whether it was even feasible. Partly. Termux exposes its **home**
+    directory through the system document provider and nothing else, so Filet can offer a
+    shortcut that opens the picker at that folder and then treats the grant as an ordinary
+    volume. Files move in and out of Termux's home. `usr/bin` is **not reachable**, and that is
+    Termux's decision rather than Filet's. The card appears only when Termux is installed, and
+    it can be hidden, which moves it into Settings instead of deleting it.
+
+- [x] J15: RAR opens
+  CHECK: node tools/check-licences.mjs
+  EXPECT: LICENCES OK
+  EVIDENCE: his question — *"why are rar refused? is there any other you can do?"* — and the
+    answer changed once the licence was read properly rather than assumed. Every RAR decoder
+    published for the JVM descends from RARLAB's UnRAR source, whose licence forbids using it
+    to build a RAR-compatible archiver; that is a field-of-use restriction and GPL-3 does not
+    permit one to be added, so none of them can ship. **libarchive's RAR readers are
+    independent work under a BSD licence** and carry no such clause. They are C, so Filet gains
+    one native module — about 130 KB per architecture — built with only the two RAR readers
+    enabled, no write support and no crypto backend. RAR and RAR5 including solid archives now
+    open as folders and extract on the device. Creating a RAR is still refused, and that
+    refusal is now a licence boundary that is stated rather than a gap that is implied.
+
+- [x] J16: Paste is offered where you are standing
+  EVIDENCE: his report, and the whole point of it — *"i thought there would be an easy one click
+    paste here i nthis active splti view or fodler but no it was in that unintuitive top right
+    triple dot"*. After copy or move, a pill appears **in the pane**, saying how many items and
+    where they will land. A floating pill rather than a full-width bar, which was his call.
+
+- [x] J17: A long press extends a selection across the gap, like shift-clicking
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*RangeSelectTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: his ask, referencing Explorer. A phone has no shift key, so the gesture comes from
+    the long press: nothing selected means open this item's menu; a selection running and you
+    press outside it means extend to here; press something already selected and the menu acts
+    on the whole selection — which is the case he chose when asked. Ranges are inclusive, work
+    in both directions, and are measured against the **sorted, filtered rows on screen**, never
+    the underlying order — extending across hidden rows would select files nobody pointed at.
+    A range is added to the selection rather than replacing it, because on a phone the only way
+    to build a selection is one gesture at a time.
+
+- [x] J18: A new file shows up in the feed immediately
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*FeedTimingTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: reported twice — *"nothing appeared"*, then *"it showed up.. 2mins ago though"* —
+    and his target was explicit: *"it needs to be blazing instant"*. Two of my own bugs.
+    The feed published from a `finally`, which runs on cancellation too, so a superseded pass
+    overwrote the good result with a partial one and the list went blank. And a 2.5s budget
+    killed the listing of a 1700-file folder **invisibly**, because catching everything
+    swallows a cancellation as well — a timed-out listing is indistinguishable from a
+    successful read of an empty directory.
+
+    What made it instant was not a faster scan. The watcher already knows the file **name**, so
+    a change now costs one `stat` on one path spliced into the list, with the full re-read left
+    behind it as the slow path. Each folder keeps its last good listing, results publish as
+    they arrive rather than all at the end, and the per-folder budget is 12 seconds.
+
+- [x] J19: The feed tracks files, and is named for what it holds
+  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*TrackedFoldersTest*"
+  EXPECT: BUILD SUCCESSFUL
+  EVIDENCE: his call, and it reverses round 7's G-series intent deliberately. Tracking folders
+    as well as files meant copying one folder in produced an entry for the folder and an entry
+    for everything under it. Files only; new files in a tracked subfolder still appear; the
+    section is called **Files**. Only local and document-provider roots are seeded, because
+    seeding a remote volume means mounting it at startup just to watch it.
+
+**Still open from round 8:** a file landing in Termux's `usr/bin` from Filet (his to try), and
+`inzip:` search inside a RAR — not verified and not claimed, because `adb` cannot type a colon
+on this phone and three attempts to drive the scope chips landed on the wrong one. That is a
+harness problem, not evidence, and it is recorded as unverified rather than assumed from the
+fact that the code path is shared with the browser's.
