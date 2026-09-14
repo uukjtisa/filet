@@ -9,7 +9,15 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry
+import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream
+import org.apache.commons.compress.compressors.gzip.GzipCompressorOutputStream
+import org.apache.commons.compress.compressors.xz.XZCompressorOutputStream
 import java.io.File
+import java.io.OutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -86,5 +94,174 @@ class ArchiveProviderTest {
     @Test fun mount_then_split_round_trips_the_host_path() {
         val host = zip.absolutePath.replace(File.separatorChar, '/')
         assertEquals(host, ArchiveProvider.split(ArchiveProvider.mount(host)).first)
+    }
+
+    // ── the formats round 7 added ──────────────────────────────────────────
+
+    /**
+     * The same three files, in each container, so a difference in what comes back is a
+     * difference in the reader rather than in the fixture.
+     */
+    private fun mountOf(f: File) = ArchiveProvider.mount(f.absolutePath.replace(File.separatorChar, '/'))
+
+    private fun writeTar(name: String, wrap: (OutputStream) -> OutputStream): File {
+        val f = File(tmp, name)
+        TarArchiveOutputStream(wrap(f.outputStream())).use { tar ->
+            fun put(entry: String, body: String) {
+                val bytes = body.toByteArray()
+                val e = TarArchiveEntry(entry)
+                e.size = bytes.size.toLong()
+                tar.putArchiveEntry(e)
+                tar.write(bytes)
+                tar.closeArchiveEntry()
+            }
+            put("top.txt", "hello")
+            // A real tar DOES carry directory entries, unlike most zips. Both shapes have to
+            // produce the same tree or the provider is guessing.
+            val dir = TarArchiveEntry("docs/")
+            tar.putArchiveEntry(dir)
+            tar.closeArchiveEntry()
+            put("docs/a.txt", "alpha")
+            put("docs/deep/b.txt", "beta")
+        }
+        return f
+    }
+
+    private fun assertReadsTheSameTree(archive: File) {
+        val root = mountOf(archive)
+        kotlinx.coroutines.runBlocking {
+            assertEquals(
+                "top level of ${archive.name}",
+                listOf("docs", "top.txt"),
+                vfs.list(root).map { it.name }.sorted(),
+            )
+            assertTrue("${archive.name}: docs is a folder", vfs.list(root).first { it.name == "docs" }.isDir)
+            assertEquals(
+                "inside docs of ${archive.name}",
+                listOf("a.txt", "deep"),
+                vfs.list(root.child("docs")).map { it.name }.sorted(),
+            )
+            assertEquals(
+                "${archive.name}: nested member",
+                "beta",
+                vfs.openRead(root.child("docs").child("deep").child("b.txt"))
+                    .use { String(it.readBytes()) },
+            )
+            assertEquals(
+                "${archive.name}: top member",
+                "hello",
+                vfs.openRead(root.child("top.txt")).use { String(it.readBytes()) },
+            )
+        }
+    }
+
+    @Test fun a_plain_tar_reads() {
+        assertReadsTheSameTree(writeTar("sample.tar") { it })
+    }
+
+    @Test fun a_gzipped_tar_reads() {
+        assertReadsTheSameTree(writeTar("sample.tar.gz") { GzipCompressorOutputStream(it) })
+    }
+
+    @Test fun the_tgz_spelling_reads_too() {
+        assertReadsTheSameTree(writeTar("sample.tgz") { GzipCompressorOutputStream(it) })
+    }
+
+    @Test fun a_bzipped_tar_reads() {
+        assertReadsTheSameTree(writeTar("sample.tar.bz2") { BZip2CompressorOutputStream(it) })
+    }
+
+    @Test fun an_xz_tar_reads() {
+        assertReadsTheSameTree(writeTar("sample.tar.xz") { XZCompressorOutputStream(it) })
+    }
+
+    @Test fun a_seven_zip_reads() {
+        val f = File(tmp, "sample.7z")
+        SevenZOutputFile(f).use { z ->
+            fun put(entry: String, body: String) {
+                val bytes = body.toByteArray()
+                val e = SevenZArchiveEntry()
+                e.name = entry
+                e.size = bytes.size.toLong()
+                z.putArchiveEntry(e)
+                z.write(bytes)
+                z.closeArchiveEntry()
+            }
+            put("top.txt", "hello")
+            put("docs/a.txt", "alpha")
+            put("docs/deep/b.txt", "beta")
+        }
+        assertReadsTheSameTree(f)
+    }
+
+    @Test fun a_single_gzipped_file_shows_one_member_named_without_the_suffix() = runTest {
+        val f = File(tmp, "notes.txt.gz")
+        GzipCompressorOutputStream(f.outputStream()).use { it.write("just the one".toByteArray()) }
+        val root = mountOf(f)
+        assertEquals(listOf("notes.txt"), vfs.list(root).map { it.name })
+        assertEquals("just the one", vfs.openRead(root.child("notes.txt")).use { String(it.readBytes()) })
+    }
+
+    @Test fun an_xz_file_and_a_bz2_file_do_the_same() = runTest {
+        val x = File(tmp, "dump.sql.xz")
+        XZCompressorOutputStream(x.outputStream()).use { it.write("select 1".toByteArray()) }
+        assertEquals("select 1", vfs.openRead(mountOf(x).child("dump.sql")).use { String(it.readBytes()) })
+
+        val b = File(tmp, "log.txt.bz2")
+        BZip2CompressorOutputStream(b.outputStream()).use { it.write("line".toByteArray()) }
+        assertEquals("line", vfs.openRead(mountOf(b).child("log.txt")).use { String(it.readBytes()) })
+    }
+
+    @Test fun a_rar_is_refused_with_the_reason_rather_than_read_as_rubbish() = runTest {
+        // Not a real RAR: the point is that Filet refuses on the NAME, before it reads a byte,
+        // so the message is the licence rather than "corrupt archive".
+        val f = File(tmp, "archive.rar")
+        f.writeBytes(byteArrayOf(0x52, 0x61, 0x72, 0x21))
+        val e = runCatching { vfs.list(mountOf(f)) }.exceptionOrNull()
+        assertTrue("expected a refusal, got $e", e is VfsException.Unsupported)
+        assertTrue("the refusal must name the licence", e!!.message!!.contains("UnRAR"))
+    }
+
+    @Test fun a_member_missing_from_any_format_is_not_found_rather_than_empty() = runTest {
+        val tar = writeTar("gaps.tar.gz") { GzipCompressorOutputStream(it) }
+        val e = runCatching { vfs.openRead(mountOf(tar).child("nope.txt")) }.exceptionOrNull()
+        assertTrue("expected NotFound, got $e", e is VfsException.NotFound)
+    }
+
+    @Test fun sizes_come_through_for_a_tar_and_are_honestly_unknown_for_a_stream() = runTest {
+        val tar = writeTar("sized.tar") { it }
+        assertEquals(5L, vfs.stat(mountOf(tar).child("top.txt"))!!.size)
+
+        // gzip stores the length in a trailer modulo 4 GB and xz stores nothing, so reporting
+        // a number here would mean reading the file to invent one.
+        val gz = File(tmp, "one.txt.gz")
+        GzipCompressorOutputStream(gz.outputStream()).use { it.write("abc".toByteArray()) }
+        assertEquals(-1L, vfs.stat(mountOf(gz).child("one.txt"))!!.size)
+    }
+
+    @Test fun listing_a_tar_twice_uses_the_cache_rather_than_reading_it_again() = runTest {
+        // Not a timing assertion - those are flaky. The observable claim is that the second
+        // listing agrees with the first, which is what a stale or per-call cache would break.
+        val tar = writeTar("cached.tar.gz") { GzipCompressorOutputStream(it) }
+        val once = vfs.list(mountOf(tar)).map { it.name }.sorted()
+        val twice = vfs.list(mountOf(tar)).map { it.name }.sorted()
+        assertEquals(once, twice)
+        assertEquals(listOf("docs", "top.txt"), twice)
+    }
+
+    @Test fun an_edited_archive_is_re_read_rather_than_served_from_the_cache() = runTest {
+        val f = writeTar("changing.tar") { it }
+        assertEquals(listOf("docs", "top.txt"), vfs.list(mountOf(f)).map { it.name }.sorted())
+        // Same path, different content and a different length: the cache key carries both.
+        Thread.sleep(5)
+        TarArchiveOutputStream(f.outputStream()).use { tar ->
+            val bytes = "replaced entirely".toByteArray()
+            val e = TarArchiveEntry("only.txt")
+            e.size = bytes.size.toLong()
+            tar.putArchiveEntry(e)
+            tar.write(bytes)
+            tar.closeArchiveEntry()
+        }
+        assertEquals(listOf("only.txt"), vfs.list(mountOf(f)).map { it.name })
     }
 }

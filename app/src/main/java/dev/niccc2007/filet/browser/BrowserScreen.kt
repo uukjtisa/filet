@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,6 +18,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +37,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.DropdownMenu
@@ -47,10 +50,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -248,6 +255,13 @@ private fun TabStrip(
 private fun TabStripContent(vm: BrowserViewModel, tabs: List<PaneController>, app: AppState) {
     val colors = Filet.colors
     val size by vm.prefs.tabSize.collectAsState()
+    // Where each chip sits, filled in as they lay out. A drag needs the resting centres and
+    // Compose is the only thing that knows them.
+    val centres = remember(tabs.size) { mutableStateMapOf<Int, Float>() }
+    var dragging by remember { mutableStateOf(-1) }
+    var dragX by remember { mutableFloatStateOf(0f) }
+    val target = if (dragging < 0) -1 else dragTarget(dragging, dragX, (0 until tabs.size).map { centres[it] ?: 0f })
+
     run {
         tabs.forEachIndexed { i, pane ->
             val s by pane.state.collectAsState()
@@ -264,8 +278,19 @@ private fun TabStripContent(vm: BrowserViewModel, tabs: List<PaneController>, ap
                     else -> null
                 },
                 size = size,
+                dragging = i == dragging,
+                insertHere = target == i && dragging >= 0 && dragging != i,
                 onClick = { vm.focusTab(i) },
                 onClose = { vm.closeTab(i) },
+                onCentre = { centres[i] = it },
+                onDragStart = { dragging = i; dragX = centres[i] ?: 0f },
+                onDrag = { dx -> dragX += dx },
+                onDragEnd = {
+                    // Committed on lift rather than per frame: rebuilding the list sixty times
+                    // a second re-keys every chip and makes the drag stutter.
+                    if (dragging >= 0 && target >= 0) vm.moveTab(dragging, target)
+                    dragging = -1
+                },
             )
         }
         // The new-tab button scales with the tabs. Leaving it at one size is how a Huge strip
@@ -287,16 +312,44 @@ private fun TabChip(
     active: Boolean,
     side: String?,
     size: TabSize,
+    dragging: Boolean = false,
+    insertHere: Boolean = false,
     onClick: () -> Unit,
     onClose: () -> Unit,
+    onCentre: (Float) -> Unit = {},
+    onDragStart: () -> Unit = {},
+    onDrag: (Float) -> Unit = {},
+    onDragEnd: () -> Unit = {},
 ) {
     val colors = Filet.colors
     Row(
         Modifier
             .padding(horizontal = 2.dp, vertical = 3.dp)
+            .onGloballyPositioned {
+                onCentre(it.positionInParent().x + it.size.width / 2f)
+            }
             .clip(RoundedCornerShape(7.dp))
-            .background(if (active) MaterialTheme.colorScheme.background else Color.Transparent)
+            .background(
+                when {
+                    dragging -> colors.sel
+                    insertHere -> colors.drop
+                    active -> MaterialTheme.colorScheme.background
+                    else -> Color.Transparent
+                }
+            )
             .clickable(onClick = onClick)
+            // A long press to start, so an ordinary tap still switches tabs. Last in the
+            // chain so it wins the main pass over the click above.
+            .pointerInput(Unit) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { onDragStart() },
+                    onDragEnd = { onDragEnd() },
+                    onDragCancel = { onDragEnd() },
+                ) { change, drag ->
+                    change.consume()
+                    onDrag(drag.x)
+                }
+            }
             .padding(horizontal = size.padH.dp, vertical = size.padV.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -420,7 +473,9 @@ private fun NavCluster(
         FiletIcons.Up, "Up one folder", size,
         enabled = folder && s?.cwd?.parent != null,
     ) { active?.goUp() }
-    NavButton(FiletIcons.Refresh, "Refresh", size, enabled = active != null) { active?.refresh() }
+    NavButton(FiletIcons.Refresh, "Refresh", size, enabled = active != null) {
+        active?.let { vm.refreshPane(it) }
+    }
     Spacer(Modifier.width(2.dp))
 }
 
@@ -849,52 +904,111 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
     // selected two things - which is the whole point of R1 applied to a toolbar.
     val single = count == 1
     val scroll = rememberScrollState()
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(colors.high)
-            .padding(horizontal = 6.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            if (single) "1 selected" else "$count selected",
-            fontSize = 12.sp, fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(start = 6.dp, end = 4.dp),
-        )
+    val onlyOne = if (single) null else "Pick one file — this opens a single file"
+
+    Column(Modifier.fillMaxWidth().background(colors.raised)) {
+        HorizontalDivider(color = colors.lineSoft)
         Row(
-            Modifier.weight(1f).horizontalScroll(scroll),
-            horizontalArrangement = Arrangement.End,
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Works on any number of files.
-            // Copy reads, so it works anywhere. Move and Delete write to where the files
-            // are, so inside an archive they are greyed with the reason rather than left to
-            // fail at the provider.
-            FootButton(FiletIcons.Copy, "Copy", onBlocked = vm::toast) { vm.copySelection() }
-            FootButton(FiletIcons.Cut, "Move", blocked = readOnly, onBlocked = vm::toast) { vm.cutSelection() }
-            FootButton(FiletIcons.Star, "Bookmark", onBlocked = vm::toast) { vm.bookmarkSelection() }
-            FootButton(FiletIcons.Wifi, "Share", onBlocked = vm::toast) { vm.shareSelectionNearby() }
-            FootButton(FiletIcons.Home, "Shortcut", onBlocked = vm::toast) { vm.shortcutSelection() }
-
-            // One file only - and a greyed button that will not say why is the thing this
-            // gate is about, so each of these carries its reason.
-            val onlyOne = if (single) null else "Pick one file — this opens a single file"
-            FootButton(FiletIcons.Open, "Open with", blocked = onlyOne, onBlocked = vm::toast) { vm.openWithSelection() }
-            FootButton(
-                FiletIcons.Rename, "Rename",
-                blocked = readOnly ?: if (single) null else "Pick one file — rename takes one name at a time",
-                onBlocked = vm::toast,
-            ) { vm.renameSelection() }
-            FootButton(
-                FiletIcons.Info, "Details",
-                blocked = if (single) null else "Pick one file — details describe one file",
-                onBlocked = vm::toast,
-            ) { vm.detailsForSelection() }
-
-            FootButton(FiletIcons.Delete, "Delete", colors.bad, blocked = readOnly, onBlocked = vm::toast) { vm.confirmDelete() }
+            Text(
+                if (single) "1 selected" else "$count selected",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = colors.accent,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                "Clear",
+                fontSize = 11.5.sp,
+                color = colors.fg2,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(7.dp))
+                    .clickable { vm.focusedPane()?.clearSelection() }
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+            )
         }
-        FootButton(FiletIcons.Close, "Clear", onBlocked = vm::toast) { vm.focusedPane()?.clearSelection() }
+
+        // The row is scrollable and now SAYS so: a fading edge on whichever side has more
+        // behind it. Nic's complaint was not that it could not scroll - it was that nothing
+        // on screen suggested it could, so the last three actions may as well not exist.
+        val atStart = scroll.value <= 2
+        val atEnd = scroll.value >= scroll.maxValue - 2
+        Box(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(scroll)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                // The four that work on any number of files, and the four people reach for.
+                FootButton(FiletIcons.Copy, "Copy", onBlocked = vm::toast) { vm.copySelection() }
+                FootButton(FiletIcons.Cut, "Move", blocked = readOnly, onBlocked = vm::toast) { vm.cutSelection() }
+                FootButton(FiletIcons.Share, "Send", onBlocked = vm::toast) { vm.shareSelection() }
+                FootButton(
+                    FiletIcons.Delete, "Delete", colors.bad,
+                    blocked = readOnly, onBlocked = vm::toast,
+                ) { vm.confirmDelete() }
+
+                FootDivider()
+
+                FootButton(FiletIcons.Zip, "Compress", blocked = readOnly, onBlocked = vm::toast) { vm.askCompress() }
+                FootButton(
+                    FiletIcons.Rename, "Rename",
+                    blocked = readOnly ?: if (single) null else "Pick one file — rename takes one name at a time",
+                    onBlocked = vm::toast,
+                ) { vm.renameSelection() }
+                FootButton(FiletIcons.Open, "Open with", blocked = onlyOne, onBlocked = vm::toast) { vm.openWithSelection() }
+                FootButton(
+                    FiletIcons.Info, "Details",
+                    blocked = if (single) null else "Pick one file — details describe one file",
+                    onBlocked = vm::toast,
+                ) { vm.detailsForSelection() }
+
+                FootDivider()
+
+                FootButton(FiletIcons.Star, "Bookmark", onBlocked = vm::toast) { vm.bookmarkSelection() }
+                FootButton(FiletIcons.Wifi, "Nearby", onBlocked = vm::toast) { vm.shareSelectionNearby() }
+                FootButton(FiletIcons.Home, "Shortcut", onBlocked = vm::toast) { vm.shortcutSelection() }
+            }
+            // Drawn over the row, so a half-visible button fades into the edge rather than
+            // being cut off mid-icon - which is what made it read as a broken layout.
+            if (!atStart) EdgeFade(colors.raised, Alignment.CenterStart)
+            if (!atEnd) EdgeFade(colors.raised, Alignment.CenterEnd)
+        }
     }
+}
+
+/** A hairline between groups, so ten buttons read as three things rather than one wall. */
+@Composable
+private fun FootDivider() {
+    Box(
+        Modifier
+            .padding(horizontal = 5.dp)
+            .width(1.dp)
+            .height(26.dp)
+            .background(Filet.colors.lineSoft)
+    )
+}
+
+/** The overflow cue: more that way. */
+@Composable
+private fun BoxScope.EdgeFade(ground: Color, side: Alignment) {
+    Box(
+        Modifier
+            .align(side)
+            .fillMaxHeight()
+            .width(22.dp)
+            .background(
+                Brush.horizontalGradient(
+                    if (side == Alignment.CenterStart) listOf(ground, Color.Transparent)
+                    else listOf(Color.Transparent, ground)
+                )
+            )
+    )
 }
 
 /**
@@ -914,16 +1028,26 @@ private fun FootButton(
     onBlocked: (String) -> Unit = {},
     onClick: () -> Unit,
 ) {
+    val colors = Filet.colors
     val enabled = blocked == null
-    val shown = if (enabled) tint else Filet.colors.fg3.copy(alpha = 0.38f)
+    val shown = if (enabled) tint else colors.fg3.copy(alpha = 0.38f)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(10.dp))
             .clickable { if (enabled) onClick() else onBlocked(blocked!!) }
-            .padding(horizontal = 9.dp, vertical = 3.dp),
+            .padding(horizontal = 10.dp, vertical = 5.dp),
     ) {
-        Icon(icon, label, tint = shown, modifier = Modifier.size(18.dp))
+        Box(
+            Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .background(if (enabled) colors.high else Color.Transparent),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, label, tint = shown, modifier = Modifier.size(17.dp))
+        }
+        Spacer(Modifier.height(3.dp))
         Text(label, fontSize = 9.sp, color = shown, maxLines = 1)
     }
 }

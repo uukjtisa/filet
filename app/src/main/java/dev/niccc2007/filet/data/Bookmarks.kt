@@ -71,6 +71,9 @@ class Bookmarks(private val prefs: Prefs) {
         save()
     }
 
+    /** Re-read from prefs, for the refresh button. */
+    fun reload() { _items.value = load() }
+
     private fun load(): List<Bookmark> {
         val raw = prefs.getString(KEY) ?: return emptyList()
         return runCatching {
@@ -139,6 +142,9 @@ class Recents(private val prefs: Prefs) {
         _items.value = emptyList()
         prefs.putString(KEY, null)
     }
+
+    /** Re-read from prefs, for the refresh button. */
+    fun reload() { _items.value = load() }
 
     private fun load(): List<RecentEntry> {
         val raw = prefs.getString(KEY) ?: return emptyList()

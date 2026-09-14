@@ -2,6 +2,7 @@ package dev.niccc2007.filet.nearby
 
 import android.content.Context
 import dev.niccc2007.filet.data.Prefs
+import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
 import dev.niccc2007.filet.vfs.provider.net.PeerEndpoint
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +26,15 @@ class NearbyManager(
 ) {
     val shared = SharedSet(context, vfs, prefs)
     val discovery = NearbyDiscovery(context)
+
+    /**
+     * Where a file somebody sends you lands.
+     *
+     * One folder, never the shared set: something arriving from the network must not become
+     * something Filet is offering back out. It has always been here; round 7 is what made it
+     * reachable from the screen that fills it.
+     */
+    val receivedFolder: VPath get() = shared.quarantine
 
     private val _state = MutableStateFlow(ServerState())
     val state: StateFlow<ServerState> = _state.asStateFlow()
@@ -82,6 +92,15 @@ class NearbyManager(
 
     /** Null means "a fresh random code each session", which is the default. */
     fun fixedPin(): String? = prefs.getString(KEY_FIXED_PIN)?.takeIf { it.length == 6 }
+
+    /**
+     * Re-read the server rather than trusting the last event.
+     *
+     * The state here is pushed by the server through `onEvent`, and a push that happens
+     * while this screen is not composed is a push nobody hears. That is why the Start
+     * sharing button could sit there saying Start while the server was already running.
+     */
+    fun resync() { _state.value = server.state() }
 
     fun setFixedPin(value: String?) {
         val clean = value?.filter(Char::isDigit)?.take(6)?.takeIf { it.length == 6 }

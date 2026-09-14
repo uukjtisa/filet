@@ -41,6 +41,17 @@ class AppFiles(private val context: Context) {
     /** The VPath for an app-private file, so the rest of the app can address it normally. */
     fun vpath(file: File): VPath = VPath.of("local", file.absolutePath.replace(File.separatorChar, '/'))
 
+    /**
+     * Somewhere private to build something that has to be a real, seekable file.
+     *
+     * A VPath rather than a File on purpose: 7z is the caller, it lives in the ops layer, and
+     * the ops layer is above L0. Handing it a File would put a storage handle where R3 says
+     * one may not be, and widening the allow-list to cover that would be treating the rule as
+     * paperwork. The caller takes the path, asks the VFS for its OS spelling - the one
+     * documented hole - and hands that to the writer.
+     */
+    fun scratchPath(name: String): VPath = vpath(playCache("build-" + name))
+
     fun exists(file: File): Boolean = file.isFile
 
     fun size(file: File): Long = if (file.isFile) file.length() else -1L

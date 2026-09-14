@@ -8,6 +8,9 @@ import dev.niccc2007.filet.handlers.ExternalApp
 import dev.niccc2007.filet.handlers.ExternalApps
 import dev.niccc2007.filet.handlers.HandlerId
 import dev.niccc2007.filet.handlers.editedName
+import dev.niccc2007.filet.vfs.provider.ArchiveFormat
+import dev.niccc2007.filet.vfs.provider.Archives
+import dev.niccc2007.filet.vfs.provider.archiveName
 import dev.niccc2007.filet.ops.PendingOp
 import dev.niccc2007.filet.update.Download
 import dev.niccc2007.filet.update.Release
@@ -155,6 +158,12 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     val registry get() = graph.registry
 
+    /** Re-measure every volume: a card can be unmounted while the app is backgrounded. */
+    suspend fun loadVolumes() {
+        val roots = runCatching { graph.vfs.roots() }.getOrElse { emptyList() }
+        _state.update { it.copy(volumes = volumeInfos(roots)) }
+    }
+
     fun start() {
         if (started) return
         started = true
@@ -253,6 +262,72 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
     }
 
+    /**
+     * Drag a tab into a new position.
+     *
+     * The active tab is tracked by index, so moving one has to move the pointers with it or
+     * the strip highlights whichever tab happens to land on that number - which reads as the
+     * drag having selected something else.
+     */
+    fun moveTab(from: Int, to: Int) {
+        val list = _tabs.value
+        if (from !in list.indices || to !in list.indices || from == to) return
+        _tabs.value = list.movedItem(from, to)
+        _state.update {
+            it.copy(
+                activeA = followingMove(it.activeA, from, to),
+                activeB = followingMove(it.activeB, from, to),
+            )
+        }
+        persistTabs()
+    }
+
+    /** Where an index ends up after the item at [from] is moved to [to]. */
+    private fun followingMove(index: Int, from: Int, to: Int): Int = when {
+        index == from -> to
+        from < to && index in (from + 1)..to -> index - 1
+        to < from && index in to until from -> index + 1
+        else -> index
+    }
+
+    /**
+     * Refresh, on whatever kind of pane is in front of you.
+     *
+     * `PaneController.refresh()` re-lists a folder and returns on everything else, so the
+     * button was dead on six of the eleven pane kinds - drawn, enabled, and doing nothing.
+     * What each kind needs is [refreshPlan], which is a table with a test that fails if a
+     * kind is ever added without one.
+     *
+     * It says what it re-read afterwards, because a refresh with no visible change is
+     * indistinguishable from the broken version.
+     */
+    fun refreshPane(pane: PaneController) {
+        val plan = refreshPlan(pane.state.value.kind)
+        viewModelScope.launch {
+            for (target in plan.targets) {
+                when (target) {
+                    RefreshTarget.LISTING -> pane.refresh()
+                    RefreshTarget.VOLUMES -> loadVolumes()
+                    RefreshTarget.HOME_FEED -> graph.home.refresh()
+                    RefreshTarget.NEARBY -> graph.nearby.resync()
+                    RefreshTarget.NEARBY_SCAN -> graph.nearby.startScan()
+                    RefreshTarget.SHORTCUTS -> graph.shortcuts.reload()
+                    RefreshTarget.SCRIPTS -> graph.scripts.reload()
+                    RefreshTarget.BOOKMARKS -> graph.bookmarks.reload()
+                    RefreshTarget.RECENTS -> graph.recents.reload()
+                    // These three are read through on every composition rather than cached,
+                    // so the revision bump below IS their refresh. Listed rather than left out
+                    // so the table stays a complete answer to "what does this pane re-read".
+                    RefreshTarget.INDEX_STATUS, RefreshTarget.REMOTES, RefreshTarget.JOBS -> Unit
+                }
+            }
+            // Panes that read straight from a store on every composition need a nudge to
+            // recompose at all, which is what this is.
+            _state.update { it.copy(revision = it.revision + 1) }
+            toast("${plan.label} refreshed")
+        }
+    }
+
     fun focusTab(index: Int) {
         if (index !in _tabs.value.indices) return
         _state.update {
@@ -309,7 +384,8 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         when {
             node.isDir -> pane.navigateTo(node.path)
             node.extension == "apk" -> openApk(node)
-            node.extension in ArchiveProvider.EXTENSIONS -> mountArchive(node)
+            // By whole name, not by extension: `backup.tar.gz` has the extension "gz".
+            Archives.canList(node.name) -> mountArchive(node)
             else -> openWithRegistered(node)
         }
     }
@@ -398,14 +474,26 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
     }
 
-    fun compressSelection(archiveName: String) = withSelection { items ->
+    /**
+     * @param typed what the user put in the box, with or without a suffix.
+     * @param format which container to write. The suffix comes from the format rather than
+     *   from the typed name, so picking Tar + gzip and leaving "Photos.zip" in the box makes
+     *   a `Photos.tar.gz` and not a gzipped tar wearing a zip's name.
+     */
+    fun compressSelection(typed: String, format: ArchiveFormat) = withSelection { items ->
         val dest = focusedPane()?.state?.value?.cwd ?: return@withSelection
         viewModelScope.launch {
-            val name = if (archiveName.endsWith(".zip")) archiveName else "$archiveName.zip"
-            val r = graph.ops.zip(items, dest.child(name))
-            reportAndRefresh(r.succeeded, r.failed.size, "compressed")
+            val base = Archives.baseName(typed.trim()).ifEmpty { "Archive" }
+            val existing = runCatching { graph.vfs.list(dest).map { it.name }.toHashSet() }
+                .getOrDefault(HashSet())
+            val name = archiveName(base, format) { it in existing }
+            val r = graph.ops.compress(items, dest.child(name), format) { graph.files.scratchPath(it) }
+            reportAndRefresh(r.succeeded, r.failed.size, "compressed into $name")
         }
     }
+
+    /** Every format Compress offers, in the order the table declares them. */
+    val archiveFormats: List<ArchiveFormat> get() = Archives.creatable
 
     fun extract(node: VNode) {
         val dest = focusedPane()?.state?.value?.cwd ?: return
@@ -924,6 +1012,26 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         _openRequest.value = OpenRequest(node, HandlerId.APK)
     }
 
+    /**
+     * Open the folder incoming files land in, creating it if this is the first time.
+     *
+     * The folder has always existed - `/storage/emulated/0/Filet/Received` - and there was no
+     * way to reach it from the screen that fills it, which is not much better than not having
+     * one. Nic's question was literally "where can i find it".
+     */
+    fun openReceivedFolder() {
+        val pane = focusedPane() ?: return
+        viewModelScope.launch {
+            val folder = graph.nearby.receivedFolder
+            runCatching { graph.nearby.shared.ensureFolders() }
+            if (runCatching { graph.vfs.stat(folder) }.getOrNull() == null) {
+                toast("Nothing has been received yet.")
+                return@launch
+            }
+            pane.navigateTo(folder)
+        }
+    }
+
     fun shareSelection() {
         val items = focusedPane()?.selectedNodes().orEmpty().filterNot { it.isDir }
         if (items.isEmpty()) { toast("Select a file to share."); return }
@@ -1417,6 +1525,19 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         toast("${items.size} shared \u2014 open Nearby for the link")
     }
 
+    /**
+     * Put the selection's paths on the clipboard as text.
+     *
+     * The OS spelling where there is one - `/storage/emulated/0/Download/a.txt` - because that
+     * is what you paste into a terminal or a script. A backend with no OS path falls back to
+     * the VFS spelling, which at least round-trips inside Filet rather than being a lie that
+     * looks like a path.
+     */
+    fun copyPathsOfSelection() = withSelection { items ->
+        val text = items.joinToString("\n") { graph.vfs.osPath(it.path) ?: it.path.toString() }
+        copyText(text, if (items.size == 1) "Path copied" else "${items.size} paths copied")
+    }
+
     fun copyText(text: String, message: String) {
         val cm = graph.app.getSystemService(android.content.ClipboardManager::class.java)
         cm?.setPrimaryClip(android.content.ClipData.newPlainText("filet", text))
@@ -1659,14 +1780,16 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     /** A shortcut tapped on the home screen that is not a file. */
     fun runShortcutAction(raw: String) {
-        if (raw.startsWith("script:")) {
-            val script = graph.scripts.scripts.value.firstOrNull { it.id == raw.removePrefix("script:") }
+        dev.niccc2007.filet.shortcuts.scriptIdOrNull(raw)?.let { id ->
+            val script = graph.scripts.scripts.value.firstOrNull { it.id == id }
             if (script == null) toast("That script no longer exists.")
             else if (graph.scripts.isApproved(script)) runScript(script)
             else { focusedPane()?.openSpecial(PaneKind.SCRIPTS, "Scripts"); toast("Approve it once, then it can run from the home screen.") }
             return
         }
-        when (runCatching { dev.niccc2007.filet.shortcuts.AppAction.valueOf(raw) }.getOrNull()) {
+        // `parse`, not `valueOf`: a launcher icon outlives the version that made it, and a
+        // crash on tap is the worst possible way to say "that action was renamed".
+        when (dev.niccc2007.filet.shortcuts.AppAction.parse(raw)) {
             dev.niccc2007.filet.shortcuts.AppAction.INDEX_NOW -> reindexNow()
             dev.niccc2007.filet.shortcuts.AppAction.SHARE_NEARBY -> {
                 focusedPane()?.openSpecial(PaneKind.NEARBY, "Nearby")

@@ -2,48 +2,42 @@ package dev.niccc2007.filet.index
 
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.Vfs
+import dev.niccc2007.filet.vfs.provider.ArchiveMembers
+import dev.niccc2007.filet.vfs.provider.Archives
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.util.zip.ZipFile
 
 /**
- * Every member name in an archive, without inflating a byte of it.
+ * Every member name in an archive, for `inzip:`.
  *
  * > Zip central directory only - every member name without inflating a byte. Capped at 5,000
  * > members + honest `truncated` flag. (FEATURES.md F60)
  *
- * A zip's central directory is a table at the end of the file: reading it costs one seek and
- * one small read, whatever the archive weighs. That is what makes `inzip:` affordable on a
- * folder full of multi-gigabyte backups.
+ * Round 7 widened it past zip. The reading is [ArchiveMembers], beside the provider that does
+ * it, so the index and the browser agree about what is in an archive rather than each having
+ * their own loop - which is why `inzip:` used to find things in a zip and nothing at all in a
+ * `.tar.gz`.
  *
- * The cap is real and it is recorded: an archive past [MAX_ENTRIES] members gets a `tag` of
- * `truncated`, so a search can say "and more" instead of quietly lying about completeness.
+ * **The cost is not the same for every format, and that is the honest part.** A zip and a 7z
+ * carry an index, so this is a seek and a small read whatever the archive weighs. A tar has
+ * none: the crawler has to read it through its compressor to know what is inside. That is
+ * affordable because the crawler only looks when the file is new or has changed, and because
+ * the cap below bounds the worst case.
  */
 class ArchiveFacts(private val vfs: Vfs) : FactExtractor {
 
-    override val extensions: Set<String> = setOf("zip", "jar", "aar", "epub", "cbz", "apks", "xapk")
+    /** Every format the table says can be listed. RAR is not one, and says why elsewhere. */
+    override val extensions: Set<String> =
+        Archives.ALL.filter { it.canList }.flatMapTo(HashSet()) { it.extensions }
 
     override suspend fun facts(node: VNode): Map<String, List<String>> = withContext(Dispatchers.IO) {
+        // A real path or nothing. An archive nested inside another has none, and spooling a
+        // gigabyte into the cache during a background crawl is not a trade worth making.
         val os = vfs.osPath(node.path) ?: return@withContext emptyMap()
-        val names = ArrayList<String>(64)
-        var truncated = false
-        runCatching {
-            ZipFile(File(os)).use { zip ->
-                val entries = zip.entries()
-                while (entries.hasMoreElements()) {
-                    val e = entries.nextElement()
-                    if (e.isDirectory) continue
-                    if (names.size >= MAX_ENTRIES) { truncated = true; break }
-                    names += e.name
-                }
-            }
-        }.getOrElse { return@withContext emptyMap() }
-
-        if (names.isEmpty()) return@withContext emptyMap()
+        val listing = ArchiveMembers.of(os, MAX_ENTRIES) ?: return@withContext emptyMap()
         buildMap {
-            put("entry", names)
-            if (truncated) put("tag", listOf("truncated"))
+            put("entry", listing.names)
+            if (listing.truncated) put("tag", listOf("truncated"))
         }
     }
 

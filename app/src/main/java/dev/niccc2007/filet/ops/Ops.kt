@@ -6,10 +6,12 @@ import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
 import dev.niccc2007.filet.vfs.VfsException
+import dev.niccc2007.filet.vfs.provider.ArchiveFormat
+import dev.niccc2007.filet.vfs.provider.ArchiveSource
+import dev.niccc2007.filet.vfs.provider.ArchiveWriter
+import dev.niccc2007.filet.vfs.provider.Archives
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 
 /** What the clipboard holds and what pasting it should do. */
 enum class PendingOp { COPY, MOVE }
@@ -77,27 +79,58 @@ class FileOperations(private val vfs: Vfs, private val ledger: JobLedger) {
     }
 
     /**
-     * Pack [items] into a zip at [dest].
+     * Pack [items] into an archive at [dest], in [format].
      *
-     * Streams entry by entry through the VFS, so the source can be an SD card over SAF and
-     * the destination internal storage without either side being special-cased. Stored
-     * without compression for files that are already compressed - re-deflating a 300 MB mp4
-     * costs minutes and saves nothing.
+     * Streams entry by entry through the VFS, so the source can be an SD card over SAF and the
+     * destination internal storage without either side being special-cased. The format writers
+     * live in `core-vfs` beside the readers, because a writer that stores a member path the
+     * reader normalises differently produces an archive Filet itself cannot browse.
+     *
+     * 7z is the one that cannot go straight out: its writer seeks back to build an index, so
+     * it is built in the cache and moved into place. That is slower and uses the space twice,
+     * which is why it is not the default.
      */
-    suspend fun zip(items: List<VNode>, dest: VPath): OpResult {
+    suspend fun compress(
+        items: List<VNode>,
+        dest: VPath,
+        format: ArchiveFormat,
+        scratch: (String) -> VPath,
+    ): OpResult {
         val id = ledger.start("Compressing ${items.size} item(s)", dest.name)
         val failed = ArrayList<Pair<VPath, String>>()
         var count = 0
         try {
-            ZipOutputStream(vfs.openWrite(dest).buffered()).use { zos ->
-                for (node in items) {
-                    currentCoroutineContext().ensureActive()
-                    runCatching { addToZip(zos, node, node.name) { n -> ledger.progress(id, null, n) } }
-                        .onSuccess { count++ }
-                        .onFailure { failed += node.path to readable(it) }
+            val sources = ArrayList<ArchiveSource>(items.size * 4)
+            for (node in items) {
+                currentCoroutineContext().ensureActive()
+                runCatching { collect(node, node.name, sources) }
+                    .onSuccess { count++ }
+                    .onFailure { failed += node.path to readable(it) }
+            }
+            if (ArchiveWriter.needsRealFile(format)) {
+                // 7z seeks back through what it has written to build its index, so it cannot
+                // go straight down a VFS stream. Built in app-private scratch space, then
+                // copied into place - which is also why it is not the default.
+                val tmp = scratch(dest.name)
+                val os = vfs.osPath(tmp)
+                    ?: throw VfsException.Unsupported("Nowhere to build a 7z on this device.")
+                try {
+                    ArchiveWriter.writeToPath(format, os, sources) { ledger.progress(id, null, it) }
+                    vfs.openWrite(dest).use { out ->
+                        vfs.openRead(tmp).use { it.copyTo(out) }
+                    }
+                } finally {
+                    runCatching { vfs.delete(tmp) }
+                }
+            } else {
+                vfs.openWrite(dest).use { out ->
+                    ArchiveWriter.writeToStream(format, out, sources) { ledger.progress(id, null, it) }
                 }
             }
         } catch (e: Throwable) {
+            // A half-written archive is worse than none: it looks like a file and opens as
+            // rubbish. Best effort, because the failure may be that the volume is full.
+            runCatching { vfs.delete(dest) }
             ledger.fail(id, readable(e))
             return OpResult(count, failed + (dest to readable(e)))
         }
@@ -105,47 +138,39 @@ class FileOperations(private val vfs: Vfs, private val ledger: JobLedger) {
         return OpResult(count, failed)
     }
 
-    private suspend fun addToZip(zos: ZipOutputStream, node: VNode, path: String, tick: (String) -> Unit) {
+    /**
+     * Walk a selection into a flat list of members.
+     *
+     * Folders are emitted before their contents and with an entry of their own, so an empty
+     * folder survives the round trip - the one thing a flattened listing usually loses.
+     */
+    private suspend fun collect(node: VNode, entryPath: String, into: MutableList<ArchiveSource>) {
         currentCoroutineContext().ensureActive()
         if (node.isDir) {
-            zos.putNextEntry(ZipEntry("$path/"))
-            zos.closeEntry()
-            for (child in vfs.list(node.path)) addToZip(zos, child, "$path/${child.name}", tick)
+            into += ArchiveSource(entryPath, isDir = true, size = -1L, mtime = node.mtime)
+            for (child in vfs.list(node.path)) collect(child, "$entryPath/${child.name}", into)
             return
         }
-        tick(node.name)
-        val stored = node.extension in ALREADY_COMPRESSED
-        val entry = ZipEntry(path)
-        if (stored) {
-            // A STORED entry must carry size and CRC up front, which means reading twice.
-            // Worth it: deflating an mp4 burns minutes to save nothing.
-            val crc = java.util.zip.CRC32()
-            var size = 0L
-            vfs.openRead(node.path).use { input ->
-                val buf = ByteArray(64 * 1024)
-                while (true) {
-                    val n = input.read(buf)
-                    if (n < 0) break
-                    crc.update(buf, 0, n)
-                    size += n
-                }
-            }
-            entry.method = ZipEntry.STORED
-            entry.size = size
-            entry.compressedSize = size
-            entry.crc = crc.value
+        val path = node.path
+        into += ArchiveSource(entryPath, isDir = false, size = node.size, mtime = node.mtime) {
+            vfs.openRead(path)
         }
-        zos.putNextEntry(entry)
-        vfs.openRead(node.path).use { input ->
-            val buf = ByteArray(64 * 1024)
-            while (true) {
-                currentCoroutineContext().ensureActive()
-                val n = input.read(buf)
-                if (n < 0) break
-                zos.write(buf, 0, n)
-            }
+    }
+
+    /**
+     * A folder name in [into] that is not taken.
+     *
+     * Extracting twice used to merge the second archive into the first one's folder, which
+     * silently overwrote same-named members. Numbering keeps both.
+     */
+    private suspend fun uniqueName(into: VPath, base: String): String {
+        var n = 1
+        while (n < 1000) {
+            val candidate = if (n == 1) base else "$base ($n)"
+            if (vfs.stat(into.child(candidate)) == null) return candidate
+            n++
         }
-        zos.closeEntry()
+        return "$base (${System.currentTimeMillis()})"
     }
 
     /** Copy everything under [archiveRoot] (a mounted archive path) out to [into]. */
@@ -154,7 +179,9 @@ class FileOperations(private val vfs: Vfs, private val ledger: JobLedger) {
         val failed = ArrayList<Pair<VPath, String>>()
         var count = 0
         try {
-            val dest = into.child(label.substringBeforeLast('.'))
+            // The whole suffix, so a .tar.gz extracts into "photos" rather than
+            // "photos.tar" - which reads as a step in unwrapping rather than the contents.
+            val dest = into.child(uniqueName(into, Archives.baseName(label)))
             if (vfs.stat(dest) == null) vfs.create(dest, isDir = true)
             for (child in vfs.list(archiveRoot)) {
                 currentCoroutineContext().ensureActive()

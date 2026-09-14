@@ -48,6 +48,17 @@ enum class AppAction(val label: String, val description: String) {
     SHARE_NEARBY("Start sharing", "Turn on the LAN share and show the code"),
     SEARCH("Search", "Open Filet with the search box focused"),
     RECENT("Recent", "Open the recent files list"),
+    ;
+
+    companion object {
+        /**
+         * Null rather than a throw for a name this build does not have.
+         *
+         * A shortcut outlives the version that made it: a launcher icon pinned before an
+         * action was renamed would otherwise crash the app on tap rather than say so.
+         */
+        fun parse(raw: String?): AppAction? = entries.firstOrNull { it.name == raw }
+    }
 }
 
 /**
@@ -102,6 +113,9 @@ class ShortcutStore(private val context: Context, private val prefs: Prefs) {
             ?.pinnedShortcuts?.mapTo(HashSet()) { it.id }
             ?: emptySet()
     }.getOrDefault(emptySet())
+
+    /** Re-read from prefs. Another pane, a widget or the launcher may have changed them. */
+    fun reload() { _all.value = load() }
 
     private fun load(): List<ShortcutRecord> {
         val raw = prefs.getString(KEY) ?: return emptyList()

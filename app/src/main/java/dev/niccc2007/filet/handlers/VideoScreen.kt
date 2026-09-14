@@ -40,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,9 +77,36 @@ private const val CHROME_MS = 3_200L
 /** How long the "-10s" flash stays up after the last double tap of a run. */
 private const val FLASH_MS = 700L
 
-/** The handle, kept out of Compose state so exactly one place starts and stops it. */
+/**
+ * The handle, kept out of Compose state so exactly one place starts and stops it.
+ *
+ * It holds the `MediaPlayer` as well as the view, and that is the whole fix for the seek Nic
+ * measured. `VideoView.seekTo(int)` goes to the nearest keyframe BEHIND the target, so a
+ * stream with a keyframe every five seconds turns a drag to 12.5s into a jump to 10s - which
+ * reads as a control that quantises rather than one that follows your finger. `MediaPlayer`
+ * has taken a mode since API 26 and this app floors at 26, so the exact seek is simply
+ * available and was not being asked for.
+ */
 private class VideoHandle {
     var view: VideoView? = null
+    var player: android.media.MediaPlayer? = null
+
+    /**
+     * Seek to [ms] itself, not to the keyframe before it.
+     *
+     * SEEK_CLOSEST decodes forward from the preceding keyframe to land on the exact frame. It
+     * costs more than a sync seek, and it is what a scrub bar is supposed to feel like.
+     */
+    fun seekExactly(ms: Long) {
+        val target = ms.coerceAtLeast(0L)
+        val mp = player
+        if (mp != null) {
+            runCatching { mp.seekTo(target, android.media.MediaPlayer.SEEK_CLOSEST) }
+                .onFailure { view?.seekTo(target.toInt()) }
+        } else {
+            view?.seekTo(target.toInt())
+        }
+    }
 }
 
 @Composable
@@ -99,6 +127,10 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     var run by remember(node.path) { mutableStateOf<SeekRun?>(null) }
     var flashAt by remember(node.path) { mutableLongStateOf(0L) }
     var boxWidth by remember(node.path) { mutableIntStateOf(0) }
+    // Off means follow the phone, which is what it did before and is still the default.
+    var lockedOrientation by remember(node.path) { mutableStateOf<Int?>(null) }
+    var repeating by remember(node.path) { mutableStateOf(true) }
+    val activity = LocalContext.current as? android.app.Activity
 
     fun wake() {
         chromeVisible = true
@@ -106,7 +138,7 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     }
 
     fun seekTo(target: Long) {
-        handle.view?.seekTo(target.toInt())
+        handle.seekExactly(target)
         position = target
     }
 
@@ -143,11 +175,28 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
         }
     }
 
+    // Repeat is a live setting, not a start-up one: turning it on halfway through a clip has
+    // to take effect on that clip.
+    LaunchedEffect(repeating, ready) {
+        runCatching { handle.player?.isLooping = repeating }
+    }
+
+    // A locked orientation belongs to the viewer, not to the app. Leaving it set would rotate
+    // the file list on the way back out, which reads as the app having broken.
+    DisposableEffect(lockedOrientation) {
+        activity?.requestedOrientation =
+            lockedOrientation ?: android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        onDispose { }
+    }
+
     DisposableEffect(handle) {
         onDispose {
+            activity?.requestedOrientation =
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             runCatching {
                 handle.view?.stopPlayback()
                 handle.view = null
+                handle.player = null
             }
         }
     }
@@ -181,14 +230,21 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                         setVideoURI(uri)
                         // No setMediaController: the whole point of this rewrite.
                         setOnPreparedListener { mp ->
+                            handle.player = mp
+                            mp.isLooping = repeating
                             duration = mp.duration.toLong().coerceAtLeast(0L)
                             ready = true
                             mp.start()
                             playing = true
                         }
                         setOnCompletionListener {
+                            // Only reached when repeat is off: a looping MediaPlayer never
+                            // completes. Rewinding rather than sitting on a black last frame,
+                            // so the play button does what it says.
                             playing = false
                             chromeVisible = true
+                            position = 0L
+                            handle.seekExactly(0L)
                         }
                         setOnErrorListener { _, what, extra ->
                             error = "This video would not play (error $what/$extra). " +
@@ -227,6 +283,18 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
                     )
+                    OverlayAction(
+                        FiletIcons.Repeat,
+                        if (repeating) "Repeat is on" else "Repeat is off",
+                        active = repeating,
+                    ) { repeating = !repeating; wake() }
+                    OverlayAction(FiletIcons.Expand, orientationLabel(lockedOrientation)) {
+                        // Three states rather than a toggle: follow the phone, hold landscape,
+                        // hold portrait. A two-state button cannot express "stop rotating",
+                        // which is the thing you want while lying down.
+                        lockedOrientation = nextOrientation(lockedOrientation)
+                        wake()
+                    }
                     OverlayAction(FiletIcons.Link, "Open in another app") {
                         vm.openExternally(node, force = true)
                     }
@@ -441,14 +509,34 @@ private fun CentreTransport(
     }
 }
 
+/**
+ * Follow the phone, hold landscape, hold portrait, and back to following.
+ *
+ * Null is "follow", which is also what the viewer is restored to on the way out - a lock left
+ * behind would rotate the file list and read as the app having broken.
+ */
+private fun nextOrientation(current: Int?): Int? = when (current) {
+    null -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+    android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE ->
+        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    else -> null
+}
+
+private fun orientationLabel(current: Int?): String = when (current) {
+    null -> "Rotation follows the phone"
+    android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE -> "Held landscape"
+    else -> "Held portrait"
+}
+
 @Composable
 private fun OverlayAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
+    active: Boolean = false,
     onClick: () -> Unit,
 ) {
     Icon(
-        icon, label, tint = Color.White,
+        icon, label, tint = if (active) Filet.colors.accent else Color.White,
         modifier = Modifier
             .size(32.dp)
             .clip(RoundedCornerShape(8.dp))

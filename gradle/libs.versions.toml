@@ -49,6 +49,18 @@ arsclib = { group = "io.github.reandroid", name = "ARSCLib", version = "1.3.5" }
 
 luaj = { group = "org.luaj", name = "luaj-jse", version = "3.0.1" }
 
+# Archive formats beyond zip: tar, 7z, and the gz/bz2/xz stream wrappers. Apache-2.0, which a
+# GPL-3 app may link. Pure Java, no NDK, no ABI splits.
+commons-compress = { group = "org.apache.commons", name = "commons-compress", version = "1.27.1" }
+# XZ and LZMA2, which commons-compress delegates to for .xz and for most 7z archives. Public
+# domain. Without it a .7z reads as unsupported rather than as broken, but most are LZMA2.
+xz = { group = "org.tukaani", name = "xz", version = "1.10" }
+
+# `org.json` is a STUB inside android.jar: every method throws "not mocked" in a JVM unit
+# test. The real implementation on the test classpath is what lets the persistence code be
+# tested at all, and persistence is where a silent upgrade bug lives.
+jsonTest = { group = "org.json", name = "json", version = "20250517" }
+
 sora-editor = { group = "io.github.Rosemoe.sora-editor", name = "editor", version = "0.23.6" }
 
 androidx-work = { group = "androidx.work", name = "work-runtime-ktx", version = "2.10.1" }

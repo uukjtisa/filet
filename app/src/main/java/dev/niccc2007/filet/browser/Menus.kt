@@ -167,11 +167,18 @@ fun MoreMenu(
                 if (readOnly == null) {
                     Item(FiletIcons.Rename, "Rename") { onDismiss(); vm.askRename(selection[0]) }
                 }
+                // Reachable from a search result too, which is where it matters most: finding
+                // a hit used to be the end of the road rather than the start of doing
+                // something with it.
+                Item(FiletIcons.FolderOpen, "Show in folder") { onDismiss(); vm.revealInFolder(selection[0]) }
                 Item(FiletIcons.Info, "Properties") { onDismiss(); vm.showProperties(selection[0]) }
             }
+            // Works on a folder as well as a file, and on any number of them: several paths
+            // one per line is what you want when you are about to paste them into a script.
+            Item(FiletIcons.Copy, "Copy as path") { onDismiss(); vm.copyPathsOfSelection() }
             if (readOnly == null) {
-                Item(FiletIcons.Zip, "Compress to zip") { onDismiss(); vm.askCompress() }
-                if (selection.size == 1 && selection[0].extension in ArchiveProvider.EXTENSIONS) {
+                Item(FiletIcons.Zip, "Compress") { onDismiss(); vm.askCompress() }
+                if (selection.size == 1 && dev.niccc2007.filet.vfs.provider.Archives.canList(selection[0].name)) {
                     Item(FiletIcons.Archive, "Extract here") { onDismiss(); vm.extract(selection[0]) }
                 }
             }

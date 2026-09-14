@@ -84,6 +84,36 @@ fun NearbyScreen(vm: BrowserViewModel) {
         item { SectionLabel("Share over this network") }
         item { ShareCard(vm, server) { editingPin = nearby.fixedPin() ?: "" } }
 
+        // "Where can I find what somebody sent me" is the first question this screen raises
+        // and the last one it used to answer.
+        item {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(colors.raised)
+                    .clickable { vm.openReceivedFolder() }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(FiletIcons.Download, null, tint = colors.accent, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(11.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Received files", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        nearby.receivedFolder.path,
+                        fontSize = 9.5.sp,
+                        color = colors.fg3,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Icon(FiletIcons.Forward, null, tint = colors.fg3, modifier = Modifier.size(14.dp))
+            }
+        }
+
         // Live endpoints. Everything that typed the code has a row here, and every row has a
         // Revoke that takes effect on the very next request - which is the whole reason a
         // grant is a URL and not an invisible cookie.

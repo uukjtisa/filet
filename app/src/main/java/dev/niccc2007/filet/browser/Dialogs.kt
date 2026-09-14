@@ -1,6 +1,10 @@
 package dev.niccc2007.filet.browser
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,8 +12,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -21,7 +27,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
@@ -29,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
+import dev.niccc2007.filet.vfs.provider.Archives
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -64,9 +74,7 @@ fun FiletDialogs(vm: BrowserViewModel) {
         is Dialog.Rename -> NameDialog("Rename", d.node.name, "Rename", vm::dismissDialog, selectStem = true) {
             vm.rename(d.node.path, it)
         }
-        is Dialog.Compress -> NameDialog("Compress to zip", vm.suggestedArchiveName(), "Compress", vm::dismissDialog) {
-            vm.compressSelection(it)
-        }
+        is Dialog.Compress -> CompressDialog(vm)
         is Dialog.ConfirmDelete -> ConfirmDialog(
             title = if (d.count == 1) "Delete ${d.sample}?" else "Delete ${d.count} items?",
             body = "This cannot be undone. Filet has no trash yet, so deleted means gone.",
@@ -223,3 +231,111 @@ private fun hostOf(url: String): String =
     runCatching { java.net.URI(url).host ?: url }.getOrDefault(url).removePrefix("www.")
 
 private val STAMP = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+
+/**
+ * Name it, pick a container, compress.
+ *
+ * The formats are rows rather than a dropdown because a dropdown hides the choice behind a
+ * tap and the choice is the point: zip is what everything opens, tar keeps unix permissions,
+ * 7z is smaller and much slower. Each row says which it is rather than leaving the user to
+ * already know.
+ *
+ * The suffix comes from the format and never from the typed name, so picking Tar + gzip with
+ * "Photos.zip" still in the box makes a `Photos.tar.gz` and not a gzipped tar wearing a zip's
+ * name.
+ */
+@Composable
+private fun CompressDialog(vm: BrowserViewModel) {
+    val colors = Filet.colors
+    val formats = vm.archiveFormats
+    var format by remember { mutableStateOf(formats.first()) }
+    val suggested = remember { Archives.baseName(vm.suggestedArchiveName()) }
+    var value by remember { mutableStateOf(TextFieldValue(suggested, TextRange(0, suggested.length))) }
+    val invalid = value.text.contains('/') || value.text.trim() == "." || value.text.trim() == ".."
+
+    AlertDialog(
+        onDismissRequest = vm::dismissDialog,
+        title = { Text("Compress", fontSize = 16.sp) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    singleLine = true,
+                    isError = invalid,
+                    label = { Text("Name") },
+                    suffix = {
+                        Text(
+                            format.suffix,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = colors.accent,
+                        )
+                    },
+                )
+                if (invalid) {
+                    Text(
+                        "A name cannot contain a slash.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                for (f in formats) {
+                    val on = f.id == format.id
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (on) colors.sel else Color.Transparent)
+                            .clickable { format = f }
+                            .padding(horizontal = 8.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                f.label,
+                                fontSize = 13.sp,
+                                color = if (on) colors.accent else MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(FORMAT_NOTES[f.id].orEmpty(), fontSize = 9.5.sp, color = colors.fg3)
+                        }
+                        Text(
+                            f.suffix,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = colors.fg3,
+                        )
+                        if (on) {
+                            Spacer(Modifier.width(8.dp))
+                            Icon(
+                                FiletIcons.Check, null,
+                                tint = colors.accent, modifier = Modifier.size(14.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    vm.dismissDialog()
+                    vm.compressSelection(value.text.trim(), format)
+                },
+                enabled = value.text.isNotBlank() && !invalid,
+            ) { Text("Compress") }
+        },
+        dismissButton = { TextButton(onClick = vm::dismissDialog) { Text("Cancel") } },
+    )
+}
+
+/** One line each, saying what the format is actually for. */
+private val FORMAT_NOTES = mapOf(
+    "zip" to "Opens on everything. The safe answer.",
+    "tar" to "No compression. Fast, and keeps unix permissions.",
+    "tar.gz" to "Smaller than zip on text. Common on Linux.",
+    "tar.bz2" to "Smaller again, and slower.",
+    "tar.xz" to "Smallest of the tars, and the slowest.",
+    "7z" to "Usually the smallest. Slow on a phone, and built in the cache first.",
+)

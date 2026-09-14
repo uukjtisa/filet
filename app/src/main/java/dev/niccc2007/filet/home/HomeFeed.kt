@@ -8,6 +8,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 
@@ -26,46 +29,94 @@ data class FeedItem(val node: VNode, val at: Long, val origin: String? = null)
  * *short* list: it is also the watch list for the inotify tier (SEARCH.md §4.1), and inotify
  * costs one watch per directory against a per-process ceiling of roughly 8192.
  */
-class TrackedFolders(private val prefs: Prefs) {
+/**
+ * One tracked place.
+ *
+ * @param recursive watch everything beneath it too. Off by default, and deliberately not the
+ *   default: the tracked list is also the inotify watch list, inotify costs one watch per
+ *   DIRECTORY, and the per-process ceiling is about 8192. Tracking `/storage/emulated/0`
+ *   recursively would spend the whole budget on one entry. Nic asked for it because adding
+ *   folders one at a time is a hassle, which is true, so it is offered with the cost named
+ *   rather than hidden.
+ */
+data class TrackedFolder(val path: VPath, val recursive: Boolean = false)
 
-    private val _paths = MutableStateFlow(load())
-    val paths: StateFlow<List<VPath>> = _paths.asStateFlow()
+class TrackedFolders(private val prefs: Prefs, private val scope: CoroutineScope) {
 
-    fun add(p: VPath) {
-        if (p in _paths.value) return
-        _paths.value = _paths.value + p
+    private val _folders = MutableStateFlow(load())
+    val folders: StateFlow<List<TrackedFolder>> = _folders.asStateFlow()
+
+    /**
+     * Just the paths, for the callers that only ever wanted those.
+     *
+     * One flow, mapped once. Building it per read would hand every collector a flow that
+     * never emits again, which is the quiet kind of broken: the first frame looks right and
+     * nothing updates afterwards.
+     */
+    val paths: StateFlow<List<VPath>> = _folders
+        .map { list -> list.map { it.path } }
+        .stateIn(scope, SharingStarted.Eagerly, _folders.value.map { it.path })
+
+    fun add(p: VPath, recursive: Boolean = false) {
+        if (_folders.value.any { it.path == p }) return
+        _folders.value = _folders.value + TrackedFolder(p, recursive)
         save()
     }
 
     fun remove(p: VPath) {
-        _paths.value = _paths.value - p
+        _folders.value = _folders.value.filterNot { it.path == p }
         save()
     }
 
-    fun contains(p: VPath) = p in _paths.value
+    /** Turn subfolder tracking on or off for one entry, without losing its place in the list. */
+    fun setRecursive(p: VPath, recursive: Boolean) {
+        _folders.value = _folders.value.map { if (it.path == p) it.copy(recursive = recursive) else it }
+        save()
+    }
+
+    fun contains(p: VPath) = _folders.value.any { it.path == p }
+
+    fun isRecursive(p: VPath) = _folders.value.firstOrNull { it.path == p }?.recursive == true
 
     /** Seed with the conventional download directory the first time the app runs. */
     fun seedDefaults(roots: List<VPath>) {
         if (prefs.getBool(SEEDED, false)) return
         prefs.putBool(SEEDED, true)
         for (r in roots) {
-            val dl = r.child("Download")
-            _paths.value = _paths.value + dl
+            _folders.value = _folders.value + TrackedFolder(r.child("Download"))
         }
         save()
     }
 
-    private fun load(): List<VPath> {
+    /**
+     * Reads both shapes.
+     *
+     * Entries written before subfolder tracking existed are bare strings; new ones are
+     * objects. Migrating on read rather than on upgrade means a downgrade does not lose the
+     * list, and it costs one type check.
+     */
+    private fun load(): List<TrackedFolder> {
         val raw = prefs.getString(KEY) ?: return emptyList()
         return runCatching {
             val arr = JSONArray(raw)
-            (0 until arr.length()).mapNotNull { runCatching { VPath.parse(arr.getString(it)) }.getOrNull() }
+            (0 until arr.length()).mapNotNull { i ->
+                val entry = arr.get(i)
+                runCatching {
+                    if (entry is org.json.JSONObject) {
+                        TrackedFolder(VPath.parse(entry.getString("path")), entry.optBoolean("deep", false))
+                    } else {
+                        TrackedFolder(VPath.parse(entry.toString()), recursive = false)
+                    }
+                }.getOrNull()
+            }
         }.getOrElse { emptyList() }
     }
 
     private fun save() {
         val arr = JSONArray()
-        _paths.value.forEach { arr.put(it.toString()) }
+        _folders.value.forEach {
+            arr.put(org.json.JSONObject().put("path", it.path.toString()).put("deep", it.recursive))
+        }
         prefs.putString(KEY, arr.toString())
     }
 
@@ -100,15 +151,40 @@ class HomeFeed(
         scope.launch {
             _loading.value = true
             val items = ArrayList<FeedItem>()
-            for (dir in tracked.paths.value) {
-                val kids = runCatching { vfs.list(dir) }.getOrNull() ?: continue
-                for (k in kids) {
-                    if (k.isDir || k.hidden) continue
-                    items += FeedItem(k, k.mtime, originLookup?.invoke(k.path))
-                }
+            for (folder in tracked.folders.value) {
+                collect(folder.path, folder.recursive, depth = 0, into = items)
             }
-            _downloads.value = items.sortedByDescending { it.at }.take(8)
+            _downloads.value = items.sortedByDescending { it.at }.take(SHOWN)
             _loading.value = false
         }
+    }
+
+    /**
+     * Newly-arrived things in one tracked folder.
+     *
+     * Folders count. They used to be skipped outright, which is why a whole extracted archive
+     * or a folder pushed over Nearby left no trace on Home - the row said "new downloads" and
+     * a folder is not a download. A folder that is itself tracked is not listed inside its
+     * parent, because it has its own row and two of the same thing reads as a bug.
+     *
+     * @param depth bounded, because a tracked root plus recursion is otherwise a full crawl on
+     *   every Home refresh, and Home is the first screen after launch.
+     */
+    private suspend fun collect(dir: VPath, recursive: Boolean, depth: Int, into: MutableList<FeedItem>) {
+        val kids = runCatching { vfs.list(dir) }.getOrNull() ?: return
+        for (k in kids) {
+            if (k.hidden) continue
+            if (k.isDir && tracked.contains(k.path)) continue
+            into += FeedItem(k, k.mtime, originLookup?.invoke(k.path))
+            if (recursive && k.isDir && depth < MAX_DEPTH) {
+                collect(k.path, true, depth + 1, into)
+            }
+        }
+    }
+
+    private companion object {
+        const val SHOWN = 8
+        /** Deep enough for `Download/Telegram/x`, shallow enough not to be a crawl. */
+        const val MAX_DEPTH = 3
     }
 }

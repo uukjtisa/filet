@@ -56,7 +56,7 @@ class FiletGraph(context: Context) {
     val files = dev.niccc2007.filet.data.AppFiles(app)
     val bookmarks = Bookmarks(prefs)
     val recents = Recents(prefs)
-    val tracked = TrackedFolders(prefs)
+    val tracked = TrackedFolders(prefs, scope)
     val ledger = JobLedger()
     val registry = dev.niccc2007.filet.handlers.HandlerRegistry(prefs)
 

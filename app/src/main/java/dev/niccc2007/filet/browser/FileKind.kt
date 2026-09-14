@@ -34,7 +34,9 @@ enum class FileKind {
     val isContainer: Boolean get() = this == FOLDER || this == ARCHIVE || this == APK
 
     companion object {
-        private val ARCHIVE_EXT = setOf("zip", "jar", "aar", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar", "epub", "apks", "xapk", "apkm")
+        // Taken from the one archive table rather than kept in step by hand. A format
+        // added there shows the right icon here without a second edit that gets forgotten.
+        private val ARCHIVE_EXT = dev.niccc2007.filet.vfs.provider.Archives.allExtensions
         private val IMAGE_EXT = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif", "avif", "svg", "ico")
         private val VIDEO_EXT = setOf("mp4", "mkv", "webm", "avi", "mov", "3gp", "ts", "m4v", "flv", "wmv")
         private val AUDIO_EXT = setOf("mp3", "opus", "ogg", "m4a", "aac", "flac", "wav", "wma", "amr", "mid")

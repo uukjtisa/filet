@@ -33,6 +33,11 @@ dependencies {
     implementation(libs.commons.net)
     // smbj and sshj log through slf4j; without a binding they print a warning on every call.
     implementation(libs.slf4j.nop)
+    // Round 7: tar, 7z and the gz/bz2/xz wrappers. `api` rather than `implementation` because
+    // the app layer builds archives with the same writers the provider reads with, and two
+    // copies of that decision is how the reader and the writer drift apart.
+    api(libs.commons.compress)
+    api(libs.xz)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)

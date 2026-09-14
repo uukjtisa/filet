@@ -42,7 +42,9 @@ import dev.niccc2007.filet.browser.BrowserScreen
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletDialogs
 import dev.niccc2007.filet.handlers.HandlerHost
+import dev.niccc2007.filet.shortcuts.ShortcutRoute
 import dev.niccc2007.filet.shortcuts.ShortcutRouterActivity
+import dev.niccc2007.filet.shortcuts.shortcutRoute
 import dev.niccc2007.filet.signet.OnboardingScreen
 import dev.niccc2007.filet.signet.markOnboardingComplete
 import dev.niccc2007.filet.signet.onboardingComplete
@@ -172,10 +174,27 @@ class MainActivity : ComponentActivity() {
      */
     private fun handleIncoming(intent: Intent?, browser: BrowserViewModel) {
         // A pinned shortcut or a widget row has already resolved an ID to a path, so it
-        // arrives as a Filet target rather than as a content URI.
-        intent?.getStringExtra(ShortcutRouterActivity.EXTRA_TARGET)?.let { target ->
-            browser.openResolvedTarget(target, intent.getStringExtra(ShortcutRouterActivity.EXTRA_HANDLER))
-            return
+        // arrives as a Filet target rather than as a content URI. An action shortcut carries
+        // no path at all.
+        //
+        // This used to read the target extra and nothing else, which is why every action
+        // shortcut - Search, Start sharing, Index now, Recent - launched the app onto
+        // whichever tab was last open and then did nothing. Reported twice before it was
+        // found, because the icon looked right and the app did open.
+        when (val route = shortcutRoute(
+            target = intent?.getStringExtra(ShortcutRouterActivity.EXTRA_TARGET),
+            action = intent?.getStringExtra(ShortcutRouterActivity.EXTRA_ACTION),
+            handler = intent?.getStringExtra(ShortcutRouterActivity.EXTRA_HANDLER),
+        )) {
+            is ShortcutRoute.OpenTarget -> {
+                browser.openResolvedTarget(route.raw, route.handler)
+                return
+            }
+            is ShortcutRoute.RunAction -> {
+                browser.runShortcutAction(route.action)
+                return
+            }
+            is ShortcutRoute.Nothing -> Unit
         }
         when (intent?.action) {
             Intent.ACTION_VIEW -> intent.data?.let { browser.openIncoming(it, intent.type) }
