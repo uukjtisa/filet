@@ -73,3 +73,4 @@ signing.properties
 # The NDK build tree. The vendored libarchive SOURCE is committed; its objects are not.
 /core-native/build/
 /core-native/.cxx/
+.damaged.txt
