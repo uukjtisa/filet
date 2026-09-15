@@ -2023,6 +2023,13 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun installApk(node: VNode) {
         viewModelScope.launch {
+            // A split bundle cannot go to the system installer as a file - it is a base plus
+            // its per-architecture, per-density and per-language pieces, and they have to be
+            // committed together in one session.
+            if (dev.niccc2007.filet.apk.SplitPackage.isSplitBundle(node.name)) {
+                installSplitBundle(node)
+                return@launch
+            }
             val os = graph.vfs.osPath(node.path)
             if (os == null) { toast("Install from local storage."); return@launch }
             val uri = graph.files.shareUri(graph.files.fileAt(os))
@@ -2031,6 +2038,56 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 .setDataAndType(uri, "application/vnd.android.package-archive")
                 .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
             onIntent?.invoke(i)
+        }
+    }
+
+    /**
+     * Install an `.xapk`, `.apkm` or `.apks`.
+     *
+     * The bundle is mounted as the archive it is, the pieces this device needs are chosen by
+     * [dev.niccc2007.filet.apk.SplitPackage], and each one is streamed straight from inside the
+     * archive into the install session. Nothing is unpacked to disk: a large bundle would
+     * otherwise need twice its own size free, on the device least likely to have it.
+     */
+    private suspend fun installSplitBundle(node: VNode) {
+        val mount = runCatching {
+            dev.niccc2007.filet.vfs.provider.ArchiveProvider.mount(node.path.toString())
+        }.getOrNull()
+        if (mount == null) { toast("This bundle could not be opened."); return }
+
+        val members = runCatching { graph.vfs.list(mount) }.getOrElse {
+            toast("This bundle could not be read: ${it.message ?: "unreadable"}"); return
+        }
+        val byName = members.associateBy { it.name }
+        val dpi = graph.app.resources.displayMetrics.densityDpi
+        val chosen = dev.niccc2007.filet.apk.SplitPackage.pick(
+            entries = members.map { it.name },
+            abis = dev.niccc2007.filet.apk.SplitInstall.deviceAbis(),
+            density = dev.niccc2007.filet.apk.SplitInstall.deviceDensity(dpi),
+            languages = listOf(java.util.Locale.getDefault().language),
+        )
+        if (chosen.isEmpty()) { toast("There are no APKs inside this bundle."); return }
+
+        val extras = dev.niccc2007.filet.apk.SplitPackage.extras(members.map { it.name })
+        toast("Installing ${chosen.size} piece(s) from ${node.name}…")
+
+        val result = dev.niccc2007.filet.apk.SplitInstall.install(
+            context = graph.app,
+            label = node.name.substringBeforeLast('.'),
+            entries = chosen,
+        ) { entry ->
+            val member = byName[entry] ?: return@install null
+            runCatching { graph.vfs.openRead(member.path) to member.size }.getOrNull()
+        }
+
+        when (result) {
+            is dev.niccc2007.filet.apk.SplitInstall.Result.Handed ->
+                // Said out loud because an OBB is not part of the install and the game will
+                // ask for its data on first run with no explanation of where it went.
+                if (extras.any { it.endsWith(".obb", ignoreCase = true) }) {
+                    toast("Confirm the install. This bundle also carries an OBB data file that has to be placed by hand.")
+                }
+            is dev.niccc2007.filet.apk.SplitInstall.Result.Failed -> toast(result.why)
         }
     }
 

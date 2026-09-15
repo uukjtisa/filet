@@ -79,16 +79,37 @@ data class IndexStatus(
     val headline: String
         get() = when {
             !enabled -> "Index off"
+            // A pass in flight is reported BEFORE "no index yet", because during a first build
+            // both are true and only one of them is useful. The old order said "No index yet"
+            // for the entire length of the build that was fixing exactly that.
+            //
+            // Two different events, said differently. "Indexing" on a device that already has
+            // thirty thousand files indexed is not what is happening, and saying it is what
+            // made a running pass read as an index that had been thrown away.
+            running && knownAtStart > 0 -> "Updating the index"
+            running -> "Building the index"
             !available -> "No index yet"
-            running -> "Indexing — $phase"
             files == 0L -> "Index empty"
             else -> "$files files indexed"
         }
 
+    /** Thousands separated: two bare five-digit numbers side by side are hard to compare. */
+    private fun grouped(n: Long): String = if (n < 1000) n.toString() else {
+        val t = n.toString()
+        buildString { for ((i, c) in t.withIndex()) { if (i > 0 && (t.length - i) % 3 == 0) append(','); append(c) } }
+    }
+
     val detail: String
         get() = buildString {
             if (running) {
-                append("$scanned scanned so far. ")
+                // The total that was already there stays on screen. Without it this line read
+                // "0 scanned so far" the moment a pass started, under an index of thirty
+                // thousand files, which is indistinguishable from having lost the lot.
+                if (knownAtStart > 0) {
+                    append("Checked ${grouped(scanned)} of ${grouped(knownAtStart)} so far. ")
+                } else {
+                    append("${grouped(scanned)} found so far. ")
+                }
             } else if (lastRunAt > 0) {
                 append("Last run ")
                 append(agoText(lastRunAt))

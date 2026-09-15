@@ -51,7 +51,10 @@ enum class FileKind {
         fun of(node: VNode): FileKind {
             if (node.isDir) return FOLDER
             return when (node.extension) {
-                "apk" -> APK
+                // The bundle formats are app packages too. They were reaching ARCHIVE via the
+                // zip family, which is why they opened, looked supported, and offered no way
+                // to install - see SplitInstall.
+                "apk", "xapk", "apkm", "apks" -> APK
                 "dex", "odex", "vdex" -> DEX
                 in ARCHIVE_EXT -> ARCHIVE
                 in IMAGE_EXT -> IMAGE

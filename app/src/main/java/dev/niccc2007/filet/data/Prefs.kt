@@ -42,6 +42,10 @@ class Prefs(context: Context) {
     private val _restoreTabs = MutableStateFlow(sp.getBoolean(K_RESTORE_TABS, true))
     val restoreTabs: StateFlow<Boolean> = _restoreTabs.asStateFlow()
 
+    /** The bottom bar, as stored ids. Always read through `BottomBarConfig.normalise`. */
+    private val _bottomBar = MutableStateFlow(sp.getString(K_BOTTOM_BAR, null))
+    val bottomBar: StateFlow<String?> = _bottomBar.asStateFlow()
+
     /**
      * Hide the storage cards on Home.
      *
@@ -150,6 +154,8 @@ class Prefs(context: Context) {
     fun setShowHidden(v: Boolean) { _showHidden.value = v; sp.edit().putBoolean(K_HIDDEN, v).apply() }
 
     fun setRestoreTabs(v: Boolean) { _restoreTabs.value = v; sp.edit().putBoolean(K_RESTORE_TABS, v).apply() }
+
+    fun setBottomBar(v: String) { _bottomBar.value = v; sp.edit().putString(K_BOTTOM_BAR, v).apply() }
     fun setHideStorage(v: Boolean) { _hideStorage.value = v; sp.edit().putBoolean(K_HIDE_STORAGE, v).apply() }
 
     fun setHideTermux(v: Boolean) { _hideTermux.value = v; sp.edit().putBoolean(K_HIDE_TERMUX, v).apply() }
@@ -232,6 +238,7 @@ class Prefs(context: Context) {
         const val K_FOLDERS_FIRST = "sort.foldersFirst"
         const val K_HIDDEN = "browse.hidden"
         const val K_RESTORE_TABS = "browse.restoreTabs"
+        const val K_BOTTOM_BAR = "browse.bottomBar"
         const val K_VIEW_STEP = "browse.viewStep"
         const val K_THEME = "ui.theme"
         const val K_ACCENT = "ui.accent"

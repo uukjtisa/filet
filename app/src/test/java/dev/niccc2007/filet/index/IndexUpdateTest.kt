@@ -1,6 +1,7 @@
 package dev.niccc2007.filet.index
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -131,5 +132,38 @@ class IndexUpdateTest {
         assertTrue("building and updating must not read the same", building != updating)
         assertTrue(building.contains("Building"))
         assertTrue(updating.contains("Updating"))
+    }
+}
+
+/**
+ * The same fault in the other place it was written.
+ *
+ * `IndexRun` describes one run and `IndexStatus` describes the index, and both are on the
+ * settings screen at once. Fixing only the first left "26,296 scanned so far" underneath a
+ * button that correctly said "Stop indexing" - the original complaint, still on screen, one
+ * line lower. Found by reading the running app rather than the diff.
+ */
+class IndexStatusLineTest {
+
+    @Test
+    fun `a running update keeps the existing total in the detail line`() {
+        val s = IndexStatus(available = true, running = true, files = 31_206, scanned = 12_430, knownAtStart = 31_206)
+        assertTrue(s.detail, s.detail.contains("Checked 12,430 of 31,206"))
+        assertFalse("the wording that caused the report", s.detail.contains("scanned so far"))
+    }
+
+    @Test
+    fun `a first ever pass has no total to show and says so differently`() {
+        val s = IndexStatus(available = false, running = true, files = 0, scanned = 900, knownAtStart = 0)
+        assertTrue(s.detail, s.detail.contains("900 found so far"))
+    }
+
+    @Test
+    fun `the summary distinguishes building from updating`() {
+        val building = IndexStatus(running = true, phase = "scanning", knownAtStart = 0).headline
+        val updating = IndexStatus(running = true, phase = "scanning", knownAtStart = 31_206).headline
+        assertTrue(building.contains("Building"))
+        assertTrue(updating.contains("Updating"))
+        assertTrue("the two states must not read the same", building != updating)
     }
 }

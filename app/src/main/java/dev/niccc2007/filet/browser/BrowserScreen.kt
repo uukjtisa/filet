@@ -872,21 +872,68 @@ private fun RailItem(
 private fun BottomNav(vm: BrowserViewModel, app: AppState, active: PaneController?) {
     val colors = Filet.colors
     val jobs by vm.ledger.jobs.collectAsState()
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(colors.raised)
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-    ) {
-        // Used to be `if not already a folder, go Home`, which meant it did nothing at all
-        // whenever you were looking at files - i.e. almost always. It now goes to storage,
-        // and to Home when you are already there, so it always does something.
-        NavItem(FiletIcons.Storage, "Files") { vm.goToFiles() }
-        NavItem(FiletIcons.Search, "Search") { active?.openSearch(true) }
-        NavItem(FiletIcons.Jobs, "Activity", jobs.count { it.running }) { vm.openActivity(true) }
-        NavItem(FiletIcons.Star, "Bookmarks") { active?.openSpecial(PaneKind.BOOKMARKS, "Bookmarks") }
+    val stored by vm.prefs.bottomBar.collectAsState()
+    val items = remember(stored) { BottomBarConfig.normalise(stored) }
+
+    val row: @Composable () -> Unit = {
+        for (item in items) {
+            val badge = if (item == BarItem.ACTIVITY) jobs.count { it.running } else 0
+            NavItem(barIcon(item), item.label, badge) { runBarItem(item, vm, active) }
+        }
+    }
+
+    val base = Modifier
+        .fillMaxWidth()
+        .background(colors.raised)
+        .windowInsetsPadding(WindowInsets.navigationBars)
+        .padding(vertical = 4.dp)
+
+    // Past six the labels stop being readable on a narrow phone, so the bar takes its natural
+    // width and scrolls rather than squeezing every entry thinner. HScroll and not a bare
+    // horizontalScroll: a row that scrolls with no sign that it does is the thing
+    // tools/check-scrollcue.mjs exists to prevent.
+    if (BottomBarConfig.scrolls(items.size)) {
+        HScroll(modifier = base, ground = colors.raised, contentPadding = 6.dp) { row() }
+    } else {
+        Row(base, horizontalArrangement = Arrangement.SpaceEvenly) { row() }
+    }
+}
+
+private fun barIcon(item: BarItem) = when (item) {
+    BarItem.FILES -> FiletIcons.Storage
+    BarItem.SEARCH -> FiletIcons.Search
+    BarItem.ACTIVITY -> FiletIcons.Jobs
+    BarItem.BOOKMARKS -> FiletIcons.Star
+    BarItem.HOME -> FiletIcons.Home
+    BarItem.RECENT -> FiletIcons.Clock
+    BarItem.SHARING -> FiletIcons.Wifi
+    BarItem.SCRIPTS -> FiletIcons.Script
+    BarItem.SHORTCUTS -> FiletIcons.Pin
+    BarItem.SPLIT -> FiletIcons.SplitV
+    BarItem.NEW_TAB -> FiletIcons.Plus
+    BarItem.SETTINGS -> FiletIcons.Cog
+}
+
+/**
+ * What each bar entry does.
+ *
+ * A `when` with no else, so adding an entry to [BarItem] without giving it an action does not
+ * compile. The alternative is a button in the bar that does nothing, which is rule R1.
+ */
+private fun runBarItem(item: BarItem, vm: BrowserViewModel, active: PaneController?) {
+    when (item) {
+        BarItem.FILES -> vm.goToFiles()
+        BarItem.SEARCH -> active?.openSearch(true)
+        BarItem.ACTIVITY -> vm.openActivity(true)
+        BarItem.BOOKMARKS -> active?.openSpecial(PaneKind.BOOKMARKS, "Bookmarks")
+        BarItem.HOME -> active?.openHome()
+        BarItem.RECENT -> active?.openSpecial(PaneKind.RECENT, "Recent")
+        BarItem.SHARING -> active?.openSpecial(PaneKind.NEARBY, "Share")
+        BarItem.SCRIPTS -> active?.openSpecial(PaneKind.SCRIPTS, "Scripts")
+        BarItem.SHORTCUTS -> active?.openSpecial(PaneKind.SHORTCUTS, "Shortcuts")
+        BarItem.SPLIT -> vm.cycleSplit()
+        BarItem.NEW_TAB -> vm.addTab()
+        BarItem.SETTINGS -> active?.openSpecial(PaneKind.SETTINGS, "Settings")
     }
 }
 

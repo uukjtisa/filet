@@ -102,6 +102,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val step by prefs.viewStep.collectAsState()
     val hidden by prefs.showHidden.collectAsState()
     val restoreTabs by prefs.restoreTabs.collectAsState()
+    val storedBar by prefs.bottomBar.collectAsState()
     val sort by prefs.sort.collectAsState()
     val indexOn by prefs.indexEnabled.collectAsState()
     val updatesOn by vm.updateNotificationsOn.collectAsState()
@@ -157,6 +158,32 @@ fun SettingsPage(vm: BrowserViewModel) {
         item {
             ToggleRow("Show hidden files", "Dotfiles and anything the volume marks hidden", hidden) {
                 prefs.setShowHidden(it)
+            }
+        }
+        item {
+            val bar = dev.niccc2007.filet.browser.BottomBarConfig.normalise(storedBar)
+            SettingsSection(
+                "Bottom bar",
+                if (dev.niccc2007.filet.browser.BottomBarConfig.scrolls(bar.size))
+                    "${bar.size} on the bar. Past ${dev.niccc2007.filet.browser.BottomBarConfig.SCROLLS_PAST} it scrolls sideways. Only shown on a phone-width screen."
+                else
+                    "${bar.size} on the bar. Add as many as you like — past ${dev.niccc2007.filet.browser.BottomBarConfig.SCROLLS_PAST} it scrolls sideways. Only shown on a phone-width screen.",
+            )
+        }
+        items(dev.niccc2007.filet.browser.BarItem.entries.size) { i ->
+            val item = dev.niccc2007.filet.browser.BarItem.entries[i]
+            val bar = dev.niccc2007.filet.browser.BottomBarConfig.normalise(storedBar)
+            val on = item in bar
+            ToggleRow(
+                item.label,
+                if (on) "On the bar, position ${bar.indexOf(item) + 1}" else "Not on the bar",
+                on,
+            ) {
+                prefs.setBottomBar(
+                    dev.niccc2007.filet.browser.BottomBarConfig.encode(
+                        dev.niccc2007.filet.browser.BottomBarConfig.toggled(bar, item),
+                    ),
+                )
             }
         }
         item {

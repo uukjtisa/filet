@@ -217,6 +217,37 @@ class FiletApp : Application() {
         // Skipped in the `:crash` process, which exists to show the report - it must not be
         // able to loop by reporting its own failure to report.
         if (!isCrashProcess()) dev.niccc2007.filet.crash.CrashReport.install(this)
+        if (!isCrashProcess()) registerSplitInstallReceiver()
+    }
+
+    /**
+     * Listen for the verdict on a split-bundle install.
+     *
+     * Without this the session commits and **nothing happens**: the platform answers
+     * `STATUS_PENDING_USER_ACTION` by handing back an intent that has to be started, and a
+     * commit whose status nobody reads is a confirmation screen that never appears. Registered
+     * on the application rather than an activity because the answer can arrive while the
+     * browser is not on screen, and a missed one leaves a staged session occupying its own size
+     * in storage until the platform collects it.
+     *
+     * NOT_EXPORTED because it is our own broadcast to ourselves; an exported receiver here
+     * would let any app on the device drive Filet's installer status handling.
+     */
+    private fun registerSplitInstallReceiver() {
+        val receiver = dev.niccc2007.filet.apk.SplitInstallReceiver { message ->
+            android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
+        }
+        runCatching {
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(
+                    receiver,
+                    dev.niccc2007.filet.apk.SplitInstallReceiver.filter(),
+                    Context.RECEIVER_NOT_EXPORTED,
+                )
+            } else {
+                registerReceiver(receiver, dev.niccc2007.filet.apk.SplitInstallReceiver.filter())
+            }
+        }
     }
 
     private fun isCrashProcess(): Boolean {

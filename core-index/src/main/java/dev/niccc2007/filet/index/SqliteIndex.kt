@@ -561,9 +561,25 @@ class SqliteIndex(
                             visited++
 
                             val children = runCatching { vfs.list(dir) }.getOrNull() ?: continue
-                            // Directory-mtime validation, SEARCH.md §4.2: if the directory has
-                            // not changed since the last readdir, its children are still right
-                            // and re-stating all of them is pure waste.
+                            // Directory-mtime validation, SEARCH.md §4.2.
+                            //
+                            // **This does NOT skip the directory, and must not start to.** The
+                            // comment here used to say the children of an unchanged directory
+                            // are still right and re-stating them is waste. That is true of a
+                            // tree that was fully walked last time, and false of one that was
+                            // not - and a crawl can be stopped by the user, by a flat battery,
+                            // or by an error at any point. Skipping unchanged directories would
+                            // mean an interrupted pass could never pick up what it missed: the
+                            // folders it never reached have not changed, so the next pass would
+                            // skip them too, and those files would stay unindexed until
+                            // something happened to touch the folder.
+                            //
+                            // So `unchanged` only feeds the changed-directory counter. Every
+                            // pass lists every folder and upserts every child, which is what
+                            // makes an update do all three things it claims: drop what is gone,
+                            // add what is new, and add whatever a previous run never got to.
+                            // The cost is a stat per file on a tree that mostly has not moved,
+                            // and that is the right trade for a resumable crawl.
                             val dirMtime = runCatching { vfs.stat(dir)?.mtime ?: 0L }.getOrDefault(0L)
                             val known = knownDirMtime(parentId)
                             val unchanged = known != 0L && known == dirMtime
