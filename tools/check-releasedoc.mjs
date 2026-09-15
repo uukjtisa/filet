@@ -61,8 +61,17 @@ export function checkBody(body, doc) {
   const images = [...body.matchAll(/<img\s[^>]*src\s*=\s*"([^"]+)"/gi)].map((m) => m[1]);
   const mdImages = [...body.matchAll(/!\[[^\]]*]\(([^)\s]+)/g)].map((m) => m[1]);
   const all = images.concat(mdImages);
-  if (all.length === 0) {
-    problems.push("the body opens with no screenshot: docs/RELEASES.md says open with pictures");
+  // Nic's amendment, 2026-09-15: "if pictures are necessary then include but if not then
+  // dont." A release that adds no screen has nothing to photograph, and padding it with shots
+  // of screens that did not change is exactly the stale gallery he complained about in the
+  // README. So pictures are required UNLESS the body says plainly, up front, that there are
+  // no new screens - which is a claim a reader can check rather than a silence.
+  const declaresNoScreens = /no new screens/i.test(body.slice(0, 600));
+  if (all.length === 0 && !declaresNoScreens) {
+    problems.push(
+      "the body opens with no screenshot: docs/RELEASES.md says open with pictures, " +
+        "or say \"no new screens\" in the opening if this release genuinely adds none",
+    );
   }
   for (const src of all) {
     if (!/^https?:\/\//i.test(src)) {

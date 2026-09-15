@@ -13,7 +13,14 @@ Write it like that.
 
 ## The rules
 
-**Open with pictures.** A centred `<div>` of `<img>` tags becomes one screenshot strip in the
+**Pictures only when there is something new to show.** Nic, 2026-09-15: *"if pictures are
+necessary then include but if not then dont."* A release of pure repairs has nothing to
+photograph, and filling the strip with shots of screens that did not change is how a gallery
+goes stale — which is a thing he has complained about separately. When a release adds no
+screen, say **"no new screens"** in the opening paragraph; `check-releasedoc.mjs` accepts that
+in place of images, so the absence is a stated claim rather than an oversight.
+
+**Open with pictures when there ARE any.** A centred `<div>` of `<img>` tags becomes one screenshot strip in the
 app. Show what changed: a release that adds a screen should show that screen. Point the `src`
 at `raw.githubusercontent.com/uukjtisa/filet/<tag>/docs/screenshots/…` — pinned at the tag, not
 at `main`, so the body cannot quietly change meaning when the screenshots are next refreshed.
