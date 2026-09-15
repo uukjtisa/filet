@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +65,12 @@ fun ScrubBar(
     var dragging by remember { mutableStateOf(false) }
     var dragX by remember { mutableFloatStateOf(0f) }
 
+    // Read live: the block is keyed on `enabled` and `durationMs`, but `onScrubEnd` closes
+    // over the player state, which changes far more often than either. See
+    // tools/check-deadswitch.mjs.
+    val liveScrub = rememberUpdatedState(onScrub)
+    val liveScrubEnd = rememberUpdatedState(onScrubEnd)
+
     val shownFraction =
         if (dragging) seekFraction(seekPosition(dragX, width, durationMs), durationMs)
         else seekFraction(positionMs, durationMs)
@@ -75,7 +82,7 @@ fun ScrubBar(
             .onSizeChanged { width = it.width.toFloat() }
             .pointerInput(enabled, durationMs) {
                 if (enabled) {
-                    detectTapGestures(onTap = { at -> onScrubEnd(seekPosition(at.x, width, durationMs)) })
+                    detectTapGestures(onTap = { at -> liveScrubEnd.value(seekPosition(at.x, width, durationMs)) })
                 }
             }
             // After the tap detector so it wins the main pass: a drag that starts as a press
@@ -86,17 +93,17 @@ fun ScrubBar(
                         onDragStart = { at ->
                             dragging = true
                             dragX = at.x
-                            onScrub(seekPosition(dragX, width, durationMs))
+                            liveScrub.value(seekPosition(dragX, width, durationMs))
                         },
                         onDragEnd = {
                             dragging = false
-                            onScrubEnd(seekPosition(dragX, width, durationMs))
+                            liveScrubEnd.value(seekPosition(dragX, width, durationMs))
                         },
                         onDragCancel = { dragging = false },
                     ) { change, drag ->
                         change.consume()
                         dragX += drag.x
-                        onScrub(seekPosition(dragX, width, durationMs))
+                        liveScrub.value(seekPosition(dragX, width, durationMs))
                     }
                 }
             },

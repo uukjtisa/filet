@@ -39,6 +39,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -114,11 +115,11 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
     // 20 MP bitmaps is an out-of-memory kill two or three taps in.
     val history = remember(node.path) { mutableStateListOf<Bitmap>() }
 
-    var scale by remember(node.path) { mutableFloatStateOf(1f) }
-    var offsetX by remember(node.path) { mutableFloatStateOf(0f) }
-    var offsetY by remember(node.path) { mutableFloatStateOf(0f) }
+    // One value rather than three loose floats, so a gesture handler transforms it instead of
+    // reading pieces of it. See ZoomState.kt for why that distinction is the whole bug.
+    var view by remember(node.path) { mutableStateOf(ZoomView.NONE) }
 
-    fun resetView() { scale = 1f; offsetX = 0f; offsetY = 0f }
+    fun resetView() { view = ZoomView.NONE }
 
     fun keep(previous: Bitmap) {
         history.add(previous)
@@ -284,9 +285,7 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
                     if (w != shown.width || h != shown.height) runOp { it.stretched(w, h) }
                 }
 
-                else -> ZoomableImage(shown, node.name, scale, offsetX, offsetY) { s, x, y ->
-                    scale = s; offsetX = x; offsetY = y
-                }
+                else -> ZoomableImage(shown, node.name, view) { view = it }
             }
             if (busy) {
                 CircularProgressIndicator(
@@ -313,12 +312,25 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
 private fun ZoomableImage(
     bitmap: Bitmap,
     label: String,
-    scale: Float,
-    offsetX: Float,
-    offsetY: Float,
-    onTransform: (scale: Float, x: Float, y: Float) -> Unit,
+    view: ZoomView,
+    onView: (ZoomView) -> Unit,
 ) {
     var box by remember { mutableStateOf(Size.Zero) }
+
+    // The fix for "pinch to zoom stopped working".
+    //
+    // `Modifier.pointerInput(key)` launches a coroutine that restarts ONLY when the key
+    // changes, and the key here is the bitmap. Anything the gesture block closes over is
+    // therefore frozen at the value it had when the image was opened. The previous version
+    // read `scale` directly, so every pinch frame computed `1f * zoom` - and `zoom` is a
+    // per-frame ratio of roughly 1.02, so the view never grew and the gesture looked dead.
+    //
+    // `rememberUpdatedState` is the supported way to reach current state from a long-lived
+    // effect: the block reads a holder whose value is swapped on each composition, rather
+    // than a copy taken once. Same reason the double tap now toggles back out correctly.
+    val live = rememberUpdatedState(view)
+    val emit = rememberUpdatedState(onView)
+
     Box(
         Modifier
             .fillMaxSize()
@@ -326,18 +338,7 @@ private fun ZoomableImage(
             .pointerInput(bitmap) {
                 detectTapGestures(
                     onDoubleTap = { at ->
-                        // Fit and back, centred on the tap. Pinching is fine on a tablet and
-                        // awkward one-handed, which is how a photo usually gets opened.
-                        if (scale > 1.01f) {
-                            onTransform(1f, 0f, 0f)
-                        } else {
-                            val next = 2.5f
-                            onTransform(
-                                next,
-                                clampPan((box.width / 2f - at.x) * next, next, box.width),
-                                clampPan((box.height / 2f - at.y) * next, next, box.height),
-                            )
-                        }
+                        emit.value(live.value.doubleTapped(at.x, at.y, box.width, box.height))
                     },
                 )
             }
@@ -345,12 +346,7 @@ private fun ZoomableImage(
             // ordering the row drag-and-drop needed in round 3.
             .pointerInput(bitmap) {
                 detectTransformGestures { _, pan, zoom, _ ->
-                    val next = (scale * zoom).coerceIn(1f, 12f)
-                    onTransform(
-                        next,
-                        clampPan(offsetX + pan.x, next, box.width),
-                        clampPan(offsetY + pan.y, next, box.height),
-                    )
+                    emit.value(live.value.pinched(zoom, pan.x, pan.y, box.width, box.height))
                 }
             },
         contentAlignment = Alignment.Center,
@@ -359,8 +355,8 @@ private fun ZoomableImage(
             bitmap = bitmap.asImageBitmap(),
             contentDescription = label,
             modifier = Modifier.fillMaxSize().graphicsLayer {
-                scaleX = scale; scaleY = scale
-                translationX = offsetX; translationY = offsetY
+                scaleX = view.scale; scaleY = view.scale
+                translationX = view.offsetX; translationY = view.offsetY
             },
         )
     }

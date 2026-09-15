@@ -67,9 +67,34 @@ class NearbyManager(
         else -> null
     }
 
+    /** Consecutive failed starts, and when the last one was. See [ServerStartPolicy]. */
+    private var failures = 0
+    private var lastFailureAt = 0L
+
+    /** Set when a start is refused, so the screen can say why instead of doing nothing. */
+    private val _startRefusal = MutableStateFlow<String?>(null)
+    val startRefusal: StateFlow<String?> = _startRefusal.asStateFlow()
+
+    fun clearStartRefusal() { _startRefusal.value = null }
+
     fun start() {
-        if (server.isRunning()) return
-        if (blockedReason() != null) return
+        when (val d = ServerStartPolicy.decide(
+            running = server.isRunning(),
+            blockedReason = blockedReason(),
+            consecutiveFailures = failures,
+            lastFailureAt = lastFailureAt,
+            now = System.currentTimeMillis(),
+        )) {
+            is ServerStartPolicy.Decision.AlreadyRunning -> return
+            is ServerStartPolicy.Decision.Refuse -> {
+                // Said out loud. The old code returned silently on a blocked start, so the
+                // button looked broken rather than blocked.
+                _startRefusal.value = d.why
+                return
+            }
+            is ServerStartPolicy.Decision.Start -> Unit
+        }
+        _startRefusal.value = null
         scope.launch {
             shared.ensureFolders()
             server.pinRequired = prefs.getBool(KEY_PIN, true)
@@ -78,11 +103,28 @@ class NearbyManager(
             server.fixedPin = fixedPin()
             runCatching { server.start() }
                 .onSuccess {
+                    failures = ServerStartPolicy.countAfter(failures, succeeded = true)
                     _state.value = it
                     runCatching { discovery.advertise(it.port) }
-                    NearbyService.start(context)
+                    // Guarded: on Android 12+ starting a foreground service from the background
+                    // throws, and the throw happens here, after the server is already up. The
+                    // server itself is fine and stopping it is the honest response - a running
+                    // server with no notification is one he cannot see or turn off.
+                    if (runCatching { NearbyService.start(context) }.isFailure) {
+                        runCatching { server.stop() }
+                        _state.value = ServerState(running = false)
+                        failures = ServerStartPolicy.countAfter(failures, succeeded = false)
+                        lastFailureAt = System.currentTimeMillis()
+                        _startRefusal.value =
+                            "Sharing could not show its notification, so it was stopped. " +
+                                "Open Filet and start sharing from the app."
+                    }
                 }
-                .onFailure { _state.value = ServerState(running = false) }
+                .onFailure {
+                    failures = ServerStartPolicy.countAfter(failures, succeeded = false)
+                    lastFailureAt = System.currentTimeMillis()
+                    _state.value = ServerState(running = false)
+                }
         }
     }
 

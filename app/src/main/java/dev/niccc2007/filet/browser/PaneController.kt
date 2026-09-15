@@ -81,6 +81,13 @@ class PaneController(
      */
     private val onSearched: (String) -> Unit = {},
     private val onOpened: (VNode) -> Unit = {},
+    /**
+     * The world revision, bumped by every operation that writes to the filesystem.
+     *
+     * A function rather than a value because the pane outlives any single reading of it, and a
+     * captured Int would be exactly the stale-capture bug that broke pinch-to-zoom.
+     */
+    private val worldRevision: () -> Int = { 0 },
 ) {
     private val _state = MutableStateFlow(PaneState(id = id))
     val state: StateFlow<PaneState> = _state.asStateFlow()
@@ -89,6 +96,14 @@ class PaneController(
     private val forward = ArrayDeque<PaneState>()
     private var listJob: Job? = null
     private var searchJob: Job? = null
+
+    /**
+     * The world revision this pane last completed a listing at.
+     *
+     * See [FolderFreshness]. A pane that is behind the world is showing rows that may have been
+     * moved or deleted from another tab, and that is Nic's stale-folder report.
+     */
+    private var listedAt: Int = FolderFreshness.NEVER
 
     /** Raw listing, kept so a sort or hidden-files change re-renders without re-reading disk. */
     private var raw: List<VNode> = emptyList()
@@ -134,10 +149,16 @@ class PaneController(
             canGoForward = forward.isNotEmpty(),
             search = _state.value.search.copy(hits = emptyList(), painted = false),
         )
+        // Read BEFORE the listing starts, not after it finishes: an operation that lands while
+        // this read is in flight must leave the pane behind, or its change is the one that gets
+        // lost. Stamping with the revision at the end would mark the pane current for a change
+        // it never saw.
+        val stamp = worldRevision()
         listJob = scope.launch {
             runCatching { vfs.list(path) }
                 .onSuccess { list ->
                     raw = list
+                    listedAt = stamp
                     _state.update { render(it.copy(loading = false)) }
                     // A search that was open stays open across navigation; re-run it here
                     // rather than leaving stale hits from the previous folder on screen.
@@ -179,9 +200,14 @@ class PaneController(
         if (target.kind == PaneKind.FOLDER && target.cwd != null) {
             _state.value = target.copy(loading = true)
             listJob?.cancel()
+            val stamp = worldRevision()
             listJob = scope.launch {
                 runCatching { vfs.list(target.cwd) }
-                    .onSuccess { raw = it; _state.update { s2 -> render(s2.copy(loading = false)) } }
+                    .onSuccess {
+                        raw = it
+                        listedAt = stamp
+                        _state.update { s2 -> render(s2.copy(loading = false)) }
+                    }
                     .onFailure { e -> _state.update { s2 -> s2.copy(loading = false, error = e.readable()) } }
             }
         } else {
@@ -225,6 +251,27 @@ class PaneController(
         if (s.loading) return
         if (raw.isNotEmpty() && s.error == null) return
         navigateTo(s.cwd, push = false)
+    }
+
+    /**
+     * Re-read this folder if the world has moved since it was listed.
+     *
+     * Called from every path that makes a pane visible - tab switch, split-pane change, app
+     * resume, returning from a viewer - which is what Nic asked for when he said "apply that to
+     * any start pipeline when opening a new folder". Cheap by construction: a pane that is
+     * already current does nothing at all, so calling it often costs nothing.
+     */
+    fun freshenIfStale(visible: Boolean = true) {
+        val s = _state.value
+        val stale = FolderFreshness.shouldRelist(
+            isFolder = s.kind == PaneKind.FOLDER,
+            hasPath = s.cwd != null,
+            loading = s.loading,
+            visible = visible,
+            listedAtRevision = listedAt,
+            worldRevision = worldRevision(),
+        )
+        if (stale) navigateTo(s.cwd ?: return, push = false)
     }
 
     fun open(node: VNode) {

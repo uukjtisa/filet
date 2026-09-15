@@ -68,7 +68,17 @@ class NearbyService : Service() {
             return START_NOT_STICKY
         }
 
-        startForegroundCompat(graph.nearby.state.value)
+        // Guarded like the one at the top, and for the reason the one at the top is guarded.
+        // This call was bare, so a notification that failed to build took the service down -
+        // and with START_STICKY the platform brought it straight back into the same branch,
+        // with the server still running in the app process, to fail again. That is the crash
+        // loop Nic could only escape by force-stopping Filet.
+        if (runCatching { startForegroundCompat(graph.nearby.state.value) }.isFailure) {
+            graph.nearby.stop()
+            stopForegroundCompat()
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         idleWatch?.cancel()
         idleWatch = scope.launch {
@@ -86,7 +96,14 @@ class NearbyService : Service() {
                 startForegroundCompat(graph.nearby.state.value)
             }
         }
-        return START_STICKY
+        // NOT sticky.
+        //
+        // START_STICKY asks the platform to restart this service after it dies, which is the
+        // right answer for something that should survive being killed for memory - and the
+        // wrong one here, because the most likely reason it died is that starting it failed.
+        // Sharing is something he switched on deliberately and can switch on again; silently
+        // resurrecting it is how a single failure became an unbreakable cycle.
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {

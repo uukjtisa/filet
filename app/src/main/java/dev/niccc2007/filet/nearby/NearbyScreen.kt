@@ -393,6 +393,7 @@ private fun Chip(label: String, on: Boolean, onClick: () -> Unit) {
 private fun ShareCard(vm: BrowserViewModel, server: ServerState, onEditPin: () -> Unit) {
     val colors = Filet.colors
     val nearby = vm.nearby
+    val refusal by nearby.startRefusal.collectAsState()
     Column(
         Modifier
             .fillMaxWidth()
@@ -416,6 +417,13 @@ private fun ShareCard(vm: BrowserViewModel, server: ServerState, onEditPin: () -
             Spacer(Modifier.height(10.dp))
             if (blocked == null) {
                 SmallButton("Start sharing") { nearby.start() }
+                // Why a press did nothing. Without this, a start that the attempt limit
+                // refused is indistinguishable from a button that is broken - which is the
+                // same class of silence as the crash loop it replaced.
+                refusal?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(it, fontSize = 10.5.sp, color = colors.warn, lineHeight = 14.sp)
+                }
             } else {
                 // R1, applied to a button: it cannot work right now, so it does not offer to.
                 Text(

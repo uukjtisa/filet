@@ -48,6 +48,8 @@ import dev.niccc2007.filet.browser.FileKind
 import dev.niccc2007.filet.ui.theme.Filet
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.TimeZone
 
@@ -88,12 +90,22 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
     // and prune what is gone. Both are cheap and idempotent - the store only writes when
     // something is genuinely new.
     LaunchedEffect(all) {
-        // Passed WITH their modification times, because the very first pass has to seed from
-        // those rather than from the clock - otherwise every file already on the device reads
-        // as having turned up the moment this screen was first opened.
-        val mtimes = all.associate { it.node.path.toString() to it.at }
-        vm.firstSeen.record(mtimes, System.currentTimeMillis())
-        vm.firstSeen.prune(mtimes.keys)
+        // OFF the main thread, and that is the fix for "the expand takes so long to render".
+        //
+        // `LaunchedEffect` runs on the composition's dispatcher, which is the main thread. For a
+        // tracked set of a thousand-plus files this block builds a map of every path, walks it,
+        // then re-serialises the whole first-seen store to JSON and writes it to preferences -
+        // all before the frame can be produced. The list underneath was already paged; the
+        // preparation in front of it was not, which is why the wait scaled with the total
+        // number of tracked files rather than with the twenty rows actually on screen.
+        withContext(Dispatchers.Default) {
+            // Passed WITH their modification times, because the very first pass has to seed from
+            // those rather than from the clock - otherwise every file already on the device reads
+            // as having turned up the moment this screen was first opened.
+            val mtimes = all.associate { it.node.path.toString() to it.at }
+            vm.firstSeen.record(mtimes, System.currentTimeMillis())
+            vm.firstSeen.prune(mtimes.keys)
+        }
     }
 
     val entries = remember(all) {

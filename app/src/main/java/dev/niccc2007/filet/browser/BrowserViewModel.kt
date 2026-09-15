@@ -219,6 +219,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             searchSources = graph.searchSources,
             onSearched = { q -> graph.index.steerCrawl(q) },
             onOpened = { node -> openNode(node) },
+            worldRevision = { _state.value.revision },
         )
         pane.rootsForDevice = _state.value.volumes.map { it.node.path }
         return pane
@@ -265,7 +266,20 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * its folder before all-files access is confirmed; without this, it sits empty until the
      * user taps it, which reads as the app forgetting where it was.
      */
-    fun refreshStalePanes() = _tabs.value.forEach { it.refreshIfEmpty() }
+    /**
+     * Coming back to the app.
+     *
+     * Two different staleness problems, and both are real:
+     *  - a tab that listed nothing because permission had not landed yet ([refreshIfEmpty]);
+     *  - a folder changed by something OUTSIDE Filet while it was in the background - a
+     *    download finishing, a photo taken, another file manager. Nothing bumped the world
+     *    revision for those, so the visible panes are re-read unconditionally on resume rather
+     *    than by the counter. Two panes at most, once per resume, which is affordable.
+     */
+    fun refreshStalePanes() {
+        _tabs.value.forEach { it.refreshIfEmpty() }
+        refreshPanes()
+    }
 
     /**
      * The bottom bar's Files button.
@@ -350,6 +364,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             else it.copy(activeB = index)
         }
         persistTabs()
+        // A tab that was off screen when a file was moved is behind the world, and until this
+        // call switching to it showed the folder as it was before the move - for the life of
+        // the app. See FolderFreshness: a tab that is already current does nothing here.
+        freshenVisiblePanes()
     }
 
     fun focusSide(side: Side) = _state.update { it.copy(focused = side) }
@@ -371,7 +389,14 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun focusedPane(): PaneController? = paneFor(_state.value.focused)
 
-    fun cycleSplit() = _state.update {
+    fun cycleSplit() {
+        cycleSplitState()
+        // The second pane has just become visible and may have been off screen through several
+        // operations. Same start pipeline as a tab switch.
+        freshenVisiblePanes()
+    }
+
+    private fun cycleSplitState() = _state.update {
         val next = when (it.split) {
             SplitMode.OFF -> SplitMode.SIDE
             SplitMode.SIDE -> SplitMode.STACK
@@ -778,12 +803,32 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         refreshPanes()
     }
 
-    /** Re-list only the panes on screen. Refreshing every tab would be a syscall storm. */
+    /**
+     * Something wrote to the filesystem: move the world on, then re-list what is on screen.
+     *
+     * **The bump comes first and that ordering is the fix.** It used to come last, so the two
+     * visible panes re-listed at the OLD revision and were immediately behind again - and every
+     * tab that was not on screen was never marked stale at all, which is exactly Nic's report:
+     * a file moved out of a folder stayed drawn in any other tab showing that folder, forever.
+     * Now the bump marks every pane stale and each one re-reads as it becomes visible.
+     */
     fun refreshPanes() {
+        _state.update { it.copy(revision = it.revision + 1) }
         val s = _state.value
         _tabs.value.getOrNull(s.activeA)?.refresh()
         if (s.split != SplitMode.OFF) _tabs.value.getOrNull(s.activeB)?.refresh()
-        _state.update { it.copy(revision = it.revision + 1) }
+    }
+
+    /**
+     * Re-read the panes on screen if the world has moved since they last listed.
+     *
+     * The "start pipeline" Nic asked for. Called on tab switch, on split change and on resume -
+     * anywhere a folder becomes visible. Costs nothing when nothing has changed.
+     */
+    fun freshenVisiblePanes() {
+        val s = _state.value
+        _tabs.value.getOrNull(s.activeA)?.freshenIfStale()
+        if (s.split != SplitMode.OFF) _tabs.value.getOrNull(s.activeB)?.freshenIfStale()
     }
 
     /** Re-sort and re-filter every tab without touching disk, after a settings change. */
@@ -2465,7 +2510,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     private fun restoreTabs(fallback: VPath?) {
-        val raw = graph.prefs.getString(KEY_TABS)
+        // The setting Nic asked for. Off means start with Home alone - and the saved list is
+        // deliberately LEFT on disk rather than cleared, so turning the setting back on
+        // restores the tabs he had rather than starting him from nothing.
+        val raw = TabRestore.savedStateFor(graph.prefs.getString(KEY_TABS), graph.prefs.restoreTabs.value)
         val restored = ArrayList<PaneController>()
         var a = 0
         var b = 0

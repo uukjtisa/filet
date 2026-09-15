@@ -101,6 +101,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val accent by prefs.accent.collectAsState()
     val step by prefs.viewStep.collectAsState()
     val hidden by prefs.showHidden.collectAsState()
+    val restoreTabs by prefs.restoreTabs.collectAsState()
     val sort by prefs.sort.collectAsState()
     val indexOn by prefs.indexEnabled.collectAsState()
     val updatesOn by vm.updateNotificationsOn.collectAsState()
@@ -156,6 +157,15 @@ fun SettingsPage(vm: BrowserViewModel) {
         item {
             ToggleRow("Show hidden files", "Dotfiles and anything the volume marks hidden", hidden) {
                 prefs.setShowHidden(it)
+            }
+        }
+        item {
+            ToggleRow(
+                "Reopen my tabs",
+                "Start with the tabs you had open last time. Off starts with Home alone — your saved tabs are kept, so turning this back on brings them back.",
+                restoreTabs,
+            ) {
+                prefs.setRestoreTabs(it)
             }
         }
         item {

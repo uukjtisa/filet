@@ -14,6 +14,18 @@ data class Script(
     val permissions: ScriptPermissions,
     val fingerprint: String,
     val modifiedAt: Long,
+    /**
+     * Whether this exact source is currently approved.
+     *
+     * **Part of the model on purpose, not read from preferences at the point of drawing.**
+     * Nic's report was that the script tab "keeps it stale unless I refresh", and this is half
+     * of why: approval lived only in `SharedPreferences`, so approving a script changed nothing
+     * a `StateFlow` could emit. Re-publishing the same list did not help either - `StateFlow`
+     * drops a value equal to the one it holds, so a list rebuilt from unchanged files is
+     * silently swallowed and the row keeps its old label. Carrying the flag in the value makes
+     * the list genuinely different, so the screen updates because the data did.
+     */
+    val approved: Boolean = false,
 )
 
 /**
@@ -46,8 +58,15 @@ class ScriptStore(
             permissions = perms,
             fingerprint = ScriptPermissions.fingerprint(source),
             modifiedAt = System.currentTimeMillis(),
+            // Editing the source changes the fingerprint, so a previously approved script is
+            // deliberately no longer approved. That is the whole defence in ScriptPermissions
+            // and it is restated here rather than inherited by accident.
+            approved = prefs.getString(approvalKey(fileId)) == ScriptPermissions.fingerprint(source),
         )
-        _scripts.value = _scripts.value.filterNot { it.id == fileId } + script
+        // `.inOrder()` and not a bare append: the old line put the edited script at the END of
+        // the list regardless of its name, so editing anything made it jump to the bottom and
+        // only a refresh put it back. The other half of "it keeps it stale unless I refresh".
+        _scripts.value = ScriptList.replacing(_scripts.value, script)
         return script
     }
 
@@ -61,9 +80,26 @@ class ScriptStore(
     fun isApproved(script: Script): Boolean =
         prefs.getString(approvalKey(script.id)) == script.fingerprint
 
-    fun approve(script: Script) = prefs.putString(approvalKey(script.id), script.fingerprint)
+    fun approve(script: Script) {
+        prefs.putString(approvalKey(script.id), script.fingerprint)
+        setApproved(script.id, true)
+    }
 
-    fun revoke(id: String) = prefs.putString(approvalKey(id), null)
+    fun revoke(id: String) {
+        prefs.putString(approvalKey(id), null)
+        setApproved(id, false)
+    }
+
+    /**
+     * Publish the approval change into the list.
+     *
+     * Without this the preference is written, `isApproved` starts answering differently, and
+     * nothing on screen knows - the row keeps saying what it said before until something else
+     * happens to rebuild the list.
+     */
+    private fun setApproved(id: String, value: Boolean) {
+        _scripts.value = ScriptList.withApproval(_scripts.value, id, value)
+    }
 
     private fun approvalKey(id: String) = "script.approved.$id"
 
@@ -80,9 +116,10 @@ class ScriptStore(
                     permissions = perms,
                     fingerprint = ScriptPermissions.fingerprint(source),
                     modifiedAt = files.lastModified(f),
+                    approved = prefs.getString(approvalKey(id)) == ScriptPermissions.fingerprint(source),
                 )
             }.getOrNull()
-        }.sortedBy { it.name.lowercase() }
+        }.let(ScriptList::inOrder)
 
     /**
      * The examples a new install starts with.

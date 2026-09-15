@@ -47,6 +47,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.ui.theme.Filet
@@ -123,6 +127,10 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     var ready by remember(node.path) { mutableStateOf(false) }
     var scrubTo by remember(node.path) { mutableStateOf<Long?>(null) }
     var chromeVisible by remember(node.path) { mutableStateOf(true) }
+
+    // The playback zoom. Same value type as the image viewer, so the arithmetic and its tests
+    // are shared rather than written twice and drifting - see ZoomState.kt.
+    var picture by remember(node.path) { mutableStateOf(ZoomView.NONE) }
     var chromeTouchedAt by remember(node.path) { mutableLongStateOf(System.currentTimeMillis()) }
     var run by remember(node.path) { mutableStateOf<SeekRun?>(null) }
     var flashAt by remember(node.path) { mutableLongStateOf(0L) }
@@ -224,7 +232,17 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
             )
 
             else -> AndroidView(
-                modifier = Modifier.fillMaxSize(),
+                // The zoom lives HERE and only here. Nic's requirement was explicit: "the
+                // controls are still on the proper size and orientation.. so it's like I'm only
+                // zooming the playback". The transport, the seek bar, the flash readout and the
+                // top chrome are all siblings of this surface rather than children of it, so
+                // none of them inherits the transform and none of them needs to opt out of it.
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = picture.scale; scaleY = picture.scale
+                        translationX = picture.offsetX; translationY = picture.offsetY
+                    },
                 factory = { ctx ->
                     VideoView(ctx).apply {
                         setVideoURI(uri)
@@ -356,6 +374,42 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                                 val travelled = (change.position.x - startX) / size.width.toFloat()
                                 scrubTo = (startPosition + (travelled * duration).toLong())
                                     .coerceIn(0L, duration)
+                            }
+                        }
+                    }
+                    // Pinch, and ONLY pinch.
+                    //
+                    // `detectTransformGestures` cannot be used here: it reports single-finger
+                    // pan as well, which is the scrub gesture directly above, and whichever ran
+                    // first would eat the other. So this loop waits for a second finger before
+                    // it engages and consumes nothing until it has one - a one-finger drag never
+                    // reaches it, and a two-finger pinch never reaches the scrubber.
+                    .pointerInput(node.path, duration) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                var event = awaitPointerEvent()
+                                if (event.changes.count { it.pressed } < 2) continue
+
+                                var zoom = 1f
+                                var pan = Offset.Zero
+                                do {
+                                    val pressed = event.changes.count { it.pressed }
+                                    if (pressed >= 2) {
+                                        zoom = event.calculateZoom()
+                                        pan = event.calculatePan()
+                                        if (zoom != 1f || pan != Offset.Zero) {
+                                            picture = picture.pinched(
+                                                zoom, pan.x, pan.y,
+                                                size.width.toFloat(), size.height.toFloat(),
+                                            )
+                                            // Consumed only once it is definitely a pinch, so a
+                                            // second finger landing by accident does not swallow
+                                            // the tap that was already in flight.
+                                            event.changes.forEach { it.consume() }
+                                        }
+                                    }
+                                    event = awaitPointerEvent()
+                                } while (event.changes.any { it.pressed })
                             }
                         }
                     },

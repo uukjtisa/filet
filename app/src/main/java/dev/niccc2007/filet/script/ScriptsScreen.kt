@@ -96,7 +96,7 @@ fun ScriptsScreen(vm: BrowserViewModel) {
         items(scripts, key = { it.id }) { script ->
             ScriptRow(
                 script = script,
-                approved = vm.scripts.isApproved(script),
+                approved = script.approved,
                 busy = running == script.id,
                 onRun = {
                     if (vm.scripts.isApproved(script)) vm.runScript(script)

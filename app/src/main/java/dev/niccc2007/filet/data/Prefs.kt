@@ -34,6 +34,15 @@ class Prefs(context: Context) {
     val showHidden: StateFlow<Boolean> = _showHidden.asStateFlow()
 
     /**
+     * Whether the tabs you had open come back the next time Filet starts.
+     *
+     * Defaults to ON, because that is what Nic expected the app to already do and because
+     * restoring work is the behaviour that loses nothing. Off starts with the Home tab alone.
+     */
+    private val _restoreTabs = MutableStateFlow(sp.getBoolean(K_RESTORE_TABS, true))
+    val restoreTabs: StateFlow<Boolean> = _restoreTabs.asStateFlow()
+
+    /**
      * Hide the storage cards on Home.
      *
      * On a phone with one volume they are a fifth of the first screen restating something you
@@ -141,6 +150,8 @@ class Prefs(context: Context) {
     }
 
     fun setShowHidden(v: Boolean) { _showHidden.value = v; sp.edit().putBoolean(K_HIDDEN, v).apply() }
+
+    fun setRestoreTabs(v: Boolean) { _restoreTabs.value = v; sp.edit().putBoolean(K_RESTORE_TABS, v).apply() }
     fun setHideStorage(v: Boolean) { _hideStorage.value = v; sp.edit().putBoolean(K_HIDE_STORAGE, v).apply() }
 
     fun setHideTermux(v: Boolean) { _hideTermux.value = v; sp.edit().putBoolean(K_HIDE_TERMUX, v).apply() }
@@ -222,6 +233,7 @@ class Prefs(context: Context) {
         const val K_SORT_DESC = "sort.desc"
         const val K_FOLDERS_FIRST = "sort.foldersFirst"
         const val K_HIDDEN = "browse.hidden"
+        const val K_RESTORE_TABS = "browse.restoreTabs"
         const val K_VIEW_STEP = "browse.viewStep"
         const val K_THEME = "ui.theme"
         const val K_ACCENT = "ui.accent"

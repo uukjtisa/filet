@@ -54,15 +54,26 @@ class PickProbeActivity : Activity() {
             return
         }
 
-        val uris = buildList {
-            data?.data?.let { add(it) }
-            val clip = data?.clipData
-            if (clip != null) {
-                for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { add(it) }
-            }
-        }.distinct()
+        // Each slot reported SEPARATELY before they are merged, because Nic's report - picked
+        // several, one arrived - has three different causes that the merged view cannot tell
+        // apart. If the clip holds four and the data slot holds one, Filet answered correctly
+        // and the app that asked reads only `getData()`; if the clip is empty, Filet is wrong.
+        val inData = data?.data
+        val clip = data?.clipData
+        val inClip = buildList {
+            if (clip != null) for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { add(it) }
+        }
+        Log.i(TAG, "SLOTS: data=${if (inData == null) 0 else 1} clip=${inClip.size}")
 
-        Log.i(TAG, "RESULT: ok, ${uris.size} uri(s), clip=${data?.clipData?.itemCount ?: 0}")
+        // A naive caller is the common one and is worth being able to imitate exactly: plenty
+        // of upload flows call `getData()` and never look at the clip.
+        val uris = when (intent.getStringExtra("read")) {
+            "data" -> listOfNotNull(inData)
+            "clip" -> inClip
+            else -> (listOfNotNull(inData) + inClip).distinct()
+        }
+
+        Log.i(TAG, "RESULT: ok, ${uris.size} uri(s), clip=${clip?.itemCount ?: 0}")
         for (u in uris) Log.i(TAG, "URI: $u")
         for (u in uris) Log.i(TAG, "READ: " + read(u))
         finish()

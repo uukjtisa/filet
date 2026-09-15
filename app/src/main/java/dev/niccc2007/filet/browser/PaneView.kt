@@ -40,6 +40,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -559,6 +560,12 @@ private fun dragModifier(
     onGhost: (Offset?) -> Unit,
     onHeldStill: (VNode, Offset) -> Unit,
 ): Modifier {
+    // Read live. A row's `pointerInput` is keyed on `node.path`, so scrolling a list recycles
+    // the composable and hands it new callbacks while the launched block keeps the old ones -
+    // the same freeze that killed pinch-to-zoom and tab dragging this round. Caught by
+    // tools/check-deadswitch.mjs rather than by anybody noticing a misplaced drag ghost.
+    val liveGhost = rememberUpdatedState(onGhost)
+    val liveHeldStill = rememberUpdatedState(onHeldStill)
     var origin by remember(node.path) { mutableStateOf(Offset.Zero) }
     var pointer by remember(node.path) { mutableStateOf(Offset.Zero) }
     var moved by remember(node.path) { mutableStateOf(false) }
@@ -595,17 +602,17 @@ private fun dragModifier(
                     }
                     val items = pane.selectedNodes().ifEmpty { listOf(node) }
                     vm.beginDrag(items, pane.id)
-                    onGhost(pointer)
+                    liveGhost.value(pointer)
                 },
                 onDrag = { change, delta ->
                     change.consume()
                     moved = true
                     pointer += delta
-                    onGhost(pointer)
+                    liveGhost.value(pointer)
                     vm.dragOver(registry.hitTest(pointer))
                 },
                 onDragEnd = {
-                    onGhost(null)
+                    liveGhost.value(null)
                     // Move or copy is the plan's call, not the caller's - same volume moves,
                     // a different one copies, exactly as a desktop file manager does.
                     if (moved) {
@@ -617,10 +624,10 @@ private fun dragModifier(
                         // the menu - which is what press-and-hold means everywhere else on a
                         // touchscreen.
                         vm.cancelDrag()
-                        onHeldStill(node, pointer)
+                        liveHeldStill.value(node, pointer)
                     }
                 },
-                onDragCancel = { onGhost(null); vm.cancelDrag() },
+                onDragCancel = { liveGhost.value(null); vm.cancelDrag() },
             )
         }
 }

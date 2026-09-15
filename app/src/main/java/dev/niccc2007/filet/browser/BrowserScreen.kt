@@ -54,6 +54,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.layout.positionInParent
@@ -317,6 +318,10 @@ private fun TabChip(
     onDragEnd: () -> Unit = {},
 ) {
     val colors = Filet.colors
+    // See the note on the drag detector below: these must be read live, not captured.
+    val liveDragStart = rememberUpdatedState(onDragStart)
+    val liveDrag = rememberUpdatedState(onDrag)
+    val liveDragEnd = rememberUpdatedState(onDragEnd)
     Row(
         Modifier
             .padding(horizontal = 2.dp, vertical = 3.dp)
@@ -335,14 +340,28 @@ private fun TabChip(
             .clickable(onClick = onClick)
             // A long press to start, so an ordinary tap still switches tabs. Last in the
             // chain so it wins the main pass over the click above.
+            //
+            // The callbacks are read through `rememberUpdatedState`, and that is the whole
+            // reason tab dragging did nothing. `pointerInput(Unit)` launches its block ONCE and
+            // never again, so it holds the callback instances from the very first composition -
+            // and `onDragEnd` closes over `target`, which in `TabStripContent` is a plain `val`
+            // recomputed every composition. The frozen copy therefore saw `target == -1`
+            // forever, `vm.moveTab` was never reached, and the chip animated under the finger
+            // and sprang back. Everything underneath - `movedItem`, `dragTarget`,
+            // `indexAfterMove`, `moveTab` - already existed and was already tested, which is
+            // why this read as "the feature was never built" when it was only never connected.
+            //
+            // Exactly the same mistake as the image viewer's pinch-to-zoom in this round.
+            // `tools/check-deadswitch.mjs` now fails the build on the pattern rather than on
+            // these two instances of it.
             .pointerInput(Unit) {
                 detectDragGesturesAfterLongPress(
-                    onDragStart = { onDragStart() },
-                    onDragEnd = { onDragEnd() },
-                    onDragCancel = { onDragEnd() },
+                    onDragStart = { liveDragStart.value() },
+                    onDragEnd = { liveDragEnd.value() },
+                    onDragCancel = { liveDragEnd.value() },
                 ) { change, drag ->
                     change.consume()
-                    onDrag(drag.x)
+                    liveDrag.value(drag.x)
                 }
             }
             .padding(horizontal = size.padH.dp, vertical = size.padV.dp),

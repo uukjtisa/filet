@@ -257,7 +257,7 @@ fun FitBox.toViewY(imageY: Float): Float = top + imageY * scale
  * exactly the amount of it that has been pushed off screen.
  */
 fun clampPan(offset: Float, scale: Float, viewportSize: Float): Float {
-    if (scale <= 1.001f) return 0f
+    if (scale <= ZoomView.FLAT) return 0f
     val slack = viewportSize * (scale - 1f) / 2f
     return offset.coerceIn(-slack, slack)
 }
