@@ -7,8 +7,7 @@ import java.io.OutputStream
 /**
  * An output stream that rolls over into numbered parts.
  *
- * This is the [SplitStyle.NUMBERED_STREAM] half of Nic's *"a multi part archive.. like others
- * part1 part 2 etc"*. It is a plain byte split of the finished archive: `backup.7z.001`,
+. It is a plain byte split of the finished archive: `backup.7z.001`,
  * `.002`, and so on, where **concatenating the parts in order reproduces the original file
  * exactly**. That is also how 7-Zip's own `.7z.001` volumes work, so a set written this way
  * opens in other tools rather than only in Filet.

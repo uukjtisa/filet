@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 /**
- * The two bugs Nic hit, as assertions.
+ * The two bugs, as assertions.
  *
  * Both were decisions buried inside an `onClick`, which is why neither had a test and why
  * both shipped. Moving the decision out is most of the fix.

@@ -2,7 +2,7 @@
 /**
  * The save prompt for a file edited inside an archive.
  *
- * Nic asked for the prompt itself - update the archive, or save the file somewhere else - and
+ * The design calls for the prompt itself - update the archive, or save the file somewhere else - and
  * two properties of it are worth enforcing rather than eyeballing, because both fail silently.
  *
  * **"Save somewhere else" must be unconditional.** It is the answer to "I did not mean to

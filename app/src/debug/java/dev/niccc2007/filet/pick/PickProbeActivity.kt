@@ -54,7 +54,7 @@ class PickProbeActivity : Activity() {
             return
         }
 
-        // Each slot reported SEPARATELY before they are merged, because Nic's report - picked
+        // Each slot reported SEPARATELY before they are merged, because the report - picked
         // several, one arrived - has three different causes that the merged view cannot tell
         // apart. If the clip holds four and the data slot holds one, Filet answered correctly
         // and the app that asked reads only `getData()`; if the clip is empty, Filet is wrong.

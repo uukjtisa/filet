@@ -154,7 +154,7 @@ fun BrowserScreen(vm: BrowserViewModel) {
                 HorizontalDivider(color = colors.lineSoft)
 
                 // Below the tabs and the toolbar on purpose. It sat ABOVE both at first and
-                // Nic read it exactly right: a strip over the top of the whole app looks like
+                // a strip over the top of the whole app looks like
                 // a system dialog wrapped around Filet rather than like Filet doing something.
                 // Down here it is one of the app's own bars, and the action that completes the
                 // pick lives in the selection bar with every other action.
@@ -234,11 +234,11 @@ private fun TabStrip(
         }
 
         Box(Modifier.weight(1f)) {
-            // The shared cue, same as every other sideways-scrolling row in the app. Nic
+            // The shared cue, same as every other sideways-scrolling row in the app. It
             // pointed out the tab strip had been left out, and asked for it anywhere something
             // scrolls horizontally. It had been exempted on the grounds that
             // the strip auto-scrolls to the active tab and a static chevron would contradict
-            // that - which was a reason, and not his. A chevron that says "there are more
+            // that - which was a reason, and not a good one. A chevron that says "there are more
             // tabs that way" is true whether or not the strip moved on its own.
             HScroll(ground = colors.sunken, state = scroll) {
                 TabStripContent(vm, tabs, app)
@@ -684,7 +684,7 @@ private fun Breadcrumb(s: PaneState, modifier: Modifier, onNavigate: (VPath) -> 
     val crumbs = remember(cwd) { crumbsOf(cwd) }
     val scroll = rememberScrollState()
     LaunchedEffect(cwd) { scroll.scrollTo(scroll.maxValue) }
-    // Deliberately NOT HScroll, and this is the exception the checker records. Nic rejected
+    // Deliberately NOT HScroll, and this is the exception the checker records. Rejected:
     // the scroll cue here specifically and asked for the plain version back. He is right -
     // the breadcrumb already auto-scrolls to the deepest crumb on every navigation, so a
     // chevron sits there pointing back at a path you just came from, in the densest strip
@@ -918,7 +918,7 @@ private fun NavItem(
  * What you can do with the current selection.
  *
  * Two renderings of one list (`SelectionActions.kt`), chosen in Settings. The default is the
- * menu, at Nic's request: the bar had to scroll to hold eleven actions, and an action that is
+ * menu, the bar had to scroll to hold eleven actions, and an action that is
  * off the edge of a bar nobody knows scrolls does not exist. A menu is bounded by the screen
  * instead of by the width of a row, so it always fits and every action is readable at once.
  */

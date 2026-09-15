@@ -8,9 +8,6 @@ import org.junit.Test
 /**
  * Picking several files, and the caller that only reads one.
  *
- * Nic: *"the file picker I selected multiple to upload any files.. and bruh it only uploaded
- * 1.. I think it only uploaded the one that I last long clicked to send"*.
- *
  * Verified on the device from the RECEIVING side before any code was changed, which is the
  * only place it can be settled - three files picked, and the probe reported:
  *
@@ -44,7 +41,7 @@ class PickMultipleTest {
 
     @Test
     fun `a multiple pick fills the data slot as well as the clip`() {
-        // The whole of his report. A caller that sets EXTRA_ALLOW_MULTIPLE and then reads only
+        // The whole of the report. A caller that sets EXTRA_ALLOW_MULTIPLE and then reads only
         // getData() is common and is not going to be fixed; handing it nothing would be a
         // silent failure indistinguishable from a cancel. It gets the first file instead.
         val answer = PickAnswer.of(many, request(multiple = true))
@@ -70,7 +67,7 @@ class PickMultipleTest {
     @Test
     fun `and a selection of several against a single-file request is refused before the picker closes`() {
         // Belt and braces with the rule above: the refusal is what he should see, rather than
-        // silently getting one of the files he chose.
+        // silently getting one of the files the choice was.
         val why = PickRules.refusal(request(multiple = false), count = 3, anyDirectories = false)
         assertNotNull(why)
         assertTrue(why!!.contains("one file"))

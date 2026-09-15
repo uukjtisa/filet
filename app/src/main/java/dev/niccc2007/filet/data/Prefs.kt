@@ -36,7 +36,7 @@ class Prefs(context: Context) {
     /**
      * Whether the tabs you had open come back the next time Filet starts.
      *
-     * Defaults to ON, because that is what Nic expected the app to already do and because
+     * Defaults to ON, because that is what the app is expected to do and because
      * restoring work is the behaviour that loses nothing. Off starts with the Home tab alone.
      */
     private val _restoreTabs = MutableStateFlow(sp.getBoolean(K_RESTORE_TABS, true))
@@ -93,8 +93,8 @@ class Prefs(context: Context) {
     /**
      * Storage cards the user has hidden, by VPath.
      *
-     * Per card, not the whole section - his correction. The first version hid the entire
-     * storage block; what he wanted was to hide individual cards, particularly the ones that
+     * Per card, not the whole section - a correction. The first version hid the entire
+     * storage block; what the design wanted was to hide individual cards, particularly the ones that
      * led nowhere.
      *
      * A phone's `/storage` holds directories that pass for volumes and are not usable ones -
@@ -107,9 +107,7 @@ class Prefs(context: Context) {
 
     /**
      * Hide the Termux card on Home.
-     *
-     * His ask: *"add a hide for the termux option.. and put it somewhere in the settings when
-     * hidden"*. Hidden means hidden from HOME, not switched off - the connect action stays in
+. Hidden means hidden from HOME, not switched off - the connect action stays in
      * Settings, because an option that vanishes completely is one nobody can find again.
      */
     private val _hideTermux = MutableStateFlow(sp.getBoolean(K_HIDE_TERMUX, false))

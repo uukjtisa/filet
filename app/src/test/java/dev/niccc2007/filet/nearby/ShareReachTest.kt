@@ -27,10 +27,10 @@ class ShareReachTest {
     private fun reach(path: VPath, shared: Collection<VPath> = emptyList()) =
         ShareReach.isReachable(path, folder, quarantine, shared)
 
-    // ── the bug he reported ──
+    // ── the bug was reported ──
 
     @Test fun a_deliberately_shared_quarantine_folder_opens() {
-        // His case exactly. He shared Filet/Received from the app; the root listing offered it
+        // The case exactly. He shared Filet/Received from the app; the root listing offered it
         // and `/api/list?d=<its token>` answered {"error":"gone"}, which the page turns into a
         // bounce back to the share root. From the far end that is "folders are not explorable".
         assertTrue(reach(quarantine, shared = listOf(quarantine)))

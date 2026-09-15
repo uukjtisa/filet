@@ -23,7 +23,7 @@ import java.io.OutputStream
 /**
  * Replacing one file inside an existing archive.
  *
- * Asked for by Nic: edit a member of an archive in place, without recompressing the whole
+ * The requirement: edit a member of an archive in place, without recompressing the whole
  * thing, and on save offer the choice between updating the archive and writing the edited
  * file somewhere else.
  *
@@ -35,7 +35,7 @@ import java.io.OutputStream
  *
  * - **[EditMode.PATCH]** - zip and plain tar. Every untouched member is copied across WITHOUT
  *   being decoded: for a zip that is `addRawArchiveEntry` over the already-deflated bytes, so
- *   a 340-file archive re-compresses exactly one file. This is the case his ask is about.
+ *   a 340-file archive re-compresses exactly one file. This is the case the requirement is about.
  * - **[EditMode.REBUILD]** - `tar.gz` and friends, and 7z. One compression stream over the
  *   whole archive, so changing a byte in the middle means redoing all of it. Not slow code;
  *   the format. The UI says so, with the size, before it starts.
@@ -117,8 +117,7 @@ object ArchiveEditor {
      * A zip, with every untouched entry copied as raw compressed bytes.
      *
      * `addRawArchiveEntry` writes the entry's stored bytes straight through with its existing
-     * method, CRC and sizes. Nothing is inflated and nothing is re-deflated, which is precisely
-     * *"without recompressing it again"*. The replaced entry is the only one that goes through
+     * method, CRC and sizes. . The replaced entry is the only one that goes through
      * a compressor.
      */
     private fun patchZip(archive: File, temp: File, member: String, open: () -> InputStream) {

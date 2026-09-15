@@ -7,7 +7,7 @@ import org.junit.Test
 /**
  * The stale folder, and the syscall storm that must not replace it.
  *
- * Every test here is one of the two failure modes. A rule that always returns true fixes his
+ * Every test here is one of the two failure modes. A rule that always returns true fixes the
  * report and re-reads a directory every time a tab is tapped; a rule that always returns false
  * is what shipped. Both are covered, so neither can pass by accident.
  */
@@ -22,11 +22,11 @@ class FolderFreshnessTest {
         world: Int = 4,
     ) = FolderFreshness.shouldRelist(isFolder, hasPath, loading, visible, listedAt, world)
 
-    // ── his report ──
+    // ── the report ──
 
     @Test
     fun `a visible folder that is behind the world is re-read`() {
-        // He moved a file out of a folder that another tab was showing. That tab is behind.
+        // A file was moved out of a folder that another tab was showing. That tab is behind.
         assertTrue(ask(listedAt = 4, world = 5))
     }
 

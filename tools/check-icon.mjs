@@ -40,7 +40,7 @@ if (/#1E1F1D/i.test(fg)) fail("foreground paints the ground colour — that is a
 /**
  * The debug build must be tellable apart from the release one, at a glance.
  *
- * Nic had both installed and could not tell which was which - same name, same icon - and read
+ * Both were installed and indistinguishable - same name, same icon - and reading
  * that as the app having duplicated itself. They are two different applications by design, so
  * the fix is presentational: `app/src/debug/res` overrides the label and the mark's colours.
  *

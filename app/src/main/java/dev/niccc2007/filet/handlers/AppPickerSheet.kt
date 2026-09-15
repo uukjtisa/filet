@@ -106,7 +106,7 @@ private fun TierHeader(sub: String) {
  *
  * **The toggle is visible and it starts OFF.** Round 5 shipped it pre-ticked, reasoning that a
  * setting you have to go and find is one you never find. That was wrong: it wrote a permanent
- * routing default every time somebody opened one file in one app once, which is the thing Nic
+ * routing default every time somebody opened one file in one app once, which is the thing
  * asked it not to do. Opening a file is not a policy decision unless you say it is, so the
  * checkbox states what will happen and waits to be ticked. See [remembersByDefault].
  */

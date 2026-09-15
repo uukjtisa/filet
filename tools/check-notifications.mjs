@@ -2,9 +2,6 @@
 /**
  * No two notifications share an id, and none is posted with a number typed in place.
  *
- * Round 9, from a phone: *"filet debug lkeeps trying to start but isnt working.. hte
- * notification keeps appearing and disappearing too"*.
- *
  * `NearbyService` had `private const val ID = 4201`. `UpdateNotifier`, added a round later, had
  * `private const val ID = 4_201`. The same number, written two different ways - so a grep for
  * `4201` while writing the second one found nothing.

@@ -36,8 +36,7 @@ import dev.niccc2007.filet.ui.theme.Filet
 /**
  * The right-click menu, as a phone gesture.
  *
- * Nic asked for *"the context menu for like when i hold click for an item.. like in file explorer
- * right clicking"*, with *"a familiarity of windows 11 context right click menu in the explorer"*
+
  * blended into this app's theme.
  *
  * The distinctive thing about that menu is not its corner radius, it is the **row of icon-only

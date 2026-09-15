@@ -16,7 +16,7 @@ import dev.niccc2007.filet.R
 /**
  * Telling somebody a new version exists, without becoming the reason they mute the app.
  *
- * Nic asked for *"a notification for updates"* with the choice of when to be asked again. The
+ with the choice of when to be asked again. The
  * choosing happens in the sheet, because a notification with six actions on it is unreadable on
  * a lock screen; the notification's job is only to get somebody there. Its own dismissal is
  * treated as "Later" - swiping a notification away is an answer, and an update nag that

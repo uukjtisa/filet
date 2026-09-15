@@ -6,9 +6,9 @@ import dev.niccc2007.filet.vfs.VPath
  * Whether a browser holding a token may walk into [path].
  *
  * Pulled out of `SharedSet` because it is a decision that can be wrong, and it was: the
- * quarantine folder was refused by name even when Nic had deliberately shared it, so the
+ * quarantine folder was refused by name even when it had been deliberately shared, so the
  * listing offered **Received** and opening it answered `{"error":"gone"}`. From a browser that
- * reads as "shared folders are not explorable", which is how he reported it.
+ * reads as "shared folders are not explorable", which is how was reported it.
  *
  * Offered in one place and refused in another is rule R1 wearing a different coat, and it is
  * only visible from the far end of a network. So the rule lives here, as a function over four

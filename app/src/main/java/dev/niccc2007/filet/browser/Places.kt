@@ -38,7 +38,7 @@ import java.util.Locale
 /**
  * Starred locations. Tapping one navigates the pane it is shown in, not some other pane.
  *
- * A bookmark can be a file - Nic bookmarked a .pptx - so a tap goes through
+ * A bookmark can be a file - bookmarks can point at a .pptx - so a tap goes through
  * [BrowserViewModel.openPlace] rather than straight to `navigateTo`.
  */
 @Composable

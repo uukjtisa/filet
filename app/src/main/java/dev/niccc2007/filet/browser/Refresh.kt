@@ -3,7 +3,7 @@ package dev.niccc2007.filet.browser
 /**
  * What the refresh button has to re-read, for each kind of pane.
  *
- * Reported by Nic: every pane except a folder held stale state until the app was killed and
+ * Bug identified: every pane except a folder held stale state until the app was killed and
  * restarted. The cause is one line - `PaneController.refresh()` began with
  * `if (s.kind == PaneKind.FOLDER)` and returned otherwise - so on Nearby, Home, Shortcuts,
  * Scripts, Recent and Settings the button was drawn, enabled, tappable, and did nothing at

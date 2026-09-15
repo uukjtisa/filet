@@ -3,13 +3,6 @@ package dev.niccc2007.filet.browser
 /**
  * Whether a folder pane is showing something that may already be wrong.
  *
- * ## The report
- *
- * Nic: *"the folders stale entries when I move something to another folder.. items stay
- * visually in their last folder unless I refresh the folder... this is bad.. apply an auto
- * refresh and reindex for when opening a folder.. apply that to any start pipeline when
- * opening a new folder"*.
- *
  * ## What was actually wrong
  *
  * `navigateTo` re-lists on every open, and `restore` re-lists on back and forward, so opening

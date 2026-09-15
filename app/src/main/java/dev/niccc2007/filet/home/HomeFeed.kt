@@ -41,7 +41,7 @@ data class FeedItem(val node: VNode, val at: Long, val origin: String? = null)
  * @param recursive watch everything beneath it too. Off by default, and deliberately not the
  *   default: the tracked list is also the inotify watch list, inotify costs one watch per
  *   DIRECTORY, and the per-process ceiling is about 8192. Tracking `/storage/emulated/0`
- *   recursively would spend the whole budget on one entry. Nic asked for it because adding
+ *   recursively would spend the whole budget on one entry. The design calls for it because adding
  *   folders one at a time is a hassle, which is true, so it is offered with the cost named
  *   rather than hidden.
  */
@@ -88,7 +88,7 @@ class TrackedFolders(private val prefs: Prefs, private val scope: CoroutineScope
      * Seed with the conventional download directory the first time the app runs.
      *
      * **Local volumes only**, and that is a bug fix rather than a preference. This used to seed
-     * `Download` under EVERY root, which on his phone meant the root provider, `/system`, and a
+     * `Download` under EVERY root, which on the test device meant the root provider, `/system`, and a
      * WebDAV test server that is not running. The feed then waited on that server's connect
      * timeout on every refresh, so a screenshot taken a foot away took two minutes to appear.
      * A remote share is a fine thing to track; it is not a sensible thing to track by default,
@@ -192,7 +192,7 @@ class HomeFeed(
      * Everything the last pass found, untrimmed.
      *
      * The expanded history is this list; the home card is the first [SHOWN] of it. Kept as one
-     * value rather than a second scan, which was Nic's own point when the feature was
+     * value rather than a second scan, which was the point when the feature was
      * specified - there is already an architecture for what is being watched, and a second
      * scanner would drift from the feed and disagree with it about what is new.
      *
@@ -223,10 +223,8 @@ class HomeFeed(
     fun onChanged(changed: VPath? = null, name: String? = null) {
         // THE FAST PATH, and the reason the feed is instant rather than eventually right.
         //
-        // His requirement: *"it needs to be blazing instant.. thats our goal for the tracker"*.
-        //
         // The kernel tells us the FILE that changed, not just the folder, and that distinction
-        // is the whole thing. His Screenshots folder holds 1700 files; listing it through the
+        // is the whole thing. A Screenshots folder can hold 1700 files; listing it through the
         // VFS takes seconds, so any design that re-reads a directory to notice one new file is
         // slow in exactly the case that matters. One `stat` of one known path is microseconds
         // and does not care how big the folder is.
@@ -264,12 +262,10 @@ class HomeFeed(
 
     /**
      * Re-read every tracked folder.
-     *
-     * Nic: *"the screenshot finally showed up.. 2mins ago though.. so its not realtime"*, and
-     * separately that the refresh button did nothing on Home. Those were one bug.
+ * separately that the refresh button did nothing on Home. Those were one bug.
      *
      * The old version read the folders in parallel and then `awaitAll`ed the lot before
-     * publishing anything. His tracked list had been seeded with a Download folder on EVERY
+     * publishing anything. The tracked list had been seeded with a Download folder on EVERY
      * volume, including a WebDAV test server that is not running - so every refresh sat on that
      * connect timeout, and a screenshot taken a foot away could not appear until a dead remote
      * on another network finished failing. Refresh had the same problem, which is why pressing
@@ -389,8 +385,7 @@ class HomeFeed(
     /**
      * Newly-arrived FILES in one tracked folder.
      *
-     * Files only, and that is a reversal of round 7 worth recording. Nic asked then for folders
-     * to be detected too; he asked now for the opposite, and he is right the second time.
+     * Files only, and that is a reversal of round 7 worth recording. Round 7 called for folders to be detected too; the requirement is now the opposite, and the second answer is the right one.
      *
      * A folder's mtime moves whenever anything inside it changes. So subfolders of a tracked
      * place churn constantly, every one of them claims to be new, and in a list of [SHOWN] rows
@@ -414,7 +409,7 @@ class HomeFeed(
                 continue
             }
             // NO provenance lookup here. That is the whole difference between this being
-            // instant and taking minutes: his Screenshots folder holds 1700 files, and asking
+            // instant and taking minutes: a Screenshots folder can hold 1700 files, and asking
             // the bridge where each one came from is 1700 suspend calls to build a list that
             // shows eight rows. Origins are resolved in `publish`, for the rows that survive.
             into += FeedItem(k, k.mtime, origin = null)

@@ -2,7 +2,7 @@
 /**
  * The compress window cannot offer a control the format will not honour.
  *
- * Rule R1, no dead switches, applied to the one screen where breaking it is invisible. Nic
+ * Rule R1, no dead switches, applied to the one screen where breaking it is invisible. It
  * asked for strength, a password and split sizes *tailored per format*, and the tailoring is
  * not cosmetic: the formats that take a password are not the ones that take a strength, and
  * none of them share a scale.

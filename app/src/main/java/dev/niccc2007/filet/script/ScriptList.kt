@@ -3,9 +3,6 @@ package dev.niccc2007.filet.script
 /**
  * The script list, as a value.
  *
- * Nic: *"the script tab.. fix it.. I keep editing the parameters of the script and it keeps it
- * stale unless I refresh"*.
- *
  * Two separate causes, both of which are list arithmetic rather than UI:
  *
  * 1. **Saving appended.** `filterNot { it.id == fileId } + script` put an edited script at the

@@ -56,7 +56,7 @@ import java.util.TimeZone
 /**
  * Everything in the tracked folders, by day.
  *
- * The expanded form of the home screen's **New files** card. Nic asked for the card to open
+ * The expanded form of the home screen's **New files** card. The design calls for the card to open
  * into a full history, grouped date by date, with the option of a plain ungrouped list - taking
  * Windows Explorer's Downloads view as a starting point and asking for better than it.
  *
@@ -68,7 +68,7 @@ import java.util.TimeZone
  *   open it.
  * - **Two orderings.** When a file was first SEEN in a tracked folder, or when it was last
  *   CHANGED. A download written last year turns up under today in one and last year in the
- *   other, which is the distinction he asked for and which no file browser offers.
+ *   other, which is the distinction the design calls for and which no file browser offers.
  *
  * The arithmetic - which day, what a day weighs, where a picked date lands - is in
  * [FileHistory] with tests on it. This file is only the drawing.
@@ -136,7 +136,7 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
 
     val listState = rememberLazyListState()
 
-    // Load as you scroll, which was his pick over a row of buttons. The count of what is left
+    // Load as you scroll, chosen over a row of buttons. The count of what is left
     // is on screen either way - it is the thing that tells you whether to keep scrolling.
     LaunchedEffect(listState, entries.size) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }

@@ -7,11 +7,9 @@ import java.util.TimeZone
 /**
  * The expanded new-files history: which day each file belongs to, and what a day weighs.
  *
- * Nic asked for the history grouped date by date, with Windows Explorer's
- * Downloads view as the starting point and an explicit *"i know you can do better than that"*.
  * What is better, and what this file does that Explorer's does not:
  *
- * - **Real dates instead of vague buckets.** Explorer's *"Earlier this year"* can span four
+ can span four
  *   months and tells you nothing about what is under it. Today and Yesterday are named;
  *   everything older carries its actual date.
  * - **A count and a size on every header**, so a day is worth expanding or it is not, before
@@ -26,8 +24,6 @@ import java.util.TimeZone
 enum class HistorySort {
     /**
      * When Filet first noticed the file in a tracked folder.
-     *
-     * His words: *"this list only lists when fiels where first seen on the tracked folders"*.
      * The filesystem cannot answer this - a file copied in today can carry any mtime at all -
      * so it is recorded once per path by [FirstSeenStore].
      */
@@ -35,8 +31,6 @@ enum class HistorySort {
 
     /**
      * The file's own modification time.
-     *
-     * *"this other list activity wise re arranges that lsit to which files was edited created"*.
      * A download written last year sits at last year here and at today under FIRST_SEEN, which
      * is exactly why both exist.
      */
@@ -165,8 +159,8 @@ object FileHistory {
     /**
      * How many entries sit above [key] in the grouped list.
      *
-     * The date picker JUMPS rather than filters - his history stays under his thumb either side
-     * of the day he asked for - so the screen needs an index, and it needs one whether or not
+     * The date picker JUMPS rather than filters - the history stays under the thumb either side
+     * of the day the design calls for - so the screen needs an index, and it needs one whether or not
      * the day has anything in it.
      *
      * @return the index of the first entry on that day, or the index where it WOULD be. Never
@@ -185,7 +179,7 @@ object FileHistory {
         return index
     }
 
-    /** The flat ordering, for his *"no special segregation"* switch. */
+    /** The ungrouped list, for the "no special segregation" switch. */
     fun flat(entries: List<HistoryEntry>, sort: HistorySort): List<HistoryEntry> =
         entries.sortedByDescending { it.timeFor(sort) }
 }

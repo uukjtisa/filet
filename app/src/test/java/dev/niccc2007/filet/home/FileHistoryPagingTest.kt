@@ -8,10 +8,6 @@ import java.util.TimeZone
 /**
  * The expand that took seconds on a long list.
  *
- * Nic: *"expand button for the new files section in the home tab takes so long to render
- * especially if I'm tracking a whole 1k plus list.. fix that please? isn't the load as you
- * scroll a thing?"*
- *
  * "Load as you scroll" was already there - the list is a `LazyColumn` with a `shown` window
  * that grows as it is scrolled. What was NOT paged is everything that happens before the first
  * row can be drawn, and that is where the wait came from:

@@ -3,7 +3,7 @@ package dev.niccc2007.filet.vfs.provider
 /**
  * The choices made in the creation window, carried down to the writer.
  *
- * Nic: *"add strength, optional password and etc.. each tailored for the type"*. Which of these
+. Which of these
  * a format can honour is [ArchiveCapabilities]' answer, not this type's - this is only what was
  * asked for. The writer asserts the pairing rather than assuming the UI got it right, because a
  * password silently dropped on a format that cannot encrypt is the worst outcome available

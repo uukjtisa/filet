@@ -3,7 +3,7 @@ package dev.niccc2007.filet.vfs.provider
 /**
  * What an extraction is about to do to a folder, worked out before a byte is written.
  *
- * Nic identified this in round 9: an archive he expected to extract as
+ * Identified in round 9: an archive expected to extract as
  * `<archive name>/contents` scattered its contents straight into the destination instead.
  *
  * That is a tarbomb, and the fix is not a better default - it is showing the answer before
@@ -26,7 +26,7 @@ package dev.niccc2007.filet.vfs.provider
  * They are opposites, so [WrapChoice.AUTO] picks at most one: an archive with a single root
  * folder gets stripped and never wrapped, and an archive with loose files gets wrapped and has
  * nothing to strip. Either can then be overridden from the preview, one tap each, which is
- * what his two buttons are.
+ * what the two buttons are.
  */
 
 /** One member, as the archive stores it. */
@@ -37,7 +37,7 @@ enum class WrapChoice {
     /** Wrap when the archive would otherwise scatter. */
     AUTO,
 
-    /** His "put inside a folder with the original archive name", pressed. */
+    /** "Put inside a folder with the original archive name", pressed. */
     FORCE_ON,
 
     /** The same button pressed again when AUTO had already wrapped. */
@@ -56,7 +56,7 @@ enum class CollisionChoice {
 
 /**
  * @param stripLevels how many redundant parent folders to lift away, or null for "as many as
- *   are genuinely redundant". His *"add an option to keep doing so if its still one folder"*
+ *   are genuinely redundant". 
  *   is the null case; the preview's undo sets an explicit smaller number.
  */
 data class ExtractOptions(

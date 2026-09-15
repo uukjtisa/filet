@@ -18,7 +18,7 @@ data class Script(
      * Whether this exact source is currently approved.
      *
      * **Part of the model on purpose, not read from preferences at the point of drawing.**
-     * Nic's report was that the script tab "keeps it stale unless I refresh", and this is half
+     * The fault was that the script tab "keeps it stale unless I refresh", and this is half
      * of why: approval lived only in `SharedPreferences`, so approving a script changed nothing
      * a `StateFlow` could emit. Re-publishing the same list did not help either - `StateFlow`
      * drops a value equal to the one it holds, so a list rebuilt from unchanged files is

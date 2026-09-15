@@ -129,7 +129,17 @@ class IndexCoordinator(
         endedBy = null
         IndexService.start(context)
         running = scope.launch {
-            _run.value = IndexRun(active = true, startedAt = System.currentTimeMillis())
+            // What the index already holds decides which of the two things this pass is, and
+            // it is read before the pass starts so the number on screen is the one that was
+            // genuinely there. See IndexRun: nothing was ever rebuilt, but the old line said
+            // "0 files scanned so far" under a 30k index, which read as a wipe.
+            val known = index.status.value.files
+            _run.value = IndexRun(
+                active = true,
+                startedAt = System.currentTimeMillis(),
+                phase = if (known > 0) IndexPhase.UPDATE else IndexPhase.BUILD,
+                known = known,
+            )
             val jobId = ledger.start("Indexing storage", "${roots.size} volume(s)")
 
             // The battery limit is a *limit*, not a schedule: checked while the crawl runs so
@@ -167,12 +177,17 @@ class IndexCoordinator(
             }
             val note = if (end == CrawlEnd.FAILED) result.exceptionOrNull()?.message.orEmpty() else ""
 
-            _run.value = _run.value.copy(active = false, endedBecause = end, note = note)
+            val r = result.getOrNull()
+            _run.value = _run.value.copy(
+                active = false,
+                endedBecause = end,
+                note = note,
+                added = r?.addedFiles ?: 0,
+                removed = r?.removedFiles ?: 0,
+            )
             when (end) {
-                CrawlEnd.DONE -> {
-                    val r = result.getOrNull()
+                CrawlEnd.DONE ->
                     ledger.finish(jobId, "${r?.seenFiles ?: 0} files, ${r?.changedDirs ?: 0} folders changed")
-                }
                 CrawlEnd.FAILED -> ledger.fail(jobId, note.ifEmpty { "index failed" })
                 else -> ledger.finish(jobId, "${end.label} at ${_run.value.seen} files")
             }

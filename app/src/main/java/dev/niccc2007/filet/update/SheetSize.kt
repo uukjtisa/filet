@@ -3,7 +3,7 @@ package dev.niccc2007.filet.update
 /**
  * How tall the release-notes pane is, and what a drag on the handle does to it.
  *
- * Nic asked for the changelog viewer to be resizable and bigger by default - there is a lot
+ * The design calls for the changelog viewer to be resizable and bigger by default - there is a lot
  * of content in a release body and it was getting a small window. He was right, and it was
  * worse than it looked: the pane was a flat 260dp while the
  * notes now carry 208dp screenshot strips, so a single strip filled it.

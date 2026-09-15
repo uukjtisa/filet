@@ -5,9 +5,6 @@ package dev.niccc2007.filet.handlers
  *
  * ## Why this is a file and not three lines inside a gesture callback
  *
- * Nic's report: *"the picture/image viewer it used to be zoomable now it's not.. I'm trying to
- * pinch to zoom but now it's not working.. double tap to zoom still works though"*.
- *
  * The cause was not the gesture detector. `ZoomableImage` took `scale` as a **parameter** and
  * read it from inside `Modifier.pointerInput(bitmap) { … }`. That block is a coroutine which
  * restarts only when its key changes, and its key was the bitmap - so the coroutine captured

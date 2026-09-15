@@ -2,7 +2,7 @@ package dev.niccc2007.filet.update
 
 // PORTED FROM TRAWL (github.com/uukjtisa/trawl, ui/component/ReleaseNotesView.kt) along with the
 // parser it draws. Same author, same licence, and deliberately the same design: an update sheet
-// that looks like a different app in each of his apps is two designs to maintain and two things
+// that looks like a different app in each of the apps is two designs to maintain and two things
 // for a reader to learn. Spacing, sizes, the accent dot on big headings, the strip height, the
 // table and the code block are Trawl's.
 //

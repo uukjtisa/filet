@@ -74,8 +74,7 @@ even though both devices are "on the same network". mDNS returns nothing and the
 the app is broken. So:
 
 - Detect it — if mDNS finds peers but TCP connect fails, that is isolation, and it is
-  diagnosable. Say so: *"Your network blocks devices from talking to each other. Use Wi-Fi
-  Direct instead."* with the button right there.
+  diagnosable. Say so:  with the button right there.
 - **Wi-Fi Direct is the answer to it**, not a fallback nobody finds. It needs no router at all.
 
 ### 1.3 Transport
@@ -115,14 +114,7 @@ costs nothing because the server already exists.
 
 ---
 
-## 3. The device list, and the interaction
-
-### 3.1 Two surfaces, because there are two intents
-
-| Intent | Surface |
-|---|---|
-| *"Send these files"* | **Share sheet** — multi-select → Share → peers slide up → tap one → sending. Three taps, never leaves the pane. |
-| *"What has that phone got?"* | **Nearby, in the rail** — a place, like a volume. Opens a peer in a pane. |
+## 3.  | **Share sheet** — multi-select → Share → peers slide up → tap one → sending. Three taps, never leaves the pane.  | **Nearby, in the rail** — a place, like a volume. Opens a peer in a pane. |
 
 The second is the one nobody else does. Open a peer in the right pane, your storage in the
 left, and **drag between them**. Copy both directions, multi-select, rename in place. Sending
@@ -162,11 +154,7 @@ single highest-leverage thing in this document:
 > A laptop, a Windows PC, someone else's iPhone, a smart TV. No app, no account, no cable.
 
 This is a first-class feature with its own screen, not a URL buried in settings.
-
-### 4.1 The thing that would ruin it, and the fix
-
-A self-signed certificate makes every browser throw a full-page
-**"Your connection is not private"** interstitial. Nobody clicking that trusts what follows, and
+* interstitial. Nobody clicking that trusts what follows, and
 half of them stop. So the peer transport and the browser transport have **different threat
 models and must not share an endpoint**:
 
@@ -176,7 +164,7 @@ models and must not share an endpoint**:
 | **Browser** | **Plain HTTP** by default | No interstitial. LAN-scoped, PIN-gated, session-bounded |
 
 Plain HTTP means the transfer is unencrypted on the local network. That is stated plainly in
-the share screen — *"Anyone on this network could read what you transfer"* — with a
+the share screen —  with a
 **Force HTTPS** toggle for someone on untrusted wifi who would rather click through the browser
 warning. Default is the one that works; the honest label is what makes it defensible.
 
@@ -247,13 +235,11 @@ Reached from **Nearby → Share over network**:
 ### 4.6 One honest limitation
 
 The URL is a **private LAN address**. It works for anyone on the same WiFi and for nobody
-outside it. There is no tunnel, no relay, no public URL — that would need a server Nic does not
+outside it. There is no tunnel, no relay, no public URL — that would need a server review does not
 have and a trust model this app should not take on.
 
 The app should say so in one line rather than letting someone try to send the link to a friend
-across town: *"Only works for devices on this network."*
-
----
+across town:  --
 
 ## 5. Wear OS — a companion, not a port
 
@@ -276,9 +262,7 @@ What is genuinely useful on the wrist — and it is a real feature, not a consol
 the ledger snapshot. It rides the Bluetooth bridge, so it needs no network, no pairing of its
 own, and no server. A standalone Wear app with its own networking would be a second product.
 
-Scope is roughly four screens and a tile. Small, useful, honest — and it keeps `PLAN.md` R4:
-the README will say *"Wear OS companion: approve transfers and watch progress"*, not
-*"Wear OS support"*, because the latter would imply a file browser that does not exist.
+Scope is roughly four screens and a tile. Small, useful, honest —  because the latter would imply a file browser that does not exist.
 
 ---
 
@@ -309,5 +293,5 @@ feature this size.
 - [ ] Does the Shared folder live at `/storage/emulated/0/Filet/Shared` or inside app-specific
       storage? The former is visible to other apps and easier to drop into; the latter is cleaner
       on uninstall.
-- [ ] Watch 4 Classic specifically — confirm the installed Wear OS version on his unit before
+- [ ] Watch 4 Classic specifically — confirm the installed Wear OS version on the unit before
       writing any of M10 against an API level.

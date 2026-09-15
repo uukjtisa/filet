@@ -15,7 +15,7 @@ import kotlinx.coroutines.ensureActive
 /**
  * Extraction, in two halves: work out what will happen, then do exactly that.
  *
- * Reported by Nic in round 9: extracting an archive he expected to produce
+ * Bug identified in round 9: extracting an archive expected to produce
  * `<archive name>/contents` instead scattered the contents straight into the destination. He
  * asked for a confirmation showing what the result will look like BEFORE it runs.
  *

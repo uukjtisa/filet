@@ -514,7 +514,13 @@ class SqliteIndex(
                 // the past, which is the opposite of what the caller asked for.
                 val deadline = if (budgetMs <= 0) Long.MAX_VALUE else started + budgetMs
                 val gen = (dbh.meta(META_GEN)?.toLongOrNull() ?: 0L) + 1
-                _status.update { it.copy(running = true, phase = "scanning", scanned = 0) }
+                // Read BEFORE anything is touched. This is the number that makes a running
+                // update legible: "checked 12,430 of 31,206" instead of a bare 12,430 that
+                // reads as an index which just started from nothing.
+                val filesBefore = countFiles()
+                _status.update {
+                    it.copy(running = true, phase = "scanning", scanned = 0, knownAtStart = filesBefore)
+                }
 
                 var visited = 0
                 var seen = 0L
@@ -522,6 +528,7 @@ class SqliteIndex(
                 var complete = true
                 var moved = 0
                 var factsWritten = 0
+                var removed = 0
 
                 try {
                     for (root in roots) {
@@ -617,7 +624,10 @@ class SqliteIndex(
                         // Moves first, THEN the sweep. The other order destroys the very rows
                         // a move needs to carry forward.
                         moved = relinkMoves(gen)
-                        db.execSQL("DELETE FROM node WHERE gen < ?", arrayOf<Any>(gen))
+                        // Counted, not just executed: "4 gone" is only honest if something
+                        // actually counted them.
+                        removed = db.compileStatement("DELETE FROM node WHERE gen < ?")
+                            .use { st -> st.bindLong(1, gen); st.executeUpdateDelete() }
                         dbh.putMeta(META_GEN, gen.toString())
                         dbh.putMeta(META_LAST_RUN, System.currentTimeMillis().toString())
                     }
@@ -634,9 +644,18 @@ class SqliteIndex(
                     }
                 }
 
+                // Added is derived rather than counted at the insert site, because an upsert
+                // cannot tell "new file" from "file I already had" without an extra read per
+                // row. The arithmetic is exact: whatever the index holds now, minus what
+                // survived from before.
+                val filesAfter = countFiles()
+                val survived = (filesBefore - removed).coerceAtLeast(0L)
+                val added = (filesAfter - survived).coerceAtLeast(0L).toInt()
+
                 CrawlResult(
                     visited, seen.toInt(), changed, complete,
                     System.currentTimeMillis() - started, moved, factsWritten,
+                    removedFiles = removed, addedFiles = added,
                 )
             }
         }

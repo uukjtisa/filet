@@ -3,9 +3,7 @@ package dev.niccc2007.filet.vfs.provider
 /**
  * What each format lets you *choose* when you create one.
  *
- * [Archives] answers "can Filet read and write this at all". This answers the next question,
- * which is the one Nic asked for: *"add strength, optional password and etc.. each tailored
- * for the type"*. Those are not the same question and they do not have the same shape - RAR
+ * [Archives] answers "can Filet read and write this at all". . Those are not the same question and they do not have the same shape - RAR
  * is readable and has no entry here at all, and a plain `.tar` is creatable and has no
  * strength, because it does not compress anything.
  *
@@ -107,7 +105,7 @@ enum class SplitStyle {
 /**
  * What happens when one file inside an existing archive is changed.
  *
- * His ask was to save an edit back without recompressing the whole archive, and whether that
+ * The ask was to save an edit back without recompressing the whole archive, and whether that
  * is possible is a
  * property of the container rather than of how clever the code is.
  */

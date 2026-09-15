@@ -31,9 +31,8 @@ import dev.niccc2007.filet.ui.theme.Filet
 /**
  * A row that scrolls sideways **and looks like it does**.
  *
- * Nic, twice. Round 7 about the selection bar: *"it looks bad.. it looks unscrolable too ules
- * you slide it"*. Round 8, about the update sheet's chips: the row gave no sign it scrolled
- * sideways and he only found out by dragging it, and he asked for the affordance to become the
+ * Twice. Round 8, about the update sheet's chips: the row gave no sign it scrolled
+ * sideways and he only found out by dragging it, and the design calls for the affordance to become the
  * standard for every such row rather than a fix in one place.
  *
  * The second report is the important one, because the first had already been "fixed" - the
@@ -130,7 +129,7 @@ private fun BoxScope.Cue(visible: Boolean, ground: Color, atStart: Boolean) {
                 .background(brush),
             contentAlignment = Alignment.Center,
         ) {
-            // fg2, not fg3. The whole report was "i can barely tell", and a cue drawn in the
+            // fg2, not fg3. The fault was that the cue was barely visible, and one drawn in the
             // same grey as disabled text is a cue somebody has to look for.
             Icon(
                 imageVector = if (atStart) FiletIcons.Back else FiletIcons.Forward,

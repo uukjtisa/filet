@@ -18,9 +18,8 @@
  *     saw `target == -1` forever and `moveTab` was never called. `movedItem`, `dragTarget`,
  *     `indexAfterMove` and `moveTab` all existed and were all tested. Only the wire was dead.
  *
- * Nic found the second one himself - *"the tabs in our app isn't even draggable to rearrange
- * the order.. I KNOW I put that somewhere in the spec and you poorly overlooked"* - which is
- * the part that makes this worth a checker rather than two fixes. Tested machinery with no
+ * The second was found in review rather than by the checker, which is the part that makes
+ * this worth a checker rather than two fixes. Tested machinery with no
  * working control attached to it is rule R1, and R1 cannot see this because every piece is
  * present.
  *

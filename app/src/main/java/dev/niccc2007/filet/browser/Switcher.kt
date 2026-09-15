@@ -66,7 +66,7 @@ fun Switcher(vm: BrowserViewModel, tabs: List<PaneController>) {
             .padding(vertical = 10.dp),
     ) {
         Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            // The APP icon, not the maker's mark. `FiletIcons.Mark` is Nic's signature - it
+            // The APP icon, not the maker's mark. `FiletIcons.Mark` is the author's signature - it
             // belongs on About, where it means "who made this", and nowhere else.
             Icon(
                 appIcon(body = colors.fg2, flap = colors.accent),

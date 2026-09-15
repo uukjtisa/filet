@@ -9,7 +9,7 @@ import org.junit.Test
 /**
  * The extension-to-type table, which decides which apps a chooser offers.
  *
- * Its absence was invisible until Nic opened the picker for a `.pptx`: the type came back as
+ * Its absence was invisible until review opened the picker for a `.pptx`: the type came back as
  * the wildcard, the package-manager query with a wildcard matches every app that declares one,
  * and the "apps that handle this type" list for a PowerPoint deck was Certificate Installer,
  * HTML Viewer and Manage SIM contacts. Nothing crashed and nothing looked broken.

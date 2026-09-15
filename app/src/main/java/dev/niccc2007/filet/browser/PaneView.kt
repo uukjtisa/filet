@@ -150,9 +150,8 @@ fun PaneView(
                         FolderBody(pane, vm, s, app, metrics, side, registry, onGhost)
                     else -> SpecialBody(pane, vm, s)
                 }
-                // Floating, and in EVERY pane rather than only the focused one. His words:
-                // *"why not this pending bar in each pane. but a floating button less
-                // obstructive?"* - the per-pane part is what makes split view unambiguous,
+                // Floating, and in EVERY pane rather than only the focused one. Put plainly:
+                // the per-pane part is what makes split view unambiguous,
                 // because "Paste" then means THIS side and there is nothing to work out.
                 PastePill(pane, vm, s, app, Modifier.align(Alignment.BottomEnd))
             }
@@ -713,8 +712,7 @@ private fun PaneContextMenu(
 /**
  * Where a copy or a move finishes.
  *
- * Nic: *"i thought there would be an easy one click paste here in this active split view or
- * folder but no it was in that unintuitive top right triple dot"*. He is right, and the failure
+. He is right, and the failure
  * is worse than one of discoverability: after Copy, the app holds state that nothing on screen
  * mentions. A clipboard you cannot see is a clipboard you forget you filled.
  *

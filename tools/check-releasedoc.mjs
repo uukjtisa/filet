@@ -2,7 +2,7 @@
 /**
  * The published release body is written the way `docs/RELEASES.md` says it has to be.
  *
- * Nic asked for the rule Trawl keeps in its agent instructions - open with pictures, say what
+ * The design calls for the rule Trawl keeps in its agent instructions - open with pictures, say what
  * changed and what it means, never talk about the code - and asked for it to be the standard
  * for the next app too. A rule that lives only in a prompt lasts until the next session, so it
  * lives in `docs/RELEASES.md` and this checks the release against it.
@@ -61,7 +61,7 @@ export function checkBody(body, doc) {
   const images = [...body.matchAll(/<img\s[^>]*src\s*=\s*"([^"]+)"/gi)].map((m) => m[1]);
   const mdImages = [...body.matchAll(/!\[[^\]]*]\(([^)\s]+)/g)].map((m) => m[1]);
   const all = images.concat(mdImages);
-  // Nic's amendment, 2026-09-15: "if pictures are necessary then include but if not then
+  // Amended 2026-09-15: "if pictures are necessary then include but if not then
   // dont." A release that adds no screen has nothing to photograph, and padding it with shots
   // of screens that did not change is exactly the stale gallery he complained about in the
   // README. So pictures are required UNLESS the body says plainly, up front, that there are

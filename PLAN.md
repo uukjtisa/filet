@@ -233,8 +233,7 @@ What that unlocks:
 - Every file shows a **Source** chip: open the original page, copy the URL, check
   whether it is still live, or **re-download at a different quality** (hands
   straight back to Trawl).
-- **Search by origin, not filename.** *"that video I pulled last month"*,
-  *"everything from this channel"*, *"files from the link someone sent me in March."*
+-
   Nothing on Android does this. It is the single most differentiating feature here.
 - Duplicate detection that is actually smart — same source, different filename.
 
@@ -264,7 +263,7 @@ drop, or a watched folder later trigger the same recipes.
 
 Each app exposes a `ContentProvider` guarded by an
 `android:protectionLevel="signature"` permission. Both apps are signed with the
-same key, so only Nic's apps can read or write the bridge — no third app can spoof
+same key, so only the apps can read or write the bridge — no third app can spoof
 provenance or inject a job. No server, no account, works offline.
 
 > **Debug builds are a different package.** `applicationIdSuffix ".debug"` means
@@ -275,7 +274,7 @@ provenance or inject a job. No server, no account, works offline.
 
 ### 5.5 Work required in Trawl
 
-Small but real, and it is a PR against his own fork:
+Small but real, and it is a PR against the own fork:
 
 1. Write a biography record on download completion.
 2. Publish jobs to the shared ledger.
@@ -367,7 +366,7 @@ below are counts from the test XML, not a summary of intent.
 | M | State | The short version |
 |---|---|---|
 | M0 | ✅ met | Shell, VFS, one pane, six file ops |
-| M1 | ✅ met, one clause is Nic's | Everything the criterion rests on is tested. "Used daily instead of your current file manager" is a verdict only he can give |
+| M1 | ✅ met, one clause is the | Everything the criterion rests on is tested. "Used daily instead of your current file manager" is a verdict only he can give |
 | M2 | ✅ met | Routing is registry-driven; the platform's own PackageManager confirms the inbound filters |
 | M3 | ✅ met, **measured** | 100,000 real files, slowest warm query 497 ms against a 1,000 ms gate |
 | M4 | ✅ met | Required building move-tracking: a pinned id used to die with the generation sweep |

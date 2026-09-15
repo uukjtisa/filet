@@ -429,7 +429,7 @@ term       := field ":" value | quoted | bare
 field      := name|ext|type|size|modified|created|in|from|pkg|class|perm|label
             | inzip|member|dup|tag
 value      := comparator? literal | range
-comparator := ">" | ">=" | "<" | "<=" 
+comparator := ">" | ">=" | "<" | "<="
 range      := literal ".." literal
 ```
 
@@ -666,8 +666,7 @@ declines, nothing breaks; the index just stays colder, which is the whole point 
 
 **Off is a genuine option and search still works.** R1 (No Dead Switches) applies to settings
 too: a toggle that quietly degrades the app into uselessness is a dead switch wearing a costume.
-
-And the readout, because *"is it working?"* deserves an answer:
+ deserves an answer:
 
 > **41,206 files** indexed across 2 volumes · last swept **2 h ago** · 12 archives unindexed ·
 > 3 runs blocked by battery optimisation this week
@@ -752,8 +751,7 @@ targets reads the permission list before installing.
 ### 7.2 Partial results beat late results
 
 Multi-volume searches run per-volume with **independent timeouts** (local 2 s, SMB 5 s).
-A slow NAS never blocks internal-storage results; its section arrives late, or shows
-*"SMB: timed out — retry"*. Results are grouped by volume so a partial answer is legible as
+. Results are grouped by volume so a partial answer is legible as
 partial.
 
 ### 7.3 Privacy

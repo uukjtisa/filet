@@ -1,6 +1,6 @@
 # Filet — feature ledger
 
-**Nothing said in planning gets lost here.** Every item Nic raised is a row, even
+**Nothing said in planning gets lost here.** Every item review raised is a row, even
 the ones that turned out to be several features wearing a trench coat. Rows are
 never deleted — they move to `CUT` with a reason.
 
@@ -66,14 +66,14 @@ ledger was tidied: **F22** (a shortcut's id died with the crawl's generation swe
 
 | # | Feature | L | M | Status | Notes |
 |---|---|---|---|---|---|
-| F14 | Handler registry (per-type default app) | L2 | M2 | SHIPPED | The thing several of Nic's asks collapse into. User-editable. |
+| F14 | Handler registry (per-type default app) | L2 | M2 | SHIPPED | The thing several of the asks collapse into. User-editable. |
 | F15 | Single tap → registered handler | L2 | M2 | SHIPPED | |
-| F16 | Double tap → system "Open with" | L2 | M2 | SHIPPED | His "double click opens in the default open-in app". |
+| F16 | Double tap → system "Open with" | L2 | M2 | SHIPPED | The "double click opens in the default open-in app" behaviour. |
 | F17 | Appear in other apps' "Open with" | L2 | M2 | SHIPPED | Manifest work. Being *chosen* is the user's call — never force default status. |
 | F18 | Links/intents from other apps redirected here | L2 | M2 | SHIPPED | Incl. `http`/`https` so links can be handed to Trawl. |
 | F19 | Share sheet target | L5 | M2 | SHIPPED | |
 
-## Shortcuts & surfaces — *flagged by Nic as must-not-lose*
+## Shortcuts & surfaces — *flagged by review as must-not-lose*
 
 | # | Feature | L | M | Status | Notes |
 |---|---|---|---|---|---|
@@ -109,9 +109,9 @@ ledger was tidied: **F22** (a shortcut's id died with the crawl's generation swe
 |---|---|---|---|---|---|
 | F35 | Provenance records | L1/L6 | M7 | SHIPPED | Trawl writes, Filet stores + indexes. |
 | F36 | Source chip on a file | L5 | M7 | SHIPPED | Open source page · copy URL · check still live · re-download at another quality. |
-| F37 | Shared job ledger | L6 | M7 | SHIPPED | Nic's "latest sidebar and monitoring" from the first message. |
+| F37 | Shared job ledger | L6 | M7 | SHIPPED | the "latest sidebar and monitoring" from the first message. |
 | F38 | Signature-permission ContentProvider | L6 | M7 | SHIPPED | Both apps signed with the same key. Must discover `.debug` packages too. |
-| F39 | ~~Download tracking~~ | — | — | **CUT** | Nic rejected it as too shallow. Superseded by F35–F37 — provenance is the deeper version of the same instinct. |
+| F39 | ~~Download tracking~~ | — | — | **CUT** | review rejected it as too shallow. Superseded by F35–F37 — provenance is the deeper version of the same instinct. |
 
 ## APK / reverse engineering
 
@@ -151,7 +151,7 @@ ledger was tidied: **F22** (a shortcut's id died with the crawl's generation swe
 
 | # | Feature | L | M | Status | Notes |
 |---|---|---|---|---|---|
-| F70 | Shared set = real folder **+** proxy entries | L0 | M9a | SHIPPED | His own conclusion, and the right one. Drop files in a real folder, *or* add a pointer to a 4 GB file you are not going to copy. One listing, both kinds. |
+| F70 | Shared set = real folder **+** proxy entries | L0 | M9a | SHIPPED | The own conclusion, and the right one. Drop files in a real folder, *or* add a pointer to a 4 GB file you are not going to copy. One listing, both kinds. |
 | F71 | Proxies store a node ID, never a path | L0/L1 | M9a | BUILT | Move the file and the share follows; delete it and `ON DELETE CASCADE` removes the share. A broken share entry cannot exist. Same rule as F22. Proxies still store a path, not a node id — the id substrate landed in M4 after Nearby was written. |
 | F72 | Zero-copy streaming | L0 | M9a | SHIPPED | HTTP range requests from wherever the file lies. Sharing 4 GB costs 0 bytes and starts instantly. |
 | F73 | HTTP+TLS server, serve-by-token | L6 | M9a | SHIPPED | URL is `/f/<token>` → node id. **Paths never enter a URL, so traversal is unrepresentable, not merely blocked.** |
@@ -179,7 +179,7 @@ ledger was tidied: **F22** (a shortcut's id died with the crawl's generation swe
 | F46 | In-app updater | Signet | M0 | SHIPPED | GitHub Releases, `HttpURLConnection` + `org.json` so it adds no dependency. Checks, shows the notes, downloads with progress, hands the APK to the system installer which still asks. Distinguishes "nothing published" from "could not reach GitHub" - a null cannot, and reporting the first as the second sends the user to check their wifi. **`github` flavour only**: F-Droid forbids self-updaters. |
 | F47 | Update / changelog page | Signet | M0 | SHIPPED | |
 | F48 | First-run introduction wizard | Signet | M0 | SHIPPED | |
-| F49 | Signature motion language | Signet | M0 | SHIPPED | Nic's house style, ported from the portfolio. |
+| F49 | Signature motion language | Signet | M0 | SHIPPED | the house style, ported from the portfolio. |
 | F50 | Theme system — gray default, warm optional | Signet | M0 | SHIPPED | "Minimalistic but detailed, cozy but greyer." Filet ships `Slate`; `Ember` is the warm option. |
 | F51 | About screen with the signature mark | Signet | M0 | SHIPPED | Maker's mark, not the app icon. |
 

@@ -189,7 +189,29 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             val roots = runCatching { graph.vfs.roots() }.getOrElse { emptyList() }
             _state.update { it.copy(volumes = volumeInfos(roots)) }
             restoreTabs(roots.firstOrNull()?.path)
+            updateIndexOnOpen(roots)
         }
+    }
+
+    /**
+     * Start an index update every time Filet opens, which is the required behaviour.
+     *
+     * Deliberately quiet. It posts no toast and blocks nothing: a pass that confirms what is
+     * still there is the normal state of affairs, not an event. The settings screen shows it
+     * running, and the notification carries a Stop, so it is visible without being in the way.
+     *
+     * Three things it will not do. It will not run when indexing is switched off, because that
+     * setting has to mean what it says. It will not start a second pass over one already in
+     * flight. And on a device with nothing indexed yet it still runs - that first pass is the
+     * BUILD phase and says so, rather than silently doing the most expensive thing Filet can
+     * do under a label that suggests otherwise.
+     */
+    private fun updateIndexOnOpen(volumes: List<VNode>) {
+        val roots = volumes.map { it.path }
+        if (roots.isEmpty()) return
+        if (!graph.prefs.indexEnabled.value) return
+        if (graph.indexCoordinator.isCrawling()) return
+        graph.indexCoordinator.crawlFully(roots)
     }
 
     /**
@@ -700,7 +722,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun extractSelectionToOtherPane() = withSelection { items -> extractToOtherPane(items[0]) }
 
-    /** His "extract to ...": browse to a folder, then preview the extraction into that. */
+    /** "Extract to ...": browse to a folder, then preview the extraction into that. */
     fun extractToPicked(node: VNode) {
         pickFolder("Extract ${node.name} to", "Extract into this") { dest -> extract(node, dest) }
     }
@@ -808,7 +830,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      *
      * **The bump comes first and that ordering is the fix.** It used to come last, so the two
      * visible panes re-listed at the OLD revision and were immediately behind again - and every
-     * tab that was not on screen was never marked stale at all, which is exactly Nic's report:
+     * tab that was not on screen was never marked stale at all, which is exactly the reported symptom:
      * a file moved out of a folder stayed drawn in any other tab showing that folder, forever.
      * Now the bump marks every pane stale and each one re-reads as it becomes visible.
      */
@@ -822,7 +844,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     /**
      * Re-read the panes on screen if the world has moved since they last listed.
      *
-     * The "start pipeline" Nic asked for. Called on tab switch, on split change and on resume -
+     * The "start pipeline" requirement. Called on tab switch, on split change and on resume -
      * anywhere a folder becomes visible. Costs nothing when nothing has changed.
      */
     fun freshenVisiblePanes() {
@@ -1290,7 +1312,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun saveText(node: VNode, text: String, onSaved: () -> Unit) {
         // A file inside an archive cannot simply be written to - the provider refuses, and it
-        // is right to. This is the prompt he asked for instead: update the archive, or put the
+        // is right to. This is the prompt instead: update the archive, or put the
         // edited file somewhere else.
         if (ArchiveEdits.isMember(node.path)) {
             viewModelScope.launch {
@@ -1481,7 +1503,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      *
      * The folder has always existed - `/storage/emulated/0/Filet/Received` - and there was no
      * way to reach it from the screen that fills it, which is not much better than not having
-     * one. Nic's question was literally "where can i find it".
+     * one. The question it answers is where the extracted files went.
      */
     fun openReceivedFolder() {
         val pane = focusedPane() ?: return
@@ -2510,9 +2532,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     private fun restoreTabs(fallback: VPath?) {
-        // The setting Nic asked for. Off means start with Home alone - and the saved list is
+        // The setting. Off means start with Home alone - and the saved list is
         // deliberately LEFT on disk rather than cleared, so turning the setting back on
-        // restores the tabs he had rather than starting him from nothing.
+        // restores the tabs that were open rather than starting from nothing.
         val raw = TabRestore.savedStateFor(graph.prefs.getString(KEY_TABS), graph.prefs.restoreTabs.value)
         val restored = ArrayList<PaneController>()
         var a = 0

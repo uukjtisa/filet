@@ -2,7 +2,7 @@
 /**
  * The extraction preview must be a drawing of the plan, and nothing else.
  *
- * The bug Nic reported is specific: he expected an archive to extract as
+ * The bug is specific: an archive was expected to extract as
  * `<archive name>/contents` and it scattered its contents into the folder instead. He only
  * found out afterwards, with the mess already made. The fix is a preview - and a preview is
  * only worth having if it is showing the value the extractor will actually walk.
@@ -44,7 +44,7 @@ const SAYS = [
   { gate: "X10", what: "how much of it will not shrink", from: /plan\.alreadyCompressedBytes/ },
 ];
 
-/** His two buttons, and the callbacks that make them do something. */
+/** The two buttons, and the callbacks that make them do something. */
 const BUTTONS = [
   { gate: "X5", what: "put the contents in a folder / take them out of one", from: /onWrap/ },
   { gate: "X5", what: "keep one level of the lifted chain", from: /onStripLess/ },

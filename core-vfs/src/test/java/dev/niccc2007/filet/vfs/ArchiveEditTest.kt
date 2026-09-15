@@ -134,7 +134,7 @@ class ArchiveEditTest {
     // ── nothing else was recompressed ──
 
     @Test fun the_untouched_entries_keep_their_exact_compressed_bytes() = runTest {
-        // The assertion his ask is actually about. A re-deflated archive reads back identically,
+        // The assertion the requirement is actually about. A re-deflated archive reads back identically,
         // so only the STORED bytes can tell the two apart.
         val file = build("zip")
         val before = rawFingerprint(file)

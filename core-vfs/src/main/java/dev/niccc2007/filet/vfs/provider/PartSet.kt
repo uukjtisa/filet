@@ -3,7 +3,7 @@ package dev.niccc2007.filet.vfs.provider
 /**
  * Which files are one archive cut into pieces.
  *
- * Nic asked for *"a multi part archive.. like others part1 part 2 etc"*, on both sides: hand
+ on both sides: hand
  * Filet one part of a set somebody sent and have it open as a whole, and produce a set when
  * making one.
  *

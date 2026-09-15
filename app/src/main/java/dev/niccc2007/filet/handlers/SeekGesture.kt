@@ -5,7 +5,7 @@ import kotlin.math.roundToLong
 /**
  * Turning a finger into a playback position.
  *
- * Nic's words for what was wrong: "add controls where if i drag it it intuitively skips or
+ * What was wrong: there was no way to drag the picture to skip or
  * follows my hand on where to go back or forward as if i was holding the playback bar
  * progress". The stock `MediaController` only seeks when you happen to grab its thumb, which
  * on a phone is a 20dp target you miss more often than you hit.

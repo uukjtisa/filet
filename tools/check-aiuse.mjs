@@ -2,7 +2,7 @@
 /**
  * `docs/AI_USE.md` exists, says what it has to, and is NOT linked from the README.
  *
- * The last part is the unusual one and it is deliberate. Nic asked for the note to be
+ * The last part is the unusual one and it is deliberate. The design calls for the note to be
  * findable and not advertised: a README that opens by declaring AI assistance invites the
  * reading he is worried about, which is that the design was outsourced too. The note is for
  * somebody who went looking, and a check is what keeps a future tidy-up from "helpfully"
@@ -29,13 +29,11 @@ const MUST_MENTION = [
 /**
  * Phrases that would turn a statement of method into an apology.
  *
- * Not a style opinion: "vibe coded" and "just prompted" are the exact readings he asked the
+ * Not a style opinion: "vibe coded" and "just prompted" are the exact readings the page asks the
  * page to avoid, and a later edit reaching for them would undo the point of the page.
  *
- * **"AI slop" was in this list as a bare phrase, and that was wrong.** Nic then wrote the
- * page's own "Why I am telling you" section and used the phrase to name the culture he is
- * arguing with - *"There's a culture of people that likes to call stuff AI slop"* - which is
- * the opposite of an apology, and this checker failed him for making the page's own point.
+ which is
+ * the opposite of an apology, and this checker failed the page for making its own point.
  * The rule now bans the phrase only where it is turned on THIS project. Quoting it at
  * somebody else is allowed, and has to be: a page defending the method cannot be forbidden
  * from naming the accusation it is answering.

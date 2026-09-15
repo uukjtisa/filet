@@ -60,7 +60,7 @@ import dev.niccc2007.filet.ui.theme.Filet
 /**
  * A section heading that actually separates.
  *
- * Nic asked for Settings to be properly segregated - it was packed, with no visual
+ * The design calls for Settings to be properly segregated - it was packed, with no visual
  * distinction between the interface options, the general ones and the rest. He is right. The
  * old heading was 9.5sp grey micro-caps
  * with 7dp of padding - technically a label, visually a row like any other, so eleven controls
@@ -418,15 +418,22 @@ private fun IndexStatusCard(vm: BrowserViewModel) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // R1, no dead switches: while a crawl is running, the button that starts one is a
             // button that does nothing, so it becomes the one that stops it.
-            if (run.active) SmallButton("Stop indexing") { vm.stopIndexing() }
-            else SmallButton("Index now") { vm.reindexNow() }
+            // One button, three states, decided by IndexRun.action - Chosen over two
+            // separate buttons: "if the user wants to rebuild from scratch then press the
+            // clear button that already exists". So there is no rebuild control to press by
+            // accident, and clearing is the deliberate act it should be.
+            if (run.active) SmallButton(run.action) { vm.stopIndexing() }
+            else SmallButton(run.action) { vm.reindexNow() }
             SmallButton("Clear index") { vm.clearIndex() }
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            "Index now walks everything and keeps going until it is done — through the lock " +
-                "screen, with a Stop in the notification shade. The only thing that halts it by " +
-                "itself is a battery under 15% that is not charging.",
+            "Updating confirms what is still on the device, drops what has gone, and adds what " +
+                "is new — it does not start again from nothing, and Filet runs one every time " +
+                "it opens. It keeps going until it is done, through the lock screen, with a " +
+                "Stop in the notification shade; the only thing that halts it by itself is a " +
+                "battery under 15% that is not charging. Clear index throws the whole thing " +
+                "away, so the next run has to build it again from scratch.",
             fontSize = 10.sp, color = colors.fg3, lineHeight = 13.5.sp,
         )
     }

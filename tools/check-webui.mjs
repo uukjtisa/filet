@@ -2,7 +2,7 @@
 /**
  * The share page must not build a whole folder's worth of rows at once.
  *
- * Nic's report: sharing a large folder made the page unresponsive on a phone and fine on a
+ * The fault: sharing a large folder made the page unresponsive on a phone and fine on a
  * PC. That split is the signature of a render that is merely expensive rather than wrong -
  * a desktop browser absorbs fifty thousand DOM nodes and a phone does not - which is why it
  * survived being tested on a laptop.

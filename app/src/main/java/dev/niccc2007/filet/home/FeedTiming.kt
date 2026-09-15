@@ -3,7 +3,7 @@ package dev.niccc2007.filet.home
 /**
  * When a burst of filesystem notifications should turn into one refresh.
  *
- * Reported by Nic: the tracked-folder feed was not showing the latest files and took a
+ * Bug identified: the tracked-folder feed was not showing the latest files and took a
  * visible while to catch up, and it had to stay fast however many folders were tracked.
  *
  * Three things were wrong and this is the third. The watcher fired `index.crawl(...)` with a

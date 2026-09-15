@@ -19,7 +19,7 @@ import java.util.EnumSet
 /**
  * SFTP, over sshj.
  *
- * Addressing: `sftp:///<connectionId>/home/nic/notes.txt`.
+ * Addressing: `sftp:///<connectionId>/home/you/notes.txt`.
  *
  * **Host key handling is the honest weak point here.** A real client pins the host key on
  * first use and screams if it changes; that needs UI Filet does not have yet, so the

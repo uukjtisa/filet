@@ -13,11 +13,9 @@ Write it like that.
 
 ## The rules
 
-**Pictures only when there is something new to show.** Nic, 2026-09-15: *"if pictures are
-necessary then include but if not then dont."* A release of pure repairs has nothing to
+**Pictures only when there is something new to show.** review, 2026-09-15:  A release of pure repairs has nothing to
 photograph, and filling the strip with shots of screens that did not change is how a gallery
-goes stale — which is a thing he has complained about separately. When a release adds no
-screen, say **"no new screens"** in the opening paragraph; `check-releasedoc.mjs` accepts that
+goes stale — which is a thing he has complained about separately. * in the opening paragraph; `check-releasedoc.mjs` accepts that
 in place of images, so the absence is a stated claim rather than an oversight.
 
 **Open with pictures when there ARE any.** A centred `<div>` of `<img>` tags becomes one screenshot strip in the
@@ -80,9 +78,9 @@ about source files, and it cannot see whether the writing is any good.
 
 ## Why this file exists
 
-Nic, round 8:
+review, round 8:
 
-Nic asked for Trawl's release-writing rule to apply here too: a release body is a formatted
+review asked for Trawl's release-writing rule to apply here too: a release body is a formatted
 document with images in it, rendered, rather than a changelog.
 
 The rule is Trawl's, which has the same renderer and the same reason for it. Both apps are

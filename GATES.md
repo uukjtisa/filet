@@ -112,8 +112,8 @@ gates produce. It installs once, grants, runs `am instrument`, and collects the 
     re-render on a pref change; hidden files on and off; an archive browsed AS a directory and
     a member read out of it; live non-indexed search finding a file two levels down; a
     bookmark surviving a second Bookmarks instance.
-    **The "used daily" clause is Nic's verdict, not a check** — it is the one exit criterion
-    in this file that no command can decide, and it is left to him deliberately rather than
+    **The "used daily" clause is the verdict, not a check** — it is the one exit criterion
+    in this file that no command can decide, and it is left to a person deliberately rather than
     claimed. SAF likewise needs a tree the user picks; the provider is registered and its
     addressing is unit-tested, but a granted tree cannot be fabricated in a test.
 

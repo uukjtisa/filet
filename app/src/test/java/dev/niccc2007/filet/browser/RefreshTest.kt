@@ -9,7 +9,7 @@ import org.junit.Test
  *
  * The old code was `if (s.kind == PaneKind.FOLDER) relist()` and an implicit return. Nothing
  * failed, nothing logged, and the button stayed enabled - so the only way to find out was to
- * be Nic, pressing it on the Nearby tab and eventually restarting the app.
+ * be somebody pressing it on the Nearby tab and eventually restarting the app.
  */
 class RefreshTest {
 
@@ -28,7 +28,7 @@ class RefreshTest {
     }
 
     @Test fun nearby_re_reads_the_server_so_the_sharing_button_stops_lying() {
-        // His specific case: connect from another device, come back, and the button still
+        // The specific case: connect from another device, come back, and the button still
         // says Start sharing.
         val targets = refreshPlan(PaneKind.NEARBY).targets
         assertTrue(RefreshTarget.NEARBY in targets)

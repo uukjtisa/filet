@@ -65,7 +65,7 @@ import kotlin.math.abs
  * "odd looking and old" came from - it is the 2010 stock chrome, it draws in the platform's
  * colours rather than Filet's, and its seek bar only responds if you land on a thumb the width
  * of a pencil. All of that is gone. The chrome below is Filet's, and the gestures are the ones
- * Nic asked for: drag anywhere on the picture to scrub with the position following the finger,
+ * The requirement: drag anywhere on the picture to scrub with the position following the finger,
  * double tap the left to go back and the right to go forward.
  *
  * `VideoView` stays as the surface. It is a thin wrapper over `MediaPlayer` that already
@@ -84,7 +84,7 @@ private const val FLASH_MS = 700L
 /**
  * The handle, kept out of Compose state so exactly one place starts and stops it.
  *
- * It holds the `MediaPlayer` as well as the view, and that is the whole fix for the seek Nic
+ * It holds the `MediaPlayer` as well as the view, and that is the whole fix for the seek
  * measured. `VideoView.seekTo(int)` goes to the nearest keyframe BEHIND the target, so a
  * stream with a keyframe every five seconds turns a drag to 12.5s into a jump to 10s - which
  * reads as a control that quantises rather than one that follows your finger. `MediaPlayer`
@@ -232,7 +232,7 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
             )
 
             else -> AndroidView(
-                // The zoom lives HERE and only here. Nic's requirement was explicit: "the
+                // The zoom lives HERE and only here. The requirement is explicit: "the
                 // controls are still on the proper size and orientation.. so it's like I'm only
                 // zooming the playback". The transport, the seek bar, the flash readout and the
                 // top chrome are all siblings of this surface rather than children of it, so

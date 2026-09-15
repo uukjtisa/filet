@@ -10,7 +10,7 @@ import org.junit.Test
  *
  * The bug this exists to stop ever recurring: `MainActivity` read the file-target extra and
  * nothing else, so an action shortcut arrived complete and correct and was silently dropped.
- * Search, Start sharing, Index now and Recent were dead icons for three rounds, and Nic
+ * Search, Start sharing, Index now and Recent were dead icons for three rounds, and that
  * reported it twice before the cause was found - because the icon looked right, the app did
  * launch, and nothing anywhere said no.
  */

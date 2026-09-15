@@ -8,10 +8,6 @@ import dev.niccc2007.filet.vfs.provider.SafProvider
 /**
  * Termux, as a place you can browse.
  *
- * Nic: *"i have termux here.. why dont you make it pair nicely with termux? and make termux
- * expose its own bin so its manageable in here in filet? make it detect termux.. so i can easily
- * transfer files using a gui from termux internals to my bin"*.
- *
  * ## Why this is a hand-off and not a provider
  *
  * Termux's files live under `/data/data/com.termux/files` - its `home`, and `usr/bin` where

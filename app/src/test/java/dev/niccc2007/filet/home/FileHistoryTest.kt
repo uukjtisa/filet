@@ -170,7 +170,7 @@ class FileHistoryTest {
     }
 
     @Test fun the_flat_list_holds_everything_the_groups_do() {
-        // His "no special segregation" switch must not also be a filter.
+        // The "no special segregation" switch must not also be a filter.
         val entries = (1..20).map { entry("f$it", at(2026, 9, (it % 14) + 1, 9)) }
         val grouped = FileHistory.group(entries, HistorySort.FIRST_SEEN, now, zone, locale).flatMap { it.entries }
         val flat = FileHistory.flat(entries, HistorySort.FIRST_SEEN)

@@ -18,8 +18,7 @@ import net.lingala.zip4j.model.enums.EncryptionMethod as Zip4jEncryption
 /**
  * Writing a zip, with the things `java.util.zip` cannot do.
  *
- * `java.util.zip.ZipOutputStream` has no password support of any kind and no multi-volume
- * support, so round 9's two zip asks - *"optional password"* and *"a multi part archive"* - are
+ are
  * both outside it. zip4j has both, under Apache-2.0, in pure Java.
  *
  * ## One writer, not two

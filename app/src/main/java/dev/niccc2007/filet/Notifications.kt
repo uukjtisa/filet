@@ -5,8 +5,7 @@ package dev.niccc2007.filet
  *
  * ## Why this file exists
  *
- * Round 9, from Nic: *"fix my phone filet debug lkeeps trying to start but isnt working.. hte
- * notification keeps appearing and disappearing too"*.
+ * Round 9. .
  *
  * `NearbyService` used `4201` and, from round 8, `UpdateNotifier` used `4_201`. The same
  * number, written two different ways - which is precisely why a grep for `4201` while adding
@@ -17,7 +16,7 @@ package dev.niccc2007.filet
  * else's. Nearby's is a FOREGROUND SERVICE notification, so the updater cancelling 4201 pulled
  * the notification out from under a running service; Android stops a foreground service whose
  * notification goes away, the service restarted, re-posted, and the loop is what he was
- * watching flicker on his home screen.
+ * watching it flicker on a home screen.
  *
  * The lesson is not "be careful with numbers". It is that a global key was being declared
  * locally in whichever file happened to need one. They are declared here now, and

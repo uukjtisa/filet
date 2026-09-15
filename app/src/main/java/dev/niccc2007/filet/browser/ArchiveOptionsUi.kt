@@ -32,7 +32,7 @@ import dev.niccc2007.filet.vfs.provider.EncryptionMethod
 /**
  * The per-format half of the compress dialog: strength, password, split.
  *
- * Nic asked for these *"each tailored for the type"*, and the tailoring is not cosmetic - the
+ the tailoring is not cosmetic - the
  * three formats that take a password are not the three that take a strength, and none of them
  * share a scale. So **every control here is drawn from [ArchiveCapability] and nothing is drawn
  * from a `when` over format ids.** That is rule R1: the alternative is two answers to "can a 7z

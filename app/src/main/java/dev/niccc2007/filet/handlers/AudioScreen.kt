@@ -65,7 +65,7 @@ import kotlin.random.Random
  * The music player.
  *
  * What was here before was a progress line, a filename and three buttons, one of which was the
- * Close icon doing duty as Pause. Nic's brief was "spotify like and etc", and the parts of that
+ * Close icon doing duty as Pause. The brief was a Spotify-like transport, and the parts of that
  * which actually matter are: the cover art is the screen, the track has a name and an artist
  * rather than a filename, the bar can be scrubbed, and the folder you opened it from is a
  * queue you can see and move around in.

@@ -99,7 +99,7 @@ class ExtractOpsTest {
     }
 
     @Test fun a_loose_archive_lands_in_a_folder_named_after_it() = runTest {
-        // His bomb, from the other side: three files where he expected one folder.
+        // The bomb, from the other side: three files where one folder was expected.
         val (archive, label) = makeZip("bomb.zip", listOf(src("a.txt", "1"), src("b.txt", "2")))
         val (destFile, destPath) = dest("out2")
         val plan = ops.plan(archive, destPath, label)

@@ -2,7 +2,7 @@
 /**
  * Every dependency is compatible with GPL-3.0, and the README says what they are.
  *
- * This is not paperwork. Filet is GPL-3.0 on a public repo with Nic's handle on it, and GPL-3
+ * This is not paperwork. Filet is GPL-3.0 on a public repo published under a personal handle, and GPL-3
  * cannot take a dependency with a field-of-use restriction. The one that nearly got in this
  * round is RAR: every Java decoder for it descends from the UnRAR source, whose licence
  * forbids using it to build an archiver. Shipping one would have been an actual violation
@@ -29,7 +29,7 @@ import { tmpdir } from "node:os";
 const KNOWN = {
   "commons-compress": { licence: "Apache-2.0", ok: true },
   // Round 9. `java.util.zip` cannot encrypt a zip at all and cannot write a volume set,
-  // so both of Nic's zip asks are outside it. Apache-2.0 and pure Java, unlike every
+  // so both zip requirements are outside it. Apache-2.0 and pure Java, unlike every
   // RAR decoder, which is the comparison worth keeping in mind here.
   zip4j: { licence: "Apache-2.0", ok: true },
   xz: { licence: "Public domain", ok: true },

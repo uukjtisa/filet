@@ -30,7 +30,7 @@ import java.util.TimeZone
  * and its dependency tree to avoid writing those is a bad trade for an app that cares about
  * its own size.
  *
- * Addressing: `dav:///<connectionId>/remote.php/dav/files/nic/notes.txt`.
+ * Addressing: `dav:///<connectionId>/remote.php/dav/files/you/notes.txt`.
  */
 class WebDavProvider(private val connections: NetConnections) : FileSystemProvider {
 

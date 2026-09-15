@@ -8,7 +8,7 @@ import java.io.IOException
 /**
  * What saving one edited member back into an archive will actually cost.
  *
- * His answer when asked whether to allow editing in place was to do it **and show the cost
+ * The answer when asked whether to allow editing in place was to do it **and show the cost
  * first**, and that is the only version of this feature that is safe to ship. Saving into a zip
  * rewrites one entry; saving into a 7z rewrites the entire archive, because a solid 7z is one
  * compression stream and changing a byte in the middle means redoing all of it. Those two are

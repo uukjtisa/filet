@@ -273,7 +273,7 @@ private fun Notes(vm: BrowserViewModel, release: Release) {
 /**
  * When to be asked again.
  *
- * Nic asked for three things here: remind me in N days, close it and ask again next time the
+ * The design calls for three things here: remind me in N days, close it and ask again next time the
  * app opens, and never ask again. All six answers, in one row of chips rather than
  * behind a menu, because the whole point is that saying "not now" is as easy as saying yes -
  * an update prompt whose only exit is the X is one people learn to dread.

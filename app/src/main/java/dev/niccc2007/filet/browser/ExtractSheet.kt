@@ -36,12 +36,12 @@ import dev.niccc2007.filet.vfs.provider.ExtractPlan
 /**
  * What the extraction is about to do, before it does it.
  *
- * Nic asked for a confirmation showing what the result will look like, because an archive he
+ * The design calls for a confirmation showing what the result will look like, because an archive he
  * expected to produce `<archive name>/contents` scattered its contents straight into the folder
  * instead - and he only found out afterwards, with the mess already made.
  *
  * So this draws the destination AS IT WILL BE. A folder the plan invents is marked as added; a
- * redundant parent it lifted away is struck through. Both of his buttons are here, one tap
+ * redundant parent it lifted away is struck through. Both buttons are here, one tap
  * each, and everything on screen comes from the same [ExtractPlan] the extractor will walk - so
  * this cannot be a truthful drawing of something that then does not happen.
  *
@@ -111,7 +111,7 @@ fun ExtractSheet(
 
                 Spacer(Modifier.height(10.dp))
 
-                // ── his two buttons ──
+                // ── the two buttons ──
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Pill(if (plan.wrapFolder != null) "Don't add a folder" else "Put in a folder", onWrap)
                     if (plan.strippedFolders.isNotEmpty()) {
@@ -176,7 +176,7 @@ private fun PlanRow(item: dev.niccc2007.filet.vfs.provider.PlannedItem) {
             if (item.isDir) "${item.path}/" else item.path,
             fontSize = 11.sp,
             fontFamily = FontFamily.Monospace,
-            // The invented folder is the answer to his question, so it is the one thing on the
+            // The invented folder is the answer to the question, so it is the one thing on the
             // list drawn in the accent colour.
             color = when {
                 item.added -> colors.accent

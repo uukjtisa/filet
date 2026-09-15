@@ -3,7 +3,7 @@ package dev.niccc2007.filet.browser
 /**
  * Dragging something into a new position in a list.
  *
- * Reported by Nic against the tab strip: the tabs were in a fixed order and could not be
+ * Identified against the tab strip: the tabs were in a fixed order and could not be
  * rearranged. The arithmetic is three lines and every one of them has an off-by-one in it,
  * which is why it lives here with a test rather than inside a pointer callback.
  */

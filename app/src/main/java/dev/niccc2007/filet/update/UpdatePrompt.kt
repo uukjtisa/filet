@@ -3,10 +3,6 @@ package dev.niccc2007.filet.update
 /**
  * When to tell somebody an update exists, and when to shut up about it.
  *
- * Nic: *"a notification for updates.. and in that notification add a remind me again in how many
- * days or just close and remind again after opening.. and a dont remind me ever again option
- * too."*
- *
  * All of this is arithmetic over four stored values, so it lives here as pure functions with
  * tests rather than inside a notification callback. An update nag that fires when it was
  * silenced is the most annoying possible bug and the hardest to reproduce by hand: it needs a
@@ -24,7 +20,7 @@ enum class RemindChoice {
     /**
      * Close it. It comes back the next time the app starts.
      *
-     * Deliberately NOT "wait zero milliseconds". What Nic asked for was to close it and be
+     * Deliberately NOT "wait zero milliseconds". What The design calls for was to close it and be
      * asked again after opening the app, and that is a LAUNCH, not a clock reading. Expressed as a
      * clock it either fires again a millisecond later in the same session, or needs an
      * invented duration nobody asked for. So it stores the launch it was said in.

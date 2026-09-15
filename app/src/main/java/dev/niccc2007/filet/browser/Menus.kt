@@ -181,8 +181,8 @@ fun MoreMenu(
                 Item(FiletIcons.Zip, "Compress") { onDismiss(); vm.askCompress() }
                 if (selection.size == 1 && dev.niccc2007.filet.vfs.provider.Archives.canList(selection[0].name)) {
                     // Three destinations, one code path: each opens the same preview, and the
-                    // only difference between them is where it is aimed. Reported by the repo
-                    // owner - a single "Extract here" makes the current folder the only answer,
+                    // only difference between them is where it is aimed. Identified in review:
+                    // a single "Extract here" makes the current folder the only answer,
                     // so extracting anywhere else meant extracting then moving.
                     Item(FiletIcons.Archive, "Extract here") { onDismiss(); vm.extract(selection[0]) }
                     Item(FiletIcons.FolderOpen, "Extract to\u2026") { onDismiss(); vm.extractToPicked(selection[0]) }

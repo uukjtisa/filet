@@ -1,6 +1,6 @@
 # Signet — the standard app shell
 
-> A signet ring stamps a seal into wax. This module is what stamps Nic's identity
+> A signet ring stamps a seal into wax. This module is what stamps the identity
 > onto every app he ships: the same onboarding, the same updater, the same motion,
 > the same About screen carrying the signature mark — with a swappable palette so
 > each app still looks like itself.
@@ -46,16 +46,14 @@ Three reasons, in order of weight:
 ## 3. Theme — "minimalistic but detailed, cozy but greyer"
 
 The whole point of tokens: **Filet is not warm brown.** The portfolio palette is
-Nic's *personal* brand; each app gets its own skin on the same skeleton.
+the *personal* brand; each app gets its own skin on the same skeleton.
 
 | Palette | For | Character |
 |---|---|---|
 | **Slate** *(Filet default)* | Filet | Warm-neutral grey. Not pure grey — a grey with a little warmth in it (`#1A1A18`, not `#1A1A1A`), so it reads cosy rather than clinical. One accent. Dense information, restrained chrome. |
 | **Ember** | Trawl, personal-brand surfaces | The warm brown/amber from the portfolio. Available in Filet as an option, never the default. |
 | **Paper** | light mode | |
-| **Dynamic** | opt-in | Material You, from the user's wallpaper. |
-
-**"Minimalistic but detailed"** decoded, because it is easy to get backwards:
+| **Dynamic** | opt-in | Material You, from the user's wallpaper. * decoded, because it is easy to get backwards:
 
 - *Minimal* applies to **chrome** — few borders, little decoration, restrained
   colour, no gradients-for-the-sake-of-it.
@@ -189,8 +187,8 @@ Rules, from `SEARCH.md` §8.2:
 
 ## 8. About screen
 
-Carries the **signature mark** — Nic's maker's stamp, not the app icon. The
-workshop has a name; the craftsman stamps his own mark on what leaves it.
+Carries the **signature mark** — the maker's stamp, not the app icon. The
+workshop has a name; the craftsman stamps the own mark on what leaves it.
 
 Also: version + build, licence (GPL-3.0) with full text, generated third-party
 licence list (AboutLibraries), a link to the source repo, and the attribution

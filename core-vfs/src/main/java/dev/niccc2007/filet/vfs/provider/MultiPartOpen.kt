@@ -6,7 +6,7 @@ import java.io.IOException
 /**
  * Opening one part of a multi-part archive as the whole thing.
  *
- * Nic wanted both halves of multi-part: create a set, and *"read a set someone sent you"*. This
+. This
  * is the reading half, and the user-facing rule is simple - **tapping any part opens the
  * archive**. Tapping part 3 and getting "corrupt" is the behaviour this removes.
  *

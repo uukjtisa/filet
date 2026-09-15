@@ -5,8 +5,8 @@ import dev.niccc2007.filet.vfs.VPath
 /**
  * Steering a running crawl toward whatever somebody just searched for.
  *
- * The gap Nic found: search during a first crawl finds nothing, because the crawler is walking
- * in its own order and has not reached the folder you meant yet. His fix, and it is the right
+ * The gap: search during a first crawl finds nothing, because the crawler is walking
+ * in its own order and has not reached the folder you meant yet. The fix, and it is the right
  * one - let the query bend the crawl for a while, then let it go back.
  *
  * Two rules make that safe, and both are what the tests here pin down:

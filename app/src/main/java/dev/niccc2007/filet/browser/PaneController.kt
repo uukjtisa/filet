@@ -101,7 +101,7 @@ class PaneController(
      * The world revision this pane last completed a listing at.
      *
      * See [FolderFreshness]. A pane that is behind the world is showing rows that may have been
-     * moved or deleted from another tab, and that is Nic's stale-folder report.
+     * moved or deleted from another tab, and that is the stale-folder fault.
      */
     private var listedAt: Int = FolderFreshness.NEVER
 
@@ -257,8 +257,8 @@ class PaneController(
      * Re-read this folder if the world has moved since it was listed.
      *
      * Called from every path that makes a pane visible - tab switch, split-pane change, app
-     * resume, returning from a viewer - which is what Nic asked for when he said "apply that to
-     * any start pipeline when opening a new folder". Cheap by construction: a pane that is
+     * resume, returning from a viewer - so it covers every start pipeline that opens a
+     * folder, not only the back-navigation case. Cheap by construction: a pane that is
      * already current does nothing at all, so calling it often costs nothing.
      */
     fun freshenIfStale(visible: Boolean = true) {

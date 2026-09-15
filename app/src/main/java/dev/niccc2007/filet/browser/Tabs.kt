@@ -3,7 +3,7 @@ package dev.niccc2007.filet.browser
 /**
  * Which tab stays active when the tab list changes.
  *
- * Reported by Nic: past some number of open tabs the strip started misbehaving and tapping
+ * Bug identified: past some number of open tabs the strip started misbehaving and tapping
  * anywhere left the pane blank. It is not a limit, and it is not the strip. It is this, in
  * `closeTab`:
  *

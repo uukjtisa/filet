@@ -9,10 +9,7 @@ import org.junit.Test
  * The names that decide whether two builds of Filet can sit on one phone.
  *
  * The manifest declared `dev.niccc2007.filet.permission.BRIDGE` with no `${'$'}{applicationId}`,
- * so the debug and the release build declared the *same* permission. Android refuses to install
- * an app that redefines another app's permission, and the installer says so in a way that reads
- * like a corrupt APK: *"the app attempted to define a permission that has already been defined
- * by another app (Filet)"*. Found by downloading the real v0.1.0 release through the in-app
+ * so the debug and the release build declared the *same* permission. . Found by downloading the real v0.1.0 release through the in-app
  * updater onto a phone that had a debug build on it - which is every phone this is developed on.
  *
  * These are string constants, so a test can only pin the *relationship* between them. That is

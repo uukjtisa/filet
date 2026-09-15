@@ -72,7 +72,7 @@ class NearbyService : Service() {
         // This call was bare, so a notification that failed to build took the service down -
         // and with START_STICKY the platform brought it straight back into the same branch,
         // with the server still running in the app process, to fail again. That is the crash
-        // loop Nic could only escape by force-stopping Filet.
+        // loop that could only be escaped by force-stopping Filet.
         if (runCatching { startForegroundCompat(graph.nearby.state.value) }.isFailure) {
             graph.nearby.stop()
             stopForegroundCompat()

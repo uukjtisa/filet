@@ -9,11 +9,10 @@ import org.json.JSONObject
  * The one piece of new storage the history needed, and it is deliberately as small as it can
  * be: **one timestamp per path, written once**, not an event log.
  *
- * It exists because the filesystem cannot answer the question Nic asked for. A file downloaded
+ * It exists because the filesystem cannot answer the question. A file downloaded
  * today can carry any mtime at all - a PDF written last year, a photo from a camera with a
- * wrong clock - so sorting by mtime does not tell you when it turned up. His words:
- * *"this list only lists when fiels where first seen on the tracked folders.. but this other
- * list activity wise re arranges that lsit to which files was edited created."*
+ * wrong clock - so sorting by mtime does not tell you when it turned up. Put plainly:
+
  *
  * ## Two rules that make it mean anything
  *

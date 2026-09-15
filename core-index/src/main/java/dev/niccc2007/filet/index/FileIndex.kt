@@ -46,6 +46,14 @@ data class IndexStatus(
     val running: Boolean = false,
     val phase: String = "",
     val scanned: Long = 0,
+    /**
+     * How many files were already indexed when the running pass started.
+. The index was
+     * never being rebuilt - `scanned` counts THIS RUN, and it was the only number on screen,
+     * so a fresh run reading 0 looked exactly like the index had been thrown away. Keeping the
+     * previous total beside it makes that impossible to misread.
+     */
+    val knownAtStart: Long = 0,
     val ftsAccelerated: Boolean = false,
     /**
      * Whether anything is registered to look *inside* files.
@@ -122,6 +130,15 @@ data class CrawlResult(
     val movedFiles: Int = 0,
     /** Files whose insides were parsed this pass - APK manifests, archive directories. */
     val factsWritten: Int = 0,
+    /**
+     * Files the generation sweep removed because this pass did not find them.
+     *
+     * Reported so the UI can say "4 gone" rather than only a net change. A net number hides
+     * the case that matters - 200 added and 200 removed looks identical to nothing happening.
+     */
+    val removedFiles: Int = 0,
+    /** Files this pass indexed that were not in the index before it started. */
+    val addedFiles: Int = 0,
 )
 
 /**

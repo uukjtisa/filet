@@ -93,7 +93,7 @@ class PickActivity : ComponentActivity() {
                     // No bar of its own. The notice and the confirm are drawn by the browser,
                     // below its tabs and among its own actions - a strip laid over the top of
                     // the whole app read as a system dialog wrapping Filet rather than as
-                    // Filet doing the job, which is Nic's report and is right.
+                    // Filet doing the job, which is The fault: and is right.
                     Column(
                         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars),
                     ) {

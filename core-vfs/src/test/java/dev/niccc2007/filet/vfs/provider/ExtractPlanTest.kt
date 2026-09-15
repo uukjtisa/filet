@@ -12,7 +12,7 @@ import org.junit.Test
  *
  * Two things make this the most important test file in round 9.
  *
- * 1. **It is the bug he reported.** A tarbomb is not a crash and not an error message; it is
+ * 1. **It is the bug was reported.** A tarbomb is not a crash and not an error message; it is
  *    forty files where you expected one folder, discovered after the fact, in a directory you
  *    now have to clean by hand. Every "bomb" case below is one he could actually hit.
  * 2. **The preview and the extractor read the same value.** So an off-by-one here is not a
@@ -98,7 +98,7 @@ class ExtractPlanTest {
         assertEquals(listOf("b.txt"), paths(plan))
     }
 
-    // ── wrapping: the bomb he reported ──
+    // ── wrapping: the bomb was reported ──
 
     @Test fun loose_files_at_the_top_are_wrapped_in_a_folder_named_after_the_archive() {
         val entries = listOf(f("sunset.jpg"), f("harbour.jpg"), f("readme.txt"))

@@ -5,10 +5,6 @@ import dev.niccc2007.filet.vfs.VPath
 /**
  * Shift-click, as a phone gesture.
  *
- * Nic: *"when clicking more stuff and then i hold to a point thats not selected yet and its
- * far.. it behaves in a way that it auto selects all the gap unselected in between.. like how
- * file explorer does? when shift left clicking to select multiple files?"*
- *
  * A phone has no shift key, so the gesture has to come from somewhere else. It comes from a long
  * press: with nothing selected a long press opens the item's menu, and with a selection already
  * running it extends to where you pressed. One gesture, two meanings, and which one you get is

@@ -175,7 +175,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
             // "New files", and the name has moved twice for the same reason each time: it has
             // to describe what the list can actually contain. It was "New downloads" (a file
             // pushed over Nearby is not a download), then "New files and folders" (the feed
-            // stopped listing folders), then briefly "Files" - which Nic corrected, because
+            // stopped listing folders), then briefly "Files" - which was corrected, because
             // that claims the whole device and this watches a handful of tracked folders.
             item {
                 SectionHeaderWithAction(
@@ -367,7 +367,7 @@ private fun DriveCard(
             } else {
                 // "Tap to open" was a promise this card could not keep. A volume with no
                 // readable size is usually one of /storage's pseudo-directories - `media` on
-                // this phone - and tapping it did nothing at all, which is what he reported.
+                // this phone - and tapping it did nothing at all, which is what was reported.
                 // Saying so, and offering the X, beats an invitation that fails.
                 Text("Size unknown - may not be readable", fontSize = 10.sp, color = colors.fg3)
             }

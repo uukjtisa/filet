@@ -8,9 +8,6 @@ import org.junit.Test
 /**
  * The zoom that stopped zooming.
  *
- * Nic: *"the picture/image viewer it used to be zoomable now it's not.. I'm trying to pinch to
- * zoom but now it's not working.. double tap to zoom still works though"*.
- *
  * The first test here is the whole report. It fails against the old code, and it fails for the
  * real reason rather than a proxy for it: a pinch is delivered as a stream of small per-frame
  * ratios, and the old viewer multiplied every one of them by a `scale` captured at 1f. Any test
@@ -81,8 +78,8 @@ class ZoomStateTest {
 
     @Test
     fun `double tap on a zoomed view returns to flat`() {
-        // He reported double tap as WORKING, because zooming in works. Toggling back out read
-        // the same stale scale and zoomed in again. This is the assertion he could not see.
+        // The report treated double tap as WORKING, because zooming in works. Toggling back out read
+        // the same stale scale and zoomed in again. This is the assertion no one had checked.
         val zoomed = ZoomView.NONE.doubleTapped(500f, 1000f, W, H)
         assertTrue(zoomed.zoomed)
 

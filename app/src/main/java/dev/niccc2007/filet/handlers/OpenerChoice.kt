@@ -44,7 +44,7 @@ fun openerChoice(picked: HandlerId, builtIn: HandlerId): OpenerChoice = when {
  *
  * **No.** Round 5 shipped this pre-ticked on the grounds that a setting the user has to go
  * and find is one they will not find, and that was the wrong call: it silently wrote a
- * permanent default every time somebody opened one file in one app once. Nic's words, and
+ * permanent default every time somebody opened one file in one app once. Put plainly, and
  * they settle it: "do not auto remember unless said so".
  *
  * A function rather than a constant so the reasoning has somewhere to live and the test has

@@ -33,7 +33,7 @@ import dev.niccc2007.filet.ui.theme.Filet
 /**
  * The bits of a player that the audio screen and the video screen both need.
  *
- * Kept together so the scrub bar behaves identically in both. Nic asked for the video one
+ * Kept together so the scrub bar behaves identically in both. The design calls for the video one
  * specifically - "if i drag it it intuitively skips or follows my hand as if i was holding the
  * playback bar progress" - and there is no reason the music player should feel different.
  */

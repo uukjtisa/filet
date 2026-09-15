@@ -2,7 +2,7 @@
 
 OWNS: app/**, core-vfs/**, core-index/**, tools/**, FIXES.md
 
-Scope: every bug and feature Nic raised while reviewing the M1–M9 build, tracked to a
+Scope: every bug and feature review raised while reviewing the M1–M9 build, tracked to a
 demonstrated outcome. Eight rounds of feedback are consolidated here; nothing is dropped and
 nothing is closed without evidence.
 
@@ -83,7 +83,7 @@ Build and install the current state with:
   EVIDENCE: Back and Up buttons in the sidebar header, beside a Close.
 
 - [x] B8: The sidebar shows the app icon, not the maker's signature mark
-  EVIDENCE: the sidebar drew `FiletIcons.Mark`, which is Nic's signature. Now `appIcon()`, built from the launcher icon's own two path strings so they cannot drift; it takes the active palette rather than staying Slate-blue in Ember.
+  EVIDENCE: the sidebar drew `FiletIcons.Mark`, which is the signature. Now `appIcon()`, built from the launcher icon's own two path strings so they cannot drift; it takes the active palette rather than staying Slate-blue in Ember.
 
 - [x] B9: Each split pane is labelled A or B on the pane itself
   EVIDENCE: each split pane's header carries its own A or B badge, highlighted when focused.
@@ -243,7 +243,7 @@ Build and install the current state with:
 
 ## Found while closing the ledger
 
-Not on Nic's list — these surfaced while verifying the gates above, and are recorded here
+Not on the list — these surfaced while verifying the gates above, and are recorded here
 because "found on the way" is how most of them were found.
 
 - [x] X1: An empty search result says why it is empty
@@ -358,7 +358,7 @@ nothing could reach it to prove it wrong.
     Records saved before the field existed store nothing rather than guessing: `placeAction`
     returns `Resolve`, the caller stats once and writes the answer back. Guessing "folder" is
     the bug; guessing "file" would break every bookmark anyone already has. Verified on the
-    Huawei with his own bookmark - PowerPoint took focus, and the stored record gained
+    Huawei with the own bookmark - PowerPoint took focus, and the stored record gained
     `"dir":false`.
 
 - [x] Y2: An extension already routed to an app can be pointed at a different one
@@ -373,7 +373,7 @@ nothing could reach it to prove it wrong.
 - [x] Y3: A chooser does not remember unless it is told to
   CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*OpenerChoiceTest*"
   EXPECT: BUILD SUCCESSFUL
-  EVIDENCE: this reverses round 5, and the reversal is his call: "do not auto remember unless
+  EVIDENCE: this reverses round 5, and the reversal is the call: "do not auto remember unless
     said so". Round 5 shipped the box pre-ticked on the reasoning that a setting you have to
     go and find is one you never find; what that actually did was write a permanent routing
     rule every time somebody opened one file in one app once. The tick box starts off and
@@ -453,7 +453,7 @@ nothing could reach it to prove it wrong.
 - [x] Y10: Searching during a crawl steers the crawl, and says so
   CHECK: ./gw.sh --no-daemon :core-index:testDebugUnitTest --tests "*CrawlPriorityTest*"
   EXPECT: BUILD SUCCESSFUL
-  EVIDENCE: his report, and his fix. Search during the first crawl found nothing, because the
+  EVIDENCE: the report, and the fix. Search during the first crawl found nothing, because the
     crawler walks in its own order and had not reached the folder you meant. A query now bends
     the pending queue toward it for 45 seconds: folders whose name carries a query word first,
     shallow before deep, and the machine-written trees - `Android/data`, `Android/obb`,
@@ -491,7 +491,7 @@ Where it landed: **32 met, 18 unmet device checks, 2 abandoned.**
 - [x] G2: There is a release, and the app can find it
   CHECK: node tools/check-release.mjs
   EXPECT: RELEASE OK
-  EVIDENCE: his ask, twice. v0.1.0 was tagged and published with a signed APK attached. The
+  EVIDENCE: the requirement, twice. v0.1.0 was tagged and published with a signed APK attached. The
     checker asserts the three things that break quietly — a tag with no release, a release with
     no APK, and a release whose asset name the updater's own selector would skip — each of
     which looks fine on the releases page while "Check for updates" does nothing.
@@ -572,7 +572,7 @@ unpinnable-shortcut message (K4), the four video-player gates (V1–V4), tab dra
 restart (U4), both Nearby receive gates (N1, N2), subfolder navigation in the web UI (W2),
 three search gates (Q1, Q3, Q4) and two refresh gates (F2, F4), and many-tabs behaviour (T2).
 Eighteen device checks nobody has run. **Abandoned:** A9, whose command names a test that was
-never written; H1, which Nic reversed in round 8 — the feed tracks files now, not folders.
+never written; H1, which review reversed in round 8 — the feed tracks files now, not folders.
 
 ---
 
@@ -581,7 +581,7 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
 - [x] J1: The updater works the way Trawl's does, end to end
   CHECK: node tools/check-release.mjs
   EXPECT: RELEASE OK
-  EVIDENCE: his "[very important]". v0.1.0 published, then v0.1.2. A phone on 0.1.0 is offered
+  EVIDENCE: flagged very important. v0.1.0 published, then v0.1.2. A phone on 0.1.0 is offered
     the real release, names the version and the download size, and hands off to the system
     installer rather than installing silently. The APK is signed v2+v3 — v3 is the only scheme
     that carries a proof-of-rotation record, so signing without it means the key can never be
@@ -600,8 +600,7 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
 - [x] J3: The update sheet draws the release notes instead of printing markup
   CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*ReleaseNotesTest*"
   EXPECT: BUILD SUCCESSFUL
-  EVIDENCE: his ask was explicit about not rebuilding what already exists — *"use trawl
-    renderer its beautiful"* — so the parser and the renderer are Trawl's, ported, with two
+  EVIDENCE: the requirement was explicit about not rebuilding what already exists —  so the parser and the renderer are Trawl's, ported, with two
     swaps: its image loader for one that does not add a dependency, and its custom font for
     the default family. Headings, paragraphs, bold, italics, inline code, bullets, links,
     block quotes, tables and centred image strips all draw, checked against the live v0.1.2
@@ -618,7 +617,7 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
 - [x] J5: The changelog pane opens big and can be resized
   CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*SheetSizeTest*"
   EXPECT: BUILD SUCCESSFUL
-  EVIDENCE: his report: the pane was small against how much content a release body holds.
+  EVIDENCE: the report: the pane was small against how much content a release body holds.
     It opens at 58% of the screen and drags between 22% and 78%, and the size is
     remembered. The drag arithmetic is a pure function with a test because it contains a sign
     flip — dragging the handle UP must make the sheet BIGGER — and that is exactly the kind of
@@ -627,16 +626,9 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
 - [x] J6: There is a notification when an update exists, and it can be answered
   CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*UpdatePromptTest*"
   EXPECT: BUILD SUCCESSFUL
-  EVIDENCE: his ask, in full — remind me in N days, remind me next launch, and *"a dont remind
-    me ever again option too"*. All three, plus skip-this-version, decided by pure functions
+  EVIDENCE: the requirement, in full — . All three, plus skip-this-version, decided by pure functions
     over (what is available, what is installed, what was chosen, what time it is) rather than
-    by state scattered through the UI. Two rules are worth naming: **"never remind me" stops
-    the network check as well as the notification**, because a switch that keeps polling is a
-    lie; and **postponing one release does not silence the next one**, because the thing being
-    postponed is a version, not the feature.
-
-- [x] J7: "Never remind me" is reversible from Settings, and the switch is not dead
-  CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*UpdatePromptTest*"
+    by state scattered through the UI. Two rules are worth naming: UpdatePromptTest*"
   EXPECT: BUILD SUCCESSFUL
   EVIDENCE: rule R1, no dead switches. An off switch with no way back on is a trap, and it is
     the single easiest thing to ship without noticing, because the person who wrote it never
@@ -645,7 +637,7 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
 - [x] J8: How a release body must be written is recorded in the repository
   CHECK: node tools/check-releasedoc.mjs
   EXPECT: RELEASEDOC OK
-  EVIDENCE: `docs/RELEASES.md`, ported from Trawl's rule at his request and kept in the repo
+  EVIDENCE: `docs/RELEASES.md`, ported from Trawl's rule by design and kept in the repo
     rather than in a prompt, so it outlives any one session and applies to the next app. Open
     with pictures pinned at the tag; say what changed and what it means; never talk about the
     code; say what it cannot do. The checker is blunt on purpose and says so — it can see
@@ -655,7 +647,7 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
 - [x] J9: Anything that scrolls sideways looks like it does, before it is touched
   CHECK: node tools/check-scrollcue.mjs
   EXPECT: SCROLLCUE OK
-  EVIDENCE: his report — *"i can barely tell it was scrollable until i dragged it"*. One shared
+  EVIDENCE: the report — . One shared
     component: a fade and a chevron at whichever edge has more behind it. Applied to the
     reminder row, the tab strip and the selection bar; a checker now fails a horizontal
     scroller that has no cue, with an exemption list where each entry carries a reason. **Not**
@@ -665,8 +657,7 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
 - [x] J10: Acting on a selection opens a context menu, and it fits
   CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*ContextMenuTest*"
   EXPECT: BUILD SUCCESSFUL
-  EVIDENCE: his ask, with the reference — *"a familiarity of windows 11 context right click
-    menu in the exporer"*. It opens at the finger, not anchored to a row: a row of five icons
+  EVIDENCE: the requirement, with the reference — . It opens at the finger, not anchored to a row: a row of five icons
     for copy, move, rename, share and delete, then labelled rows underneath. Blocked actions
     stay put and answer with the reason instead of disappearing, so the same verb is always
     under the same finger. The old scrolling bar is still there, in Settings, and it is not a
@@ -675,7 +666,7 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
     compiling and still drawing.
 
 - [x] J11: Settings is grouped instead of being one long list
-  EVIDENCE: his report: it was packed, with no visual distinction between the interface
+  EVIDENCE: the report: it was packed, with no visual distinction between the interface
     options, the general ones and the rest. General, appearance, browsing, safety, about.
 
 - [x] J12: Shortcuts for folders, actions and scripts do what they say — third report
@@ -692,14 +683,13 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
     screenshot proved the tabs had not.
 
 - [x] J13: Home cards hide one at a time, and dead cards are explained or gone
-  EVIDENCE: his correction — *"i meant certain card not the whole storage shortcuts"*. Each
+  EVIDENCE: the correction — . Each
     storage card has its own hide control, with a count of what is hidden and a way to bring
-    them back. A card that could not report a size now says **"Size unknown — may not be
-    readable"** rather than showing a zero, because a volume Android will not stat is a fact
+    them back. * rather than showing a zero, because a volume Android will not stat is a fact
     about the volume, not a bug to hide.
 
 - [x] J14: Termux is detected, and its files are reachable — with the limit stated
-  EVIDENCE: he asked whether it was even feasible. Partly. Termux exposes its **home**
+  EVIDENCE: it was raised whether it was even feasible. Partly. Termux exposes its **home**
     directory through the system document provider and nothing else, so Filet can offer a
     shortcut that opens the picker at that folder and then treats the grant as an ordinary
     volume. Files move in and out of Termux's home. `usr/bin` is **not reachable**, and that is
@@ -709,7 +699,7 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
 - [x] J15: RAR opens
   CHECK: node tools/check-licences.mjs
   EXPECT: LICENCES OK
-  EVIDENCE: his question — *"why are rar refused? is there any other you can do?"* — and the
+  EVIDENCE: the question —  the
     answer changed once the licence was read properly rather than assumed. Every RAR decoder
     published for the JVM descends from RARLAB's UnRAR source, whose licence forbids using it
     to build a RAR-compatible archiver; that is a field-of-use restriction and GPL-3 does not
@@ -721,18 +711,18 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
     refusal is now a licence boundary that is stated rather than a gap that is implied.
 
 - [x] J16: Paste is offered where you are standing
-  EVIDENCE: his report, and the whole point of it: after copying something he expected a
-    one-tap paste in the pane he was standing in, and the only one was a row inside the
+  EVIDENCE: the report, and the whole point of it: after copying something the expected
+    action is a one-tap paste in the pane you are standing in, and the only one was a row inside the
     three-dot menu at the top right. After copy or move, a pill appears **in the pane**, saying how many items and
-    where they will land. A floating pill rather than a full-width bar, which was his call.
+    where they will land. A floating pill rather than a full-width bar, which was the call.
 
 - [x] J17: A long press extends a selection across the gap, like shift-clicking
   CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*RangeSelectTest*"
   EXPECT: BUILD SUCCESSFUL
-  EVIDENCE: his ask, referencing Explorer. A phone has no shift key, so the gesture comes from
+  EVIDENCE: the requirement, referencing Explorer. A phone has no shift key, so the gesture comes from
     the long press: nothing selected means open this item's menu; a selection running and you
     press outside it means extend to here; press something already selected and the menu acts
-    on the whole selection — which is the case he chose when asked. Ranges are inclusive, work
+    on the whole selection — which is the case the choice was when asked. Ranges are inclusive, work
     in both directions, and are measured against the **sorted, filtered rows on screen**, never
     the underlying order — extending across hidden rows would select files nobody pointed at.
     A range is added to the selection rather than replacing it, because on a phone the only way
@@ -741,8 +731,7 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
 - [x] J18: A new file shows up in the feed immediately
   CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*FeedTimingTest*"
   EXPECT: BUILD SUCCESSFUL
-  EVIDENCE: reported twice — *"nothing appeared"*, then *"it showed up.. 2mins ago though"* —
-    and his target was explicit: *"it needs to be blazing instant"*. Two of my own bugs.
+  EVIDENCE: reported twice —  the target was explicit: . Two of my own bugs.
     The feed published from a `finally`, which runs on cancellation too, so a superseded pass
     overwrote the good result with a partial one and the list went blank. And a 2.5s budget
     killed the listing of a 1700-file folder **invisibly**, because catching everything
@@ -757,13 +746,13 @@ never written; H1, which Nic reversed in round 8 — the feed tracks files now, 
 - [x] J19: The feed tracks files, and is named for what it holds
   CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*TrackedFoldersTest*"
   EXPECT: BUILD SUCCESSFUL
-  EVIDENCE: his call, and it reverses round 7's G-series intent deliberately. Tracking folders
+  EVIDENCE: the call, and it reverses round 7's G-series intent deliberately. Tracking folders
     as well as files meant copying one folder in produced an entry for the folder and an entry
     for everything under it. Files only; new files in a tracked subfolder still appear; the
     section is called **Files**. Only local and document-provider roots are seeded, because
     seeding a remote volume means mounting it at startup just to watch it.
 
-**Still open from round 8:** a file landing in Termux's `usr/bin` from Filet (his to try), and
+**Still open from round 8:** a file landing in Termux's `usr/bin` from Filet (the to try), and
 `inzip:` search inside a RAR — not verified and not claimed, because `adb` cannot type a colon
 on this phone and three attempts to drive the scope chips landed on the wrong one. That is a
 harness problem, not evidence, and it is recorded as unverified rather than assumed from the
@@ -777,14 +766,14 @@ Full ledger with every gate's evidence in `.unlazy/round9/GATES.md`: **57 gates,
 abandoned in writing, 3 device checks outstanding.** What follows is what was actually wrong,
 rather than what was added.
 
-### Bugs he reported mid-round
+### Bugs it was reported mid-round
 
 - [x] K1: A shared folder could be listed and not opened
   CHECK: ./gw.sh --no-daemon :app:testGithubDebugUnitTest --tests "*ShareReachTest*"
   EXPECT: BUILD SUCCESSFUL
-  EVIDENCE: **reproduced from his PC against his phone before anything was changed**, which is
+  EVIDENCE: **reproduced from the PC against the test device before anything was changed**, which is
     what made it a one-line fix instead of a hunt. `curl` against the phone's web UI answered
-    what his browser answered: the root listing offered `Received`, and asking for its contents
+    what the browser answered: the root listing offered `Received`, and asking for its contents
     returned `{"error":"gone"}`.
 
     `Received` is the upload quarantine, and `isReachable` refused it by name before it checked
@@ -813,13 +802,13 @@ rather than what was added.
     **or on an id posted as a literal** — the literal is what let two spellings of one number
     hide from a search.
 
-- [x] K3: Two indistinguishable Filets on his phone
+- [x] K3: Two indistinguishable Filets on the test device
   CHECK: node tools/check-icon.mjs
   EXPECT: ICON OK
   EVIDENCE: nothing had duplicated. `pm list packages` showed exactly two, `dev.niccc2007.filet`
     and `dev.niccc2007.filet.debug`, which are two applications by design — installing one never
     updates the other. The real defect was that they were **indistinguishable**: same name, same
-    icon, so his reading of what the launcher showed him was a fair one.
+    icon, so that reading of what the launcher showed them was a fair one.
 
     The debug build now says so: **Filet Debug** in amber against the release teal, read out of
     the two built APKs rather than assumed. The checker guards the copy — same `pathData`, no
@@ -891,6 +880,6 @@ rather than what was added.
     LGPL-2.1+ and GPL-3 can take it. It is a vendoring project, not a feature. Full measurement
     in `core-native/README.md`.
 
-**Still open from round 8:** a file landing in Termux's `usr/bin` from Filet (his to try), and
+**Still open from round 8:** a file landing in Termux's `usr/bin` from Filet (the to try), and
 `inzip:` search inside a RAR. Neither is verified and neither is claimed. Round 7's 18 device
 checks are also still outstanding. A new round starting does not close them.

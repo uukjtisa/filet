@@ -2,7 +2,7 @@
 /**
  * There is a published release, the app can find it, and the README agrees.
  *
- * Nic asked twice for v0.1.0 to be published and the updater to work the way Trawl's does -
+ * v0.1.0 had to be published with the updater working the way Trawl's does -
  * the README still said there was no release. Round 5 verified only the negative case - the updater correctly reporting that nothing was published - which is
  * exactly the kind of green tick that means nothing.
  *

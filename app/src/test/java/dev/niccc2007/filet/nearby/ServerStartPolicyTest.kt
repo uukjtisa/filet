@@ -39,9 +39,9 @@ class ServerStartPolicyTest {
     @Test
     fun `the refusal says what to do and admits Filet has stopped retrying`() {
         val why = (decide(failures = 5, lastFailureAt = T - 1_000) as Decision.Refuse).why
-        assertTrue("it must name a thing he can check", why.contains("Wi-Fi"))
-        assertTrue("and be honest that it gave up, or he waits for nothing", why.contains("stopped retrying"))
-        assertTrue("and tell him it is not permanent", why.contains("a minute"))
+        assertTrue("it must name a thing somebody can check", why.contains("Wi-Fi"))
+        assertTrue("and be honest that it gave up, or the wait is for nothing", why.contains("stopped retrying"))
+        assertTrue("and say that it is not permanent", why.contains("a minute"))
     }
 
     // ── and the reason it must not be permanent ──
@@ -50,7 +50,7 @@ class ServerStartPolicyTest {
     fun `failures stop counting once the cooldown has passed`() {
         // Three failures on a train this morning must not refuse to start this afternoon on
         // working Wi-Fi. Without this the only way to clear the counter is killing the app -
-        // the exact thing the attempt limit exists to stop him having to do.
+        // the exact thing the attempt limit exists to stop anyone having to do.
         val later = T + ServerStartPolicy.COOLDOWN_MS + 1
         assertEquals(Decision.Start, decide(failures = 9, lastFailureAt = T, now = later))
     }

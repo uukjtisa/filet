@@ -5,7 +5,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 /**
  * What you can do with a selection, as data.
  *
- * Nic asked for the selection's actions to appear as a context menu that fits the screen,
+ * The design calls for the selection's actions to appear as a context menu that fits the screen,
  * made the default, with the old scrolling bar kept as an option in Settings.
  *
  * Two renderings of the same thing is exactly how the two drift apart: an action added to the

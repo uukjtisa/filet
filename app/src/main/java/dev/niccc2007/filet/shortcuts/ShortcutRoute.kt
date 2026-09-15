@@ -3,7 +3,7 @@ package dev.niccc2007.filet.shortcuts
 /**
  * What an inbound shortcut intent should make the app do.
  *
- * Nic reported this twice: home-screen shortcuts for Search, Start sharing, Index now and
+ * Identified twice: home-screen shortcuts for Search, Start sharing, Index now and
  * Recent launched Filet and then sat there on whichever tab was last open. The cause was one
  * missing line. `ShortcutRouterActivity` puts the action in an extra and hands it to
  * `MainActivity`, and `MainActivity` read the file-target extra and nothing else - so the

@@ -27,7 +27,7 @@ import dev.niccc2007.filet.ui.theme.Filet
 /**
  * What to do with a file that was edited inside an archive.
  *
- * Nic asked for exactly this prompt: on save, offer to update the archive or to write the file
+ * The prompt is exactly this: on save, offer to update the archive or to write the file
  * somewhere else. Both halves matter.
  *
  * **Update** is shown with its cost first, because a save into a zip rewrites one entry and a

@@ -3,12 +3,6 @@ package dev.niccc2007.filet.nearby
 /**
  * Whether to try starting the sharing server, and when to stop trying.
  *
- * ## The report
- *
- * Nic: *"when I click start sharing there's a rare hard to recreate tendency that it'll crash
- * loop trying to start the server. I have to close the app to stop it. can you fix that? just
- * make a stop button or start attempt limit etc?"*
- *
  * ## Why it looped
  *
  * `NearbyService.onStartCommand` ended with `START_STICKY`, which asks the platform to bring
@@ -20,15 +14,15 @@ package dev.niccc2007.filet.nearby
  * cycle ever gave up, and force-stopping the app was the only way out. "Rare and hard to
  * recreate" fits exactly: it needs the notification path to fail, which depends on state.
  *
- * ## Both of his suggestions, because they answer different halves
+ * ## Both halves, because they fail differently
  *
- * An attempt limit stops a loop that has started. A stop control gets him out of one that is
+ * An attempt limit stops a loop that has started. A stop control ends one that is
  * already running. This object is the first; the second is a Stop action that no longer
  * depends on the server agreeing that it is up.
  *
  * The counting is here, away from Android, because "how many failures is too many" is a rule
  * that can be wrong quietly - too low and a slow Wi-Fi handover looks like a broken feature,
- * too high and he is back to force-stopping.
+ * too high and the only escape is force-stopping again.
  */
 object ServerStartPolicy {
 
