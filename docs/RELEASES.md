@@ -13,6 +13,32 @@ Write it like that.
 
 ## The rules
 
+## The order of operations, which is not optional
+
+Releases 0.1.5 and 0.1.6 both turned the repository's checks red for a while, for the same
+reason, and it was sequencing rather than anything wrong with either release.
+
+`check-release.mjs` fails a build whose version carries **a tag with no release behind it**,
+because that is exactly what "tagged it and forgot to publish" looks like and it is worth
+catching. CI fires on the push to `main` and reaches that check a few minutes later. So pushing
+the commit, then pushing the tag, then creating the release puts the check inside a window
+where the tag exists and the release does not — and it fails, correctly, on a release that was
+seconds from being fine.
+
+**So the tag is never pushed by hand.** The release API creates it:
+
+1. `git push` the commit. CI starts. At the check it sees a version ahead with **no tag**,
+   which is reported as *in flight* and passes.
+2. `POST /releases` with `tag_name: vX.Y.Z`. GitHub creates the tag itself.
+3. Upload the APK asset.
+4. `node tools/check-release.mjs` and `node tools/check-releasedoc.mjs` locally.
+
+The workflow triggers on `push: branches: [main]` and not on tags, so step 2 starts no second
+run. If a run is already red from an earlier ordering mistake, re-run it once the release
+exists — the check is a fact about the repository, not about that moment, so it passes.
+
+**Never `git push origin vX.Y.Z`.** It is the one command that opens the window.
+
 **Pictures only when there is something new to show.** review, 2026-09-15:  A release of pure repairs has nothing to
 photograph, and filling the strip with shots of screens that did not change is how a gallery
 goes stale — which is a thing he has complained about separately. * in the opening paragraph; `check-releasedoc.mjs` accepts that
