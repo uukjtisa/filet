@@ -55,14 +55,18 @@ object BundleRoute {
     /**
      * Where a tap on [name] should go.
      *
-     * A bundle mounts rather than inspecting, because the inspector reads a single APK's
-     * manifest and a bundle has several. That inspector is a later piece of work; until it
-     * exists, mounting is honest and Install is reachable from the menu instead.
+     * A bundle inspects, exactly like a plain APK. It used to mount, on the reasoning that the
+     * inspector reads one manifest and a bundle has several - but that is only true of the
+     * splits. The BASE apk inside carries the label, version, permissions and signature, which
+     * is everything the inspector shows, so the inspector reads that.
+     *
+     * Reported as: tapping an xapk opens it as an archive instead of an overview for installing
+     * or managing it like a normal apk. It is an app, so it opens where apps open. Browsing it
+     * as a zip is still there, it is just no longer what a tap does.
      */
     fun tap(name: String, isDir: Boolean): Tap = when {
         isDir -> Tap.OTHER
-        isApk(name) -> Tap.INSPECT
-        isBundle(name) -> Tap.MOUNT
+        isApk(name) || isBundle(name) -> Tap.INSPECT
         else -> Tap.OTHER
     }
 }

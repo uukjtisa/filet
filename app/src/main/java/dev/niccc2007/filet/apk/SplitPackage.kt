@@ -76,6 +76,19 @@ object SplitPackage {
         return base + listOfNotNull(chosenAbi, chosenDensity) + chosenLangs + other
     }
 
+    /**
+     * The base APK inside a bundle, or null if there is not one.
+     *
+     * The base is the only piece that carries the manifest the inspector shows - the label,
+     * the version, the permissions, the signature. The splits beside it hold resources for one
+     * architecture, density or language and answer none of those questions.
+     *
+     * The first, when several qualify: [pick] already orders bases first and a bundle with two
+     * of them is malformed, so taking the first is a choice rather than an accident.
+     */
+    fun baseOf(entries: List<String>): String? =
+        entries.filter { it.endsWith(".apk", ignoreCase = true) }.firstOrNull { isBase(it) }
+
     /** Whether a bundle needs a session install rather than the system installer. */
     fun isSplitBundle(name: String): Boolean =
         name.substringAfterLast('.', "").lowercase() in setOf("xapk", "apkm", "apks")

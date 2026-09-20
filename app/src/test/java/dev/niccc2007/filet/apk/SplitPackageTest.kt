@@ -1,6 +1,7 @@
 package dev.niccc2007.filet.apk
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -163,5 +164,32 @@ class SplitPackageTest {
         val withObb = bundle + "Android/obb/com.example.app/main.1.com.example.app.obb"
         assertTrue(SplitPackage.extras(withObb).any { it.endsWith(".obb") })
         assertFalse("metadata is not an extra", SplitPackage.extras(withObb).any { it.endsWith("manifest.json") })
+    }
+
+    // ── the base, for the inspector ──
+
+    @Test
+    fun `the base apk is the one the inspector reads`() {
+        // Everything the overview shows - label, version, permissions, signature - is in the
+        // base. The splits beside it hold resources for one architecture, density or language
+        // and answer none of those.
+        val entries = listOf("config.arm64_v8a.apk", "base.apk", "split_config.xxhdpi.apk")
+        assertEquals("base.apk", SplitPackage.baseOf(entries))
+    }
+
+    @Test
+    fun `a bundle whose only apk carries the package name is its own base`() {
+        // APKMirror and SAI both produce that shape, so "base.apk" cannot be the only rule.
+        assertEquals("com.example.app.apk", SplitPackage.baseOf(listOf("com.example.app.apk", "config.en.apk")))
+    }
+
+    @Test
+    fun `a bundle with no apk at all has no base`() {
+        assertNull(SplitPackage.baseOf(listOf("icon.png", "manifest.json", "data.obb")))
+    }
+
+    @Test
+    fun `splits alone are not a base`() {
+        assertNull(SplitPackage.baseOf(listOf("split_config.arm64_v8a.apk", "config.xxhdpi.apk")))
     }
 }

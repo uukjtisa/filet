@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import dev.niccc2007.filet.vfs.provider.ArchiveProvider
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
@@ -63,8 +64,44 @@ class ApkTools(
     private val ledger: JobLedger,
 ) {
 
+    /**
+     * The file to actually read for [apk].
+     *
+     * A split bundle is not an APK, it is a zip holding several. Everything the inspector
+     * shows - label, version, permissions, signature - lives in the BASE apk inside it, so the
+     * base is copied out to the cache and read as an ordinary APK.
+     *
+     * Bug identified: a bundle had nowhere to go. Tapping one mounted it as an archive, and
+     * the only route to Install was a screen a bundle could never reach, so it read as an app
+     * Filet could open but not install.
+     *
+     * Copied rather than streamed because the platform's own parser takes a path and nothing
+     * else. Only the base, so the cost is one APK rather than the whole bundle.
+     */
+    private suspend fun readableApk(apk: VPath): String {
+        vfs.osPath(apk)?.let { if (!BundleRoute.isBundle(apk.name)) return it }
+        if (!BundleRoute.isBundle(apk.name)) {
+            throw IllegalArgumentException("Inspect APKs from local storage.")
+        }
+        val on = vfs.osPath(apk) ?: throw IllegalArgumentException("Inspect bundles from local storage.")
+        val mount = ArchiveProvider.mount(on)
+        val members = runCatching { vfs.list(mount) }.getOrElse {
+            throw IllegalArgumentException("This bundle could not be read: ${it.message ?: "unreadable"}")
+        }
+        val base = SplitPackage.baseOf(members.map { it.name })
+            ?: throw IllegalArgumentException("There is no base APK inside this bundle.")
+        val member = members.first { it.name == base }
+        val out = File(context.cacheDir, "bundle-base").apply { mkdirs() }
+            .resolve(apk.name.substringBeforeLast('.') + "-base.apk")
+        // Re-extracted each time rather than cached on name: the bundle may have been replaced
+        // with a different build carrying the same filename, and showing the previous one's
+        // permissions would be worse than the wait.
+        vfs.openRead(member.path).use { input -> out.outputStream().use { input.copyTo(it) } }
+        return out.absolutePath
+    }
+
     suspend fun inspect(apk: VPath): ApkInfo = withContext(Dispatchers.IO) {
-        val os = vfs.osPath(apk) ?: throw IllegalArgumentException("Inspect APKs from local storage.")
+        val os = readableApk(apk)
         val file = File(os)
         val warnings = ArrayList<String>()
 

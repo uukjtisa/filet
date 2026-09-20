@@ -2117,7 +2117,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      */
     private suspend fun installSplitBundle(node: VNode) {
         val mount = runCatching {
-            dev.niccc2007.filet.vfs.provider.ArchiveProvider.mount(node.path.toString())
+            // .path, not .toString(): toString() carries the scheme, and mounting
+            // "local:///storage/..." builds a container path that cannot be read.
+            dev.niccc2007.filet.vfs.provider.ArchiveProvider.mount(node.path.path)
         }.getOrNull()
         if (mount == null) { toast("This bundle could not be opened."); return }
 

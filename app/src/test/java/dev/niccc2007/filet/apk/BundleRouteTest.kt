@@ -54,13 +54,23 @@ class BundleRouteTest {
     }
 
     @Test
-    fun `a bundle opens the archive browser, and that is deliberate`() {
-        // Looking inside one is reasonable, and the inspector reads a single manifest while a
-        // bundle has several. A bundle inspector is later work; until then Install is reached
-        // from the menu instead of not at all.
+    fun `a bundle opens where an app opens, not as a zip`() {
+        // Reported: tapping an xapk opens it as an archive instead of an overview for
+        // installing or managing it like a normal apk. It is an app, so it goes where apps go.
+        // The earlier reasoning - that the inspector reads one manifest and a bundle has
+        // several - only holds for the splits; the base carries everything shown.
         for (name in listOf("game.xapk", "thing.apkm", "bundle.apks")) {
-            assertEquals(name, BundleRoute.Tap.MOUNT, BundleRoute.tap(name, isDir = false))
+            assertEquals(name, BundleRoute.Tap.INSPECT, BundleRoute.tap(name, isDir = false))
         }
+    }
+
+    @Test
+    fun `a bundle and a plain apk go to the same place`() {
+        // The point of the fix: there is no second class of app package.
+        assertEquals(
+            BundleRoute.tap("app.apk", isDir = false),
+            BundleRoute.tap("app.xapk", isDir = false),
+        )
     }
 
     @Test
@@ -78,12 +88,12 @@ class BundleRouteTest {
     // ── the two questions are separate, which is the whole point ──
 
     @Test
-    fun `mounting and installing are independent answers`() {
-        // Conflating them is what caused the hole: the router decided both at once, so
-        // anything that opened as an archive silently lost its Install.
+    fun `where a tap goes and whether it installs are independent answers`() {
+        // Conflating them is what caused the original hole: the router decided both at once,
+        // so anything that opened as an archive silently lost its Install.
         val bundle = "game.xapk"
-        assertEquals(BundleRoute.Tap.MOUNT, BundleRoute.tap(bundle, isDir = false))
-        assertTrue("mounting it must not cost it the Install action", BundleRoute.installable(bundle))
+        assertEquals(BundleRoute.Tap.INSPECT, BundleRoute.tap(bundle, isDir = false))
+        assertTrue("where it opens must not decide whether it installs", BundleRoute.installable(bundle))
     }
 
     @Test
@@ -93,7 +103,7 @@ class BundleRouteTest {
         for (ext in BundleRoute.BUNDLE_EXTENSIONS) {
             val name = "sample.$ext"
             assertTrue(name, BundleRoute.installable(name))
-            assertEquals(name, BundleRoute.Tap.MOUNT, BundleRoute.tap(name, isDir = false))
+            assertEquals(name, BundleRoute.Tap.INSPECT, BundleRoute.tap(name, isDir = false))
         }
     }
 }

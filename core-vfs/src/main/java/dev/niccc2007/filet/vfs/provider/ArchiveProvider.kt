@@ -162,6 +162,14 @@ class ArchiveProvider : FileSystemProvider {
          * paths start with a drive letter would otherwise produce an invalid one.
          */
         fun mount(archivePath: String): VPath {
+            // A filesystem path, never a VPath's toString(). A scheme here can only be a
+            // caller that reached for toString() instead of .path, and the result was a
+            // container path nobody could read - the install of a split bundle failed with an
+            // IO error naming the bundle, which looked like a broken file rather than a
+            // broken address. Refusing outright turns that into a fault at the call site.
+            require(!archivePath.contains("://")) {
+                "mount() takes a filesystem path, not a VPath: $archivePath"
+            }
             val abs = if (archivePath.startsWith("/")) archivePath else "/$archivePath"
             return VPath(SCHEME, "$abs$SEP/")
         }
