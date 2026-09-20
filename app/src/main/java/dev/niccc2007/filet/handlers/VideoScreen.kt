@@ -36,6 +36,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,6 +66,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.delay
 import android.media.AudioManager
 import kotlin.math.abs
@@ -285,48 +290,61 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
 
     // The scrub preview.
     //
-    // Keyed on the QUANTISED frame, which is what makes this affordable: a drag reports
-    // hundreds of positions a second, and keying on the raw position would start a decode for
-    // every one of them. Snapping to ScrubPreview.STEP_MS means a slow drag sits on one frame,
-    // and changing frames cancels the decode that is running - so an overtaken frame is
-    // abandoned rather than finished and drawn late.
+    // The scrub preview.
+    //
+    // Two rules, and the second one is the whole reason this is a flow rather than an effect
+    // keyed on the frame.
+    //
+    // **Quantise.** A drag reports hundreds of positions a second; ScrubPreview.frameFor snaps
+    // them to a step scaled to the video, so a slow drag sits on one already-decoded frame.
+    //
+    // **Conflate, never cancel.** Bug identified: this WAS a LaunchedEffect keyed on the
+    // wanted frame, on the reasoning that a changed key cancels the decode that has been
+    // overtaken. It does - but a decode cancelled mid-flight also throws away the frame it had
+    // already produced, because `withContext` resumes into the cancellation rather than
+    // returning the value. With a coarse step that rarely mattered; once the step got fine
+    // enough to feel smooth, every decode was overtaken before it could be shown and the
+    // preview stopped appearing at all. Conflating instead lets a decode finish and publish,
+    // then takes only the newest frame that arrived while it ran.
     val wantedFrame = scrubTo?.let { ScrubPreview.frameFor(it, duration) }
-    LaunchedEffect(wantedFrame, uri) {
-        val want = wantedFrame
-        val source = uri
-        if (want == null || source == null) return@LaunchedEffect
-        if (!ScrubPreview.shouldDecode(previewAt, null, want)) return@LaunchedEffect
-        val decoded = withContext(Dispatchers.IO) {
-            // One retriever, held open for the whole screen, and one decode at a time.
-            //
-            // Bug identified: a retriever was built and released around every frame, so each
-            // preview re-opened the file and re-parsed its headers before decoding anything.
-            // That cost dwarfed the decode itself and is what made dragging feel like it was
-            // catching up rather than following. The mutex is not optional either -
-            // MediaMetadataRetriever is not safe to call from two threads, and an overtaken
-            // decode is still running when the next one starts.
-            previewLock.withLock {
-                runCatching {
-                    val r = previewSource.get(context, source) ?: return@runCatching null
-                    // Scaled by the platform where it can: decoding a 4K frame to throw most
-                    // of it away is the difference between a preview that keeps up and one
-                    // that does not.
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
-                        r.getScaledFrameAtTime(
-                            want * 1000,
-                            android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                            PREVIEW_W, PREVIEW_H,
-                        )
-                    } else {
-                        r.getFrameAtTime(want * 1000, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+    LaunchedEffect(uri, node.path) {
+        val source = uri ?: return@LaunchedEffect
+        snapshotFlow { wantedFrame }
+            .filterNotNull()
+            .distinctUntilChanged()
+            .conflate()
+            .collect { want ->
+                if (!ScrubPreview.shouldDecode(previewAt, null, want)) return@collect
+                val decoded = withContext(Dispatchers.IO) {
+                    // One retriever for the whole screen, and one decode at a time: building
+                    // a retriever per frame re-opened and re-parsed the file before decoding
+                    // anything, and MediaMetadataRetriever is not safe on two threads.
+                    previewLock.withLock {
+                        runCatching {
+                            val r = previewSource.get(context, source) ?: return@runCatching null
+                            // Scaled by the platform where it can: decoding a 4K frame to
+                            // throw most of it away is the difference between a preview that
+                            // keeps up and one that does not.
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+                                r.getScaledFrameAtTime(
+                                    want * 1000,
+                                    android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                                    PREVIEW_W, PREVIEW_H,
+                                )
+                            } else {
+                                r.getFrameAtTime(
+                                    want * 1000,
+                                    android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                                )
+                            }
+                        }.getOrNull()
                     }
-                }.getOrNull()
+                }
+                if (decoded != null) {
+                    previewFrame = decoded.asImageBitmap()
+                    previewAt = want
+                }
             }
-        }
-        if (decoded != null) {
-            previewFrame = decoded.asImageBitmap()
-            previewAt = want
-        }
     }
 
     // The seek flash fades on its own so a run of taps reads as one gesture rather than a

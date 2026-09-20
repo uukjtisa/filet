@@ -9,14 +9,20 @@ package dev.niccc2007.filet.handlers
  * after the finger has moved on, and a preview that lags behind by seconds while the video
  * itself stutters.
  *
- * Two rules, both arithmetic, both here rather than in the screen:
+ * Two rules:
  *
- *  - **Quantise.** Ask for a frame every [stepFor] of video rather than every pixel.
+ *  - **Quantise.** Ask for a frame every [stepFor] of video rather than every pixel. Dragging
  *    slowly then sits on one already-decoded frame instead of asking for a hundred neighbours
- *    nobody can tell apart.
- *  - **One at a time.** A decode already running is not interrupted, and the newest request
- *    that arrived while it ran is the one taken next. Queueing them all means showing frames
- *    the finger left behind.
+ *    nobody can tell apart. The step is scaled to the duration, so a clip and a film feel the
+ *    same under the finger.
+ *  - **Newest only, and never by cancelling.** Draining a queue in order plays the drag back
+ *    instead of following it, so only the most recent request should be taken. It is tempting
+ *    to get that by keying the work on the wanted frame and letting a changed key cancel the
+ *    decode - and that is wrong, because cancelling mid-flight also discards the frame the
+ *    decode had already produced. Doing it that way made the preview vanish outright once the
+ *    step got fine enough for the frame to change on nearly every drag event. A decode runs to
+ *    completion and publishes; the newest frame that arrived meanwhile is taken next. The
+ *    caller gets that from a conflated flow rather than reimplementing it here.
  */
 object ScrubPreview {
 
