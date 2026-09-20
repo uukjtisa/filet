@@ -72,6 +72,13 @@ const WANTED = [
   ["N81", "the external half is separated", /class="owsep"/],
   ["N81", "each half can be expanded to everything", /Every other viewer[\s\S]{0,2000}Every other app/],
   ["N81", "the remember control sits with the button it modifies", /class="owfoot"[\s\S]{0,400}js-rem/],
+  ["N84", "more than three themes", /const THEMES = \[[\s\S]{0,2000}"solar"/],
+  ["N84", "a custom palette setter", /"custom"[\s\S]{0,600}Your own three colours/],
+  ["N84", "the app icon can be changed", /const APP_ICONS/],
+  ["N84", "the separator is a shared thing, not a bare rule", /\.rule2\{/],
+  ["N59", "the tabs are drawn, not just their labels", /const TABS3 = \{/],
+  ["N59", "every tab has a screen", /home:[\s\S]{0,12000}nearby:[\s\S]{0,12000}scripts:[\s\S]{0,12000}activity:/],
+  ["N59", "the tracked tab is one of them", /tracked: \(\) =>/],
   ["N80", "a row can be appointed without dragging it", /data-tick=/],
   ["N80", "a whole set can go in at once", /js-selall/],
   ["N80", "the tray folds away when it is empty", /\.tray\.idle/],
@@ -82,9 +89,16 @@ const WANTED = [
 
 /** Things the mock must NOT do, each of which has gone wrong once already. */
 const FORBIDDEN = [
-  ["the mock must stay the app that exists, not a new one", /data-theme="(?!slate|ember|paper)/],
+  // Guards against a mock that is a different app, not against new palettes. The list moves
+  // when a theme is added on purpose; it fails on a theme nobody declared.
+  ["the mock uses a theme that is not declared in THEMES",
+   /data-theme="(?!slate|ember|paper|graphite|ash|frost|clay|moss|plum|solar|noir|custom)[a-z]/],
   ["the About card still carries the tagline the README was rewritten away from",
    /people who want to do real work on their phone without a PC/i],
+  // A theme may take a palette; it may not take the name that goes with it. A colour is not a
+  // claim of association and a name is, so these are refused anywhere in the file including
+  // in a comment.
+  ["a theme is named after the product its palette came from", /(macos|mac os|anthropic|claude)/i],
   ["the open-with dialogue has a Just once button as well as a remember control, which is one binary twice",
    /openWithHTML[\s\S]{0,2600}Just once/],
 ];
@@ -127,6 +141,8 @@ if (process.argv.includes("--selftest")) {
     "function openWithHTML",
     "openwith: (state) => openWithHTML uncertain: (state) => openWithHTML",
     'class="owh">In Filet', 'class="owsep"', 'class="owfoot"> js-rem',
+    'const THEMES = [ "solar"', '"custom" Your own three colours', "const APP_ICONS",
+    ".rule2{", "const TABS3 = {", "home: nearby: scripts: activity:", "tracked: () =>",
     "Every other viewer Every other app",
     '[data-r="3"] .sig .nm{ width:fit-content',
   ].join("\n");
@@ -146,6 +162,9 @@ if (process.argv.includes("--selftest")) {
     ["the glare still sized to the card", full.replace("width:fit-content", "width:100%"), spec, null, true],
     ["dragging left as the only way into the tray", full.replace("data-tick=", "x"), spec, null, true],
     ["two open-with dialogues again", full.replace("function openWithHTML", "x"), spec, null, true],
+    ["the tabs never drawn", full.replace("const TABS3 = {", "x"), spec, null, true],
+    ["no custom palette", full.replace('"custom" Your own three colours', "x"), spec, null, true],
+    ["the app icon left unchangeable", full.replace("const APP_ICONS", "x"), spec, null, true],
     ["the external apps not separated", full.replace('class="owsep"', "x"), spec, null, true],
     ["landscape still stacking the tray under the list",
      full.replace('grid-template-areas:"head tray"', "x"), spec, null, true],
