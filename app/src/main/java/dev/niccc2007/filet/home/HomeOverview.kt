@@ -172,16 +172,21 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         }
 
         if (downloads.isNotEmpty()) {
-            // "New files", and the name has moved twice for the same reason each time: it has
-            // to describe what the list can actually contain. It was "New downloads" (a file
-            // pushed over Nearby is not a download), then "New files and folders" (the feed
-            // stopped listing folders), then briefly "Files" - which was corrected, because
-            // that claims the whole device and this watches a handful of tracked folders.
+            // The name has moved several times, each time to describe what the list can
+            // actually contain: "New downloads" (a file pushed over Nearby is not a download),
+            // "New files and folders" (the feed stopped listing folders), briefly "Files"
+            // (which claims the whole device when this watches a handful of tracked folders),
+            // then "New files".
+            //
+            // Bug identified: "New files" and "Recent" sat one above the other and could not be
+            // told apart, because neither said what made an entry appear in it. One is files
+            // that TURNED UP in a folder being watched; the other is files YOU OPENED. Both now
+            // say which, in the header, because a subtitle under a section header is not read.
             item {
                 SectionHeaderWithAction(
-                    label = "New files",
+                    label = HomeSections.ARRIVED,
                     action = "Expand",
-                    onAction = { pane.openSpecial(PaneKind.HISTORY, "New files") },
+                    onAction = { pane.openSpecial(PaneKind.HISTORY, HomeSections.ARRIVED) },
                 )
             }
             items(downloads.size) { i ->
@@ -212,7 +217,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         }
 
         if (recents.isNotEmpty()) {
-            item { SectionLabel("Recent") }
+            item { SectionLabel(HomeSections.OPENED) }
             items(minOf(recents.size, 8)) { i ->
                 val r = recents[i]
                 val node = VNode(r.path, r.isDir, -1, r.at)

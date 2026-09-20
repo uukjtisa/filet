@@ -103,7 +103,7 @@ fun ViewPopover(vm: BrowserViewModel, onDismiss: () -> Unit) {
             ) {
                 Icon(FiletIcons.Sort, null, tint = colors.fg2, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(if (sort.descending) "Descending" else "Ascending", fontSize = 12.sp)
+                Text(SortOrder.label(sort.key, sort.descending), fontSize = 12.sp)
             }
             Row(
                 Modifier.fillMaxWidth().clickable {

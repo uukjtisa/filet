@@ -202,6 +202,27 @@ class HomeFeed(
     private val _all = MutableStateFlow<List<FeedItem>>(emptyList())
     val all: StateFlow<List<FeedItem>> = _all.asStateFlow()
 
+    /**
+     * The feed as of the end of a COMPLETE pass, and never mid-pass.
+     *
+     * Bug identified: `publish` is called from inside each folder's coroutine, so [all] is
+     * emitted many times per pass, each time holding only the folders that have finished. That
+     * is right for drawing - rows appear as they are found - and catastrophic for anything that
+     * treats the list as the full set.
+     *
+     * `FirstSeen.prune` is exactly such a caller, and its own documentation forbids it: pruning
+     * against an incomplete listing forgets every path that has not arrived yet, and those
+     * paths are then re-recorded as brand new. Past the seeding window a new path takes the
+     * CLOCK, so a file written months ago came back stamped today - which is why the history
+     * collapsed into "today" and "yesterday" and why old entries appeared to flicker in before
+     * the real ones.
+     *
+     * Anything that records, prunes or reasons about the whole tracked set reads this. Anything
+     * that only draws reads [all].
+     */
+    private val _settled = MutableStateFlow<List<FeedItem>>(emptyList())
+    val settled: StateFlow<List<FeedItem>> = _settled.asStateFlow()
+
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
@@ -325,7 +346,9 @@ class HomeFeed(
             // time Home was reopened, because the new pass killed the old one before it had
             // gathered anything. Cancellation must leave whatever is on screen alone; only a
             // pass that actually finished has a better answer.
-            publish(gathered.values)
+            // The only complete publish. Every earlier one came from inside a folder's own
+            // coroutine and held whatever had finished by then.
+            publish(gathered.values, complete = true)
             _loading.value = false
         }
     }
@@ -338,9 +361,16 @@ class HomeFeed(
      * rows. Trimming first turns that into at most eight lookups, and it is why the feed went
      * from minutes to immediate.
      */
-    private fun publish(all: Collection<List<FeedItem>>) {
+    private fun publish(all: Collection<List<FeedItem>>, complete: Boolean = false) {
         val everything = all.flatten().distinctBy { it.node.path }.sortedByDescending { it.at }
-        _all.value = everything
+        // Partial results are only drawn when there is nothing on screen yet. On a refresh the
+        // previous full list stays put until the new one is ready, because watching entries
+        // appear, re-sort and be replaced is the flicker in the report - and every intermediate
+        // state it shows is a list that was never true.
+        if (complete || FeedPublish.showPartial(_all.value.isEmpty())) {
+            _all.value = everything
+        }
+        if (complete) _settled.value = everything
         val top = everything.take(SHOWN)
         _downloads.value = top
         val lookup = originLookup ?: return

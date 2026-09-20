@@ -31,6 +31,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -394,6 +395,7 @@ private fun ShareCard(vm: BrowserViewModel, server: ServerState, onEditPin: () -
     val colors = Filet.colors
     val nearby = vm.nearby
     val refusal by nearby.startRefusal.collectAsState()
+    val starting by nearby.starting.collectAsState()
     Column(
         Modifier
             .fillMaxWidth()
@@ -416,7 +418,22 @@ private fun ShareCard(vm: BrowserViewModel, server: ServerState, onEditPin: () -
             )
             Spacer(Modifier.height(10.dp))
             if (blocked == null) {
-                SmallButton("Start sharing") { nearby.start() }
+                if (starting) {
+                    // The press registered and the work is happening. Without this the button
+                    // sat there looking untouched for as long as the bind took, which is what
+                    // invites a second press.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = colors.accent,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Starting sharing…", fontSize = 11.sp, color = colors.fg2)
+                    }
+                } else {
+                    SmallButton("Start sharing") { nearby.start() }
+                }
                 // Why a press did nothing. Without this, a start that the attempt limit
                 // refused is indistinguishable from a button that is broken - which is the
                 // same class of silence as the crash loop it replaced.

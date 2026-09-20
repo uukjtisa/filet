@@ -667,6 +667,7 @@ private fun PaneContextMenu(
             delete = FiletIcons.Delete, zip = FiletIcons.Zip, rename = FiletIcons.Rename,
             open = FiletIcons.Open, info = FiletIcons.Info, star = FiletIcons.Star,
             wifi = FiletIcons.Wifi, home = FiletIcons.Home,
+            apk = FiletIcons.Apk,
         ),
         on = SelectionCallbacks(
             copy = { vm.copySelection() },
@@ -680,6 +681,7 @@ private fun PaneContextMenu(
             bookmark = { vm.bookmarkSelection() },
             nearby = { vm.shareSelectionNearby() },
             shortcut = { vm.shortcutSelection() },
+            install = { vm.installSelection() },
             extractHere = { vm.extractSelection() },
             extractTo = { vm.extractSelectionToPicked() },
             extractToOtherPane = { vm.extractSelectionToOtherPane() },
@@ -687,6 +689,7 @@ private fun PaneContextMenu(
         archive = vm.selectionIsArchive(),
         otherPane = vm.isSplit(),
         picking = vm.picking,
+        installable = vm.selectionIsInstallable(),
     )
 
     val extras = listOf(

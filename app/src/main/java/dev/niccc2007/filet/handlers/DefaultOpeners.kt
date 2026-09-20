@@ -73,7 +73,11 @@ fun LazyListScope.defaultOpenersSection(vm: BrowserViewModel, onPick: (String) -
             ExtensionRow(vm, ext, onPick)
         }
     }
-    item { AddExtensionRow(vm, onPick) }
+    // Added by hand, and rendered like any other row: tapping one chooses its opener, which
+    // is the second half of "add it to the list already and no more prompts".
+    item(key = "openers-custom-header") { CustomExtensionsHeader(vm) }
+    item(key = "openers-custom") { CustomExtensionRows(vm, onPick) }
+    item { AddExtensionRow(vm) }
     item { Spacer(Modifier.height(8.dp)) }
 }
 
@@ -167,10 +171,40 @@ private fun ExtensionRow(vm: BrowserViewModel, ext: String, onPick: (String) -> 
 }
 
 @Composable
-private fun AddExtensionRow(vm: BrowserViewModel, onPick: (String) -> Unit) {
+private fun CustomExtensionsHeader(vm: BrowserViewModel) {
+    val custom by vm.prefs.customExtensions.collectAsState()
+    if (custom.isNotEmpty()) PresetHeader("Added by you")
+}
+
+@Composable
+private fun CustomExtensionRows(vm: BrowserViewModel, onPick: (String) -> Unit) {
+    val custom by vm.prefs.customExtensions.collectAsState()
+    Column {
+        for (ext in custom.sorted()) {
+            ExtensionRow(vm, ext, onPick)
+        }
+    }
+}
+
+/**
+ * Adding an extension the presets do not cover.
+ *
+ * Bug identified: typing one went straight into the opener chooser, and if nothing on the
+ * device DECLARED that type the chooser refused - so the extension could not be added at all
+ * and nothing was left behind to try again with. Adding and choosing are now two steps: this
+ * stores the extension, and its row is then tapped like any other to pick an opener.
+ */
+@Composable
+private fun AddExtensionRow(vm: BrowserViewModel) {
     val colors = Filet.colors
     var asking by remember { mutableStateOf(false) }
     var typed by remember { mutableStateOf("") }
+    var dots by remember { mutableStateOf<ExtensionEntry.Verdict?>(null) }
+
+    fun commit(value: String) {
+        vm.prefs.addCustomExtension(value)
+        vm.toast("Added .$value — tap it to choose an opener")
+    }
 
     Row(
         Modifier
@@ -188,7 +222,8 @@ private fun AddExtensionRow(vm: BrowserViewModel, onPick: (String) -> Unit) {
         Column(Modifier.weight(1f)) {
             Text("Another extension", fontSize = 12.5.sp)
             Text(
-                "Anything not listed above — type it without the dot.",
+                "Anything not listed above. It is added straight away — tap it afterwards to " +
+                    "choose what opens it.",
                 fontSize = 10.sp, color = colors.fg3,
             )
         }
@@ -200,22 +235,55 @@ private fun AddExtensionRow(vm: BrowserViewModel, onPick: (String) -> Unit) {
             title = { Text("Which extension?", fontSize = 15.sp) },
             text = {
                 OutlinedTextField(
+                    // NOT normalised as it is typed. Silently deleting characters under
+                    // somebody's cursor is how a deliberate entry becomes an unexplained one;
+                    // the dots are raised after, where they can be answered.
                     value = typed,
-                    // Normalised here, not on save: an extension with a dot, a space or a
-                    // capital in it silently never matches anything and looks like a bug in
-                    // the routing rather than a typo in the box.
-                    onValueChange = { typed = it.trim().trimStart('.').lowercase().take(12) },
+                    onValueChange = { typed = it },
                     singleLine = true,
                     label = { Text("Extension") },
                 )
             },
             confirmButton = {
                 TextButton(
-                    onClick = { asking = false; onPick(typed) },
-                    enabled = typed.isNotBlank(),
-                ) { Text("Choose opener") }
+                    onClick = {
+                        val v = ExtensionEntry.inspect(typed)
+                        if (!v.valid) { asking = false; return@TextButton }
+                        asking = false
+                        if (v.askAboutDots) dots = v else commit(v.cleaned)
+                    },
+                    enabled = ExtensionEntry.inspect(typed).valid,
+                ) { Text("Add") }
             },
             dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
+        )
+    }
+
+    // The dots are a question with three defensible answers, so all three are offered rather
+    // than one being applied quietly.
+    dots?.let { v ->
+        AlertDialog(
+            onDismissRequest = { dots = null },
+            title = { Text("That has extra dots", fontSize = 15.sp) },
+            text = { Text(ExtensionEntry.dotQuestion(v), fontSize = 12.sp, lineHeight = 16.sp) },
+            confirmButton = {
+                TextButton(onClick = {
+                    dots = null
+                    commit(ExtensionEntry.resolve(v, ExtensionEntry.Choice.DROP_DOTS))
+                }) { Text("Use ${v.cleaned}") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        dots = null
+                        commit(ExtensionEntry.resolve(v, ExtensionEntry.Choice.ONE_DOT))
+                    }) { Text("Use .${v.cleaned}") }
+                    TextButton(onClick = {
+                        dots = null
+                        commit(ExtensionEntry.resolve(v, ExtensionEntry.Choice.KEEP))
+                    }) { Text("Keep ${v.typed}") }
+                }
+            },
         )
     }
 }
@@ -243,23 +311,18 @@ fun OpenerPicker(vm: BrowserViewModel, extension: String, onDismiss: () -> Unit)
         val apps = remember(extension) {
             ExternalApps.candidates(context, mimeForExtension(extension))
         }
-        // An empty sheet is indistinguishable from a broken one, so say which it is.
-        if (apps.isEmpty()) {
-            AlertDialog(
-                onDismissRequest = { pickingApp = false },
-                title = { Text("No app for .$extension", fontSize = 15.sp) },
-                text = {
-                    Text(
-                        "Nothing installed on this device registers itself as able to open " +
-                            "${mimeForExtension(extension)} files. Filet's own viewers still can — " +
-                            "pick one of those instead.",
-                        fontSize = 12.sp, lineHeight = 16.sp,
-                    )
-                },
-                confirmButton = { TextButton(onClick = { pickingApp = false }) { Text("Back") } },
-            )
-            return
-        }
+        // No dead end here any more.
+        //
+        // Bug identified: an extension nothing on the device DECLARES - `.mcaddon`, say -
+        // resolved to the wildcard mime, which the candidate query deliberately answers with
+        // nothing. That emptiness was then shown as "No app for .mcaddon" and the flow
+        // stopped. It is not true: Minecraft opens `.mcaddon` perfectly well, it simply never
+        // registered the type with Android. Filet has no way to know what can open a file it
+        // has no type for, and refusing on that basis states a fact it does not have.
+        //
+        // The sheet already handles an empty first tier - it says so and offers every
+        // launchable app underneath. So it is shown rather than withheld, and the choice is
+        // left where it belongs.
         AppPickerForExtension(extension, apps) { app ->
             pickingApp = false
             if (app != null) {

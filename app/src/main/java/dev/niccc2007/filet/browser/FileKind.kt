@@ -78,16 +78,18 @@ enum class FileKind {
  * has and every user notices.
  */
 fun List<VNode>.sortedBy(spec: SortSpec): List<VNode> {
+    // Each comparator is written so that its UNREVERSED order is the one worth seeing first:
+    // A to Z, newest, largest. See SortOrder for why that is not the same as "ascending".
     val byKey: Comparator<VNode> = when (spec.key) {
         SortKey.NAME -> Comparator { a, b -> naturalCompare(a.name, b.name) }
-        SortKey.SIZE -> compareBy { it.size }
-        SortKey.MODIFIED -> compareBy { it.mtime }
+        SortKey.SIZE -> compareByDescending { it.size }
+        SortKey.MODIFIED -> compareByDescending { it.mtime }
         SortKey.TYPE -> Comparator { a, b ->
             val c = a.extension.compareTo(b.extension)
             if (c != 0) c else naturalCompare(a.name, b.name)
         }
     }
-    val directed = if (spec.descending) byKey.reversed() else byKey
+    val directed = if (spec.descending) byKey else byKey.reversed()
     // Folders-first is applied AFTER the direction flip, so reversing the sort never
     // reverses the folder grouping too - which looks like a bug even when it is consistent.
     val full = if (spec.foldersFirst) compareByDescending<VNode> { it.isDir }.then(directed) else directed

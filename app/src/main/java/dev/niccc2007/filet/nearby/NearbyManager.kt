@@ -75,6 +75,17 @@ class NearbyManager(
     private val _startRefusal = MutableStateFlow<String?>(null)
     val startRefusal: StateFlow<String?> = _startRefusal.asStateFlow()
 
+    /**
+     * True from the moment Start is pressed until the server is up or has given up.
+     *
+     * Starting is not instant - it binds a socket, reads preferences and brings up a
+     * foreground service - and a button that shows nothing in the meantime reads as a button
+     * that did not register the press. Which is what provokes a second press, and a second
+     * press is how two accept loops end up running at once.
+     */
+    private val _starting = MutableStateFlow(false)
+    val starting: StateFlow<Boolean> = _starting.asStateFlow()
+
     fun clearStartRefusal() { _startRefusal.value = null }
 
     fun start() {
@@ -95,7 +106,9 @@ class NearbyManager(
             is ServerStartPolicy.Decision.Start -> Unit
         }
         _startRefusal.value = null
+        _starting.value = true
         scope.launch {
+            try {
             shared.ensureFolders()
             server.pinRequired = prefs.getBool(KEY_PIN, true)
             server.uploadsAllowed = prefs.getBool(KEY_UPLOADS, false)
@@ -110,7 +123,11 @@ class NearbyManager(
                     // throws, and the throw happens here, after the server is already up. The
                     // server itself is fine and stopping it is the honest response - a running
                     // server with no notification is one he cannot see or turn off.
-                    if (runCatching { NearbyService.start(context) }.isFailure) {
+                    val svc = runCatching { NearbyService.start(context) }
+                    svc.exceptionOrNull()?.let { e ->
+                        android.util.Log.w("FiletNearby", "NearbyService.start failed", e)
+                    }
+                    if (svc.isFailure) {
                         runCatching { server.stop() }
                         _state.value = ServerState(running = false)
                         failures = ServerStartPolicy.countAfter(failures, succeeded = false)
@@ -121,10 +138,19 @@ class NearbyManager(
                     }
                 }
                 .onFailure {
+                    // Logged, not only counted. A start that fails silently is why this took
+                    // three rounds: every symptom was downstream of an exception nobody saw.
+                    android.util.Log.w("FiletNearby", "server.start() failed", it)
                     failures = ServerStartPolicy.countAfter(failures, succeeded = false)
                     lastFailureAt = System.currentTimeMillis()
                     _state.value = ServerState(running = false)
+                    _startRefusal.value = "Sharing could not start: ${it.message ?: it.javaClass.simpleName}"
                 }
+            } finally {
+                // In a finally: a throw anywhere above would otherwise leave the button
+                // spinning for ever, which is a worse lie than showing nothing.
+                _starting.value = false
+            }
         }
     }
 

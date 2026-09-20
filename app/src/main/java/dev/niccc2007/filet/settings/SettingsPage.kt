@@ -206,7 +206,11 @@ fun SettingsPage(vm: BrowserViewModel) {
             }
         }
         item {
-            ToggleRow("Descending", "Reverse the sort order", sort.descending) {
+            ToggleRow(
+                "Most relevant first",
+                dev.niccc2007.filet.browser.SortOrder.settingsSummary(sort.descending),
+                sort.descending,
+            ) {
                 prefs.setSort(sort.copy(descending = it))
             }
         }

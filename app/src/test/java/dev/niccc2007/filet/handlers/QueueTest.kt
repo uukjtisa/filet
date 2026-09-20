@@ -49,16 +49,29 @@ class QueueTest {
     }
 
     @Test fun the_browsers_own_sort_is_honoured_rather_than_a_second_opinion() {
-        val q = audioQueue(listing, file("track1.flac"), SortSpec(key = SortKey.NAME, descending = true))
+        // `descending` means most relevant first - A to Z for names - so the reversed order is
+        // what the OTHER direction produces. See SortOrder.
+        val q = audioQueue(listing, file("track1.flac"), SortSpec(key = SortKey.NAME, descending = false))
         assertEquals(listOf("track10.mp3", "track2.mp3", "track1.flac"), names(q))
         assertEquals("track1.flac", q.current.name)
     }
 
+    @Test fun the_default_direction_plays_tracks_in_the_order_they_are_listed() {
+        val q = audioQueue(listing, file("track1.flac"), SortSpec(key = SortKey.NAME, descending = true))
+        assertEquals(listOf("track1.flac", "track2.mp3", "track10.mp3"), names(q))
+    }
+
     @Test fun sorting_by_size_still_lands_on_the_opened_track() {
+        // Largest first by default now - see SortOrder. The order is incidental here; what
+        // matters is that the queue starts on the track that was opened whatever the order is.
         val sized = listOf(file("a.mp3", size = 900), file("b.mp3", size = 100), file("c.mp3", size = 500))
         val q = audioQueue(sized, file("a.mp3", size = 900), SortSpec(key = SortKey.SIZE))
-        assertEquals(listOf("b.mp3", "c.mp3", "a.mp3"), names(q))
+        assertEquals(listOf("a.mp3", "c.mp3", "b.mp3"), names(q))
         assertEquals("a.mp3", q.current.name)
+
+        val smallestFirst = audioQueue(sized, file("c.mp3", size = 500), SortSpec(key = SortKey.SIZE, descending = false))
+        assertEquals(listOf("b.mp3", "c.mp3", "a.mp3"), names(smallestFirst))
+        assertEquals("c.mp3", smallestFirst.current.name)
     }
 
     @Test fun a_folder_with_one_track_is_a_queue_of_one() {

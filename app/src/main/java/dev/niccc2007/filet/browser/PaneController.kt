@@ -226,7 +226,10 @@ class PaneController(
      *   cold start - open Filet at a storage root and press back twice.
      */
     fun goUp(push: Boolean = true): Boolean {
-        val parent = _state.value.cwd?.parent ?: return false
+        // MountBoundary, not VPath.parent: inside an archive or an APK the `!` marks where the
+        // real filesystem stops, and a plain string walk climbs straight through it into a
+        // path in a scheme that cannot read it. See MountBoundary.
+        val parent = _state.value.cwd?.let { dev.niccc2007.filet.vfs.MountBoundary.up(it) } ?: return false
         navigateTo(parent, push = push)
         return true
     }
@@ -391,6 +394,14 @@ class PaneController(
             return
         }
         val s = _state.value
+        // A filesystem search is only an answer a FOLDER pane can use. Searching from
+        // Settings used to walk the device and hand back files, which is not a setting and
+        // not something that pane can show. See searchPlan.
+        if (searchPlan(s.kind) != SearchMode.FILESYSTEM) {
+            // The query stays in the state; each special screen narrows its own rows from it.
+            _state.update { it.copy(search = it.search.copy(hits = emptyList(), running = false, painted = true)) }
+            return
+        }
         val req = SearchRequest(
             query = q,
             scope = s.search.scope,

@@ -453,10 +453,55 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         viewModelScope.launch { runCatching { graph.index.recordOpen(node.path) } }
         when {
             node.isDir -> pane.navigateTo(node.path)
-            node.extension == "apk" -> openApk(node)
+            // Routed through BundleRoute so the bundle formats stop falling into the archive
+            // branch unnoticed. A tap on one still opens the browser; what changed is that
+            // Install is now offered for it in the menu, which it never was.
+            dev.niccc2007.filet.apk.BundleRoute.tap(node.name, node.isDir) ==
+                dev.niccc2007.filet.apk.BundleRoute.Tap.INSPECT -> openApk(node)
             // By whole name, not by extension: `backup.tar.gz` has the extension "gz".
             Archives.canList(node.name) -> mountArchive(node)
-            else -> openWithRegistered(node)
+            else -> openUnclaimed(node)
+        }
+    }
+
+    /**
+     * A file the name says nothing useful about.
+     *
+     * Before giving it to a handler, look at what it actually is. An archive renamed to
+     * something else used to be a dead end: every routing decision was made on the extension,
+     * so a zip saved as `.bin` was a binary blob even though the reader would have opened it
+     * without complaint.
+     *
+     * Only when nothing else has a better claim. See Sniff: an app package, an ebook and a
+     * word document are all zips underneath, and putting the archive viewer ahead of their own
+     * handler would be a worse bug than the one being fixed.
+     */
+    private fun openUnclaimed(node: VNode) {
+        viewModelScope.launch {
+            val kind = runCatching {
+                graph.vfs.openRead(node.path).use { input ->
+                    val head = ByteArray(dev.niccc2007.filet.vfs.provider.Sniff.NEEDED)
+                    var read = 0
+                    while (read < head.size) {
+                        val n = input.read(head, read, head.size - read)
+                        if (n <= 0) break
+                        read += n
+                    }
+                    dev.niccc2007.filet.vfs.provider.Sniff.kindOf(head.copyOf(read))
+                }
+            }.getOrDefault(dev.niccc2007.filet.vfs.provider.Sniff.Kind.UNKNOWN)
+
+            val confidence = dev.niccc2007.filet.vfs.provider.Sniff.confidence(
+                kind = kind,
+                nameIsArchive = Archives.canList(node.name),
+                nameIsKnownOther = graph.registry.builtInFor(node.extension) != null,
+            )
+            if (dev.niccc2007.filet.vfs.provider.Sniff.openAsArchive(confidence)) {
+                toast("This is a ${kind.name.lowercase()} archive despite its name.")
+                mountArchive(node)
+            } else {
+                openWithRegistered(node)
+            }
         }
     }
 
@@ -706,6 +751,27 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     /** What the picker would hand over: the focused pane's selection, files and folders both. */
     fun pickSelection(): List<VNode> = focusedPane()?.selectedNodes().orEmpty()
+
+    /**
+     * Whether Install should be offered for what is selected.
+     *
+     * One file, and it names itself as an app package. See BundleRoute: the extension is the
+     * right test here because the platform installer reads the real contents and refuses
+     * anything that is not a package, so a wrong guess costs a refusal rather than a bad
+     * install - while NOT offering install on a correctly named bundle is the fault that
+     * shipped.
+     */
+    fun selectionIsInstallable(): Boolean {
+        val items = focusedPane()?.selectedNodes() ?: return false
+        val one = items.singleOrNull() ?: return false
+        return !one.isDir && dev.niccc2007.filet.apk.BundleRoute.installable(one.name)
+    }
+
+    /** Install whatever single package is selected. Routes bundles through the session installer. */
+    fun installSelection() {
+        val one = focusedPane()?.selectedNodes()?.singleOrNull() ?: return
+        installApk(one)
+    }
 
     fun selectionIsArchive(): Boolean {
         val items = focusedPane()?.selectedNodes() ?: return false

@@ -78,6 +78,13 @@ import java.util.TimeZone
 fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
     val colors = Filet.colors
     val all by vm.home.all.collectAsState()
+    // Recording and pruning read the SETTLED list, never the one being drawn.
+    //
+    // `prune` drops every path it is not given, and its own documentation forbids calling it
+    // with a partial listing for exactly the reason this bug happened: a forgotten path is
+    // re-recorded as new, and past the seeding window a new path takes the clock rather than
+    // its mtime, so a file from months ago came back stamped today.
+    val settled by vm.home.settled.collectAsState()
 
     var sort by remember { mutableStateOf(HistorySort.FIRST_SEEN) }
     var grouped by remember { mutableStateOf(true) }
@@ -89,7 +96,8 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
     // Record first-seen for whatever the feed found, so the ordering has something to sort on,
     // and prune what is gone. Both are cheap and idempotent - the store only writes when
     // something is genuinely new.
-    LaunchedEffect(all) {
+    LaunchedEffect(settled) {
+        if (settled.isEmpty()) return@LaunchedEffect
         // OFF the main thread, and that is the fix for "the expand takes so long to render".
         //
         // `LaunchedEffect` runs on the composition's dispatcher, which is the main thread. For a
@@ -102,7 +110,7 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
             // Passed WITH their modification times, because the very first pass has to seed from
             // those rather than from the clock - otherwise every file already on the device reads
             // as having turned up the moment this screen was first opened.
-            val mtimes = all.associate { it.node.path.toString() to it.at }
+            val mtimes = settled.associate { it.node.path.toString() to it.at }
             vm.firstSeen.record(mtimes, System.currentTimeMillis())
             vm.firstSeen.prune(mtimes.keys)
         }

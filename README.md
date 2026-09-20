@@ -45,19 +45,24 @@ Built by **[Niccc2007](https://github.com/uukjtisa)**.
 
 ## What Filet is
 
-Most Android file managers treat storage as one place: the internal volume, listed. Reach an
-archive and you get an extract button. Reach a network share and you get a different app.
+A file manager built for people who actually use one. Four things it refuses to trade against
+each other:
 
-Filet has one storage interface underneath everything, and every backend is a plugin behind
-it. A zip is a folder. An APK is a folder, and `classes.dex` inside it is a browsable tree of
-smali. A WebDAV share is a folder. So a feature written once works in all of them, and that's
-why the Lua scripting can run over a file on a network share it has never seen before.
+- **Productivity.** Find the file, move it, be done. Search answers in milliseconds across the
+  whole device, split panes mean copying is a drag rather than a round trip, and the things you
+  do every day are one tap from where you already are.
+- **Power.** Edit a file inside an archive without unpacking it. Read the smali inside an APK,
+  change it, rebuild and re-sign it on the phone. Script the whole thing in Lua. None of it is
+  behind a paywall and none of it is a separate app.
+- **Aesthetics.** It is not a spreadsheet of filenames. It has a considered palette, real
+  motion, and a layout that holds together on a phone, a tablet and in landscape — because a
+  tool you open twenty times a day should not be ugly.
+- **Convenience.** Share to any browser on your network with nothing installed on the other
+  end. Answer another app's "choose a file". Pick up where you left off. The work is in making
+  the common path short.
 
-The rest of the app is what falls out of that:
-
-- Whole-device search that answers in milliseconds, including **inside** APKs
-- An APK toolchain that decompiles, edits, rebuilds and re-signs on the phone
-- Sharing to any browser on your network, with nothing installed on the other end
+Free, open source, no ads, no accounts, no telemetry, and no feature held back for a paid tier.
+There isn't one.
 
 ---
 

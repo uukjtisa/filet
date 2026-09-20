@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -202,12 +203,14 @@ fun AppPickerSheet(vm: BrowserViewModel, pick: AppPick) {
             }
 
             var showAll by remember(pick.node.path) { mutableStateOf(false) }
-            val rest = remember(pick.apps, showAll) {
-                if (showAll) ExternalApps.allLaunchable(context, pick.apps) else emptyList()
+            // produceState, not remember: building this list is a hundred-odd inter-process
+            // calls and `remember` runs during composition on the main thread, which is why
+            // the sheet took seconds to appear. See OpenerCatalog.
+            val catalog by produceState(OpenerCatalog.Catalog(), showAll, pick.apps) {
+                value = if (showAll) OpenerCatalog.get(context, pick.apps) else OpenerCatalog.Catalog()
             }
-            val types = remember(showAll) {
-                if (showAll) ExternalApps.declaredTypes(context) else emptyMap()
-            }
+            val rest = catalog.launchable
+            val types = catalog.declaredTypes
 
             // Capped, and scrollable past the cap. A device with thirty image viewers should
             // not produce a sheet taller than the screen with the rest off the bottom.
@@ -300,12 +303,11 @@ private fun AppPickerBody(
                 )
             }
             var showAll by remember(extension) { mutableStateOf(false) }
-            val rest = remember(apps, showAll) {
-                if (showAll) ExternalApps.allLaunchable(context, apps) else emptyList()
+            val catalog by produceState(OpenerCatalog.Catalog(), showAll, apps) {
+                value = if (showAll) OpenerCatalog.get(context, apps) else OpenerCatalog.Catalog()
             }
-            val types = remember(showAll) {
-                if (showAll) ExternalApps.declaredTypes(context) else emptyMap()
-            }
+            val rest = catalog.launchable
+            val types = catalog.declaredTypes
             LazyColumn(Modifier.heightIn(max = 420.dp)) {
                 items(apps, key = { "d/" + it.packageName + "/" + it.activity }) { app ->
                     AppRow(app, app.detail) { onPick(app) }

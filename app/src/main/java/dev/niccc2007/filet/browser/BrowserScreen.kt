@@ -923,7 +923,8 @@ private fun barIcon(item: BarItem) = when (item) {
 private fun runBarItem(item: BarItem, vm: BrowserViewModel, active: PaneController?) {
     when (item) {
         BarItem.FILES -> vm.goToFiles()
-        BarItem.SEARCH -> active?.openSearch(true)
+        // R1: offering search on a pane where it can do nothing is a dead control.
+        BarItem.SEARCH -> active?.let { if (searchOffered(it.state.value.kind)) it.openSearch(true) }
         BarItem.ACTIVITY -> vm.openActivity(true)
         BarItem.BOOKMARKS -> active?.openSpecial(PaneKind.BOOKMARKS, "Bookmarks")
         BarItem.HOME -> active?.openHome()
@@ -984,6 +985,7 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
             delete = FiletIcons.Delete, zip = FiletIcons.Zip, rename = FiletIcons.Rename,
             open = FiletIcons.Open, info = FiletIcons.Info, star = FiletIcons.Star,
             wifi = FiletIcons.Wifi, home = FiletIcons.Home,
+            apk = FiletIcons.Apk,
         ),
         on = SelectionCallbacks(
             copy = { vm.copySelection() },
@@ -997,6 +999,7 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
             bookmark = { vm.bookmarkSelection() },
             nearby = { vm.shareSelectionNearby() },
             shortcut = { vm.shortcutSelection() },
+            install = { vm.installSelection() },
             extractHere = { vm.extractSelection() },
             extractTo = { vm.extractSelectionToPicked() },
             extractToOtherPane = { vm.extractSelectionToOtherPane() },
@@ -1004,6 +1007,7 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
         archive = vm.selectionIsArchive(),
         otherPane = vm.isSplit(),
         picking = vm.picking,
+        installable = vm.selectionIsInstallable(),
     )
 
     Column(Modifier.fillMaxWidth().background(colors.raised)) {

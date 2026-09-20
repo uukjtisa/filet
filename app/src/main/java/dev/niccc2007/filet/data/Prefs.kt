@@ -24,7 +24,7 @@ class Prefs(context: Context) {
     private val _sort = MutableStateFlow(
         SortSpec(
             key = SortKey.valueOfOr(sp.getString(K_SORT, null), SortKey.NAME),
-            descending = sp.getBoolean(K_SORT_DESC, false),
+            descending = sp.getBoolean(K_SORT_DESC, dev.niccc2007.filet.browser.SortOrder.DEFAULT_DESCENDING),
             foldersFirst = sp.getBoolean(K_FOLDERS_FIRST, true),
         )
     )
@@ -45,6 +45,17 @@ class Prefs(context: Context) {
     /** The bottom bar, as stored ids. Always read through `BottomBarConfig.normalise`. */
     private val _bottomBar = MutableStateFlow(sp.getString(K_BOTTOM_BAR, null))
     val bottomBar: StateFlow<String?> = _bottomBar.asStateFlow()
+
+    /**
+     * Extensions added by hand in the default-opener settings.
+     *
+     * Persisted as soon as one is typed. Adding an extension used to go straight into a
+     * chooser, so an extension nothing claimed could not be added at all - the chooser refused
+     * and there was nothing left behind. Adding and choosing are separate now.
+     */
+    private val _customExtensions =
+        MutableStateFlow(sp.getStringSet(K_CUSTOM_EXT, emptySet())!!.toSet())
+    val customExtensions: StateFlow<Set<String>> = _customExtensions.asStateFlow()
 
     /**
      * Hide the storage cards on Home.
@@ -156,6 +167,19 @@ class Prefs(context: Context) {
     fun setRestoreTabs(v: Boolean) { _restoreTabs.value = v; sp.edit().putBoolean(K_RESTORE_TABS, v).apply() }
 
     fun setBottomBar(v: String) { _bottomBar.value = v; sp.edit().putString(K_BOTTOM_BAR, v).apply() }
+
+    fun addCustomExtension(ext: String) {
+        if (ext.isBlank()) return
+        val next = _customExtensions.value + ext
+        _customExtensions.value = next
+        sp.edit().putStringSet(K_CUSTOM_EXT, next).apply()
+    }
+
+    fun removeCustomExtension(ext: String) {
+        val next = _customExtensions.value - ext
+        _customExtensions.value = next
+        sp.edit().putStringSet(K_CUSTOM_EXT, next).apply()
+    }
     fun setHideStorage(v: Boolean) { _hideStorage.value = v; sp.edit().putBoolean(K_HIDE_STORAGE, v).apply() }
 
     fun setHideTermux(v: Boolean) { _hideTermux.value = v; sp.edit().putBoolean(K_HIDE_TERMUX, v).apply() }
@@ -239,6 +263,7 @@ class Prefs(context: Context) {
         const val K_HIDDEN = "browse.hidden"
         const val K_RESTORE_TABS = "browse.restoreTabs"
         const val K_BOTTOM_BAR = "browse.bottomBar"
+        const val K_CUSTOM_EXT = "openers.customExtensions"
         const val K_VIEW_STEP = "browse.viewStep"
         const val K_THEME = "ui.theme"
         const val K_ACCENT = "ui.accent"
@@ -341,6 +366,14 @@ enum class AccentChoice {
 
 data class SortSpec(
     val key: SortKey = SortKey.NAME,
-    val descending: Boolean = false,
+    /**
+     * Most relevant first: A to Z, newest, largest. See `SortOrder`.
+     *
+     * Defaults to the same value the stored preference does. They were allowed to disagree -
+     * the stored default moved and this one did not - and the only thing that noticed was the
+     * media queue, which builds a `SortSpec()` of its own and started playing tracks in
+     * reverse.
+     */
+    val descending: Boolean = true,
     val foldersFirst: Boolean = true,
 )

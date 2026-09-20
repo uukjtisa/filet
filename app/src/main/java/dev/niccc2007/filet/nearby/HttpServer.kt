@@ -90,6 +90,13 @@ class NearbyHttpServer(
 ) {
     private val pool = Executors.newFixedThreadPool(6)
     private var socket: ServerSocket? = null
+
+    /**
+     * Incremented on every start, so an accept loop can tell whether it is still the current
+     * one. See AcceptLoop: without this a loop left over from the previous socket sees the
+     * flag set true again by the next start and spins on a closed socket.
+     */
+    private val generation = java.util.concurrent.atomic.AtomicLong(0)
     @Volatile private var running = false
 
     private val sessions = ConcurrentHashMap<String, Long>()
@@ -134,19 +141,30 @@ class NearbyHttpServer(
         val server = bound ?: throw IOException("No free port between $preferredPort and ${preferredPort + 20}")
         socket = server
         running = true
+        val mine = generation.incrementAndGet()
         lastActivity.set(System.currentTimeMillis())
 
         pool.execute {
-            while (running) {
-                val client = runCatching { server.accept() }.getOrNull() ?: continue
+            while (AcceptLoop.keepGoing(running, mine, generation.get(), server.isClosed)) {
+                val client = runCatching { server.accept() }.getOrNull()
+                if (client == null) {
+                    // A throw from accept on a socket with no timeout means the socket is
+                    // gone. Going back round is the spin this replaced.
+                    if (AcceptLoop.stopOnAcceptFailure()) break else continue
+                }
                 pool.execute { runCatching { handle(client) }; runCatching { client.close() } }
             }
+            // Whatever ended this loop, the socket it owned is finished with.
+            runCatching { server.close() }
         }
         return state().also(onEvent)
     }
 
     fun stop() {
         running = false
+        // Moved on, so any accept loop still alive from this socket ends even if a start
+        // arrives before it has looked at the flag again.
+        generation.incrementAndGet()
         runCatching { socket?.close() }
         socket = null
         sessions.clear()

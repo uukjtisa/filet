@@ -119,7 +119,13 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
 private fun OpenWithSheet(vm: BrowserViewModel, node: dev.niccc2007.filet.vfs.VNode) {
     val colors = Filet.colors
     var chosen by remember(node.path) { mutableStateOf<HandlerId?>(null) }
-    val candidates = vm.registry.candidatesFor(node)
+    var showAll by remember(node.path) { mutableStateOf(false) }
+    // Two tiers. Bug identified: this list was built from the extension, so a file the tables
+    // did not recognise was offered the code editor, the hex viewer and "another app" and
+    // nothing else - a `.mcaddon`, which is a zip, could not be opened with the archive viewer
+    // at all. Every viewer is now reachable; the guess just goes first.
+    val offer = vm.registry.offerFor(node)
+    val candidates = if (showAll) offer.all else offer.likely
 
     Box(
         Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable { vm.dismissChooser() },
@@ -160,6 +166,28 @@ private fun OpenWithSheet(vm: BrowserViewModel, node: dev.niccc2007.filet.vfs.VN
                     Spacer(Modifier.width(12.dp))
                     Text(h.label, fontSize = 13.sp, modifier = Modifier.weight(1f))
                     if (on) Icon(FiletIcons.Check, null, tint = colors.accent, modifier = Modifier.size(15.dp))
+                }
+            }
+            if (!showAll && offer.rest.isNotEmpty()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { showAll = true }
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(FiletIcons.More, null, tint = colors.fg3, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Every other viewer", fontSize = 13.sp, color = colors.fg2)
+                        // Honest about what they are. None of them can damage anything - a
+                        // viewer handed a file it cannot read says so and closes - and that is
+                        // a better outcome than a file with no way to open it.
+                        Text(
+                            "These do not match this file's name. One may still open it.",
+                            fontSize = 10.sp, color = colors.fg3,
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))

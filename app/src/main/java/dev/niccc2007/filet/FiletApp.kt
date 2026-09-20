@@ -2,6 +2,7 @@ package dev.niccc2007.filet
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import dev.niccc2007.filet.data.Bookmarks
 import dev.niccc2007.filet.data.Prefs
 import dev.niccc2007.filet.data.Recents
@@ -218,6 +219,7 @@ class FiletApp : Application() {
         // able to loop by reporting its own failure to report.
         if (!isCrashProcess()) dev.niccc2007.filet.crash.CrashReport.install(this)
         if (!isCrashProcess()) registerSplitInstallReceiver()
+        if (!isCrashProcess()) watchInstalledApps()
     }
 
     /**
@@ -233,6 +235,29 @@ class FiletApp : Application() {
      * NOT_EXPORTED because it is our own broadcast to ourselves; an exported receiver here
      * would let any app on the device drive Filet's installer status handling.
      */
+    /**
+     * Drop the cached opener list when an app is installed or removed.
+     *
+     * The list of apps that can open a file changes for exactly one reason, and this is it.
+     * Without this the cache would rely on its own timeout, so an app installed a minute ago
+     * would be missing from the picker with no way to make it appear.
+     */
+    private fun watchInstalledApps() {
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                dev.niccc2007.filet.handlers.OpenerCatalog.invalidate()
+            }
+        }
+        val filter = android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_ADDED)
+            addAction(Intent.ACTION_PACKAGE_REMOVED)
+            addAction(Intent.ACTION_PACKAGE_REPLACED)
+            addAction(Intent.ACTION_PACKAGE_CHANGED)
+            addDataScheme("package")
+        }
+        runCatching { registerReceiver(receiver, filter) }
+    }
+
     private fun registerSplitInstallReceiver() {
         val receiver = dev.niccc2007.filet.apk.SplitInstallReceiver { message ->
             android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()

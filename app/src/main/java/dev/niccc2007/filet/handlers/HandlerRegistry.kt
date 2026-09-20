@@ -25,7 +25,7 @@ enum class HandlerId(val label: String) {
     IMAGE("Image viewer"),
     MEDIA("Media player"),
     HEX("Hex viewer"),
-    ARCHIVE("Open as folder"),
+    ARCHIVE("Archive viewer"),
     APK("APK inspector"),
     MANIFEST("Manifest editor"),
     EXTERNAL("Another app"),
@@ -69,19 +69,18 @@ class HandlerRegistry(private val prefs: Prefs) {
     }
 
     /** Every handler that can actually open this file, for the chooser sheet. */
-    fun candidatesFor(node: VNode): List<HandlerId> {
-        val kind = FileKind.of(node)
-        val out = LinkedHashSet<HandlerId>()
-        out += defaultFor(node)
-        if (kind != FileKind.FOLDER) {
-            out += HandlerId.TEXT
-            out += HandlerId.HEX
-            out += HandlerId.EXTERNAL
-        }
-        if (kind == FileKind.IMAGE) out += HandlerId.IMAGE
-        if (kind == FileKind.VIDEO || kind == FileKind.AUDIO) out += HandlerId.MEDIA
-        return out.toList()
-    }
+    fun candidatesFor(node: VNode): List<HandlerId> =
+        HandlerCandidates.forKind(FileKind.of(node), defaultFor(node))
+
+    /**
+     * The same set, split into what to show and what a reveal shows.
+     *
+     * Two tiers because one flat list of every viewer would make the common case worse - a
+     * photo offering the archive viewer as prominently as the image viewer. The guess goes
+     * first; the rest stay one tap away.
+     */
+    fun offerFor(node: VNode): HandlerCandidates.Offer =
+        HandlerCandidates.offer(FileKind.of(node), defaultFor(node))
 
     // ── extension-first queries, for the Settings list ──
     //

@@ -20,7 +20,7 @@ import org.junit.Test
 class ContextMenuTest {
 
     private val icon = ImageVector.Builder("x", 1.dp, 1.dp, 1f, 1f).build()
-    private val icons = SelectionIcons(icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon)
+    private val icons = SelectionIcons(icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon)
     private val callbacks = SelectionCallbacks(
         copy = {}, move = {}, send = {}, delete = {}, compress = {}, rename = {},
         openWith = {}, details = {}, bookmark = {}, nearby = {}, shortcut = {},

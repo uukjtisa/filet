@@ -56,6 +56,7 @@ fun selectionActions(
     archive: Boolean = false,
     otherPane: Boolean = false,
     picking: Boolean = false,
+    installable: Boolean = false,
 ): List<SelectionAction> {
     val single = count == 1
     // Written out rather than inlined three times: these two sentences are the whole of what a
@@ -68,6 +69,14 @@ fun selectionActions(
         add(SelectionAction("copy", "Copy", icons.copy, run = on.copy))
         add(SelectionAction("move", "Move", icons.cut, blocked = readOnly, run = on.move))
         add(SelectionAction("send", "Send", icons.share, run = on.send))
+        // Install, and this row is the whole fix for "there's no way to get to that install
+        // it part". A `.xapk` opens the archive browser when tapped, so the APK inspector -
+        // the only other place Install lived - was unreachable for exactly the formats that
+        // needed it. Absent rather than blocked for anything that is not a package: "Install"
+        // on a photo is not unavailable, it is meaningless.
+        if (single && installable) {
+            add(SelectionAction("install", "Install", icons.apk, run = on.install))
+        }
         add(
             SelectionAction(
                 "compress", "Compress", icons.zip,
@@ -163,6 +172,7 @@ data class SelectionIcons(
     val star: ImageVector,
     val wifi: ImageVector,
     val home: ImageVector,
+    val apk: ImageVector,
 )
 
 /** What each action does. Separate from the list so the list can be built in a test. */
@@ -181,6 +191,7 @@ data class SelectionCallbacks(
     val extractHere: () -> Unit = {},
     val extractTo: () -> Unit = {},
     val extractToOtherPane: () -> Unit = {},
+    val install: () -> Unit = {},
 )
 
 /** How the selection's actions are presented. */
