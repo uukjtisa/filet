@@ -523,7 +523,23 @@ class SqliteIndex(
                 // reads as an index which just started from nothing.
                 val filesBefore = countFiles()
                 _status.update {
-                    it.copy(running = true, phase = "scanning", scanned = 0, knownAtStart = filesBefore)
+                    it.copy(
+                        running = true, phase = "scanning", scanned = 0, knownAtStart = filesBefore,
+                        // Bug identified, reported as the index showing nothing while it
+                        // updates: `available` gates whether the index is allowed to answer a
+                        // search at all, and it was only ever written at init and in this
+                        // crawl's `finally`. So a pass that began before the first count had
+                        // found anything left it false for the whole pass - and
+                        // IndexSearchSource declines outright when it is false, so every row
+                        // already written on a previous pass was withheld for the duration.
+                        //
+                        // What is held is knowable right here: filesBefore was just counted.
+                        // An entry written on an earlier pass is a fact until something
+                        // disproves it, and refusing to serve it because a newer pass has not
+                        // reached that folder yet is choosing to know less than is known.
+                        available = filesBefore > 0,
+                        files = if (it.files == 0L) filesBefore else it.files,
+                    )
                 }
 
                 var visited = 0
@@ -631,7 +647,17 @@ class SqliteIndex(
                             }
                             if (!complete) break
                             if (visited % 40 == 0) {
-                                _status.update { it.copy(scanned = seen, reading = dir.path) }
+                                _status.update {
+                                    it.copy(
+                                        scanned = seen, reading = dir.path,
+                                        // A first-ever crawl starts with nothing and becomes
+                                        // able to answer the moment it has written anything.
+                                        // Waiting until the pass ends to say so means the
+                                        // first crawl - the longest one there is - serves
+                                        // nothing at all while it runs.
+                                        available = it.available || seen > 0,
+                                    )
+                                }
                                 onProgress(seen, dir)
                             }
                         }
