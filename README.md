@@ -45,24 +45,14 @@ Built by **[Niccc2007](https://github.com/uukjtisa)**.
 
 ## What Filet is
 
-A file manager built for people who actually use one. Four things it refuses to trade against
-each other:
+Four things it won't trade against each other:
 
-- **Productivity.** The fewest steps between wanting a file and having it. Search answers in
-  milliseconds across the whole device, split panes make copying a drag instead of a round
-  trip, and what you reach for every day is already where you are.
-- **Power.** Edit a file inside an archive without unpacking it. Read the smali inside an APK,
-  change it, rebuild and re-sign it on the phone. Script the whole thing in Lua. None of it is
-  behind a paywall and none of it is a separate app.
-- **Aesthetics.** It is not a spreadsheet of filenames. It has a considered palette, real
-  motion, and a layout that holds together on a phone, a tablet and in landscape — because a
-  tool you open twenty times a day should not be ugly.
-- **Convenience.** Share to any browser on your network with nothing installed on the other
-  end. Answer another app's "choose a file". Pick up where you left off. The work is in making
-  the common path short.
+- **Productivity** — whole-device search in milliseconds, split panes, your usual places a tap away.
+- **Power** — edit files inside archives, read and re-sign APKs, script the lot in Lua.
+- **Aesthetics** — a real palette and real motion, holding up on phone, tablet and landscape.
+- **Convenience** — share to any browser on your network, nothing installed at the other end.
 
-Free, open source, no ads, no accounts, no telemetry, and no feature held back for a paid tier.
-There isn't one.
+Free and open source. No ads, no accounts, no telemetry, no paid tier.
 
 ---
 
