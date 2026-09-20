@@ -123,7 +123,18 @@ function check({ releases, gradle, readme, tags = [] }, inFlight = []) {
   } else if (!sameVersion(newest.tag_name, declared)) {
     const order = compareVersions(declared, newest.tag_name);
     const tagged = tags.some((t) => sameVersion(t, declared));
-    if (order < 0) {
+    // Does the version this tree declares have a release of its OWN?
+    //
+    // This is the case the rule originally missed, and it is the ordinary one: a commit from
+    // before the last bump declares a version that shipped, and is only "behind" because
+    // something newer shipped afterwards. That is not a fault in that commit - it is what
+    // every commit in the history looks like the moment a release goes out - and treating it
+    // as one means re-running any older run can never come back green.
+    const ownRelease = published.some((r) => sameVersion(r.tag_name, declared));
+    if (ownRelease) {
+      // Nothing to say. This tree built a version that was published; whether something newer
+      // exists is a fact about the repository, not about this commit.
+    } else if (order < 0) {
       // The dangerous direction. Whatever people are installing is newer than what this
       // source tree builds, so nothing here describes what they are running.
       problems.push(
@@ -218,8 +229,37 @@ if (process.argv.includes("--selftest")) {
     process.exit(1);
   }
 
+  // A second positive control: an older commit, whose own version shipped, while something
+  // newer has shipped since. This is what every commit in the history looks like the moment a
+  // release goes out, and treating it as a fault made re-running any older run permanently
+  // impossible - the check would report the commit as behind for ever.
+  const older = {
+    ...good,
+    releases: [
+      good.releases[0],
+      {
+        tag_name: "v0.2.0",
+        draft: false,
+        prerelease: false,
+        assets: [{ name: "Filet-0.2.0.apk", size: 27401734 }],
+      },
+    ],
+    tags: ["v0.1.0", "v0.2.0"],
+  };
+  const olderProblems = check(older);
+  if (olderProblems.length) {
+    console.error(
+      "SELFTEST FAIL: a commit whose own version shipped was reported as a fault: " +
+        olderProblems.join("; "),
+    );
+    process.exit(1);
+  }
+
   const cases = [
     ["nothing published", { ...good, releases: [] }, /no published release/],
+    // Not a negative control - it asserts the OPPOSITE, and it is here because the rule it
+    // guards was added after older runs turned out to be impossible to re-run green.
+    // Handled just below as a dedicated positive case.
     [
       "a draft release, which is invisible to an anonymous request",
       { ...good, releases: [{ ...good.releases[0], draft: true }] },
@@ -319,7 +359,7 @@ if (process.argv.includes("--selftest")) {
     process.exit(1);
   }
   console.log(
-    `RELEASE SELFTEST OK  (1 positive control, ${cases.length} negative controls all caught)`,
+    `RELEASE SELFTEST OK  (2 positive controls, ${cases.length} negative controls all caught)`,
   );
 } else {
   let releases;
