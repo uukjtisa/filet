@@ -45,6 +45,18 @@ import kotlinx.coroutines.launch
  * Provider registration is the one list that matters. Everything above L0 resolves a scheme
  * through [vfs]; nothing else ever learns which provider answered.
  */
+/** When the media sweep last ran, and how often it is allowed to. */
+private const val MEDIA_SWEEP_AT = "media.sweptAt"
+
+/**
+ * Six hours.
+ *
+ * Long enough that launching the app repeatedly costs nothing, short enough that a file
+ * dropped on the device by something else is picked up the same day. Files Filet writes
+ * itself are announced as they are written and do not wait for this.
+ */
+private const val MEDIA_SWEEP_EVERY = 6L * 60 * 60 * 1000
+
 class FiletGraph(context: Context) {
 
     val app: Context = context.applicationContext
@@ -171,6 +183,29 @@ class FiletGraph(context: Context) {
             }
             // Pull whatever the companion app is doing into the one Activity surface.
             runCatching { bridge.pullJobs() }
+            registerMissingMedia(roots)
+        }
+    }
+
+    /**
+     * Hand the gallery whatever it has never been told about.
+     *
+     * If Filet tracks a file, Filet registers it - which has to cover what is already on the
+     * disk and not only what arrives next. A file written straight to storage is invisible to
+     * every gallery until an app announces it, and nothing background-scans any more.
+     *
+     * Throttled, and capped inside the sweep: it is a set difference against what MediaStore
+     * already holds, so a device in step does nothing at all, and one that has never been
+     * scanned catches up over a few launches rather than in one storm.
+     */
+    private suspend fun registerMissingMedia(roots: List<dev.niccc2007.filet.vfs.VPath>) {
+        val last = prefs.getLong(MEDIA_SWEEP_AT, 0L)
+        val now = System.currentTimeMillis()
+        if (now - last < MEDIA_SWEEP_EVERY) return
+        prefs.putLong(MEDIA_SWEEP_AT, now)
+        runCatching {
+            val where = (roots + tracked.paths.value + nearby.receivedFolder).distinct()
+            dev.niccc2007.filet.media.MediaCatchUp.sweep(app, vfs, where)
         }
     }
 }

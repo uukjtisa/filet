@@ -58,6 +58,11 @@ const ALLOWED = [
   // apksig, smali and ARSCLib all take java.io.File and refuse streams. Every path this
   // package touches came from Vfs.osPath or from AppFiles.
   "app/src/main/java/dev/niccc2007/filet/apk/",
+  // Reconciling the gallery means asking MediaStore what it already holds, and MediaStore is
+  // the media index rather than a filesystem - it is asked which rows exist, never used to
+  // read or write a file. The paths it returns are compared against what the VFS reported and
+  // handed straight to the platform scanner; no file is opened here.
+  "app/src/main/java/dev/niccc2007/filet/media/MediaCatchUp.kt",
   // A debug-only diagnostic for the share server, and it cannot use the VFS because the VFS
   // is part of what it exists to watch. Compiles to nothing in a release build, writes a few
   // hundred lines to app-private external storage, one filename, never a user path. It exists
