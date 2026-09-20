@@ -227,6 +227,13 @@ fun FileTile(
 fun SearchResultRow(
     node: VNode,
     where: String,
+    /**
+     * Whether the index has been re-checked for this entry by the pass that is running.
+     *
+     * Two states and no more. A row that cannot be justified is dropped from the list rather
+     * than labelled - see HitState, where the rejected third state is written down.
+     */
+    state: dev.niccc2007.filet.index.HitState = dev.niccc2007.filet.index.HitState.AVAILABLE,
     metrics: PaneMetrics,
     selected: Boolean,
     modifier: Modifier = Modifier,
@@ -251,7 +258,31 @@ fun SearchResultRow(
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(node.name, fontSize = metrics.step.nameSize.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
-            Text(where, fontSize = metrics.step.metaSize.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = colors.fg3, fontFamily = FontFamily.Monospace)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Only the one that is not the resting state is drawn. A badge on every row
+                // saying "Available" is noise that teaches people to stop reading badges,
+                // which is how the one that matters gets missed.
+                if (state == dev.niccc2007.filet.index.HitState.CONFIRMING) {
+                    Text(
+                        state.label,
+                        fontSize = (metrics.step.metaSize - 0.5f).sp,
+                        color = colors.warn,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(colors.warn.copy(alpha = 0.13f))
+                            .padding(horizontal = 4.dp, vertical = 1.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    where,
+                    fontSize = metrics.step.metaSize.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = colors.fg3,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
         }
         if (!node.isDir && metrics.showSize) {
             Text(humanSize(node.size), fontSize = metrics.step.metaSize.sp, fontFamily = FontFamily.Monospace, color = colors.fg3)

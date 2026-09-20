@@ -31,6 +31,13 @@ data class SearchHit(
     val score: Int,
     /** Directory this was found in, shown under the name so a result is locatable. */
     val where: String,
+    /**
+     * Whether this is known to be there or is still being checked by a running pass.
+     *
+     * A walk answers from the filesystem, so what it returns it has just seen - those are
+     * always [HitState.AVAILABLE]. Only the index can be behind.
+     */
+    val state: HitState = HitState.AVAILABLE,
 ) {
     val key: String get() = node.path.toString()
 }

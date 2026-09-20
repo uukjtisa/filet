@@ -560,6 +560,8 @@ private fun FolderBody(
                     SearchResultRow(
                         node = node,
                         where = s.search.hits.firstOrNull { it.node.path == node.path }?.where ?: "",
+                        state = s.search.hits.firstOrNull { it.node.path == node.path }?.state
+                            ?: dev.niccc2007.filet.index.HitState.AVAILABLE,
                         metrics = metrics,
                         selected = node.path in s.selected,
                         onClick = { rowClick(pane, vm, side, node) },

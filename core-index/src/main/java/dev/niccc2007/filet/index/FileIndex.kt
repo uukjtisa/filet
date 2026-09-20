@@ -36,6 +36,13 @@ data class IndexRow(
     val opens: Int,
     val lastOpenAt: Long,
     val pinned: Boolean,
+    /**
+     * The generation this row was last written at.
+     *
+     * Carried out of the database so a result can say whether the running pass has reached it
+     * yet. See [hitState].
+     */
+    val gen: Long = 0,
 )
 
 data class IndexStatus(
@@ -80,6 +87,13 @@ data class IndexStatus(
      * slow rather than the index working on your behalf.
      */
     val steeredFor: String? = null,
+    /**
+     * The generation the running pass is stamping, or the last complete one between passes.
+     *
+     * A row carrying an older generation has not been reached by the running pass yet, which
+     * is exactly what [hitState] needs to know to label a result.
+     */
+    val writingGen: Long = 0,
 ) {
     /**
      * SEARCH.md §7.11 - the controls are only honest if the readout beside them is real.

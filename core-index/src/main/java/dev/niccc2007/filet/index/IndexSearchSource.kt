@@ -41,6 +41,12 @@ class IndexSearchSource(
     override fun search(req: SearchRequest): Flow<SearchHit> = flow {
         val parsed = QueryParser.parse(req.query)
         val rows = index.candidates(req, parsed)
+        // Read once for the whole page rather than per row: a pass that ends mid-page would
+        // otherwise label the first half differently from the second for no reason a reader
+        // could explain.
+        val st = index.status.value
+        val crawlRunning = st.running
+        val writingGen = st.writingGen
         // One needle per word, not one needle for the whole query.
         //
         // The scorer looks for its needle as a subsequence of the name, so a query with a
@@ -102,9 +108,17 @@ class IndexSearchSource(
                 !path.path.startsWith(originPrefix)
             ) continue
             // Verify before display. A row the index still believes in but the filesystem
-            // has dropped is exactly the stale result this whole design exists to prevent.
+            // has dropped is exactly the stale result this whole design exists to prevent -
+            // and it is why there is no third state for "might be gone". It is dropped, not
+            // labelled. See showable().
             val live = runCatching { vfs.stat(path) }.getOrNull() ?: continue
-            emit(SearchHit(live, score.toInt(), path.parent?.path ?: ""))
+            if (!showable(existsOnDisk = true)) continue
+            emit(
+                SearchHit(
+                    live, score.toInt(), path.parent?.path ?: "",
+                    state = hitState(crawlRunning, row.gen, writingGen),
+                ),
+            )
             if (++emitted >= 200) break
         }
     }

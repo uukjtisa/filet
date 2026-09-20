@@ -129,7 +129,7 @@ class SqliteIndex(
 
             val sql = buildString {
                 append("SELECT n.id, n.name, n.name_fold, n.is_dir, n.size, n.mtime, n.parent_id, n.vol_id, ")
-                append("p.origin, IFNULL(u.opens,0), IFNULL(u.last_at,0), IFNULL(u.pinned,0) ")
+                append("p.origin, IFNULL(u.opens,0), IFNULL(u.last_at,0), IFNULL(u.pinned,0), n.gen ")
                 append("FROM node n")
                 append(ftsJoin)
                 append(" LEFT JOIN provenance p ON p.node_id = n.id")
@@ -288,6 +288,7 @@ class SqliteIndex(
         opens = c.getInt(9),
         lastOpenAt = c.getLong(10),
         pinned = c.getInt(11) != 0,
+        gen = if (c.columnCount > 12) c.getLong(12) else 0L,
     )
 
     // ────────────────────────── identity ──────────────────────────
@@ -441,7 +442,7 @@ class SqliteIndex(
     override suspend fun byOrigin(fragment: String, limit: Int): List<IndexRow> = withContext(io) {
         db.rawQuery(
             "SELECT n.id, n.name, n.name_fold, n.is_dir, n.size, n.mtime, n.parent_id, n.vol_id, " +
-                "p.origin, IFNULL(u.opens,0), IFNULL(u.last_at,0), IFNULL(u.pinned,0) " +
+                "p.origin, IFNULL(u.opens,0), IFNULL(u.last_at,0), IFNULL(u.pinned,0), n.gen " +
                 "FROM provenance p JOIN node n ON n.id = p.node_id " +
                 "LEFT JOIN usage u ON u.node_id = n.id " +
                 "WHERE p.origin LIKE ? LIMIT ?",
@@ -539,6 +540,7 @@ class SqliteIndex(
                         // reached that folder yet is choosing to know less than is known.
                         available = filesBefore > 0,
                         files = if (it.files == 0L) filesBefore else it.files,
+                        writingGen = gen,
                     )
                 }
 
@@ -685,6 +687,9 @@ class SqliteIndex(
                         it.copy(
                             running = false, phase = "", scanned = seen, steeredFor = null,
                             files = files, available = files > 0,
+                            // Between passes the surviving rows all carry the generation that
+                            // completed, so nothing is left labelled as still being checked.
+                            writingGen = if (complete) gen else it.writingGen,
                             lastRunAt = if (complete) System.currentTimeMillis() else it.lastRunAt,
                         )
                     }
