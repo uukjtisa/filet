@@ -5,6 +5,7 @@ import android.widget.VideoView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -29,6 +31,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -37,8 +41,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -55,8 +61,12 @@ import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
+import android.media.AudioManager
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * The video player.
@@ -113,6 +123,15 @@ private class VideoHandle {
     }
 }
 
+/**
+ * How big a preview frame is decoded.
+ *
+ * Small on purpose: it is drawn about 150dp wide, and decoding a 4K frame to throw most of it
+ * away is the difference between a preview that keeps up with a drag and one that does not.
+ */
+private const val PREVIEW_W = 320
+private const val PREVIEW_H = 180
+
 @Composable
 fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     val colors = Filet.colors
@@ -138,7 +157,55 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     // Off means follow the phone, which is what it did before and is still the default.
     var lockedOrientation by remember(node.path) { mutableStateOf<Int?>(null) }
     var repeating by remember(node.path) { mutableStateOf(true) }
-    val activity = LocalContext.current as? android.app.Activity
+    val context = LocalContext.current
+    val activity = context as? android.app.Activity
+
+    // Brightness and volume, dragged on the picture. See PlayerGesture for which side is which
+    // and why: every other player puts brightness left and volume right.
+    val audio = remember(activity) {
+        activity?.getSystemService(android.content.Context.AUDIO_SERVICE) as? AudioManager
+    }
+    val maxVolume = remember(audio) {
+        runCatching { audio?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 0 }.getOrDefault(0)
+    }
+    /** What a drag is currently changing, and where it has got to, for the readout. */
+    var levelKind by remember(node.path) { mutableStateOf(PlayerGesture.Drag.NONE) }
+    var levelShown by remember(node.path) { mutableFloatStateOf(0f) }
+    /**
+     * The window's brightness override, NOT the system setting.
+     *
+     * Per-window on purpose: writing the system brightness needs a permission worth asking for
+     * nothing, and would leave the phone dimmed after the video closed - a fault nobody would
+     * think to blame on a file manager.
+     */
+    var windowBrightness by remember(node.path) { mutableFloatStateOf(-1f) }
+
+    /**
+     * The frame shown above the bar while it is being dragged.
+     *
+     * Kept as the frame's own timestamp beside the bitmap, so a decode that lands after the
+     * finger has moved on can be recognised as stale rather than drawn.
+     */
+    var previewFrame by remember(node.path) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var previewAt by remember(node.path) { mutableStateOf<Long?>(null) }
+
+    fun applyBrightness(level: Float) {
+        windowBrightness = level
+        activity?.window?.let { w ->
+            w.attributes = w.attributes.also { it.screenBrightness = level }
+        }
+    }
+
+    // Hand the screen back when the video closes, whichever way it closed.
+    DisposableEffect(node.path) {
+        onDispose {
+            activity?.window?.let { w ->
+                w.attributes = w.attributes.also {
+                    it.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                }
+            }
+        }
+    }
 
     fun wake() {
         chromeVisible = true
@@ -171,6 +238,47 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                 chromeVisible = false
             }
             delay(200)
+        }
+    }
+
+    // The scrub preview.
+    //
+    // Keyed on the QUANTISED frame, which is what makes this affordable: a drag reports
+    // hundreds of positions a second, and keying on the raw position would start a decode for
+    // every one of them. Snapping to ScrubPreview.STEP_MS means a slow drag sits on one frame,
+    // and changing frames cancels the decode that is running - so an overtaken frame is
+    // abandoned rather than finished and drawn late.
+    val wantedFrame = scrubTo?.let { ScrubPreview.frameFor(it, duration) }
+    LaunchedEffect(wantedFrame, uri) {
+        val want = wantedFrame
+        val source = uri
+        if (want == null || source == null) return@LaunchedEffect
+        if (!ScrubPreview.shouldDecode(previewAt, null, want)) return@LaunchedEffect
+        val decoded = withContext(Dispatchers.IO) {
+            runCatching {
+                val r = android.media.MediaMetadataRetriever()
+                try {
+                    r.setDataSource(context, source)
+                    // Scaled by the platform where it can: decoding a 4K frame to throw most
+                    // of it away is the difference between a preview that keeps up and one
+                    // that does not.
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+                        r.getScaledFrameAtTime(
+                            want * 1000,
+                            android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                            PREVIEW_W, PREVIEW_H,
+                        )
+                    } else {
+                        r.getFrameAtTime(want * 1000, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    }
+                } finally {
+                    runCatching { r.release() }
+                }
+            }.getOrNull()
+        }
+        if (decoded != null) {
+            previewFrame = decoded.asImageBitmap()
+            previewAt = want
         }
     }
 
@@ -349,31 +457,87 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                         )
                     }
                     // Last, so a drag beats the tap detector on the main pass.
+                    //
+                    // One detector for all three drags, not three. Sideways seeks; up and down
+                    // on the left is brightness and on the right is volume, which is what every
+                    // other player does. Separate detectors would each claim the gesture and
+                    // whichever ran first would eat the others.
                     .pointerInput(node.path, duration) {
                         var startX = 0f
+                        var startY = 0f
                         var startPosition = 0L
+                        var startLevel = 0f
+                        var kind = PlayerGesture.Drag.NONE
                         detectDragGestures(
                             onDragStart = { at ->
                                 startX = at.x
+                                startY = at.y
                                 startPosition = position
+                                kind = PlayerGesture.Drag.NONE
                                 wake()
                             },
                             onDragEnd = {
-                                scrubTo?.let { seekTo(it) }
+                                if (kind == PlayerGesture.Drag.SEEK) scrubTo?.let { seekTo(it) }
                                 scrubTo = null
+                                kind = PlayerGesture.Drag.NONE
+                                levelKind = PlayerGesture.Drag.NONE
                                 wake()
                             },
-                            onDragCancel = { scrubTo = null },
+                            onDragCancel = {
+                                scrubTo = null
+                                kind = PlayerGesture.Drag.NONE
+                                levelKind = PlayerGesture.Drag.NONE
+                            },
                         ) { change, _ ->
                             change.consume()
-                            if (duration > 0L) {
-                                // Relative here, unlike the bar: the finger did not land on a
-                                // playhead, so an absolute map would jump the video to wherever
-                                // the thumb happened to be before it moved at all. A full width
-                                // of travel covers the whole file.
-                                val travelled = (change.position.x - startX) / size.width.toFloat()
-                                scrubTo = (startPosition + (travelled * duration).toLong())
-                                    .coerceIn(0L, duration)
+                            val dx = change.position.x - startX
+                            val dy = change.position.y - startY
+                            // Decided once, from the travel so far, then held for the rest of
+                            // the gesture. Deciding again every frame is what makes a slightly
+                            // diagonal drag flicker between seeking and changing the volume.
+                            if (kind == PlayerGesture.Drag.NONE) {
+                                kind = PlayerGesture.drag(startX, dx, dy, size.width.toFloat())
+                                startLevel = when (kind) {
+                                    PlayerGesture.Drag.BRIGHTNESS ->
+                                        // A window that has never been overridden reports -1,
+                                        // which is "follow the system". Start from the middle
+                                        // rather than from nothing, so the first drag moves
+                                        // from something visible.
+                                        if (windowBrightness in 0f..1f) windowBrightness else 0.5f
+                                    PlayerGesture.Drag.VOLUME -> PlayerGesture.volumeLevel(
+                                        runCatching {
+                                            audio?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
+                                        }.getOrDefault(0),
+                                        maxVolume,
+                                    )
+                                    else -> 0f
+                                }
+                            }
+                            when (kind) {
+                                PlayerGesture.Drag.SEEK -> if (duration > 0L) {
+                                    scrubTo = PlayerGesture.seekAfter(
+                                        startPosition, dx, size.width.toFloat(), duration,
+                                    )
+                                }
+                                PlayerGesture.Drag.BRIGHTNESS -> {
+                                    val level = PlayerGesture.levelAfter(startLevel, dy, size.height.toFloat())
+                                    applyBrightness(level)
+                                    levelKind = PlayerGesture.Drag.BRIGHTNESS
+                                    levelShown = level
+                                }
+                                PlayerGesture.Drag.VOLUME -> {
+                                    val level = PlayerGesture.levelAfter(startLevel, dy, size.height.toFloat())
+                                    runCatching {
+                                        audio?.setStreamVolume(
+                                            AudioManager.STREAM_MUSIC,
+                                            PlayerGesture.volumeSteps(level, maxVolume),
+                                            0,
+                                        )
+                                    }
+                                    levelKind = PlayerGesture.Drag.VOLUME
+                                    levelShown = level
+                                }
+                                PlayerGesture.Drag.NONE -> Unit
                             }
                         }
                     }
@@ -468,14 +632,71 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                     }
                 }
 
+                // Brightness or volume, while a drag is changing it. A vertical bar rather
+                // than a number: the value matters far less than seeing that it is moving and
+                // which way, and a percentage invites reading rather than adjusting.
+                if (levelKind != PlayerGesture.Drag.NONE) {
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(Color.Black.copy(alpha = 0.6f))
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            if (levelKind == PlayerGesture.Drag.BRIGHTNESS) FiletIcons.Brightness
+                            else FiletIcons.Volume,
+                            null, tint = Color.White, modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Box(
+                            Modifier
+                                .width(74.dp)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(Color.White.copy(alpha = 0.25f)),
+                        ) {
+                            Box(
+                                Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(levelShown.coerceIn(0f, 1f))
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(colors.accent),
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            "${(levelShown.coerceIn(0f, 1f) * 100).roundToInt()}",
+                            color = Color.White, fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+                }
+
                 if (scrubTo != null) {
                     Column(
                         Modifier
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(14.dp))
                             .background(Color.Black.copy(alpha = 0.6f))
-                            .padding(horizontal = 18.dp, vertical = 12.dp),
+                            .padding(10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
+                        // The frame under the finger. Held on screen while the next one
+                        // decodes rather than blanked, because a preview that flickers to
+                        // black between frames is worse than one that lags a little.
+                        previewFrame?.let { frame ->
+                            Image(
+                                frame,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .width(150.dp)
+                                    .height(84.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.Black),
+                                contentScale = ContentScale.Crop,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
                         Text(
                             clockOf(shownPosition),
                             color = Color.White, fontSize = 21.sp,

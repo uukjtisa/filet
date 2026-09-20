@@ -160,6 +160,27 @@ object FiletIcons {
     val Key = stroke("key", "M14.5 12a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0", "M13.5 10.5H21v3M18 10.5v3")
     val Sign = stroke("sign", "M12 3 4 6v6c0 4.4 3.4 7.9 8 9 4.6-1.1 8-4.6 8-9V6z", "m9 12 2 2 4-4")
     val Terminal = stroke("terminal", "M4 5h16v14H4z", "m8 10 2 2-2 2M12.5 14h3.5")
+    /**
+     * Brightness and volume, for the drag readout on the video.
+     *
+     * Drawn in the same stroke language as the rest rather than pulled from a material set:
+     * one odd icon in a row of hand-drawn ones is more noticeable than a missing feature.
+     */
+    val Brightness = stroke(
+        "brightness",
+        "M14.5 12a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0",
+        "M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2",
+        "m6 6 1.4 1.4M16.6 16.6 18 18M18 6l-1.4 1.4M7.4 16.6 6 18",
+    )
+
+    /** A speaker with two arcs. The arcs are the part that reads as sound at 18dp. */
+    val Volume = stroke(
+        "volume",
+        "M4 9.5h3L11 6v12L7 14.5H4z",
+        "M14.5 9.5a3.5 3.5 0 0 1 0 5",
+        "M17 7a7 7 0 0 1 0 10",
+    )
+
     val Archive = stroke("archive", "M4 6h16v4H4z", "M5.5 10h13v9h-13z", "M10 13.5h4")
     val Trawl = stroke("trawl", "M4 12s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5", "M15 12h.01", "m20 8 1.5 4-1.5 4")
 

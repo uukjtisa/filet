@@ -5,10 +5,9 @@ import kotlin.math.roundToLong
 /**
  * Turning a finger into a playback position.
  *
- * What was wrong: there was no way to drag the picture to skip or
- * follows my hand on where to go back or forward as if i was holding the playback bar
- * progress". The stock `MediaController` only seeks when you happen to grab its thumb, which
- * on a phone is a 20dp target you miss more often than you hit.
+ * Bug identified: there was no way to drag the picture itself to move through a video. The
+ * stock `MediaController` only seeks when you grab its thumb, which on a phone is a 20dp
+ * target that is missed more often than it is hit.
  *
  * All of it is arithmetic on a touch position and a duration, so all of it is here and tested.
  * The gesture handlers in `VideoScreen.kt` do the listening and nothing else.
