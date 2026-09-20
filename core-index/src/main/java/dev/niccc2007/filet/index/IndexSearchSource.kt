@@ -117,6 +117,7 @@ class IndexSearchSource(
                 SearchHit(
                     live, score.toInt(), path.parent?.path ?: "",
                     state = hitState(crawlRunning, row.gen, writingGen),
+                    gen = row.gen,
                 ),
             )
             if (++emitted >= 200) break

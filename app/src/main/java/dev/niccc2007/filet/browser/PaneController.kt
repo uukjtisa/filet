@@ -6,6 +6,9 @@ import dev.niccc2007.filet.index.SearchHit
 import dev.niccc2007.filet.index.SearchRequest
 import dev.niccc2007.filet.index.SearchScope
 import dev.niccc2007.filet.index.SourceKind
+import dev.niccc2007.filet.index.HitState
+import dev.niccc2007.filet.index.IndexStatus
+import dev.niccc2007.filet.index.hitState
 import dev.niccc2007.filet.index.nativeToggleMatters
 import dev.niccc2007.filet.index.originLine
 import dev.niccc2007.filet.index.sourcePlan
@@ -106,6 +109,10 @@ class PaneController(
     private val prefs: Prefs,
     private val scope: CoroutineScope,
     private val searchSources: List<SearchSource>,
+    /** The index status right now, or null where there is no index. */
+    private val indexStatus: () -> IndexStatus? = { null },
+    /** Current generation per path, for re-reading the state of results already on screen. */
+    private val generationsFor: suspend (List<VPath>) -> Map<VPath, Long> = { emptyMap() },
     /**
      * Told what was searched for, so a crawl that is still running can be bent toward it.
      *
@@ -427,6 +434,7 @@ class PaneController(
         if (open) it.copy(search = it.search.copy(open = true))
         else {
             searchJob?.cancel()
+            confirmJob?.cancel()
             // Closing search ends any detour it caused. Leaving one running would keep a crawl
             // bent toward a query nobody is looking at any more.
             onSearched("")
@@ -563,6 +571,61 @@ class PaneController(
      * LazyColumn with a repeated key does not degrade - it throws, and the app dies mid-scroll.
      * Deduping here rather than at the key means the count under the search box is also right.
      */
+    /**
+     * Re-read the state of the results that are on screen, while a pass is running.
+     *
+     * Bug identified: a result's state was decided once, at the moment it was emitted, and
+     * then frozen. A row found before the crawl reached it stayed labelled as being checked
+     * for as long as the results were up, however long the pass ran - so the badge described
+     * one instant rather than resolving while it was being watched.
+     *
+     * Reported as exactly that: the confirming badges never cleared in order as the pass went
+     * past them.
+     *
+     * A page is a few dozen rows and the tick is slow, so this costs nothing next to the crawl
+     * it is watching. It stops on its own when the pass ends, because the state then answers
+     * AVAILABLE for everything and there is nothing left to move.
+     */
+    private var confirmJob: Job? = null
+
+    private fun watchConfirmations() {
+        confirmJob?.cancel()
+        confirmJob = scope.launch {
+            while (true) {
+                delay(CONFIRM_TICK_MS)
+                val st = _state.value.search
+                if (!st.active) return@launch
+                val status = indexStatus() ?: return@launch
+                // Between passes every surviving row carries the completed generation, so
+                // there is nothing to re-read and nothing to draw.
+                if (!status.running) {
+                    if (st.hits.any { it.state != HitState.AVAILABLE }) {
+                        _state.update {
+                            it.copy(search = it.search.copy(
+                                hits = it.search.hits.map { h -> h.copy(state = HitState.AVAILABLE) },
+                            ))
+                        }
+                    }
+                    return@launch
+                }
+                val indexed = st.hits.filter { it.gen >= 0 }
+                if (indexed.isEmpty()) continue
+                val gens = runCatching { generationsFor(indexed.map { it.node.path }) }
+                    .getOrNull() ?: continue
+                val next = st.hits.map { h ->
+                    if (h.gen < 0) h
+                    else {
+                        val now = gens[h.node.path] ?: h.gen
+                        h.copy(gen = now, state = hitState(status.running, now, status.writingGen))
+                    }
+                }
+                if (next != _state.value.search.hits) {
+                    _state.update { it.copy(search = it.search.copy(hits = next)) }
+                }
+            }
+        }
+    }
+
     private fun publish(all: List<SearchHit>, stable: Boolean) {
         val shown = _state.value.search.hits
         val next = if (!stable || shown.isEmpty()) {
@@ -574,6 +637,7 @@ class PaneController(
             shown + all.distinctBestByKey().filterNot { it.key in keys }
         }
         _state.update { it.copy(search = it.search.copy(hits = next, painted = true)) }
+        watchConfirmations()
     }
 
     /** Keeps the best-scoring hit per path, in first-seen order. */
@@ -604,3 +668,11 @@ class PaneController(
         else -> message ?: this::class.simpleName ?: "Something went wrong."
     }
 }
+
+/**
+ * How often the state of the results on screen is re-read while an index pass is running.
+ *
+ * One and a half seconds: fast enough that badges clear in step with a crawl somebody is
+ * watching, slow enough that a page of rows costs nothing beside the crawl itself.
+ */
+private const val CONFIRM_TICK_MS = 1_500L

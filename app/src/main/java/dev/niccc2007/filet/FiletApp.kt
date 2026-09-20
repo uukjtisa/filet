@@ -217,6 +217,9 @@ class FiletGraph(context: Context) {
  * search falls through to the filesystem walk.
  */
 private class NullIndex : FileIndex {
+    override suspend fun generationsFor(paths: List<dev.niccc2007.filet.vfs.VPath>) =
+        emptyMap<dev.niccc2007.filet.vfs.VPath, Long>()
+
     private val state = kotlinx.coroutines.flow.MutableStateFlow(
         dev.niccc2007.filet.index.IndexStatus(enabled = false, available = false)
     )

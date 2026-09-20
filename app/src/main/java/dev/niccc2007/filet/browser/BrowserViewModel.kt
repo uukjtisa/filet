@@ -239,6 +239,8 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             prefs = graph.prefs,
             scope = viewModelScope,
             searchSources = graph.searchSources,
+            indexStatus = { graph.index.status.value },
+            generationsFor = { paths -> graph.index.generationsFor(paths) },
             onSearched = { q -> graph.index.steerCrawl(q) },
             onOpened = { node -> openNode(node) },
             // Walking into a folder is the moment its contents are about to be searched, so

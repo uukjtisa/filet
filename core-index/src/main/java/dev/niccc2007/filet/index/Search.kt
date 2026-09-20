@@ -38,6 +38,14 @@ data class SearchHit(
      * always [HitState.AVAILABLE]. Only the index can be behind.
      */
     val state: HitState = HitState.AVAILABLE,
+    /**
+     * The generation the index held for this row when it was emitted, or -1 for a hit that did
+     * not come from the index.
+     *
+     * Kept so the state can be recomputed while the results are on screen. A walk hit is the
+     * filesystem reporting what it has just seen, so it has no generation and never changes.
+     */
+    val gen: Long = -1,
 ) {
     val key: String get() = node.path.toString()
 }

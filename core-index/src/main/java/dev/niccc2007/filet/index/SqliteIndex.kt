@@ -295,6 +295,24 @@ class SqliteIndex(
 
     override suspend fun idFor(path: VPath): Long? = withContext(io) { nodeIdFor(path) }
 
+    override suspend fun generationsFor(paths: List<VPath>): Map<VPath, Long> =
+        withContext(io) {
+            if (paths.isEmpty()) return@withContext emptyMap()
+            val out = HashMap<VPath, Long>(paths.size)
+            // Deliberately not one IN query: the ids have to be resolved per path anyway, and
+            // resolving one is a walk up parent_id on an indexed column. Reading the gen in
+            // the same step avoids building and parsing a list of a few dozen ids for nothing.
+            for (p in paths) {
+                val id = nodeIdFor(p) ?: continue
+                runCatching {
+                    db.rawQuery("SELECT gen FROM node WHERE id = ?", arrayOf(id.toString())).use { c ->
+                        if (c.moveToFirst()) out[p] = c.getLong(0)
+                    }
+                }
+            }
+            out
+        }
+
     /**
      * Walk `parent_id` up to the volume root, then rebuild the path from the volume's own
      * root path.

@@ -210,6 +210,22 @@ interface FileIndex {
      */
     suspend fun idFor(path: VPath): Long?
 
+    /**
+     * The generation currently stamped on each of these paths, for the ones the index holds.
+     *
+     * Bug identified: a result's state was computed once, when the row was emitted, and then
+     * frozen. So a row found before the crawl reached it stayed labelled as being checked for
+     * as long as the results were on screen, however long the crawl ran - the badge was a
+     * snapshot of one instant rather than a thing that resolves while you watch.
+     *
+     * Reported exactly that way: the confirming badges never cleared in order as the pass
+     * went past them.
+     *
+     * A page of results is a few dozen rows, so re-reading their generations on a slow tick is
+     * cheap, and it is the only way the label can be true a second after it is drawn.
+     */
+    suspend fun generationsFor(paths: List<VPath>): Map<VPath, Long>
+
     /** Reassembles the current path for an ID by walking `parent_id`. Null when it is gone. */
     suspend fun pathFor(id: Long): VPath?
 
