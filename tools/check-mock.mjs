@@ -1,0 +1,149 @@
+#!/usr/bin/env node
+/**
+ * The redesign mock actually contains the surfaces it was asked for.
+ *
+ * A mock is the spec for the round that follows it, and the failure it exists to catch is a
+ * quiet one: a surface gets discussed, agreed and then never drawn, and nobody notices until
+ * the implementation round asks what it was supposed to look like. Every item below is
+ * a surface this round is answerable for.
+ *
+ * This is deliberately a blunt instrument and the limit is worth stating: it can see whether
+ * a surface is present and wired, and it cannot see whether the design is any good. Whether the design is right is a
+ * judgement made by looking at it, not by a checker. A green run means nothing was dropped.
+ *
+ *   node tools/check-mock.mjs              check the working mock
+ *   node tools/check-mock.mjs --selftest   prove it catches a missing surface
+ *
+ * The working copy lives on the desktop for iteration, so on any machine that does not have
+ * it this exits 2 - a SKIP with the reason printed, the same as the checkers that need 7-Zip.
+ * CI has no desktop and must not go red for it.
+ *
+ * Prints "MOCK OK" only after every assertion passes.
+ */
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const MOCK = process.env.FILET_MOCK || join(homedir(), "Desktop", "filet-redesign-mock.html");
+const SPEC = "docs/early_mockups_preDev/STORAGE-TOOL.md";
+const TEMPLATE = "docs/early_mockups_preDev/filet-mock.html";
+
+/**
+ * Each entry is one surface this round committed to, and the needle is the thing that would be
+ * missing if it had not been built. Needles are structural (a class, a function, a handler) rather than
+ * cosmetic, so restyling cannot fail this and deleting a feature must.
+ */
+const WANTED = [
+  ["N53", "the tab carries the short name", /title:"New files"/],
+  ["N53", "the home heading keeps the long name", /TRACKED_LONG\s*=\s*"New in your tracked folders"/],
+  ["N53", "the path prints the short name", /path:"filet:\/\/new-files"/],
+  ["N54", "the tabs are redesigned rather than restyled in place", /\[data-r="3"\] \.tab\.on\{/],
+  ["N54", "R2 is still there to compare against", /id="round"/],
+  ["N54", "the Actions popup exists", /function actionsHTML\(\)/],
+  ["N54", "the Actions popup is grouped", /class="agrp"/],
+  ["N54", "the destructive action is separated", /class="ai bad"|class="ai "\s*bad|"bad"\)/],
+  ["N55", "the date column is off in the list", /\[data-r="3"\] \.row \.dt\{display:none\}/],
+  ["N55", "a folder shows what is inside it", /function metaFor/],
+  ["N55", "the list has its own typeface", /--ff-list/],
+  ["N55", "numbers are tabular", /tabular-nums/],
+  ["N56", "the date format is a setting", /function fmtDate/],
+  ["N56", "every order is offered", /"dmy"[\s\S]{0,400}"mdy"[\s\S]{0,400}"ymd"/],
+  ["N56", "named and numeric months are offered", /MONTHS_LONG|Named month/],
+  ["N56", "the fields are individually switchable", /js-t" data-k=|data-k="size"/],
+  ["N56", "there is a live view", /function liveHTML/],
+  ["N56", "the live view uses the same renderer as the list", /liveHTML[\s\S]{0,900}rowsHTML3/],
+  ["N57", "the storage tool exists", /function storHTML/],
+  ["N57", "folders carry a bar for their share", /class="bw"/],
+  ["N57", "sizes are shown against folders and files", /STORE_TREE/],
+  ["N57", "the tray keeps its name", /Appoint for removal/],
+  ["N57", "rows can be dragged into the tray", /tray\.ondrop/],
+  ["N57", "the TreeSize half is there", /Folder tree/],
+  ["N57", "the Disk Drill half is there", /Clean up/],
+  ["N57", "the unreadable directory is disclosed", /Android\/data and Android\/obb are not fully readable|not fully readable/],
+];
+
+/** Things the mock must NOT do, each of which has gone wrong once already. */
+const FORBIDDEN = [
+  ["the mock must stay the app that exists, not a new one", /data-theme="(?!slate|ember|paper)/],
+];
+
+function problems(html, spec, template) {
+  const found = [];
+  for (const [gate, what, re] of WANTED) {
+    if (!re.test(html)) found.push(`${gate}: ${what} - not in the mock`);
+  }
+  for (const [what, re] of FORBIDDEN) {
+    if (re.test(html)) found.push(what);
+  }
+  if (spec != null) {
+    // The spec is half the deliverable, and the two reference tools it is matching are
+    // named in the brief, so the spec has to name them too.
+    if (!/TreeSize/i.test(spec)) found.push("N57: the spec never mentions TreeSize, which is half the target design");
+    if (!/Disk Drill/i.test(spec)) found.push("N57: the spec never mentions Disk Drill, which is the other half");
+    if (!/## Proposals/.test(spec)) found.push("N57: the spec has no proposals section, which is part of what it is for");
+  }
+  if (template != null && html.length <= template.length) {
+    // Round 3 is additive to round 2. A working copy smaller than the template means it was
+    // started from scratch instead of extended, and a mock that does not resemble the app it
+    // is redesigning is worth nothing.
+    found.push("the working mock is not larger than the template it was copied from");
+  }
+  return found;
+}
+
+if (process.argv.includes("--selftest")) {
+  const full = [
+    'title:"New files"', 'TRACKED_LONG = "New in your tracked folders"', 'path:"filet://new-files"',
+    '[data-r="3"] .tab.on{', 'id="round"', "function actionsHTML()", 'class="agrp"', '"bad")',
+    '[data-r="3"] .row .dt{display:none}', "function metaFor", "--ff-list", "tabular-nums",
+    "function fmtDate", '"dmy" "mdy" "ymd"', "MONTHS_LONG", 'data-k="size"',
+    "function liveHTML", "liveHTML rowsHTML3", "function storHTML", 'class="bw"', "STORE_TREE",
+    "Appoint for removal", "tray.ondrop", "Folder tree", "Clean up", "not fully readable",
+  ].join("\n");
+  const spec = "# x\nTreeSize\nDisk Drill\n## Proposals\n";
+  const CASES = [
+    ["a complete mock", full, spec, null, false],
+    ["the storage tool never drawn", full.replace("function storHTML", "function nope"), spec, null, true],
+    ["the tray renamed", full.replace("Appoint for removal", "Delete"), spec, null, true],
+    ["a tray you cannot drop onto", full.replace("tray.ondrop", "x"), spec, null, true],
+    ["the live view dropped", full.replace("function liveHTML", "x"), spec, null, true],
+    ["the date column left on", full.replace('[data-r="3"] .row .dt{display:none}', "x"), spec, null, true],
+    ["the long name used on the tab", full.replace('title:"New files"', 'title:"New in your tracked folders"'), spec, null, true],
+    ["the spec forgets its own references", full, "# x\n## Proposals\n", null, true],
+    ["the spec has no proposals", full, "TreeSize\nDisk Drill\n", null, true],
+    ["a mock started from scratch again", full, spec, "x".repeat(full.length + 1), true],
+  ];
+  let bad = 0;
+  for (const [name, html, sp, tpl, expect] of CASES) {
+    const got = problems(html, sp, tpl).length > 0;
+    if (got !== expect) {
+      console.error(`SELFTEST FAILED: ${name} - expected ${expect ? "caught" : "clean"}`);
+      bad++;
+    }
+  }
+  if (bad) process.exit(1);
+  const neg = CASES.filter((c) => c[4]).length;
+  console.log(`MOCK SELFTEST OK  (${neg} negative controls, ${CASES.length - neg} positive)`);
+  process.exit(0);
+}
+
+if (!existsSync(MOCK)) {
+  console.log(`SKIP: the working mock is not on this machine (${MOCK}). Set FILET_MOCK to point at it.`);
+  process.exit(2);
+}
+const html = readFileSync(MOCK, "utf8");
+const spec = existsSync(SPEC) ? readFileSync(SPEC, "utf8") : null;
+const template = existsSync(TEMPLATE) ? readFileSync(TEMPLATE, "utf8") : null;
+if (spec === null) {
+  console.error(`${SPEC} is missing, and it is the deliverable half of N57`);
+  process.exit(1);
+}
+
+const found = problems(html, spec, template);
+if (found.length) {
+  console.error("The redesign mock is missing something that was asked for:\n");
+  for (const p of found) console.error("  " + p);
+  process.exit(1);
+}
+const gates = [...new Set(WANTED.map((w) => w[0]))].join(", ");
+console.log(`MOCK OK  (${WANTED.length} surfaces across ${gates}, plus the storage spec)`);
