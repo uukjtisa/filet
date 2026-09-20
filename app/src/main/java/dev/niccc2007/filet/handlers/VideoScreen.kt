@@ -71,6 +71,7 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import android.media.AudioManager
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -133,11 +134,13 @@ private class VideoHandle {
 /**
  * How big a preview frame is decoded.
  *
- * Small on purpose: it is drawn about 150dp wide, and decoding a 4K frame to throw most of it
- * away is the difference between a preview that keeps up with a drag and one that does not.
+ * Small on purpose, and now doubly so: a whole storyboard of these is held in memory while the
+ * player is open, so the size is multiplied by the storyboard frame count. At this size and
+ * colour depth that is a few megabytes, freed when the video closes. Drawn about 150dp wide,
+ * so it is soft rather than sharp - which every other player scrub preview is too.
  */
-private const val PREVIEW_W = 320
-private const val PREVIEW_H = 180
+private const val PREVIEW_W = 160
+private const val PREVIEW_H = 90
 
 /**
  * Holds one `MediaMetadataRetriever` open for as long as the player is on screen.
@@ -223,8 +226,13 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
      * Kept as the frame's own timestamp beside the bitmap, so a decode that lands after the
      * finger has moved on can be recognised as stale rather than drawn.
      */
-    var previewFrame by remember(node.path) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
-    var previewAt by remember(node.path) { mutableStateOf<Long?>(null) }
+    /**
+     * The extracted storyboard: frame timestamp to picture.
+     *
+     * Filled once in the background and read during the drag. Nothing is decoded while the
+     * finger is down, which is the whole point - see Storyboard.
+     */
+    val storyboard = remember(node.path) { androidx.compose.runtime.mutableStateMapOf<Long, androidx.compose.ui.graphics.ImageBitmap>() }
 
     /**
      * The one retriever the previews share, opened lazily on the first scrub.
@@ -233,7 +241,6 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
      * a second decoder alongside the player costs memory for nothing.
      */
     val previewSource = remember(node.path) { PreviewSource() }
-    val previewLock = remember(node.path) { Mutex() }
     DisposableEffect(node.path) { onDispose { previewSource.close() } }
 
     fun applyBrightness(level: Float) {
@@ -288,63 +295,58 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
         }
     }
 
-    // The scrub preview.
+    // The scrub preview, extracted once rather than decoded during the drag.
     //
-    // The scrub preview.
+    // Bug identified: this decoded a frame whenever the finger moved far enough to want a new
+    // one. Reading a frame takes tens of milliseconds and a drag wants one every few, so it
+    // could only chase - and cancelling the overtaken work to keep up threw away the frame it
+    // had already produced, so the preview stopped appearing at all.
     //
-    // Two rules, and the second one is the whole reason this is a flow rather than an effect
-    // keyed on the frame.
-    //
-    // **Quantise.** A drag reports hundreds of positions a second; ScrubPreview.frameFor snaps
-    // them to a step scaled to the video, so a slow drag sits on one already-decoded frame.
-    //
-    // **Conflate, never cancel.** Bug identified: this WAS a LaunchedEffect keyed on the
-    // wanted frame, on the reasoning that a changed key cancels the decode that has been
-    // overtaken. It does - but a decode cancelled mid-flight also throws away the frame it had
-    // already produced, because `withContext` resumes into the cancellation rather than
-    // returning the value. With a coarse step that rarely mattered; once the step got fine
-    // enough to feel smooth, every decode was overtaken before it could be shown and the
-    // preview stopped appearing at all. Conflating instead lets a decode finish and publish,
-    // then takes only the newest frame that arrived while it ran.
-    val wantedFrame = scrubTo?.let { ScrubPreview.frameFor(it, duration) }
-    LaunchedEffect(uri, node.path) {
+    // Decoding during the gesture is simply the wrong shape. Frames are pulled once, in the
+    // background, in an order that covers the whole video early (see Storyboard.fillOrder), so
+    // the preview is rough within a second and sharpens as the rest arrive. The drag reads
+    // memory and cannot be slow.
+    LaunchedEffect(uri, duration, node.path) {
         val source = uri ?: return@LaunchedEffect
-        snapshotFlow { wantedFrame }
-            .filterNotNull()
-            .distinctUntilChanged()
-            .conflate()
-            .collect { want ->
-                if (!ScrubPreview.shouldDecode(previewAt, null, want)) return@collect
-                val decoded = withContext(Dispatchers.IO) {
-                    // One retriever for the whole screen, and one decode at a time: building
-                    // a retriever per frame re-opened and re-parsed the file before decoding
-                    // anything, and MediaMetadataRetriever is not safe on two threads.
-                    previewLock.withLock {
-                        runCatching {
-                            val r = previewSource.get(context, source) ?: return@runCatching null
-                            // Scaled by the platform where it can: decoding a 4K frame to
-                            // throw most of it away is the difference between a preview that
-                            // keeps up and one that does not.
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
-                                r.getScaledFrameAtTime(
-                                    want * 1000,
-                                    android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                                    PREVIEW_W, PREVIEW_H,
-                                )
-                            } else {
-                                r.getFrameAtTime(
-                                    want * 1000,
-                                    android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                                )
-                            }
-                        }.getOrNull()
+        val plan = Storyboard.plan(duration)
+        if (plan.isEmpty()) return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            for (index in Storyboard.fillOrder(plan.size)) {
+                if (!isActive) return@withContext
+                val at = plan[index]
+                if (storyboard.containsKey(at)) continue
+                val bitmap = runCatching {
+                    val r = previewSource.get(context, source) ?: return@runCatching null
+                    // Scaled by the platform: a full-size frame is decoded and then thrown
+                    // away, and sixty of them would not fit in memory anyway.
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+                        r.getScaledFrameAtTime(
+                            at * 1000,
+                            android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                            PREVIEW_W, PREVIEW_H,
+                        )
+                    } else {
+                        r.getFrameAtTime(
+                            at * 1000,
+                            android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                        )
                     }
-                }
-                if (decoded != null) {
-                    previewFrame = decoded.asImageBitmap()
-                    previewAt = want
+                }.getOrNull()
+                if (bitmap != null) {
+                    // 16-bit colour, which halves what the storyboard costs and is what pays
+                    // for holding four times as many frames. A thumbnail at this size shows no
+                    // banding worth the memory; the full-colour original is released either
+                    // way, so the alternative is not "sharper", it is "fewer frames".
+                    val small = runCatching {
+                        if (bitmap.config == android.graphics.Bitmap.Config.RGB_565) bitmap
+                        else bitmap.copy(android.graphics.Bitmap.Config.RGB_565, false)
+                            ?.also { bitmap.recycle() }
+                    }.getOrNull() ?: bitmap
+                    val image = small.asImageBitmap()
+                    withContext(Dispatchers.Main) { storyboard[at] = image }
                 }
             }
+        }
     }
 
     // The seek flash fades on its own so a run of taps reads as one gesture rather than a
@@ -749,10 +751,14 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                         // The frame under the finger. Held on screen while the next one
                         // decodes rather than blanked, because a preview that flickers to
                         // black between frames is worse than one that lags a little.
-                        previewFrame?.let { frame ->
+                        val previewAt = scrubTo?.let { Storyboard.nearest(it, storyboard.keys) }
+                        previewAt?.let { storyboard[it] }?.let { frame ->
                             Image(
                                 frame,
-                                contentDescription = null,
+                                // Named rather than null: a thumbnail of the frame you are
+                                // about to land on is content, not decoration, and a screen
+                                // reader has nothing else to say about where a scrub is going.
+                                contentDescription = "Preview at ${clockOf(previewAt ?: 0L)}",
                                 modifier = Modifier
                                     .width(150.dp)
                                     .height(84.dp)
