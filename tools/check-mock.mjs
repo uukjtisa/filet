@@ -66,6 +66,11 @@ const WANTED = [
   ["N58", "the watermark is the app mark and not the author seal",
    /class="wm"><svg><use href="#i-folder"\//],
   ["N58", "the glare is sized to the name and not to the card", /\.sig \.nm\{[\s\S]{0,900}width:fit-content/],
+  ["N80", "a row can be appointed without dragging it", /data-tick=/],
+  ["N80", "a whole set can go in at once", /js-selall/],
+  ["N80", "the tray folds away when it is empty", /\.tray\.idle/],
+  ["N80", "landscape lays the tray beside the list rather than under it",
+   /grid-template-areas:"head tray"/],
   ["N57", "the unreadable directory is disclosed", /Android\/data and Android\/obb are not fully readable|not fully readable/],
 ];
 
@@ -110,6 +115,7 @@ if (process.argv.includes("--selftest")) {
     "Appoint for removal", "tray.ondrop", "Folder tree", "Clean up", "not fully readable",
     "Productivity, power, aesthetics and convenience - four things it will not trade against each other",
     'class="wm"><svg><use href="#i-folder"/>',
+    'data-tick=', "js-selall", ".tray.idle", 'grid-template-areas:"head tray"',
     '[data-r="3"] .sig .nm{ width:fit-content',
   ].join("\n");
   const spec = "# x\nTreeSize\nDisk Drill\n## Proposals\n";
@@ -126,6 +132,9 @@ if (process.argv.includes("--selftest")) {
     ["the author seal still used as the app mark",
      full.replace('class="wm"><svg><use href="#i-folder"/>', 'class="wm"><svg><use href="#i-mark"/>'), spec, null, true],
     ["the glare still sized to the card", full.replace("width:fit-content", "width:100%"), spec, null, true],
+    ["dragging left as the only way into the tray", full.replace("data-tick=", "x"), spec, null, true],
+    ["landscape still stacking the tray under the list",
+     full.replace('grid-template-areas:"head tray"', "x"), spec, null, true],
     ["the spec forgets its own references", full, "# x\n## Proposals\n", null, true],
     ["the spec has no proposals", full, "TreeSize\nDisk Drill\n", null, true],
     ["a mock started from scratch again", full, spec, "x".repeat(full.length + 1), true],
