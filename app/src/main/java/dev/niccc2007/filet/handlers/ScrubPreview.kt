@@ -11,7 +11,7 @@ package dev.niccc2007.filet.handlers
  *
  * Two rules, both arithmetic, both here rather than in the screen:
  *
- *  - **Quantise.** Ask for a frame every [STEP_MS] of video rather than every pixel. Dragging
+ *  - **Quantise.** Ask for a frame every [stepFor] of video rather than every pixel.
  *    slowly then sits on one already-decoded frame instead of asking for a hundred neighbours
  *    nobody can tell apart.
  *  - **One at a time.** A decode already running is not interrupted, and the newest request
@@ -21,12 +21,35 @@ package dev.niccc2007.filet.handlers
 object ScrubPreview {
 
     /**
-     * How far apart preview frames are, in video time.
+     * Roughly how many distinct frames a drag across the whole bar should show.
      *
-     * Two seconds is about where neighbouring frames stop being distinguishable on a thumbnail
-     * while still being close enough to find a scene by eye.
+     * A fixed step in milliseconds was the fault: two seconds is barely a step on a two-hour
+     * film and an eternity on a thirty-second clip, so the preview moved in visible jumps on
+     * anything short. What should be constant is the number of frames across the BAR, because
+     * that is what the finger is travelling along.
+     *
+     * About one frame every few pixels of bar. More is wasted - they cannot be told apart at
+     * thumbnail size, and each one is a decode.
      */
-    const val STEP_MS = 2_000L
+    const val FRAMES_ACROSS = 160
+
+    /** Never finer than this, however short the video. Below it the decodes cannot keep up. */
+    const val MIN_STEP_MS = 250L
+
+    /** Never coarser than this, however long. Beyond it the preview stops being useful. */
+    const val MAX_STEP_MS = 5_000L
+
+    /**
+     * How far apart preview frames are for a video of this length.
+     *
+     * Scaled to the duration so the preview feels the same on a clip and on a film, then
+     * clamped at both ends: too fine and the decodes fall behind the finger, too coarse and
+     * the thumbnail jumps.
+     */
+    fun stepFor(durationMs: Long): Long {
+        if (durationMs <= 0L) return MIN_STEP_MS
+        return (durationMs / FRAMES_ACROSS).coerceIn(MIN_STEP_MS, MAX_STEP_MS)
+    }
 
     /**
      * The frame to decode for a scrub at [positionMs].
@@ -35,7 +58,7 @@ object ScrubPreview {
      * and clamped inside the video - a request one millisecond past the end returns nothing at
      * all from the platform, which reads as the preview breaking at the right-hand edge.
      */
-    fun frameFor(positionMs: Long, durationMs: Long, stepMs: Long = STEP_MS): Long {
+    fun frameFor(positionMs: Long, durationMs: Long, stepMs: Long = stepFor(durationMs)): Long {
         if (durationMs <= 0L || stepMs <= 0L) return 0L
         val clamped = positionMs.coerceIn(0L, durationMs)
         val snapped = (clamped / stepMs) * stepMs

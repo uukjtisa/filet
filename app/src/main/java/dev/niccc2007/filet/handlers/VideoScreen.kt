@@ -62,6 +62,8 @@ import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import android.media.AudioManager
@@ -132,6 +134,36 @@ private class VideoHandle {
 private const val PREVIEW_W = 320
 private const val PREVIEW_H = 180
 
+/**
+ * Holds one `MediaMetadataRetriever` open for as long as the player is on screen.
+ *
+ * Opening one is expensive - it reads and parses the container's headers - so doing it per
+ * previewed frame is what made scrubbing stutter. Closed from a DisposableEffect, which runs
+ * however the screen goes away.
+ */
+private class PreviewSource {
+    private var retriever: android.media.MediaMetadataRetriever? = null
+    private var openedFor: Uri? = null
+
+    fun get(context: android.content.Context, uri: Uri): android.media.MediaMetadataRetriever? {
+        retriever?.let { if (openedFor == uri) return it }
+        close()
+        return runCatching {
+            android.media.MediaMetadataRetriever().also {
+                it.setDataSource(context, uri)
+                retriever = it
+                openedFor = uri
+            }
+        }.getOrNull()
+    }
+
+    fun close() {
+        runCatching { retriever?.release() }
+        retriever = null
+        openedFor = null
+    }
+}
+
 @Composable
 fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     val colors = Filet.colors
@@ -188,6 +220,16 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
      */
     var previewFrame by remember(node.path) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     var previewAt by remember(node.path) { mutableStateOf<Long?>(null) }
+
+    /**
+     * The one retriever the previews share, opened lazily on the first scrub.
+     *
+     * Not opened up front: most videos are watched without ever touching the bar, and opening
+     * a second decoder alongside the player costs memory for nothing.
+     */
+    val previewSource = remember(node.path) { PreviewSource() }
+    val previewLock = remember(node.path) { Mutex() }
+    DisposableEffect(node.path) { onDispose { previewSource.close() } }
 
     fun applyBrightness(level: Float) {
         windowBrightness = level
@@ -255,10 +297,17 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
         if (want == null || source == null) return@LaunchedEffect
         if (!ScrubPreview.shouldDecode(previewAt, null, want)) return@LaunchedEffect
         val decoded = withContext(Dispatchers.IO) {
-            runCatching {
-                val r = android.media.MediaMetadataRetriever()
-                try {
-                    r.setDataSource(context, source)
+            // One retriever, held open for the whole screen, and one decode at a time.
+            //
+            // Bug identified: a retriever was built and released around every frame, so each
+            // preview re-opened the file and re-parsed its headers before decoding anything.
+            // That cost dwarfed the decode itself and is what made dragging feel like it was
+            // catching up rather than following. The mutex is not optional either -
+            // MediaMetadataRetriever is not safe to call from two threads, and an overtaken
+            // decode is still running when the next one starts.
+            previewLock.withLock {
+                runCatching {
+                    val r = previewSource.get(context, source) ?: return@runCatching null
                     // Scaled by the platform where it can: decoding a 4K frame to throw most
                     // of it away is the difference between a preview that keeps up and one
                     // that does not.
@@ -271,10 +320,8 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                     } else {
                         r.getFrameAtTime(want * 1000, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                     }
-                } finally {
-                    runCatching { r.release() }
-                }
-            }.getOrNull()
+                }.getOrNull()
+            }
         }
         if (decoded != null) {
             previewFrame = decoded.asImageBitmap()
