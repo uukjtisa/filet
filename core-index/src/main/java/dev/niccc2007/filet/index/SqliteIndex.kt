@@ -505,7 +505,11 @@ class SqliteIndex(
         return null
     }
 
-    override suspend fun crawl(roots: List<VPath>, budgetMs: Long, onProgress: (Long) -> Unit): CrawlResult =
+    override suspend fun crawl(
+        roots: List<VPath>,
+        budgetMs: Long,
+        onProgress: (Long, VPath?) -> Unit,
+    ): CrawlResult =
         lock.withLock {
             withContext(io) {
                 val started = System.currentTimeMillis()
@@ -627,8 +631,8 @@ class SqliteIndex(
                             }
                             if (!complete) break
                             if (visited % 40 == 0) {
-                                _status.update { it.copy(scanned = seen) }
-                                onProgress(seen)
+                                _status.update { it.copy(scanned = seen, reading = dir.path) }
+                                onProgress(seen, dir)
                             }
                         }
                         if (!complete) break

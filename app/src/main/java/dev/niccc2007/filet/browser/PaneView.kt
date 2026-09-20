@@ -133,7 +133,12 @@ fun PaneView(
 
             if (s.search.open) {
                 val index = vm.indexStatus.collectAsState().value
-                ScopeChips(s.search.scope) { pane.setScope(it) }
+                ScopeChips(
+                    current = s.search.scope,
+                    nativeOnly = s.search.nativeOnly,
+                    onPick = { pane.setScope(it) },
+                    onNative = { pane.setNativeOnly(it) },
+                )
                 FieldChips(
                     containerFacts = index.containerFacts,
                     onPick = { token -> pane.setQuery(appendToken(s.search.query, token)) },
@@ -311,7 +316,12 @@ private fun CrawlNotice(index: dev.niccc2007.filet.index.IndexStatus) {
  * after "which pane" is "how far".
  */
 @Composable
-private fun ScopeChips(current: SearchScope, onPick: (SearchScope) -> Unit) {
+private fun ScopeChips(
+    current: SearchScope,
+    nativeOnly: Boolean,
+    onPick: (SearchScope) -> Unit,
+    onNative: (Boolean) -> Unit,
+) {
     val colors = Filet.colors
     HScroll(
         modifier = Modifier.background(colors.raised).padding(vertical = 5.dp),
@@ -333,6 +343,20 @@ private fun ScopeChips(current: SearchScope, onPick: (SearchScope) -> Unit) {
                     .padding(horizontal = 9.dp, vertical = 3.dp),
             )
         }
+        // The native switch sits with the scopes because it answers the same question they do:
+        // how hard to look. An index can be cold and nobody can see that from the outside, so
+        // "look again properly" is a control rather than something to be guessed at.
+        Text(
+            text = "Native search",
+            fontSize = 10.sp,
+            color = if (nativeOnly) colors.accent else colors.fg2,
+            modifier = Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(if (nativeOnly) colors.sel else Color.Transparent)
+                .border(1.dp, if (nativeOnly) colors.accent else colors.lineSoft, RoundedCornerShape(20.dp))
+                .clickable { onNative(!nativeOnly) }
+                .padding(horizontal = 9.dp, vertical = 3.dp),
+        )
     }
 }
 

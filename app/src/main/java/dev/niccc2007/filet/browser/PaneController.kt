@@ -5,6 +5,8 @@ import dev.niccc2007.filet.data.SortSpec
 import dev.niccc2007.filet.index.SearchHit
 import dev.niccc2007.filet.index.SearchRequest
 import dev.niccc2007.filet.index.SearchScope
+import dev.niccc2007.filet.index.SourceKind
+import dev.niccc2007.filet.index.sourcePlan
 import dev.niccc2007.filet.index.SearchSource
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
@@ -17,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -31,6 +34,14 @@ data class SearchUi(
     val running: Boolean = false,
     val hits: List<SearchHit> = emptyList(),
     val painted: Boolean = false,
+    /**
+     * Search by reading the filesystem and nothing else.
+     *
+     * A control rather than something to be inferred. When a result is missing, "look again
+     * properly" should be a thing that can be pressed - the alternative is a user guessing
+     * whether the app is fast or wrong.
+     */
+    val nativeOnly: Boolean = false,
 ) {
     val active: Boolean get() = open && query.isNotBlank()
 }
@@ -90,6 +101,13 @@ class PaneController(
      */
     private val onSearched: (String) -> Unit = {},
     private val onOpened: (VNode) -> Unit = {},
+    /**
+     * Called with each folder this pane lands on.
+     *
+     * Walking into a folder is the strongest signal there is that its contents are about to be
+     * searched, so it is also when indexing it is worth doing.
+     */
+    private val onLanded: (VPath) -> Unit = {},
     /**
      * The world revision, bumped by every operation that writes to the filesystem.
      *
@@ -168,6 +186,10 @@ class PaneController(
                 .onSuccess { list ->
                     raw = list
                     listedAt = stamp
+                    // After the listing lands, not before: if reading the folder failed there
+                    // is nothing here worth indexing, and telling the indexer otherwise would
+                    // spend a crawl budget on a path that does not resolve.
+                    onLanded(path)
                     _state.update { render(it.copy(loading = false)) }
                     // A search that was open stays open across navigation; re-run it here
                     // rather than leaving stale hits from the previous folder on screen.
@@ -404,6 +426,17 @@ class PaneController(
         if (_state.value.search.active) runSearch(_state.value.search.query)
     }
 
+    /**
+     * Search by reading the filesystem and nothing else.
+     *
+     * Offered because an index can be cold and a user cannot see that it is. Pressing this is
+     * the difference between "Filet says it is not there" and "Filet has looked".
+     */
+    fun setNativeOnly(on: Boolean) {
+        _state.update { it.copy(search = it.search.copy(nativeOnly = on)) }
+        if (_state.value.search.active) runSearch(_state.value.search.query)
+    }
+
     fun setQuery(q: String) {
         _state.update { it.copy(search = it.search.copy(query = q)) }
         runSearch(q)
@@ -432,7 +465,29 @@ class PaneController(
             roots = rootsForDevice,
             showHidden = prefs.showHidden.value,
         )
-        val source = searchSources.firstOrNull { it.handles(req) } ?: return
+        // Every source the plan names, not the first that claims the request.
+        //
+        // Bug identified: this was `firstOrNull { it.handles(req) }`. The index claims
+        // SUBFOLDERS, so a search under a folder the crawl had not reached was answered by the
+        // index, found nothing, and stopped - while the walk that would have found it never
+        // ran. Reported as a file in a subfolder of Download being invisible with Subfolders
+        // selected, and found immediately from inside that subfolder, which worked only
+        // because the index declines a single-folder search.
+        val wanted = sourcePlan(
+            indexUsable = searchSources.any { it.handles(req.copy(scope = SearchScope.DEVICE)) },
+            scope = s.search.scope,
+            nativeOnly = s.search.nativeOnly,
+        )
+        val sources = wanted.mapNotNull { kind ->
+            when (kind) {
+                SourceKind.INDEX -> searchSources.firstOrNull { it.handles(req.copy(scope = SearchScope.DEVICE)) }
+                SourceKind.WALK -> searchSources.lastOrNull { it.handles(req.copy(scope = SearchScope.FOLDER)) }
+            }
+        }.distinct()
+        if (sources.isEmpty()) {
+            _state.update { it.copy(search = it.search.copy(hits = emptyList(), running = false, painted = true)) }
+            return
+        }
         searchJob = scope.launch {
             // Debounce 120 ms: 300 feels laggy, under 100 wastes queries (SEARCH.md §5.5).
             delay(120)
@@ -444,7 +499,11 @@ class PaneController(
             val collected = ArrayList<SearchHit>()
             var painted = false
             val firstPaintAt = System.currentTimeMillis() + 90
-            source.search(req).collect { hit ->
+            // Merged as they arrive rather than one source after the other: the index answers
+            // before the finger leaves the key, and a user who is going to be shown a result
+            // should not wait for a crawl to come up empty first. Duplicates are removed in
+            // `publish`, which is keyed by path.
+            merge(*sources.map { it.search(req) }.toTypedArray()).collect { hit ->
                 collected += hit
                 val now = System.currentTimeMillis()
                 if (!painted && now >= firstPaintAt) {

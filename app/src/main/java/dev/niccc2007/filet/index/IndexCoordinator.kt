@@ -91,12 +91,37 @@ class IndexCoordinator(
      * tree bigger than the budget this tier keeps the hot end of the disk fresh and never
      * reaches the cold end. Finishing the job is [crawlFully]'s, and the user presses it.
      */
+    /**
+     * Index a folder because somebody has just walked into it.
+     *
+     * Bug identified: search under a folder the crawl had not reached returned nothing, and
+     * nothing about the app said why. Navigating somewhere is the strongest possible signal
+     * that its contents are about to be asked about, so that is when it gets read.
+     *
+     * Bounded and polite: it does nothing if a crawl is already running, so it can never
+     * displace the full pass or start two at once. Local paths only - walking a remote on
+     * every navigation would cost a round trip per folder for a search that may never happen.
+     */
+    fun indexFolderNow(path: VPath) {
+        if (!index.status.value.enabled || !index.status.value.available) return
+        if (running?.isActive == true) return
+        if (path.scheme != "local") return
+        running = scope.launch {
+            runCatching { index.crawl(listOf(path), budgetMs = FOLDER_BUDGET_MS) { _, _ -> } }
+        }
+    }
+
     fun crawl(roots: List<VPath>, budgetMs: Long) {
         if (running?.isActive == true) return
         running = scope.launch {
             val jobId = ledger.start("Indexing storage", "${roots.size} volume(s)")
             val result = runCatching {
-                index.crawl(roots, budgetMs) { seen -> ledger.progress(jobId, null, "$seen files") }
+                // The path as well as the count: a number moving in thousands looks exactly
+                // like a number that has stopped, and that is what made a long crawl read as
+                // a hung app.
+                index.crawl(roots, budgetMs) { seen, at ->
+                    ledger.progress(jobId, null, IndexRun.readingLine(seen, at?.path))
+                }
             }
             result.onSuccess { r ->
                 if (r.complete) ledger.finish(jobId, "${r.seenFiles} files, ${r.changedDirs} folders changed")
@@ -160,9 +185,9 @@ class IndexCoordinator(
                     endedBy = CrawlEnd.BATTERY
                     null
                 } else {
-                    index.crawl(roots, budgetMs = 0) { seen ->
-                        _run.value = _run.value.copy(seen = seen)
-                        ledger.progress(jobId, null, "$seen files")
+                    index.crawl(roots, budgetMs = 0) { seen, at ->
+                        _run.value = _run.value.copy(seen = seen, reading = at?.path ?: "")
+                        ledger.progress(jobId, null, IndexRun.readingLine(seen, at?.path))
                     }
                 }
             }
@@ -279,6 +304,14 @@ class IndexCoordinator(
     }
 
     companion object {
+        /**
+         * How long a navigate-triggered pass may take.
+         *
+         * Short on purpose. It is meant to cover the folder you are standing in and a little
+         * of what is under it, not to become a full crawl every time a tab moves.
+         */
+        private const val FOLDER_BUDGET_MS = 6_000L
+
         const val WORK_NAME = "filet.index.maintenance"
         const val JOB_MEDIA_CHANGE = 4101
         private const val STALE_AFTER_MS = 6L * 60 * 60 * 1000

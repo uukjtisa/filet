@@ -81,7 +81,20 @@ data class IndexRun(
     val added: Int = 0,
     /** Files the sweep removed because the last completed run did not find them. */
     val removed: Int = 0,
+    /**
+     * The folder being read right now, or empty.
+     *
+     * Bug identified: the only live thing on the Activity row was a count, and a count moving
+     * in thousands is indistinguishable from one that has stopped - so a long crawl read as a
+     * hung app and invited a force-stop. A path that keeps changing is the cheapest proof of
+     * life there is.
+     */
+    val reading: String = "",
 ) {
+    /** The folder, shortened from the left so the part that changes stays visible. */
+    val readingShort: String
+        get() = shortPath(reading)
+
     /**
      * One line, safe to show whether or not anything has ever run.
      *
@@ -130,6 +143,35 @@ data class IndexRun(
                 if (i > 0 && (s.length - i) % 3 == 0) append(',')
                 append(c)
             }
+        }
+    }
+
+    companion object {
+        /**
+         * What the Activity row says while a crawl runs.
+         *
+         * The count answers "how much", the folder answers "is it alive". Both, because
+         * either one alone has been misread: a count on its own looked stuck, and a path on
+         * its own gives no sense of progress.
+         */
+        fun readingLine(seen: Long, at: String?): String {
+            val files = "$seen files"
+            val where = at?.takeIf { it.isNotBlank() }?.let { shortPath(it) } ?: return files
+            return "$files  -  $where"
+        }
+
+        /**
+         * Keep the tail, drop the head.
+         *
+         * A crawl walks deep, so the interesting part of a path is the end of it. Trimming
+         * from the right would leave forty identical rows all reading
+         * "/storage/emulated/0/Android/data/com...".
+         */
+        fun shortPath(p: String, max: Int = 42): String {
+            if (p.length <= max) return p
+            val cut = p.length - max
+            val slash = p.indexOf('/', cut)
+            return "…" + p.substring(if (slash in cut until p.length) slash else cut)
         }
     }
 }

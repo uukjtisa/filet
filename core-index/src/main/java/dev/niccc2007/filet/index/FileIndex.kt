@@ -47,11 +47,20 @@ data class IndexStatus(
     val phase: String = "",
     val scanned: Long = 0,
     /**
+     * The folder the crawl is reading right now, or empty between passes.
+     *
+     * Bug identified: the only thing on screen was a count, and a count moving in thousands is
+     * indistinguishable from a count that has stopped - so a long crawl read as a hung app.
+     * A path that keeps changing is the cheapest possible proof of life, and it costs one
+     * string per forty directories.
+     */
+    val reading: String = "",
+    /**
      * How many files were already indexed when the running pass started.
-. The index was
-     * never being rebuilt - `scanned` counts THIS RUN, and it was the only number on screen,
-     * so a fresh run reading 0 looked exactly like the index had been thrown away. Keeping the
-     * previous total beside it makes that impossible to misread.
+     *
+     * The index was never being rebuilt - `scanned` counts THIS RUN, and it was the only
+     * number on screen, so a fresh run reading 0 looked exactly like the index had been thrown
+     * away. Keeping the previous total beside it makes that impossible to misread.
      */
     val knownAtStart: Long = 0,
     val ftsAccelerated: Boolean = false,
@@ -220,7 +229,17 @@ interface FileIndex {
      *   forever and never reaches the rest. A deadline is a background courtesy, not a
      *   checkpoint.
      */
-    suspend fun crawl(roots: List<VPath>, budgetMs: Long, onProgress: (Long) -> Unit = {}): CrawlResult
+    /**
+     * @param onProgress how many files have been seen, and the folder currently being read.
+     *   The path matters as much as the count: a count that moves in thousands looks exactly
+     *   like a count that has stopped, and the difference between waiting and force-stopping
+     *   the app is being able to see that something is still being opened.
+     */
+    suspend fun crawl(
+        roots: List<VPath>,
+        budgetMs: Long,
+        onProgress: (Long, VPath?) -> Unit = { _, _ -> },
+    ): CrawlResult
 
     /**
      * Bend a running crawl toward [query] for a while.

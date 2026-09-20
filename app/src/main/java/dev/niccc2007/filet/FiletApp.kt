@@ -236,7 +236,11 @@ private class NullIndex : FileIndex {
         minSize: Long,
         limitGroups: Int,
     ) = emptyList<List<dev.niccc2007.filet.vfs.VPath>>()
-    override suspend fun crawl(roots: List<dev.niccc2007.filet.vfs.VPath>, budgetMs: Long, onProgress: (Long) -> Unit) =
+    override suspend fun crawl(
+        roots: List<dev.niccc2007.filet.vfs.VPath>,
+        budgetMs: Long,
+        onProgress: (Long, dev.niccc2007.filet.vfs.VPath?) -> Unit,
+    ) =
         dev.niccc2007.filet.index.CrawlResult(0, 0, 0, true, 0)
     /** Nothing is crawling, so there is nothing to steer and nothing to promise on screen. */
     override fun steerCrawl(query: String) = Unit

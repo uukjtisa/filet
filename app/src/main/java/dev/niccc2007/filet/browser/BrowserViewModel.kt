@@ -241,6 +241,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             searchSources = graph.searchSources,
             onSearched = { q -> graph.index.steerCrawl(q) },
             onOpened = { node -> openNode(node) },
+            // Walking into a folder is the moment its contents are about to be searched, so
+            // it is also when indexing it is worth doing. Bounded and skipped entirely if a
+            // crawl is already running - see IndexCoordinator.indexFolderNow.
+            onLanded = { path -> graph.indexCoordinator.indexFolderNow(path) },
             worldRevision = { _state.value.revision },
         )
         pane.rootsForDevice = _state.value.volumes.map { it.node.path }
@@ -1262,6 +1266,46 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun shareOne(node: VNode) {
         val cb = onShare
         if (cb == null) toast("Sharing is unavailable.") else cb(listOf(node))
+    }
+
+    /**
+     * The file a viewer's share button is asking about, or null when it is not asking.
+     *
+     * Bug identified: the share button in the viewers handed straight to Android's share
+     * sheet, so Filet's own network share - a link any browser here can open, with nothing
+     * installed at the other end - was the one destination the button could not reach.
+     */
+    private val _shareChoiceFor = MutableStateFlow<VNode?>(null)
+    val shareChoiceFor: StateFlow<VNode?> = _shareChoiceFor.asStateFlow()
+
+    /**
+     * Share from a viewer.
+     *
+     * Asks only when there is something to ask. A file with no path on this device cannot be
+     * served over the network, so it goes straight to the share sheet rather than opening a
+     * menu over a single option.
+     */
+    fun shareFromViewer(node: VNode) {
+        val local = graph.vfs.osPath(node.path) != null
+        if (!dev.niccc2007.filet.handlers.needsShareChoice(local)) { shareOne(node); return }
+        _shareChoiceFor.value = node
+    }
+
+    fun dismissShareChoice() { _shareChoiceFor.value = null }
+
+    fun shareVia(node: VNode, target: dev.niccc2007.filet.handlers.ShareTarget) {
+        _shareChoiceFor.value = null
+        when (target) {
+            dev.niccc2007.filet.handlers.ShareTarget.APPS -> shareOne(node)
+            dev.niccc2007.filet.handlers.ShareTarget.NETWORK -> shareOneNearby(node)
+        }
+    }
+
+    /** One file into the shared set, starting the server if it is not already up. */
+    fun shareOneNearby(node: VNode) {
+        graph.nearby.shared.share(node)
+        if (!graph.nearby.isRunning()) graph.nearby.start()
+        toast("Shared — open Nearby for the link")
     }
 
     // ── file content, for the viewers ──
