@@ -136,6 +136,8 @@ fun PaneView(
                 ScopeChips(
                     current = s.search.scope,
                     nativeOnly = s.search.nativeOnly,
+                    nativeMatters = s.search.nativeMatters,
+                    origin = s.search.origin,
                     onPick = { pane.setScope(it) },
                     onNative = { pane.setNativeOnly(it) },
                 )
@@ -319,6 +321,8 @@ private fun CrawlNotice(index: dev.niccc2007.filet.index.IndexStatus) {
 private fun ScopeChips(
     current: SearchScope,
     nativeOnly: Boolean,
+    nativeMatters: Boolean,
+    origin: String,
     onPick: (SearchScope) -> Unit,
     onNative: (Boolean) -> Unit,
 ) {
@@ -346,17 +350,34 @@ private fun ScopeChips(
         // The native switch sits with the scopes because it answers the same question they do:
         // how hard to look. An index can be cold and nobody can see that from the outside, so
         // "look again properly" is a control rather than something to be guessed at.
+        //
+        // Dimmed where it cannot matter. For a single folder the index declines anyway, so the
+        // walk is already the only source and turning this on removes nothing - which is
+        // exactly what it looked like when it was drawn the same as everywhere else.
         Text(
-            text = "Native search",
+            text = if (nativeMatters) "Native search" else "Native search · already",
             fontSize = 10.sp,
-            color = if (nativeOnly) colors.accent else colors.fg2,
+            color = when {
+                !nativeMatters -> colors.fg3
+                nativeOnly -> colors.accent
+                else -> colors.fg2
+            },
             modifier = Modifier
                 .clip(RoundedCornerShape(20.dp))
-                .background(if (nativeOnly) colors.sel else Color.Transparent)
-                .border(1.dp, if (nativeOnly) colors.accent else colors.lineSoft, RoundedCornerShape(20.dp))
-                .clickable { onNative(!nativeOnly) }
+                .background(if (nativeOnly && nativeMatters) colors.sel else Color.Transparent)
+                .border(
+                    1.dp,
+                    if (nativeOnly && nativeMatters) colors.accent else colors.lineSoft,
+                    RoundedCornerShape(20.dp),
+                )
+                .clickable(enabled = nativeMatters) { onNative(!nativeOnly) }
                 .padding(horizontal = 9.dp, vertical = 3.dp),
         )
+        // What actually answered. Without it a re-run that finds the same rows reads as a
+        // control that is not connected to anything.
+        if (origin.isNotEmpty()) {
+            Text(origin, fontSize = 9.5.sp, color = colors.fg3, modifier = Modifier.padding(start = 3.dp))
+        }
     }
 }
 
@@ -462,6 +483,10 @@ private fun FolderBody(
     val listState = rememberLazyListState()
     val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
 
+    // The row a long press in the search results opened a menu for. The same sheet every other
+    // list uses, so the actions do not differ by which screen you found the file on.
+    var searchMenuFor by remember { mutableStateOf<VNode?>(null) }
+
     // A new folder starts at the top - unless something asked to be revealed in it, in which
     // case scrolling to the top is exactly what would undo the reveal.
     LaunchedEffect(s.cwd) {
@@ -538,7 +563,11 @@ private fun FolderBody(
                         metrics = metrics,
                         selected = node.path in s.selected,
                         onClick = { rowClick(pane, vm, side, node) },
-                        onLongClick = { pane.toggleSelect(node) },
+                        // Bug identified: a long press here only selected the row, so the one
+                        // action a search result needs more than any other - go to where this
+                        // actually is - was reachable from every list in the app except the
+                        // one whose whole point is that the file is somewhere else.
+                        onLongClick = { searchMenuFor = node },
                     )
                 } else {
                     FileRow(
@@ -558,6 +587,22 @@ private fun FolderBody(
                 }
             }
         }
+    }
+
+    searchMenuFor?.let { node ->
+        dev.niccc2007.filet.home.HomeRowSheet(
+            node = node,
+            onDismiss = { searchMenuFor = null },
+            // The reason this menu exists. A result is by definition somewhere other than
+            // where you are standing.
+            onReveal = { searchMenuFor = null; vm.revealInFolder(node) },
+            onOpen = { searchMenuFor = null; rowClick(pane, vm, side, node) },
+            onShare = { searchMenuFor = null; vm.shareOne(node) },
+            onBookmark = { searchMenuFor = null; vm.bookmarkOne(node) },
+            onShortcut = { searchMenuFor = null; vm.shortcutOne(node) },
+            // No list to be removed from: this is a match, not a kept entry.
+            onForget = null,
+        )
     }
 }
 

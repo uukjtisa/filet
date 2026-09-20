@@ -6,6 +6,8 @@ import dev.niccc2007.filet.index.SearchHit
 import dev.niccc2007.filet.index.SearchRequest
 import dev.niccc2007.filet.index.SearchScope
 import dev.niccc2007.filet.index.SourceKind
+import dev.niccc2007.filet.index.nativeToggleMatters
+import dev.niccc2007.filet.index.originLine
 import dev.niccc2007.filet.index.sourcePlan
 import dev.niccc2007.filet.index.SearchSource
 import dev.niccc2007.filet.vfs.VNode
@@ -42,6 +44,17 @@ data class SearchUi(
      * whether the app is fast or wrong.
      */
     val nativeOnly: Boolean = false,
+    /**
+     * Where the rows on screen came from.
+     *
+     * Reported as the Native search toggle doing nothing. Half of that was a real fault; the
+     * other half is that a toggle which re-runs a search and legitimately gets the same rows
+     * is indistinguishable from a toggle that is not wired to anything. Naming the sources
+     * means pressing it always changes something the reader can see.
+     */
+    val origin: String = "",
+    /** False where the index never answers this scope anyway, so the toggle cannot matter. */
+    val nativeMatters: Boolean = true,
 ) {
     val active: Boolean get() = open && query.isNotBlank()
 }
@@ -478,12 +491,27 @@ class PaneController(
             scope = s.search.scope,
             nativeOnly = s.search.nativeOnly,
         )
+        // Bug identified, reported as the Native search toggle changing nothing: the source for
+        // a planned kind was picked by POSITION in the list and then called without checking it
+        // accepted the request. The index declines a single-folder scope, so with Folder
+        // selected the plan asked for an index, was handed one by position, and called it with
+        // a request it had already refused - and turning the toggle on removed a source that
+        // was never legitimately contributing, so the list did not move.
+        //
+        // A source now declares its own kind, and it is used only if it also accepts THIS
+        // request rather than a differently-scoped one invented to test it with.
         val sources = wanted.mapNotNull { kind ->
-            when (kind) {
-                SourceKind.INDEX -> searchSources.firstOrNull { it.handles(req.copy(scope = SearchScope.DEVICE)) }
-                SourceKind.WALK -> searchSources.lastOrNull { it.handles(req.copy(scope = SearchScope.FOLDER)) }
-            }
+            searchSources.firstOrNull { it.kind == kind && it.handles(req) }
         }.distinct()
+        _state.update {
+            it.copy(search = it.search.copy(
+                origin = originLine(sources.map { src -> src.kind }),
+                nativeMatters = nativeToggleMatters(
+                    indexUsable = searchSources.any { src -> src.handles(req.copy(scope = SearchScope.DEVICE)) },
+                    scope = s.search.scope,
+                ),
+            ))
+        }
         if (sources.isEmpty()) {
             _state.update { it.copy(search = it.search.copy(hits = emptyList(), running = false, painted = true)) }
             return

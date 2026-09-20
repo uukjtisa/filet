@@ -42,6 +42,20 @@ interface SearchSource {
 
     /** True when this source can answer [req] at all. */
     fun handles(req: SearchRequest): Boolean
+
+    /**
+     * Which of the two kinds this is.
+     *
+     * Bug identified: the pane resolved a planned [SourceKind] by list position -
+     * `firstOrNull` for the index and `lastOrNull` for the walk - and then called the result
+     * without checking it accepted the request it was about to be given. With a single-folder
+     * scope the index declines, so the plan asked for an index and got handed one anyway, with
+     * a request it had already said it could not answer.
+     *
+     * A source declaring its own kind removes the guess. A plan asks for a kind and gets that
+     * kind or nothing.
+     */
+    val kind: SourceKind
 }
 
 /**
@@ -55,6 +69,9 @@ interface SearchSource {
  * Breadth-first so shallow matches - which are nearly always the wanted ones - arrive first.
  */
 class WalkSearchSource(private val vfs: Vfs) : SearchSource {
+
+    override val kind = SourceKind.WALK
+
 
     override fun handles(req: SearchRequest) = req.scope != SearchScope.PROVENANCE
 

@@ -29,6 +29,8 @@ class IndexSearchSource(
      * lookup plus a verification pass. Handing it to the index would be slower and could be
      * stale, for no gain.
      */
+    override val kind = SourceKind.INDEX
+
     override fun handles(req: SearchRequest): Boolean {
         if (!index.status.value.enabled || !index.status.value.available) return false
         return req.scope == SearchScope.DEVICE ||
@@ -122,6 +124,7 @@ class IndexSearchSource(
  * the same scorer.
  */
 class LayeredSearch(private val sources: List<SearchSource>) : SearchSource {
+    override val kind = SourceKind.INDEX
     override fun handles(req: SearchRequest) = sources.any { it.handles(req) }
     override fun search(req: SearchRequest): Flow<SearchHit> =
         sources.first { it.handles(req) }.search(req)

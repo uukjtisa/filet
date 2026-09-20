@@ -279,7 +279,14 @@ fun HomeRowSheet(
     onShare: () -> Unit,
     onBookmark: () -> Unit,
     onShortcut: () -> Unit,
-    onForget: () -> Unit,
+    /**
+     * Null where there is no list to be removed from.
+     *
+     * A search result is not an entry in a kept list - it is a file that matched - so offering
+     * to remove it from one would either do nothing or delete the file, and both of those are
+     * worse than not offering it.
+     */
+    onForget: (() -> Unit)? = null,
 ) {
     val colors = Filet.colors
     AlertDialog(
@@ -292,16 +299,18 @@ fun HomeRowSheet(
                 SheetAction("Share", onShare)
                 SheetAction("Bookmark", onBookmark)
                 SheetAction("Add to home screen", onShortcut)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Remove from this list",
-                    fontSize = 13.sp,
-                    color = colors.bad,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onForget)
-                        .padding(vertical = 10.dp),
-                )
+                if (onForget != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Remove from this list",
+                        fontSize = 13.sp,
+                        color = colors.bad,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onForget)
+                            .padding(vertical = 10.dp),
+                    )
+                }
             }
         },
         confirmButton = {},

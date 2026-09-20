@@ -53,6 +53,13 @@ reads the name for ordering.
 number is a claim about stability, and claiming one two lines above a paragraph saying things
 are still being found wrong is a contradiction nobody has to point out twice.
 
+**A staging version is one that collects fixes and is not published.** While a large release
+is being built, fixes still have to reach a phone. They go onto a staging number that is built
+and installed but never released; when the large one ships it carries them. If a fix in there
+cannot wait, the staging version publishes on its own and the staging line moves on.
+
+**STAGING: 0.1.9** — fixes made while 0.2.0 is being drawn. Built and installed, not published.
+
 **NEXT: 0.2.0** — the redesign release. It replaces the visual language of every screen, adds
 a storage tool that did not exist, adds a metadata writer, and changes what a file row shows by
 default. Somebody updating from 0.1.8 opens an app that does not look like the one they closed.

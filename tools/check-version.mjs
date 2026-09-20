@@ -35,6 +35,11 @@ const cmp = (a, b) => {
 export function problems({ doc, gradleName, gradleCode, released, releasedCode, readme }) {
   const found = [];
 
+  // A staging version is built and installed but never published, so fixes can reach a phone
+  // while a large release is being drawn. It is the third number the build is allowed to be.
+  const sm = /^\s*(?:\*\*)?STAGING:?(?:\*\*)?\s*\**\s*(\d+\.\d+\.\d+)/m.exec(doc || "");
+  const staging = sm ? sm[1] : null;
+
   const m = /^\s*(?:\*\*)?NEXT:?(?:\*\*)?\s*\**\s*(\d+\.\d+\.\d+)/m.exec(doc || "");
   if (!m) {
     found.push(`${DOC} declares no NEXT version, so the next number is undecided`);
@@ -53,10 +58,29 @@ export function problems({ doc, gradleName, gradleCode, released, releasedCode, 
 
   // The build is allowed to sit on the released version or on the declared next one. Anything
   // else is a number nothing describes.
-  if (gradleName !== next && released && gradleName !== released) {
+  if (gradleName !== next && released && gradleName !== released && gradleName !== staging) {
     found.push(
-      `${GRADLE} declares ${gradleName}, which is neither the released ${released} nor the declared next ${next}`,
+      `${GRADLE} declares ${gradleName}, which is not the released ${released}, ` +
+        `the declared next ${next}${staging ? `, or the staging ${staging}` : ""}`,
     );
+  }
+
+  if (staging) {
+    if (cmp(staging, released || "0.0.0") <= 0) {
+      found.push(`STAGING is ${staging}, which is not ahead of the released ${released}`);
+    }
+    if (cmp(staging, next) >= 0) {
+      found.push(`STAGING is ${staging}, which is not behind the declared next ${next}`);
+    }
+    // The point of a staging version is that it is not published. If a release exists with
+    // that tag, it is not staging any more and the line is stale.
+    if (released && released === staging) {
+      found.push(`STAGING ${staging} has been published, so it is no longer staging`);
+    }
+  }
+
+  if (gradleName === staging && releasedCode != null && !(gradleCode > releasedCode)) {
+    found.push(`versionCode ${gradleCode} does not advance on the released ${releasedCode}`);
   }
 
   if (gradleName === next && releasedCode != null && !(gradleCode > releasedCode)) {
@@ -89,6 +113,7 @@ if (process.argv.includes("--selftest")) {
     "adds a storage tool that did not exist, adds a metadata writer, and changes what a file " +
     "row shows by default. Somebody updating from 0.1.8 opens an app that does not look like " +
     "the one they closed.";
+  const staged = doc + "\nSTAGING: 0.1.9 - fixes made while 0.2.0 is being drawn.";
   const base = {
     doc, gradleName: "0.1.8", gradleCode: 8, released: "0.1.8", releasedCode: 8,
     readme: "early development",
@@ -106,6 +131,13 @@ if (process.argv.includes("--selftest")) {
       gradleName: "0.1.8",
     }, true],
     ["a minor bump with no reason given", { ...base, doc: "NEXT: 0.2.0" }, true],
+    ["a build on the staging version", { ...base, doc: staged, gradleName: "0.1.9", gradleCode: 9 }, false],
+    ["a staging version behind the release", { ...base, doc: doc + "\nSTAGING: 0.1.7" }, true],
+    ["a staging version ahead of next", { ...base, doc: doc + "\nSTAGING: 0.3.0" }, true],
+    ["a staging version that has been published", {
+      ...base, doc: staged, released: "0.1.9", gradleName: "0.1.9", gradleCode: 9,
+    }, true],
+    ["a staged build with a stale code", { ...base, doc: staged, gradleName: "0.1.9", gradleCode: 8 }, true],
   ];
   let bad = 0;
   for (const [name, input, expect] of CASES) {

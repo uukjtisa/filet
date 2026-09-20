@@ -64,3 +64,33 @@ fun sourcePlan(
  */
 fun wasIndexOnly(scope: SearchScope): Boolean =
     scope == SearchScope.SUBFOLDERS || scope == SearchScope.DEVICE || scope == SearchScope.PROVENANCE
+
+/**
+ * Whether turning on a native-only search could change the answer at all.
+ *
+ * Bug identified, reported twice: the toggle appeared to do nothing. Part of it was a real
+ * fault in how a source was chosen, and part of it is this - for a single-folder scope the
+ * index never answers anyway, so removing it removes nothing and the list correctly does not
+ * move. A control that cannot change the outcome is a dead switch (PLAN.md R1), and the honest
+ * fix is not to hide the control but to say when it is already the only thing running.
+ */
+fun nativeToggleMatters(indexUsable: Boolean, scope: SearchScope): Boolean {
+    if (!indexUsable) return false
+    if (scope == SearchScope.PROVENANCE) return false
+    // FOLDER is declined by the index, so the walk is already the only source.
+    return scope != SearchScope.FOLDER
+}
+
+/**
+ * What to tell the reader about where the answer came from.
+ *
+ * Without this, a toggle that re-runs a search and gets the same rows is indistinguishable
+ * from a toggle that is not wired to anything. The line names the sources, so pressing it
+ * always changes something visible even when it does not change the rows.
+ */
+fun originLine(sources: List<SourceKind>): String = when {
+    sources.isEmpty() -> "Nothing here can answer that"
+    sources.size > 1 -> "Index, and reading the folders"
+    sources.first() == SourceKind.INDEX -> "Index only"
+    else -> "Reading the folders"
+}
