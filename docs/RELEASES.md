@@ -37,6 +37,27 @@ Specifically, and each of these has been written here before:
 | a wry aside about the bug | the symptom, then the fix |
 | "we", "I", "you'll notice" | the app and the file, named plainly |
 
+## What number the next one gets
+
+| Bump | For |
+|---|---|
+| **Patch** (0.1.8 to 0.1.9) | repairs to what already exists, and nothing a user has to relearn |
+| **Minor** (0.1.8 to 0.2.0) | a new screen, a new tool, or a change to what an existing screen shows by default |
+| **Major** (1.0.0) | a claim that this is finished enough to depend on |
+
+A version name is free text and a version code is a monotonic integer, so they are independent:
+skipping a name costs nothing, and code 9 may carry the name 0.2.0. Nothing in the updater
+reads the name for ordering.
+
+**1.0.0 is not available while the README opens with an early-development warning.** A version
+number is a claim about stability, and claiming one two lines above a paragraph saying things
+are still being found wrong is a contradiction nobody has to point out twice.
+
+**NEXT: 0.2.0** — the redesign release. It replaces the visual language of every screen, adds
+a storage tool that did not exist, adds a metadata writer, and changes what a file row shows by
+default. Somebody updating from 0.1.8 opens an app that does not look like the one they closed.
+`tools/check-version.mjs` reads that line, so the decision lives in one place.
+
 ## The order of operations, which is not optional
 
 Releases 0.1.5 and 0.1.6 both turned the repository's checks red for a while, for the same

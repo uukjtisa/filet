@@ -59,12 +59,21 @@ const WANTED = [
   ["N57", "rows can be dragged into the tray", /tray\.ondrop/],
   ["N57", "the TreeSize half is there", /Folder tree/],
   ["N57", "the Disk Drill half is there", /Clean up/],
+  ["N58", "the About card follows the repo rather than the tagline it replaced",
+   /four things it will not trade[\s\S]{0,12}against each other/],
+  ["N58", "all four are named, in one line rather than four",
+   /Productivity, power, aesthetics and convenience/],
+  ["N58", "the watermark is the app mark and not the author seal",
+   /class="wm"><svg><use href="#i-folder"\//],
+  ["N58", "the glare is sized to the name and not to the card", /\.sig \.nm\{[\s\S]{0,900}width:fit-content/],
   ["N57", "the unreadable directory is disclosed", /Android\/data and Android\/obb are not fully readable|not fully readable/],
 ];
 
 /** Things the mock must NOT do, each of which has gone wrong once already. */
 const FORBIDDEN = [
   ["the mock must stay the app that exists, not a new one", /data-theme="(?!slate|ember|paper)/],
+  ["the About card still carries the tagline the README was rewritten away from",
+   /people who want to do real work on their phone without a PC/i],
 ];
 
 function problems(html, spec, template) {
@@ -99,6 +108,9 @@ if (process.argv.includes("--selftest")) {
     "function fmtDate", '"dmy" "mdy" "ymd"', "MONTHS_LONG", 'data-k="size"',
     "function liveHTML", "liveHTML rowsHTML3", "function storHTML", 'class="bw"', "STORE_TREE",
     "Appoint for removal", "tray.ondrop", "Folder tree", "Clean up", "not fully readable",
+    "Productivity, power, aesthetics and convenience - four things it will not trade against each other",
+    'class="wm"><svg><use href="#i-folder"/>',
+    '[data-r="3"] .sig .nm{ width:fit-content',
   ].join("\n");
   const spec = "# x\nTreeSize\nDisk Drill\n## Proposals\n";
   const CASES = [
@@ -109,6 +121,11 @@ if (process.argv.includes("--selftest")) {
     ["the live view dropped", full.replace("function liveHTML", "x"), spec, null, true],
     ["the date column left on", full.replace('[data-r="3"] .row .dt{display:none}', "x"), spec, null, true],
     ["the long name used on the tab", full.replace('title:"New files"', 'title:"New in your tracked folders"'), spec, null, true],
+    ["the About card left on the old tagline",
+     full.replace("four things it will not trade against each other", "x"), spec, null, true],
+    ["the author seal still used as the app mark",
+     full.replace('class="wm"><svg><use href="#i-folder"/>', 'class="wm"><svg><use href="#i-mark"/>'), spec, null, true],
+    ["the glare still sized to the card", full.replace("width:fit-content", "width:100%"), spec, null, true],
     ["the spec forgets its own references", full, "# x\n## Proposals\n", null, true],
     ["the spec has no proposals", full, "TreeSize\nDisk Drill\n", null, true],
     ["a mock started from scratch again", full, spec, "x".repeat(full.length + 1), true],
