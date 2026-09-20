@@ -88,7 +88,15 @@ class NearbyManager(
 
     fun clearStartRefusal() { _startRefusal.value = null }
 
+    /**
+     * Moved every time sharing is stopped, so a start still finishing can tell it was
+     * contradicted. See [startStillWanted] for what goes wrong without it.
+     */
+    private val stopToken = java.util.concurrent.atomic.AtomicLong(0)
+
     fun start() {
+        ShareTrace.attach(context)
+        ShareTrace.line { "start() pressed: serverRunning=${server.isRunning()} failures=$failures starting=${_starting.value}" }
         when (val d = ServerStartPolicy.decide(
             running = server.isRunning(),
             blockedReason = blockedReason(),
@@ -96,10 +104,21 @@ class NearbyManager(
             lastFailureAt = lastFailureAt,
             now = System.currentTimeMillis(),
         )) {
-            is ServerStartPolicy.Decision.AlreadyRunning -> return
+            is ServerStartPolicy.Decision.AlreadyRunning -> {
+                // Republish rather than return in silence.
+                //
+                // Reaching here means the server is up while the screen was showing Start, so
+                // the two had drifted apart - and a silent return is what turned that drift
+                // into a button that could not be made to respond again. Saying what is
+                // actually true puts the screen back in step and gives him a Stop to press.
+                ShareTrace.line { "  -> AlreadyRunning; republished ${server.state().running}" }
+                _state.value = server.state()
+                return
+            }
             is ServerStartPolicy.Decision.Refuse -> {
                 // Said out loud. The old code returned silently on a blocked start, so the
                 // button looked broken rather than blocked.
+                ShareTrace.line { "  -> Refuse: ${d.why}" }
                 _startRefusal.value = d.why
                 return
             }
@@ -107,15 +126,30 @@ class NearbyManager(
         }
         _startRefusal.value = null
         _starting.value = true
+        // Remembered before any of the slow work, so a Stop pressed during it is detectable.
+        val began = stopToken.get()
+        ShareTrace.line { "  -> Start; launching (token=$began)" }
         scope.launch {
             try {
+            ShareTrace.line { "  coroutine running" }
             shared.ensureFolders()
+            ShareTrace.line { "  folders ready" }
             server.pinRequired = prefs.getBool(KEY_PIN, true)
             server.uploadsAllowed = prefs.getBool(KEY_UPLOADS, false)
             server.idleStopMinutes = prefs.getLong(KEY_IDLE, 30L).toInt()
             server.fixedPin = fixedPin()
             runCatching { server.start() }
                 .onSuccess {
+                    ShareTrace.line { "  server.start() ok: running=${it.running} port=${it.port}" }
+                    if (!startStillWanted(began, stopToken.get())) {
+                        // Stop was pressed while this was still binding. His last instruction
+                        // wins: undo the start rather than leave a server running that the
+                        // screen has already been told is off.
+                        runCatching { server.stop() }
+                        _state.value = server.state()
+                        failures = 0
+                        return@onSuccess
+                    }
                     failures = ServerStartPolicy.countAfter(failures, succeeded = true)
                     _state.value = it
                     runCatching { discovery.advertise(it.port) }
@@ -138,6 +172,7 @@ class NearbyManager(
                     }
                 }
                 .onFailure {
+                    ShareTrace.line { "  server.start() FAILED: $it" }
                     // Logged, not only counted. A start that fails silently is why this took
                     // three rounds: every symptom was downstream of an exception nobody saw.
                     android.util.Log.w("FiletNearby", "server.start() failed", it)
@@ -146,6 +181,17 @@ class NearbyManager(
                     _state.value = ServerState(running = false)
                     _startRefusal.value = "Sharing could not start: ${it.message ?: it.javaClass.simpleName}"
                 }
+            } catch (t: Throwable) {
+                ShareTrace.line { "  threw before the server was up: $t" }
+                // Everything above `server.start()` - creating the folders, reading four
+                // preferences - could throw straight out of this coroutine, where nothing was
+                // watching. The button stopped spinning and sharing stayed off with no reason
+                // given anywhere, which is indistinguishable from a button that does nothing.
+                android.util.Log.w("FiletNearby", "start: threw before the server was up", t)
+                failures = ServerStartPolicy.countAfter(failures, succeeded = false)
+                lastFailureAt = System.currentTimeMillis()
+                _state.value = ServerState(running = false)
+                _startRefusal.value = "Sharing could not start: ${t.message ?: t.javaClass.simpleName}"
             } finally {
                 // In a finally: a throw anywhere above would otherwise leave the button
                 // spinning for ever, which is a worse lie than showing nothing.
@@ -197,11 +243,27 @@ class NearbyManager(
         _state.value = server.state()
     }
 
-    fun stop() {
+    /**
+     * Leave sharing mode.
+     *
+     * @param origin who is stopping. Only a stop that came from the screen has a foreground
+     *   service left to tell; see [tellsTheService]. This used to tell the service every time,
+     *   including when the service was the caller, and the two then stopped each other without
+     *   end - which is what made sharing impossible to restart.
+     */
+    fun stop(origin: StopOrigin = StopOrigin.SCREEN) {
+        ShareTrace.attach(context)
+        ShareTrace.line { "stop($origin): serverRunning=${server.isRunning()}" }
+        // First, before anything slow: a start still finishing reads this and undoes itself.
+        stopToken.incrementAndGet()
         discovery.stopAdvertising()
         server.stop()
         _state.value = server.state()
-        NearbyService.stop(context)
+        // A stop clears the cooldown too: he has just told the app plainly what he wants, and
+        // making him wait out a backoff earned by earlier failures is the app arguing with him.
+        failures = 0
+        lastFailureAt = 0L
+        if (tellsTheService(origin)) NearbyService.stop(context)
     }
 
     fun setPinRequired(required: Boolean) {

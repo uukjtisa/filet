@@ -58,6 +58,12 @@ const ALLOWED = [
   // apksig, smali and ARSCLib all take java.io.File and refuse streams. Every path this
   // package touches came from Vfs.osPath or from AppFiles.
   "app/src/main/java/dev/niccc2007/filet/apk/",
+  // A debug-only diagnostic for the share server, and it cannot use the VFS because the VFS
+  // is part of what it exists to watch. Compiles to nothing in a release build, writes a few
+  // hundred lines to app-private external storage, one filename, never a user path. It exists
+  // because some devices drop an app's own logcat output while carrying the system's, so a
+  // fault that reproduces every time can otherwise leave no trace anywhere.
+  "app/src/main/java/dev/niccc2007/filet/nearby/ShareTrace.kt",
   // The crash reporter runs when the graph may be the thing that died, so it cannot go
   // through the VFS to save a report. App-private storage, its own directory, text only.
   "app/src/main/java/dev/niccc2007/filet/crash/CrashReport.kt",

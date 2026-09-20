@@ -664,6 +664,11 @@ class NearbyHttpServer(
                 target
             }
         }.onSuccess {
+            // Tell the media index, or the file is on the disk and invisible to the gallery.
+            // Nothing background-scans storage any more; a file an app writes itself is only
+            // indexed when the app says so. This is the case that was reported: a video arrived
+            // over the network and no gallery on the phone could see it.
+            dev.niccc2007.filet.media.MediaAnnounce.announce(context, listOf(it))
             respond(out, 200, "application/json", """{"ok":true,"name":"${it.name}"}""".toByteArray())
         }.onFailure {
             respond(out, 500, "application/json", """{"error":"could not write"}""".toByteArray())

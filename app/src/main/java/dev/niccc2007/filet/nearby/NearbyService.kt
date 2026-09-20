@@ -52,9 +52,19 @@ class NearbyService : Service() {
         val graph = runCatching { FiletApp.graphOf(applicationContext) }.getOrNull()
         if (graph == null) { stopSelf(); return START_NOT_STICKY }
 
+        // ACTION_STOP is the Stop button on the notification, and it is the only intent that
+        // COMMANDS anything. Every other delivery is a nudge to reconcile with the server:
+        // running means be in the shade, stopped means get out of it.
+        //
+        // That distinction is what makes a quick stop-then-start safe. A command queued by the
+        // app would still be in flight when the next start bound its socket, and would then
+        // tear down a server the user had just asked for. A nudge that arrives late reads the
+        // server as it is now and leaves a running share alone.
         when (intent?.action) {
             ACTION_STOP -> {
-                graph.nearby.stop()
+                // Stopped from inside the service, so the service is not asked to stop - it
+                // stops itself two lines down. Asking is what produced the endless lap.
+                graph.nearby.stop(StopOrigin.SERVICE)
                 stopForegroundCompat()
                 stopSelf()
                 return START_NOT_STICKY
@@ -74,7 +84,7 @@ class NearbyService : Service() {
         // with the server still running in the app process, to fail again. That is the crash
         // loop that could only be escaped by force-stopping Filet.
         if (runCatching { startForegroundCompat(graph.nearby.state.value) }.isFailure) {
-            graph.nearby.stop()
+            graph.nearby.stop(StopOrigin.IDLE)
             stopForegroundCompat()
             stopSelf()
             return START_NOT_STICKY
@@ -89,7 +99,7 @@ class NearbyService : Service() {
                 if (graph.nearby.idleExpired()) {
                     // Stopping itself is the default, not something to remember. An open
                     // server you forgot about is the actual risk here.
-                    graph.nearby.stop()
+                    graph.nearby.stop(StopOrigin.IDLE)
                     stopSelf()
                     break
                 }
@@ -164,8 +174,20 @@ class NearbyService : Service() {
             else context.startService(intent)
         }
 
+        /**
+         * Tell the service the server has stopped.
+         *
+         * Deliberately NOT [ACTION_STOP]: the caller has already stopped the server, and
+         * ACTION_STOP would stop it a second time - which is the call that used to come back
+         * round into the manager and start the loop. A plain intent asks the service to look
+         * at the server and do whatever matches, which for a stopped server is to leave the
+         * shade and stop itself.
+         *
+         * Guarded because a service that is not running is nothing to stop, and on Android 12
+         * a start from the background throws rather than being ignored.
+         */
         fun stop(context: Context) {
-            context.startService(Intent(context, NearbyService::class.java).setAction(ACTION_STOP))
+            runCatching { context.startService(Intent(context, NearbyService::class.java)) }
         }
 
         private fun ensureChannel(context: Context) {
