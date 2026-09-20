@@ -18,7 +18,17 @@ on:
 # produce it.
 concurrency:
   group: checks-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded runs on a pull request, never on main.
+  #
+  # Cancelling on main saves a few runner minutes and costs the thing the runs are for: a
+  # commit whose run was killed by the next push shows "cancelled" forever, and a history of
+  # cancelled marks is indistinguishable at a glance from a history of failures. It also makes
+  # re-running an old run impossible while anything else is queued on the same branch, which is
+  # exactly when re-running is wanted.
+  #
+  # A pull request is the opposite case: only the newest push to it is interesting, and its
+  # older runs are noise nobody reads.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
