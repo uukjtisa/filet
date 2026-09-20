@@ -23,4 +23,16 @@ object FeedPublish {
      * answer replaces it, so the reader never sees the list get shorter.
      */
     fun showPartial(screenIsEmpty: Boolean): Boolean = screenIsEmpty
+
+    /**
+     * Whether a publish may reach the screen at all.
+     *
+     * Bug identified, and reported a second time as the list flickering on refresh: the
+     * partial guard was applied to the backing list and NOT to the list the screen renders.
+     * Every folder coroutine wrote its intermediate answer straight to the visible rows, so a
+     * refresh showed the old list, then a short wrong one, then a longer wrong one, then the
+     * truth. The guard has to sit in front of everything a publish touches, not one of them.
+     */
+    fun publishable(complete: Boolean, screenIsEmpty: Boolean): Boolean =
+        complete || showPartial(screenIsEmpty)
 }

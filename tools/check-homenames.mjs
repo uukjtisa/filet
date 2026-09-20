@@ -59,10 +59,10 @@ if (process.argv.includes("--selftest")) {
     ["the pair that shipped", 'const val ARRIVED = "New files"\nconst val OPENED = "Recent"', true],
     ["identical headings", 'const val ARRIVED = "Recently opened"\nconst val OPENED = "Recently opened"', true],
     ["arrival heading says nothing", 'const val ARRIVED = "Stuff"\nconst val OPENED = "Recently opened"', true],
-    ["opened heading says nothing", 'const val ARRIVED = "New in your folders"\nconst val OPENED = "Latest"', true],
-    ["only one declared", 'const val ARRIVED = "New in your folders"', true],
+    ["opened heading says nothing", 'const val ARRIVED = "New in your tracked folders"\nconst val OPENED = "Latest"', true],
+    ["only one declared", 'const val ARRIVED = "New in your tracked folders"', true],
     // the positive control
-    ["a pair that works", 'const val ARRIVED = "New in your folders"\nconst val OPENED = "Recently opened"', false],
+    ["a pair that works", 'const val ARRIVED = "New in your tracked folders"\nconst val OPENED = "Recently opened"', false],
   ];
   let bad = 0;
   for (const [name, src, expect] of CASES) {

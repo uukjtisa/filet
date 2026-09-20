@@ -210,7 +210,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
             ViewerAction(FiletIcons.Link, "Open in another app") {
                 vm.openExternally(track ?: node, force = true)
             }
-            ViewerAction(FiletIcons.Share, "Share") { vm.shareOne(track ?: node) }
+            ViewerAction(FiletIcons.Share, "Share") { vm.shareFromViewer(track ?: node) }
             ViewerAction(FiletIcons.Info, "Properties") { vm.showProperties(track ?: node) }
         }
 

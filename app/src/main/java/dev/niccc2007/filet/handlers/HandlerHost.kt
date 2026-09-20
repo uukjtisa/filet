@@ -82,6 +82,18 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
             chooser?.let { node -> OpenWithSheet(vm, node) }
         }
 
+        // Where a viewer's Share goes. Bug identified: it handed straight to Android's share
+        // sheet, so Filet's own network share was the one destination its own button could
+        // not reach. Only shown when there is a real choice - see shareTargets.
+        val shareFor by vm.shareChoiceFor.collectAsState()
+        AnimatedVisibility(
+            visible = shareFor != null,
+            enter = fadeIn() + slideInVertically { it / 3 },
+            exit = fadeOut() + slideOutVertically { it / 3 },
+        ) {
+            shareFor?.let { node -> ShareChoiceSheet(vm, node) }
+        }
+
         // The second sheet: not "what can Filet do with this" but "which installed app".
         // Two sheets rather than one list, because the questions are different and mixing
         // Filet's own viewers with thirty third-party apps makes both harder to scan.
@@ -200,6 +212,62 @@ private fun OpenWithSheet(vm: BrowserViewModel, node: dev.niccc2007.filet.vfs.VN
                 Spacer(Modifier.width(8.dp))
                 SheetButton("Just once", primary = true, enabled = chosen != null) {
                     chosen?.let { vm.openWith(node, it, remember = false) }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Where to send a file from a viewer.
+ *
+ * Two destinations, and the network one is Filet's own: a link any browser on this network can
+ * open, with nothing installed at the other end. Handing the file to another app stays first
+ * because it is still right most of the time.
+ */
+@Composable
+private fun ShareChoiceSheet(vm: BrowserViewModel, node: dev.niccc2007.filet.vfs.VNode) {
+    val colors = Filet.colors
+    Box(
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))
+            .clickable { vm.dismissShareChoice() },
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .clickable(enabled = false) {}
+                .padding(bottom = 16.dp),
+        ) {
+            Text(
+                "Share ${node.name}",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 10.dp),
+            )
+            for (target in shareTargets(local = true)) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { vm.shareVia(node, target) }
+                        .padding(horizontal = 18.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        if (target == ShareTarget.NETWORK) FiletIcons.Wifi else FiletIcons.Share,
+                        null,
+                        tint = colors.fg2,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Column {
+                        Text(target.label, fontSize = 13.5.sp)
+                        Text(target.detail, fontSize = 11.sp, color = colors.fg3)
+                    }
                 }
             }
         }

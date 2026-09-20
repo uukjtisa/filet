@@ -132,4 +132,41 @@ class DayBucketTest {
         repeat(4) { s.record(set, now = NOW) }
         assertEquals(after, store.writes)
     }
+
+    // ── the flicker, reported a second time ──
+
+    @Test
+    fun `a blocked publish reaches nothing at all`() {
+        // The fault: the guard wrapped the backing list while the rows actually on screen were
+        // written unconditionally beneath it. So the protection existed and the screen never
+        // got it - a refresh painted every intermediate answer anyway.
+        assertFalse(FeedPublish.publishable(complete = false, screenIsEmpty = false))
+    }
+
+    @Test
+    fun `a refresh with a list already up shows nothing until it is complete`() {
+        // Every intermediate state during a refresh is a list that was never true.
+        assertFalse(FeedPublish.publishable(complete = false, screenIsEmpty = false))
+        assertTrue(FeedPublish.publishable(complete = true, screenIsEmpty = false))
+    }
+
+    @Test
+    fun `a cold start still fills in as it goes`() {
+        // The case partials exist for: an empty screen should not sit empty.
+        assertTrue(FeedPublish.publishable(complete = false, screenIsEmpty = true))
+    }
+
+    @Test
+    fun `a complete pass always publishes`() {
+        assertTrue(FeedPublish.publishable(complete = true, screenIsEmpty = true))
+        assertTrue(FeedPublish.publishable(complete = true, screenIsEmpty = false))
+    }
+
+    @Test
+    fun `publishable agrees with showPartial wherever showPartial applies`() {
+        // One rule, not two that can drift.
+        for (empty in listOf(true, false)) {
+            assertEquals(FeedPublish.showPartial(empty), FeedPublish.publishable(false, empty))
+        }
+    }
 }

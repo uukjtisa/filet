@@ -1,6 +1,8 @@
 package dev.niccc2007.filet.home
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -91,6 +93,10 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
     var shown by remember { mutableIntStateOf(PAGE) }
     var collapsed by remember { mutableStateOf(setOf<String>()) }
     var picking by remember { mutableStateOf(false) }
+    // The same sheet the Home overview opens, from the same rows. One definition, not two -
+    // a row that answers a long press differently depending on which screen it is on is worse
+    // than one that does not answer at all.
+    var menuFor by remember { mutableStateOf<dev.niccc2007.filet.vfs.VNode?>(null) }
     val scope = rememberCoroutineScope()
 
     // Record first-seen for whatever the feed found, so the ordering has something to sort on,
@@ -222,12 +228,12 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
                     val take = g.entries.take((shown - drawn).coerceAtLeast(0))
                     drawn += take.size
                     items(take.size, key = { "e:${g.key}:${take[it].path}" }) { i ->
-                        HistoryRow(take[i], sort, vm)
+                        HistoryRow(take[i], sort, vm) { menuFor = it }
                     }
                 }
             } else {
                 val take = flat.take(shown)
-                items(take.size, key = { "f:${take[it].path}" }) { i -> HistoryRow(take[i], sort, vm) }
+                items(take.size, key = { "f:${take[it].path}" }) { i -> HistoryRow(take[i], sort, vm) { menuFor = it } }
             }
 
             val remaining = entries.size - shown
@@ -244,6 +250,19 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
                 item(key = "end") { Spacer(Modifier.height(24.dp)) }
             }
         }
+    }
+
+    menuFor?.let { node ->
+        HomeRowSheet(
+            node = node,
+            onDismiss = { menuFor = null },
+            onReveal = { menuFor = null; vm.revealInFolder(node) },
+            onOpen = { menuFor = null; vm.openHomeEntry(node) },
+            onShare = { menuFor = null; vm.shareOne(node) },
+            onBookmark = { menuFor = null; vm.bookmarkOne(node) },
+            onShortcut = { menuFor = null; vm.shortcutOne(node) },
+            onForget = { menuFor = null; vm.forgetHomeEntry(node) },
+        )
     }
 }
 
@@ -289,7 +308,13 @@ private fun DayHeader(group: DayGroup, collapsed: Boolean, onToggle: () -> Unit)
 }
 
 @Composable
-private fun HistoryRow(entry: HistoryEntry, sort: HistorySort, vm: BrowserViewModel) {
+@OptIn(ExperimentalFoundationApi::class)
+private fun HistoryRow(
+    entry: HistoryEntry,
+    sort: HistorySort,
+    vm: BrowserViewModel,
+    onLongPress: (dev.niccc2007.filet.vfs.VNode) -> Unit,
+) {
     val colors = Filet.colors
     val node = remember(entry.path) {
         dev.niccc2007.filet.vfs.VNode(
@@ -302,7 +327,14 @@ private fun HistoryRow(entry: HistoryEntry, sort: HistorySort, vm: BrowserViewMo
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable { vm.openHomeEntry(node) }
+            // Bug identified: this list answered a tap and nothing else, while the very same
+            // rows on the Home overview answer a long press with a sheet. The actions that
+            // exist everywhere else in the app were missing exactly where a new file is most
+            // likely to need them.
+            .combinedClickable(
+                onClick = { vm.openHomeEntry(node) },
+                onLongClick = { onLongPress(node) },
+            )
             .padding(start = 26.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

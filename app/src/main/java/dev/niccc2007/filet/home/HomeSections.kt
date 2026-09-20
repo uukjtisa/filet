@@ -13,8 +13,14 @@ package dev.niccc2007.filet.home
  */
 object HomeSections {
 
-    /** Files that appeared in a tracked folder. The cause is the folder, not the user. */
-    const val ARRIVED = "New in your folders"
+    /**
+     * Files that appeared in a tracked folder. The cause is the folder, not the user.
+     *
+     * "tracked" is in the name because it was never watching all of them - only the folders on
+     * the tracked list - and a heading that overstates its reach makes an empty section look
+     * like a fault rather than an accurate answer.
+     */
+    const val ARRIVED = "New in your tracked folders"
 
     /** Files the user opened. The cause is the user, not the folder. */
     const val OPENED = "Recently opened"

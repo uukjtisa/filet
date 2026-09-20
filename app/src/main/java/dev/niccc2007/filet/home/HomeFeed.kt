@@ -367,9 +367,14 @@ class HomeFeed(
         // previous full list stays put until the new one is ready, because watching entries
         // appear, re-sort and be replaced is the flicker in the report - and every intermediate
         // state it shows is a list that was never true.
-        if (complete || FeedPublish.showPartial(_all.value.isEmpty())) {
-            _all.value = everything
-        }
+        // In front of EVERYTHING this function writes, not just the backing list.
+        //
+        // The guard used to wrap `_all` alone while `_downloads` - the rows actually on screen
+        // - was assigned unconditionally below it. So the protection existed and the screen
+        // never got it: a refresh still painted every intermediate answer, which is the
+        // flicker as reported. A blocked publish now changes nothing at all.
+        if (!FeedPublish.publishable(complete, _all.value.isEmpty())) return
+        _all.value = everything
         if (complete) _settled.value = everything
         val top = everything.take(SHOWN)
         _downloads.value = top

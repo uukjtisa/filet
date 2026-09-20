@@ -262,9 +262,16 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     }
 }
 
-/** The actions a Home row offers. Kept flat: a sheet of seven is already a lot. */
+/**
+ * The actions a Home row offers. Kept flat: a sheet of seven is already a lot.
+ *
+ * Not private, because the expanded tab shows the same rows and must offer the same actions.
+ * Two copies of this list would drift, and the drift would be silent - a row that answers a
+ * long press differently depending on which screen it is on is worse than one that does not
+ * answer at all.
+ */
 @Composable
-private fun HomeRowSheet(
+fun HomeRowSheet(
     node: VNode,
     onDismiss: () -> Unit,
     onReveal: () -> Unit,

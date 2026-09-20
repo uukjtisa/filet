@@ -491,7 +491,7 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                     OverlayAction(FiletIcons.Link, "Open in another app") {
                         vm.openExternally(node, force = true)
                     }
-                    OverlayAction(FiletIcons.Share, "Share") { vm.shareOne(node) }
+                    OverlayAction(FiletIcons.Share, "Share") { vm.shareFromViewer(node) }
                     OverlayAction(FiletIcons.Info, "Properties") { vm.showProperties(node) }
                 }
             }

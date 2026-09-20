@@ -238,7 +238,7 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
                 ViewerAction(FiletIcons.Refresh, "Reset zoom", enabled = shown != null) { resetView() }
                 // The gap found while looking at a PNG: the in-app viewer had no way out.
                 ViewerAction(FiletIcons.Link, "Open in another app") { vm.openExternally(node, force = true) }
-                ViewerAction(FiletIcons.Share, "Share") { vm.shareOne(node) }
+                ViewerAction(FiletIcons.Share, "Share") { vm.shareFromViewer(node) }
                 ViewerAction(FiletIcons.Info, "Properties") { vm.showProperties(node) }
             }
         }
