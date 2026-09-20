@@ -58,13 +58,25 @@ object MediaCatchUp {
     }
 
     /**
+     * Whether a folder should be walked at all.
+     *
+     * A name beginning with a dot is hidden, and everything under it is hidden with it.
+     * Android's own scanner will not index any of it, so announcing it achieves nothing - and
+     * it would be the wrong thing to attempt even if it worked. A folder called `.private` is
+     * somebody saying what they want, and a file manager that quietly published its contents
+     * to the gallery would be doing the opposite of its job.
+     *
+     * The files inside such a folder often have perfectly ordinary names, so filtering on the
+     * FILE name would let every one of them through. This is what makes it a privacy rule
+     * rather than a wasted walk.
+     */
+    fun worthWalking(folderName: String): Boolean = !folderName.startsWith(".")
+
+    /**
      * What the media index has not been told about.
      *
      * @param onDisk every media path Filet can see.
      * @param known every path MediaStore already holds.
-     *
-     * Order is preserved so a sweep announces in the order it walked, which keeps a partial
-     * run predictable rather than arbitrary.
      */
     fun missing(onDisk: Collection<String>, known: Set<String>): List<String> =
         onDisk.asSequence().filterNot { it in known }.distinct().toList()
@@ -133,6 +145,7 @@ object MediaCatchUp {
         known: Set<String>,
     ) {
         if (into.size >= limit) return
+        if (!worthWalking(dir.name)) return
         val children = runCatching { vfs.list(dir) }.getOrNull() ?: return
         // A folder holding .nomedia is deliberately hidden from galleries, and that applies to
         // THIS folder and everything under it - announcing any of it would override a choice

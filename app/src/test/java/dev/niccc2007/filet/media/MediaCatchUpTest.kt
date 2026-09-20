@@ -91,4 +91,33 @@ class MediaCatchUpTest {
     fun `nothing on disk is not an error`() {
         assertTrue(MediaCatchUp.missing(emptyList(), setOf("/a/1.mp4")).isEmpty())
     }
+
+    // ── folders that must be left alone ──
+
+    @Test
+    fun `a hidden folder is never walked`() {
+        // Measured on a real device: videos sat under Download/Trawl/.private, and Android
+        // will not index anything under a dot-folder however loudly it is announced - so this
+        // is not an optimisation. A folder called .private is a deliberate choice, and a file
+        // manager that published its contents to the gallery would be doing the opposite of
+        // its job.
+        assertFalse(MediaCatchUp.worthWalking(".private"))
+        assertFalse(MediaCatchUp.worthWalking(".thumbnails"))
+        assertFalse(MediaCatchUp.worthWalking(".Trash"))
+    }
+
+    @Test
+    fun `an ordinary folder is walked`() {
+        for (n in listOf("Download", "DCIM", "Trawl", "Movies", "a.folder.with.dots")) {
+            assertTrue(n, MediaCatchUp.worthWalking(n))
+        }
+    }
+
+    @Test
+    fun `a file with an ordinary name inside a hidden folder is still not announced`() {
+        // What makes this a privacy rule and not a wasted walk: those files have perfectly
+        // normal names, so filtering on the FILE name lets every one of them through.
+        assertTrue("the name alone looks fine", MediaCatchUp.isMedia("holiday.mp4"))
+        assertFalse("but its folder is hidden", MediaCatchUp.worthWalking(".private"))
+    }
 }
