@@ -301,16 +301,40 @@ class HomeFeed(
      *    feed is right almost immediately and only gets more right as slower places answer.
      *    Waiting for the slowest folder before showing the fastest one was the whole defect.
      */
+    /** Set when a refresh is asked for while one is already running. */
+    private var rerunWanted = false
+
+    /**
+     * Bug identified, reported as the feed showing a state from hours ago after a cold start,
+     * and as being inconsistent about it.
+     *
+     * A pass used to cancel the one before it. On startup there are three refreshes in quick
+     * succession - `onFirstScreen` calls one, the tracked-folder flow emits its current value
+     * and calls another, and the Home screen composes and calls a third - so two of them died
+     * before finishing. The only publish that sets the settled list is the one at the very end
+     * of a pass, so a startup could easily finish with no complete publish at all, leaving
+     * whichever partial landed first on screen for good. Sometimes a pass survived and the
+     * feed was right, which is the inconsistency.
+     *
+     * A pass in flight now finishes, and one more is queued behind it. Queued rather than
+     * counted: ten requests during one pass are still one more pass, because they would all
+     * read the same folders and reach the same answer.
+     */
     fun refresh() {
-        // One pass at a time. Pressing refresh during a slow pass should replace it, not race
-        // it: two passes finishing out of order would publish the older answer last.
-        running?.cancel()
+        if (running?.isActive == true) {
+            rerunWanted = true
+            return
+        }
         running = scope.launch {
             _loading.value = true
             val folders = tracked.folders.value
             if (folders.isEmpty()) {
                 _downloads.value = emptyList()
                 _loading.value = false
+                // A queued rerun is dropped rather than honoured here on purpose: with no
+                // tracked folders a second pass would read the same nothing. It is cleared so
+                // it cannot fire later against a different question.
+                rerunWanted = false
                 return@launch
             }
             val gathered = java.util.concurrent.ConcurrentHashMap<VPath, List<FeedItem>>()
@@ -348,8 +372,13 @@ class HomeFeed(
             // pass that actually finished has a better answer.
             // The only complete publish. Every earlier one came from inside a folder's own
             // coroutine and held whatever had finished by then.
-            publish(gathered.values, complete = true)
+            publish(gathered.values, PublishKind.COMPLETE)
             _loading.value = false
+            // Anything asked for while this was running gets exactly one more pass.
+            if (rerunWanted) {
+                rerunWanted = false
+                refresh()
+            }
         }
     }
 
@@ -361,7 +390,7 @@ class HomeFeed(
      * rows. Trimming first turns that into at most eight lookups, and it is why the feed went
      * from minutes to immediate.
      */
-    private fun publish(all: Collection<List<FeedItem>>, complete: Boolean = false) {
+    private fun publish(all: Collection<List<FeedItem>>, kind: PublishKind = PublishKind.PARTIAL) {
         val everything = all.flatten().distinctBy { it.node.path }.sortedByDescending { it.at }
         // Partial results are only drawn when there is nothing on screen yet. On a refresh the
         // previous full list stays put until the new one is ready, because watching entries
@@ -373,9 +402,9 @@ class HomeFeed(
         // - was assigned unconditionally below it. So the protection existed and the screen
         // never got it: a refresh still painted every intermediate answer, which is the
         // flicker as reported. A blocked publish now changes nothing at all.
-        if (!FeedPublish.publishable(complete, _all.value.isEmpty())) return
+        if (!FeedPublish.publishable(kind, _all.value.isEmpty())) return
         _all.value = everything
-        if (complete) _settled.value = everything
+        if (kind == PublishKind.COMPLETE) _settled.value = everything
         val top = everything.take(SHOWN)
         _downloads.value = top
         val lookup = originLookup ?: return
@@ -414,7 +443,10 @@ class HomeFeed(
             }
         }
         if (fresh.isEmpty()) return
-        publish(listOf(fresh + _downloads.value))
+        // SPLICE, not PARTIAL. This is a file the kernel has just named, not a subset of
+        // a pass - blocking it is what made a new arrival invisible until some later pass
+        // happened to run all the way through.
+        publish(listOf(fresh + _downloads.value), PublishKind.SPLICE)
     }
 
     /**
