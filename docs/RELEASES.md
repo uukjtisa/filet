@@ -13,6 +13,30 @@ Write it like that.
 
 ## The rules
 
+**Write it like a flagship app writes one.** Plain, short, list-shaped. The reader wants to
+know whether to tap Update, and the notes answer that and stop.
+
+A release body has no narrator. Do not open with a thesis, a mood, a count of how many things
+were fixed, or a sentence about what kind of release this is. These are all the same mistake:
+
+> ~~"Repairs, and a video player that behaves like one. No new screens are pictured here."~~
+> ~~"Eighteen things, every one of them something that went wrong in use."~~
+
+The opening paragraph is one or two sentences of fact - what this update does, and anything
+about installing it that cannot wait. Then the list. Every bullet is **the symptom** in bold
+and what happens now, one sentence each. No preamble to a section, no commentary between
+bullets, no closing remark.
+
+Specifically, and each of these has been written here before:
+
+| Do not | Instead |
+|---|---|
+| "This release focuses on..." | say what changed |
+| "Eight fixes, every one of them..." | the eight bullets are the count |
+| "No new screens are pictured here." | the no-pictures line the shape below already has |
+| a wry aside about the bug | the symptom, then the fix |
+| "we", "I", "you'll notice" | the app and the file, named plainly |
+
 ## The order of operations, which is not optional
 
 Releases 0.1.5 and 0.1.6 both turned the repository's checks red for a while, for the same
@@ -39,10 +63,11 @@ exists — the check is a fact about the repository, not about that moment, so i
 
 **Never `git push origin vX.Y.Z`.** It is the one command that opens the window.
 
-**Pictures only when there is something new to show.** review, 2026-09-15:  A release of pure repairs has nothing to
-photograph, and filling the strip with shots of screens that did not change is how a gallery
-goes stale — which is a thing he has complained about separately. * in the opening paragraph; `check-releasedoc.mjs` accepts that
-in place of images, so the absence is a stated claim rather than an oversight.
+**Pictures only when there is something new to show.** A release of pure repairs has nothing
+to photograph, and filling the strip with shots of screens that did not change is how a
+gallery goes stale. Such a release says *no new screens in this one* in the opening paragraph;
+`check-releasedoc.mjs` accepts that in place of images, so the absence is a stated claim
+rather than an oversight.
 
 **Open with pictures when there ARE any.** A centred `<div>` of `<img>` tags becomes one screenshot strip in the
 app. Show what changed: a release that adds a screen should show that screen. Point the `src`
@@ -104,12 +129,10 @@ about source files, and it cannot see whether the writing is any good.
 
 ## Why this file exists
 
-review, round 8:
+A release body is a formatted document with images in it, rendered on a screen - not a
+changelog.
 
-review asked for Trawl's release-writing rule to apply here too: a release body is a formatted
-document with images in it, rendered, rather than a changelog.
-
-The rule is Trawl's, which has the same renderer and the same reason for it. Both apps are
+The rule comes from Trawl, which has the same renderer and the same reason for it. Both apps are
 sideloaded, neither has a store listing, and in both the release body is doing a job that a
 store description would otherwise do. It is written down in the repository rather than only in
 the agent instructions so that it outlives any one session and applies to the next app too.
