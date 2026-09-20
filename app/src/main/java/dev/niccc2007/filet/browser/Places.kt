@@ -89,7 +89,10 @@ fun RecentBody(vm: BrowserViewModel, pane: PaneController) {
                         dev.niccc2007.filet.vfs.VNode(r.path, isDir = false, size = -1, mtime = r.at)
                     )
                 },
-                onLongClick = {},
+                // Symmetric with the bookmarks list above, which removes on a long press.
+                // This one claimed the gesture and dropped it, so a stale entry could only be
+                // cleared by clearing every one of them.
+                onLongClick = { vm.recents.remove(r.path); vm.toast("Removed from recents") },
             )
         }
     }
