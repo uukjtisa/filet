@@ -55,3 +55,26 @@ fun hitState(crawlRunning: Boolean, rowGen: Long, currentGen: Long): HitState =
  * narrowing thousands of rows to a page, and a stat on a page is nothing.
  */
 fun showable(existsOnDisk: Boolean): Boolean = existsOnDisk
+
+/**
+ * Whether the state is worth drawing at all.
+ *
+ * Reported as there being no indicator on screen. Two things produced that, and only one was
+ * the obvious one.
+ *
+ * The first: the badge was drawn only for [HitState.CONFIRMING], on the argument that a label
+ * on every row saying Available is noise. That argument is right between passes and wrong
+ * during one - while a pass is running, "this one has been checked" and "this one has not yet"
+ * are both facts worth having, and showing only half of the pair makes the other half
+ * indistinguishable from a feature that is not there.
+ *
+ * The second is the one that actually made the screen blank, and it is a case the first design
+ * did not have: on a FIRST index there is nothing to confirm. The database was empty when the
+ * pass began, so every row it holds was written by that pass and is Available by definition.
+ * Nothing could ever be labelled, which reads as nothing working.
+ *
+ * So: while a pass is running, every row says which it is. Between passes, nothing does -
+ * everything is available then and a badge on every row would be the noise the first argument
+ * was worried about.
+ */
+fun showBadge(crawlRunning: Boolean): Boolean = crawlRunning

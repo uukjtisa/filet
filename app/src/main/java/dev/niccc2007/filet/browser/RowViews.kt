@@ -234,6 +234,8 @@ fun SearchResultRow(
      * than labelled - see HitState, where the rejected third state is written down.
      */
     state: dev.niccc2007.filet.index.HitState = dev.niccc2007.filet.index.HitState.AVAILABLE,
+    /** Whether a pass is running. Between passes no row carries a badge. See showBadge. */
+    crawlRunning: Boolean = false,
     metrics: PaneMetrics,
     selected: Boolean,
     modifier: Modifier = Modifier,
@@ -259,17 +261,21 @@ fun SearchResultRow(
         Column(Modifier.weight(1f)) {
             Text(node.name, fontSize = metrics.step.nameSize.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Only the one that is not the resting state is drawn. A badge on every row
-                // saying "Available" is noise that teaches people to stop reading badges,
-                // which is how the one that matters gets missed.
-                if (state == dev.niccc2007.filet.index.HitState.CONFIRMING) {
+                // While a pass is running, every row says which it is: only drawing the
+                // cautious half made the confident half indistinguishable from a feature that
+                // was not there - and on a FIRST index nothing can be cautious, because the
+                // database was empty when the pass began. That is why the screen was blank.
+                // Between passes nothing is drawn; everything is available then.
+                if (dev.niccc2007.filet.index.showBadge(crawlRunning)) {
+                    val confirming = state == dev.niccc2007.filet.index.HitState.CONFIRMING
+                    val tint = if (confirming) colors.warn else colors.good
                     Text(
                         state.label,
                         fontSize = (metrics.step.metaSize - 0.5f).sp,
-                        color = colors.warn,
+                        color = tint,
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
-                            .background(colors.warn.copy(alpha = 0.13f))
+                            .background(tint.copy(alpha = 0.13f))
                             .padding(horizontal = 4.dp, vertical = 1.dp),
                     )
                     Spacer(Modifier.width(6.dp))

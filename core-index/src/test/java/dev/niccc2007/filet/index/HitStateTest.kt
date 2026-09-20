@@ -73,3 +73,42 @@ class HitStateTest {
         assertEquals(HitState.AVAILABLE, hitState(true, rowGen = 12, currentGen = 7))
     }
 }
+
+/**
+ * When the badge is drawn, which is a separate decision from what it says.
+ *
+ * Reported as there being no indicator on the screen at all, during an index pass. The badge
+ * was drawn only for CONFIRMING - and on a first index nothing can be confirming, because the
+ * database was empty when the pass started and every row in it was written by that pass.
+ */
+class HitBadgeTest {
+
+    @Test
+    fun `during a pass every row says which it is`() {
+        assertTrue(showBadge(crawlRunning = true))
+    }
+
+    @Test
+    fun `between passes nothing is labelled`() {
+        // Everything is available then, and a badge on every row is the noise that teaches
+        // people to stop reading badges.
+        assertFalse(showBadge(crawlRunning = false))
+    }
+
+    @Test
+    fun `a first index still shows something`() {
+        // The case that produced the report: an empty database, so every row is written by the
+        // running pass and is AVAILABLE. If only CONFIRMING were drawn, the screen would carry
+        // no indicator at all while indexing - which is exactly what was seen.
+        val firstIndex = hitState(crawlRunning = true, rowGen = 1, currentGen = 1)
+        assertEquals(HitState.AVAILABLE, firstIndex)
+        assertTrue("a first index must still show a state", showBadge(crawlRunning = true))
+    }
+
+    @Test
+    fun `both states are drawable`() {
+        for (state in HitState.entries) {
+            assertTrue("$state has no label", state.label.isNotEmpty())
+        }
+    }
+}

@@ -487,6 +487,10 @@ private fun FolderBody(
     // list uses, so the actions do not differ by which screen you found the file on.
     var searchMenuFor by remember { mutableStateOf<VNode?>(null) }
 
+    // Whether an index pass is in flight. Decides whether a result carries a state badge at
+    // all - see showBadge.
+    val crawlRunning = vm.indexStatus.collectAsState().value.running
+
     // A new folder starts at the top - unless something asked to be revealed in it, in which
     // case scrolling to the top is exactly what would undo the reveal.
     LaunchedEffect(s.cwd) {
@@ -562,6 +566,7 @@ private fun FolderBody(
                         where = s.search.hits.firstOrNull { it.node.path == node.path }?.where ?: "",
                         state = s.search.hits.firstOrNull { it.node.path == node.path }?.state
                             ?: dev.niccc2007.filet.index.HitState.AVAILABLE,
+                        crawlRunning = crawlRunning,
                         metrics = metrics,
                         selected = node.path in s.selected,
                         onClick = { rowClick(pane, vm, side, node) },
