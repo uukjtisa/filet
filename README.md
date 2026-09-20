@@ -48,9 +48,9 @@ Built by **[Niccc2007](https://github.com/uukjtisa)**.
 A file manager built for people who actually use one. Four things it refuses to trade against
 each other:
 
-- **Productivity.** Find the file, move it, be done. Search answers in milliseconds across the
-  whole device, split panes mean copying is a drag rather than a round trip, and the things you
-  do every day are one tap from where you already are.
+- **Productivity.** The fewest steps between wanting a file and having it. Search answers in
+  milliseconds across the whole device, split panes make copying a drag instead of a round
+  trip, and what you reach for every day is already where you are.
 - **Power.** Edit a file inside an archive without unpacking it. Read the smali inside an APK,
   change it, rebuild and re-sign it on the phone. Script the whole thing in Lua. None of it is
   behind a paywall and none of it is a separate app.
