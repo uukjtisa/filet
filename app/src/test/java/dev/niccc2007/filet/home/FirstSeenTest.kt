@@ -190,15 +190,15 @@ class FirstSeenTest {
         assertEquals(2_000L, s.of("/b.txt"))
     }
 
-    @Test fun after_the_seeding_window_a_genuinely_new_file_is_stamped_with_the_clock() {
+    @Test fun once_a_complete_pass_is_in_a_genuinely_new_file_is_stamped_with_the_clock() {
         // And this is why seeding cannot simply become the rule: a file COPIED in later keeps
         // whatever mtime it was written with, and only the clock records that it turned up when
-        // it did. Measured past the window, because inside it every new path is still part of
-        // the first scan.
+        // it did. Measured after a complete pass, because until then every new path is still
+        // part of the first scan.
         val s = Fake().store()
-        s.record(mapOf("/old.txt" to 1_000L), now = 5_000L)
-        val later = 5_000L + FirstSeenStore.SEED_WINDOW + 1
-        s.record(mapOf("/old.txt" to 1_000L, "/copied.txt" to 1L), now = later)
+        s.record(mapOf("/old.txt" to 1_000L), now = 5_000L, complete = true)
+        val later = 9_000_000L
+        s.record(mapOf("/old.txt" to 1_000L, "/copied.txt" to 1L), now = later, complete = true)
         assertEquals("a seeded file moved", 1_000L, s.of("/old.txt"))
         assertEquals("a later arrival should carry the clock", later, s.of("/copied.txt"))
     }
@@ -215,8 +215,7 @@ class FirstSeenTest {
         // Found on the device, not in review. The feed publishes a fast partial result before
         // its full scan finishes, so "the store is empty" stopped being true after six files
         // and the remaining four thousand were stamped with the clock a second later - the same
-        // symptom as the bug it was meant to fix. The window is what makes the whole first scan
-        // one first run, however many passes it arrives in.
+        // symptom as the bug it was meant to fix.
         val s = Fake().store()
         s.record(mapOf("/a.txt" to 1_000L), now = 5_000L)
         s.record(mapOf("/b.txt" to 2_000L), now = 6_000L)
@@ -224,32 +223,51 @@ class FirstSeenTest {
         assertEquals("the rest of the first scan should still seed", 2_000L, s.of("/b.txt"))
     }
 
-    @Test fun once_the_window_closes_a_new_file_takes_the_clock() {
+    @Test fun seeding_does_not_expire_with_time() {
+        // The bug this replaced, stated as a test. Seeding used to end five minutes after the
+        // store was first written, and that timestamp was persisted - so a store created in an
+        // earlier session was already past its window before the first full scan ever ran, and
+        // every file on the phone took the clock. On the device that showed up as screenshots
+        // from 12 June reading as first seen at 10:11am today, which was only when the app had
+        // been started. Time must not be able to end the seeding; only a complete pass may.
         val s = Fake().store()
-        s.record(mapOf("/a.txt" to 1_000L), now = 5_000L)
-        val later = 5_000L + FirstSeenStore.SEED_WINDOW + 1
-        s.record(mapOf("/copied.txt" to 1L), now = later)
-        assertEquals("a file arriving later carries the clock", later, s.of("/copied.txt"))
+        val muchLater = 30L * 24 * 60 * 60 * 1000  // a month after the store was created
+        s.record(mapOf("/a.txt" to 1_000L), now = 1L)
+        s.record(mapOf("/june.jpg" to 2_000L), now = muchLater)
+        assertEquals("a month later and still the first scan", 2_000L, s.of("/june.jpg"))
     }
 
-    @Test fun the_window_survives_a_restart() {
-        // It is stored alongside the paths, so a first scan that spans an app restart is still
-        // one first run rather than half a seeded history and half a wall of "Today".
+    @Test fun seeding_survives_a_restart_and_only_a_complete_pass_ends_it() {
+        // A first scan spanning an app restart is still one first run, rather than half a
+        // seeded history and half a wall of "Today".
         val fake = Fake()
         fake.store().record(mapOf("/a.txt" to 1_000L), now = 5_000L)
         val reopened = fake.store()
         reopened.record(mapOf("/b.txt" to 2_000L), now = 7_000L)
         assertEquals(2_000L, reopened.of("/b.txt"))
+
+        reopened.record(mapOf("/b.txt" to 2_000L), now = 8_000L, complete = true)
+        val after = fake.store()
+        after.record(mapOf("/c.txt" to 3_000L), now = 9_000L)
+        assertEquals("the complete pass should have ended seeding, and persisted that", 9_000L, after.of("/c.txt"))
     }
 
-    @Test fun clearing_reopens_the_seeding_window() {
+    @Test fun an_empty_complete_pass_does_not_end_the_seeding() {
+        // A tracked set that reads as empty proves nothing about the device; ending seeding on
+        // it would stamp the real first scan with the clock.
+        val s = Fake().store()
+        s.record(emptyMap(), now = 5_000L, complete = true)
+        s.record(mapOf("/a.txt" to 1_000L), now = 6_000L)
+        assertEquals(1_000L, s.of("/a.txt"))
+    }
+
+    @Test fun clearing_starts_the_seeding_over() {
         // After a deliberate clear the next pass is a first run again, and should not stamp
         // everything with the moment the button was pressed.
         val s = Fake().store()
-        s.record(mapOf("/a.txt" to 1_000L), now = 5_000L)
-        val late = 5_000L + FirstSeenStore.SEED_WINDOW + 1
+        s.record(mapOf("/a.txt" to 1_000L), now = 5_000L, complete = true)
         s.clear()
-        s.record(mapOf("/a.txt" to 1_000L), now = late)
+        s.record(mapOf("/a.txt" to 1_000L), now = 9_000_000L)
         assertEquals(1_000L, s.of("/a.txt"))
     }
 }

@@ -43,8 +43,14 @@ class FirstSeenStore(
     private val known = LinkedHashMap<String, Long>()
     private var loaded = false
 
-    /** When this store was first written to. Zero until the first [record]. */
-    private var since = 0L
+    /**
+     * Whether a complete pass has ever been recorded.
+     *
+     * Until one has, every path is new because Filet was not watching yet, so it is dated from
+     * its own modification time. Afterwards Filet genuinely is watching, and a path appearing
+     * for the first time really did turn up now.
+     */
+    private var seeded = false
     private var dirty = false
 
     @Synchronized
@@ -54,8 +60,8 @@ class FirstSeenStore(
         val raw = read() ?: return
         runCatching {
             val o = JSONObject(raw)
-            since = o.optLong(SINCE_KEY, 0L)
-            for (k in o.keys()) if (k != SINCE_KEY) known[k] = o.optLong(k)
+            seeded = o.optBoolean(SEEDED_KEY, false)
+            for (k in o.keys()) if (k != SEEDED_KEY) known[k] = o.optLong(k)
         }
     }
 
@@ -89,27 +95,38 @@ class FirstSeenStore(
      * thousand were stamped with the clock a second later. The symptom was identical to the bug
      * it was meant to fix.
      *
-     * So the window is a WINDOW. [since] is written the first time the store is used, and for
-     * [SEED_WINDOW] after that a new path takes its own mtime. That covers a first scan however
-     * many passes it arrives in, and however slow the device is. Afterwards Filet is genuinely
-     * watching, so a new path takes the clock - which is the whole point, because a file COPIED
-     * in today keeps whatever mtime it was written with and only the clock records that it
-     * turned up today.
+     * The second attempt made it a five-minute WINDOW from the store's first use, and that was
+     * wrong ON THE DEVICE too. A window is a timer, and the thing it was standing in for is not
+     * a duration - it is *whether a complete pass has happened yet*. The timestamp persists, so
+     * a store created five minutes ago in an earlier session is already past its window: the
+     * first full scan then lands afterwards and every file on the phone is stamped with the
+     * clock. Measured on a real device, screenshots from 12 June all read as first seen at
+     * 10:11am today, which was simply when the app had been started.
+     *
+     * So the condition is now the condition itself. Until a **complete** pass has been
+     * recorded, a new path takes its own mtime, however long that takes and however many
+     * sessions it spans. Once one has, Filet is genuinely watching and a new path takes the
+     * clock - which is the whole point, because a file COPIED in today keeps whatever mtime it
+     * was written with and only the clock records that it turned up today.
+     *
+     * @param complete whether [mtimes] is the whole tracked set rather than a partial listing.
+     *   Only a complete pass ends the seeding, for the same reason only a complete pass may
+     *   [prune]: a partial one does not prove that anything is genuinely new.
      */
     @Synchronized
-    fun record(mtimes: Map<String, Long>, now: Long): Int {
+    fun record(mtimes: Map<String, Long>, now: Long, complete: Boolean = false): Int {
         ensureLoaded()
-        if (since == 0L) {
-            since = now
-            dirty = true
-        }
-        val seeding = now - since < SEED_WINDOW
+        val seeding = !seeded
         var added = 0
         for ((p, mtime) in mtimes) {
             if (!known.containsKey(p)) {
                 known[p] = if (seeding && mtime > 0) mtime else now
                 added++
             }
+        }
+        if (seeding && complete && mtimes.isNotEmpty()) {
+            seeded = true
+            dirty = true
         }
         if (added > 0 || dirty) {
             trim()
@@ -143,9 +160,10 @@ class FirstSeenStore(
     fun clear() {
         ensureLoaded()
         known.clear()
-        // The window reopens too: after a deliberate clear, the next pass is a first run again
-        // and should seed rather than stamp everything with the moment the button was pressed.
-        since = 0L
+        // Seeding starts over too: after a deliberate clear, the next pass is a first run
+        // again and should seed rather than stamp everything with the moment the button was
+        // pressed.
+        seeded = false
         save()
     }
 
@@ -165,7 +183,7 @@ class FirstSeenStore(
 
     private fun save() {
         val o = JSONObject()
-        if (since != 0L) o.put(SINCE_KEY, since)
+        if (seeded) o.put(SEEDED_KEY, true)
         for ((k, v) in known) o.put(k, v)
         write(o.toString())
         dirty = false
@@ -181,7 +199,7 @@ class FirstSeenStore(
          * moves: the store reads as empty and seeds itself properly on the next pass. The stale
          * entries are a few kilobytes that will never be read again.
          */
-        const val KEY = "home.firstSeen.v3"
+        const val KEY = "home.firstSeen.v4"
 
         /**
          * How many paths are remembered.
@@ -192,18 +210,8 @@ class FirstSeenStore(
          */
         const val MAX = 20_000
 
-        /**
-         * How long after a store is first used that new paths are still seeded from mtime.
-         *
-         * Generous on purpose: a first scan of a full phone arrives in several passes over
-         * some seconds, and every one of them must be treated as part of the same first run.
-         * Too short and the tail of the first scan is stamped with the clock, which is exactly
-         * the bug this replaced.
-         */
-        const val SEED_WINDOW = 5 * 60 * 1000L
-
-        /** The `since` timestamp shares the blob; a path can never collide with it. */
-        private const val SINCE_KEY = "__since"
+        /** The seeded flag shares the blob; a path can never collide with it. */
+        private const val SEEDED_KEY = "__seeded"
 
     }
 }

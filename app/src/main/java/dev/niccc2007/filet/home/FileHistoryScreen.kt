@@ -111,7 +111,9 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
             // those rather than from the clock - otherwise every file already on the device reads
             // as having turned up the moment this screen was first opened.
             val mtimes = settled.associate { it.node.path.toString() to it.at }
-            vm.firstSeen.record(mtimes, System.currentTimeMillis())
+            // complete: `settled` is only published after a whole pass, which is the same
+            // guarantee `prune` on the next line already relies on.
+            vm.firstSeen.record(mtimes, System.currentTimeMillis(), complete = true)
             vm.firstSeen.prune(mtimes.keys)
         }
     }

@@ -54,18 +54,22 @@ class DayBucketTest {
     }
 
     @Test
-    fun `a forgotten file re-recorded after the seeding window is stamped with the clock`() {
+    fun `a forgotten file re-recorded once seeding is over is stamped with the clock`() {
         // The step that turns a forgotten path into a file dated today. Everything above this
         // is recoverable; this is where the real date is destroyed.
+        //
+        // The condition used to be elapsed time and is now "a complete pass has happened",
+        // because a timer persisted across sessions and expired before the first full scan
+        // ever ran - which dated every file on the phone to whenever the app was started.
         val s = Store().open()
-        s.record(mapOf("/old.txt" to MONTHS_AGO), now = MONTHS_AGO)
+        s.record(mapOf("/old.txt" to MONTHS_AGO), now = MONTHS_AGO, complete = true)
         assertEquals(MONTHS_AGO, s.of("/old.txt"))
 
         s.prune(emptySet())
         s.record(mapOf("/old.txt" to MONTHS_AGO), now = NOW)
 
         assertEquals(
-            "re-recording past the seeding window takes the clock, which is how a file from " +
+            "re-recording after a complete pass takes the clock, which is how a file from " +
                 "months ago comes back dated today",
             NOW,
             s.of("/old.txt"),
@@ -82,12 +86,12 @@ class DayBucketTest {
     }
 
     @Test
-    fun `a file that is genuinely new after the window still takes the clock`() {
+    fun `a file that is genuinely new after seeding still takes the clock`() {
         // The other positive control. A file COPIED in today keeps whatever mtime it was
         // written with, and only the clock records that it turned up today - so the clock rule
         // is right and must not be removed while fixing this.
         val s = Store().open()
-        s.record(mapOf("/seed.txt" to MONTHS_AGO), now = MONTHS_AGO)
+        s.record(mapOf("/seed.txt" to MONTHS_AGO), now = MONTHS_AGO, complete = true)
         s.record(mapOf("/seed.txt" to MONTHS_AGO, "/copied.txt" to MONTHS_AGO), now = NOW)
         assertEquals(MONTHS_AGO, s.of("/seed.txt"))
         assertEquals(NOW, s.of("/copied.txt"))
