@@ -84,7 +84,11 @@ class FiletGraph(context: Context) {
     )
 
     val vfs = Vfs(providers.toList())
-    val ops = FileOperations(vfs, ledger)
+    val ops = FileOperations(vfs, ledger) { touched ->
+        // Everything Filet writes or removes is announced to the media index. Without it a
+        // file is on the disk and invisible to every gallery on the phone.
+        dev.niccc2007.filet.media.MediaAnnounce.announce(app, touched)
+    }
 
     // Extraction is its own object because it is two operations - work out what will happen,
     // then carry out exactly that - and the preview reads the first without the second.

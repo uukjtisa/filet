@@ -37,7 +37,23 @@ data class OpResult(val succeeded: Int, val failed: List<Pair<VPath, String>>) {
  * the single most damaging bug a file manager can have. Every batch returns what actually
  * succeeded and what did not.
  */
-class FileOperations(private val vfs: Vfs, private val ledger: JobLedger) {
+class FileOperations(
+    private val vfs: Vfs,
+    private val ledger: JobLedger,
+    /**
+     * Told about every path this class writes or removes.
+     *
+     * A callback rather than a Context, because what has to happen is an Android media-index
+     * call and this class is the part that must keep working with no screen attached. The app
+     * supplies [dev.niccc2007.filet.media.MediaAnnounce]; a test supplies nothing.
+     *
+     * Bug identified: a file Filet wrote was on the disk and absent from the gallery, because
+     * the gallery reads MediaStore and MediaStore only learns of a file when an app announces
+     * it. That is true of everything written here, and of everything deleted here too - an
+     * unannounced delete leaves the gallery showing a thumbnail for a file that is gone.
+     */
+    private val announce: (List<VPath>) -> Unit = {},
+) {
 
     /**
      * @param onConflict what to do when the destination name is taken. Refusing a whole paste
@@ -46,12 +62,12 @@ class FileOperations(private val vfs: Vfs, private val ledger: JobLedger) {
      */
     suspend fun copy(items: List<VPath>, into: VPath, onConflict: Conflict = Conflict.RENAME): OpResult =
         batch(items, "Copying", into) { src, prog ->
-            vfs.copy(src, into, resolveName(src, into, onConflict), prog)
+            vfs.copy(src, into, resolveName(src, into, onConflict), prog).path
         }
 
     suspend fun move(items: List<VPath>, into: VPath, onConflict: Conflict = Conflict.RENAME): OpResult =
         batch(items, "Moving", into) { src, prog ->
-            vfs.move(src, into, resolveName(src, into, onConflict), prog)
+            vfs.move(src, into, resolveName(src, into, onConflict), prog).path
         }
 
     /** @return the name to write under, or null to keep the source name. */
@@ -67,15 +83,19 @@ class FileOperations(private val vfs: Vfs, private val ledger: JobLedger) {
     suspend fun delete(items: List<VPath>): OpResult {
         val id = ledger.start("Deleting ${items.size} item(s)")
         val failed = ArrayList<Pair<VPath, String>>()
+        val removed = ArrayList<VPath>()
         var done = 0
         for (p in items) {
             currentCoroutineContext().ensureActive()
             ledger.progress(id, done / items.size.toFloat(), p.name)
             runCatching { vfs.delete(p, recursive = true) }
-                .onSuccess { done++ }
+                .onSuccess { done++; removed += p }
                 .onFailure { failed += p to readable(it) }
         }
         report(id, done, failed)
+        // Announced even though it is gone - that is how the media index drops it, and an
+        // unannounced delete is a thumbnail in the gallery for a file that no longer exists.
+        announce(removed)
         return OpResult(done, failed)
     }
 
@@ -204,10 +224,13 @@ class FileOperations(private val vfs: Vfs, private val ledger: JobLedger) {
         items: List<VPath>,
         verb: String,
         into: VPath,
-        each: suspend (VPath, ((Progress) -> Unit)) -> Unit,
+        each: suspend (VPath, ((Progress) -> Unit)) -> VPath?,
     ): OpResult {
         val id = ledger.start("$verb ${items.size} item(s)", into.name)
         val failed = ArrayList<Pair<VPath, String>>()
+        // Both ends of every item: where it landed, and where it came from. The source matters
+        // because a move leaves nothing behind and the index has to be told that too.
+        val touched = ArrayList<VPath>()
         var done = 0
         for (src in items) {
             currentCoroutineContext().ensureActive()
@@ -216,9 +239,16 @@ class FileOperations(private val vfs: Vfs, private val ledger: JobLedger) {
                     val frac = if (p.total > 0) (p.done.toFloat() / p.total) else null
                     ledger.progress(id, frac, p.currentName)
                 }
-            }.onSuccess { done++ }.onFailure { failed += src to readable(it) }
+            }.onSuccess { landed ->
+                done++
+                touched += src
+                landed?.let { touched += it }
+            }.onFailure { failed += src to readable(it) }
         }
         report(id, done, failed)
+        // Partial batches announce too: the items that succeeded were genuinely written, and
+        // those are exactly the ones the gallery would otherwise be missing.
+        announce(touched)
         return OpResult(done, failed)
     }
 
