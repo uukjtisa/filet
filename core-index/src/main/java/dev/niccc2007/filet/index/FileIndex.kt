@@ -50,6 +50,15 @@ data class IndexStatus(
     val available: Boolean = false,
     val files: Long = 0,
     val lastRunAt: Long = 0,
+    /**
+     * When a pass was last STARTED, complete or not.
+     *
+     * Separate from [lastRunAt] because they answer different questions and merging them is
+     * what produced a crawl that never stopped. What the user is told is when a pass last
+     * finished; what decides whether to start another is when one was last tried. A tree too
+     * big for one budget never finishes, so on the merged number it was permanently overdue.
+     */
+    val lastAttemptAt: Long = 0,
     val running: Boolean = false,
     val phase: String = "",
     val scanned: Long = 0,

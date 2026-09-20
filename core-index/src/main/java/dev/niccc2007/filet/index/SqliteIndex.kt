@@ -52,6 +52,7 @@ class SqliteIndex(
             available = countFiles() > 0,
             files = countFiles(),
             lastRunAt = dbh.meta(META_LAST_RUN)?.toLongOrNull() ?: 0L,
+            lastAttemptAt = dbh.meta(META_LAST_ATTEMPT)?.toLongOrNull() ?: 0L,
             ftsAccelerated = dbh.hasFts,
             containerFacts = extractors.isNotEmpty(),
         )
@@ -537,6 +538,9 @@ class SqliteIndex(
                 // the past, which is the opposite of what the caller asked for.
                 val deadline = if (budgetMs <= 0) Long.MAX_VALUE else started + budgetMs
                 val gen = (dbh.meta(META_GEN)?.toLongOrNull() ?: 0L) + 1
+                // Only written after a pass that finished, so it names the last
+                // generation that can be trusted to have been everywhere.
+                val lastCompleteGen = dbh.meta(META_GEN)?.toLongOrNull() ?: 0L
                 // Read BEFORE anything is touched. This is the number that makes a running
                 // update legible: "checked 12,430 of 31,206" instead of a bare 12,430 that
                 // reads as an index which just started from nothing.
@@ -559,8 +563,13 @@ class SqliteIndex(
                         available = filesBefore > 0,
                         files = if (it.files == 0L) filesBefore else it.files,
                         writingGen = gen,
+                        lastAttemptAt = started,
                     )
                 }
+                // Recorded before the work, not after, so a pass that is killed still counts
+                // as an attempt. Recording it at the end is the same as not recording it at
+                // all for the case that matters - the pass that never reaches the end.
+                dbh.putMeta(META_LAST_ATTEMPT, started.toString())
 
                 var visited = 0
                 var seen = 0L
@@ -600,29 +609,42 @@ class SqliteIndex(
                             val dir = pending.path
                             visited++
 
-                            val children = runCatching { vfs.list(dir) }.getOrNull() ?: continue
                             // Directory-mtime validation, SEARCH.md §4.2.
                             //
-                            // **This does NOT skip the directory, and must not start to.** The
-                            // comment here used to say the children of an unchanged directory
-                            // are still right and re-stating them is waste. That is true of a
-                            // tree that was fully walked last time, and false of one that was
-                            // not - and a crawl can be stopped by the user, by a flat battery,
-                            // or by an error at any point. Skipping unchanged directories would
-                            // mean an interrupted pass could never pick up what it missed: the
-                            // folders it never reached have not changed, so the next pass would
-                            // skip them too, and those files would stay unindexed until
-                            // something happened to touch the folder.
+                            // The rule here was "never skip", and the reasoning for it was
+                            // sound: a crawl can be stopped by the user, a flat battery or an
+                            // error at any point, and a folder the stopped pass never reached
+                            // also has an unchanged modification time. Skipping on mtime alone
+                            // would mean the next pass skipped it too, and those files would
+                            // stay unindexed until something happened to touch the folder.
                             //
-                            // So `unchanged` only feeds the changed-directory counter. Every
-                            // pass lists every folder and upserts every child, which is what
-                            // makes an update do all three things it claims: drop what is gone,
-                            // add what is new, and add whatever a previous run never got to.
-                            // The cost is a stat per file on a tree that mostly has not moved,
-                            // and that is the right trade for a resumable crawl.
+                            // What that reasoning missed is that the two cases ARE
+                            // distinguishable. A directory stamped with the generation of the
+                            // last pass that ran to completion was definitely walked by a pass
+                            // that finished; one that was never reached carries an older
+                            // generation, or has no row at all.
+                            //
+                            // So a skip needs both: the modification time has not moved AND a
+                            // completed pass has been in there. If no pass has ever completed,
+                            // lastCompleteGen is 0, nothing qualifies, and this behaves exactly
+                            // as it did before.
+                            //
+                            // This is the half of "the indexing never stops" that makes an
+                            // update finish at all: without it every pass re-lists every folder
+                            // on the device, which on a large tree cannot be done inside any
+                            // budget worth giving a background job.
                             val dirMtime = runCatching { vfs.stat(dir)?.mtime ?: 0L }.getOrDefault(0L)
                             val known = knownDirMtime(parentId)
-                            val unchanged = known != 0L && known == dirMtime
+                            val unchanged = dirUnchanged(known, dirMtime)
+                            if (unchanged && lastCompleteGen > 0L && knownDirGen(parentId) == lastCompleteGen) {
+                                // Carried forward, so the sweep at the end does not delete a
+                                // subtree for the crime of not having changed.
+                                runCatching { keepSubtree(parentId, gen) }
+                                if (visited % 40 == 0) onProgress(seen, dir)
+                                continue
+                            }
+
+                            val children = runCatching { vfs.list(dir) }.getOrNull() ?: continue
 
                             db.beginTransaction()
                             val toExtract = ArrayList<Pair<Long, dev.niccc2007.filet.vfs.VNode>>()
@@ -709,6 +731,7 @@ class SqliteIndex(
                             // completed, so nothing is left labelled as still being checked.
                             writingGen = if (complete) gen else it.writingGen,
                             lastRunAt = if (complete) System.currentTimeMillis() else it.lastRunAt,
+                            lastAttemptAt = started,
                         )
                     }
                 }
@@ -1017,6 +1040,39 @@ class SqliteIndex(
         db.rawQuery("SELECT IFNULL(dir_mtime, 0) FROM node WHERE id = ?", arrayOf(id.toString()))
             .use { c -> if (c.moveToFirst()) c.getLong(0) else 0L }
 
+    /**
+     * Carry a subtree forward to [gen] without reading the filesystem.
+     *
+     * A skipped directory and everything under it were confirmed by the pass that last
+     * completed, and the sweep at the end of a pass deletes every row older than the
+     * current generation. Without this, skipping a directory would delete it.
+     *
+     * One statement over the whole subtree rather than a walk: the rows are already
+     * linked by parent_id, so SQLite can follow it recursively and nothing is listed.
+     */
+    private fun keepSubtree(rootId: Long, gen: Long) {
+        db.execSQL(
+            """
+            WITH RECURSIVE sub(id) AS (
+              SELECT ? UNION ALL SELECT n.id FROM node n JOIN sub ON n.parent_id = sub.id
+            )
+            UPDATE node SET gen = ? WHERE id IN (SELECT id FROM sub)
+            """.trimIndent(),
+            arrayOf<Any>(rootId, gen),
+        )
+    }
+
+    /**
+     * The generation that last stamped this directory.
+     *
+     * This is what separates "nothing in here has changed" from "nothing has ever
+     * looked in here". Both present as an unchanged modification time and only one of
+     * them is safe to skip.
+     */
+    private fun knownDirGen(id: Long): Long =
+        db.rawQuery("SELECT IFNULL(gen, 0) FROM node WHERE id = ?", arrayOf(id.toString()))
+            .use { c -> if (c.moveToFirst()) c.getLong(0) else 0L }
+
     private fun upsertNode(
         volId: Long,
         parentId: Long?,
@@ -1147,5 +1203,6 @@ class SqliteIndex(
     private companion object {
         const val META_GEN = "gen"
         const val META_LAST_RUN = "lastRun"
+        const val META_LAST_ATTEMPT = "lastAttempt"
     }
 }

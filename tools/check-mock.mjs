@@ -71,7 +71,7 @@ const WANTED = [
   ["N81", "Filet's own viewers come first", /class="owh">In Filet/],
   ["N81", "the external half is separated", /class="owsep"/],
   ["N81", "each half can be expanded to everything", /Every other viewer[\s\S]{0,2000}Every other app/],
-  ["N81", "the whole-dialogue tick is at the top", /class="owtick"/],
+  ["N81", "the remember control sits with the button it modifies", /class="owfoot"[\s\S]{0,400}js-rem/],
   ["N80", "a row can be appointed without dragging it", /data-tick=/],
   ["N80", "a whole set can go in at once", /js-selall/],
   ["N80", "the tray folds away when it is empty", /\.tray\.idle/],
@@ -85,6 +85,8 @@ const FORBIDDEN = [
   ["the mock must stay the app that exists, not a new one", /data-theme="(?!slate|ember|paper)/],
   ["the About card still carries the tagline the README was rewritten away from",
    /people who want to do real work on their phone without a PC/i],
+  ["the open-with dialogue has a Just once button as well as a remember control, which is one binary twice",
+   /openWithHTML[\s\S]{0,2600}Just once/],
 ];
 
 function problems(html, spec, template) {
@@ -124,7 +126,7 @@ if (process.argv.includes("--selftest")) {
     'data-tick=', "js-selall", ".tray.idle", 'grid-template-areas:"head tray"',
     "function openWithHTML",
     "openwith: (state) => openWithHTML uncertain: (state) => openWithHTML",
-    'class="owh">In Filet', 'class="owsep"', 'class="owtick"',
+    'class="owh">In Filet', 'class="owsep"', 'class="owfoot"> js-rem',
     "Every other viewer Every other app",
     '[data-r="3"] .sig .nm{ width:fit-content',
   ].join("\n");

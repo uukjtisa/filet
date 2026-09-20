@@ -19,6 +19,8 @@ import dev.niccc2007.filet.jobs.JobLedger
 import dev.niccc2007.filet.vfs.VPath
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import dev.niccc2007.filet.index.CrawlKind
+import dev.niccc2007.filet.index.crawlKind
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -77,9 +79,33 @@ class IndexCoordinator(
         scope.launch {
             // Let the UI settle before touching the disk at all.
             delay(2_500)
-            val last = index.status.value.lastRunAt
-            val stale = System.currentTimeMillis() - last > STALE_AFTER_MS
-            if (index.status.value.files == 0L || stale) crawl(roots, budgetMs = 25_000)
+            val st = index.status.value
+            // Bug identified, reported as the indexing never stopping. This used to read
+            // `files == 0 || now - lastRunAt > STALE`, and lastRunAt is only written after a
+            // COMPLETE pass - correctly, because that is the only thing "last indexed" can
+            // honestly mean. On a tree bigger than one budget no pass ever completes, so that
+            // time stayed at zero, the index read as permanently overdue, and every launch
+            // started another pass that would also not complete. A loop with no exit.
+            //
+            // The attempt time is what decides whether to start one; the complete time is
+            // what the user is told. See crawlKind, where the two are separated.
+            when (
+                crawlKind(
+                    filesHeld = st.files,
+                    lastCompleteAt = st.lastRunAt,
+                    lastAttemptAt = st.lastAttemptAt,
+                    now = System.currentTimeMillis(),
+                    staleAfterMs = STALE_AFTER_MS,
+                    retryAfterMs = RETRY_AFTER_MS,
+                )
+            ) {
+                // Nothing held, so there is nothing to update. This is the only case that
+                // reads the whole tree, and it is not given a budget it cannot meet.
+                CrawlKind.BUILD -> crawlFully(roots)
+                // Rows are held. Visit what may have changed and leave the rest alone.
+                CrawlKind.UPDATE -> crawl(roots, budgetMs = 25_000)
+                CrawlKind.NONE -> Unit
+            }
         }
     }
 
@@ -315,6 +341,16 @@ class IndexCoordinator(
         const val WORK_NAME = "filet.index.maintenance"
         const val JOB_MEDIA_CHANGE = 4101
         private const val STALE_AFTER_MS = 6L * 60 * 60 * 1000
+
+        /**
+         * How long to leave a pass that did not complete before trying again.
+         *
+         * Thirty minutes. A tree too big for one budget is the case this exists for, and on it
+         * every launch would otherwise start another doomed pass - which is what "the indexing
+         * never stops" was. Long enough that opening the app repeatedly costs nothing, short
+         * enough that a device left alone for an afternoon still makes progress.
+         */
+        private const val RETRY_AFTER_MS = 30L * 60 * 1000
 
         fun cancelWakeOnMediaChange(context: Context) {
             context.getSystemService(JobScheduler::class.java)?.cancel(JOB_MEDIA_CHANGE)
