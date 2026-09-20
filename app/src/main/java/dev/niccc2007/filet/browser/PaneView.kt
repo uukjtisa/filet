@@ -436,12 +436,55 @@ private fun FolderBody(
     }
 
     val listState = rememberLazyListState()
-    LaunchedEffect(s.cwd) { listState.scrollToItem(0) }
+    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+
+    // A new folder starts at the top - unless something asked to be revealed in it, in which
+    // case scrolling to the top is exactly what would undo the reveal.
+    LaunchedEffect(s.cwd) {
+        if (s.revealTarget == null) {
+            listState.scrollToItem(0)
+            gridState.scrollToItem(0)
+        }
+    }
+
+    // Scroll a revealed file into the middle, once there are rows to scroll through.
+    //
+    // Keyed on the rows as well as the target: the request arrives before the listing does,
+    // and acting on an empty list would scroll nowhere and then clear the request. See
+    // RevealScroll for why the middle rather than merely on screen.
+    LaunchedEffect(s.revealTarget, rows) {
+        val target = s.revealTarget ?: return@LaunchedEffect
+        if (rows.isEmpty()) return@LaunchedEffect
+        val index = rows.indexOfFirst { it.path == target }
+        if (index < 0) {
+            // It is not in this listing - hidden by a filter, or gone. Nothing to scroll to,
+            // and holding the request would make the next folder jump for no reason.
+            pane.revealHandled()
+            return@LaunchedEffect
+        }
+        if (metrics.step.isGrid) {
+            val info = gridState.layoutInfo
+            val perRow = info.visibleItemsInfo.count { it.row == 0 }.coerceAtLeast(1)
+            val rowsUp = RevealScroll.rowsOnScreen(info.viewportSize.height, info.visibleItemsInfo.firstOrNull()?.size?.height ?: 0)
+            gridState.scrollToItem(
+                RevealScroll.firstVisibleFor(index, rowsUp * perRow, rows.size)
+            )
+        } else {
+            val info = listState.layoutInfo
+            val onScreen = RevealScroll.rowsOnScreen(
+                info.viewportSize.height,
+                info.visibleItemsInfo.firstOrNull()?.size ?: 0,
+            )
+            listState.scrollToItem(RevealScroll.firstVisibleFor(index, onScreen, rows.size))
+        }
+        pane.revealHandled()
+    }
 
     if (metrics.step.isGrid) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(metrics.step.tile!!.dp),
             modifier = Modifier.fillMaxSize(),
+            state = gridState,
             contentPadding = PaddingValues(6.dp),
         ) {
             items(rows, key = { it.path.toString() }) { node ->

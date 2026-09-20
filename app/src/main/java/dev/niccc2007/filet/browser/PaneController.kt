@@ -51,6 +51,15 @@ data class PaneState(
     val canGoForward: Boolean = false,
     /** Set while the path bar is being edited, so the breadcrumb yields to a text field. */
     val editingPath: Boolean = false,
+    /**
+     * A file the listing should scroll to once it has one.
+     *
+     * Set by "go to containing folder" and cleared by the list the moment it has acted. It is
+     * state rather than a delay because the listing takes as long as it takes - a fixed wait
+     * is either too short on a big folder or a stall on a small one, and the previous version
+     * guessed 160ms and then never scrolled at all.
+     */
+    val revealTarget: VPath? = null,
 ) {
     val selecting: Boolean get() = selected.isNotEmpty()
     /** Rows actually rendered: search results replace the listing while a search is live. */
@@ -311,6 +320,20 @@ class PaneController(
     }
 
     fun selectOnly(node: VNode) = _state.update { anchor = node.path; it.copy(selected = setOf(node.path)) }
+
+    /**
+     * Select [node] and ask the listing to scroll it into the middle.
+     *
+     * The scroll is a request, not an action: this controller does not know how tall a row is
+     * or how many fit, so it says which file and the list works out where.
+     */
+    fun revealOnly(node: VNode) = _state.update {
+        anchor = node.path
+        it.copy(selected = setOf(node.path), revealTarget = node.path)
+    }
+
+    /** Called by the list once it has scrolled, so a later listing does not scroll again. */
+    fun revealHandled() = _state.update { if (it.revealTarget == null) it else it.copy(revealTarget = null) }
     /**
      * The last row picked deliberately, which a range extends FROM.
      *

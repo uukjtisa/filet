@@ -2484,9 +2484,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 return@launch
             }
             pane.navigateTo(parent)
-            // After the listing lands, so the selection has something to attach to.
-            kotlinx.coroutines.delay(160)
-            pane.selectOnly(node)
+            // Asked for, not timed. The old version waited a fixed 160ms and then selected,
+            // which is too short on a big folder and a stall on a small one - and it never
+            // scrolled at all, so the file was selected somewhere off screen. The listing now
+            // carries the request and acts when it actually has rows.
+            pane.revealOnly(node)
         }
     }
 
