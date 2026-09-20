@@ -73,9 +73,9 @@ const SURFACES = [
 
   // ── menus and dialogues ──
   ["Context menu", "fun ContextMenu", "DIALOGS.context", "N67",
-   "Keeps the icon button row across the top: cut, copy, paste, rename, star, delete. The app already splits these - see splitForContextMenu - and the first redesign dropped the row."],
+   "Keeps the icon button row across the top. The app already splits these - see splitForContextMenu - and the first redesign dropped the row, then put back the wrong five. Delete lives in the row, so it is NOT repeated as a list entry."],
   ["Context menu quick row", "fun splitForContextMenu", ".ctxbar", "N67",
-   "Which actions get an icon button and which go in the list. Already a pure function."],
+   "Which actions get an icon button and which go in the list. Already a pure function - QUICK_IDS is copy, move, rename, send, delete. RELABEL ONLY: move is shown as Cut with scissors. The id stays move; do not add a second action."],
   ["Actions popup", "private fun PaneContextMenu", "actionsHTML", "N54",
    "Same icon row, then grouped entries, destructive last and separated."],
   ["Open with", "private fun OpenWithSheet", "openWithHTML", "N81",
