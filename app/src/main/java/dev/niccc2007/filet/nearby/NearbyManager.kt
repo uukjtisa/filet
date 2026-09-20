@@ -6,10 +6,12 @@ import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
 import dev.niccc2007.filet.vfs.provider.net.PeerEndpoint
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * One object the UI talks to for everything Nearby.
@@ -67,6 +69,34 @@ class NearbyManager(
         else -> null
     }
 
+    /**
+     * The same answer, published rather than computed where it is read.
+     *
+     * Bug identified: the screen called [blockedReason] directly inside composition, with a
+     * comment saying it was recomputed every time on purpose so a stale answer could not
+     * survive a network coming up. The intent was right and the placement was not -
+     * `NetAddresses.reachable()` walks every network interface on the device, which is tens of
+     * milliseconds and occasionally much worse, and composition runs on the main thread and
+     * runs often. Every unrelated state change on that screen paid for an interface walk.
+     *
+     * So it keeps the freshness and loses the cost: the walk happens off the main thread on a
+     * slow poll while the screen is open, and the screen reads a value.
+     */
+    private val _blocked = MutableStateFlow<String?>(null)
+    val blocked: StateFlow<String?> = _blocked.asStateFlow()
+
+    /**
+     * Recompute [blockedReason] away from the main thread.
+     *
+     * Called on a poll rather than on a connectivity callback because the question is not only
+     * "is there a network" - a hotspot coming up is a change to the interface list that no
+     * single callback covers on every vendor.
+     */
+    suspend fun refreshBlocked() {
+        val answer = withContext(Dispatchers.IO) { blockedReason() }
+        if (_blocked.value != answer) _blocked.value = answer
+    }
+
     /** Consecutive failed starts, and when the last one was. See [ServerStartPolicy]. */
     private var failures = 0
     private var lastFailureAt = 0L
@@ -86,6 +116,10 @@ class NearbyManager(
     private val _starting = MutableStateFlow(false)
     val starting: StateFlow<Boolean> = _starting.asStateFlow()
 
+    /** True from the moment Stop is pressed until the socket is actually down. */
+    private val _stopping = MutableStateFlow(false)
+    val stopping: StateFlow<Boolean> = _stopping.asStateFlow()
+
     fun clearStartRefusal() { _startRefusal.value = null }
 
     /**
@@ -94,7 +128,29 @@ class NearbyManager(
      */
     private val stopToken = java.util.concurrent.atomic.AtomicLong(0)
 
+    /**
+     * Bug identified: the press did its deciding on the main thread, so the spinner could not
+     * draw until the deciding had finished - which is the whole of what it was there to cover.
+     *
+     * Three things ran inline on the click before this. The trace wrote a file (see
+     * [ShareTrace]). `blockedReason()` enumerates the device's network interfaces, which is
+     * tens of milliseconds on a phone and occasionally far worse. And the flag that shows the
+     * spinner was set *after* both, so the main thread never yielded in between and no frame
+     * was drawn until the slow part was over.
+     *
+     * The press now does exactly one thing: it says it is busy. Every decision and every piece
+     * of work happens on [Dispatchers.IO] behind it, including the ones that end in a refusal.
+     * That costs a frame of spinner on a start that was going to be refused anyway, which is
+     * the right trade - a refusal is rare and a press is not.
+     */
     fun start() {
+        // First statement, deliberately. Everything below this line is off the main thread, so
+        // this is the last chance to say anything before the frame is drawn.
+        _starting.value = true
+        scope.launch(Dispatchers.IO) { startOffThread() }
+    }
+
+    private suspend fun startOffThread() {
         ShareTrace.attach(context)
         ShareTrace.line { "start() pressed: serverRunning=${server.isRunning()} failures=$failures starting=${_starting.value}" }
         when (val d = ServerStartPolicy.decide(
@@ -113,6 +169,7 @@ class NearbyManager(
                 // actually true puts the screen back in step and gives him a Stop to press.
                 ShareTrace.line { "  -> AlreadyRunning; republished ${server.state().running}" }
                 _state.value = server.state()
+                _starting.value = false
                 return
             }
             is ServerStartPolicy.Decision.Refuse -> {
@@ -120,16 +177,16 @@ class NearbyManager(
                 // button looked broken rather than blocked.
                 ShareTrace.line { "  -> Refuse: ${d.why}" }
                 _startRefusal.value = d.why
+                _starting.value = false
                 return
             }
             is ServerStartPolicy.Decision.Start -> Unit
         }
         _startRefusal.value = null
-        _starting.value = true
         // Remembered before any of the slow work, so a Stop pressed during it is detectable.
         val began = stopToken.get()
         ShareTrace.line { "  -> Start; launching (token=$began)" }
-        scope.launch {
+        run {
             try {
             ShareTrace.line { "  coroutine running" }
             shared.ensureFolders()
@@ -252,18 +309,37 @@ class NearbyManager(
      *   end - which is what made sharing impossible to restart.
      */
     fun stop(origin: StopOrigin = StopOrigin.SCREEN) {
+        // Synchronous on purpose, and the only thing that is: a start still finishing reads
+        // this token to find out it has been contradicted. Posting it would open the window
+        // where a stop is pressed and the start that follows it does not know.
+        stopToken.incrementAndGet()
+        // Said before the work, for the same reason start says it: the frame that greys the
+        // button has to be able to run.
+        _stopping.value = true
+        scope.launch(Dispatchers.IO) { stopOffThread(origin) }
+    }
+
+    /**
+     * Bug identified: closing the listening socket and tearing down the accept pool are both
+     * blocking, and both ran on the press - as did the trace and the discovery teardown, which
+     * is a binder call into the platform NSD service. A stop could hold the main thread for as
+     * long as a client took to notice the socket had gone.
+     */
+    private fun stopOffThread(origin: StopOrigin) {
         ShareTrace.attach(context)
         ShareTrace.line { "stop($origin): serverRunning=${server.isRunning()}" }
-        // First, before anything slow: a start still finishing reads this and undoes itself.
-        stopToken.incrementAndGet()
-        discovery.stopAdvertising()
-        server.stop()
-        _state.value = server.state()
-        // A stop clears the cooldown too: he has just told the app plainly what he wants, and
-        // making him wait out a backoff earned by earlier failures is the app arguing with him.
-        failures = 0
-        lastFailureAt = 0L
-        if (tellsTheService(origin)) NearbyService.stop(context)
+        try {
+            discovery.stopAdvertising()
+            server.stop()
+            _state.value = server.state()
+            // A stop clears the cooldown too: the app has just been told plainly what to do,
+            // and enforcing a backoff earned by earlier failures is the app arguing with that.
+            failures = 0
+            lastFailureAt = 0L
+            if (tellsTheService(origin)) NearbyService.stop(context)
+        } finally {
+            _stopping.value = false
+        }
     }
 
     fun setPinRequired(required: Boolean) {

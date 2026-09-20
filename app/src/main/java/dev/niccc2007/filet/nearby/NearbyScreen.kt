@@ -28,6 +28,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -64,6 +65,14 @@ import dev.niccc2007.filet.ui.theme.Filet
  * phone got* - because opening a peer in a pane is the interaction nothing else does. The
  * first intent, *send these files*, is the share sheet on a selection.
  */
+/**
+ * How often the network-interface walk is redone while the sharing card is on screen.
+ *
+ * Three seconds: long enough that the cost is irrelevant, short enough that turning on
+ * a hotspot is noticed while somebody is still looking at the screen waiting for it.
+ */
+private const val BLOCKED_POLL_MS = 3_000L
+
 @Composable
 fun NearbyScreen(vm: BrowserViewModel) {
     val colors = Filet.colors
@@ -396,6 +405,17 @@ private fun ShareCard(vm: BrowserViewModel, server: ServerState, onEditPin: () -
     val nearby = vm.nearby
     val refusal by nearby.startRefusal.collectAsState()
     val starting by nearby.starting.collectAsState()
+    val stopping by nearby.stopping.collectAsState()
+    val blocked by nearby.blocked.collectAsState()
+    // The interface walk, on a slow poll off the main thread, for as long as this card is on
+    // screen. BLOCKED_POLL_MS is long enough to cost nothing and short enough that turning on
+    // a hotspot is noticed before it is given up on.
+    LaunchedEffect(Unit) {
+        while (true) {
+            nearby.refreshBlocked()
+            kotlinx.coroutines.delay(BLOCKED_POLL_MS)
+        }
+    }
     Column(
         Modifier
             .fillMaxWidth()
@@ -406,9 +426,6 @@ private fun ShareCard(vm: BrowserViewModel, server: ServerState, onEditPin: () -
             .padding(14.dp),
     ) {
         if (!server.running) {
-            // Recomputed on every recomposition on purpose: the answer changes the moment
-            // Wi-Fi comes up, and a stale "you have no network" is its own bug.
-            val blocked = nearby.blockedReason()
             Text("Not sharing", fontSize = 14.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(4.dp))
             Text(
@@ -453,7 +470,7 @@ private fun ShareCard(vm: BrowserViewModel, server: ServerState, onEditPin: () -
                         .padding(horizontal = 10.dp, vertical = 6.dp),
                 )
                 Spacer(Modifier.height(6.dp))
-                Text(blocked, fontSize = 10.5.sp, color = colors.warn, lineHeight = 14.sp)
+                Text(blocked.orEmpty(), fontSize = 10.5.sp, color = colors.warn, lineHeight = 14.sp)
             }
             return@Column
         }
@@ -563,7 +580,22 @@ private fun ShareCard(vm: BrowserViewModel, server: ServerState, onEditPin: () -
             }
         }
         Spacer(Modifier.height(8.dp))
-        SmallButton("Stop sharing") { nearby.stop() }
+        if (stopping) {
+            // Same reason the start has one: a stop closes a listening socket and tears down
+            // an accept pool, and a button that still looks pressable during it gets pressed
+            // again - which is the race that made sharing unstartable afterwards.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = colors.accent,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Stopping sharing…", fontSize = 11.sp, color = colors.fg2)
+            }
+        } else {
+            SmallButton("Stop sharing") { nearby.stop() }
+        }
     }
 }
 
