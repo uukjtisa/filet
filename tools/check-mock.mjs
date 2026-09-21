@@ -176,6 +176,14 @@ const WANTED = [
   ["N92", "the storage tiles wrap rather than sit in fixed columns",
    /\.tiles\{display:flex;flex-wrap:wrap/],
   ["N92", "a tile grows to take the rest of its row", /\.tile\{flex:1 1 150px;min-width:0\}/],
+  // N93 - Home's header. A title naming the screen you are on, over a button whose only job
+  // was to produce a search field. The field is what both were for, so the field is the
+  // header; and the folders being watched now sit under the files they produced rather than
+  // behind a button pointing three screens down.
+  ["N93", "Home's header is the search field itself",
+   /class="hsearch"[\s\S]{0,200}<input type="search"/],
+  ["N93", "the tracked folders sit with the files they produced",
+   /\$\{TRACKED_LONG\}[\s\S]{0,900}Tracked folders \(3\)[\s\S]{0,700}>Recent</],
 ];
 
 /** Things the mock must NOT do, each of which has gone wrong once already. */
@@ -270,6 +278,8 @@ if (process.argv.includes("--selftest")) {
     "+ SMB + SFTP + FTP + WEBDAV",
     // The page Nearby serves, and the clipboard on it.
     ".tiles{display:flex;flex-wrap:wrap", ".tile{flex:1 1 150px;min-width:0}",
+    'class="hsearch" <input type="search"',
+    "${TRACKED_LONG} Tracked folders (3) >Recent<",
     "function webHTML(state)", 'function bframe( class="bwin"',
     'class="burl">http://192.168.1.14:8321/a/4k9x',
     'placeholder="Filter this folder"', ">Select all<", ">Download as .zip<",
@@ -346,6 +356,11 @@ if (process.argv.includes("--selftest")) {
     ["a standing paragraph back under a tab heading",
      full + '\nthead("Home", "Where things are, and what turned up while you were away.",',
      spec, null, true],
+    ["Home's header stops being the search field",
+     full.replace('class="hsearch" <input type="search"', "x"), spec, null, true],
+    ["the tracked folders drift away from the files they produced",
+     full.replace("${TRACKED_LONG} Tracked folders (3) >Recent<",
+                  "${TRACKED_LONG} >Recent< Tracked folders (3)"), spec, null, true],
     ["the storage tiles go back to fixed columns",
      full.replace(".tiles{display:flex;flex-wrap:wrap", "x"), spec, null, true],
     ["a tile stops growing to fill its row",
