@@ -83,14 +83,46 @@ const WANTED = [
   ["N84", "the app icon can be changed", /const APP_ICONS/],
   ["N84", "the separator is a shared thing, not a bare rule", /\.rule2\{/],
   ["N59", "the tabs are drawn, not just their labels", /const TABS3 = \{/],
-  ["N59", "every tab has a screen", /home:[\s\S]{0,12000}nearby:[\s\S]{0,12000}scripts:[\s\S]{0,12000}activity:/],
-  ["N59", "the tracked tab is one of them", /tracked: \(\) =>/],
+  // One rule per tab, not one ordered span across all of them. The span version measured
+  // distance as much as presence: it went red when the nearby screen grew, and it had gone
+  // red for the right reason moments earlier - an over-wide slice had deleted four tabs - with
+  // no way to tell those two apart from the message. A checker that cannot say WHICH screen is
+  // missing sends you looking in the wrong place.
+  ...["home", "tracked", "nearby", "scripts", "bookmarks", "recent", "shortcuts", "remotes", "activity"]
+    .map((t) => ["N59", `the ${t} tab has a screen`, new RegExp(`\\n {2}${t}: \\(`)]),
+  ["N59", "the tracked tab is one of them", /\n {2}tracked: \(/],
+  // FileHistoryScreen.kt declares three controls in two shapes, and the redesign has already
+  // lost them once by redrawing them as four loose buttons. A redesign may restyle a control;
+  // it may not delete one. These three say the controls survived.
+  ["N88", "the day / flat grouping toggle is still there and still says which it is",
+   /js-hgroup[\s\S]{0,140}grouped \? "By day" : "Flat"/],
+  ["N88", "first seen against last changed is still a choice",
+   /js-hsort[\s\S]{0,300}data-v="changed"/],
+  ["N88", "flat still means flat - no day headings when it is off", /if \(grouped\) \{[\s\S]{0,900}\} else \{/],
+  ["N88", "the day headings fold", /data-day=[\s\S]{0,400}\.day\.shut \+ \.dayrows|\.day\.shut \+ \.dayrows/],
   ["N80", "a row can be appointed without dragging it", /data-tick=/],
   ["N80", "a whole set can go in at once", /js-selall/],
   ["N80", "the tray folds away when it is empty", /\.tray\.idle/],
   ["N80", "landscape lays the tray beside the list rather than under it",
    /grid-template-areas:"head tray"/],
   ["N57", "the unreadable directory is disclosed", /Android\/data and Android\/obb are not fully readable|not fully readable/],
+  // ScriptsScreen.kt draws a name, the permission lines, and three chips. The redesign lost
+  // all three at once by drawing a code excerpt instead, so all three are asserted.
+  ["N88", "a script row says what the script may touch", /const script2 = [\s\S]{0,700}perms\.map/],
+  ["N88", "a script row keeps all three verbs", /Running\\u2026" : "Run"[\s\S]{0,120}>Edit<[\s\S]{0,60}>Delete</],
+  ["N88", "the run output carries how long it took", /class="runout"[\s\S]{0,400}class="ms"/],
+  ["N88", "the approval dialogue is one of the dialogues", /scriptrun: \(\) =>[\s\S]{0,900}Always allow/],
+  // Nearby. The row icon shipped unsized once and rendered at its intrinsic 131x93 inside a
+  // 212px phone, so the rule is on the CSS that fixes it, not on the markup that used it.
+  ["N89", "a row's leading icon is sized by the row that owns it",
+   /\.nrow > svg, \.nrow \.ni svg\{width:17px/],
+  ["N89", "the sharing light has a transfer state, not just on and off", /\.share\.busy \.dot2\{/],
+  ["N89", "one pip per connected device, each with its own state",
+   /const pips = states =>[\s\S]{0,200}\.map/],
+  ["N89", "a pip can say which way the transfer is going", /\.pips i\.dn\{[\s\S]{0,200}\.pips i\.up\{/],
+  ["N89", "shared entries carry a thumbnail where the type has one", /\.th3\.img\{[\s\S]{0,400}\.th3\.vid\{/],
+  ["N89", "a type with no preview still gets the same tile", /thumb: "doc"/],
+  ["N89", "the stop button is its own width, not the card's", /\.share \.sfoot \.tbtn\{flex:none\}/],
 ];
 
 /** Things the mock must NOT do, each of which has gone wrong once already. */
@@ -107,6 +139,9 @@ const FORBIDDEN = [
   ["a theme is named after the product its palette came from", /(macos|mac os|anthropic|claude)/i],
   ["the open-with dialogue has a Just once button as well as a remember control, which is one binary twice",
    /openWithHTML[\s\S]{0,2600}Just once/],
+  // The screen shows what a script may REACH, never what it says. Source belongs behind Edit.
+  ["the scripts tab shows an excerpt of the source, which is not what that screen is",
+   /scripts: \(\) =>[\s\S]{0,2200}class="code"/],
 ];
 
 function problems(html, spec, template) {
@@ -149,7 +184,20 @@ if (process.argv.includes("--selftest")) {
     "openwith: (state) => openWithHTML uncertain: (state) => openWithHTML",
     'class="owh">In Filet', 'class="owsep"', 'class="owfoot"> js-rem',
     'const THEMES = [ "solar"', '"custom" Your own three colours', "const APP_ICONS",
-    ".rule2{", "const TABS3 = {", "home: nearby: scripts: activity:", "tracked: () =>",
+    ".rule2{", "const TABS3 = {",
+    // One line per tab, indented, because each tab now has its own rule.
+    "  home: (", "  tracked: (", "  nearby: (", "  scripts: (", "  bookmarks: (",
+    "  recent: (", "  shortcuts: (", "  remotes: (", "  activity: (",
+    // The New files tab: the controls the app declares, and folding days.
+    'js-hgroup grouped ? "By day" : "Flat"', 'js-hsort data-v="changed"',
+    "if (grouped) { } else {", ".day.shut + .dayrows",
+    // The scripts tab: permissions, three verbs, a duration, and the approval dialogue.
+    "const script2 = perms.map", 'Running\\u2026" : "Run" >Edit< >Delete<',
+    'class="runout" class="ms"', "scriptrun: () => Always allow",
+    // Nearby: sized icons, a light that can say "transferring", pips, and thumbnails.
+    ".nrow > svg, .nrow .ni svg{width:17px", ".share.busy .dot2{",
+    "const pips = states => .map", ".pips i.dn{ .pips i.up{",
+    ".th3.img{ .th3.vid{", 'thumb: "doc"', ".share .sfoot .tbtn{flex:none}",
     "function ctxbarHTML", '"copy" "move" "rename" "send" "delete"', '"Cut" "i-cut"',
     "Every other viewer Every other app",
     '[data-r="3"] .sig .nm{ width:fit-content',
@@ -178,6 +226,30 @@ if (process.argv.includes("--selftest")) {
     ["the external apps not separated", full.replace('class="owsep"', "x"), spec, null, true],
     ["landscape still stacking the tray under the list",
      full.replace('grid-template-areas:"head tray"', "x"), spec, null, true],
+    // This round. Every one of these is a thing the redesign actually dropped once, by
+    // redrawing a screen from a memory of it rather than from the screen.
+    ["a tab deleted outright", full.replace("  shortcuts: (", "x"), spec, null, true],
+    ["one stateful toggle drawn as two buttons",
+     full.replace('js-hgroup grouped ? "By day" : "Flat"', "js-hgroup"), spec, null, true],
+    ["the sort choice dropped", full.replace('data-v="changed"', "x"), spec, null, true],
+    ["flat stops meaning flat", full.replace("if (grouped) { } else {", "x"), spec, null, true],
+    ["the day headings stop folding", full.replace(".day.shut + .dayrows", "x"), spec, null, true],
+    ["a script row stops saying what it may touch",
+     full.replace("const script2 = perms.map", "x"), spec, null, true],
+    ["Edit and Delete dropped from a script row",
+     full.replace(">Edit< >Delete<", "x"), spec, null, true],
+    ["the run duration dropped", full.replace('class="ms"', "x"), spec, null, true],
+    ["the approval dialogue dropped", full.replace("scriptrun: () =>", "x"), spec, null, true],
+    ["a row icon left unsized", full.replace(".nrow > svg, .nrow .ni svg{width:17px", "x"), spec, null, true],
+    ["the sharing light loses its transfer state",
+     full.replace(".share.busy .dot2{", "x"), spec, null, true],
+    ["the per-device pips dropped", full.replace("const pips = states => .map", "x"), spec, null, true],
+    ["a pip cannot say which way the transfer goes",
+     full.replace(".pips i.dn{ .pips i.up{", "x"), spec, null, true],
+    ["shared entries lose their thumbnails", full.replace(".th3.img{ .th3.vid{", "x"), spec, null, true],
+    ["the no-preview type loses the tile", full.replace('thumb: "doc"', "x"), spec, null, true],
+    ["the stop button spans the whole card",
+     full.replace(".share .sfoot .tbtn{flex:none}", "x"), spec, null, true],
     ["the spec forgets its own references", full, "# x\n## Proposals\n", null, true],
     ["the spec has no proposals", full, "TreeSize\nDisk Drill\n", null, true],
     ["a mock started from scratch again", full, spec, "x".repeat(full.length + 1), true],
