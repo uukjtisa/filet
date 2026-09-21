@@ -123,6 +123,31 @@ const WANTED = [
   ["N89", "shared entries carry a thumbnail where the type has one", /\.th3\.img\{[\s\S]{0,400}\.th3\.vid\{/],
   ["N89", "a type with no preview still gets the same tile", /thumb: "doc"/],
   ["N89", "the stop button is its own width, not the card's", /\.share \.sfoot \.tbtn\{flex:none\}/],
+  // A marker any block may use is styled where any block can see it. Scoped under .share it
+  // rendered as a grey square in the hosting card, which is the third time in one round a
+  // class was reused outside the scope that sized it.
+  ["N89", "the status light is styled unscoped", /\n\.dot2\{width:9px/],
+  // N90 - hosting. Filet can only dial out today: every NetProtocol is a client provider, and
+  // the HTTP server serves Filet's own web UI, which no desktop can mount. This is the other
+  // direction, and it is WebDAV because SMB needs privileged port 445.
+  ["N90", "the remotes tab offers to host, not only to connect", /Mount this phone on your PC/],
+  ["N90", "the address you paste into Explorer is shown", /DavWWWRoot/],
+  ["N90", "writing is off until it is turned on", /Let the PC change files", false\)/],
+  ["N90", "what is exposed is a choice, not the whole phone by default",
+   /chips2\("Let the PC see", \["Filet\/Shared", "Whole phone"\], "Filet\/Shared"\)/],
+  ["N90", "Windows' 50 MB WebDAV cap is disclosed before it looks like a broken file",
+   /50 MB[\s\S]{0,400}FileSizeLimitInBytes/],
+  ["N90", "the service Windows needs is named", /WebClient/],
+  ["N90", "it says plainly that nothing is hosted for you", /protocol,\s*not a service/],
+  // The screen's own protocol list, which the redesign had wrong in both directions.
+  ["N90", "every protocol the app has gets an add button",
+   /\+ SMB[\s\S]{0,200}\+ SFTP[\s\S]{0,200}\+ FTP[\s\S]{0,200}\+ WEBDAV/],
+  // Anchored to the sentence the user reads, not to the protocol list on its own - the same
+  // words appear in the comment above the screen, so the loose needle was satisfied by a
+  // comment while the blurb itself said something else. A rule a comment can satisfy is not
+  // measuring the surface.
+  ["N90", "SFTP is in the blurb it was missing from",
+   /SMB, SFTP, FTP and WebDAV, mounted as ordinary folders/],
 ];
 
 /** Things the mock must NOT do, each of which has gone wrong once already. */
@@ -142,6 +167,11 @@ const FORBIDDEN = [
   // The screen shows what a script may REACH, never what it says. Source belongs behind Edit.
   ["the scripts tab shows an excerpt of the source, which is not what that screen is",
    /scripts: \(\) =>[\s\S]{0,2200}class="code"/],
+  // NetProtocol has four entries and HTTP is not one of them - TLS is a per-connection flag
+  // that reads as FTPS or HTTPS on the form. Listing them as protocols invents two and, when
+  // it happened, pushed the real fourth one (SFTP) out of the sentence entirely.
+  ["the remotes blurb lists HTTP as if it were one of the protocols",
+   /SMB, FTP, FTPS, HTTP/],
 ];
 
 function problems(html, spec, template) {
@@ -198,6 +228,12 @@ if (process.argv.includes("--selftest")) {
     ".nrow > svg, .nrow .ni svg{width:17px", ".share.busy .dot2{",
     "const pips = states => .map", ".pips i.dn{ .pips i.up{",
     ".th3.img{ .th3.vid{", 'thumb: "doc"', ".share .sfoot .tbtn{flex:none}",
+    ".dot2{width:9px",
+    // Remotes: hosting, and the protocol list the screen actually has.
+    "Mount this phone on your PC", "DavWWWRoot", 'Let the PC change files", false)',
+    'chips2("Let the PC see", ["Filet/Shared", "Whole phone"], "Filet/Shared")',
+    "50 MB FileSizeLimitInBytes", "WebClient", "protocol,\n        not a service",
+    "+ SMB + SFTP + FTP + WEBDAV", "SMB, SFTP, FTP and WebDAV, mounted as ordinary folders",
     "function ctxbarHTML", '"copy" "move" "rename" "send" "delete"', '"Cut" "i-cut"',
     "Every other viewer Every other app",
     '[data-r="3"] .sig .nm{ width:fit-content',
@@ -250,6 +286,21 @@ if (process.argv.includes("--selftest")) {
     ["the no-preview type loses the tile", full.replace('thumb: "doc"', "x"), spec, null, true],
     ["the stop button spans the whole card",
      full.replace(".share .sfoot .tbtn{flex:none}", "x"), spec, null, true],
+    ["the status light re-scoped to one block",
+     full.replace(".dot2{width:9px", ".share .dot2{width:9px"), spec, null, true],
+    ["hosting dropped from remotes",
+     full.replace("Mount this phone on your PC", "x"), spec, null, true],
+    ["the Explorer address dropped", full.replaceAll("DavWWWRoot", "x"), spec, null, true],
+    ["the PC can write by default",
+     full.replace('Let the PC change files", false)', 'Let the PC change files", true)'), spec, null, true],
+    ["the whole phone exposed by default",
+     full.replace('"Whole phone"], "Filet/Shared"', '"Whole phone"], "Whole phone"'), spec, null, true],
+    ["Windows' 50 MB cap undisclosed",
+     full.replace("50 MB FileSizeLimitInBytes", "x"), spec, null, true],
+    ["SFTP dropped from the add row", full.replace("+ SFTP", "+ X"), spec, null, true],
+    ["HTTP listed as a protocol again",
+     full.replace("SMB, SFTP, FTP and WebDAV, mounted as ordinary folders",
+                  "SMB, FTP, FTPS, HTTP, HTTPS and WebDAV"), spec, null, true],
     ["the spec forgets its own references", full, "# x\n## Proposals\n", null, true],
     ["the spec has no proposals", full, "TreeSize\nDisk Drill\n", null, true],
     ["a mock started from scratch again", full, spec, "x".repeat(full.length + 1), true],
