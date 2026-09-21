@@ -142,12 +142,10 @@ const WANTED = [
   // The screen's own protocol list, which the redesign had wrong in both directions.
   ["N90", "every protocol the app has gets an add button",
    /\+ SMB[\s\S]{0,200}\+ SFTP[\s\S]{0,200}\+ FTP[\s\S]{0,200}\+ WEBDAV/],
-  // Anchored to the sentence the user reads, not to the protocol list on its own - the same
-  // words appear in the comment above the screen, so the loose needle was satisfied by a
-  // comment while the blurb itself said something else. A rule a comment can satisfy is not
-  // measuring the surface.
-  ["N90", "SFTP is in the blurb it was missing from",
-   /SMB, SFTP, FTP and WebDAV, mounted as ordinary folders/],
+  // The protocol list used to be guarded through the header blurb that named all four. The
+  // blurbs are gone, so it is guarded where the protocols actually are: the add row, which is
+  // the thing that would still be wrong if one were forgotten. A rule anchored to prose dies
+  // with the prose; a rule anchored to the control does not.
   // N91 - the page Nearby serves, and the clipboard on it. The share page is a surface like
   // any other and had never been drawn, so it could be redesigned without anybody noticing
   // what it already did. Its own features are asserted here alongside the new ones.
@@ -202,6 +200,12 @@ const FORBIDDEN = [
   // it happened, pushed the real fourth one (SFTP) out of the sentence entirely.
   ["the remotes blurb lists HTTP as if it were one of the protocols",
    /SMB, FTP, FTPS, HTTP/],
+  // A tab heading takes a title and its controls, not a paragraph. Eight tabs carried a
+  // standing sentence explaining the screen to a first-time reader, parked above it forever
+  // for everybody else - the whole list pushed down a line on every visit to answer a
+  // question asked once. The empty second argument is deliberate and this keeps it empty.
+  ["a tab heading carries a standing paragraph under it",
+   /thead\((?:"[^"]*"|[A-Z_]+),\s*(?:`[^`]{15,}|"[^"]{15,})/],
 ];
 
 function problems(html, spec, template) {
@@ -263,7 +267,7 @@ if (process.argv.includes("--selftest")) {
     "Mount this phone on your PC", "DavWWWRoot", 'Let the PC change files", false)',
     'chips2("Let the PC see", ["Filet/Shared", "Whole phone"], "Filet/Shared")',
     "50 MB FileSizeLimitInBytes", "WebClient", "protocol,\n        not a service",
-    "+ SMB + SFTP + FTP + WEBDAV", "SMB, SFTP, FTP and WebDAV, mounted as ordinary folders",
+    "+ SMB + SFTP + FTP + WEBDAV",
     // The page Nearby serves, and the clipboard on it.
     ".tiles{display:flex;flex-wrap:wrap", ".tile{flex:1 1 150px;min-width:0}",
     "function webHTML(state)", 'function bframe( class="bwin"',
@@ -338,8 +342,10 @@ if (process.argv.includes("--selftest")) {
      full.replace("50 MB FileSizeLimitInBytes", "x"), spec, null, true],
     ["SFTP dropped from the add row", full.replace("+ SFTP", "+ X"), spec, null, true],
     ["HTTP listed as a protocol again",
-     full.replace("SMB, SFTP, FTP and WebDAV, mounted as ordinary folders",
-                  "SMB, FTP, FTPS, HTTP, HTTPS and WebDAV"), spec, null, true],
+     full + "\nSMB, FTP, FTPS, HTTP, HTTPS and WebDAV", spec, null, true],
+    ["a standing paragraph back under a tab heading",
+     full + '\nthead("Home", "Where things are, and what turned up while you were away.",',
+     spec, null, true],
     ["the storage tiles go back to fixed columns",
      full.replace(".tiles{display:flex;flex-wrap:wrap", "x"), spec, null, true],
     ["a tile stops growing to fill its row",
