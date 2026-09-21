@@ -148,6 +148,28 @@ const WANTED = [
   // measuring the surface.
   ["N90", "SFTP is in the blurb it was missing from",
    /SMB, SFTP, FTP and WebDAV, mounted as ordinary folders/],
+  // N91 - the page Nearby serves, and the clipboard on it. The share page is a surface like
+  // any other and had never been drawn, so it could be redesigned without anybody noticing
+  // what it already did. Its own features are asserted here alongside the new ones.
+  ["N91", "the served page is a surface in the mock", /function webHTML\(state\)/],
+  ["N91", "it is drawn in a browser, not a phone frame", /function bframe\([\s\S]{0,600}class="bwin"/],
+  ["N91", "the grant link is what the browser shows", /class="burl">http:\/\/[\d.]+:8321\/a\//],
+  // Kept from app/src/main/assets/web/app.html.
+  ["N91", "the filter survived", /placeholder="Filter this folder"/],
+  ["N91", "select all survived", />Select all</],
+  ["N91", "zip-the-selection survived", />Download as \.zip</],
+  ["N91", "the count still admits when it shows part of a folder", /showing 11 of 11/],
+  ["N91", "the upload target survived and still says where files land", /Received folder/],
+  ["N91", "the job toasts survived", /class="wjob/],
+  // The clipboard.
+  ["N91", "a clipboard entry previews what is in it", /const clipEntry = [\s\S]{0,300}class="pv/],
+  ["N91", "every entry can be copied", /class="cb"><button class="pri">Copy</],
+  ["N91", "deleting is gated on the phone allowing it", /canDelete \? `<button class="bad">Delete/],
+  ["N91", "entries are plain files in visible storage", /Filet\/Clipboard/],
+  ["N91", "an entry is a named file, not a row in a database", /entry-04\.txt/],
+  ["N91", "the three gates are switches that do something", /data-tgl="\$\{key\}"/],
+  ["N91", "turning the clipboard off says so rather than showing an empty panel",
+   /not sharing its clipboard/],
 ];
 
 /** Things the mock must NOT do, each of which has gone wrong once already. */
@@ -234,6 +256,14 @@ if (process.argv.includes("--selftest")) {
     'chips2("Let the PC see", ["Filet/Shared", "Whole phone"], "Filet/Shared")',
     "50 MB FileSizeLimitInBytes", "WebClient", "protocol,\n        not a service",
     "+ SMB + SFTP + FTP + WEBDAV", "SMB, SFTP, FTP and WebDAV, mounted as ordinary folders",
+    // The page Nearby serves, and the clipboard on it.
+    "function webHTML(state)", 'function bframe( class="bwin"',
+    'class="burl">http://192.168.1.14:8321/a/4k9x',
+    'placeholder="Filter this folder"', ">Select all<", ">Download as .zip<",
+    "showing 11 of 11", "Received folder", 'class="wjob',
+    'const clipEntry = class="pv', 'class="cb"><button class="pri">Copy<',
+    'canDelete ? `<button class="bad">Delete', "Filet/Clipboard", "entry-04.txt",
+    'data-tgl="${key}"', "not sharing its clipboard",
     "function ctxbarHTML", '"copy" "move" "rename" "send" "delete"', '"Cut" "i-cut"',
     "Every other viewer Every other app",
     '[data-r="3"] .sig .nm{ width:fit-content',
@@ -301,6 +331,21 @@ if (process.argv.includes("--selftest")) {
     ["HTTP listed as a protocol again",
      full.replace("SMB, SFTP, FTP and WebDAV, mounted as ordinary folders",
                   "SMB, FTP, FTPS, HTTP, HTTPS and WebDAV"), spec, null, true],
+    ["the share page never drawn", full.replace("function webHTML(state)", "x"), spec, null, true],
+    ["the share page put back in a phone frame",
+     full.replace('function bframe( class="bwin"', "x"), spec, null, true],
+    ["the folder filter dropped from the share page",
+     full.replace('placeholder="Filter this folder"', "x"), spec, null, true],
+    ["zip-the-selection dropped from the share page",
+     full.replace(">Download as .zip<", "x"), spec, null, true],
+    ["a clipboard entry stops previewing its contents",
+     full.replace("const clipEntry = class=\"pv", "x"), spec, null, true],
+    ["deleting stops being gated on the phone allowing it",
+     full.replace('canDelete ? `<button class="bad">Delete', '`<button class="bad">Delete'), spec, null, true],
+    ["clipboard entries stop being files in visible storage",
+     full.replace("Filet/Clipboard", "x"), spec, null, true],
+    ["the clipboard gates become decoration",
+     full.replace('data-tgl="${key}"', "x"), spec, null, true],
     ["the spec forgets its own references", full, "# x\n## Proposals\n", null, true],
     ["the spec has no proposals", full, "TreeSize\nDisk Drill\n", null, true],
     ["a mock started from scratch again", full, spec, "x".repeat(full.length + 1), true],
