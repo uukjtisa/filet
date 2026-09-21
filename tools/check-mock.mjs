@@ -170,6 +170,14 @@ const WANTED = [
   ["N91", "the three gates are switches that do something", /data-tgl="\$\{key\}"/],
   ["N91", "turning the clipboard off says so rather than showing an empty panel",
    /not sharing its clipboard/],
+  // N92 - Home's storage tiles close their last row. A grid with auto-fill keeps the orphan
+  // at column width and leaves the rest of the row empty, and the column count moves with
+  // the width, so no nth-child rule can find the orphan without a breakpoint per layout.
+  // Flex wrap has no columns to leave empty, so this is asserted as flex, not as a rule
+  // about which child is last.
+  ["N92", "the storage tiles wrap rather than sit in fixed columns",
+   /\.tiles\{display:flex;flex-wrap:wrap/],
+  ["N92", "a tile grows to take the rest of its row", /\.tile\{flex:1 1 150px;min-width:0\}/],
 ];
 
 /** Things the mock must NOT do, each of which has gone wrong once already. */
@@ -257,6 +265,7 @@ if (process.argv.includes("--selftest")) {
     "50 MB FileSizeLimitInBytes", "WebClient", "protocol,\n        not a service",
     "+ SMB + SFTP + FTP + WEBDAV", "SMB, SFTP, FTP and WebDAV, mounted as ordinary folders",
     // The page Nearby serves, and the clipboard on it.
+    ".tiles{display:flex;flex-wrap:wrap", ".tile{flex:1 1 150px;min-width:0}",
     "function webHTML(state)", 'function bframe( class="bwin"',
     'class="burl">http://192.168.1.14:8321/a/4k9x',
     'placeholder="Filter this folder"', ">Select all<", ">Download as .zip<",
@@ -331,6 +340,10 @@ if (process.argv.includes("--selftest")) {
     ["HTTP listed as a protocol again",
      full.replace("SMB, SFTP, FTP and WebDAV, mounted as ordinary folders",
                   "SMB, FTP, FTPS, HTTP, HTTPS and WebDAV"), spec, null, true],
+    ["the storage tiles go back to fixed columns",
+     full.replace(".tiles{display:flex;flex-wrap:wrap", "x"), spec, null, true],
+    ["a tile stops growing to fill its row",
+     full.replace(".tile{flex:1 1 150px;min-width:0}", "x"), spec, null, true],
     ["the share page never drawn", full.replace("function webHTML(state)", "x"), spec, null, true],
     ["the share page put back in a phone frame",
      full.replace('function bframe( class="bwin"', "x"), spec, null, true],
