@@ -195,6 +195,18 @@ const WANTED = [
   ["N95", "a short screen gives up the scanned path", /max-height: 760px\)\{[\s\S]{0,400}\.scanline \.pth\{display:none\}/],
   ["N95", "a 640px screen gives up the legend too", /max-height: 660px\)\{[\s\S]{0,200}\.legend\{display:none\}/],
   ["N95", "a loaded tray can be folded away by hand", /\.tray\.shut \.zone,\.tray\.shut \.acts\{display:none\}/],
+  // N96 - stored state is input. A value left behind by an older version of the page made
+  // every read of it throw before a frame was drawn, and the stage is cleared before it is
+  // filled, so the page went blank and said nothing about why.
+  ["N96", "stored state is parsed defensively, not trusted", /const LJ=\(k,def,ok\)=>/],
+  ["N96", "the selection's shape is checked before it is used", /const isSel=v=>/],
+  ["N96", "no state value goes through a bare JSON.parse of storage",
+   /^(?![\s\S]*JSON\.parse\(LS\()/],
+  ["N96", "a screen that throws is drawn as an error rather than as nothing",
+   /const build=\(d,scale\)=>\{[\s\S]{0,200}catch\(err\)[\s\S]{0,300}class="crashbox"/],
+  ["N96", "the error box says what threw", /class="crashbox"[\s\S]{0,400}err\.message/],
+  ["N96", "and offers a way out", /js-reset[\s\S]{0,600}startsWith\("filet\."\)/],
+  ["N96", "wiring that throws cannot take the render with it", /try\{wire\(\);\}catch/],
 ];
 
 /** Things the mock must NOT do, each of which has gone wrong once already. */
@@ -290,6 +302,9 @@ if (process.argv.includes("--selftest")) {
     // The page Nearby serves, and the clipboard on it.
     ".tiles{display:flex;flex-wrap:wrap", ".tile{flex:1 1 150px;min-width:0}",
     ".stor .shead,.stor .smode,.stor .selbar,.stor .tray{flex:none}",
+    "const LJ=(k,def,ok)=>", "const isSel=v=>",
+    'const build=(d,scale)=>{ catch(err) class="crashbox"',
+    'class="crashbox" err.message', 'js-reset startsWith("filet.")', "try{wire();}catch",
     ".legend{flex-wrap:nowrap;overflow-x:auto", ".tray .zone{max-height:92px;overflow-y:auto",
     "max-height: 760px){ .scanline .pth{display:none}",
     "max-height: 660px){ .legend{display:none}",
@@ -372,6 +387,16 @@ if (process.argv.includes("--selftest")) {
     ["a standing paragraph back under a tab heading",
      full + '\nthead("Home", "Where things are, and what turned up while you were away.",',
      spec, null, true],
+    ["stored state trusted again",
+     full.replace("const LJ=(k,def,ok)=>", "x"), spec, null, true],
+    ["a bare JSON.parse of storage comes back",
+     full + '\nsel:JSON.parse(LS("filet.sel")||"{}")', spec, null, true],
+    ["a throwing screen blanks the stage again",
+     full.replace('const build=(d,scale)=>{ catch(err) class="crashbox"', "x"), spec, null, true],
+    ["the error box stops saying what threw",
+     full.replace('class="crashbox" err.message', "x"), spec, null, true],
+    ["wire() can take the render down again",
+     full.replace("try{wire();}catch", "x"), spec, null, true],
     ["the bands around the list can be squashed again",
      full.replace(".stor .shead,.stor .smode,.stor .selbar,.stor .tray{flex:none}", "x"), spec, null, true],
     ["the legend wraps to four lines again",
