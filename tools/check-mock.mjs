@@ -184,6 +184,17 @@ const WANTED = [
    /class="hsearch"[\s\S]{0,200}<input type="search"/],
   ["N93", "the tracked folders sit with the files they produced",
    /\$\{TRACKED_LONG\}[\s\S]{0,900}Tracked folders \(3\)[\s\S]{0,700}>Recent</],
+  // N95 - the storage tool had two rows of list on a small phone. Everything rendered and
+  // there was nothing to see, which reads as an empty tool rather than a broken one. The
+  // space comes back from the two bands that were taking more than they need.
+  ["N95", "the bands around the list cannot be squashed to feed it",
+   /\.stor \.shead,\.stor \.smode,\.stor \.selbar,\.stor \.tray\{flex:none\}/],
+  ["N95", "the legend scrolls sideways instead of wrapping to four lines",
+   /\.legend\{flex-wrap:nowrap;overflow-x:auto/],
+  ["N95", "the tray cannot grow without limit", /\.tray \.zone\{max-height:92px;overflow-y:auto/],
+  ["N95", "a short screen gives up the scanned path", /max-height: 760px\)\{[\s\S]{0,400}\.scanline \.pth\{display:none\}/],
+  ["N95", "a 640px screen gives up the legend too", /max-height: 660px\)\{[\s\S]{0,200}\.legend\{display:none\}/],
+  ["N95", "a loaded tray can be folded away by hand", /\.tray\.shut \.zone,\.tray\.shut \.acts\{display:none\}/],
 ];
 
 /** Things the mock must NOT do, each of which has gone wrong once already. */
@@ -278,6 +289,11 @@ if (process.argv.includes("--selftest")) {
     "+ SMB + SFTP + FTP + WEBDAV",
     // The page Nearby serves, and the clipboard on it.
     ".tiles{display:flex;flex-wrap:wrap", ".tile{flex:1 1 150px;min-width:0}",
+    ".stor .shead,.stor .smode,.stor .selbar,.stor .tray{flex:none}",
+    ".legend{flex-wrap:nowrap;overflow-x:auto", ".tray .zone{max-height:92px;overflow-y:auto",
+    "max-height: 760px){ .scanline .pth{display:none}",
+    "max-height: 660px){ .legend{display:none}",
+    ".tray.shut .zone,.tray.shut .acts{display:none}",
     'class="hsearch" <input type="search"',
     "${TRACKED_LONG} Tracked folders (3) >Recent<",
     "function webHTML(state)", 'function bframe( class="bwin"',
@@ -356,6 +372,14 @@ if (process.argv.includes("--selftest")) {
     ["a standing paragraph back under a tab heading",
      full + '\nthead("Home", "Where things are, and what turned up while you were away.",',
      spec, null, true],
+    ["the bands around the list can be squashed again",
+     full.replace(".stor .shead,.stor .smode,.stor .selbar,.stor .tray{flex:none}", "x"), spec, null, true],
+    ["the legend wraps to four lines again",
+     full.replace(".legend{flex-wrap:nowrap;overflow-x:auto", "x"), spec, null, true],
+    ["the tray grows without limit again",
+     full.replace(".tray .zone{max-height:92px;overflow-y:auto", "x"), spec, null, true],
+    ["a loaded tray can no longer be folded",
+     full.replace(".tray.shut .zone,.tray.shut .acts{display:none}", "x"), spec, null, true],
     ["Home's header stops being the search field",
      full.replace('class="hsearch" <input type="search"', "x"), spec, null, true],
     ["the tracked folders drift away from the files they produced",
