@@ -38,10 +38,21 @@ const FIRST = 1;
 /**
  * Shorter than this and a gate is a summary rather than what was said.
  *
- * Reported items are sentences, usually several. Nothing genuinely reported has ever been
- * under forty characters, and a tidy one-liner is exactly what the rule forbids.
+ * Reported items are sentences, usually several, and a tidy one-liner is exactly what the
+ * rule forbids - the failure is a report being compressed into a neat label on its way into
+ * the ledger.
+ *
+ * The original note here said nothing genuinely reported had ever been under forty
+ * characters. That turned out to be false: a follow-up on an item already in the ledger can
+ * be two words and a screenshot, and "still nothing" is the whole of what was said. Length
+ * alone cannot tell that from a summary, so the short ones carry a VERBATIM marker naming
+ * what came with them. The guard survives - a long report still cannot be shortened, because
+ * writing the marker is a claim about what was said, not a way to skip the rule.
  */
 const MIN_TITLE = 40;
+
+/** A short title is only allowed when it is marked as the whole of what was said. */
+const VERBATIM = /<!--\s*VERBATIM:\s*\S[^>]*-->\s*$/;
 
 /**
  * Which numbering scheme a ledger is on, or null if it does not say.
@@ -123,8 +134,13 @@ export function problems(files) {
   }
 
   for (const g of gates) {
-    if (g.title.length < MIN_TITLE) {
-      found.push(`N${g.n} in ${g.round} reads like a summary, not what was said: "${g.title}"`);
+    const marked = VERBATIM.test(g.title);
+    const body = g.title.replace(VERBATIM, "").trim();
+    if (body.length < MIN_TITLE && !marked) {
+      found.push(
+        `N${g.n} in ${g.round} reads like a summary, not what was said: "${g.title}"\n` +
+          `    If it really was this short, mark it: <!-- VERBATIM: what came with it -->`,
+      );
     }
   }
   return found;
@@ -142,6 +158,12 @@ if (process.argv.includes("--selftest")) {
       ["b", "SEQUENCE: shared\n- [ ] N1: a completely different sentence about a completely different report\n"],
     ], true],
     ["a summarised title", [["r", "SEQUENCE: shared\n- [ ] N1: fix sorting\n"]], true],
+    // A short title is what a genuine follow-up looks like; the marker is what separates it
+    // from a summary, and a summary wearing an empty marker must still be caught.
+    ["a genuinely two-word report, marked",
+     [["r", "SEQUENCE: shared\n- [ ] N1: still nothing <!-- VERBATIM: and a screenshot -->\n"]], false],
+    ["a summary wearing an empty marker",
+     [["r", "SEQUENCE: shared\n- [ ] N1: fix sorting <!-- VERBATIM: -->\n"]], true],
     ["no gates at all", [["r", "SEQUENCE: shared\n# A ledger with nothing in it\n"]], true],
     // the positive controls
     ["a clean pair of ledgers", good, false],
