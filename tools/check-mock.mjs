@@ -207,6 +207,24 @@ const WANTED = [
   ["N96", "the error box says what threw", /class="crashbox"[\s\S]{0,400}err\.message/],
   ["N96", "and offers a way out", /js-reset[\s\S]{0,600}startsWith\("filet\."\)/],
   ["N96", "wiring that throws cannot take the render with it", /try\{wire\(\);\}catch/],
+  // The first pass hardened parsed values and left plain strings trusted, which is half the
+  // problem: a remembered key that no longer exists reads back undefined and the crumb walk
+  // asked it for its name. Checked against the table it indexes, not against a list written
+  // beside the table - a second list is a second thing to keep in step.
+  ["N96", "a remembered key is checked against the table it indexes", /const LK=\(k,allowed,def\)=>/],
+  ["N96", "the remembered folder is one of them", /sdir:LK\("filet\.sdir",STORE_TREE,"root"\)/],
+  // One rule each, not one ordered span. A span rule asserts the order the lines happen to be
+  // written in as well as their presence, so it goes red when somebody reorders a declaration
+  // and it cannot say which of the four is actually missing. That mistake is already in this
+  // file's history at N59; repeating it once is enough.
+  ["N96", "the remembered tab is checked", /tab3:LK\("filet\.tab3",TABS3,/],
+  ["N96", "the remembered dialogue is checked", /dlg:LK\("filet\.dlg",DIALOGS,/],
+  ["N96", "the remembered theme is checked", /theme:LK\("filet\.theme",THEMES\.map/],
+  ["N96", "the remembered app icon is checked", /appIcon:LK\("filet\.appicon",APP_ICONS\.map/],
+  ["N96", "the remembered storage mode is checked", /smode:LK\("filet\.smode",\[/],
+  ["N96", "the remembered screen is checked", /screen:LK\("filet\.screen",\[/],
+  ["N96", "the crumb walk cannot be led off the end of the tree",
+   /while \(k && STORE_TREE\[k\] && hops\+\+ < 32\)/],
 ];
 
 /** Things the mock must NOT do, each of which has gone wrong once already. */
@@ -303,6 +321,11 @@ if (process.argv.includes("--selftest")) {
     ".tiles{display:flex;flex-wrap:wrap", ".tile{flex:1 1 150px;min-width:0}",
     ".stor .shead,.stor .smode,.stor .selbar,.stor .tray{flex:none}",
     "const LJ=(k,def,ok)=>", "const isSel=v=>",
+    "const LK=(k,allowed,def)=>", 'sdir:LK("filet.sdir",STORE_TREE,"root")',
+    'tab3:LK("filet.tab3",TABS3,', 'dlg:LK("filet.dlg",DIALOGS,',
+    'theme:LK("filet.theme",THEMES.map', 'appIcon:LK("filet.appicon",APP_ICONS.map',
+    'smode:LK("filet.smode",[', 'screen:LK("filet.screen",[',
+    "while (k && STORE_TREE[k] && hops++ < 32)",
     'const build=(d,scale)=>{ catch(err) class="crashbox"',
     'class="crashbox" err.message', 'js-reset startsWith("filet.")', "try{wire();}catch",
     ".legend{flex-wrap:nowrap;overflow-x:auto", ".tray .zone{max-height:92px;overflow-y:auto",
@@ -387,6 +410,14 @@ if (process.argv.includes("--selftest")) {
     ["a standing paragraph back under a tab heading",
      full + '\nthead("Home", "Where things are, and what turned up while you were away.",',
      spec, null, true],
+    ["a remembered key trusted again",
+     full.replace("const LK=(k,allowed,def)=>", "x"), spec, null, true],
+    ["the remembered folder unchecked",
+     full.replace('sdir:LK("filet.sdir",STORE_TREE,"root")', "x"), spec, null, true],
+    ["the remembered theme unchecked",
+     full.replace('theme:LK("filet.theme",THEMES.map', "x"), spec, null, true],
+    ["the crumb walk can run off the tree again",
+     full.replace("while (k && STORE_TREE[k] && hops++ < 32)", "x"), spec, null, true],
     ["stored state trusted again",
      full.replace("const LJ=(k,def,ok)=>", "x"), spec, null, true],
     ["a bare JSON.parse of storage comes back",
