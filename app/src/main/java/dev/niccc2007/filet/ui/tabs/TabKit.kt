@@ -112,6 +112,18 @@ private fun FlowRowActions(actions: @Composable () -> Unit) {
 fun SectionRow(
     label: String,
     action: String? = null,
+    /**
+     * A trailing word that is a label and not a control.
+     *
+     * Separate from [action] on purpose. Passing an action with an empty lambda to get the
+     * same appearance draws something that looks pressable and is not, which is the dead
+     * switch R1 forbids - and it is an easy thing to reach for, because the two render in
+     * nearly the same place.
+     *
+     * Declared before [onAction] so the trailing-lambda slot stays the action. Putting it
+     * last silently rebinds every `SectionRow(..) { ... }` call to this parameter.
+     */
+    note: String? = null,
     onAction: (() -> Unit)? = null,
 ) {
     val colors = Filet.colors
@@ -139,6 +151,8 @@ fun SectionRow(
                     .clickable(onClick = onAction)
                     .padding(horizontal = 4.dp, vertical = 2.dp),
             )
+        } else if (note != null) {
+            Text(note, fontSize = 10.sp, color = colors.fg3)
         }
     }
 }

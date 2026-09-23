@@ -136,6 +136,10 @@ fun RemotesScreen(vm: BrowserViewModel) {
             }
         }
 
+        // Filet as the thing being connected TO, rather than the thing connecting.
+        item { SectionRow("Mount this phone on your PC", note = "WebDAV") }
+        item { HostingCard(vm) }
+
         item { SectionRow("Root") }
         item {
             Column(

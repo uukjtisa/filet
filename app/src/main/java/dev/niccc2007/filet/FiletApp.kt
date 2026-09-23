@@ -118,6 +118,32 @@ class FiletGraph(context: Context) {
     val home = HomeFeed(vfs, tracked, scope)
 
     /**
+     * Hosting this phone over WebDAV, so it appears in Windows Explorer.
+     *
+     * Lazy for the same reason [nearby] is: it opens a listening socket when it is started and
+     * there is no reason for the object to exist in a session where it never is. The scope is
+     * resolved when the session starts rather than held, so changing it takes effect on the
+     * next start instead of moving the root under a mounted drive.
+     */
+    val webdav: dev.niccc2007.filet.webdav.WebDavServer by lazy {
+        dev.niccc2007.filet.webdav.WebDavServer(
+            vfs = vfs,
+            rootFor = { scopeChoice ->
+                when (scopeChoice) {
+                    dev.niccc2007.filet.webdav.DavScope.SHARED_FOLDER ->
+                        dev.niccc2007.filet.vfs.VPath.of("local", "/storage/emulated/0/Filet/Shared")
+                    dev.niccc2007.filet.webdav.DavScope.WHOLE_PHONE ->
+                        dev.niccc2007.filet.vfs.VPath.of("local", "/storage/emulated/0")
+                }
+            },
+            onEvent = { davState.value = it },
+        )
+    }
+
+    /** The hosting card reads this; the server writes it. */
+    val davState = kotlinx.coroutines.flow.MutableStateFlow(dev.niccc2007.filet.webdav.DavState())
+
+    /**
      * The index is optional by construction (PLAN.md L1, SEARCH.md §7.1).
      *
      * If SQLite fails to open - a corrupt file, a device with no writable database dir - the

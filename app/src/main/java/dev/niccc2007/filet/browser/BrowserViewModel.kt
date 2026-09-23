@@ -2356,6 +2356,83 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     private val _remotesRevision = MutableStateFlow(0)
     val remotesRevision: StateFlow<Int> = _remotesRevision.asStateFlow()
 
+    // ── hosting this phone over WebDAV ──
+
+    val davState: StateFlow<dev.niccc2007.filet.webdav.DavState> get() = graph.davState
+
+    /**
+     * Start hosting, and keep an eye on the idle clock while it runs.
+     *
+     * The idle check is a slow poll rather than a scheduled stop, because the window can be
+     * changed while the session is running and a timer set at start would carry the old value.
+     */
+    fun startHosting() {
+        viewModelScope.launch {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { graph.webdav.start() }
+            if (graph.davState.value.running) {
+                // The same foreground service the share uses. Without it the socket lives only
+                // as long as the process does, and a drive letter that vanishes on switching
+                // apps is worse than no drive letter.
+                dev.niccc2007.filet.nearby.NearbyService.start(graph.app)
+                toast("Hosting on the network")
+            } else {
+                toast("Could not start hosting")
+            }
+        }
+        viewModelScope.launch {
+            while (graph.davState.value.running) {
+                kotlinx.coroutines.delay(30_000)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { graph.webdav.stopIfIdle() }
+            }
+        }
+    }
+
+    fun stopHosting() {
+        viewModelScope.launch {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { graph.webdav.stop() }
+            // Nudged rather than stopped: the share may still be running behind it, and this
+            // lets the service work out for itself whether it still has a reason to exist.
+            dev.niccc2007.filet.nearby.NearbyService.start(graph.app)
+            toast("Stopped hosting")
+        }
+    }
+
+    fun setHostWritable(on: Boolean) {
+        graph.webdav.writable = on
+        graph.davState.value = graph.webdav.state()
+    }
+
+    /**
+     * Change what the computer can see.
+     *
+     * Takes effect on the next start, and says so: moving the root under a drive Explorer has
+     * already mounted leaves it holding paths that no longer resolve, which looks to the user
+     * like every file vanished.
+     */
+    fun setHostScope(scope: dev.niccc2007.filet.webdav.DavScope) {
+        graph.webdav.scope = scope
+        graph.davState.value = graph.webdav.state()
+        if (graph.davState.value.running) toast("Takes effect the next time you start hosting")
+    }
+
+    fun setHostIdleMinutes(m: Int) {
+        graph.webdav.idleStopMinutes = m
+        graph.davState.value = graph.webdav.state()
+    }
+
+    fun kickHostClient(address: String) {
+        graph.webdav.kick(address)
+    }
+
+    /**
+     * The addresses a computer can reach this phone on, reused from the Nearby server.
+     *
+     * One walk of the interfaces, not two: they answer the same question and having each keep
+     * its own copy is how the two screens came to disagree about which network the phone is on.
+     */
+    fun hostAddresses(): List<dev.niccc2007.filet.nearby.NetAddress> =
+        dev.niccc2007.filet.nearby.NetAddresses.all()
+
     /**
      * Re-read the saved connections and the root grant on the next composition.
      *

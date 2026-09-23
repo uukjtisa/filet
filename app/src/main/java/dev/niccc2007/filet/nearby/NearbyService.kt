@@ -64,14 +64,24 @@ class NearbyService : Service() {
             ACTION_STOP -> {
                 // Stopped from inside the service, so the service is not asked to stop - it
                 // stops itself two lines down. Asking is what produced the endless lap.
+                //
+                // Both, because this notification stands for both. Stopping one and leaving
+                // the other listening with nothing in the shade is a socket the user believes
+                // they closed.
                 graph.nearby.stop(StopOrigin.SERVICE)
+                graph.webdav.stop()
                 stopForegroundCompat()
                 stopSelf()
                 return START_NOT_STICKY
             }
         }
 
-        if (!graph.nearby.isRunning()) {
+        // Either server counts. WebDAV hosting has exactly the same need as the share - a
+        // listening socket that has to outlive the app being backgrounded - and giving it a
+        // second foreground service would put two permanent notifications in the shade for one
+        // idea. Explorer drops the mapped drive the moment the process is trimmed, and a drive
+        // that disappears when you switch apps reads as the feature being broken.
+        if (!graph.nearby.isRunning() && !graph.davState.value.running) {
             // Nothing to keep alive. Do not sit in the notification shade claiming otherwise.
             stopForegroundCompat()
             stopSelf()
@@ -94,7 +104,15 @@ class NearbyService : Service() {
         idleWatch = scope.launch {
             while (true) {
                 delay(30_000)
-                if (!graph.nearby.isRunning()) { stopSelf(); break }
+                if (!graph.nearby.isRunning() && !graph.davState.value.running) { stopSelf(); break }
+                // The hosting session has its own idle clock and closes itself; this only has
+                // to ask, so the notification goes away with it.
+                graph.webdav.stopIfIdle()
+                if (!graph.nearby.isRunning()) {
+                    if (!graph.davState.value.running) { stopSelf(); break }
+                    startForegroundCompat(graph.nearby.state.value)
+                    continue
+                }
                 graph.nearby.grants.sweep()
                 if (graph.nearby.idleExpired()) {
                     // Stopping itself is the default, not something to remember. An open
