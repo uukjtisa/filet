@@ -46,7 +46,9 @@ data class ShortcutRecord(
 enum class AppAction(val label: String, val description: String) {
     INDEX_NOW("Index now", "Start a crawl without opening Settings"),
     SHARE_NEARBY("Start sharing", "Turn on the LAN share and show the code"),
+    STOP_SHARING("Stop sharing", "Turn the LAN share off without opening the tab"),
     SEARCH("Search", "Open Filet with the search box focused"),
+    BOOKMARKS("Bookmarks", "Open the starred list"),
     RECENT("Recent", "Open the recent files list"),
     ;
 

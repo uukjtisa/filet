@@ -154,6 +154,29 @@ fun SettingsPage(vm: BrowserViewModel) {
             )
         }
 
+        // The place the one-time reminder points at. It is here, under Appearance, because
+        // what Home shows is what the app looks like when it opens - and a reminder that names
+        // a section the setting is not in is worse than no reminder.
+        item {
+            val home by prefs.homeFolder.collectAsState()
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Home screen", fontSize = 12.sp, color = colors.fg2)
+                        Text(
+                            home ?: "The overview — storage, new files and recents",
+                            fontSize = 10.5.sp,
+                            color = colors.fg3,
+                            maxLines = 2,
+                        )
+                    }
+                    // Only offered when there is something to undo. A reset button on a
+                    // default is a control that does nothing.
+                    if (home != null) SmallButton("Reset") { prefs.setHomeFolder(null) }
+                }
+            }
+        }
+
         item { SettingsSection("Files and folders", "Sorting, hidden files, and what happens when you pick things.") }
         item {
             ToggleRow("Show hidden files", "Dotfiles and anything the volume marks hidden", hidden) {

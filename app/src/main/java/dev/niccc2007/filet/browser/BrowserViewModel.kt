@@ -2356,6 +2356,67 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     private val _remotesRevision = MutableStateFlow(0)
     val remotesRevision: StateFlow<Int> = _remotesRevision.asStateFlow()
 
+    /**
+     * Put the left pane on the right and the right pane on the left.
+     *
+     * Only the two ACTIVE indices move, not the tab list: swapping the tabs themselves would
+     * reorder the strip, which is a different thing the user did not ask for and would have to
+     * undo by dragging.
+     *
+     * Focus follows the pane, not the side. Somebody who swaps because they want to act on the
+     * other tree has already chosen which tree they mean, and moving the focus to whatever
+     * happens to be on the left afterwards throws that away.
+     */
+    fun swapPanes() {
+        if (_state.value.split == SplitMode.OFF) return
+        _state.update {
+            it.copy(
+                activeA = it.activeB,
+                activeB = it.activeA,
+                focused = if (it.focused == Side.A) Side.B else Side.A,
+            )
+        }
+        // The divider sits at a fraction of the body, so a split that is not 50/50 would
+        // otherwise leave the pane that just moved with the other one's share of the screen.
+        prefs.setSplitRatio(1f - prefs.splitRatio.value)
+        toast("Panes swapped")
+    }
+
+    // ── what Home opens ──
+
+    /** Shown once ever, after the first time a folder becomes Home. */
+    private val _homeHint = MutableStateFlow(false)
+    val homeHint: StateFlow<Boolean> = _homeHint.asStateFlow()
+
+    fun setHomeFolder(path: VPath?) {
+        prefs.setHomeFolder(path?.toString())
+        if (HomeTarget.shouldRemind(prefs.homeHintShown.value, settingAFolder = path != null)) {
+            _homeHint.value = true
+            prefs.markHomeHintShown()
+        } else {
+            toast(if (path == null) "Home is the overview again" else "Home is now this folder")
+        }
+        // Every open Home pane, not just the visible one: a tab left on Home in the other half
+        // of a split would otherwise keep drawing the old target until it was navigated.
+        _state.update { it.copy(revision = it.revision + 1) }
+    }
+
+    fun dismissHomeHint() { _homeHint.value = false }
+
+    /**
+     * What a Home pane should draw right now.
+     *
+     * Existence is checked here rather than stored, because the folder can be deleted or an SD
+     * card removed between one launch and the next, and Home is the screen that opens first.
+     */
+    fun homeResolution(): HomeTarget.Resolution {
+        val stored = prefs.homeFolder.value?.let { runCatching { VPath.parse(it) }.getOrNull() }
+        return HomeTarget.resolve(stored) { p ->
+            runCatching { kotlinx.coroutines.runBlocking { graph.vfs.stat(p) } != null }
+                .getOrDefault(false)
+        }
+    }
+
     // ── hosting this phone over WebDAV ──
 
     val davState: StateFlow<dev.niccc2007.filet.webdav.DavState> get() = graph.davState
@@ -2736,7 +2797,16 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 pane.openSpecial(PaneKind.NEARBY, "Nearby")
                 graph.nearby.start()
             }
+            dev.niccc2007.filet.shortcuts.AppAction.STOP_SHARING -> {
+                // Opens the tab as well as stopping. Something was running and is now not, and
+                // a shortcut that silently changes state and shows nothing is indistinguishable
+                // from one that did nothing.
+                pane.openSpecial(PaneKind.NEARBY, "Nearby")
+                graph.nearby.stop()
+            }
             dev.niccc2007.filet.shortcuts.AppAction.SEARCH -> pane.openSearch(true)
+            dev.niccc2007.filet.shortcuts.AppAction.BOOKMARKS ->
+                pane.openSpecial(PaneKind.BOOKMARKS, "Bookmarks")
             dev.niccc2007.filet.shortcuts.AppAction.RECENT ->
                 pane.openSpecial(PaneKind.RECENT, "Recent")
             null -> toast("That shortcut points at something Filet no longer has.")

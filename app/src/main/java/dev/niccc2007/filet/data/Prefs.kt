@@ -84,6 +84,35 @@ class Prefs(context: Context) {
     private val _splitRatio = MutableStateFlow(sp.getFloat(K_SPLIT, 0.5f))
     val splitRatio: StateFlow<Float> = _splitRatio.asStateFlow()
 
+    /**
+     * A folder Home opens instead of the overview, or null for the overview.
+     *
+     * Stored as a string rather than resolved here: the path outlives the folder, and deciding
+     * what to do about that belongs to [dev.niccc2007.filet.browser.HomeTarget], which has
+     * tests on the falling-back.
+     */
+    private val _homeFolder = MutableStateFlow(sp.getString(K_HOME_FOLDER, null))
+    val homeFolder: StateFlow<String?> = _homeFolder.asStateFlow()
+
+    fun setHomeFolder(path: String?) {
+        sp.edit().putString(K_HOME_FOLDER, path).apply()
+        _homeFolder.value = path
+    }
+
+    /**
+     * Whether the one-time "you can change this back" note has ever been shown.
+     *
+     * Once in the whole app's life, which is why it lives in preferences and not in any
+     * screen's state.
+     */
+    private val _homeHintShown = MutableStateFlow(sp.getBoolean(K_HOME_HINT, false))
+    val homeHintShown: StateFlow<Boolean> = _homeHintShown.asStateFlow()
+
+    fun markHomeHintShown() {
+        sp.edit().putBoolean(K_HOME_HINT, true).apply()
+        _homeHintShown.value = true
+    }
+
     private val _indexEnabled = MutableStateFlow(sp.getBoolean(K_INDEX, true))
     val indexEnabled: StateFlow<Boolean> = _indexEnabled.asStateFlow()
 
@@ -268,6 +297,8 @@ class Prefs(context: Context) {
         const val K_THEME = "ui.theme"
         const val K_ACCENT = "ui.accent"
         const val K_SPLIT = "browse.split"
+        const val K_HOME_FOLDER = "home.folder"
+        const val K_HOME_HINT = "home.hint.shown"
         const val K_INDEX = "index.enabled"
         const val K_TAB_SIZE = "browse.tabSize"
         const val K_HIDE_STORAGE = "home.hideStorage"

@@ -13,6 +13,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -104,6 +108,22 @@ fun BrowserScreen(vm: BrowserViewModel) {
 
     val paneA = tabs.getOrNull(app.activeA)
     val paneB = tabs.getOrNull(app.activeB)
+    // Once in the whole app's life. It exists because "Home is not what it was" is alarming
+    // and the way back is not discoverable, so the one thing it must do is name the place.
+    val homeHint by vm.homeHint.collectAsState()
+    if (homeHint) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { vm.dismissHomeHint() },
+            title = { Text(HomeTarget.REMINDER_TITLE, fontSize = 15.sp) },
+            text = { Text(HomeTarget.REMINDER_BODY, fontSize = 12.5.sp, lineHeight = 18.sp) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { vm.dismissHomeHint() }) {
+                    Text("Got it")
+                }
+            },
+        )
+    }
+
     val active = if (app.focused == Side.A || app.split == SplitMode.OFF) paneA else paneB
     val activeState = active?.state?.collectAsState()?.value
 
@@ -753,17 +773,43 @@ private fun Body(
         val density = LocalDensity.current
 
         val dividerDrag = Modifier.pointerInput(horizontal, totalDp) {
-            detectDragGestures(
-                onDragEnd = { vm.prefs.setSplitRatio(live) },
-                onDrag = { change, delta ->
-                    change.consume()
+            // One gesture loop, not two. A separate tap detector alongside the drag detector
+            // races it: whichever consumes the down event first wins, so the tap fires on
+            // some drags and never on others depending on composition order. Reading the
+            // pointer here means the same press decides once.
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                val startedAt = System.currentTimeMillis()
+                val origin = down.position
+                var furthest = 0f
+                var dragged = false
+                val totalPx = with(density) { totalDp.dp.toPx() }
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (change.changedToUp()) break
+                    val travelPx = (change.position - origin).getDistance()
+                    furthest = maxOf(furthest, with(density) { travelPx.toDp().value })
+                    val delta = change.positionChange()
                     val px = if (horizontal) delta.x else delta.y
-                    val totalPx = with(density) { totalDp.dp.toPx() }
-                    // Work in FRACTIONS of the body, not pixels: the same maths then behaves
-                    // identically at every density and in every scaled preview.
-                    live = (live + px / totalPx).coerceIn(minFrac, 1f - minFrac)
-                },
-            )
+                    if (px != 0f) {
+                        dragged = true
+                        change.consume()
+                        // Work in FRACTIONS of the body, not pixels: the same maths then
+                        // behaves identically at every density and in every scaled preview.
+                        live = (live + px / totalPx).coerceIn(minFrac, 1f - minFrac)
+                    }
+                }
+                val heldMs = System.currentTimeMillis() - startedAt
+                if (DividerTap.isTap(heldMs, furthest)) {
+                    // A tap swaps the panes. The thresholds are in DividerTap with tests:
+                    // getting this wrong the other way resizes the split every time somebody
+                    // meant to swap.
+                    vm.swapPanes()
+                } else if (dragged) {
+                    vm.prefs.setSplitRatio(live)
+                }
+            }
         }.pointerInput(Unit) {
             detectTapGestures(onDoubleTap = { live = 0.5f; vm.prefs.setSplitRatio(0.5f) })
         }

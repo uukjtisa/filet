@@ -629,7 +629,16 @@ private fun FolderBody(
 @Composable
 private fun SpecialBody(pane: PaneController, vm: BrowserViewModel, s: PaneState) {
     when (s.kind) {
-        PaneKind.HOME -> HomeOverview(vm, pane)
+        // Home is the overview unless a folder was set as Home and still exists. Resolved on
+        // every composition rather than once at launch, because the card can be removed or the
+        // folder deleted while the app is open.
+        PaneKind.HOME -> when (val target = vm.homeResolution()) {
+            is HomeTarget.Resolution.Overview -> HomeOverview(vm, pane)
+            is HomeTarget.Resolution.Folder -> {
+                LaunchedEffect(target.path) { pane.navigateTo(target.path, push = false) }
+                HomeOverview(vm, pane)
+            }
+        }
         PaneKind.ABOUT -> AboutPage(vm)
         PaneKind.SETTINGS -> SettingsPage(vm)
         PaneKind.BOOKMARKS -> BookmarksBody(vm, pane)

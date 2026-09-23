@@ -30,6 +30,8 @@ import dev.niccc2007.filet.vfs.provider.net.PeerProvider
 import dev.niccc2007.filet.vfs.provider.net.SftpProvider
 import dev.niccc2007.filet.vfs.provider.net.SmbProvider
 import dev.niccc2007.filet.vfs.provider.net.WebDavProvider
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -142,6 +144,29 @@ class FiletGraph(context: Context) {
 
     /** The hosting card reads this; the server writes it. */
     val davState = kotlinx.coroutines.flow.MutableStateFlow(dev.niccc2007.filet.webdav.DavState())
+
+    /**
+     * Keep the launcher's long-press menu honest about whether sharing is on.
+     *
+     * One collector rather than a call beside each state write. The share's state is set in
+     * seventeen places, and a menu entry that says "Start sharing" while a share is running is
+     * exactly the kind of staleness that survives for months because nobody long-presses their
+     * own app icon to check.
+     *
+     * `distinctUntilChanged` on the flag alone: the state also carries client lists and byte
+     * counts that change constantly, and republishing the menu on every request would hit the
+     * platform's shortcut rate limit and then silently stop updating at all.
+     */
+    private val launcherMenu = scope.launch {
+        nearby.state
+            .map { it.running }
+            .distinctUntilChanged()
+            .collect { running ->
+                runCatching {
+                    dev.niccc2007.filet.shortcuts.LauncherShortcuts.publish(app, running)
+                }
+            }
+    }
 
     /**
      * The index is optional by construction (PLAN.md L1, SEARCH.md §7.1).

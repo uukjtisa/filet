@@ -137,6 +137,7 @@ fun MoreMenu(
         DropdownMenu(expanded = false, onDismissRequest = onDismiss) {}
         return
     }
+    val homeFolder by vm.prefs.homeFolder.collectAsState()
     val colors = Filet.colors
     val tracked by vm.tracked.paths.collectAsState()
     val selection = pane.selectedNodes()
@@ -214,6 +215,16 @@ fun MoreMenu(
             ) {
                 onDismiss()
                 s.cwd?.let { if (isTracked) vm.tracked.remove(it) else vm.tracked.add(it) }
+            }
+            // Home can be this folder instead of the overview. The reminder that it is
+            // reversible fires once in the app's life and names where to reverse it.
+            val isHome = s.cwd?.toString() != null && s.cwd.toString() == homeFolder
+            Item(
+                FiletIcons.Home,
+                if (isHome) "Stop using this as Home" else "Set as home",
+            ) {
+                onDismiss()
+                s.cwd?.let { vm.setHomeFolder(if (isHome) null else it) }
             }
             if (vm.canPaste()) {
                 Item(FiletIcons.Paste, "Paste here") { onDismiss(); vm.paste() }
