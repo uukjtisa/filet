@@ -58,34 +58,58 @@ Free and open source. No ads, no accounts, no telemetry, no paid tier.
 
 ## A glimpse of it
 
+Three things, in the order you would meet them: getting around, doing work on the files, and
+reaching the machines around you.
+
+### Getting around
+
 <p align="center">
-  <img src="docs/screenshots/01-browse.png" width="31%" alt="Browsing with thumbnails">
-  <img src="docs/screenshots/02-split.png" width="31%" alt="Split view, two panes">
-  <img src="docs/screenshots/03-search.png" width="31%" alt="Whole-device search">
-</p>
-<p align="center">
-  <img src="docs/screenshots/11-compress.png" width="31%" alt="The compress window, with options that fit the format">
-  <img src="docs/screenshots/12-extract.png" width="31%" alt="The extraction preview, showing the folder it will create">
-  <img src="docs/screenshots/13-archive-save.png" width="31%" alt="Saving a file edited inside an archive">
-</p>
-<p align="center">
-  <img src="docs/screenshots/04-apk.png" width="31%" alt="APK inspector">
-  <img src="docs/screenshots/05-scripts.png" width="31%" alt="Lua scripts">
-  <img src="docs/screenshots/06-nearby.png" width="31%" alt="Nearby sharing">
+  <img src="docs/screenshots/01-browse.png" width="31%" alt="A folder listing with thumbnails, sizes and dates">
+  <img src="docs/screenshots/02-split.png" width="31%" alt="Two panes side by side, each on a different folder">
+  <img src="docs/screenshots/03-search.png" width="31%" alt="Search results from across the whole device">
 </p>
 
 <p align="center"><sub>
-Browsing &middot; split panes &middot; search<br>
-Compressing &middot; previewing an extraction before it happens &middot; editing a file inside an archive<br>
-APK inspector &middot; Lua scripts &middot; sharing
+Two panes are two independent histories, not one folder drawn twice — each keeps its own
+back stack, its own selection and its own search. The search is answered from an index, so it
+returns while you are still typing.
+</sub></p>
+
+### Doing work on the files
+
+<p align="center">
+  <img src="docs/screenshots/11-compress.png" width="31%" alt="The compress window, offering only options the chosen format supports">
+  <img src="docs/screenshots/12-extract.png" width="31%" alt="An extraction preview showing the folder it is about to create">
+  <img src="docs/screenshots/13-archive-save.png" width="31%" alt="Saving a file that was edited from inside an archive">
+</p>
+
+<p align="center"><sub>
+The extraction is previewed before it happens, so an archive that would spray forty files into
+the folder you are standing in says so first. A file opened from inside an archive can be
+edited and saved back into it.
 </sub></p>
 
 <p align="center">
-  <img src="docs/screenshots/07-web.png" width="86%" alt="The web page a browser sees">
+  <img src="docs/screenshots/04-apk.png" width="31%" alt="The APK inspector, listing a package's manifest and permissions">
+  <img src="docs/screenshots/05-scripts.png" width="31%" alt="The script list, each script showing what it is allowed to touch">
+  <img src="docs/screenshots/08-context-menu.png" width="31%" alt="The context menu on a selected file">
 </p>
 
 <p align="center"><sub>
-And what a laptop on the same network sees. No app, no account, no cable.
+A script declares what it may touch and you approve that before it runs — the permission
+lines on each row are the whole of it, not a summary of something longer.
+</sub></p>
+
+### Reaching other machines
+
+<p align="center">
+  <img src="docs/screenshots/06-nearby.png" width="46%" alt="The Nearby tab, sharing over the local network">
+  <img src="docs/screenshots/07-web.png" width="46%" alt="The page a browser on the same network sees">
+</p>
+
+<p align="center"><sub>
+What a laptop on the same network sees. No app at the other end, no account, no cable, and
+nothing leaves the network.
 </sub></p>
 
 <p align="center"><sub>

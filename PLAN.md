@@ -352,6 +352,19 @@ Expected to reorder and slip (R5). Milestones have **exit criteria**, not dates.
 | **M8** | libsu root provider · SMB/SFTP/WebDAV · emulated rooted image for testing | Root browse works on an emulator image |
 | **M9** | **Nearby** — shared set, HTTP+TLS server, mDNS, pairing, peer-as-a-pane (`NEARBY.md`) | Drag a file from another phone's pane into yours |
 | **M10** | Wear OS companion — approve transfers, activity glance, recipe tile | A transfer is accepted from the watch |
+| **M11** | **Editing and packaging** — code editor with syntax highlighting and jump-to-definition · a symbol and snippet pane driven without the on-screen keyboard · the plain text editor beside it · deeper APK tools · merging a split package (XAPK, APKM, APKS) into one installable `.apk` | Open a project file, jump from a call to where it is defined, edit it, and rebuild — then take a split package and install the merged result |
+| **M12** | **Local automation server** — a LAN endpoint an agent can drive: browse and write files through the VFS, write and run Lua, install packages, open and navigate an APK, and make smali-level changes and rebuild. The surface is enumerated from the tool registry rather than hand-listed, so a capability the app gains is reachable without being added twice | An agent on the same network modifies an app end to end — open, change one smali method, rebuild, sign, install — without a human touching the phone |
+
+M11 and M12 are **after the polish**, and M12 depends on M11: an automation surface that can
+edit but not rebuild is a remote control for half a job.
+
+M12 is the one with a real risk attached, and it is worth naming here rather than
+discovering later. An endpoint that can write files, run code and install packages is, by
+construction, the most dangerous thing this app could listen on — strictly more capable
+than the Nearby share, which only ever serves bytes. It inherits the same rules as
+everything else that listens: off until it is started, bound to the local network, no
+account anywhere, and every capability reaching the filesystem through the VFS rather than
+around it. The script permission model from M5 is the precedent to extend, not to bypass.
 
 M6 depends on nothing above it and can jump the queue if motivation says so.
 M9 shares its
