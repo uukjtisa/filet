@@ -714,6 +714,67 @@ fun EmptyTab(icon: ImageVector, title: String, line: String) {
     }
 }
 
+/**
+ * `.hsearch`. Home's header, which is the search field.
+ *
+ * It replaces a title that said "Home" on the Home tab - a label with nothing to tell anyone
+ * who had already tapped Home to get here. The row is a button rather than a live text field:
+ * typing belongs to the search surface that owns the scope chip, the history and the results,
+ * and a second input that hands off on the first keystroke is two places to type one query.
+ */
+@Composable
+fun HomeSearchBar(placeholder: String, scope: String, onClick: () -> Unit) {
+    val colors = Filet.colors
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.background)
+                )
+            )
+            .padding(15.dp),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                .background(colors.sunken)
+                .clickable(onClick = onClick)
+                .padding(horizontal = 13.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Icon(
+                dev.niccc2007.filet.browser.FiletIcons.Search,
+                null,
+                tint = colors.fg3,
+                modifier = Modifier.size(15.dp),
+            )
+            Text(
+                placeholder,
+                fontSize = 13.5.sp,
+                color = colors.fg3,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                scope,
+                fontSize = 9.5.sp,
+                color = colors.fg3,
+                maxLines = 1,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 7.dp, vertical = 3.dp),
+            )
+        }
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(colors.lineSoft))
+}
+
 // ── tiles ───────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -753,6 +814,7 @@ fun StorageTile(
     value: String,
     caption: String,
     fraction: Float? = null,
+    onHide: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
@@ -775,7 +837,24 @@ fun StorageTile(
                 color = colors.fg3,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
             )
+            // Hiding has to stay reachable from the tile. The card this replaced carried it,
+            // and a card you can hide from one place and only restore from another is the
+            // one-way door the restore link at the section heading exists to undo.
+            if (onHide != null) {
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    dev.niccc2007.filet.browser.FiletIcons.Close,
+                    "Hide this card",
+                    tint = colors.fg3,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(onClick = onHide)
+                        .padding(3.dp)
+                        .size(11.dp),
+                )
+            }
         }
         Spacer(Modifier.height(7.dp))
         Text(

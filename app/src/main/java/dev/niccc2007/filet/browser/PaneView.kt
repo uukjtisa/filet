@@ -626,6 +626,7 @@ private fun SpecialBody(pane: PaneController, vm: BrowserViewModel, s: PaneState
         PaneKind.NEARBY -> dev.niccc2007.filet.nearby.NearbyScreen(vm)
         PaneKind.REMOTES -> dev.niccc2007.filet.remotes.RemotesScreen(vm)
         PaneKind.SHORTCUTS -> dev.niccc2007.filet.shortcuts.ShortcutsScreen(vm)
+        PaneKind.ACTIVITY -> dev.niccc2007.filet.jobs.ActivityBody(vm.ledger)
         else -> EmptyNote("Nothing here yet", Modifier.fillMaxSize())
     }
 }

@@ -31,6 +31,15 @@ data class NearbyClient(
     var lastSeen: Long,
     var downloads: Int = 0,
     var state: String = "browsing",
+    /**
+     * What this client is doing at this instant, as opposed to what it last finished.
+     *
+     * [state] is a sentence written when a transfer completes, which is useful history and
+     * useless as a live signal - it says "downloaded 3 files" just as loudly whether that
+     * happened now or twenty minutes ago. This is set when a transfer starts and cleared in a
+     * `finally`, so a dropped connection cannot leave the light stuck on.
+     */
+    var activity: ClientActivity = ClientActivity.BROWSING,
 )
 
 data class ServerState(
@@ -257,13 +266,24 @@ class NearbyHttpServer(
             grantToken != null && rest == "/api/list" -> json(out, listJson(dirTokenOf(query)))
             grantToken != null && rest.startsWith("/t/") ->
                 serveThumb(out, rest.removePrefix("/t/"))
+            // Marked at the ROUTE and not inside each handler. Four handlers move bytes and
+            // each would have to set the flag and clear it on every exit path including the
+            // ones where the far end vanishes mid-stream; one of them would eventually
+            // implement only the first half, and a light that sticks on is worse than no light.
             grantToken != null && rest.startsWith("/f/") ->
-                serveFile(out, rest.removePrefix("/f/"), headers, address)
-            grantToken != null && rest == "/z" -> serveZip(out, query, address)
+                marking(address, ClientActivity.DOWNLOADING) {
+                    serveFile(out, rest.removePrefix("/f/"), headers, address)
+                }
+            grantToken != null && rest == "/z" ->
+                marking(address, ClientActivity.DOWNLOADING) { serveZip(out, query, address) }
             grantToken != null && rest.startsWith("/zd/") ->
-                serveFolderZip(out, rest.removePrefix("/zd/"), address)
+                marking(address, ClientActivity.DOWNLOADING) {
+                    serveFolderZip(out, rest.removePrefix("/zd/"), address)
+                }
             grantToken != null && rest.startsWith("/u/") && method == "POST" ->
-                receiveUpload(input, out, rest.removePrefix("/u/"), headers)
+                marking(address, ClientActivity.UPLOADING) {
+                    receiveUpload(input, out, rest.removePrefix("/u/"), headers)
+                }
             grantToken != null -> respond(out, 404, "text/plain", "not found".toByteArray())
 
             path == "/" && method == "GET" -> serveLock(out, address, headers)
@@ -278,15 +298,19 @@ class NearbyHttpServer(
             }
             path.startsWith("/f/") -> {
                 if (!authorised(headers, address)) { unauthorised(out); return }
-                serveFile(out, path.removePrefix("/f/"), headers, address)
+                marking(address, ClientActivity.DOWNLOADING) {
+                    serveFile(out, path.removePrefix("/f/"), headers, address)
+                }
             }
             path == "/z" -> {
                 if (!authorised(headers, address)) { unauthorised(out); return }
-                serveZip(out, query, address)
+                marking(address, ClientActivity.DOWNLOADING) { serveZip(out, query, address) }
             }
             path.startsWith("/u/") && method == "POST" -> {
                 if (!authorised(headers, address)) { unauthorised(out); return }
-                receiveUpload(input, out, path.removePrefix("/u/"), headers)
+                marking(address, ClientActivity.UPLOADING) {
+                    receiveUpload(input, out, path.removePrefix("/u/"), headers)
+                }
             }
             else -> respond(out, 404, "text/plain", "not found".toByteArray())
         }
@@ -518,6 +542,24 @@ class NearbyHttpServer(
         chunked.finish()
         clients[address]?.state = "downloaded ${node.name} ($count files)"
         onEvent(state())
+    }
+
+    /**
+     * Run [body] with this client marked as doing [what].
+     *
+     * The clearing is in a `finally` and not after the call: every one of these transfers can
+     * end by the far end vanishing mid-stream, and an exception on that path would otherwise
+     * leave the phone claiming a download is still running until the client timed out.
+     */
+    private inline fun <T> marking(address: String, what: ClientActivity, body: () -> T): T {
+        clients[address]?.activity = what
+        onEvent(state())
+        return try {
+            body()
+        } finally {
+            clients[address]?.activity = ClientActivity.BROWSING
+            onEvent(state())
+        }
     }
 
     private fun zipSafe(name: String): String =

@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,6 +43,15 @@ import dev.niccc2007.filet.browser.EmptyNote
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.browser.SectionLabel
 import dev.niccc2007.filet.settings.SmallButton
+import dev.niccc2007.filet.ui.tabs.EmptyTab
+import dev.niccc2007.filet.ui.tabs.NLead
+import dev.niccc2007.filet.ui.tabs.NRow
+import dev.niccc2007.filet.ui.tabs.Pill
+import dev.niccc2007.filet.ui.tabs.PillTone
+import dev.niccc2007.filet.ui.tabs.SectionRow
+import dev.niccc2007.filet.ui.tabs.SmallBtn
+import dev.niccc2007.filet.ui.tabs.TabButton
+import dev.niccc2007.filet.ui.tabs.TabHeader
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.provider.RootProvider
 import dev.niccc2007.filet.vfs.provider.net.NetConnection
@@ -53,6 +64,7 @@ import dev.niccc2007.filet.vfs.provider.net.NetProtocol
  * does not own. Once added, each one is an ordinary pane - the same rows, the same drag and
  * drop, the same search - because they are all just providers behind the VFS.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RemotesScreen(vm: BrowserViewModel) {
     val colors = Filet.colors
@@ -61,33 +73,55 @@ fun RemotesScreen(vm: BrowserViewModel) {
     var editing by remember { mutableStateOf<NetConnection?>(null) }
 
     LazyColumn(Modifier.fillMaxSize()) {
-        item { SectionLabel("Network") }
+        item { TabHeader("Network and root") }
+
+        item { SectionRow("Network") }
         if (list.isEmpty()) {
-            item { EmptyNote("No shares yet.", Modifier.fillMaxWidth().height(80.dp)) }
+            item {
+                EmptyTab(
+                    FiletIcons.Device,
+                    "No shares yet",
+                    "Add one below. Once it is added it is an ordinary pane - the same rows, " +
+                        "the same drag and drop, the same search.",
+                )
+            }
         }
         items(list.size) { i ->
             val c = list[i]
-            Row(
-                Modifier.fillMaxWidth().clickable { vm.openRemote(c) }
-                    .padding(horizontal = 14.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(iconFor(c.protocol), null, tint = colors.accent, modifier = Modifier.size(17.dp))
-                Spacer(Modifier.width(11.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(c.label.ifEmpty { c.host }, fontSize = 13.sp)
-                    Text(
-                        "${c.protocol.scheme}://${c.host}${if (c.share.isNotEmpty()) "/" + c.share else ""}",
-                        fontSize = 10.sp, color = colors.fg3, fontFamily = FontFamily.Monospace,
-                    )
-                }
-                SmallButton("Edit") { editing = c }
-            }
+            NRow(
+                title = c.label.ifEmpty { c.host },
+                sub = "${c.protocol.scheme}://${c.host}${if (c.share.isNotEmpty()) "/" + c.share else ""}",
+                lead = NLead.Glyph(iconFor(c.protocol)),
+                mono = true,
+                trailing = {
+                    // What the pill says has to be something that is actually known. Nothing
+                    // here polls the share, so "connected" would be a guess dressed as a fact;
+                    // whether the stored connection encrypts itself is not a guess.
+                    val plain = !c.useTls &&
+                        (c.protocol == NetProtocol.FTP || c.protocol == NetProtocol.WEBDAV)
+                    if (plain) {
+                        Pill(
+                            if (c.protocol == NetProtocol.FTP) "plain FTP" else "plain HTTP",
+                            PillTone.Running,
+                        )
+                    } else {
+                        Pill(c.protocol.name, PillTone.Plain)
+                    }
+                    SmallBtn("Edit") { editing = c }
+                },
+            )
         }
         item {
-            Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // One button per protocol rather than a single Add a share, because the form
+            // differs by protocol - SMB asks for a share, WebDAV for a base path, and the
+            // encryption toggle only exists on two of the four.
+            FlowRow(
+                Modifier.fillMaxWidth().padding(start = 15.dp, end = 15.dp, top = 2.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
                 NetProtocol.entries.forEach { proto ->
-                    SmallButton("+ ${proto.name}") {
+                    TabButton("+ ${proto.name}") {
                         editing = NetConnection(
                             id = vm.connections.newId(),
                             protocol = proto,
@@ -102,28 +136,31 @@ fun RemotesScreen(vm: BrowserViewModel) {
             }
         }
 
-        item { SectionLabel("Root") }
+        item { SectionRow("Root") }
         item {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 10.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .border(1.dp, colors.lineSoft, RoundedCornerShape(10.dp))
-                    .background(colors.raised).padding(12.dp),
+                    .clip(RoundedCornerShape(14.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.surface).padding(13.dp),
             ) {
                 val granted = remember(revision) { RootProvider.isGranted() }
                 Text(
                     if (granted) "Root access granted" else "Root access",
-                    fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "Browses the whole filesystem through a managed superuser shell. Asking " +
                         "for it triggers your superuser prompt, so Filet only asks when you " +
                         "press this — never at startup.",
-                    fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp,
+                    fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.7.sp,
                 )
-                Spacer(Modifier.height(9.dp))
-                SmallButton(if (granted) "Open /" else "Request root") { vm.enableRoot() }
+                Spacer(Modifier.height(11.dp))
+                TabButton(
+                    if (granted) "Open /" else "Request root",
+                    if (granted) FiletIcons.Folder else FiletIcons.Key,
+                ) { vm.enableRoot() }
             }
         }
         item { Spacer(Modifier.height(24.dp)) }

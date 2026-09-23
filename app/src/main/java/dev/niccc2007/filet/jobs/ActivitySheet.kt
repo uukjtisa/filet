@@ -32,6 +32,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.FiletIcons
+import dev.niccc2007.filet.ui.tabs.EmptyTab
+import dev.niccc2007.filet.ui.tabs.SectionRow
+import dev.niccc2007.filet.ui.tabs.TabButton
+import dev.niccc2007.filet.ui.tabs.TabHeader
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
@@ -94,11 +98,61 @@ fun ActivitySheet(ledger: JobLedger, onClose: () -> Unit) {
     }
 }
 
+/**
+ * The same jobs as a tab rather than as a sheet.
+ *
+ * Bug identified: the Activity tab existed everywhere except in the one place that draws a
+ * pane. It had an icon in the tab strip, a refresh plan and a search mode, and opening it
+ * reached the fallback branch and rendered "Nothing here yet" - so the whole surface was
+ * reachable and empty, which reads as "nothing is running" rather than as a missing screen.
+ *
+ * Split into Running and Finished, because they answer different questions: one is "can I put
+ * the phone down yet", the other is "did the thing I started actually work". A single
+ * chronological list makes the first one require reading.
+ */
+@Composable
+fun ActivityBody(ledger: JobLedger) {
+    val jobs by ledger.jobs.collectAsState()
+    val running = jobs.filter { it.running }
+    val finished = jobs.filter { !it.running }
+
+    LazyColumn(Modifier.fillMaxSize()) {
+        item {
+            TabHeader("Activity") {
+                TabButton("Clear finished", FiletIcons.Delete, enabled = finished.isNotEmpty()) {
+                    ledger.clearFinished()
+                }
+            }
+        }
+
+        if (jobs.isEmpty()) {
+            item {
+                EmptyTab(
+                    FiletIcons.Jobs,
+                    "Nothing running, nothing recent",
+                    "Every long operation turns up here, including ones Trawl starts through " +
+                        "the bridge - which is why each row says where it came from.",
+                )
+            }
+        }
+
+        if (running.isNotEmpty()) {
+            item { SectionRow("Running") }
+            items(running, key = { "run-" + it.id }) { job -> JobRow(job) }
+        }
+        if (finished.isNotEmpty()) {
+            item { SectionRow("Finished") }
+            items(finished, key = { "fin-" + it.id }) { job -> JobRow(job) }
+        }
+        item { Spacer(Modifier.height(14.dp)) }
+    }
+}
+
 @Composable
 private fun JobRow(job: Job) {
     val colors = Filet.colors
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(

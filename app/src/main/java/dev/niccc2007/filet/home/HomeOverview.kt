@@ -49,6 +49,10 @@ import dev.niccc2007.filet.browser.PaneController
 import dev.niccc2007.filet.browser.SectionLabel
 import dev.niccc2007.filet.browser.ago
 import dev.niccc2007.filet.browser.humanSize
+import dev.niccc2007.filet.ui.tabs.EmptyTab
+import dev.niccc2007.filet.ui.tabs.HomeSearchBar
+import dev.niccc2007.filet.ui.tabs.StorageTile
+import dev.niccc2007.filet.ui.tabs.Tiles
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 
@@ -79,13 +83,20 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         // Hideable, because on a phone with one volume the card is a fifth of the first
         // screen saying something you already know. The heading stays either way, so turning
         // it off does not look like the cards failed to load.
+        // The header is the search field. There is no "Home" title above it - the tab strip
+        // already says which tab this is, and the word was the whole of what the heading said.
+        item {
+            HomeSearchBar("Search this device", "everywhere") { pane.openSearch(true) }
+        }
+
         val shown = app.volumes.filter { it.node.path.toString() !in hiddenCards }
         val hiddenCount = app.volumes.size - shown.size
+        val showTermux = vm.termuxInstalled && !hideTermux && app.volumes.none {
+            dev.niccc2007.filet.integrations.Termux.isTermuxTree(android.net.Uri.parse(it.node.path.path)) ||
+                it.label.startsWith("Termux")
+        }
         item {
-            Row(
-                Modifier.fillMaxWidth().padding(end = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("Storage", Modifier.weight(1f))
                 // Bringing back what was hidden, one card or the section. Without this the
                 // per-card X is a one-way door, which is not a control, it is a trap.
@@ -93,7 +104,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                     Text(
                         "$hiddenCount hidden - show",
                         fontSize = 10.sp,
-                        color = colors.fg3,
+                        color = colors.accent,
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .clickable { vm.prefs.showAllCards() }
@@ -103,70 +114,66 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                 Text(
                     if (hideStorage) "Show all" else "Hide all",
                     fontSize = 10.sp,
-                    color = colors.fg3,
+                    color = colors.accent,
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .clickable { vm.prefs.setHideStorage(!hideStorage) }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(start = 8.dp, end = 15.dp, top = 4.dp, bottom = 4.dp),
                 )
             }
         }
         if (!hideStorage) {
-            items(shown.size) { i ->
-                val v = shown[i]
-                DriveCard(
-                    label = v.label,
-                    free = v.free,
-                    total = v.total,
-                    onClick = { pane.navigateTo(v.node.path) },
-                    onHide = { vm.prefs.hideCard(v.node.path.toString()) },
-                )
-            }
-        }
-
-        // Termux, if it is here. Shown only when installed, so this is not a permanent
-        // advertisement for an app somebody does not have - and it disappears once its tree is
-        // granted, because at that point it is a volume in the list above like any other.
-        if (vm.termuxInstalled && !hideTermux && app.volumes.none { dev.niccc2007.filet.integrations.Termux.isTermuxTree(android.net.Uri.parse(it.node.path.path)) || it.label.startsWith("Termux") }) {
-            item { SectionLabel("Termux") }
+            // One flow row rather than one full-width card each. A row of cards that does not
+            // divide evenly used to leave a hole on the last line; weighting inside the flow
+            // makes each line share the width it actually has, so three volumes read as two
+            // and one-that-fills rather than two and a gap.
             item {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .border(1.dp, colors.lineSoft, RoundedCornerShape(10.dp))
-                        .background(colors.raised)
-                        .clickable { vm.connectTermux(home = true) }
-                        .padding(11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(FiletIcons.Terminal, null, tint = colors.accent, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(11.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            "Connect Termux",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            "Its home and usr/bin, as a volume you can drag files into. " +
-                                "Android needs you to grant it once.",
-                            fontSize = 10.sp,
-                            lineHeight = 13.sp,
-                            color = colors.fg3,
-                        )
+                Tiles {
+                    shown.forEach { v ->
+                        tile {
+                            val used = if (v.free != null && v.total != null && v.total > 0)
+                                (v.total - v.free).coerceAtLeast(0) else null
+                            StorageTile(
+                                icon = FiletIcons.Storage,
+                                kind = v.label,
+                                // Free is the number being looked for, with the denominator
+                                // underneath. "12 GB free" alone says nothing about whether
+                                // that is an empty card or a full phone.
+                                value = v.free?.let { humanSize(it) } ?: "—",
+                                caption = when {
+                                    used != null && v.total != null ->
+                                        "free of ${humanSize(v.total)} · ${humanSize(used)} used"
+                                    v.free != null -> "free"
+                                    // "Tap to open" was a promise this card could not keep. A
+                                    // volume with no readable size is usually one of /storage's
+                                    // pseudo-directories, and tapping it did nothing at all.
+                                    else -> "Size unknown - may not be readable"
+                                },
+                                // Only drawn when both figures are real. A bar at an invented
+                                // percentage is a lie that looks like data.
+                                fraction = if (used != null && v.total != null)
+                                    used.toFloat() / v.total else null,
+                                onHide = { vm.prefs.hideCard(v.node.path.toString()) },
+                                onClick = { pane.navigateTo(v.node.path) },
+                            )
+                        }
                     }
-                    Text(
-                        "×",
-                        fontSize = 15.sp,
-                        color = colors.fg3,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { vm.prefs.setHideTermux(true) }
-                            .padding(horizontal = 9.dp, vertical = 3.dp),
-                    )
+                    // Termux, if it is here. Shown only when installed, so this is not a
+                    // permanent advertisement for an app somebody does not have - and it
+                    // disappears once its tree is granted, because at that point it is a volume
+                    // in the row above like any other.
+                    if (showTermux) {
+                        tile {
+                            StorageTile(
+                                icon = FiletIcons.Terminal,
+                                kind = "Termux",
+                                value = "Connect",
+                                caption = "its home and usr/bin, as a volume",
+                                onHide = { vm.prefs.setHideTermux(true) },
+                                onClick = { vm.connectTermux(home = true) },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -204,7 +211,22 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         // What is being watched, and a way to stop. Without this the tracked list was
         // write-only: you could add a folder from its menu and never see the set again.
         if (tracked.isNotEmpty()) {
-            item { SectionLabel("Tracked folders (${tracked.size})") }
+            // Adding one needs somewhere to start browsing from, so the verb is only offered
+            // when there is a volume to start in. Offering it with nothing to open would be a
+            // control that silently does nothing, which is the one thing R1 forbids.
+            val startAt = app.volumes.firstOrNull()?.node?.path
+            item {
+                SectionHeaderWithAction(
+                    label = "Tracked folders (${tracked.size})",
+                    action = if (startAt != null) "Add a folder" else null,
+                    onAction = {
+                        startAt ?: return@SectionHeaderWithAction
+                        vm.pickFolder("Track a folder", "Track this folder", startAt) { dest ->
+                            vm.tracked.add(dest); vm.home.refresh()
+                        }
+                    },
+                )
+            }
             items(tracked.size) { i ->
                 val t = tracked[i]
                 TrackedRow(
@@ -217,7 +239,13 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         }
 
         if (recents.isNotEmpty()) {
-            item { SectionLabel(HomeSections.OPENED) }
+            item {
+                SectionHeaderWithAction(
+                    label = HomeSections.OPENED,
+                    action = "Expand",
+                    onAction = { pane.openSpecial(PaneKind.RECENT, HomeSections.OPENED) },
+                )
+            }
             items(minOf(recents.size, 8)) { i ->
                 val r = recents[i]
                 val node = VNode(r.path, r.isDir, -1, r.at)
@@ -233,12 +261,11 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
 
         if (app.volumes.isEmpty() && downloads.isEmpty() && recents.isEmpty()) {
             item {
-                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                    Text(
-                        "No storage is reachable yet.\nGrant all-files access, or pick a folder.",
-                        fontSize = 13.sp, color = colors.fg3,
-                    )
-                }
+                EmptyTab(
+                    FiletIcons.Storage,
+                    "No storage is reachable yet",
+                    "Grant all-files access, or pick a folder.",
+                )
             }
         }
     }
@@ -326,83 +353,6 @@ private fun SheetAction(label: String, onClick: () -> Unit) {
         color = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp),
     )
-}
-
-@Composable
-private fun DriveCard(
-    label: String,
-    free: Long?,
-    total: Long?,
-    onClick: () -> Unit,
-    onHide: () -> Unit,
-) {
-    val colors = Filet.colors
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, colors.lineSoft, RoundedCornerShape(10.dp))
-            .background(colors.raised)
-            .clickable(onClick = onClick)
-            .padding(11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(FiletIcons.Storage, null, tint = colors.accent, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(11.dp))
-        Column(Modifier.weight(1f)) {
-            Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(5.dp))
-            // Used of total, because free alone answers the wrong question. "12 GB free" says
-            // nothing about whether that is a nearly-empty card or a nearly-full phone; the
-            // denominator is what makes the number mean something.
-            //
-            // Still only drawn when both figures are real - a bar at an invented percentage is
-            // a lie that looks like data.
-            if (free != null && total != null && total > 0) {
-                val used = (total - free).coerceAtLeast(0)
-                Text(
-                    "${humanSize(used)} / ${humanSize(total)}",
-                    fontSize = 10.5.sp, color = colors.fg2,
-                )
-                Spacer(Modifier.height(5.dp))
-                val fraction = (used.toFloat() / total).coerceIn(0f, 1f)
-                Box(
-                    Modifier.fillMaxWidth().height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(colors.high)
-                ) {
-                    Box(
-                        Modifier.fillMaxHeight()
-                            .fillMaxWidth(fraction)
-                            .clip(RoundedCornerShape(2.dp))
-                            // Amber past 90%: the point of the bar is to be noticed before the
-                            // phone starts refusing to save things.
-                            .background(if (fraction > 0.9f) colors.warn else colors.accent)
-                    )
-                }
-                Spacer(Modifier.height(3.dp))
-                Text("${humanSize(free)} free", fontSize = 9.5.sp, color = colors.fg3)
-            } else if (free != null) {
-                Text("${humanSize(free)} free", fontSize = 10.sp, color = colors.fg3)
-            } else {
-                // "Tap to open" was a promise this card could not keep. A volume with no
-                // readable size is usually one of /storage's pseudo-directories - `media` on
-                // this phone - and tapping it did nothing at all, which is what was reported.
-                // Saying so, and offering the X, beats an invitation that fails.
-                Text("Size unknown - may not be readable", fontSize = 10.sp, color = colors.fg3)
-            }
-        }
-        Text(
-            "×",
-            fontSize = 15.sp,
-            color = colors.fg3,
-            modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .clickable(onClick = onHide)
-                .padding(horizontal = 9.dp, vertical = 3.dp),
-        )
-    }
 }
 
 @Composable
@@ -504,21 +454,25 @@ private fun TrackedRow(
  * action has to name itself: an unlabelled affordance on a heading reads as decoration.
  */
 @Composable
-private fun SectionHeaderWithAction(label: String, action: String, onAction: () -> Unit) {
+private fun SectionHeaderWithAction(label: String, action: String?, onAction: () -> Unit) {
     val colors = Filet.colors
     Row(
         Modifier.fillMaxWidth().padding(end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.weight(1f)) { SectionLabel(label) }
-        Text(
-            action,
-            fontSize = 11.sp,
-            color = colors.accent,
-            modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .clickable(onClick = onAction)
-                .padding(horizontal = 9.dp, vertical = 4.dp),
-        )
+        // A heading whose verb is unavailable draws no verb at all, rather than a greyed one.
+        // Greying says "this exists and you may not have it", which is a different claim.
+        if (action != null) {
+            Text(
+                action,
+                fontSize = 11.sp,
+                color = colors.accent,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(onClick = onAction)
+                    .padding(horizontal = 9.dp, vertical = 4.dp),
+            )
+        }
     }
 }

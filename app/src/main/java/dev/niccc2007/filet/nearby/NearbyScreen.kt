@@ -56,6 +56,24 @@ import dev.niccc2007.filet.browser.SectionLabel
 import dev.niccc2007.filet.browser.ago
 import dev.niccc2007.filet.browser.humanSize
 import dev.niccc2007.filet.settings.SmallButton
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import dev.niccc2007.filet.browser.FileKind
+import dev.niccc2007.filet.vfs.VNode
+import dev.niccc2007.filet.ui.tabs.DotState
+import dev.niccc2007.filet.ui.tabs.EmptyTab
+import dev.niccc2007.filet.ui.tabs.GoText
+import dev.niccc2007.filet.ui.tabs.IsolationNote
+import dev.niccc2007.filet.ui.tabs.NLead
+import dev.niccc2007.filet.ui.tabs.NRow
+import dev.niccc2007.filet.ui.tabs.Pips
+import dev.niccc2007.filet.ui.tabs.SectionRow
+import dev.niccc2007.filet.ui.tabs.SmallBtn
+import dev.niccc2007.filet.ui.tabs.TabButton
+import dev.niccc2007.filet.ui.tabs.TabHeader
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
@@ -91,37 +109,23 @@ fun NearbyScreen(vm: BrowserViewModel) {
     }
 
     LazyColumn(Modifier.fillMaxSize()) {
-        item { SectionLabel("Share over this network") }
-        item { ShareCard(vm, server) { editingPin = nearby.fixedPin() ?: "" } }
+        item { TabHeader("Share over this network") }
+        item { ShareCard(vm, server, shares.size) { editingPin = nearby.fixedPin() ?: "" } }
 
         // "Where can I find what somebody sent me" is the first question this screen raises
         // and the last one it used to answer.
+        //
+        // The icon here rendered at its own intrinsic size in a row that never constrained it,
+        // which is why it was several times the size of everything beside it. The leading slot
+        // is typed now, so the row sizes what it is given instead of trusting the caller.
         item {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.raised)
-                    .clickable { vm.openReceivedFolder() }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(FiletIcons.Download, null, tint = colors.accent, modifier = Modifier.size(17.dp))
-                Spacer(Modifier.width(11.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Received files", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
-                    Text(
-                        nearby.receivedFolder.path,
-                        fontSize = 9.5.sp,
-                        color = colors.fg3,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Icon(FiletIcons.Forward, null, tint = colors.fg3, modifier = Modifier.size(14.dp))
-            }
+            NRow(
+                title = "Received files",
+                sub = nearby.receivedFolder.path,
+                lead = NLead.Glyph(FiletIcons.Download),
+                mono = true,
+                trailing = { GoText("\u203a") { vm.openReceivedFolder() } },
+            )
         }
 
         // Live endpoints. Everything that typed the code has a row here, and every row has a
@@ -129,17 +133,7 @@ fun NearbyScreen(vm: BrowserViewModel) {
         // grant is a URL and not an invisible cookie.
         if (grants.isNotEmpty()) {
             item {
-                Row(
-                    Modifier.fillMaxWidth().padding(start = 14.dp, end = 10.dp, top = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "LET IN (${grants.size})",
-                        fontSize = 10.sp, letterSpacing = 1.2.sp, color = colors.fg3,
-                        modifier = Modifier.weight(1f),
-                    )
-                    SmallButton("Revoke all") { nearby.revokeAllGrants() }
-                }
+                SectionRow("Let in (${grants.size})", "Revoke all") { nearby.revokeAllGrants() }
             }
             items(grants, key = { it.token }) { g ->
                 GrantRow(
@@ -153,51 +147,42 @@ fun NearbyScreen(vm: BrowserViewModel) {
         }
 
         if (server.running && server.clients.isNotEmpty()) {
-            item { SectionLabel("Connected") }
-            items(server.clients) { c ->
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(Modifier.size(6.dp).clip(CircleShape).background(colors.good))
-                    Spacer(Modifier.width(9.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(c.address, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-                        Text("${c.agent} · ${c.state}", fontSize = 10.sp, color = colors.fg3)
-                    }
-                    SmallButton("Kick") { nearby.kick(c.address) }
-                }
+            item { SectionRow("Connected") }
+            items(server.clients, key = { it.address }) { c ->
+                NRow(
+                    title = c.address,
+                    // While something is in flight the row says so, because "downloaded 3
+                    // files" is history and reads identically whether it happened now or an
+                    // hour ago. Once it settles the row goes back to carrying that history.
+                    sub = "${c.agent} · " + when (c.activity) {
+                        ClientActivity.DOWNLOADING -> "downloading"
+                        ClientActivity.UPLOADING -> "uploading"
+                        ClientActivity.BROWSING -> c.state
+                    },
+                    lead = NLead.Dot(dotFor(c.activity)),
+                    titleMono = true,
+                    trailing = { SmallBtn("Kick") { nearby.kick(c.address) } },
+                )
             }
         }
 
-        item { SectionLabel("Devices") }
+        item { SectionRow("Devices") }
         if (discovery.isolationSuspected) {
+            // Found on mDNS but refusing TCP is AP client isolation, not a bug. Say so.
             item {
-                Column(
-                    Modifier.fillMaxWidth().padding(10.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colors.warn.copy(alpha = 0.15f))
-                        .padding(11.dp),
-                ) {
-                    // Found on mDNS but refusing TCP is AP client isolation, not a bug. Say so.
-                    Text(
-                        "Your network blocks devices from talking to each other.",
-                        fontSize = 12.sp, color = colors.warn, fontWeight = FontWeight.Medium,
-                    )
-                    Text(
-                        "Hotel, campus and many hotspot networks do this. A browser on the " +
-                            "same network can still reach the URL above.",
-                        fontSize = 10.5.sp, color = colors.fg2, lineHeight = 14.sp,
-                    )
-                }
+                IsolationNote(
+                    "Your network blocks devices from talking to each other.",
+                    "Hotel, campus and many hotspot networks do this. A browser on the same " +
+                        "network can still reach the URL above.",
+                )
             }
         }
         if (discovery.peers.isEmpty()) {
             item {
-                EmptyNote(
-                    if (discovery.scanning) "Looking for devices…"
-                    else "No devices found yet.",
-                    Modifier.fillMaxWidth().height(96.dp),
+                EmptyTab(
+                    FiletIcons.Device,
+                    if (discovery.scanning) "Looking for devices…" else "No devices found yet",
+                    "Anything running Filet on this network turns up here on its own.",
                 )
             }
         }
@@ -210,28 +195,28 @@ fun NearbyScreen(vm: BrowserViewModel) {
             )
         }
 
-        item { SectionLabel("Shared (${shares.size} linked)") }
+        item { SectionRow("Shared (${shares.size} linked)") }
         item {
             Text(
                 "Anything inside Filet/Shared is offered as-is. Files added with “Share” stay " +
                     "where they are and are streamed from there — a 4 GB video costs no extra space.",
                 fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                modifier = Modifier.padding(start = 15.dp, end = 15.dp, bottom = 4.dp),
             )
         }
-        items(shares) { e ->
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(FiletIcons.Link, null, tint = colors.accent, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(9.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(e.alias, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(e.path.path, fontSize = 9.5.sp, color = colors.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis, fontFamily = FontFamily.Monospace)
-                }
-                SmallButton("Revoke") { nearby.shared.revoke(e.token) }
-            }
+        items(shares, key = { it.token }) { e ->
+            // A thumbnail frame per entry, picked from what the file IS rather than from one
+            // link glyph for everything. The frame is a fixed box, so a file type with no
+            // preview still occupies the same space and the list stays a column.
+            NRow(
+                title = e.alias,
+                sub = e.path.path,
+                lead = NLead.Thumb(
+                    FileKind.of(VNode(e.path, isDir = false, size = -1, mtime = 0)).icon
+                ),
+                mono = true,
+                trailing = { SmallBtn("Revoke") { nearby.shared.revoke(e.token) } },
+            )
         }
         item { Spacer(Modifier.height(24.dp)) }
     }
@@ -400,7 +385,12 @@ private fun Chip(label: String, on: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ShareCard(vm: BrowserViewModel, server: ServerState, onEditPin: () -> Unit) {
+private fun ShareCard(
+    vm: BrowserViewModel,
+    server: ServerState,
+    sharedCount: Int,
+    onEditPin: () -> Unit,
+) {
     val colors = Filet.colors
     val nearby = vm.nearby
     val refusal by nearby.startRefusal.collectAsState()
@@ -416,15 +406,42 @@ private fun ShareCard(vm: BrowserViewModel, server: ServerState, onEditPin: () -
             kotlinx.coroutines.delay(BLOCKED_POLL_MS)
         }
     }
+    val light = NearbyActivity.lightFor(server.running, server.clients)
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(10.dp)
+            .padding(horizontal = 15.dp, vertical = 12.dp)
             .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, colors.lineSoft, RoundedCornerShape(14.dp))
-            .background(colors.raised)
-            .padding(14.dp),
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surface),
     ) {
+        // The light, and one pip per connected device. It used to be a single green dot
+        // meaning "the server is up", which is the least interesting thing this card knows.
+        if (server.running) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 13.dp, bottom = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(11.dp),
+            ) {
+                LiveDot(light)
+                Column(Modifier.weight(1f)) {
+                    Text("Sharing", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            NearbyActivity.summary(true, sharedCount, server.clients),
+                            fontSize = 10.5.sp,
+                            color = colors.fg3,
+                        )
+                        if (server.clients.isNotEmpty()) {
+                            Spacer(Modifier.width(7.dp))
+                            Pips(server.clients.map { dotFor(it.activity) })
+                        }
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(colors.lineSoft))
+        }
+        Column(Modifier.padding(14.dp)) {
         if (!server.running) {
             Text("Not sharing", fontSize = 14.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(4.dp))
@@ -594,9 +611,63 @@ private fun ShareCard(vm: BrowserViewModel, server: ServerState, onEditPin: () -
                 Text("Stopping sharing…", fontSize = 11.sp, color = colors.fg2)
             }
         } else {
-            SmallButton("Stop sharing") { nearby.stop() }
+            // A row rather than a block, so the button is the width of its own label. It used
+            // to stretch the whole card, which made the least-wanted control on the screen the
+            // largest thing on it.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TabButton("Stop sharing", FiletIcons.Close) { nearby.stop() }
+                NearbyActivity.transferNote(server.clients)?.let {
+                    Spacer(Modifier.width(10.dp))
+                    Text(it, fontSize = 10.sp, color = colors.accent)
+                }
+            }
+        }
         }
     }
+}
+
+/**
+ * The sharing light.
+ *
+ * One dot with five states rather than one boolean. The pulse is the part that carries the
+ * meaning: a steady dot is a server that is up, a pulsing one is a server that is doing
+ * something, and the colour says which direction the bytes are going.
+ */
+@Composable
+private fun LiveDot(light: NearbyActivity.Light) {
+    val colors = Filet.colors
+    val tint = when (light) {
+        NearbyActivity.Light.OFF -> colors.fg3
+        NearbyActivity.Light.WAITING, NearbyActivity.Light.WATCHED -> colors.good
+        NearbyActivity.Light.SENDING -> colors.accent
+        NearbyActivity.Light.RECEIVING -> colors.warn
+    }
+    val busy = light == NearbyActivity.Light.SENDING || light == NearbyActivity.Light.RECEIVING
+    val pulse = rememberInfiniteTransition(label = "sharelight")
+    val alpha by pulse.animateFloat(
+        initialValue = if (light == NearbyActivity.Light.OFF) 1f else 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (busy) 900 else 2200),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "sharelightalpha",
+    )
+    Box(
+        Modifier
+            .size(17.dp)
+            .background(tint.copy(alpha = alpha * 0.22f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(9.dp).clip(CircleShape).background(tint.copy(alpha = alpha)))
+    }
+}
+
+/** One client's activity as the dot that stands for it. */
+private fun dotFor(a: ClientActivity) = when (a) {
+    ClientActivity.DOWNLOADING -> DotState.Down
+    ClientActivity.UPLOADING -> DotState.Up
+    ClientActivity.BROWSING -> DotState.Ok
 }
 
 @Composable
