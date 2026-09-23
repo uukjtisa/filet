@@ -182,7 +182,6 @@ fun NearbyScreen(vm: BrowserViewModel) {
                 EmptyTab(
                     FiletIcons.Device,
                     if (discovery.scanning) "Looking for devices…" else "No devices found yet",
-                    "Anything running Filet on this network turns up here on its own.",
                 )
             }
         }

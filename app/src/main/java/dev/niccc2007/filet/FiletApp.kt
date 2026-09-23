@@ -139,6 +139,31 @@ class FiletGraph(context: Context) {
                 }
             },
             onEvent = { davState.value = it },
+            // Everything the index already knows, flattened into the views. One broad query
+            // rather than a query per view: the filtering is a pure function and running it
+            // eight times over the same rows costs nothing next to eight trips to SQLite.
+            indexed = {
+                kotlinx.coroutines.runBlocking {
+                    runCatching {
+                        index.candidates(
+                            dev.niccc2007.filet.index.SearchRequest(
+                                query = "",
+                                scope = dev.niccc2007.filet.index.SearchScope.DEVICE,
+                                origin = null,
+                                limit = 4000,
+                            ),
+                            dev.niccc2007.filet.index.QueryParser.parse(""),
+                        )
+                            .filterNot { it.isDir }
+                            .mapNotNull { row ->
+                                val p = index.pathFor(row.id) ?: return@mapNotNull null
+                                dev.niccc2007.filet.webdav.DavViews.Entry(
+                                    p, row.name, row.size, row.mtime,
+                                )
+                            }
+                    }.getOrDefault(emptyList())
+                }
+            },
         )
     }
 

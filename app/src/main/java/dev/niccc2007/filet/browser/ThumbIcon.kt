@@ -49,12 +49,22 @@ fun FileThumb(
     fallbackTint: Color,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    /**
+     * How big the glyph is when there is no preview.
+     *
+     * A thumbnail fills its slot; a glyph in the same slot at the same size is a huge icon. In
+     * the redesigned rows the slot is a 30dp tinted square holding a 15dp glyph, so the two
+     * sizes genuinely differ and one parameter cannot describe both. Null keeps them equal,
+     * which is what every existing caller wants.
+     */
+    glyphSize: Dp? = null,
 ) {
     val kind = FileKind.of(node)
     val previewable = enabled && !node.isDir && Thumbnails.canPreview(node.extension)
+    val glyph = glyphSize ?: size
 
     if (!previewable) {
-        Icon(kind.icon, null, tint = fallbackTint, modifier = modifier.size(size))
+        Icon(kind.icon, null, tint = fallbackTint, modifier = modifier.size(glyph))
         return
     }
 
@@ -79,7 +89,7 @@ fun FileThumb(
 
     val image = bitmap
     if (image == null) {
-        Icon(kind.icon, null, tint = fallbackTint, modifier = modifier.size(size))
+        Icon(kind.icon, null, tint = fallbackTint, modifier = modifier.size(glyph))
     } else {
         Box(
             modifier

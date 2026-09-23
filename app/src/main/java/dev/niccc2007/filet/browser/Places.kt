@@ -59,7 +59,7 @@ fun BookmarksBody(vm: BrowserViewModel, pane: PaneController) {
                 EmptyTab(
                     FiletIcons.Star,
                     "No bookmarks yet",
-                    "Open a folder and tap the star. A bookmark can point at a file too.",
+                    "Tap the star in any folder",
                 )
             }
         }
@@ -78,17 +78,6 @@ fun BookmarksBody(vm: BrowserViewModel, pane: PaneController) {
                 onClick = { vm.openPlace(b.path, b.isDir, pane) },
                 onLongClick = { vm.bookmarks.remove(b.path); vm.toast("Bookmark removed") },
             )
-        }
-        if (items.isNotEmpty()) {
-            item {
-                Text(
-                    "Long press a bookmark to remove it. Same gesture as every other list.",
-                    fontSize = 10.5.sp,
-                    lineHeight = 15.7.sp,
-                    color = Filet.colors.fg3,
-                    modifier = Modifier.padding(start = 15.dp, end = 15.dp, top = 14.dp, bottom = 16.dp),
-                )
-            }
         }
     }
 }
@@ -113,7 +102,6 @@ fun RecentBody(vm: BrowserViewModel, pane: PaneController) {
                 EmptyTab(
                     FiletIcons.Clock,
                     "Nothing opened yet",
-                    "This list survives with no index at all, which is why it exists.",
                 )
             }
         }
@@ -132,6 +120,8 @@ fun RecentBody(vm: BrowserViewModel, pane: PaneController) {
                     name = r.label.ifEmpty { r.path.name },
                     sub = r.path.parent?.path ?: r.path.path,
                     accent = r.isDir,
+                    thumbOf = if (r.isDir) null
+                    else dev.niccc2007.filet.vfs.VNode(r.path, isDir = false, size = -1, mtime = r.at),
                     onClick = {
                         if (r.isDir) pane.navigateTo(r.path)
                         else vm.openNode(

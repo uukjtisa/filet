@@ -2485,6 +2485,45 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         graph.webdav.kick(address)
     }
 
+    /** The flat indexed views, on or off. */
+    fun setHostViews(on: Boolean) {
+        graph.webdav.showViews = on
+        graph.davState.value = graph.webdav.state()
+    }
+
+    /**
+     * Pin the access code, or go back to a fresh one per session.
+     *
+     * Random per session is the safer default and stays the default. A code that changes every
+     * time is genuinely annoying when the same PC mounts the drive every day, and a mapped
+     * network drive stores the address - so a new code silently breaks the saved mapping.
+     */
+    fun setHostCode(code: String?) {
+        graph.webdav.fixedCode = code?.trim()?.takeIf { it.isNotEmpty() }
+        graph.davState.value = graph.webdav.state()
+        if (graph.davState.value.running) toast("Takes effect the next time you start hosting")
+    }
+
+    fun setHostPort(port: Int) {
+        graph.webdav.preferredPort = port.coerceIn(1024, 65535)
+        graph.davState.value = graph.webdav.state()
+        if (graph.davState.value.running) toast("Takes effect the next time you start hosting")
+    }
+
+    /** Host one chosen folder rather than a preset. Null goes back to the presets. */
+    fun setHostFolder(path: VPath?) {
+        graph.webdav.customRoot = path
+        graph.davState.value = graph.webdav.state()
+        if (graph.davState.value.running) toast("Takes effect the next time you start hosting")
+    }
+
+    /** Pick the folder to host, starting from wherever the pane is. */
+    fun pickHostFolder() {
+        val start = focusedPane()?.state?.value?.cwd
+            ?: graph.app.let { VPath.of("local", "/storage/emulated/0") }
+        pickFolder("Host this folder", "Host this one", start) { dest -> setHostFolder(dest) }
+    }
+
     /**
      * The addresses a computer can reach this phone on, reused from the Nearby server.
      *

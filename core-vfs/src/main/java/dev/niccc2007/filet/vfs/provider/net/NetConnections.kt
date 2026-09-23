@@ -39,6 +39,47 @@ data class NetConnection(
     val domain: String = "",
     val useTls: Boolean = false,
     val anonymous: Boolean = false,
+
+    /**
+     * The folder inside the share to open at, rather than its root.
+     *
+     * A NAS whose root is fifteen department folders is a share you navigate past every single
+     * time. Empty means the root, which is the old behaviour.
+     */
+    val startPath: String = "",
+
+    /**
+     * Refuse writes to this share from inside Filet.
+     *
+     * Not a security control - the server decides what is really permitted, and it is the only
+     * thing that can. This is a guard against the accident: a drag that lands in the wrong pane
+     * on a share holding the only copy of something.
+     */
+    val readOnly: Boolean = false,
+
+    /**
+     * FTP passive mode.
+     *
+     * On by default because a phone is behind NAT essentially always, and active mode asks the
+     * server to open a connection back to it - which is the thing NAT exists to prevent. The
+     * switch exists because some old servers only speak active.
+     */
+    val passive: Boolean = true,
+
+    /** How long to wait on a connection before giving up. */
+    val timeoutSeconds: Int = 15,
+
+    /**
+     * An OpenSSH or PEM private key for SFTP, in place of a password.
+     *
+     * Held with the password, under the same keystore-backed encryption, because it is the
+     * same kind of secret and storing it anywhere weaker would undo the point of encrypting
+     * the password at all.
+     */
+    val privateKey: String = "",
+
+    /** Passphrase for [privateKey], if it has one. */
+    val keyPassphrase: String = "",
 )
 
 /**
@@ -94,6 +135,13 @@ class NetConnections(context: Context) {
         put("domain", c.domain)
         put("tls", c.useTls)
         put("anon", c.anonymous)
+        put("startPath", c.startPath)
+        put("readOnly", c.readOnly)
+        put("passive", c.passive)
+        put("timeout", c.timeoutSeconds)
+        // The key is a secret of the same kind as the password and gets the same treatment.
+        put("privateKey", encrypt(c.privateKey))
+        put("keyPassphrase", encrypt(c.keyPassphrase))
     }
 
     private fun fromJson(o: JSONObject): NetConnection? = runCatching {
@@ -109,6 +157,15 @@ class NetConnections(context: Context) {
             domain = o.optString("domain"),
             useTls = o.optBoolean("tls"),
             anonymous = o.optBoolean("anon"),
+            startPath = o.optString("startPath"),
+            readOnly = o.optBoolean("readOnly"),
+            // Defaulted true rather than false: a connection saved before this field existed
+            // was passive, and reading a missing boolean as false would silently switch every
+            // one of them to active mode on the next launch.
+            passive = o.optBoolean("passive", true),
+            timeoutSeconds = o.optInt("timeout", 15).coerceIn(3, 120),
+            privateKey = decrypt(o.optString("privateKey")),
+            keyPassphrase = decrypt(o.optString("keyPassphrase")),
         )
     }.getOrNull()
 

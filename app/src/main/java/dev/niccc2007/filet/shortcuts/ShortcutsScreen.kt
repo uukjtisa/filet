@@ -66,8 +66,7 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
                 EmptyTab(
                     FiletIcons.Pin,
                     "Nothing pinned yet",
-                    "Select a file and choose Shortcut. A file shortcut stores the file's " +
-                        "Filet ID and not its path, so moving the file does not break it.",
+                    "Select a file, then Shortcut",
                 )
             }
         }

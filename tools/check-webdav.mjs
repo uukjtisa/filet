@@ -15,7 +15,8 @@
  *    fails at precisely that size with no useful error anywhere.
  *  - Windows needs its WebClient service running, and when it is not the address simply does
  *    not open.
- *  - Nothing is hosted for anyone. The phone is the server, which is why it costs nothing.
+ *  - Nothing leaves the network and no service is involved. The phone is the server, which
+ *    is why it costs nothing. The wording has moved; the promise is what is checked.
  *
  *   node tools/check-webdav.mjs              check
  *   node tools/check-webdav.mjs --selftest   prove it catches each promise being dropped
@@ -135,7 +136,10 @@ export function problems(src) {
       ["the 50 MB Windows download limit", /50 MB/],
       ["the FileSizeLimitInBytes registry value by name", /FileSizeLimitInBytes/],
       ["the WebClient service", /WebClient/],
-      ["that nothing is hosted for you", /nothing is hosted for you/i],
+      // The promise, not the sentence it was first written in. The original wording read as
+      // a slogan and was cut; what has to survive is the fact that this is peer to peer.
+      ["that nothing leaves the network and no service is involved",
+        /nothing leaves your network|nothing is hosted for you|no account anywhere/i],
     ]) {
       if (!re.test(src.card)) {
         found.push(`the card no longer explains ${what}`);
@@ -196,7 +200,15 @@ if (process.argv.includes("--selftest")) {
     ["the UNC form dropped from the card", () => swap("card", "DavWWWRoot", "NotTheMarker")],
     ["the 50 MB warning removed", () => swap("card", "50 MB", "some size")],
     ["the WebClient warning removed", () => swap("card", "WebClient", "TheService")],
-    ["the no-service promise removed", () => swap("card", "nothing is hosted for you", "we host it")],
+    ["the no-service promise removed", () => {
+      const c = { ...good };
+      c.card = c.card
+        .replace(/nothing leaves your network/gi, "x")
+        .replace(/nothing is hosted for you/gi, "x")
+        .replace(/no account anywhere/gi, "x");
+      if (c.card === good.card) throw new Error("mutation did not apply: the no-service promise");
+      return c;
+    }],
     ["the card never drawn", () => swap("screen", "HostingCard(vm)", "Spacer(Modifier)")],
     ["Range support dropped", () => swap("server", "DavRange.parse", "noRange")],
     ["locks made immortal", () => swap("locks", "expiresAt", "neverExpires")],

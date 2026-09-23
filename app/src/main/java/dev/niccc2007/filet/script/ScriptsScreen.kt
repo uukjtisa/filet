@@ -79,7 +79,6 @@ fun ScriptsScreen(vm: BrowserViewModel) {
                 EmptyTab(
                     FiletIcons.Script,
                     "No scripts yet",
-                    "Start one with New script, or restore the examples to see what they look like.",
                 )
             }
         }

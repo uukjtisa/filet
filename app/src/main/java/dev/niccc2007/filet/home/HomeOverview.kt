@@ -264,7 +264,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                 EmptyTab(
                     FiletIcons.Storage,
                     "No storage is reachable yet",
-                    "Grant all-files access, or pick a folder.",
+                    "Grant all-files access, or pick a folder",
                 )
             }
         }
@@ -371,7 +371,22 @@ private fun FeedRow(
             .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(FileKind.of(node).icon, null, tint = colors.fg2, modifier = Modifier.size(17.dp))
+        // The same avatar the expanded history uses, so the card and the full screen show the
+        // same file the same way rather than one drawing a picture and the other a glyph.
+        Box(
+            Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(colors.sunken),
+            contentAlignment = Alignment.Center,
+        ) {
+            dev.niccc2007.filet.browser.FileThumb(
+                node = node,
+                size = 30.dp,
+                fallbackTint = colors.fg2,
+                glyphSize = 15.dp,
+            )
+        }
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
             Text(node.name, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)

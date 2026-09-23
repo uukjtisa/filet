@@ -35,6 +35,14 @@ data class DavState(
     val idleStopMinutes: Int = 30,
     val clients: List<DavClient> = emptyList(),
     val lastActivity: Long = 0,
+    /** Whether the flat indexed views are offered beside the real tree. */
+    val views: Boolean = true,
+    /** A pinned access code, or null when each session gets a fresh one. */
+    val fixedCode: String? = null,
+    /** The port that will be tried on the next start. */
+    val preferredPort: Int = 0,
+    /** A hand-picked folder being hosted, or null when a preset is. */
+    val customRoot: String? = null,
 )
 
 /** How much of the phone the computer can see. */
@@ -74,6 +82,13 @@ class WebDavServer(
     /** Where the share is rooted, resolved fresh per session from the chosen scope. */
     private val rootFor: (DavScope) -> VPath?,
     private val onEvent: (DavState) -> Unit,
+    /**
+     * Everything the index knows, for the flat views.
+     *
+     * A lambda rather than the index itself, so this class keeps knowing only about the VFS
+     * and the caller decides what "everything" means and what it costs.
+     */
+    private val indexed: (() -> List<DavViews.Entry>)? = null,
 ) {
     private val pool = Executors.newFixedThreadPool(4)
     private var socket: ServerSocket? = null
@@ -91,6 +106,23 @@ class WebDavServer(
     @Volatile var writable: Boolean = false
     @Volatile var scope: DavScope = DavScope.SHARED_FOLDER
     @Volatile var idleStopMinutes: Int = 30
+
+    /**
+     * Whether the flat indexed views are offered alongside the real tree.
+     *
+     * Off would mean a plain mirror of the filesystem, which is what every other WebDAV server
+     * gives you and what makes a phone hard to navigate from a desktop in the first place.
+     */
+    @Volatile var showViews: Boolean = true
+
+    /** A code the user set, or null for a fresh random one each session. */
+    @Volatile var fixedCode: String? = null
+
+    /** The port to try first. Zero means let the system choose. */
+    @Volatile var preferredPort: Int = DEFAULT_PORT
+
+    /** A folder to host instead of one of the two presets. */
+    @Volatile var customRoot: VPath? = null
     var port: Int = 0
         private set
 
@@ -103,16 +135,23 @@ class WebDavServer(
         idleStopMinutes = idleStopMinutes,
         clients = clients.values.sortedBy { it.since },
         lastActivity = lastActivity.get(),
+        views = showViews,
+        fixedCode = fixedCode,
+        preferredPort = preferredPort,
+        customRoot = customRoot?.path,
     )
 
-    fun start(preferredPort: Int = DEFAULT_PORT): DavState {
+    fun start(tryPort: Int = preferredPort): DavState {
         if (running) return state()
-        val base = rootFor(scope) ?: return state()
+        // A folder chosen by hand beats the presets. The presets stay because most sessions
+        // want one of them and picking a folder every time is a chore.
+        val base = customRoot ?: rootFor(scope) ?: return state()
         root = base
         // Short and unambiguous: it is typed into an address bar by hand, sometimes read off a
         // screen across a room. No vowels, so it cannot spell anything, and no characters that
         // look like each other in the fonts Explorer uses.
-        code = (1..4).map { ALPHABET[random.nextInt(ALPHABET.length)] }.joinToString("")
+        code = fixedCode?.takeIf { it.isNotBlank() && it.all { c -> c.isLetterOrDigit() } }
+            ?: (1..4).map { ALPHABET[random.nextInt(ALPHABET.length)] }.joinToString("")
         clients.clear()
         locks.clear()
         lastActivity.set(System.currentTimeMillis())
@@ -120,7 +159,7 @@ class WebDavServer(
         val s = try {
             ServerSocket().apply {
                 reuseAddress = true
-                bind(InetSocketAddress(preferredPort), 16)
+                bind(InetSocketAddress(tryPort), 16)
             }
         } catch (e: Exception) {
             // Any free port rather than failing: the preferred one being taken is common and
@@ -228,9 +267,18 @@ class WebDavServer(
             is DavPath.Resolved.Refused -> return status(out, 400, "Bad Request")
             is DavPath.Resolved.Ok -> {
                 val base = root ?: return status(out, 503, "Service Unavailable")
-                val path = childOf(base, r.rel)
                 val needsWrite = method in WRITE_METHODS
                 if (needsWrite && !writable) return status(out, 403, "Forbidden")
+
+                // The flat views are read-only by construction: they are a rendering of where
+                // files are, not a place files can be put. A write aimed at one would have to
+                // invent a destination.
+                if (showViews && r.rel.split('/').firstOrNull() == DavViews.ROOT) {
+                    if (needsWrite) return status(out, 403, "Forbidden")
+                    return serveView(method, out, r.rel, headers, body)
+                }
+
+                val path = childOf(base, r.rel)
                 when (method) {
                     "PROPFIND" -> propfind(out, path, r.rel, headers, body)
                     "HEAD" -> get(out, path, r.rel, headers, headOnly = true)
@@ -290,6 +338,17 @@ class WebDavServer(
             )
         )
         if (node.isDir && depth != "0") {
+            // At the share root, the views appear as one more folder. Without this entry
+            // Explorer never learns the path exists, because a client only walks what it is
+            // told about - it cannot guess a name.
+            if (rel.isEmpty() && showViews && indexed != null) {
+                entries.add(
+                    DavXml.Entry(
+                        DavPath.href(code, DavViews.ROOT, true), true, 0,
+                        System.currentTimeMillis(), DavViews.ROOT,
+                    )
+                )
+            }
             val kids = runCatching { runBlocking { vfs.list(path) } }.getOrDefault(emptyList())
             for (k in kids) {
                 val childRel = if (rel.isEmpty()) k.name else "$rel/${k.name}"
@@ -489,6 +548,90 @@ class WebDavServer(
                 "<D:status>HTTP/1.1 403 Forbidden</D:status>\n</D:propstat>\n" +
                 "</D:response>\n</D:multistatus>\n"
             ).toByteArray(Charsets.UTF_8)
+        status(
+            out, 207, "Multi-Status",
+            listOf("Content-Type: text/xml; charset=\"utf-8\"", "Content-Length: ${xml.size}"),
+        )
+        out.write(xml)
+    }
+
+    /**
+     * Serve the flat views.
+     *
+     * Three shapes: the views root, which lists the views as folders; a view, which lists the
+     * files in it; and a file inside a view, which is the real file wherever it lives. The
+     * third is what makes this a path renderer rather than a listing - opening it opens the
+     * file, from a name that was never in that folder.
+     */
+    private fun serveView(
+        method: String,
+        out: OutputStream,
+        rel: String,
+        headers: Map<String, String>,
+        body: String,
+    ) {
+        val source = indexed ?: return status(out, 404, "Not Found")
+        val now = System.currentTimeMillis()
+
+        if (DavViews.isRoot(rel)) {
+            if (method != "PROPFIND") return status(out, 405, "Method Not Allowed")
+            val entries = ArrayList<DavXml.Entry>()
+            entries.add(DavXml.Entry(DavPath.href(code, rel, true), true, 0, now, DavViews.ROOT))
+            if ((headers["depth"] ?: "1") != "0") {
+                for (k in DavViews.Kind.entries) {
+                    val childRel = DavViews.ROOT + "/" + k.folder
+                    entries.add(
+                        DavXml.Entry(DavPath.href(code, childRel, true), true, 0, now, k.folder)
+                    )
+                }
+            }
+            return multi(out, entries, body)
+        }
+
+        val kind = DavViews.viewOf(rel) ?: return status(out, 404, "Not Found")
+        val built = DavViews.build(kind, runCatching { source() }.getOrDefault(emptyList()))
+        val file = DavViews.fileIn(rel)
+
+        if (file == null) {
+            if (method != "PROPFIND") return status(out, 405, "Method Not Allowed")
+            val entries = ArrayList<DavXml.Entry>()
+            entries.add(DavXml.Entry(DavPath.href(code, rel, true), true, 0, now, kind.folder))
+            if ((headers["depth"] ?: "1") != "0") {
+                for (e in built) {
+                    entries.add(
+                        DavXml.Entry(
+                            DavPath.href(code, "$rel/${e.name}", false),
+                            false, e.size, e.mtime, e.name,
+                        )
+                    )
+                }
+            }
+            return multi(out, entries, body)
+        }
+
+        // Matched on the name the view gave it, which after disambiguation is not the name on
+        // disk - so the entry carries the real path and the lookup goes through the entry.
+        val entry = built.firstOrNull { it.name == file }
+            ?: return status(out, 404, "Not Found")
+        when (method) {
+            "PROPFIND" -> multi(
+                out,
+                listOf(
+                    DavXml.Entry(
+                        DavPath.href(code, rel, false), false, entry.size, entry.mtime, entry.name,
+                    )
+                ),
+                body,
+            )
+            "HEAD" -> get(out, entry.path, entry.name, headers, headOnly = true)
+            "GET" -> get(out, entry.path, entry.name, headers, headOnly = false)
+            else -> status(out, 405, "Method Not Allowed")
+        }
+    }
+
+    private fun multi(out: OutputStream, entries: List<DavXml.Entry>, body: String) {
+        val unknown = if (DavXml.isAllProp(body)) emptyList() else DavXml.unknownProps(body)
+        val xml = DavXml.multiStatus(entries, unknown).toByteArray(Charsets.UTF_8)
         status(
             out, 207, "Multi-Status",
             listOf("Content-Type: text/xml; charset=\"utf-8\"", "Content-Length: ${xml.size}"),

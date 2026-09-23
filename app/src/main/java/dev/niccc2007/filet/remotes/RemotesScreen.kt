@@ -81,8 +81,6 @@ fun RemotesScreen(vm: BrowserViewModel) {
                 EmptyTab(
                     FiletIcons.Device,
                     "No shares yet",
-                    "Add one below. Once it is added it is an ordinary pane - the same rows, " +
-                        "the same drag and drop, the same search.",
                 )
             }
         }
@@ -203,6 +201,16 @@ private fun ConnectionDialog(
     var share by remember { mutableStateOf(initial.share) }
     var anonymous by remember { mutableStateOf(initial.anonymous) }
     var tls by remember { mutableStateOf(initial.useTls) }
+    var domain by remember { mutableStateOf(initial.domain) }
+    var startPath by remember { mutableStateOf(initial.startPath) }
+    var readOnly by remember { mutableStateOf(initial.readOnly) }
+    var passive by remember { mutableStateOf(initial.passive) }
+    var timeout by remember { mutableStateOf(initial.timeoutSeconds.toString()) }
+    var privateKey by remember { mutableStateOf(initial.privateKey) }
+    var keyPass by remember { mutableStateOf(initial.keyPassphrase) }
+    // Shut by default. The six fields below it are the ones most shares never need, and
+    // putting them in the open makes a three-field form look like a twelve-field one.
+    var advanced by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -217,6 +225,12 @@ private fun ConnectionDialog(
                 if (!anonymous) {
                     Field("User", user) { user = it }
                     Field("Password", password, password = true) { password = it }
+                    // A field the model always had and the form never showed. A domain-joined
+                    // NAS refuses a correct username without it, and the error it gives back
+                    // is an ordinary access denied.
+                    if (initial.protocol == NetProtocol.SMB) {
+                        Field("Domain or workgroup", domain) { domain = it }
+                    }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Anonymous", fontSize = 12.sp, modifier = Modifier.weight(1f))
@@ -226,6 +240,58 @@ private fun ConnectionDialog(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (initial.protocol == NetProtocol.FTP) "FTPS" else "HTTPS", fontSize = 12.sp, modifier = Modifier.weight(1f))
                         Switch(checked = tls, onCheckedChange = { tls = it })
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { advanced = !advanced }
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (advanced) "Fewer options" else "More options",
+                        fontSize = 12.sp, color = colors.accent, modifier = Modifier.weight(1f),
+                    )
+                }
+                if (advanced) {
+                    Field("Open at", startPath, hint = "A folder inside the share, or blank for its root") {
+                        startPath = it
+                    }
+                    Field("Timeout, seconds", timeout) { timeout = it.filter(Char::isDigit).take(3) }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Read only",
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(checked = readOnly, onCheckedChange = { readOnly = it })
+                    }
+                    Text(
+                        "Filet refuses writes. The server still decides what is really allowed.",
+                        fontSize = 10.sp, color = colors.fg3, lineHeight = 13.sp,
+                    )
+                    if (initial.protocol == NetProtocol.FTP) {
+                        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Passive mode", fontSize = 12.sp, modifier = Modifier.weight(1f))
+                            Switch(checked = passive, onCheckedChange = { passive = it })
+                        }
+                        Text(
+                            "Leave on behind NAT. Active mode asks the server to connect back.",
+                            fontSize = 10.sp, color = colors.fg3, lineHeight = 13.sp,
+                        )
+                    }
+                    if (initial.protocol == NetProtocol.SFTP) {
+                        Field(
+                            "Private key",
+                            privateKey,
+                            multiline = true,
+                            hint = "Paste an OpenSSH or PEM key to use instead of a password",
+                        ) { privateKey = it }
+                        if (privateKey.isNotBlank()) {
+                            Field("Key passphrase", keyPass, password = true) { keyPass = it }
+                        }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -255,8 +321,15 @@ private fun ConnectionDialog(
                             user = user.trim(),
                             password = password,
                             share = share.trim(),
+                            domain = domain.trim(),
                             anonymous = anonymous,
                             useTls = tls,
+                            startPath = startPath.trim(),
+                            readOnly = readOnly,
+                            passive = passive,
+                            timeoutSeconds = timeout.toIntOrNull()?.coerceIn(3, 120) ?: 15,
+                            privateKey = privateKey.trim(),
+                            keyPassphrase = keyPass,
                         )
                     )
                 },
@@ -274,14 +347,35 @@ private fun ConnectionDialog(
 }
 
 @Composable
-private fun Field(label: String, value: String, password: Boolean = false, onChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
-        singleLine = true,
-        label = { Text(label, fontSize = 11.sp) },
-        visualTransformation = if (password) androidx.compose.ui.text.input.PasswordVisualTransformation()
-        else androidx.compose.ui.text.input.VisualTransformation.None,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-    )
+private fun Field(
+    label: String,
+    value: String,
+    password: Boolean = false,
+    multiline: Boolean = false,
+    hint: String? = null,
+    onChange: (String) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onChange,
+            singleLine = !multiline,
+            minLines = if (multiline) 3 else 1,
+            label = { Text(label, fontSize = 11.sp) },
+            visualTransformation = if (password) androidx.compose.ui.text.input.PasswordVisualTransformation()
+            else androidx.compose.ui.text.input.VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        )
+        // A hint under the field it belongs to, not a paragraph at the top of the form. It
+        // says what to type, which is the only thing worth saying next to an input.
+        if (hint != null) {
+            Text(
+                hint,
+                fontSize = 10.sp,
+                color = Filet.colors.fg3,
+                lineHeight = 13.sp,
+                modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
+            )
+        }
+    }
 }

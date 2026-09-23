@@ -130,8 +130,6 @@ fun ActivityBody(ledger: JobLedger) {
                 EmptyTab(
                     FiletIcons.Jobs,
                     "Nothing running, nothing recent",
-                    "Every long operation turns up here, including ones Trawl starts through " +
-                        "the bridge - which is why each row says where it came from.",
                 )
             }
         }

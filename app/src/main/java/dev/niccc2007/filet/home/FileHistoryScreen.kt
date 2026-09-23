@@ -220,7 +220,6 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
             EmptyTab(
                 FiletIcons.Clock,
                 "Nothing in the tracked folders yet",
-                "Add a folder to the tracked list and anything that lands in it turns up here.",
             )
             return@Column
         }
@@ -354,6 +353,7 @@ private fun HistoryRow(
         name = entry.name,
         sub = sub,
         accent = today,
+        thumbOf = node,
         // Bug identified: this list answered a tap and nothing else, while the very same rows
         // on the Home overview answer a long press with a sheet. The actions that exist
         // everywhere else in the app were missing exactly where a new file is most likely to

@@ -24,6 +24,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.ui.theme.Filet
+import dev.niccc2007.filet.vfs.VNode
 import java.util.Locale
 
 /**
@@ -427,6 +432,15 @@ fun TRow(
     name: String,
     sub: String? = null,
     accent: Boolean = false,
+    /**
+     * The file this row stands for, when there is one.
+     *
+     * Given it, the avatar becomes the file's own picture - a photo, a video frame, an album
+     * cover, an app's launcher icon - and falls back to [icon] while it decodes or when the
+     * type has no preview. A list of type glyphs tells you what kind of file each row is,
+     * which you already knew from the name; a list of thumbnails tells you which one it is.
+     */
+    thumbOf: VNode? = null,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
@@ -447,12 +461,19 @@ fun TRow(
                 .background(if (accent) MaterialTheme.colorScheme.primaryContainer else colors.sunken),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                icon,
-                null,
-                tint = if (accent) colors.accent else colors.fg2,
-                modifier = Modifier.size(15.dp),
-            )
+            val tint = if (accent) colors.accent else colors.fg2
+            if (thumbOf != null) {
+                // The same component the file list uses, so a thumbnail decoded for one
+                // surface is already in the cache for the other.
+                dev.niccc2007.filet.browser.FileThumb(
+                    node = thumbOf,
+                    size = 30.dp,
+                    fallbackTint = tint,
+                    glyphSize = 15.dp,
+                )
+            } else {
+                Icon(icon, null, tint = tint, modifier = Modifier.size(15.dp))
+            }
         }
         Column(Modifier.weight(1f)) {
             Text(
@@ -682,6 +703,65 @@ fun WarnNote(text: String, bad: Boolean = false) {
     }
 }
 
+/**
+ * A stack of notes behind one line you can open.
+ *
+ * Warnings that are each individually worth keeping stop being read when there are three of
+ * them in a column: the card turns into a page of caveats and the actual controls get pushed
+ * off the screen. Collapsed, the count is the signal - "there are things to know here" - and
+ * the words are one tap away for the moment somebody needs them.
+ *
+ * Shut by default. A note that opens itself is the wall again with an extra step.
+ */
+@Composable
+fun NoteStack(label: String, notes: List<String>) {
+    if (notes.isEmpty()) return
+    val colors = Filet.colors
+    var open by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(9.dp))
+                .clickable { open = !open }
+                .padding(horizontal = 2.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                dev.niccc2007.filet.browser.FiletIcons.Info,
+                null,
+                tint = colors.fg3,
+                modifier = Modifier.size(13.dp),
+            )
+            Text(
+                if (notes.size == 1) label else "$label (${notes.size})",
+                fontSize = 11.sp,
+                color = colors.fg3,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                if (open) dev.niccc2007.filet.browser.FiletIcons.Expand
+                else dev.niccc2007.filet.browser.FiletIcons.Forward,
+                null,
+                tint = colors.fg3,
+                modifier = Modifier.size(11.dp),
+            )
+        }
+        if (open) {
+            for (n in notes) {
+                Text(
+                    "·  $n",
+                    fontSize = 10.5.sp,
+                    lineHeight = 15.sp,
+                    color = colors.fg3,
+                    modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
+                )
+            }
+        }
+    }
+}
+
 /** `.iso`. The captive-portal note - a warning that is about the network, not the app. */
 @Composable
 fun IsolationNote(title: String, body: String) {
@@ -712,9 +792,16 @@ fun MicroLabel(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** `.empty2`. What a tab shows when it has nothing, with a reason rather than a shrug. */
+/**
+ * `.empty2`. What a tab shows when it has nothing.
+ *
+ * [line] is for the single action that fills the list, in a few words, and nothing else. It
+ * used to carry an explanation of what the tab was for, on every tab - which is a paragraph
+ * nobody reads twice and which made the app sound like it was selling itself. Why a screen
+ * exists belongs in the source, next to the code that makes it exist.
+ */
 @Composable
-fun EmptyTab(icon: ImageVector, title: String, line: String) {
+fun EmptyTab(icon: ImageVector, title: String, line: String? = null) {
     val colors = Filet.colors
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 38.dp),
@@ -723,8 +810,10 @@ fun EmptyTab(icon: ImageVector, title: String, line: String) {
         Icon(icon, null, tint = colors.fg3.copy(alpha = 0.4f), modifier = Modifier.size(30.dp))
         Spacer(Modifier.height(10.dp))
         Text(title, fontSize = 12.5.sp, color = colors.fg2, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.height(4.dp))
-        Text(line, fontSize = 12.sp, color = colors.fg3, lineHeight = 19.2.sp)
+        if (!line.isNullOrBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(line, fontSize = 12.sp, color = colors.fg3, lineHeight = 19.2.sp)
+        }
     }
 }
 
@@ -820,6 +909,26 @@ class TileScope(private val scope: androidx.compose.foundation.layout.FlowRowSco
     }
 }
 
+/**
+ * Shorten a volume label for the tile heading.
+ *
+ * "Internal storage" under a section already headed STORAGE is the word "storage" twice, and
+ * at the tile's width the second one costs the first: it rendered as "INTERN...", which names
+ * nothing. Dropping the redundant word is better than ellipsising the informative one.
+ *
+ * Only the trailing word is dropped, and only when something is left. A volume actually named
+ * "Storage" keeps its name rather than becoming empty.
+ */
+fun shortVolumeLabel(label: String): String {
+    val trimmed = label.trim()
+    for (suffix in listOf(" storage", " Storage", " STORAGE")) {
+        if (trimmed.endsWith(suffix) && trimmed.length > suffix.length) {
+            return trimmed.dropLast(suffix.length).trim()
+        }
+    }
+    return trimmed
+}
+
 /** A storage tile: a heading, a big number, a caption and an optional capacity bar. */
 @Composable
 fun StorageTile(
@@ -844,9 +953,9 @@ fun StorageTile(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(icon, null, tint = colors.accent, modifier = Modifier.size(13.dp))
             Text(
-                kind.uppercase(Locale.US),
+                shortVolumeLabel(kind).uppercase(Locale.US),
                 fontSize = 10.sp,
-                letterSpacing = 0.9.sp,
+                letterSpacing = 0.6.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = colors.fg3,
                 maxLines = 1,

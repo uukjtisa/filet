@@ -143,6 +143,10 @@ function publicTextFiles() {
   for (const n of names) {
     if (!/\.(md|kt|kts|html|txt|xml|json|mjs|js|pro)$/i.test(n)) continue;
     if (!existsSync(n)) continue;
+    // This file states the patterns it forbids and carries fixtures containing them, so
+    // scanning itself reports itself. Excluding it is not a loophole: it is a checker, not
+    // copy, and the thing being protected is what the app and its documents say.
+    if (n === "tools/check-roadmap.mjs") continue;
     try {
       out.push([n, readFileSync(n, "utf8")]);
     } catch {

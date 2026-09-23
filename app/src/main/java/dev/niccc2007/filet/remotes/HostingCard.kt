@@ -21,6 +21,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,12 +36,12 @@ import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.ui.tabs.ChipRow
 import dev.niccc2007.filet.ui.tabs.DotState
 import dev.niccc2007.filet.ui.tabs.MicroLabel
+import dev.niccc2007.filet.ui.tabs.NoteStack
 import dev.niccc2007.filet.ui.tabs.NLead
 import dev.niccc2007.filet.ui.tabs.NRow
 import dev.niccc2007.filet.ui.tabs.SmallBtn
 import dev.niccc2007.filet.ui.tabs.TabButton
 import dev.niccc2007.filet.ui.tabs.ToggleRow
-import dev.niccc2007.filet.ui.tabs.WarnNote
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.webdav.DavScope
 import dev.niccc2007.filet.webdav.WebDavServer
@@ -102,14 +104,7 @@ fun HostingCard(vm: BrowserViewModel) {
 
         Column(Modifier.padding(13.dp)) {
             if (!dav.running) {
-                Text(
-                    "WebDAV is a protocol, not a service. This phone is the server, nothing " +
-                        "is hosted for you and there is no account anywhere — it costs nothing " +
-                        "because there is nothing to buy.",
-                    fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.7.sp,
-                )
-                Spacer(Modifier.height(11.dp))
-                ScopeControls(vm, dav.scope, dav.writable, dav.idleStopMinutes)
+                ScopeControls(vm, dav)
                 Spacer(Modifier.height(9.dp))
                 TabButton("Start hosting", FiletIcons.Wifi, primary = true) { vm.startHosting() }
                 return@Column
@@ -128,7 +123,8 @@ fun HostingCard(vm: BrowserViewModel) {
             }
             Text(
                 "Paste it into the address bar, or use Map network drive to give it a letter. " +
-                    "The code in the link is the password — there is no sign-in box.",
+                    "The code in the link is the password — there is no sign-in box, and " +
+                    "nothing leaves your network.",
                 fontSize = 9.5.sp, color = colors.fg3, lineHeight = 13.sp,
             )
 
@@ -149,7 +145,7 @@ fun HostingCard(vm: BrowserViewModel) {
             }
 
             Spacer(Modifier.height(10.dp))
-            ScopeControls(vm, dav.scope, dav.writable, dav.idleStopMinutes)
+            ScopeControls(vm, dav)
 
             Spacer(Modifier.height(9.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -177,47 +173,184 @@ fun HostingCard(vm: BrowserViewModel) {
     }
 
     if (dav.running) {
-        Column(Modifier.padding(horizontal = 13.dp, vertical = 6.dp)) {
-            // All three of these are load-bearing. Each one is the only explanation for
-            // something that otherwise looks exactly like a broken file or a broken app.
-            WarnNote(
-                "Windows stops WebDAV downloads at 50 MB until its registry limit is raised. " +
-                    "Reading a large file straight off the drive fails at exactly that size, " +
-                    "which looks like a broken file and is not one. Copy it with a browser " +
-                    "link instead, or raise FileSizeLimitInBytes."
-            )
-            WarnNote(
-                "Windows needs its WebClient service running. It is on by default; if the " +
-                    "address will not open at all, that is the first thing to check."
-            )
-            WarnNote(
-                "Nothing leaves your network and nothing is hosted for you. This phone is the " +
-                    "server, and there is no account anywhere."
+        // Each of these is the only explanation for something that otherwise looks exactly
+        // like a broken file or a broken app, so none of them can be deleted. Three of them
+        // stacked as boxes turned the card into a page of caveats and pushed the controls off
+        // the screen, so they are behind one line instead - shut until somebody wants them.
+        Column(Modifier.padding(horizontal = 13.dp)) {
+            NoteStack(
+                "If Windows misbehaves",
+                listOf(
+                    "Windows stops WebDAV downloads at 50 MB until its registry limit is " +
+                        "raised. A large file fails at exactly that size, which looks like a " +
+                        "broken file and is not one. Copy it with a browser link instead, or " +
+                        "raise FileSizeLimitInBytes.",
+                    "Windows needs its WebClient service running. It is on by default; if the " +
+                        "address will not open at all, check that first.",
+                ),
             )
         }
     }
 }
 
 @Composable
-private fun ScopeControls(
-    vm: BrowserViewModel,
-    scope: DavScope,
-    writable: Boolean,
-    idleMinutes: Int,
-) {
-    ChipRow(
-        "Let the PC see",
-        DavScope.entries.map { it.label },
-        scope.label,
-    ) { picked -> vm.setHostScope(DavScope.entries.first { it.label == picked }) }
+private fun ScopeControls(vm: BrowserViewModel, dav: dev.niccc2007.filet.webdav.DavState) {
+    val colors = Filet.colors
+    var more by remember { mutableStateOf(false) }
+    var editingCode by remember { mutableStateOf<String?>(null) }
+    var editingPort by remember { mutableStateOf<String?>(null) }
+
+    // A hand-picked folder wins over the presets, so the presets are only offered when one is
+    // not in force - two controls that silently override each other is worse than one.
+    if (dav.customRoot == null) {
+        ChipRow(
+            "Let the PC see",
+            DavScope.entries.map { it.label },
+            dav.scope.label,
+        ) { picked -> vm.setHostScope(DavScope.entries.first { it.label == picked }) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Or pick a folder", fontSize = 12.sp, modifier = Modifier.weight(1f))
+            SmallBtn("Choose") { vm.pickHostFolder() }
+        }
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Hosting one folder", fontSize = 12.sp)
+                Text(
+                    dav.customRoot,
+                    fontSize = 9.5.sp,
+                    color = colors.fg3,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 2,
+                )
+            }
+            SmallBtn("Change") { vm.pickHostFolder() }
+            SmallBtn("Clear") { vm.setHostFolder(null) }
+        }
+    }
+
     // Off by default and not persisted. Turning a phone into a writable network drive is a
     // thing to decide each time, not a setting to forget having left on.
-    ToggleRow("Let the PC change files", writable) { vm.setHostWritable(it) }
+    ToggleRow("Let the PC change files", dav.writable) { vm.setHostWritable(it) }
+
+    // The reason this exists at all: a phone is miserable to navigate as a plain tree from a
+    // desktop, and the index already knows where everything is.
+    ToggleRow("Show ${dev.niccc2007.filet.webdav.DavViews.ROOT} folders", dav.views) {
+        vm.setHostViews(it)
+    }
+    if (dav.views) {
+        Text(
+            "Recent, Images, Videos, Documents and more, flattened out of the index so they " +
+                "can be opened without walking the tree.",
+            fontSize = 10.sp, color = colors.fg3, lineHeight = 13.5.sp,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
+    }
+
     ChipRow(
         "Stop after idle",
         IDLE_CHOICES.map { "${it}m" },
-        "${idleMinutes}m",
+        "${dav.idleStopMinutes}m",
     ) { picked -> vm.setHostIdleMinutes(picked.removeSuffix("m").toIntOrNull() ?: 30) }
+
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { more = !more }
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            if (more) "Fewer options" else "More options",
+            fontSize = 12.sp, color = colors.accent, modifier = Modifier.weight(1f),
+        )
+    }
+    if (more) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Access code", fontSize = 12.sp)
+                Text(
+                    dav.fixedCode ?: "A new one each session",
+                    fontSize = 10.sp, color = colors.fg3,
+                )
+            }
+            SmallBtn("Set") { editingCode = dav.fixedCode.orEmpty() }
+            if (dav.fixedCode != null) SmallBtn("Random") { vm.setHostCode(null) }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Port", fontSize = 12.sp)
+                Text(
+                    "${if (dav.preferredPort > 0) dav.preferredPort else WebDavServer.DEFAULT_PORT}",
+                    fontSize = 10.sp, color = colors.fg3, fontFamily = FontFamily.Monospace,
+                )
+            }
+            SmallBtn("Change") {
+                editingPort = (if (dav.preferredPort > 0) dav.preferredPort else WebDavServer.DEFAULT_PORT).toString()
+            }
+        }
+    }
+
+    editingCode?.let { draft ->
+        TextPrompt(
+            title = "Access code",
+            // Not a password box: it goes in a URL that is typed by hand and read off a
+            // screen, so hiding it helps nobody and makes a typo impossible to spot.
+            hint = "Letters and digits. Keeping it fixed means a mapped drive keeps working.",
+            initial = draft,
+            onDismiss = { editingCode = null },
+            onConfirm = { vm.setHostCode(it); editingCode = null },
+        )
+    }
+    editingPort?.let { draft ->
+        TextPrompt(
+            title = "Port",
+            hint = "1024 to 65535. Below 1024 is privileged and Android will not allow it.",
+            initial = draft,
+            digitsOnly = true,
+            onDismiss = { editingPort = null },
+            onConfirm = { vm.setHostPort(it.toIntOrNull() ?: WebDavServer.DEFAULT_PORT); editingPort = null },
+        )
+    }
+}
+
+/** One short value, asked for in a dialog. */
+@Composable
+private fun TextPrompt(
+    title: String,
+    hint: String,
+    initial: String,
+    digitsOnly: Boolean = false,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var value by remember(initial) { mutableStateOf(initial) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, fontSize = 15.sp) },
+        text = {
+            Column {
+                androidx.compose.material3.OutlinedTextField(
+                    value = value,
+                    onValueChange = { v ->
+                        value = if (digitsOnly) v.filter(Char::isDigit).take(5) else v.take(24)
+                    },
+                    singleLine = true,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(hint, fontSize = 10.5.sp, color = Filet.colors.fg3, lineHeight = 14.sp)
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                onClick = { onConfirm(value.trim()) },
+                enabled = value.isNotBlank(),
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 /**
