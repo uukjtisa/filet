@@ -948,10 +948,18 @@ fun StorageTile(
             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(13.dp))
             .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 11.dp),
+            .padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 11.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Icon(icon, null, tint = colors.accent, modifier = Modifier.size(13.dp))
+            // The label takes the slack and the close sits after it, so the close is flush
+            // right at every tile width. Weighting BOTH - which is what this did - splits the
+            // slack between them, and the button drifts inward the moment a tile widens to
+            // fill a row. Invisible at 150dp, obvious at full width.
             Text(
                 shortVolumeLabel(kind).uppercase(Locale.US),
                 fontSize = 10.sp,
@@ -960,13 +968,12 @@ fun StorageTile(
                 color = colors.fg3,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
+                modifier = Modifier.weight(1f),
             )
             // Hiding has to stay reachable from the tile. The card this replaced carried it,
             // and a card you can hide from one place and only restore from another is the
             // one-way door the restore link at the section heading exists to undo.
             if (onHide != null) {
-                Spacer(Modifier.weight(1f))
                 Icon(
                     dev.niccc2007.filet.browser.FiletIcons.Close,
                     "Hide this card",
@@ -979,7 +986,7 @@ fun StorageTile(
                 )
             }
         }
-        Spacer(Modifier.height(7.dp))
+        Spacer(Modifier.height(5.dp))
         Text(
             value,
             fontSize = 19.sp,

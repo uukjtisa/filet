@@ -35,20 +35,18 @@ const README = "README.md";
  * picture was taken" is the actual question.
  */
 const SHOWS = {
-  "01-browse.png": ["app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt",
+  "01-home.png": ["app/src/main/java/dev/niccc2007/filet/home/HomeOverview.kt",
+    "app/src/main/java/dev/niccc2007/filet/ui/tabs/TabKit.kt"],
+  "02-browse.png": ["app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt",
     "app/src/main/java/dev/niccc2007/filet/browser/RowViews.kt"],
-  "02-split.png": ["app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt"],
-  "03-search.png": ["app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt"],
-  "04-apk.png": ["app/src/main/java/dev/niccc2007/filet/apk/ApkInspectorScreen.kt"],
-  "05-scripts.png": ["app/src/main/java/dev/niccc2007/filet/script/ScriptsScreen.kt"],
-  "06-nearby.png": ["app/src/main/java/dev/niccc2007/filet/nearby/NearbyScreen.kt"],
-  "07-web.png": ["app/src/main/java/dev/niccc2007/filet/nearby/WebApp.kt"],
-  "08-context-menu.png": ["app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt"],
-  "09-paste.png": ["app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt"],
-  "10-rar.png": ["app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt"],
-  "11-compress.png": ["app/src/main/java/dev/niccc2007/filet/browser/ArchiveOptionsUi.kt"],
-  "12-extract.png": ["app/src/main/java/dev/niccc2007/filet/browser/ExtractSheet.kt"],
-  "13-archive-save.png": ["app/src/main/java/dev/niccc2007/filet/browser/ArchiveSaveSheet.kt"],
+  "03-new-files.png": ["app/src/main/java/dev/niccc2007/filet/home/FileHistoryScreen.kt"],
+  "04-view.png": ["app/src/main/java/dev/niccc2007/filet/browser/Menus.kt"],
+  "05-context-menu.png": ["app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt"],
+  "06-extract.png": ["app/src/main/java/dev/niccc2007/filet/browser/ExtractSheet.kt"],
+  "07-scripts.png": ["app/src/main/java/dev/niccc2007/filet/script/ScriptsScreen.kt"],
+  "08-nearby.png": ["app/src/main/java/dev/niccc2007/filet/nearby/NearbyScreen.kt"],
+  "09-remotes.png": ["app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt",
+    "app/src/main/java/dev/niccc2007/filet/remotes/HostingCard.kt"],
 };
 
 /** The section, as markdown. */
@@ -116,7 +114,13 @@ export function stale() {
   const out = [];
   for (const [shot, sources] of Object.entries(SHOWS)) {
     const path = `docs/screenshots/${shot}`;
-    if (!existsSync(path)) continue;
+    if (!existsSync(path)) {
+      // Not skipped. A shot named here and absent from disk means the map and the README
+      // have drifted, and silently skipping is exactly how renaming every file turned this
+      // whole check into a no-op that still printed OK.
+      out.push({ shot, src: "(missing from docs/screenshots)", days: 0 });
+      continue;
+    }
     const shotAt = when(path) ?? statSync(path).mtimeMs;
     for (const src of sources) {
       if (!existsSync(src)) continue;

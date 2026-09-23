@@ -58,62 +58,48 @@ Free and open source. No ads, no accounts, no telemetry, no paid tier.
 
 ## A glimpse of it
 
-Three things, in the order you would meet them: getting around, doing work on the files, and
-reaching the machines around you.
-
-### Getting around
-
 <p align="center">
-  <img src="docs/screenshots/01-browse.png" width="31%" alt="A folder listing with thumbnails, sizes and dates">
-  <img src="docs/screenshots/02-split.png" width="31%" alt="Two panes side by side, each on a different folder">
-  <img src="docs/screenshots/03-search.png" width="31%" alt="Search results from across the whole device">
+  <img src="docs/screenshots/01-home.png" width="31%" alt="Home: a search field, storage tiles and the files that turned up in tracked folders">
+  <img src="docs/screenshots/02-browse.png" width="31%" alt="A folder listing with thumbnails, sizes and dates">
+  <img src="docs/screenshots/03-new-files.png" width="31%" alt="New files grouped by day, each heading carrying a count and a size">
 </p>
 
 <p align="center"><sub>
-Two panes are two independent histories, not one folder drawn twice — each keeps its own
-back stack, its own selection and its own search. The search is answered from an index, so it
-returns while you are still typing.
-</sub></p>
-
-### Doing work on the files
-
-<p align="center">
-  <img src="docs/screenshots/11-compress.png" width="31%" alt="The compress window, offering only options the chosen format supports">
-  <img src="docs/screenshots/12-extract.png" width="31%" alt="An extraction preview showing the folder it is about to create">
-  <img src="docs/screenshots/13-archive-save.png" width="31%" alt="Saving a file that was edited from inside an archive">
-</p>
-
-<p align="center"><sub>
-The extraction is previewed before it happens, so an archive that would spray forty files into
-the folder you are standing in says so first. A file opened from inside an archive can be
-edited and saved back into it.
+<b>Home</b> opens on a search field rather than a title, with what arrived while you were away
+underneath &middot; <b>a folder</b>, with a real preview on anything that has one &middot;
+<b>New files</b>, which answers a question the filesystem cannot: not when a file was made, but
+when it turned up here
 </sub></p>
 
 <p align="center">
-  <img src="docs/screenshots/04-apk.png" width="31%" alt="The APK inspector, listing a package's manifest and permissions">
-  <img src="docs/screenshots/05-scripts.png" width="31%" alt="The script list, each script showing what it is allowed to touch">
-  <img src="docs/screenshots/08-context-menu.png" width="31%" alt="The context menu on a selected file">
+  <img src="docs/screenshots/04-view.png" width="31%" alt="The view control: density from list to grid, and the sort">
+  <img src="docs/screenshots/05-context-menu.png" width="31%" alt="The context menu on a file, with the common verbs as an icon row">
+  <img src="docs/screenshots/06-extract.png" width="31%" alt="An extraction preview showing the folder it is about to create">
 </p>
 
 <p align="center"><sub>
-A script declares what it may touch and you approve that before it runs — the permission
-lines on each row are the whole of it, not a summary of something longer.
+One slider from a dense list to a wall of thumbnails &middot; the verbs you use constantly as
+icons, the rest as a list &middot; and an extraction previewed <i>before</i> it happens, so an
+archive that would spray forty files into the folder you are standing in says so first
 </sub></p>
-
-### Reaching other machines
 
 <p align="center">
-  <img src="docs/screenshots/06-nearby.png" width="46%" alt="The Nearby tab, sharing over the local network">
-  <img src="docs/screenshots/07-web.png" width="46%" alt="The page a browser on the same network sees">
+  <img src="docs/screenshots/07-scripts.png" width="31%" alt="The script list, each script showing exactly what it is allowed to touch">
+  <img src="docs/screenshots/08-nearby.png" width="31%" alt="Nearby: sharing over the local network, and where received files land">
+  <img src="docs/screenshots/09-remotes.png" width="31%" alt="Remotes: SMB, SFTP, FTP and WebDAV, and hosting this phone as a drive">
 </p>
 
 <p align="center"><sub>
-What a laptop on the same network sees. No app at the other end, no account, no cable, and
-nothing leaves the network.
+A script declares what it may touch and you approve that before it runs &mdash; the lines on
+each row are the whole of it &middot; sharing to any browser on the network, no app and no
+account at the other end &middot; and the same tab mounts <b>this phone</b> in Windows Explorer
+as a drive
 </sub></p>
 
 <p align="center"><sub>
-Screenshots use a seeded demo folder, not real files.
+Screenshots use a seeded demo folder, not real files. The lists that are nothing <i>but</i>
+personal data &mdash; recents, bookmarks, pinned shortcuts &mdash; are left out rather than
+staged.
 </sub></p>
 
 ---
