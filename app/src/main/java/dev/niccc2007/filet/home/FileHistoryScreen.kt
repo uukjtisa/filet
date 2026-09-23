@@ -1,6 +1,7 @@
 package dev.niccc2007.filet.home
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +48,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.draw.rotate
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.browser.FileKind
+import dev.niccc2007.filet.ui.tabs.EmptyTab
+import dev.niccc2007.filet.ui.tabs.SortPair
+import dev.niccc2007.filet.ui.tabs.TRow
+import dev.niccc2007.filet.ui.tabs.TabButton
+import dev.niccc2007.filet.ui.tabs.TabHeader
+import dev.niccc2007.filet.ui.tabs.Trailing
 import dev.niccc2007.filet.ui.theme.Filet
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.flow.collectLatest
@@ -143,6 +150,8 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
 
     val now = System.currentTimeMillis()
     val zone = remember { TimeZone.getDefault() }
+    // Which key counts as today, so a row can be tinted without re-deriving the day per row.
+    val todayKey = remember(now, zone) { FileHistory.dayKey(now, zone) }
     val groups = remember(entries, sort, grouped) {
         if (grouped) FileHistory.group(entries, sort, now, zone) else emptyList()
     }
@@ -186,31 +195,33 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Toggle("First seen", sort == HistorySort.FIRST_SEEN) { sort = HistorySort.FIRST_SEEN }
-            Spacer(Modifier.width(6.dp))
-            Toggle("Last changed", sort == HistorySort.LAST_CHANGED) { sort = HistorySort.LAST_CHANGED }
-            Spacer(Modifier.weight(1f))
+        // Four flat labels became two shaped controls. They were indistinguishable from each
+        // other: two of them were an exclusive pair, one was a momentary button that opened a
+        // dialog, and one was a switch that flipped its own label - all drawn identically, so
+        // the screen never said which press would change what.
+        TabHeader(HomeSections.ARRIVED_TAB) {
+            SortPair(
+                listOf(FIRST_SEEN_LABEL, LAST_CHANGED_LABEL),
+                if (sort == HistorySort.FIRST_SEEN) FIRST_SEEN_LABEL else LAST_CHANGED_LABEL,
+            ) {
+                sort = if (it == FIRST_SEEN_LABEL) HistorySort.FIRST_SEEN else HistorySort.LAST_CHANGED
+            }
             // Only offered while the list is grouped: jumping to a day in a flat list would
             // land somewhere with nothing on screen to say which day you had reached.
-            if (grouped) {
-                Toggle("Date", false) { picking = true }
-                Spacer(Modifier.width(2.dp))
-            }
-            Toggle(if (grouped) "By day" else "Flat", true) { grouped = !grouped }
+            if (grouped) TabButton("Date", FiletIcons.Clock) { picking = true }
+            TabButton(
+                if (grouped) "By day" else "Flat",
+                if (grouped) FiletIcons.Rows else FiletIcons.Grid,
+                primary = true,
+            ) { grouped = !grouped }
         }
 
         if (entries.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "Nothing in the tracked folders yet.",
-                    fontSize = 12.sp,
-                    color = colors.fg3,
-                )
-            }
+            EmptyTab(
+                FiletIcons.Clock,
+                "Nothing in the tracked folders yet",
+                "Add a folder to the tracked list and anything that lands in it turns up here.",
+            )
             return@Column
         }
 
@@ -227,13 +238,19 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
                     if (g.key in collapsed) continue
                     val take = g.entries.take((shown - drawn).coerceAtLeast(0))
                     drawn += take.size
+                    val isToday = g.key == todayKey
                     items(take.size, key = { "e:${g.key}:${take[it].path}" }) { i ->
-                        HistoryRow(take[i], sort, vm) { menuFor = it }
+                        HistoryRow(take[i], sort, vm, isToday) { menuFor = it }
                     }
                 }
             } else {
                 val take = flat.take(shown)
-                items(take.size, key = { "f:${take[it].path}" }) { i -> HistoryRow(take[i], sort, vm) { menuFor = it } }
+                items(take.size, key = { "f:${take[it].path}" }) { i ->
+                    HistoryRow(
+                        take[i], sort, vm,
+                        FileHistory.dayKey(take[i].timeFor(sort), zone) == todayKey,
+                    ) { menuFor = it }
+                }
             }
 
             val remaining = entries.size - shown
@@ -278,8 +295,9 @@ private fun DayHeader(group: DayGroup, collapsed: Boolean, onToggle: () -> Unit)
     Row(
         Modifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.92f))
             .clickable(onClick = onToggle)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(start = 15.dp, end = 15.dp, top = 12.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -288,17 +306,18 @@ private fun DayHeader(group: DayGroup, collapsed: Boolean, onToggle: () -> Unit)
             tint = colors.fg3,
             // One icon rather than two: pointing right when the group is shut and down when it
             // is open is the same affordance every tree in the app already uses.
-            modifier = Modifier.size(14.dp).rotate(if (collapsed) 0f else 90f),
+            modifier = Modifier.size(11.dp).rotate(if (collapsed) 0f else 90f),
         )
         Spacer(Modifier.width(8.dp))
         Text(
             group.label,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = colors.fg2,
         )
         Spacer(Modifier.weight(1f))
-        // The part Explorer's own headers leave out.
+        // The part Explorer's own headers leave out. It counts the whole group and not the
+        // rows drawn, which differ the moment the group is shut or the page is capped.
         Text(
             "${group.count} file${if (group.count == 1) "" else "s"} · ${bytes(group.bytes)}",
             fontSize = 10.sp,
@@ -313,9 +332,9 @@ private fun HistoryRow(
     entry: HistoryEntry,
     sort: HistorySort,
     vm: BrowserViewModel,
+    today: Boolean,
     onLongPress: (dev.niccc2007.filet.vfs.VNode) -> Unit,
 ) {
-    val colors = Filet.colors
     val node = remember(entry.path) {
         dev.niccc2007.filet.vfs.VNode(
             dev.niccc2007.filet.vfs.VPath.parse(entry.path),
@@ -324,52 +343,24 @@ private fun HistoryRow(
             entry.lastChanged,
         )
     }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            // Bug identified: this list answered a tap and nothing else, while the very same
-            // rows on the Home overview answer a long press with a sheet. The actions that
-            // exist everywhere else in the app were missing exactly where a new file is most
-            // likely to need them.
-            .combinedClickable(
-                onClick = { vm.openHomeEntry(node) },
-                onLongClick = { onLongPress(node) },
-            )
-            .padding(start = 26.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(FileKind.of(node).icon, null, tint = colors.fg2, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                entry.name,
-                fontSize = 12.5.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            entry.origin?.let {
-                Text(it, fontSize = 9.5.sp, color = colors.fg3, maxLines = 1, fontFamily = FontFamily.Monospace)
-            }
-        }
-        Spacer(Modifier.width(8.dp))
-        Text(clock(entry.timeFor(sort)), fontSize = 10.sp, color = colors.fg3)
-        Spacer(Modifier.width(10.dp))
-        Text(bytes(entry.bytes), fontSize = 10.sp, color = colors.fg3)
+    // The size moves onto the subtitle beside where the file came from, which is how the row
+    // fits one line without an ellipsis eating the name. The time stays on the right, because
+    // it is the column the eye runs down when the list is grouped by day.
+    val sub = remember(entry.bytes, entry.origin) {
+        listOfNotNull(bytes(entry.bytes), entry.origin).joinToString(" · ")
     }
-}
-
-@Composable
-private fun Toggle(label: String, on: Boolean, onClick: () -> Unit) {
-    val colors = Filet.colors
-    Text(
-        label,
-        fontSize = 11.sp,
-        color = if (on) colors.accent else colors.fg3,
-        modifier = Modifier
-            .clip(RoundedCornerShape(7.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+    TRow(
+        icon = FileKind.of(node).icon,
+        name = entry.name,
+        sub = sub,
+        accent = today,
+        // Bug identified: this list answered a tap and nothing else, while the very same rows
+        // on the Home overview answer a long press with a sheet. The actions that exist
+        // everywhere else in the app were missing exactly where a new file is most likely to
+        // need them.
+        onClick = { vm.openHomeEntry(node) },
+        onLongClick = { onLongPress(node) },
+        trailing = { Trailing(clock(entry.timeFor(sort))) },
     )
 }
 
@@ -383,6 +374,15 @@ private fun bytes(n: Long): String = when {
     n < 1024L * 1024 * 1024 -> "%.1f MB".format(n / 1024.0 / 1024)
     else -> "%.2f GB".format(n / 1024.0 / 1024 / 1024)
 }
+
+/**
+ * The two questions the list can answer, as the control writes them.
+ *
+ * Constants because [SortPair] selects on the label it was handed: a string typed twice is a
+ * control that silently stops selecting anything the moment one of them is edited.
+ */
+private const val FIRST_SEEN_LABEL = "First seen"
+private const val LAST_CHANGED_LABEL = "Last changed"
 
 /** How many rows arrive at a time, and how close to the end to fetch the next lot. */
 private const val PAGE = 80

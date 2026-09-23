@@ -5,7 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import dev.niccc2007.filet.settings.SmallButton
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,9 +40,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
-import dev.niccc2007.filet.browser.EmptyNote
 import dev.niccc2007.filet.browser.FiletIcons
-import dev.niccc2007.filet.browser.SectionLabel
+import dev.niccc2007.filet.ui.tabs.EmptyTab
+import dev.niccc2007.filet.ui.tabs.SectionRow
+import dev.niccc2007.filet.ui.tabs.TabButton
+import dev.niccc2007.filet.ui.tabs.TabHeader
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
@@ -61,36 +62,26 @@ fun ScriptsScreen(vm: BrowserViewModel) {
     var pendingApproval by remember { mutableStateOf<Script?>(null) }
 
     LazyColumn(Modifier.fillMaxSize()) {
-        item { SectionLabel("Scripts") }
         item {
-            Text(
-                "Lua, bound to Filet's storage layer — so a script that works on internal " +
-                    "storage also works inside an archive or on a network share. Each one " +
-                    "declares what it may touch, and you approve that before it runs.",
-                fontSize = 11.sp, lineHeight = 15.sp, color = colors.fg3,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
-            )
-        }
-
-        item {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SmallButton("New script") { vm.newScript() }
-                Spacer(Modifier.width(7.dp))
+            TabHeader("Scripts") {
+                TabButton("New script", FiletIcons.Script, primary = true) { vm.newScript() }
                 // The API is not on the internet, so a model cannot know it. This hands over
                 // the whole brief in one copy, and the user appends what they want.
-                SmallButton("Copy AI prompt") {
+                TabButton("Copy AI prompt", FiletIcons.Copy) {
                     vm.copyText(ScriptPrompt.TEXT, "Prompt copied — paste it and add what you want")
                 }
-                Spacer(Modifier.width(7.dp))
-                SmallButton("Examples") { vm.restoreScriptExamples() }
+                TabButton("Examples", FiletIcons.Download) { vm.restoreScriptExamples() }
             }
         }
 
         if (scripts.isEmpty()) {
-            item { EmptyNote("No scripts yet. Start one with New script.", Modifier.fillMaxWidth().height(120.dp)) }
+            item {
+                EmptyTab(
+                    FiletIcons.Script,
+                    "No scripts yet",
+                    "Start one with New script, or restore the examples to see what they look like.",
+                )
+            }
         }
 
         items(scripts, key = { it.id }) { script ->
@@ -108,12 +99,12 @@ fun ScriptsScreen(vm: BrowserViewModel) {
         }
 
         result?.let { r ->
-            item { SectionLabel(if (r.ok) "Last run" else "Last run — failed") }
+            item { SectionRow(if (r.ok) "Last run" else "Last run — failed") }
             item {
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .padding(start = 15.dp, end = 15.dp, bottom = 10.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(colors.sunken)
                         .heightIn(max = 280.dp)
@@ -162,16 +153,16 @@ private fun ScriptRow(
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, colors.lineSoft, RoundedCornerShape(10.dp))
+            .padding(start = 15.dp, end = 15.dp, bottom = 9.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, colors.lineSoft, RoundedCornerShape(12.dp))
             .background(colors.raised)
             .padding(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(FiletIcons.Script, null, tint = colors.accent, modifier = Modifier.size(17.dp))
+            Icon(FiletIcons.Script, null, tint = colors.accent, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(10.dp))
-            Text(script.name, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(script.name, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (approved) {
                 Text("approved", fontSize = 9.sp, color = colors.good)
                 Spacer(Modifier.width(6.dp))

@@ -22,6 +22,17 @@ object HomeSections {
      */
     const val ARRIVED = "New in your tracked folders"
 
+    /**
+     * The same list, named for a tab strip rather than for a section heading.
+     *
+     * [ARRIVED] has to carry its own cause because it sits directly above "Recently opened"
+     * with nothing else to tell them apart. A tab has its own icon, its own position and no
+     * neighbour making the same claim, and "New in your tracked folders" truncates to
+     * "New in your tr…" in the space a tab actually gets - which says less than the short
+     * name does. So the two differ on purpose, and neither is a rename of the other.
+     */
+    const val ARRIVED_TAB = "New files"
+
     /** Files the user opened. The cause is the user, not the folder. */
     const val OPENED = "Recently opened"
 

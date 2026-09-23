@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.FileKind
 import dev.niccc2007.filet.handlers.HandlerId
 import dev.niccc2007.filet.ui.HScroll
+import dev.niccc2007.filet.ui.tabs.SmallBtn
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 
@@ -133,7 +134,7 @@ fun ShortcutRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
             .clip(RoundedCornerShape(10.dp))
             .border(1.dp, colors.lineSoft, RoundedCornerShape(10.dp))
             .background(colors.raised)
@@ -151,7 +152,7 @@ fun ShortcutRow(
                 fontSize = 10.sp, color = if (live) colors.fg3 else colors.warn,
             )
         }
-        TextButton(onClick = onRename) { Text("Rename", fontSize = 11.sp) }
-        TextButton(onClick = onForget) { Text("Forget", fontSize = 11.sp) }
+        SmallBtn("Rename", onRename)
+        SmallBtn("Forget", onForget)
     }
 }

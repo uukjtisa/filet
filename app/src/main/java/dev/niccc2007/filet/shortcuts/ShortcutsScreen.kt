@@ -30,8 +30,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
-import dev.niccc2007.filet.browser.EmptyNote
-import dev.niccc2007.filet.browser.SectionLabel
+import dev.niccc2007.filet.browser.FiletIcons
+import dev.niccc2007.filet.ui.tabs.EmptyTab
+import dev.niccc2007.filet.ui.tabs.PickRow
+import dev.niccc2007.filet.ui.tabs.SectionRow
+import dev.niccc2007.filet.ui.tabs.TabHeader
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
@@ -53,22 +56,18 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
     var renaming by remember { mutableStateOf<ShortcutRecord?>(null) }
 
     LazyColumn(Modifier.fillMaxSize()) {
-        item { SectionLabel("Home screen shortcuts") }
-        item {
-            Text(
-                "A shortcut to a file stores its Filet ID, not its path — move the file and " +
-                    "the shortcut follows. Delete it and the shortcut disables itself with a " +
-                    "message rather than doing nothing when you tap it.",
-                fontSize = 11.sp, lineHeight = 15.sp, color = colors.fg3,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
-            )
-        }
+        item { TabHeader("Home screen shortcuts") }
 
         if (records.isEmpty()) {
             item {
-                EmptyNote(
-                    "Nothing pinned yet. Select a file and choose Shortcut.",
-                    Modifier.fillMaxWidth().height(110.dp),
+                // The standing paragraph that used to sit under the heading is gone with the
+                // other eight. The fact it carried is real and lives here instead, where it is
+                // an explanation of an empty list rather than a caption nobody reads twice.
+                EmptyTab(
+                    FiletIcons.Pin,
+                    "Nothing pinned yet",
+                    "Select a file and choose Shortcut. A file shortcut stores the file's " +
+                        "Filet ID and not its path, so moving the file does not break it.",
                 )
             }
         }
@@ -85,59 +84,32 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
             )
         }
 
-        item { SectionLabel("Add an action") }
+        // Two catalogues, not two buttons. An action has no row in a folder to long-press,
+        // so this list is the only way one gets made.
+        item { SectionRow("Add an action") }
         item {
             Text(
                 "Things worth one tap that are not files.",
                 fontSize = 11.sp, color = colors.fg3,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
+                modifier = Modifier.padding(start = 15.dp, end = 15.dp, bottom = 6.dp),
             )
         }
         items(AppAction.entries.toList(), key = { "action-" + it.name }) { action ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 5.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .border(1.dp, colors.lineSoft, RoundedCornerShape(10.dp))
-                    .background(colors.raised)
-                    .clickable { vm.shortcutForAction(action) }
-                    .padding(11.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(action.label, fontSize = 13.sp)
-                    Text(action.description, fontSize = 10.sp, color = colors.fg3)
-                }
-                Text("Add", fontSize = 11.sp, color = colors.accent)
-            }
+            PickRow(action.label, action.description) { vm.shortcutForAction(action) }
         }
 
         if (scripts.isNotEmpty()) {
-            item { SectionLabel("Add a script") }
+            item { SectionRow("Add a script") }
             items(scripts, key = { "script-" + it.id }) { script ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 5.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .border(1.dp, colors.lineSoft, RoundedCornerShape(10.dp))
-                        .background(colors.raised)
-                        .clickable { vm.shortcutForScript(script) }
-                        .padding(11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(script.name, fontSize = 13.sp)
-                        Text(
-                            if (vm.scripts.isApproved(script)) "Runs on tap"
-                            else "Approve it once before it can run from the home screen",
-                            fontSize = 10.sp,
-                            color = if (vm.scripts.isApproved(script)) colors.fg3 else colors.warn,
-                        )
-                    }
-                    Text("Add", fontSize = 11.sp, color = colors.accent)
-                }
+                // Pinning does not approve. A script that has never been approved would tap
+                // through to a consent dialog from the home screen, so the row says so first.
+                val approved = vm.scripts.isApproved(script)
+                PickRow(
+                    script.name,
+                    if (approved) "Runs on tap"
+                    else "Approve it once before it can run from the home screen",
+                    warn = !approved,
+                ) { vm.shortcutForScript(script) }
             }
         }
 

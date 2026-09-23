@@ -15,12 +15,12 @@ that surface which is easiest to lose on the way across.
 |---|---|---|---|---|
 | **Tab strip** | `app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt:212` | `[data-r=3] .tab` | N54 | A raised capsule on a recessed track, one accent hairline that moves. Not a border per tab. |
 | **Home tab** | `app/src/main/java/dev/niccc2007/filet/home/HomeOverview.kt:65` | `TABS3.home` | N59 | Storage tiles first, then arrivals, then recents, then places. The long heading stays here. |
-| **New files tab** | `app/src/main/java/dev/niccc2007/filet/home/FileHistoryScreen.kt:80` | `TABS3.tracked` | N53 | Tab label and path read New files; the heading on Home reads the long name. |
+| **New files tab** | `app/src/main/java/dev/niccc2007/filet/home/FileHistoryScreen.kt:87` | `TABS3.tracked` | N53 | Tab label and path read New files; the heading on Home reads the long name. |
 | **Nearby tab** | `app/src/main/java/dev/niccc2007/filet/nearby/NearbyScreen.kt:77` | `TABS3.nearby` | N59 | The QR, the URL and the code are one card. Running state is a dot, not a word. |
-| **Scripts tab** | `app/src/main/java/dev/niccc2007/filet/script/ScriptsScreen.kt:56` | `TABS3.scripts` | N59 | Each script shows a snippet. A name alone says nothing about what a script does. |
-| **Bookmarks tab** | `app/src/main/java/dev/niccc2007/filet/browser/Places.kt:45` | `TABS3.bookmarks` | N59 | A bookmark can point at a file, so the icon is the file kind and not always a star. |
-| **Recent tab** | `app/src/main/java/dev/niccc2007/filet/browser/Places.kt:73` | `TABS3.recent` | N59 | Grouped by day. Long press removes one entry - it used to do nothing. |
-| **Shortcuts tab** | `app/src/main/java/dev/niccc2007/filet/shortcuts/ShortcutsScreen.kt:48` | `TABS3.shortcuts` | N59 | Shows shortcuts the system has dropped, which is the only place they can be cleaned up. |
+| **Scripts tab** | `app/src/main/java/dev/niccc2007/filet/script/ScriptsScreen.kt:57` | `TABS3.scripts` | N59 | Each script shows a snippet. A name alone says nothing about what a script does. |
+| **Bookmarks tab** | `app/src/main/java/dev/niccc2007/filet/browser/Places.kt:53` | `TABS3.bookmarks` | N59 | A bookmark can point at a file, so the icon is the file kind and not always a star. |
+| **Recent tab** | `app/src/main/java/dev/niccc2007/filet/browser/Places.kt:98` | `TABS3.recent` | N59 | Grouped by day. Long press removes one entry - it used to do nothing. |
+| **Shortcuts tab** | `app/src/main/java/dev/niccc2007/filet/shortcuts/ShortcutsScreen.kt:51` | `TABS3.shortcuts` | N59 | Shows shortcuts the system has dropped, which is the only place they can be cleaned up. |
 | **Remotes tab** | `app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt:57` | `TABS3.remotes` | N59 | An unreachable remote is shown as unreachable and never waited for. |
 | **Activity tab** | `app/src/main/java/dev/niccc2007/filet/jobs/ActivitySheet.kt:44` | `TABS3.activity` | N59 | Running above finished. The index job names the folder it is reading. |
 | **About tab** | `app/src/main/java/dev/niccc2007/filet/about/AboutPage.kt:77` | `aboutHTML` | N58 | Four words from the repo, in one line. Watermark is the app mark, not the author seal. |

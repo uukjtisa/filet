@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,6 +31,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.niccc2007.filet.ui.tabs.DayBuckets
+import dev.niccc2007.filet.ui.tabs.DayLabel
+import dev.niccc2007.filet.ui.tabs.EmptyTab
+import dev.niccc2007.filet.ui.tabs.TRow
+import dev.niccc2007.filet.ui.tabs.TabButton
+import dev.niccc2007.filet.ui.tabs.TabHeader
+import dev.niccc2007.filet.ui.tabs.Trailing
 import dev.niccc2007.filet.ui.theme.Filet
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -44,15 +52,19 @@ import java.util.Locale
 @Composable
 fun BookmarksBody(vm: BrowserViewModel, pane: PaneController) {
     val items by vm.bookmarks.items.collectAsState()
-    if (items.isEmpty()) {
-        EmptyNote("No bookmarks yet.\nOpen a folder and tap the star.", Modifier.fillMaxSize())
-        return
-    }
     LazyColumn(Modifier.fillMaxSize()) {
+        item { TabHeader("Bookmarks") }
+        if (items.isEmpty()) {
+            item {
+                EmptyTab(
+                    FiletIcons.Star,
+                    "No bookmarks yet",
+                    "Open a folder and tap the star. A bookmark can point at a file too.",
+                )
+            }
+        }
         items(items, key = { it.path.toString() }) { b ->
-            PlaceRow(
-                title = b.label,
-                subtitle = b.path.path,
+            TRow(
                 // A star on every row said "this is a place" and nothing about what it is.
                 // Unknown keeps the star, which is honest: nobody recorded it yet.
                 icon = when (b.isDir) {
@@ -60,10 +72,23 @@ fun BookmarksBody(vm: BrowserViewModel, pane: PaneController) {
                     false -> FiletIcons.File
                     null -> FiletIcons.Star
                 },
-                trailing = "",
+                name = b.label,
+                sub = b.path.path,
+                accent = b.isDir == true,
                 onClick = { vm.openPlace(b.path, b.isDir, pane) },
                 onLongClick = { vm.bookmarks.remove(b.path); vm.toast("Bookmark removed") },
             )
+        }
+        if (items.isNotEmpty()) {
+            item {
+                Text(
+                    "Long press a bookmark to remove it. Same gesture as every other list.",
+                    fontSize = 10.5.sp,
+                    lineHeight = 15.7.sp,
+                    color = Filet.colors.fg3,
+                    modifier = Modifier.padding(start = 15.dp, end = 15.dp, top = 14.dp, bottom = 16.dp),
+                )
+            }
         }
     }
 }
@@ -72,28 +97,54 @@ fun BookmarksBody(vm: BrowserViewModel, pane: PaneController) {
 @Composable
 fun RecentBody(vm: BrowserViewModel, pane: PaneController) {
     val items by vm.recents.items.collectAsState()
-    if (items.isEmpty()) {
-        EmptyNote("Nothing opened yet.", Modifier.fillMaxSize())
-        return
-    }
+    // Read once per list rather than per row, so a list that straddles midnight while it is on
+    // screen cannot put two entries from the same minute under two different headings.
+    val now = remember(items) { System.currentTimeMillis() }
     LazyColumn(Modifier.fillMaxSize()) {
-        items(items, key = { it.path.toString() }) { r ->
-            PlaceRow(
-                title = r.label.ifEmpty { r.path.name },
-                subtitle = r.path.parent?.path ?: r.path.path,
-                icon = if (r.isDir) FiletIcons.Folder else FiletIcons.File,
-                trailing = ago(r.at),
-                onClick = {
-                    if (r.isDir) pane.navigateTo(r.path)
-                    else vm.openNode(
-                        dev.niccc2007.filet.vfs.VNode(r.path, isDir = false, size = -1, mtime = r.at)
-                    )
-                },
-                // Symmetric with the bookmarks list above, which removes on a long press.
-                // This one claimed the gesture and dropped it, so a stale entry could only be
-                // cleared by clearing every one of them.
-                onLongClick = { vm.recents.remove(r.path); vm.toast("Removed from recents") },
-            )
+        item {
+            TabHeader("Recently opened") {
+                TabButton("Clear", FiletIcons.Delete, enabled = items.isNotEmpty()) {
+                    vm.recents.clear(); vm.toast("Recent list cleared")
+                }
+            }
+        }
+        if (items.isEmpty()) {
+            item {
+                EmptyTab(
+                    FiletIcons.Clock,
+                    "Nothing opened yet",
+                    "This list survives with no index at all, which is why it exists.",
+                )
+            }
+        }
+        // Newest first is the order the store already keeps, so headings are emitted where the
+        // run changes rather than by sorting the list a second time into buckets.
+        var lastKey: String? = null
+        items.forEach { r ->
+            val key = DayBuckets.keyOf(r.at, now)
+            if (key != lastKey) {
+                lastKey = key
+                item(key = "day-" + key) { DayLabel(DayBuckets.label(key, r.at)) }
+            }
+            item(key = r.path.toString()) {
+                TRow(
+                    icon = if (r.isDir) FiletIcons.Folder else FiletIcons.File,
+                    name = r.label.ifEmpty { r.path.name },
+                    sub = r.path.parent?.path ?: r.path.path,
+                    accent = r.isDir,
+                    onClick = {
+                        if (r.isDir) pane.navigateTo(r.path)
+                        else vm.openNode(
+                            dev.niccc2007.filet.vfs.VNode(r.path, isDir = false, size = -1, mtime = r.at)
+                        )
+                    },
+                    // Symmetric with the bookmarks list above, which removes on a long press.
+                    // This one claimed the gesture and dropped it, so a stale entry could only
+                    // be cleared by clearing every one of them.
+                    onLongClick = { vm.recents.remove(r.path); vm.toast("Removed from recents") },
+                    trailing = { Trailing(ago(r.at, now)) },
+                )
+            }
         }
     }
 }

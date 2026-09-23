@@ -186,7 +186,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                 SectionHeaderWithAction(
                     label = HomeSections.ARRIVED,
                     action = "Expand",
-                    onAction = { pane.openSpecial(PaneKind.HISTORY, HomeSections.ARRIVED) },
+                    onAction = { pane.openSpecial(PaneKind.HISTORY, HomeSections.ARRIVED_TAB) },
                 )
             }
             items(downloads.size) { i ->
