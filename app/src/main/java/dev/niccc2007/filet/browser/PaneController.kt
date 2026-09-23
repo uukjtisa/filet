@@ -177,9 +177,20 @@ class PaneController(
 
     fun openSpecial(kind: PaneKind, title: String) = goto(PaneState(id = id, kind = kind, title = title))
 
+    /**
+     * Rows held at the bottom because they just arrived. View state, never persisted.
+     *
+     * Restoring one from disk would put a just-arrived row under a file from last week.
+     */
+    private var freshTail = FreshTail()
+
     fun navigateTo(path: VPath, push: Boolean = true) {
         listJob?.cancel()
         val prev = _state.value
+        // Leaving the folder settles it. Re-listing the SAME folder does not, because that is
+        // what happens straight after a paste - and settling there would sort the pasted file
+        // away in the same frame it appeared, which is the whole thing being avoided.
+        if (prev.cwd != path) freshTail = FreshTail()
         if (push && prev.kind != PaneKind.FOLDER || push && prev.cwd != path) {
             back.addLast(prev.copy(entries = emptyList()))
             forward.clear()
@@ -285,9 +296,45 @@ class PaneController(
         return true
     }
 
+    /**
+     * The refresh a person asked for. Settles the just-arrived tail.
+     *
+     * The tail is explicitly a temporary suspension of the sort, so the gesture that says
+     * "put this in order" is the one that ends it. Use [relist] for a re-read the app decided
+     * to do on its own.
+     */
     fun refresh() {
+        freshTail = FreshTail()
+        relist()
+    }
+
+    /**
+     * Re-read this folder without settling the tail.
+     *
+     * What every internal re-list uses - the one after a copy, a move, a rename or a create.
+     * Those re-reads exist BECAUSE something just arrived, so treating them as a refresh would
+     * undo the placement in the same breath as making it.
+     */
+    fun relist() {
         val s = _state.value
         if (s.kind == PaneKind.FOLDER && s.cwd != null) navigateTo(s.cwd, push = false)
+    }
+
+    /**
+     * Something just landed in this folder.
+     *
+     * Paths rather than a count, and the INTENDED destinations rather than confirmed ones: a
+     * path that did not actually appear is dropped when the tail is applied, so a partly
+     * failed batch corrects itself without this having to know which half failed.
+     */
+    fun noteArrived(paths: List<VPath>) {
+        if (paths.isEmpty()) return
+        freshTail = freshTail.arrived(paths)
+    }
+
+    /** Drop one from the tail, because it was deleted or renamed away. */
+    fun noteGone(path: VPath) {
+        freshTail = freshTail.forget(path)
     }
 
     /**
@@ -418,7 +465,9 @@ class PaneController(
         val showHidden = prefs.showHidden.value
         val spec: SortSpec = prefs.sort.value
         val filtered = if (showHidden) raw else raw.filterNot { it.hidden || it.name.startsWith(".") }
-        return s.copy(entries = filtered.sortedBy(spec), total = raw.size)
+        // The one place the sort is applied, so the one place the tail can hold rows out of
+        // it. Everything downstream reads `entries` and needs no knowledge of either.
+        return s.copy(entries = freshTail.applyTo(filtered.sortedBy(spec)), total = raw.size)
     }
 
     /** Type-to-jump (SEARCH.md §5.6): the index of the first row starting with [prefix]. */

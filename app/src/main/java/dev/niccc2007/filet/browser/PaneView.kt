@@ -533,10 +533,23 @@ private fun FolderBody(
         pane.revealHandled()
     }
 
+    // Pulling past either end re-lists the folder. Both ends: the top is conventional, and
+    // the bottom is where you already are when a long listing has gone stale under you.
+    // Asked of whichever container is actually on screen. Combining both happens to give the
+    // right answer today - an unattached lazy state reports it cannot scroll either way, so
+    // the idle one is neutral under an AND - but that is a coincidence of the default, not a
+    // statement about which list the finger is on.
+    val grid = metrics.step.isGrid
+    val pull = Modifier.edgePullRefresh(
+        atTop = { if (grid) !gridState.canScrollBackward else !listState.canScrollBackward },
+        atBottom = { if (grid) !gridState.canScrollForward else !listState.canScrollForward },
+        onRefresh = { vm.refreshPane(pane) },
+    )
+
     if (metrics.step.isGrid) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(metrics.step.tile!!.dp),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().then(pull),
             state = gridState,
             contentPadding = PaddingValues(6.dp),
         ) {
@@ -558,7 +571,7 @@ private fun FolderBody(
             }
         }
     } else {
-        LazyColumn(Modifier.fillMaxSize(), state = listState) {
+        LazyColumn(Modifier.fillMaxSize().then(pull), state = listState) {
             items(rows, key = { it.path.toString() }) { node ->
                 if (s.search.active) {
                     SearchResultRow(

@@ -372,10 +372,23 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                     RefreshTarget.SCRIPTS -> graph.scripts.reload()
                     RefreshTarget.BOOKMARKS -> graph.bookmarks.reload()
                     RefreshTarget.RECENTS -> graph.recents.reload()
-                    // These three are read through on every composition rather than cached,
-                    // so the revision bump below IS their refresh. Listed rather than left out
-                    // so the table stays a complete answer to "what does this pane re-read".
-                    RefreshTarget.INDEX_STATUS, RefreshTarget.REMOTES, RefreshTarget.JOBS -> Unit
+
+                    // Bug identified: these three shared one branch and one comment claiming
+                    // all of them were live, and for one of them that was false. Remotes reads
+                    // its own revision flow, which nothing here was bumping - so the button on
+                    // that tab toasted "Remotes refreshed" and re-read nothing, including
+                    // whether root had been granted since, which genuinely changes outside the
+                    // app. A shared justification is where a dead branch hides, so each target
+                    // now answers for itself.
+                    RefreshTarget.REMOTES -> bumpRemotes()
+
+                    // Live by construction: `graph.index.status` is a StateFlow the settings
+                    // and about panes collect, so it is already pushing changes.
+                    RefreshTarget.INDEX_STATUS -> Unit
+
+                    // Live by construction: the job ledger is in-memory and its flow is
+                    // collected directly, so there is no stored copy that can go stale.
+                    RefreshTarget.JOBS -> Unit
                 }
             }
             // Panes that read straight from a store on every composition need a nudge to
@@ -551,6 +564,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             val r = if (clip.op == PendingOp.COPY) graph.ops.copy(clip.items, dest)
             else graph.ops.move(clip.items, dest)
             if (clip.op == PendingOp.MOVE) _state.update { it.copy(clipboard = null) }
+            // Where each one lands, so the rows appear at the bottom instead of scattering
+            // into sort order the instant the paste finishes.
+            pane.noteArrived(clip.items.map { dest.child(it.name) })
             reportAndRefresh(r.succeeded, r.failed.size, if (clip.op == PendingOp.COPY) "copied" else "moved")
         }
     }
@@ -586,7 +602,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         if (newName.isBlank() || newName == target.name) return
         viewModelScope.launch {
             runCatching { graph.vfs.rename(target, newName.trim()) }
-                .onSuccess { toast("Renamed"); refreshPanes() }
+                .onSuccess {
+                    // A rename is the old row leaving and a new one arriving. Holding the new
+                    // name at the bottom is what keeps it findable when the name it was given
+                    // sorts it somewhere else entirely.
+                    target.parent?.child(newName.trim())?.let { renamed ->
+                        _tabs.value.forEach { p -> p.noteGone(target); p.noteArrived(listOf(renamed)) }
+                    }
+                    toast("Renamed"); refreshPanes()
+                }
                 .onFailure { toast(dev.niccc2007.filet.ops.FileOperations.readable(it)) }
         }
     }
@@ -595,8 +619,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         val dest = paneFor(side)?.state?.value?.cwd ?: return
         if (name.isBlank()) return
         viewModelScope.launch {
-            runCatching { graph.vfs.create(dest.child(name.trim()), isDir = true) }
-                .onSuccess { toast("Folder created"); refreshPanes() }
+            val made = dest.child(name.trim())
+            runCatching { graph.vfs.create(made, isDir = true) }
+                .onSuccess { paneFor(side)?.noteArrived(listOf(made)); toast("Folder created"); refreshPanes() }
                 .onFailure { toast(dev.niccc2007.filet.ops.FileOperations.readable(it)) }
         }
     }
@@ -605,8 +630,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         val dest = paneFor(side)?.state?.value?.cwd ?: return
         if (name.isBlank()) return
         viewModelScope.launch {
-            runCatching { graph.vfs.create(dest.child(name.trim()), isDir = false) }
-                .onSuccess { toast("File created"); refreshPanes() }
+            val made = dest.child(name.trim())
+            runCatching { graph.vfs.create(made, isDir = false) }
+                .onSuccess { paneFor(side)?.noteArrived(listOf(made)); toast("File created"); refreshPanes() }
                 .onFailure { toast(dev.niccc2007.filet.ops.FileOperations.readable(it)) }
         }
     }
@@ -909,8 +935,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun refreshPanes() {
         _state.update { it.copy(revision = it.revision + 1) }
         val s = _state.value
-        _tabs.value.getOrNull(s.activeA)?.refresh()
-        if (s.split != SplitMode.OFF) _tabs.value.getOrNull(s.activeB)?.refresh()
+        // relist, not refresh: this runs right after something was written, and `refresh` is
+        // the gesture that puts the sort back. Using it here would sort the new file away in
+        // the same frame it was created.
+        _tabs.value.getOrNull(s.activeA)?.relist()
+        if (s.split != SplitMode.OFF) _tabs.value.getOrNull(s.activeB)?.relist()
     }
 
     /**
@@ -2327,15 +2356,26 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     private val _remotesRevision = MutableStateFlow(0)
     val remotesRevision: StateFlow<Int> = _remotesRevision.asStateFlow()
 
+    /**
+     * Re-read the saved connections and the root grant on the next composition.
+     *
+     * Its own counter rather than the app revision because the Remotes pane keys its reads on
+     * this one; bumping the app revision instead recomposes the pane without invalidating
+     * either `remember`, which is exactly how the refresh there came to do nothing.
+     */
+    fun bumpRemotes() {
+        _remotesRevision.value = _remotesRevision.value + 1
+    }
+
     fun saveConnection(c: dev.niccc2007.filet.vfs.provider.net.NetConnection) {
         graph.connections.save(c)
-        _remotesRevision.value = _remotesRevision.value + 1
+        bumpRemotes()
         toast("Saved ${c.label.ifEmpty { c.host }}")
     }
 
     fun deleteConnection(id: String) {
         graph.connections.delete(id)
-        _remotesRevision.value = _remotesRevision.value + 1
+        bumpRemotes()
     }
 
     fun openRemote(c: dev.niccc2007.filet.vfs.provider.net.NetConnection) {
