@@ -85,4 +85,34 @@ class EndpointsTest {
         assertNull(Endpoints.learn(full, "one-more"))
         assertTrue(Endpoints.learn(full.dropLast(1), "one-more")!!.size == Endpoints.MAX)
     }
+
+    @Test
+    fun `rotation moves to the next address and wraps`() {
+        val three = listOf("a.host", "b.host", "c.host")
+        assertEquals("b.host", Endpoints.after(three, "a.host"))
+        assertEquals("c.host", Endpoints.after(three, "b.host"))
+        // Wraps rather than stopping at the end: a remote that comes back on an address already
+        // tried has to be findable again.
+        assertEquals("a.host", Endpoints.after(three, "c.host"))
+    }
+
+    @Test
+    fun `there is nowhere to rotate to with one address`() {
+        // Null is what makes the real failure survive. Rotating onto the same address and
+        // failing again would report a second failure in place of the first.
+        assertNull(Endpoints.after(listOf("a.host"), "a.host"))
+        assertNull(Endpoints.after(emptyList(), "a.host"))
+    }
+
+    @Test
+    fun `an address no longer in the list starts again at the front`() {
+        // The in-use address is held in memory and the list can be edited underneath it.
+        assertEquals("a.host", Endpoints.after(listOf("a.host", "b.host"), "deleted.host"))
+        assertEquals("a.host", Endpoints.after(listOf("a.host", "b.host"), null))
+    }
+
+    @Test
+    fun `rotation is case-insensitive about where it is now`() {
+        assertEquals("b.host", Endpoints.after(listOf("A.Host", "b.host"), "a.host"))
+    }
 }

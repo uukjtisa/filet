@@ -181,15 +181,32 @@ class SmbProvider(private val connections: NetConnections) : FileSystemProvider 
         shares[id]?.let { if (it.isConnected) return it else shares.remove(id) }
         val c = connections.byId(id) ?: throw VfsException.NotFound(path)
         return runCatching {
-            val connection = client.connect(c.host, if (c.port > 0) c.port else NetProtocol.SMB.defaultPort)
-            val auth = if (c.anonymous) AuthenticationContext.anonymous()
-            else AuthenticationContext(c.user, c.password.toCharArray(), c.domain.ifEmpty { null })
-            val session = connection.authenticate(auth)
-            val share = session.connectShare(c.share) as? DiskShare
-                ?: throw VfsException.Unsupported("'${c.share}' is not a disk share")
-            sessions[id] = connection to session
-            shares[id] = share
-            share
+            // Every address this remote has, not just the primary. The extra addresses were
+            // offered in the form and read by nothing outside WebDAV; see [NetDial].
+            NetDial.over(
+                hosts = connections.candidates(c),
+                path = path,
+                onGood = { h -> connections.noteGood(id, h) },
+            ) { host ->
+                val connection =
+                    client.connect(host, if (c.port > 0) c.port else NetProtocol.SMB.defaultPort)
+                try {
+                    val auth = if (c.anonymous) AuthenticationContext.anonymous()
+                    else AuthenticationContext(c.user, c.password.toCharArray(), c.domain.ifEmpty { null })
+                    val session = connection.authenticate(auth)
+                    val share = session.connectShare(c.share) as? DiskShare
+                        ?: throw VfsException.Unsupported("'${c.share}' is not a disk share")
+                    sessions[id] = connection to session
+                    shares[id] = share
+                    share
+                } catch (t: Throwable) {
+                    // Closed on the way out. Several addresses means several attempts, and a
+                    // connection left open per failed attempt is a handle leak per network
+                    // change rather than a one-off.
+                    runCatching { connection.close() }
+                    throw t
+                }
+            }
         }.getOrElse { throw translate(it, path) }
     }
 

@@ -81,6 +81,26 @@ object Endpoints {
     }
 
     /**
+     * The address to try after [current] stopped answering.
+     *
+     * Wraps, so a remote that comes back on an address already tried is found again rather than
+     * being stuck past the end of the list. An unknown [current] - a stale value from before the
+     * addresses were edited - starts again at the front rather than returning null, because
+     * "this address is not in the list" is the one case where the list is certainly better.
+     *
+     * @return null when there is nowhere else to go: an empty list, or a single address that is
+     *   already the one in use. Null means *do not rotate*, and the caller then reports the real
+     *   failure rather than a different address's failure.
+     */
+    fun after(candidates: List<String>, current: String?): String? {
+        if (candidates.isEmpty()) return null
+        val at = candidates.indexOfFirst { it.equals(current?.trim(), ignoreCase = true) }
+        if (at < 0) return candidates.first()
+        if (candidates.size < 2) return null
+        return candidates[(at + 1) % candidates.size]
+    }
+
+    /**
      * A ceiling on how many addresses one remote may carry.
      *
      * Every address is a potential timeout when the remote is unreachable, so an unbounded list

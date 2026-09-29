@@ -162,20 +162,33 @@ class FtpProvider(private val connections: NetConnections) : FileSystemProvider 
 
     private fun connect(id: String, path: VPath): FTPClient {
         val c = connections.byId(id) ?: throw VfsException.NotFound(path)
-        val client = if (c.useTls) FTPSClient(false) else FTPClient()
         return runCatching {
-            client.connectTimeout = 15_000
-            client.connect(c.host, if (c.port > 0) c.port else NetProtocol.FTP.defaultPort)
-            val ok = if (c.anonymous) client.login("anonymous", "filet@localhost")
-            else client.login(c.user, c.password)
-            if (!ok) throw VfsException.AccessDenied(path)
-            client.setFileType(FTP.BINARY_FILE_TYPE)
-            // Passive mode always: a phone behind NAT cannot accept the inbound data
-            // connection active mode asks for.
-            client.enterLocalPassiveMode()
-            client.controlEncoding = "UTF-8"
-            client
-        }.getOrElse { quit(client); throw translate(it, path) }
+            // Every address this remote has, with its own client each time - an FTPClient that
+            // failed to connect is not reusable for a second address.
+            NetDial.over(
+                hosts = connections.candidates(c),
+                path = path,
+                onGood = { h -> connections.noteGood(id, h) },
+            ) { host ->
+                val client = if (c.useTls) FTPSClient(false) else FTPClient()
+                try {
+                    client.connectTimeout = 15_000
+                    client.connect(host, if (c.port > 0) c.port else NetProtocol.FTP.defaultPort)
+                    val ok = if (c.anonymous) client.login("anonymous", "filet@localhost")
+                    else client.login(c.user, c.password)
+                    if (!ok) throw VfsException.AccessDenied(path)
+                    client.setFileType(FTP.BINARY_FILE_TYPE)
+                    // Passive mode always: a phone behind NAT cannot accept the inbound data
+                    // connection active mode asks for.
+                    client.enterLocalPassiveMode()
+                    client.controlEncoding = "UTF-8"
+                    client
+                } catch (t: Throwable) {
+                    quit(client)
+                    throw t
+                }
+            }
+        }.getOrElse { throw translate(it, path) }
     }
 
     private fun quit(client: FTPClient) {

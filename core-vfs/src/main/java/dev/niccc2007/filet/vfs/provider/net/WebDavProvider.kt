@@ -48,9 +48,10 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
 
     override suspend fun list(path: VPath): List<VNode> = withContext(Dispatchers.IO) {
         val (id, remote) = splitNetPath(path)
-        val c = conn(id, path)
-        val body = request(c, remote, "PROPFIND", depth = "1", body = PROPFIND_BODY, path = path)
-        parseMultiStatus(body, path, remote)
+        onAddress(id, path) { c ->
+            val body = request(c, remote, "PROPFIND", depth = "1", body = PROPFIND_BODY, path = path)
+            parseMultiStatus(body, path, remote)
+        }
     }
 
     /**
@@ -77,13 +78,14 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
 
         val got = runCatching {
             val (id, remote) = splitNetPath(path)
-            val c = conn(id, path)
-            val body = request(
-                c, remote, "PROPFIND", depth = "0", body = PROPFIND_BODY, path = path, quick = true,
-            )
-            val avail = tagValue(body, "quota-available-bytes")?.toLongOrNull()
-            val used = tagValue(body, "quota-used-bytes")?.toLongOrNull()
-            if (avail == null || used == null) null else avail to used
+            onAddress(id, path) { c ->
+                val body = request(
+                    c, remote, "PROPFIND", depth = "0", body = PROPFIND_BODY, path = path, quick = true,
+                )
+                val avail = tagValue(body, "quota-available-bytes")?.toLongOrNull()
+                val used = tagValue(body, "quota-used-bytes")?.toLongOrNull()
+                if (avail == null || used == null) null else avail to used
+            }
         }.getOrNull()
 
         // A null is cached too. A server with no quota support would otherwise be asked on every
@@ -114,12 +116,13 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
 
     override suspend fun stat(path: VPath): VNode? = withContext(Dispatchers.IO) {
         val (id, remote) = splitNetPath(path)
-        val c = conn(id, path)
         runCatching {
-            val body = request(c, remote, "PROPFIND", depth = "0", body = PROPFIND_BODY, path = path)
-            parseMultiStatus(body, path.parent ?: path, remote.trimEnd('/').substringBeforeLast('/', ""))
-                .firstOrNull { it.name == path.name }
-                ?: VNode(path, isDir = true, size = -1L, mtime = 0L)
+            onAddress(id, path) { c ->
+                val body = request(c, remote, "PROPFIND", depth = "0", body = PROPFIND_BODY, path = path)
+                parseMultiStatus(body, path.parent ?: path, remote.trimEnd('/').substringBeforeLast('/', ""))
+                    .firstOrNull { it.name == path.name }
+                    ?: VNode(path, isDir = true, size = -1L, mtime = 0L)
+            }
         }.getOrNull()
     }
 
@@ -137,16 +140,20 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
 
     override suspend fun supportsRanges(path: VPath): Boolean = withContext(Dispatchers.IO) {
         val (id, remote) = splitNetPath(path)
-        rangeable.getOrPut(id) {
-            val c = conn(id, path)
-            runCatching {
+        rangeable[id]?.let { return@withContext it }
+        val answer = runCatching {
+            onAddress(id, path) { c ->
                 val http = open(c, remote, "HEAD", path, quick = true)
                 val ok = http.getHeaderField("Accept-Ranges")
                     ?.trim()?.lowercase()?.let { it.isNotEmpty() && it != "none" } == true
                 http.disconnect()
-                ok
-            }.getOrDefault(false)
+                    ok
+            }
         }
+        // Only a real answer is remembered. Caching the failure would switch ranges off for the
+        // rest of the session because the share happened to be asleep when it was first asked.
+        answer.getOrNull()?.let { rangeable[id] = it }
+        answer.getOrDefault(false)
     }
 
     /**
@@ -164,36 +171,37 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
         withContext(Dispatchers.IO) {
             require(from >= 0 && until > from) { "bad range $from..$until" }
             val (id, remote) = splitNetPath(path)
-            val c = conn(id, path)
-            val http = open(c, remote, "GET", path)
-            http.setRequestProperty("Range", "bytes=$from-${until - 1}")
-            val code = http.responseCode
-            if (code != 206) {
+            onAddress(id, path) { c ->
+                val http = open(c, remote, "GET", path)
+                http.setRequestProperty("Range", "bytes=$from-${until - 1}")
+                val code = http.responseCode
+                if (code != 206) {
+                    http.disconnect()
+                    throw VfsException.Unsupported(
+                        if (code == 200) "this server ignores Range" else "range refused: HTTP $code",
+                    )
+                }
+                    val out = http.inputStream.use { it.readBytes() }
                 http.disconnect()
-                throw VfsException.Unsupported(
-                    if (code == 200) "this server ignores Range" else "range refused: HTTP $code",
-                )
+                out
             }
-            markGood(c)
-            val out = http.inputStream.use { it.readBytes() }
-            http.disconnect()
-            out
         }
 
     override suspend fun openRead(path: VPath): InputStream = withContext(Dispatchers.IO) {
         val (id, remote) = splitNetPath(path)
-        val c = conn(id, path)
-        val http = open(c, remote, "GET", path)
-        if (http.responseCode !in 200..299) {
-            http.disconnect()
-            throw status(http.responseCode, path, "GET")
-        }
-        object : InputStream() {
-            private val src = http.inputStream
-            override fun read() = src.read()
-            override fun read(b: ByteArray, off: Int, len: Int) = src.read(b, off, len)
-            override fun available() = src.available()
-            override fun close() { src.close(); http.disconnect() }
+        onAddress(id, path) { c ->
+            val http = open(c, remote, "GET", path)
+            if (http.responseCode !in 200..299) {
+                http.disconnect()
+                throw status(http.responseCode, path, "GET")
+            }
+            object : InputStream() {
+                private val src = http.inputStream
+                override fun read() = src.read()
+                override fun read(b: ByteArray, off: Int, len: Int) = src.read(b, off, len)
+                override fun available() = src.available()
+                override fun close() { src.close(); http.disconnect() }
+            }
         }
     }
 
@@ -226,7 +234,6 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
     override suspend fun openWrite(path: VPath, append: Boolean): OutputStream = withContext(Dispatchers.IO) {
         if (append) throw VfsException.Unsupported("WebDAV has no append")
         val (id, remote) = splitNetPath(path)
-        val c = conn(id, path)
 
         val spill = java.io.File.createTempFile("filet-put-", ".tmp")
         val sink = java.io.BufferedOutputStream(java.io.FileOutputStream(spill), UPLOAD_BUFFER)
@@ -243,22 +250,28 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
                 closed = true
                 try {
                     sink.close()
-                    val http = open(c, remote, "PUT", path)
-                    http.doOutput = true
-                    http.setFixedLengthStreamingMode(spill.length())
-                    java.io.BufferedOutputStream(http.outputStream, UPLOAD_BUFFER).use { out ->
-                        java.io.FileInputStream(spill).use { src ->
-                            val buf = ByteArray(UPLOAD_BUFFER)
-                            while (true) {
-                                val n = src.read(buf)
-                                if (n < 0) break
-                                out.write(buf, 0, n)
+                    // The address is resolved HERE rather than when the stream was handed out,
+                    // and the body is on disk rather than in a stream that has already been
+                    // consumed - so an address that died between opening and closing costs a
+                    // rotation and a re-send, not a failed copy.
+                    onAddress(id, path) { c ->
+                        val http = open(c, remote, "PUT", path)
+                        http.doOutput = true
+                        http.setFixedLengthStreamingMode(spill.length())
+                        java.io.BufferedOutputStream(http.outputStream, UPLOAD_BUFFER).use { out ->
+                            java.io.FileInputStream(spill).use { src ->
+                                val buf = ByteArray(UPLOAD_BUFFER)
+                                while (true) {
+                                    val n = src.read(buf)
+                                    if (n < 0) break
+                                    out.write(buf, 0, n)
+                                }
                             }
                         }
+                        val code = http.responseCode
+                        http.disconnect()
+                                    if (code !in 200..299) throw status(code, path, "PUT")
                     }
-                    val code = http.responseCode
-                    http.disconnect()
-                    if (code !in 200..299) throw status(code, path, "PUT")
                 } finally {
                     // On the failure path too. A temp file left behind per failed upload fills
                     // the cache directory quietly.
@@ -270,81 +283,71 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
 
     override suspend fun create(path: VPath, isDir: Boolean): VNode = withContext(Dispatchers.IO) {
         val (id, remote) = splitNetPath(path)
-        val c = conn(id, path)
-        val http = open(c, remote, if (isDir) "MKCOL" else "PUT", path)
-        if (!isDir) {
-            http.doOutput = true
-            http.setFixedLengthStreamingMode(0)
-            http.outputStream.use { }
+        onAddress(id, path) { c ->
+            val http = open(c, remote, if (isDir) "MKCOL" else "PUT", path)
+            if (!isDir) {
+                http.doOutput = true
+                http.setFixedLengthStreamingMode(0)
+                http.outputStream.use { }
+            }
+            val code = http.responseCode
+            http.disconnect()
+            if (code !in 200..299) throw status(code, path, if (isDir) "MKCOL" else "PUT")
+            VNode(path, isDir, if (isDir) -1L else 0L, System.currentTimeMillis())
         }
-        val code = http.responseCode
-        http.disconnect()
-        if (code !in 200..299) throw status(code, path, if (isDir) "MKCOL" else "PUT")
-        VNode(path, isDir, if (isDir) -1L else 0L, System.currentTimeMillis())
     }
 
     override suspend fun delete(path: VPath, recursive: Boolean) = withContext(Dispatchers.IO) {
         val (id, remote) = splitNetPath(path)
-        val c = conn(id, path)
-        val http = open(c, remote, "DELETE", path)
-        val code = http.responseCode
-        http.disconnect()
-        if (code !in 200..299 && code != 404) throw status(code, path, "DELETE")
+        onAddress(id, path) { c ->
+            val http = open(c, remote, "DELETE", path)
+            val code = http.responseCode
+            http.disconnect()
+            if (code !in 200..299 && code != 404) throw status(code, path, "DELETE")
+        }
     }
 
     override suspend fun rename(path: VPath, newName: String): VNode = withContext(Dispatchers.IO) {
         val (id, remote) = splitNetPath(path)
-        val c = conn(id, path)
         val parent = remote.trimEnd('/').substringBeforeLast('/', "")
-        val http = open(c, remote, "MOVE", path)
-        http.setRequestProperty("Destination", urlFor(c, "$parent/$newName"))
-        http.setRequestProperty("Overwrite", "F")
-        val code = http.responseCode
-        http.disconnect()
-        if (code !in 200..299) throw status(code, path, "MOVE")
-        VNode(path.parent!!.child(newName), false, -1L, System.currentTimeMillis())
+        onAddress(id, path) { c ->
+            val http = open(c, remote, "MOVE", path)
+            http.setRequestProperty("Destination", urlFor(c, "$parent/$newName"))
+            http.setRequestProperty("Overwrite", "F")
+            val code = http.responseCode
+            http.disconnect()
+            if (code !in 200..299) throw status(code, path, "MOVE")
+            VNode(path.parent!!.child(newName), false, -1L, System.currentTimeMillis())
+        }
     }
 
     // ────────────────────────── http ──────────────────────────
 
     /**
-     * Which address each remote is currently being reached on.
+     * Run one operation against this remote, trying its other addresses if nothing answers.
      *
-     * In memory rather than stored: this is a live fact about the network as it is right now,
-     * and the durable half of it - the address that last actually answered - lives on the
-     * connection as `lastGood`.
+     * ## The bug this fixes
+     *
+     * Rotation used to live inside the helper that BUILDS the connection - and that helper does
+     * no network at all. `URL.openConnection()` constructs an object; the TCP connect happens
+     * later, at `responseCode` or the first read, in each caller. So the branch that moved to the
+     * next address could only fire on a malformed URL, every dead address threw straight out of
+     * the caller untouched, and a remote with three saved addresses only ever tried the first
+     * one. Adding a second address appeared to do nothing, because it did nothing.
+     * `WhereConnectHappensTest` pins the premise so it cannot be moved back.
+     *
+     * The fix is to put it where the failure actually happens: around the whole operation,
+     * response included. [NetDial] is that, shared with the other three protocols, which had the
+     * same field and did not read it at all.
      */
-    private val active = java.util.concurrent.ConcurrentHashMap<String, String>()
-
-    private fun conn(id: String, path: VPath): NetConnection {
+    private inline fun <T> onAddress(id: String, path: VPath, block: (NetConnection) -> T): T {
         val c = connections.byId(id) ?: throw VfsException.NotFound(path)
-        val candidates = connections.candidates(c)
-        if (candidates.isEmpty()) return c
-        val host = active[id]?.takeIf { h -> candidates.any { it.equals(h, ignoreCase = true) } }
-            ?: candidates.first().also { active[id] = it }
-        return c.copy(host = host)
+        return NetDial.over(
+            hosts = connections.candidates(c),
+            path = path,
+            onGood = { h -> connections.noteGood(id, h) },
+        ) { h -> block(c.copy(host = h)) }
     }
-
-    /**
-     * The address in use did not answer. Move to the next one.
-     *
-     * Rotation rather than a parallel sweep, and that is deliberate: a sweep costs every
-     * address a timeout on every failure, while rotating costs one - and a remote that is
-     * genuinely away fails at the same speed either way, because it fails on the first.
-     *
-     * Wraps, so a remote that comes back on an address already tried is found again rather
-     * than being stuck past the end of the list.
-     */
-    private fun markBad(id: String) {
-        val c = connections.byId(id) ?: return
-        val candidates = connections.candidates(c)
-        if (candidates.size < 2) return
-        val at = candidates.indexOfFirst { it.equals(active[id], ignoreCase = true) }
-        active[id] = candidates[(at + 1).mod(candidates.size)]
-    }
-
-    /** The address answered. Promote it so a restart starts here rather than sweeping. */
-    private fun markGood(c: NetConnection) = connections.noteGood(c.id, c.host)
 
     private fun urlFor(c: NetConnection, remote: String): String {
         val scheme = if (c.useTls) "https" else "http"
@@ -418,10 +421,10 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
             http.setRequestProperty("User-Agent", "Filet")
             http
         }.getOrElse {
-            // A connection that could not be made is the signal to try a different address.
-            // A request that connected and was REFUSED is not - that is an answer, and moving
-            // to another address would hide it behind a different failure.
-            runCatching { markBad(splitNetPath(path).first) }
+            // Nothing has been sent at this point - this is a malformed URL or a stack that
+            // refuses the verb, not a network failure. Address rotation is NOT done here, and
+            // that is the correction: it used to be, on the assumption that this is where a
+            // connection is made. It is not, so it fired on nothing. See [onAddress].
             throw VfsException.Io(path, it)
         }
 
@@ -444,8 +447,6 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
             http.outputStream.use { it.write(bytes) }
         }
         val code = http.responseCode
-        // Any response proves the ADDRESS works, including a refusal - the server answered.
-        markGood(c)
         if (code !in 200..299) {
             http.disconnect()
             throw status(code, path, method)

@@ -141,13 +141,41 @@ class DavBeacon(private val context: Context) {
         _state.value = _state.value.copy(advertising = registrations.isNotEmpty())
     }
 
-    /** Listen for other phones hosting. Cheap, and only while the Remotes screen is open. */
+    /**
+     * How many callers currently want a scan.
+     *
+     * There are two now, and that is what this counter is for. The Remotes screen scans while it
+     * is open, and the app scans for as long as it is in the foreground so a saved remote can
+     * learn the address its device moved to. Without counting, whichever one stopped first
+     * stopped the other's scan too - and since the screen stops its scan on dispose, leaving
+     * that screen killed the app-wide one. Learning then only happened while somebody was
+     * looking at the very screen that made it unnecessary.
+     */
+    private val scanners = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /**
+     * Listen for other phones hosting.
+     *
+     * Balanced with [stopScan]: every caller that starts one stops it, and the scan runs while
+     * at least one of them wants it.
+     */
     fun startScan() {
+        if (scanners.incrementAndGet() != 1) return
+        beginScan()
+    }
+
+    /** Give up this caller's interest in scanning, and stop when it was the last. */
+    fun stopScan() {
+        if (scanners.updateAndGet { (it - 1).coerceAtLeast(0) } > 0) return
+        endScan()
+    }
+
+    private fun beginScan() {
         val manager = nsd ?: run {
             _state.value = _state.value.copy(error = "This device has no network service discovery.")
             return
         }
-        stopScan()
+        if (discovery != null) return
         val listener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(type: String) {
                 _state.value = _state.value.copy(scanning = true, error = null)
@@ -180,7 +208,7 @@ class DavBeacon(private val context: Context) {
         runCatching { manager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener) }
     }
 
-    fun stopScan() {
+    private fun endScan() {
         val manager = nsd ?: return
         discovery?.let { runCatching { manager.stopServiceDiscovery(it) } }
         discovery = null

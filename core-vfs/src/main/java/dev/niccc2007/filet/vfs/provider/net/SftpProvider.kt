@@ -163,15 +163,28 @@ class SftpProvider(private val connections: NetConnections) : FileSystemProvider
         }
         val c = connections.byId(id) ?: throw VfsException.NotFound(path)
         return runCatching {
-            val ssh = SSHClient()
-            ssh.addHostKeyVerifier(PromiscuousVerifier())
-            ssh.connectTimeout = 15_000
-            ssh.timeout = 30_000
-            ssh.connect(c.host, if (c.port > 0) c.port else NetProtocol.SFTP.defaultPort)
-            ssh.authPassword(c.user, c.password)
-            val sftp = ssh.newSFTPClient()
-            clients[id] = ssh to sftp
-            sftp
+            // Every address this remote has. A fresh client per attempt: one that failed to
+            // reach a host is not in a state to be pointed at another.
+            NetDial.over(
+                hosts = connections.candidates(c),
+                path = path,
+                onGood = { h -> connections.noteGood(id, h) },
+            ) { host ->
+                val ssh = SSHClient()
+                try {
+                    ssh.addHostKeyVerifier(PromiscuousVerifier())
+                    ssh.connectTimeout = 15_000
+                    ssh.timeout = 30_000
+                    ssh.connect(host, if (c.port > 0) c.port else NetProtocol.SFTP.defaultPort)
+                    ssh.authPassword(c.user, c.password)
+                    val sftp = ssh.newSFTPClient()
+                    clients[id] = ssh to sftp
+                    sftp
+                } catch (t: Throwable) {
+                    runCatching { ssh.disconnect() }
+                    throw t
+                }
+            }
         }.getOrElse { throw translate(it, path) }
     }
 

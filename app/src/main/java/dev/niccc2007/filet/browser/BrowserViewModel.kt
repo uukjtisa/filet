@@ -3143,23 +3143,51 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     /**
      * Teach saved remotes the addresses their devices are currently seen at.
      *
-     * Runs for as long as discovery does. The saving is what makes the whole multi-address
-     * feature invisible in the good case: change network, and the entry already knows where the
-     * device went before anybody opens it.
+     * Runs for as long as the app is in the foreground - the scan is started by the activity
+     * rather than by a screen, which is the correction: this collector was already here and the
+     * flow it watches was only ever filled while the Remotes screen was open, so learning could
+     * not happen in the background it was written for.
      *
-     * Matched on the advertised device id and nothing else. An address is a place credentials
-     * get sent, so a host that cannot prove which device it is teaches nothing - see
-     * `NetConnections.learnForDevice`.
+     * What a sighting is allowed to write lives in `Sightings`, with its test. Two things follow
+     * from one: an address for a device the entry recognises, and - for an entry that has no
+     * device id and is sitting at an address the host is announcing from - the id itself, which
+     * is what lets it recognise anything at all afterwards.
      */
     fun watchDiscoveredAddresses(): kotlinx.coroutines.Job = viewModelScope.launch {
         graph.davBeacon.state.collect { state ->
             var learned = false
             for (h in state.hosts) {
-                if (graph.connections.learnForDevice(h.deviceId, h.host)) learned = true
+                if (graph.connections.learnFrom(sightingOf(h))) learned = true
             }
             // Only when something actually changed: discovery re-announces constantly, and a
             // bump per packet would re-list the panes forever.
             if (learned) bumpRemotes()
+        }
+    }
+
+    /** A discovered host as the matching rules see it. */
+    fun sightingOf(h: dev.niccc2007.filet.webdav.DavBeacon.Host) =
+        dev.niccc2007.filet.vfs.provider.net.Sightings.Seen(h.deviceId, h.host, h.port)
+
+    /** The saved remote a discovered host already is, or null when it is something new. */
+    fun savedRemoteFor(h: dev.niccc2007.filet.webdav.DavBeacon.Host) =
+        graph.connections.savedFor(sightingOf(h))
+
+    /**
+     * Attach a discovered host to a remote that was saved by hand, on the person's word.
+     *
+     * Needed because automatic learning has one gap it cannot close by itself: an entry with no
+     * device id, whose address has ALREADY changed, has nothing left to match on. Every entry
+     * made before ids existed is one network change away from that, and this is the one tap that
+     * ends it - afterwards the entry carries the id and keeps up on its own.
+     */
+    fun linkRemote(connectionId: String, h: dev.niccc2007.filet.webdav.DavBeacon.Host) {
+        val c = graph.connections.byId(connectionId) ?: return
+        if (graph.connections.link(connectionId, sightingOf(h))) {
+            bumpRemotes()
+            toast("${c.label.ifEmpty { c.host }} now knows ${h.host}")
+        } else {
+            toast("${c.label.ifEmpty { c.host }} already knew that address")
         }
     }
 

@@ -194,6 +194,65 @@ class NetConnections(context: Context) {
         return true
     }
 
+    /** The fields [Sightings] compares a discovered host against. */
+    private fun NetConnection.forMatching() =
+        Sightings.Saved(id, deviceId, host, altHosts, port)
+
+    /**
+     * Write whatever a discovered host teaches the saved remotes.
+     *
+     * The whole of the learning behaviour, in one call, so the screen that sees a sighting does
+     * not also decide what it means. [Sightings] holds the decision and its test.
+     *
+     * @return true when anything was written, which is the signal to redraw. Almost always
+     *   false: discovery re-announces every few seconds by design, and a write per packet
+     *   re-encrypts every stored password on the way through.
+     */
+    fun learnFrom(seen: Sightings.Seen): Boolean {
+        val learnings = Sightings.learningsFor(all().map { it.forMatching() }, seen)
+        var changed = false
+        for (l in learnings) {
+            val c = byId(l.connectionId) ?: continue
+            when (l) {
+                is Sightings.Learning.Address -> if (learnAddress(c.id, l.host)) changed = true
+                is Sightings.Learning.DeviceId -> {
+                    save(c.copy(deviceId = l.deviceId))
+                    changed = true
+                }
+            }
+        }
+        return changed
+    }
+
+    /** The saved remote a discovered host already is, or null when it is genuinely new. */
+    fun savedFor(seen: Sightings.Seen): NetConnection? =
+        Sightings.savedFor(all().map { it.forMatching() }, seen)?.let { byId(it) }
+
+    /**
+     * Attach a discovered host to a saved remote because the person said so.
+     *
+     * The escape hatch for the one case automatic learning cannot reach: an entry that has no
+     * device id AND whose address has already changed has nothing left to match on, so it is
+     * stranded - every entry saved before ids existed is one network change away from this. One
+     * tap fixes it permanently, because from then on the entry has the id and follows the device
+     * by itself.
+     *
+     * Trusted because it is an assertion, not an inference. It writes the id and the address
+     * together; a link that only learned the address would be stranded again next time.
+     */
+    fun link(id: String, seen: Sightings.Seen): Boolean {
+        val c = byId(id) ?: return false
+        val known = listOf(c.host) + c.altHosts
+        val grown = Endpoints.learn(known, seen.host)
+        val next = c.copy(
+            deviceId = seen.deviceId.ifBlank { c.deviceId },
+            altHosts = grown?.drop(1) ?: c.altHosts,
+        )
+        if (next == c) return false
+        save(next)
+        return true
+    }
+
     fun save(connection: NetConnection) {
         val list = all().filterNot { it.id == connection.id } + connection
         write(list)

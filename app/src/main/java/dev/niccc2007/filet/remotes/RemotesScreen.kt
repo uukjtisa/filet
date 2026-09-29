@@ -44,6 +44,15 @@ import dev.niccc2007.filet.browser.EmptyNote
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.browser.SectionLabel
 import dev.niccc2007.filet.settings.SmallButton
+import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgCaption
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgPick
+import dev.niccc2007.filet.ui.dialogs.DlgSpacer
 import dev.niccc2007.filet.ui.tabs.EmptyTab
 import dev.niccc2007.filet.ui.tabs.NLead
 import dev.niccc2007.filet.ui.tabs.NRow
@@ -57,6 +66,7 @@ import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.provider.RootProvider
 import dev.niccc2007.filet.vfs.provider.net.NetConnection
 import dev.niccc2007.filet.vfs.provider.net.NetProtocol
+import dev.niccc2007.filet.webdav.DavBeacon
 
 /**
  * Network shares and root, in one place.
@@ -73,14 +83,21 @@ fun RemotesScreen(vm: BrowserViewModel) {
     val list = remember(revision) { vm.connections.all() }
     var editing by remember { mutableStateOf<NetConnection?>(null) }
 
-    // Scan only while this screen is up. Discovery holds a multicast lock, and holding one for
-    // a screen nobody is looking at is a battery cost with no answer attached.
+    // This screen's own interest in scanning, which is balanced and refcounted - the app keeps a
+    // scan of its own running while it is in the foreground, so a saved remote learns the address
+    // its device moved to without anybody visiting this screen. Stopping the scan on dispose here
+    // used to stop that one too.
     val beacon = vm.davBeacon
     val found by beacon.state.collectAsState()
     DisposableEffect(Unit) {
         beacon.startScan()
         onDispose { beacon.stopScan() }
     }
+
+    // Remotes a discovered Filet host could be. WebDAV only: a beacon is a Filet share, and
+    // offering to link one to an SFTP entry would be offering something that cannot work.
+    val linkable = remember(revision) { list.filter { it.protocol == NetProtocol.WEBDAV } }
+    var linking by remember { mutableStateOf<DavBeacon.Host?>(null) }
 
     LazyColumn(Modifier.fillMaxSize()) {
         item { TabHeader("Network and root") }
@@ -92,15 +109,31 @@ fun RemotesScreen(vm: BrowserViewModel) {
             item { SectionRow("Phones on this network") }
             items(found.hosts.size) { i ->
                 val h = found.hosts[i]
+                // A host that is already one of the saved remotes is not something to add, and
+                // offering it as new is how one tablet ends up with four entries. The address it
+                // is announced at may be one the entry has only just learned, so this is read
+                // against the saved list rather than compared by eye.
+                val already = remember(revision, h.key) { vm.savedRemoteFor(h) }
                 NRow(
                     title = h.name,
                     sub = "${h.host}:${h.port}${if (h.scope.isNotEmpty()) "  ·  " + h.scope else ""}",
                     lead = NLead.Glyph(FiletIcons.Wifi),
                     mono = true,
-                    // Opens the form already filled in, so the only field left is the code -
-                    // which is not broadcast, because a password that travels with the address
-                    // is not a password.
-                    trailing = { SmallBtn("Add") { editing = vm.connectionFromHost(h) } },
+                    trailing = {
+                        if (already != null) {
+                            Pill("saved", PillTone.Good)
+                            SmallBtn("Open") { vm.openConnection(already) }
+                        } else {
+                            // Opens the form already filled in, so the only field left is the
+                            // code - which is not broadcast, because a password that travels
+                            // with the address is not a password.
+                            SmallBtn("Add") { editing = vm.connectionFromHost(h) }
+                            // For the one case learning cannot reach on its own: an entry with
+                            // no device id whose address has already changed has nothing left to
+                            // match on. Hidden when there is nothing to link to.
+                            if (linkable.isNotEmpty()) SmallBtn("Link") { linking = h }
+                        }
+                    },
                 )
             }
         }
@@ -201,6 +234,57 @@ fun RemotesScreen(vm: BrowserViewModel) {
             onDelete = { vm.deleteConnection(c.id); editing = null },
             onSave = { vm.saveConnection(it); editing = null },
         )
+    }
+
+    linking?.let { h -> LinkHostDialog(vm, h, linkable) { linking = null } }
+}
+
+/**
+ * Attach a discovered host to a remote that was saved by hand.
+ *
+ * The gap this closes, stated plainly because it is the one thing automatic learning cannot do:
+ * an entry recognises a device by the id it advertises, and an entry typed in by hand has no id
+ * until a host is seen at an address it already holds. If the address changed first - a new
+ * network, a hotspot - there is nothing left to match on and the entry is stranded, while the
+ * same device sits at the top of this screen looking like a stranger.
+ *
+ * One tap ends it for good. The entry takes the id and the address together, so the next change
+ * of network is learned without being asked.
+ */
+@Composable
+private fun LinkHostDialog(
+    vm: BrowserViewModel,
+    host: DavBeacon.Host,
+    choices: List<NetConnection>,
+    onDismiss: () -> Unit,
+) {
+    Dlg(onDismiss = onDismiss) {
+        DlgHeader(
+            FiletIcons.Link,
+            "Which remote is this?",
+            sub = "${host.name} at ${host.host}:${host.port}",
+            onClose = onDismiss,
+        )
+        DlgBody {
+            DlgCaption(
+                "The remote you pick learns this address and remembers which device it is, so " +
+                    "it keeps up on its own the next time the network changes.",
+            )
+            Spacer(Modifier.height(6.dp))
+            choices.forEach { c ->
+                DlgPick(
+                    icon = iconFor(c.protocol),
+                    label = c.label.ifEmpty { c.host },
+                    detail = (listOf(c.host) + c.altHosts).joinToString(", "),
+                    tag = if (c.deviceId.isEmpty()) "no device yet" else null,
+                    onClick = { vm.linkRemote(c.id, host); onDismiss() },
+                )
+            }
+        }
+        DlgFooter {
+            DlgSpacer()
+            DlgBtn("Cancel", BtnKind.PLAIN, fill = false, onClick = onDismiss)
+        }
     }
 }
 

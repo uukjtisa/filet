@@ -21,7 +21,7 @@ that surface which is easiest to lose on the way across.
 | **Bookmarks tab** | `app/src/main/java/dev/niccc2007/filet/browser/Places.kt:53` | `TABS3.bookmarks` | N59 | A bookmark can point at a file, so the icon is the file kind and not always a star. |
 | **Recent tab** | `app/src/main/java/dev/niccc2007/filet/browser/Places.kt:87` | `TABS3.recent` | N59 | Grouped by day. Long press removes one entry - it used to do nothing. |
 | **Shortcuts tab** | `app/src/main/java/dev/niccc2007/filet/shortcuts/ShortcutsScreen.kt:60` | `TABS3.shortcuts` | N59 | Shows shortcuts the system has dropped, which is the only place they can be cleaned up. |
-| **Remotes tab** | `app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt:70` | `TABS3.remotes` | N59 | An unreachable remote is shown as unreachable and never waited for. |
+| **Remotes tab** | `app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt:80` | `TABS3.remotes` | N59 | An unreachable remote is shown as unreachable and never waited for. |
 | **Activity tab** | `app/src/main/java/dev/niccc2007/filet/jobs/ActivitySheet.kt:48` | `TABS3.activity` | N59 | Running above finished. The index job names the folder it is reading. |
 | **About tab** | `app/src/main/java/dev/niccc2007/filet/about/AboutPage.kt:77` | `aboutHTML` | N58 | Four words from the repo, in one line. Watermark is the app mark, not the author seal. |
 | **Settings tab** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:98` | `setHTML` | N56 | Sub-tabs. The List pane carries a live view rendered by the same code as the real list. |
