@@ -131,18 +131,6 @@ class SelectionActionsTest {
         assertEquals(fired.size, fired.toSet().size)
     }
 
-    // ── the style setting ──
-
-    @Test fun the_menu_is_the_default_and_an_unknown_value_falls_back_to_it() {
-        assertEquals(SelectionStyle.MENU, SelectionStyle.valueOfOr(null, SelectionStyle.MENU))
-        assertEquals(SelectionStyle.MENU, SelectionStyle.valueOfOr("NONSENSE", SelectionStyle.MENU))
-    }
-
-    @Test fun the_legacy_bar_is_still_selectable() {
-        // R1, no dead switches: the option in Settings has to reach a real rendering.
-        assertEquals(SelectionStyle.BAR, SelectionStyle.valueOfOr("BAR", SelectionStyle.MENU))
-    }
-
     // -- extracting, which is the one family of rows that is absent rather than blocked --
 
     @Test fun a_selection_that_is_not_an_archive_has_no_extract_rows_at_all() {

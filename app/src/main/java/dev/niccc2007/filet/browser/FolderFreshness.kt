@@ -38,6 +38,17 @@ object FolderFreshness {
      *   keeps this from being the syscall storm it replaced.
      * @param listedAtRevision the world revision this pane last completed a listing at.
      * @param worldRevision the current revision, bumped by every operation that writes.
+     * @param dragging something is being dragged right now, anywhere in the app.
+     *
+     * **A re-list under a drag cancels the drag.** Replacing the list replaces the row the
+     * finger is on; its pointer handler is torn down with it and the gesture dies. The
+     * reported symptom was dragging an item near the bottom of a pane and having it let go by
+     * itself - which is the volume poll firing on its own timer, eight seconds after anything,
+     * and landing mid-gesture.
+     *
+     * Deferring is safe and skipping would not be: the revision that made this pane stale is
+     * still there when the drag ends, so the next `freshenIfStale` re-lists. The drop itself
+     * bumps the revision again, so a drag that changes something re-lists immediately after.
      */
     fun shouldRelist(
         isFolder: Boolean,
@@ -46,10 +57,12 @@ object FolderFreshness {
         visible: Boolean,
         listedAtRevision: Int,
         worldRevision: Int,
+        dragging: Boolean = false,
     ): Boolean {
         if (!isFolder || !hasPath) return false
         if (loading) return false
         if (!visible) return false
+        if (dragging) return false
         return listedAtRevision != worldRevision
     }
 }

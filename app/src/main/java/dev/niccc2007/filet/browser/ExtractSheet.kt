@@ -29,6 +29,13 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgSpacer
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.provider.CollisionChoice
 import dev.niccc2007.filet.vfs.provider.ExtractPlan
@@ -62,20 +69,18 @@ fun ExtractSheet(
 ) {
     val colors = Filet.colors
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Extract ${plan.archiveName}", fontSize = 15.sp, maxLines = 2) },
-        text = {
-            Column {
-                Text(
-                    "into $destinationName",
-                    fontSize = 10.5.sp,
-                    color = colors.fg3,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(8.dp))
+    Dlg(onDismiss = onDismiss) {
+        // The destination moves into the subtitle. It is the one fact this dialogue exists to
+        // confirm - an archive that would spray forty files into the folder you are standing in
+        // should say where before it does it - so it belongs in the header rather than as the
+        // body's first line, where the tree pushes it off the top.
+        DlgHeader(
+            FiletIcons.Zip,
+            "Extract ${plan.archiveName}",
+            sub = "into $destinationName",
+            onClose = onDismiss,
+        )
+        DlgBody {
 
                 // ── the tree ──
                 LazyColumn(Modifier.heightIn(max = 250.dp)) {
@@ -150,15 +155,17 @@ fun ExtractSheet(
                     // never knowing that.
                     Warn("${plan.refused.size} entr${if (plan.refused.size == 1) "y" else "ies"} refused - they point outside this folder")
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm, enabled = !busy && plan.items.isNotEmpty()) {
-                Text(if (busy) "Working…" else "Extract")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+        }
+        DlgFooter {
+            DlgBtn("Cancel", onClick = onDismiss)
+            DlgBtn(
+                if (busy) "Working…" else "Extract",
+                kind = BtnKind.PRIMARY,
+                enabled = !busy && plan.items.isNotEmpty(),
+                onClick = onConfirm,
+            )
+        }
+    }
 }
 
 @Composable

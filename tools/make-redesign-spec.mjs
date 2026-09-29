@@ -78,7 +78,9 @@ const SURFACES = [
    "Which actions get an icon button and which go in the list. Already a pure function - QUICK_IDS is copy, move, rename, send, delete. RELABEL ONLY: move is shown as Cut with scissors. The id stays move; do not add a second action."],
   ["Actions popup", "private fun PaneContextMenu", "actionsHTML", "N54",
    "Same icon row, then grouped entries, destructive last and separated."],
-  ["Open with", "private fun OpenWithSheet", "openWithHTML", "N81",
+  // Was two composables - a sheet reached from a file and a picker reached from Settings -
+  // with the same list and different layouts. One now, and the name tracks that.
+  ["Open with", "fun OpenWithDialog", "openWithHTML", "N81",
    "One dialogue. Filet viewers above, apps below, remember control in the footer beside Open."],
   ["New folder", "fun NameDialog", "DIALOGS.newfolder", "N59",
    "Warns that a dot-prefixed name is never indexed by Android."],

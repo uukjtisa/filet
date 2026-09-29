@@ -48,6 +48,9 @@ enum class RefreshTarget {
     /** Saved network connections. */
     REMOTES,
 
+    /** The installed-app list, which changes whenever anything is installed or removed. */
+    INSTALLED_APPS,
+
     /** The job ledger. */
     JOBS,
 }
@@ -81,6 +84,10 @@ fun refreshPlan(kind: PaneKind): RefreshPlan = when (kind) {
 
     PaneKind.SHORTCUTS -> RefreshPlan(setOf(RefreshTarget.SHORTCUTS), "Shortcuts")
     PaneKind.SCRIPTS -> RefreshPlan(setOf(RefreshTarget.SCRIPTS), "Scripts")
+    // An app installed or removed while this was on screen is exactly what a refresh here is
+    // for, and the list is read from PackageManager rather than cached - so the target exists
+    // to re-enter that read rather than to invalidate anything.
+    PaneKind.APPS -> RefreshPlan(setOf(RefreshTarget.INSTALLED_APPS), "Apps")
     PaneKind.BOOKMARKS -> RefreshPlan(setOf(RefreshTarget.BOOKMARKS), "Bookmarks")
     PaneKind.RECENT -> RefreshPlan(setOf(RefreshTarget.RECENTS), "Recent")
 

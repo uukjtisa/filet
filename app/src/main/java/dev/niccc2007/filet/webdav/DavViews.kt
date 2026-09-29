@@ -29,6 +29,33 @@ object DavViews {
     /** The collection the views live under, so they cannot shadow a real folder. */
     const val ROOT = "~Find"
 
+    /**
+     * How long one pull of the index is reused for.
+     *
+     * The views are built from a snapshot of everything the index knows, and that snapshot was
+     * being rebuilt on **every** request under `~Find`: a 4000-row query plus a path resolution
+     * per row, which measured at 3.3 seconds to return NINE folder entries. Explorer PROPFINDs
+     * as it walks, so opening the views and clicking twice paid for it three times.
+     *
+     * Four seconds is chosen against what the snapshot is for rather than against a feel. It is
+     * longer than the burst of requests one click produces, so a single navigation pays once; and
+     * it is short enough that a file added while somebody is browsing shows up on the next click
+     * rather than needing a remount. The real tree is never cached - only this flattening of the
+     * index is, and the index is itself a summary that lags the disk.
+     */
+    const val SNAPSHOT_MS = 4_000L
+
+    /**
+     * Whether a snapshot taken at [takenAt] may still be served at [now].
+     *
+     * Its own function because it is the decision that can be wrong: too long and the views lie
+     * about what is on the phone, too short and the cache buys nothing. A zero [takenAt] means
+     * nothing has been pulled yet, which is never fresh - otherwise an uninitialised cache would
+     * read as a valid empty snapshot and the views would serve nothing until the clock moved.
+     */
+    fun snapshotFresh(takenAt: Long, now: Long, ttl: Long = SNAPSHOT_MS): Boolean =
+        takenAt > 0L && now >= takenAt && now - takenAt < ttl
+
     /** How many entries one view will serve. */
     const val LIMIT = 500
 

@@ -217,6 +217,64 @@ and a plan rather than by a `when` over format ids.
 
 ---
 
+## Network clients — M13
+
+Filet's own WebDAV pair is proven end to end. The other three network providers are roughly
+170-200 lines each and have **never been spoken to a real server** - they compile against
+their libraries' real APIs and that is all that is known about them. WebDAV had two genuine
+bugs that only a real server exposed, so assume these have some too.
+
+Measured against what X-plore, MiXplorer, Solid Explorer and Total Commander already do.
+
+| # | Feature | L | M | Status | Notes |
+|---|---|---|---|---|---|
+| F102 | SMB proven against a real server | L0 | M13 | PLANNED | First, because SMB is the protocol home users actually have - a Windows share on the same Wi-Fi. `SmbProvider` exists and is untested. Until a real server has answered it, the row is a claim rather than a capability. |
+| F103 | Find servers instead of typing a host | L0 | M13 | PLANNED | Discovery for backends that are not Filet: SMB hosts over NetBIOS, WS-Discovery and `_smb._tcp`, plus `_sftp-ssh._tcp` and `_webdav._tcp`. Picking a name off a list is the difference between a feature that gets used and one that needs an IP address remembered. Filet's own `_filet-dav._tcp` discovery already works and is the shape to follow. |
+| F104 | Stream a remote file to an external player | L2 | M13 | PLANNED | A loopback HTTP relay with range support, so VLC or MX Player can open a file on a share without it being downloaded whole first. The Nearby server already serves ranges over HTTP and is the code to reuse rather than the second one to write. |
+| F105 | A transfer queue that survives a dropped connection | L4 | M13 | PLANNED | Resume from where the bytes stopped, retry with backoff, several transfers at once, remote-to-remote copy, and server-side copy where the protocol has it - WebDAV COPY moves nothing through the phone at all. A phone leaving Wi-Fi mid-copy is the normal case, not the edge one. |
+| F106 | SMB: shares, guest, and the old ones | L0 | M13 | PLANNED | List a server's shares rather than requiring the share name up front; guest login; and an SMB1 fallback. smbj speaks SMB2/3 only, and old routers and NAS boxes are SMB1-only - a real gap, and the lowest priority of the three because the boxes are old and the protocol is retired for good reasons. |
+| F107 | SFTP keys, host checking, and the FTP dialects | L0 | M13 | PLANNED | SFTP: ed25519 and PEM key login, a known-host fingerprint check, and chmod. FTP: FTPS explicit and implicit, active and passive, and a filename charset - an FTP server that is not UTF-8 renders every non-ASCII name as rubbish. |
+
+---
+
+## Open hosting — M14
+
+The target: host on one Filet and it appears everywhere on the network, with no code typed
+and no add button pressed. Feasibility differs per platform and is recorded per row, because
+the honest answer for one of them is "not without the PC doing something once".
+
+**One share, several announcements.** These are independent switches rather than one mode,
+because a share can be announced several ways at once and a target that is off costs nothing.
+R1 applies without exception: a target is only rendered once it is built AND proven against a
+real PC or TV. An announcement nobody has watched arrive is not a shipped feature.
+
+| # | Feature | L | M | Status | Notes |
+|---|---|---|---|---|---|
+| F108 | An open share, with no code | L4 | M14 | PLANNED | The share advertises an `open` flag in its mDNS TXT record; other Filet instances add it as a volume and draw it as a storage card without anything being typed. Fully possible - both ends are already Filet's own code, and the discovery and the storage card both exist. |
+| F109 | Remote volumes in the system file picker | L2 | M14 | PLANNED | A SAF `DocumentsProvider` exposing mounted remote volumes, so every other app on the phone can open and save to them through the picker it already uses. This is the one that makes a mount feel like part of the device rather than part of Filet. |
+| F110 | Per-share: where it shows up | L5 | M14 | PLANNED | A group of independent switches on the share, each with a live status line while it is on - announcing, reachable, a client connected. Other Filets default ON; every other target defaults OFF, because each one puts the phone on a different piece of the network and that should be a decision rather than a default. |
+| F111 | The Windows Network folder | L4 | M14 | PLANNED | A WS-Discovery announcement, which is what wsdd does for Samba. The phone then appears under Explorer's Network folder and opening it follows the presentation URL to the browser share page. Needs Network Discovery on and a private network profile - neither of which Filet can set. |
+| F112 | Windows as a drive letter | L4 | M14 | PLANNED | **Not zero-setup, and the row says so rather than implying otherwise.** A non-root app cannot bind port 445, and Explorer browses SMB on 445 and nowhere else, so a real drive letter over SMB is out. WebDAV can be a drive letter but needs one Map Network Drive. What can be done is a one-click helper served from the share page that runs the `net use` for a chosen letter - once, on the PC. |
+| F113 | Linux, and possibly macOS | L4 | M14 | PLANNED | Advertising `_webdav._tcp` with a path TXT record puts the share in GNOME Files' Other Locations with no setup at all, which makes Linux the easiest target of the lot. macOS is **unverified**: Finder's sidebar is believed to list Bonjour SMB only, and that has to be tested on a real Mac before the switch is drawn, let alone described. |
+| F114 | TVs and media players | L4 | M14 | PLANNED | A DLNA/UPnP MediaServer, which puts the phone under Explorer's Media Devices and in front of TVs and VLC. Media only and read-only by construction, so it is the narrowest target here and also the one with the least to go wrong. |
+| F115 | Guard rails for an open share | L4 | M14 | PLANNED | Open means anyone on that Wi-Fi reads it, so: open is per-share and never global, read-only by default, advertised only on networks marked trusted, and the idle auto-stop stays on. A share that is open by accident is the one failure mode here that cannot be undone after the fact. |
+
+---
+
+## Cloud storage — M15
+
+More VFS providers behind the same interface, which is what R3 already requires. The
+interface questions below are answered once, before the first provider, because each is a
+place the existing local-first assumptions are wrong.
+
+| # | Feature | L | M | Status | Notes |
+|---|---|---|---|---|---|
+| F116 | What a cloud backend breaks | L0 | M15 | PLANNED | Six assumptions to settle before any provider is written. Files are addressed by **id, not path**. Drive allows two files with the same name in one folder, so a name is not a key. A Google Doc has no bytes and has to be exported on open. Rate limits need backoff rather than retries. Change tokens feed the index instead of a crawl, or every open costs a full listing. Quota comes from the API rather than from `statfs`. |
+| F117 | OneDrive or Dropbox, first | L0 | M15 | PLANNED | Chosen first on registration cost, not on popularity: Graph and Dropbox both register in an afternoon. AppAuth plus REST, no Play Services, so the F-Droid flavour stays clean. |
+| F118 | Google Drive, and the scope problem | L0 | M15 | PLANNED | **The cost worth knowing before starting.** Drive's full-access scope is RESTRICTED: a public app needs Google verification plus a yearly third-party security assessment (CASA), or it stays unverified with a 100-user cap and a warning screen. The `drive.file` scope cannot see files the app did not create, which makes it useless for a file manager. The practical routes are bring-your-own OAuth client id, the way rclone does it, or an unverified build for personal use - and that decision comes before the code, not after it. |
+
+---
+
 ## Deliberately not doing
 
 | Thing | Why |

@@ -30,6 +30,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -58,11 +60,33 @@ fun ApkInspectorScreen(vm: BrowserViewModel, node: VNode) {
     val colors = Filet.colors
     var info by remember(node.path) { mutableStateOf<ApkInfo?>(null) }
     var error by remember(node.path) { mutableStateOf<String?>(null) }
+    // What installing it would do, and how many of its permissions are runtime grants. Both are
+    // read from PackageManager, which is the source the installer itself consults - so the
+    // answer predicts what will happen rather than describing what the file contains.
+    var outlook by remember(node.path) { mutableStateOf<InstallOutlook?>(null) }
+    var dangerous by remember(node.path) { mutableStateOf<Int?>(null) }
+    var icon by remember(node.path) { mutableStateOf<android.graphics.Bitmap?>(null) }
     val work by vm.apkWork.collectAsState()
 
     LaunchedEffect(node.path) {
         runCatching { vm.inspectApk(node) }
-            .onSuccess { info = it }
+            .onSuccess { i ->
+                info = i
+                val installed = vm.installedFacts(i.packageName)
+                val installedCode = installed.first
+                val installedSha = installed.second
+                outlook = InstallOutlooks.of(
+                    InstallFacts(
+                        signed = i.signerSha256 != null,
+                        apkVersionCode = i.versionCode,
+                        apkSha256 = i.signerSha256,
+                        installedVersionCode = installedCode,
+                        installedSha256 = installedSha,
+                    ),
+                )
+                dangerous = vm.dangerousPermissionCount(i.permissions)
+                icon = vm.apkIcon(node)
+            }
             .onFailure { error = it.message ?: "Could not read this APK." }
     }
 
@@ -73,7 +97,7 @@ fun ApkInspectorScreen(vm: BrowserViewModel, node: VNode) {
             onClose = { vm.closeHandler() },
         ) {
             ViewerAction(FiletIcons.Zip, "Browse inside") { vm.browseApk(node) }
-            ViewerAction(FiletIcons.Share, "Share") { vm.shareOne(node) }
+            ViewerAction(FiletIcons.Share, "Share") { vm.share(node) }
         }
 
         when {
@@ -86,10 +110,20 @@ fun ApkInspectorScreen(vm: BrowserViewModel, node: VNode) {
             else -> {
                 val i = info!!
                 LazyColumn(Modifier.fillMaxSize()) {
+                    // `.insp .ih` - the identity block. The screen used to open with six
+                    // sections of key-values and no summary, so the question everybody actually
+                    // has (what happens if I install this) was somewhere below the fold, spelled
+                    // as a subject DN and a hex digest for the reader to compare themselves.
+                    item { IdentityBlock(i, icon) }
+
+                    // The answer, stated. Severe outcomes get the banner; the ordinary ones are
+                    // a quiet line, because "this is an update" is not an obstacle.
+                    outlook?.takeIf { it.worthShowing }?.let { o -> item { OutlookRow(o) } }
+
                     if (i.warnings.isNotEmpty()) {
                         item {
                             Column(
-                                Modifier.fillMaxWidth().padding(10.dp)
+                                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(colors.warn.copy(alpha = 0.14f))
                                     .padding(11.dp),
@@ -99,16 +133,29 @@ fun ApkInspectorScreen(vm: BrowserViewModel, node: VNode) {
                         }
                     }
 
-                    item { SectionLabel("Identity") }
-                    item { Fact("Package", i.packageName) }
-                    item { Fact("Version", "${i.versionName}  (${i.versionCode})") }
-                    item { Fact("Size", humanSize(i.sizeBytes)) }
+                    // `dl.kv` - four lines that each answer something, rather than fifteen that
+                    // restate the file. The raw subject and digest stay, below, for the reader
+                    // who wants them.
+                    item { SectionLabel("Summary") }
+                    item {
+                        Fact(
+                            "Permissions",
+                            when {
+                                i.permissions.isEmpty() -> "none"
+                                dangerous == null -> "${i.permissions.size}"
+                                dangerous == 0 -> "${i.permissions.size} · none of them dangerous"
+                                else -> "${i.permissions.size} · $dangerous of them dangerous"
+                            },
+                        )
+                    }
+                    item {
+                        Fact(
+                            "Size",
+                            humanSize(i.sizeBytes) + " · ${i.dexEntries.size} dex · " +
+                                "${i.classCount} classes",
+                        )
+                    }
                     if (i.debuggable) item { Fact("Debuggable", "yes — this build is not a release") }
-
-                    item { SectionLabel("SDK") }
-                    item { Fact("minSdk", i.minSdk.toString()) }
-                    item { Fact("targetSdk", i.targetSdk.toString()) }
-                    i.compileSdk?.let { item { Fact("compileSdk", it.toString()) } }
 
                     item { SectionLabel("Signature") }
                     if (i.signerSubject == null) {
@@ -119,7 +166,6 @@ fun ApkInspectorScreen(vm: BrowserViewModel, node: VNode) {
                     }
 
                     item { SectionLabel("Contents") }
-                    item { Fact("Classes", "${i.classCount} in ${i.dexEntries.size} dex file(s)") }
                     if (i.nativeAbis.isNotEmpty()) item { Fact("Native", i.nativeAbis.joinToString(", ")) }
                     items(i.dexEntries.size) { idx ->
                         val dex = i.dexEntries[idx]
@@ -177,9 +223,7 @@ fun ApkInspectorScreen(vm: BrowserViewModel, node: VNode) {
                             }
                             Spacer(Modifier.height(8.dp))
                             Text(
-                                "Decompile writes a working folder beside the APK. Edit the smali " +
-                                    "there, then Rebuild & sign produces a new, installable APK — the " +
-                                    "original is never modified in place.",
+                                "Rebuild & sign makes a new APK. The original is untouched.",
                                 fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp,
                             )
                             Spacer(Modifier.height(16.dp))
@@ -188,6 +232,123 @@ fun ApkInspectorScreen(vm: BrowserViewModel, node: VNode) {
                 }
             }
         }
+    }
+}
+
+/**
+ * `.insp .ih` - a 44dp rounded icon tile, the label, and the package in a mono line under it,
+ * with a wrapping chip row for the facts that are one word each.
+ *
+ * Chips rather than rows because minSdk, targetSdk and an ABI list are three short facts that
+ * cost three full-width rows apiece in a key-value list and read as a wall.
+ */
+@Composable
+private fun IdentityBlock(i: ApkInfo, icon: android.graphics.Bitmap?) {
+    val colors = Filet.colors
+    Column(
+        Modifier.fillMaxWidth().padding(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    // The tinted tile is the ground the glyph needs and the wrong ground for a
+                    // real icon, which brings its own. It is drawn only when there is no icon.
+                    .background(if (icon == null) colors.accent.copy(alpha = 0.18f) else Color.Transparent),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (icon != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = icon.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.size(40.dp),
+                    )
+                } else {
+                    Icon(FiletIcons.Apk, null, tint = colors.accent, modifier = Modifier.size(23.dp))
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    i.label,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    i.packageName + " · " + i.versionName + " (" + i.versionCode + ")",
+                    fontSize = 10.5.sp,
+                    color = colors.fg3,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Spacer(Modifier.height(7.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Chip("minSdk ${i.minSdk}")
+            Chip("targetSdk ${i.targetSdk}")
+            i.compileSdk?.let { Chip("compileSdk $it") }
+            i.nativeAbis.forEach { Chip(it) }
+            if (i.debuggable) Chip("debuggable", tone = ChipTone.WARN)
+        }
+    }
+}
+
+private enum class ChipTone { PLAIN, OK, WARN }
+
+/** `.chips span` */
+@Composable
+private fun Chip(text: String, tone: ChipTone = ChipTone.PLAIN) {
+    val colors = Filet.colors
+    val ink = when (tone) {
+        ChipTone.PLAIN -> colors.fg3
+        ChipTone.OK -> colors.good
+        ChipTone.WARN -> colors.warn
+    }
+    Text(
+        text,
+        fontSize = 9.5.sp,
+        color = ink,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(colors.sunken)
+            .border(
+                1.dp,
+                if (tone == ChipTone.PLAIN) colors.lineSoft else ink.copy(alpha = 0.4f),
+                RoundedCornerShape(6.dp),
+            )
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+    )
+}
+
+/**
+ * What installing it would do.
+ *
+ * A severe outcome is a banner because it is the thing standing between the reader and a
+ * working result - a signature clash means the install cannot happen without destroying the
+ * installed app's data. An ordinary update is a quiet line: it is news, not an obstacle.
+ */
+@Composable
+private fun OutlookRow(o: InstallOutlook) {
+    val colors = Filet.colors
+    val ink = if (o.severe) colors.warn else colors.fg2
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (o.severe) colors.warn.copy(alpha = 0.12f) else colors.sunken)
+            .padding(11.dp),
+    ) {
+        Text(o.headline, fontSize = 12.5.sp, color = ink, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(3.dp))
+        Text(o.detail, fontSize = 11.sp, lineHeight = 15.sp, color = colors.fg3)
     }
 }
 

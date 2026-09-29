@@ -35,6 +35,15 @@ import dev.niccc2007.filet.ui.tabs.EmptyTab
 import dev.niccc2007.filet.ui.tabs.PickRow
 import dev.niccc2007.filet.ui.tabs.SectionRow
 import dev.niccc2007.filet.ui.tabs.TabHeader
+import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgCaption
+import dev.niccc2007.filet.ui.dialogs.DlgField
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgSpacer
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
@@ -117,24 +126,19 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
 
     renaming?.let { record ->
         var label by remember(record.id) { mutableStateOf(record.label) }
-        AlertDialog(
-            onDismissRequest = { renaming = null },
-            title = { Text("Rename shortcut", fontSize = 16.sp) },
-            text = {
-                OutlinedTextField(
-                    value = label,
-                    onValueChange = { label = it.take(40) },
-                    singleLine = true,
-                    label = { Text("Name") },
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = { vm.shortcuts.rename(record.id, label.trim()); renaming = null },
-                    enabled = label.isNotBlank(),
-                ) { Text("Rename") }
-            },
-            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
-        )
+        // dismissOnScrim is off: there is typing in here, and a stray tap outside the card
+        // throwing away a half-entered name is the kind of loss nobody reports.
+        Dlg(onDismiss = { renaming = null }, dismissOnScrim = false) {
+            DlgHeader(FiletIcons.Rename, "Rename shortcut", onClose = { renaming = null })
+            DlgBody {
+                DlgField("Name", label, { label = it.take(40) })
+            }
+            DlgFooter {
+                DlgBtn("Cancel") { renaming = null }
+                DlgBtn("Rename", kind = BtnKind.PRIMARY, enabled = label.isNotBlank()) {
+                    vm.shortcuts.rename(record.id, label.trim()); renaming = null
+                }
+            }
+        }
     }
 }

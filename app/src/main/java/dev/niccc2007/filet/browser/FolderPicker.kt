@@ -24,6 +24,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgSpacer
+import dev.niccc2007.filet.ui.dialogs.DlgTone
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
@@ -54,50 +62,47 @@ fun FolderPicker(
     onDismiss: () -> Unit,
 ) {
     val colors = Filet.colors
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title, fontSize = 15.sp, maxLines = 2) },
-        text = {
-            Column {
-                Text(
-                    at.path,
-                    fontSize = 10.5.sp,
-                    color = colors.fg3,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(8.dp))
-                LazyColumn(Modifier.heightIn(min = 120.dp, max = 260.dp)) {
-                    if (!atRoot) {
-                        item(key = "..") {
-                            PickRow(FiletIcons.Up, "..", colors.fg3, onUp)
-                        }
+    Dlg(onDismiss = onDismiss) {
+        // The path goes in the header's subtitle rather than as the body's first line. It is
+        // what this dialogue is ABOUT - which folder you are standing in - and a header is
+        // where a dialogue says that.
+        DlgHeader(
+            FiletIcons.Folder,
+            title,
+            sub = at.path,
+            onClose = onDismiss,
+        )
+        // scroll = false: the list below scrolls itself, and nesting two vertical scrollers
+        // gives the inner one zero height.
+        DlgBody(scroll = false, padded = false) {
+            LazyColumn(Modifier.heightIn(min = 120.dp, max = 300.dp)) {
+                if (!atRoot) {
+                    item(key = "..") {
+                        PickRow(FiletIcons.Up, "..", colors.fg3, onUp)
                     }
-                    items(entries, key = { it.path.path }) { node ->
-                        PickRow(FiletIcons.Folder, node.name, MaterialTheme.colorScheme.onSurface) { onOpen(node.path) }
-                    }
-                    if (entries.isEmpty()) {
-                        item(key = "empty") {
-                            Text(
-                                // Not an error. An empty folder is a perfectly good destination,
-                                // and saying so is the difference between "nothing here" and
-                                // "this failed to load".
-                                if (loading) "Reading…" else "No folders in here - which is fine, you can still extract into it",
-                                fontSize = 10.5.sp,
-                                color = colors.fg3,
-                                modifier = Modifier.padding(vertical = 10.dp),
-                            )
-                        }
+                }
+                items(entries, key = { it.path.path }) { node ->
+                    PickRow(FiletIcons.Folder, node.name, MaterialTheme.colorScheme.onSurface) { onOpen(node.path) }
+                }
+                if (entries.isEmpty()) {
+                    item(key = "empty") {
+                        Text(
+                            // "No folders" and not "empty": an empty folder is a perfectly
+                            // good destination, and the row has to not read as a failure.
+                            if (loading) "Reading…" else "No folders in here",
+                            fontSize = 10.5.sp,
+                            color = colors.fg3,
+                            modifier = Modifier.padding(vertical = 10.dp),
+                        )
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm) { Text(confirmLabel) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+        }
+        DlgFooter {
+            DlgBtn("Cancel", onClick = onDismiss)
+            DlgBtn(confirmLabel, kind = BtnKind.PRIMARY, onClick = onConfirm)
+        }
+    }
 }
 
 @Composable

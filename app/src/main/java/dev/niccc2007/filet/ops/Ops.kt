@@ -1,6 +1,9 @@
 package dev.niccc2007.filet.ops
 
 import dev.niccc2007.filet.jobs.JobLedger
+import dev.niccc2007.filet.vfs.ActionGate
+import dev.niccc2007.filet.vfs.Denial
+import dev.niccc2007.filet.vfs.FileAction
 import dev.niccc2007.filet.vfs.Progress
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
@@ -11,8 +14,10 @@ import dev.niccc2007.filet.vfs.provider.ArchiveOptions
 import dev.niccc2007.filet.vfs.provider.ArchiveSource
 import dev.niccc2007.filet.vfs.provider.ArchiveWriter
 import dev.niccc2007.filet.vfs.provider.Archives
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 
 /** What the clipboard holds and what pasting it should do. */
 enum class PendingOp { COPY, MOVE }
@@ -24,9 +29,23 @@ data class Clipboard(val items: List<VPath>, val op: PendingOp) {
     val size: Int get() = items.size
 }
 
-/** The outcome of a batch: partial success is the common case and must be reportable. */
-data class OpResult(val succeeded: Int, val failed: List<Pair<VPath, String>>) {
+/**
+ * The outcome of a batch: partial success is the common case and must be reportable.
+ *
+ * [denials] are the failures that were REFUSALS rather than faults - a read-only share, an
+ * archive, a host that said no. They are also listed in [failed], so a caller that only knows
+ * how to report failures still reports them; a caller that can show a dialogue shows one.
+ * Separating them is what lets a refusal read as an answer instead of an error.
+ */
+data class OpResult(
+    val succeeded: Int,
+    val failed: List<Pair<VPath, String>>,
+    val denials: List<Denial> = emptyList(),
+) {
     val ok: Boolean get() = failed.isEmpty()
+
+    /** The refusal to put in front of somebody. One dialogue, not one per file. */
+    val denial: Denial? get() = denials.firstOrNull()
 }
 
 /**
@@ -56,19 +75,88 @@ class FileOperations(
 ) {
 
     /**
+     * Whether [action] may be attempted on [path], asked before anything is touched.
+     *
+     * Costs nothing - it reads what the backend declares - and catches every refusal that is
+     * knowable without a round trip: an archive, an APK, a volume with no write access. What it
+     * cannot catch is a host that accepts the connection and refuses the individual write, which
+     * is why [ActionGate.fromFailure] exists and why both produce the same [Denial].
+     */
+    private fun permit(action: FileAction, path: VPath): Denial? = vfs.permit(action, path)
+
+    /**
      * @param onConflict what to do when the destination name is taken. Refusing a whole paste
      *   because one of forty files collides is the behaviour users hate; overwriting silently
      *   is the one that loses data. [Conflict.RENAME] is the default for that reason.
      */
-    suspend fun copy(items: List<VPath>, into: VPath, onConflict: Conflict = Conflict.RENAME): OpResult =
-        batch(items, "Copying", into) { src, prog ->
+    suspend fun copy(items: List<VPath>, into: VPath, onConflict: Conflict = Conflict.RENAME): OpResult {
+        permit(FileAction.CREATE_FILE, into)?.let { return refused(items, it) }
+        return batch(items, "Copying", into, FileAction.CREATE_FILE) { src, prog ->
             vfs.copy(src, into, resolveName(src, into, onConflict), prog).path
         }
+    }
 
-    suspend fun move(items: List<VPath>, into: VPath, onConflict: Conflict = Conflict.RENAME): OpResult =
-        batch(items, "Moving", into) { src, prog ->
+    /**
+     * A move needs BOTH ends: somewhere to put it, and permission to take it away.
+     *
+     * Checking only the destination is how a move across a boundary becomes a copy that reports
+     * success and leaves the original behind - or worse, is attempted and half done. The source
+     * check is per item because a selection can span volumes.
+     */
+    suspend fun move(items: List<VPath>, into: VPath, onConflict: Conflict = Conflict.RENAME): OpResult {
+        permit(FileAction.CREATE_FILE, into)?.let { return refused(items, it) }
+        items.firstNotNullOfOrNull { permit(FileAction.DELETE, it) }?.let { return refused(items, it) }
+        return batch(items, "Moving", into, FileAction.CREATE_FILE) { src, prog ->
             vfs.move(src, into, resolveName(src, into, onConflict), prog).path
         }
+    }
+
+    /**
+     * Copy each of [items] into the folder it already lives in.
+     *
+     * The name is worked out per item against what is in that folder AT THAT MOMENT, and the
+     * result is added to the set as it goes - so duplicating three files in one gesture cannot
+     * hand two of them the same name, which listing once up front would.
+     */
+    suspend fun duplicate(items: List<VPath>): OpResult {
+        val parent = items.firstOrNull()?.parent ?: return OpResult(0, emptyList())
+        permit(FileAction.CREATE_FILE, parent)?.let { return refused(items, it) }
+
+        val id = ledger.start("Copying ${items.size} item(s)", parent.name)
+        val failed = ArrayList<Pair<VPath, String>>()
+        val denials = ArrayList<Denial>()
+        val made = ArrayList<VPath>()
+        val taken = HashSet<String>()
+        runCatching { vfs.list(parent).forEach { taken += it.name } }
+
+        var done = 0
+        for (src in items) {
+            currentCoroutineContext().ensureActive()
+            ledger.progress(id, done / items.size.toFloat(), src.name)
+            val name = dev.niccc2007.filet.browser.DuplicateName.of(src.name, taken)
+            runCatching {
+                withContext(Dispatchers.IO) { vfs.copy(src, parent, name) }
+            }.onSuccess {
+                done++
+                taken += name
+                made += parent.child(name)
+            }.onFailure {
+                failed += src to readable(it)
+                ActionGate.fromFailure(FileAction.CREATE_FILE, parent, it, vfs.isRemote(parent))
+                    ?.let { d -> denials += d }
+            }
+        }
+        report(id, done, failed)
+        announce(made)
+        return OpResult(done, failed, denials)
+    }
+
+    /** Everything refused for the same reason, before anything was touched. */
+    private fun refused(items: List<VPath>, denial: Denial) =
+        OpResult(0, items.map { it to denial.short }, listOf(denial))
+
+    /** The same, for an operation that produces one thing rather than a batch. */
+    private fun refused(item: VPath, denial: Denial) = refused(listOf(item), denial)
 
     /** @return the name to write under, or null to keep the source name. */
     private suspend fun resolveName(src: VPath, into: VPath, policy: Conflict): String? {
@@ -81,22 +169,28 @@ class FileOperations(
     }
 
     suspend fun delete(items: List<VPath>): OpResult {
+        items.firstNotNullOfOrNull { permit(FileAction.DELETE, it) }?.let { return refused(items, it) }
         val id = ledger.start("Deleting ${items.size} item(s)")
         val failed = ArrayList<Pair<VPath, String>>()
         val removed = ArrayList<VPath>()
         var done = 0
+        val denials = ArrayList<Denial>()
         for (p in items) {
             currentCoroutineContext().ensureActive()
             ledger.progress(id, done / items.size.toFloat(), p.name)
-            runCatching { vfs.delete(p, recursive = true) }
+            runCatching { withContext(Dispatchers.IO) { vfs.delete(p, recursive = true) } }
                 .onSuccess { done++; removed += p }
-                .onFailure { failed += p to readable(it) }
+                .onFailure {
+                    failed += p to readable(it)
+                    ActionGate.fromFailure(FileAction.DELETE, p, it, vfs.isRemote(p))
+                        ?.let { d -> denials += d }
+                }
         }
         report(id, done, failed)
         // Announced even though it is gone - that is how the media index drops it, and an
         // unannounced delete is a thumbnail in the gallery for a file that no longer exists.
         announce(removed)
-        return OpResult(done, failed)
+        return OpResult(done, failed, denials)
     }
 
     /**
@@ -118,6 +212,8 @@ class FileOperations(
         scratch: (String) -> VPath,
         options: ArchiveOptions = ArchiveOptions.NONE,
     ): OpResult {
+        val into = dest.parent ?: dest
+        permit(FileAction.CREATE_FILE, into)?.let { return refused(dest, it) }
         val id = ledger.start("Compressing ${items.size} item(s)", dest.name)
         val failed = ArrayList<Pair<VPath, String>>()
         var count = 0
@@ -138,15 +234,21 @@ class FileOperations(
                     ?: throw VfsException.Unsupported("Nowhere to build a 7z on this device.")
                 try {
                     ArchiveWriter.writeToPath(format, os, sources, options) { ledger.progress(id, null, it) }
-                    vfs.openWrite(dest).use { out ->
-                        vfs.openRead(tmp).use { it.copyTo(out) }
+                    // Off the caller's thread - see the note in `Vfs.copyNode`. An archive
+                    // written to a mounted share is a socket write like any other.
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        vfs.openWrite(dest).use { out ->
+                            vfs.openRead(tmp).use { it.copyTo(out) }
+                        }
                     }
                 } finally {
                     runCatching { vfs.delete(tmp) }
                 }
             } else {
-                vfs.openWrite(dest).use { out ->
-                    ArchiveWriter.writeToStream(format, out, sources, options) { ledger.progress(id, null, it) }
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    vfs.openWrite(dest).use { out ->
+                        ArchiveWriter.writeToStream(format, out, sources, options) { ledger.progress(id, null, it) }
+                    }
                 }
             }
         } catch (e: Throwable) {
@@ -174,8 +276,11 @@ class FileOperations(
             return
         }
         val path = node.path
+        // Opened when the writer reaches it, which is already inside the dispatch above - but
+        // named here too, because a lambda's thread is decided by whoever calls it and that is
+        // not visible from where it is written.
         into += ArchiveSource(entryPath, isDir = false, size = node.size, mtime = node.mtime) {
-            vfs.openRead(path)
+            withContext(Dispatchers.IO) { vfs.openRead(path) }
         }
     }
 
@@ -224,6 +329,7 @@ class FileOperations(
         items: List<VPath>,
         verb: String,
         into: VPath,
+        action: FileAction,
         each: suspend (VPath, ((Progress) -> Unit)) -> VPath?,
     ): OpResult {
         val id = ledger.start("$verb ${items.size} item(s)", into.name)
@@ -231,6 +337,7 @@ class FileOperations(
         // Both ends of every item: where it landed, and where it came from. The source matters
         // because a move leaves nothing behind and the index has to be told that too.
         val touched = ArrayList<VPath>()
+        val denials = ArrayList<Denial>()
         var done = 0
         for (src in items) {
             currentCoroutineContext().ensureActive()
@@ -243,13 +350,19 @@ class FileOperations(
                 done++
                 touched += src
                 landed?.let { touched += it }
-            }.onFailure { failed += src to readable(it) }
+            }.onFailure {
+                failed += src to readable(it)
+                // A host can accept the connection and still refuse one file. Declared
+                // capabilities cannot know that, so it is caught on the way out instead.
+                ActionGate.fromFailure(action, into, it, vfs.isRemote(into))
+                    ?.let { d -> denials += d }
+            }
         }
         report(id, done, failed)
         // Partial batches announce too: the items that succeeded were genuinely written, and
         // those are exactly the ones the gallery would otherwise be missing.
         announce(touched)
-        return OpResult(done, failed)
+        return OpResult(done, failed, denials)
     }
 
     private fun report(id: Long, done: Int, failed: List<Pair<VPath, String>>) {

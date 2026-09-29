@@ -74,6 +74,15 @@ import dev.niccc2007.filet.ui.tabs.SectionRow
 import dev.niccc2007.filet.ui.tabs.SmallBtn
 import dev.niccc2007.filet.ui.tabs.TabButton
 import dev.niccc2007.filet.ui.tabs.TabHeader
+import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgCaption
+import dev.niccc2007.filet.ui.dialogs.DlgField
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgSpacer
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
@@ -197,8 +206,7 @@ fun NearbyScreen(vm: BrowserViewModel) {
         item { SectionRow("Shared (${shares.size} linked)") }
         item {
             Text(
-                "Anything inside Filet/Shared is offered as-is. Files added with “Share” stay " +
-                    "where they are and are streamed from there — a 4 GB video costs no extra space.",
+                "Filet/Shared is offered as-is. Shared files stream from where they are.",
                 fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp,
                 modifier = Modifier.padding(start = 15.dp, end = 15.dp, bottom = 4.dp),
             )
@@ -262,34 +270,17 @@ private fun PinDialog(
 ) {
     var value by remember { mutableStateOf(initial) }
     val valid = value.length == 6
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Access code", fontSize = 16.sp) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it.filter(Char::isDigit).take(6) },
-                    singleLine = true,
-                    isError = value.isNotEmpty() && !valid,
-                    label = { Text("Six digits") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Leave this and Filet picks a new code every time sharing starts, which " +
-                        "is safer. A fixed code is easier to remember.",
-                    fontSize = 11.sp,
-                    color = Filet.colors.fg3,
-                    lineHeight = 15.sp,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onDone(value) }, enabled = valid) { Text("Use this code") }
-        },
-        dismissButton = { TextButton(onClick = onClear) { Text("Random each time") } },
-    )
+    Dlg(onDismiss = onDismiss, dismissOnScrim = false) {
+        DlgHeader(FiletIcons.Lock, "Access code", onClose = onDismiss)
+        DlgBody {
+            DlgField("Six digits", value, { value = it.filter(Char::isDigit).take(6) }, tight = true)
+            DlgCaption("Empty means a new code each time, which is safer.")
+        }
+        DlgFooter {
+            DlgBtn("Random each time", onClick = onClear)
+            DlgBtn("Use this code", kind = BtnKind.PRIMARY, enabled = valid) { onDone(value) }
+        }
+    }
 }
 
 @Composable
@@ -445,8 +436,7 @@ private fun ShareCard(
             Text("Not sharing", fontSize = 14.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(4.dp))
             Text(
-                "Start a share and anyone on this network can open the URL in a browser — no " +
-                    "app, no account, no cable. Only works for devices on this network.",
+                "Anyone on this network can open the URL in a browser. No app, no account.",
                 fontSize = 11.sp, color = colors.fg3, lineHeight = 15.sp,
             )
             Spacer(Modifier.height(10.dp))
@@ -741,16 +731,18 @@ private fun PeerRow(peer: Peer, onOpen: () -> Unit, onPair: () -> Unit, onForget
 @Composable
 private fun PairingDialog(pairing: Pairing, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     val colors = Filet.colors
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Pair with ${pairing.peer.label}", fontSize = 15.sp) },
-        text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+    Dlg(onDismiss = onDismiss, dismissOnScrim = false) {
+        DlgHeader(FiletIcons.Lock, "Pair with ${pairing.peer.label}", onClose = onDismiss)
+        DlgBody {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text(
                     "Check that the same four digits appear on the other device.",
-                    fontSize = 12.sp, color = colors.fg2,
+                    fontSize = 13.sp, lineHeight = 19.sp, color = colors.fg2,
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(14.dp))
                 Text(
                     pairing.code,
                     fontSize = 34.sp,
@@ -758,20 +750,18 @@ private fun PairingDialog(pairing: Pairing, onConfirm: () -> Unit, onDismiss: ()
                     fontFamily = FontFamily.Monospace,
                     color = colors.accent,
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(14.dp))
                 Text(
                     "If they differ, something is between the two devices. Do not continue.",
-                    fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp,
+                    fontSize = 11.sp, color = colors.fg3, lineHeight = 15.sp,
                 )
             }
-        },
-        confirmButton = {
-            androidx.compose.material3.TextButton(onClick = onConfirm) { Text("They match") }
-        },
-        dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
-    )
+        }
+        DlgFooter {
+            DlgBtn("Cancel", onClick = onDismiss)
+            DlgBtn("They match", kind = BtnKind.PRIMARY, onClick = onConfirm)
+        }
+    }
 }
 
 /**

@@ -141,4 +141,124 @@ class RevealScrollTest {
     fun `nothing is shown in an unmeasured viewport`() {
         assertFalse(RevealScroll.alreadyShown(5, 0, rowsOnScreen = 0))
     }
+
+    // ── whether to act at all (RevealScroll.act) ──
+
+    @Test
+    fun `a chunked listing that has not finished is waited for`() {
+        // THE REGRESSION, as a test. "Go to containing folder" stopped scrolling the moment
+        // listings began arriving in chunks: the effect fired on chunk one, the target was not
+        // among the first 120 entries, and the old code read that as "not in this listing" and
+        // dropped the request. Nothing scrolled, ever, for any file outside the first chunk.
+        assertEquals(
+            RevealScroll.Act.WAIT,
+            RevealScroll.act(settled = false, rowCount = 120, targetIndex = -1),
+        )
+    }
+
+    @Test
+    fun `a hit in an unfinished listing scrolls at once and keeps the request`() {
+        // Found in chunk one: go there NOW, and keep the request so later chunks can correct
+        // the position. Waiting for the whole listing was the first fix and it was visible -
+        // a person can tap during the pause.
+        assertEquals(
+            RevealScroll.Act.SCROLL_AGAIN,
+            RevealScroll.act(settled = false, rowCount = 120, targetIndex = 44),
+        )
+    }
+
+    @Test
+    fun `a settled listing holding the target scrolls`() {
+        assertEquals(
+            RevealScroll.Act.SCROLL_DONE,
+            RevealScroll.act(settled = true, rowCount = 1242, targetIndex = 980),
+        )
+    }
+
+    @Test
+    fun `the first row is a hit and not an absence`() {
+        // Index 0 is falsy in several languages and this has to be one of them that it is not.
+        assertEquals(
+            RevealScroll.Act.SCROLL_DONE,
+            RevealScroll.act(settled = true, rowCount = 10, targetIndex = 0),
+        )
+    }
+
+    @Test
+    fun `a settled listing without the target gives up`() {
+        // Hidden by the hidden-files filter, or deleted since the row was drawn. Holding the
+        // request would make the NEXT folder jump for no reason.
+        assertEquals(
+            RevealScroll.Act.GIVE_UP,
+            RevealScroll.act(settled = true, rowCount = 1242, targetIndex = -1),
+        )
+    }
+
+    @Test
+    fun `a settled empty listing gives up rather than waiting forever`() {
+        // An unreadable folder, or one that really is empty. Either way the read is over.
+        assertEquals(
+            RevealScroll.Act.GIVE_UP,
+            RevealScroll.act(settled = true, rowCount = 0, targetIndex = -1),
+        )
+    }
+
+    @Test
+    fun `an unfinished empty listing is still waited for`() {
+        // The very first firing, before any chunk. Giving up here is how the request died
+        // before the folder had produced a single row.
+        assertEquals(
+            RevealScroll.Act.WAIT,
+            RevealScroll.act(settled = false, rowCount = 0, targetIndex = -1),
+        )
+    }
+
+    @Test
+    fun `the old rule is what broke it`() {
+        // The negative control, stated as the code that was there: act as soon as there are
+        // rows, and treat a miss as final.
+        val oldRule = { rowCount: Int, targetIndex: Int ->
+            when {
+                rowCount <= 0 -> RevealScroll.Act.WAIT
+                targetIndex < 0 -> RevealScroll.Act.GIVE_UP
+                else -> RevealScroll.Act.SCROLL_DONE
+            }
+        }
+        // Chunk one of a camera folder, target not in it.
+        assertEquals(RevealScroll.Act.GIVE_UP, oldRule(120, -1))
+        assertEquals(
+            RevealScroll.Act.WAIT,
+            RevealScroll.act(settled = false, rowCount = 120, targetIndex = -1),
+        )
+    }
+
+    @Test
+    fun `a finger on the list cancels the reveal outright`() {
+        // Their scroll wins immediately. A reveal is what the app was asked to do a moment ago;
+        // a drag is what is being asked for now, and yanking the list out from under it is the
+        // worst thing this could do.
+        assertEquals(
+            RevealScroll.Act.GIVE_UP,
+            RevealScroll.act(settled = false, rowCount = 400, targetIndex = 12, userTookOver = true),
+        )
+        assertEquals(
+            RevealScroll.Act.GIVE_UP,
+            RevealScroll.act(settled = true, rowCount = 400, targetIndex = 12, userTookOver = true),
+        )
+    }
+
+    @Test
+    fun `a hit keeps the request until the listing is final`() {
+        // SCROLL_AGAIN means the row is shown now and the position may still be corrected;
+        // SCROLL_DONE is the only one that releases it. Releasing on the first hit would leave
+        // the row wherever the partial list put it when the rest arrived and moved it.
+        assertEquals(
+            RevealScroll.Act.SCROLL_AGAIN,
+            RevealScroll.act(settled = false, rowCount = 120, targetIndex = 3),
+        )
+        assertEquals(
+            RevealScroll.Act.SCROLL_DONE,
+            RevealScroll.act(settled = true, rowCount = 1242, targetIndex = 3),
+        )
+    }
 }

@@ -108,8 +108,20 @@ class Bookmarks(private val prefs: Prefs) {
     private companion object { const val KEY = "bookmarks" }
 }
 
-/** One entry in the "opened recently" list on the Home overview. */
-data class RecentEntry(val path: VPath, val label: String, val at: Long, val isDir: Boolean)
+/**
+ * One entry in the "opened recently" list on the Home overview.
+ *
+ * @param visits how many times this path has been opened. The MRU de-duplicates by path, so
+ *   without a count there is no way to tell a folder opened once from one opened forty times -
+ *   which is exactly the question the navigation pane's Quick access asks.
+ */
+data class RecentEntry(
+    val path: VPath,
+    val label: String,
+    val at: Long,
+    val isDir: Boolean,
+    val visits: Int = 1,
+)
 
 /**
  * A short MRU list, capped and de-duplicated by path.
@@ -125,7 +137,10 @@ class Recents(private val prefs: Prefs) {
 
     fun record(path: VPath, isDir: Boolean, label: String = path.name) {
         val now = System.currentTimeMillis()
-        val next = (listOf(RecentEntry(path, label, now, isDir)) +
+        // The count carries over from the entry being replaced. Dropping it would reset the
+        // total every time the folder was opened, which is the one value it can never have.
+        val previous = _items.value.firstOrNull { it.path == path }?.visits ?: 0
+        val next = (listOf(RecentEntry(path, label, now, isDir, previous + 1)) +
             _items.value.filterNot { it.path == path }).take(CAP)
         _items.value = next
         save(next)
@@ -153,7 +168,15 @@ class Recents(private val prefs: Prefs) {
             (0 until arr.length()).mapNotNull { i ->
                 val o = arr.getJSONObject(i)
                 val p = runCatching { VPath.parse(o.getString("path")) }.getOrNull() ?: return@mapNotNull null
-                RecentEntry(p, o.optString("label", p.name), o.optLong("at"), o.optBoolean("dir"))
+                RecentEntry(
+                    p,
+                    o.optString("label", p.name),
+                    o.optLong("at"),
+                    o.optBoolean("dir"),
+                    // A list written before counts existed reads as one visit each, which is
+                    // true as far as anything knows and keeps the ordering sane.
+                    o.optInt("visits", 1),
+                )
             }
         }.getOrElse { emptyList() }
     }
@@ -163,7 +186,7 @@ class Recents(private val prefs: Prefs) {
         for (r in items) {
             arr.put(
                 JSONObject().put("path", r.path.toString()).put("label", r.label)
-                    .put("at", r.at).put("dir", r.isDir)
+                    .put("at", r.at).put("dir", r.isDir).put("visits", r.visits)
             )
         }
         prefs.putString(KEY, arr.toString())

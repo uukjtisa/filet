@@ -106,11 +106,16 @@ class FiletGraph(context: Context) {
 
     // Extraction is its own object because it is two operations - work out what will happen,
     // then carry out exactly that - and the preview reads the first without the second.
-    val extractOps = dev.niccc2007.filet.ops.ExtractOperations(vfs, ledger)
+    val extractOps = dev.niccc2007.filet.ops.ExtractOperations(vfs, ledger) { touched ->
+        dev.niccc2007.filet.media.MediaAnnounce.announce(app, touched)
+    }
     val scripts = dev.niccc2007.filet.script.ScriptStore(app, prefs)
     val scriptEngine = dev.niccc2007.filet.script.ScriptEngine(vfs)
     val signingKeys = dev.niccc2007.filet.apk.SigningKeys(app, prefs)
-    val apkTools = dev.niccc2007.filet.apk.ApkTools(app, vfs, ledger)
+    /** Local copies of remote files, for the operations that cannot take a stream. */
+    val staging = dev.niccc2007.filet.ops.RemoteStaging(vfs, ledger, app.cacheDir)
+
+    val apkTools = dev.niccc2007.filet.apk.ApkTools(app, vfs, ledger, staging)
     val bridge = dev.niccc2007.filet.bridge.TrawlBridge(app, ledger)
     /** What Filet has put on the home screen, so it is manageable from inside the app. */
     val shortcuts = dev.niccc2007.filet.shortcuts.ShortcutStore(app, prefs)
@@ -128,6 +133,8 @@ class FiletGraph(context: Context) {
      * next start instead of moving the root under a mounted drive.
      */
     val webdav: dev.niccc2007.filet.webdav.WebDavServer by lazy {
+        // The endpoint is read back out of Prefs the moment the store is attached, below, so a
+        // mapped drive on a PC keeps resolving across restarts.
         dev.niccc2007.filet.webdav.WebDavServer(
             vfs = vfs,
             rootFor = { scopeChoice ->
@@ -143,7 +150,15 @@ class FiletGraph(context: Context) {
             // rather than a query per view: the filtering is a pure function and running it
             // eight times over the same rows costs nothing next to eight trips to SQLite.
             indexed = {
-                kotlinx.coroutines.runBlocking {
+                // Reused for a few seconds rather than rebuilt per request - see
+                // DavViews.SNAPSHOT_MS for why, and what the staleness costs.
+                val now = System.currentTimeMillis()
+                val cached = viewSnapshot
+                if (cached != null &&
+                    dev.niccc2007.filet.webdav.DavViews.snapshotFresh(viewSnapshotAt, now)
+                ) {
+                    cached
+                } else kotlinx.coroutines.runBlocking {
                     runCatching {
                         index.candidates(
                             dev.niccc2007.filet.index.SearchRequest(
@@ -162,13 +177,50 @@ class FiletGraph(context: Context) {
                                 )
                             }
                     }.getOrDefault(emptyList())
+                        .also { viewSnapshot = it; viewSnapshotAt = System.currentTimeMillis() }
                 }
             },
-        )
+        ).also {
+            // Setting the store loads the endpoint back out of Prefs and keeps it written from
+            // then on. Without it the code, the port and the hosted folder were in-memory only:
+            // settable, and gone on the next launch - so the URL a PC had mapped moved and the
+            // saved network drive stopped resolving.
+            it.store = dev.niccc2007.filet.data.PrefsDavStore(prefs)
+            it.beacon = davBeacon
+            it.onRemoteWrite = { remoteWrites.value = remoteWrites.value + 1 }
+        }
     }
+
+    /**
+     * Announces this phone's share while it hosts, and listens for other phones doing the same.
+     *
+     * On the graph rather than inside the server because both halves are needed in places the
+     * server is not: the Remotes screen scans with it without hosting anything.
+     */
+    val davBeacon: dev.niccc2007.filet.webdav.DavBeacon by lazy {
+        dev.niccc2007.filet.webdav.DavBeacon(app)
+    }
+
+    /**
+     * The last pull of the index behind the hosting views, and when it was taken.
+     *
+     * Volatile rather than synchronised: the server answers on four threads, and two of them
+     * racing here costs one duplicate query, not a wrong answer. A lock would serialise every
+     * listing behind whichever thread was rebuilding.
+     */
+    @Volatile private var viewSnapshot: List<dev.niccc2007.filet.webdav.DavViews.Entry>? = null
+    @Volatile private var viewSnapshotAt: Long = 0L
 
     /** The hosting card reads this; the server writes it. */
     val davState = kotlinx.coroutines.flow.MutableStateFlow(dev.niccc2007.filet.webdav.DavState())
+
+    /**
+     * Bumped whenever a mounted desktop or phone changes a file on this one.
+     *
+     * Separate from [davState], which changes on every request including reads - hanging a
+     * re-listing off that would re-read folders while somebody merely browses the share.
+     */
+    val remoteWrites = kotlinx.coroutines.flow.MutableStateFlow(0L)
 
     /**
      * Keep the launcher's long-press menu honest about whether sharing is on.

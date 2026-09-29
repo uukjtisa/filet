@@ -1,7 +1,9 @@
 package dev.niccc2007.filet.vfs
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.io.OutputStream
 
@@ -30,9 +32,23 @@ class Vfs(providers: List<FileSystemProvider>) {
 
     suspend fun roots(): List<VNode> = byScheme.values.flatMap { it.roots() }
     suspend fun list(path: VPath): List<VNode> = p(path).list(path)
+
+    /** How many entries a directory holds. Null when it cannot be counted. */
+    suspend fun countChildren(path: VPath): Int? = p(path).countChildren(path)
+
+    /** [FileSystemProvider.list] in pieces. Backends that cannot stream send one chunk. */
+    suspend fun list(path: VPath, onChunk: suspend (List<VNode>) -> Unit) =
+        p(path).list(path, onChunk)
     suspend fun stat(path: VPath): VNode? = p(path).stat(path)
     suspend fun openRead(path: VPath): InputStream = p(path).openRead(path)
     suspend fun openWrite(path: VPath, append: Boolean = false): OutputStream = p(path).openWrite(path, append)
+
+    /** Whether part of [path] can be read without reading all of it. See the provider doc. */
+    suspend fun supportsRanges(path: VPath): Boolean = p(path).supportsRanges(path)
+
+    /** Bytes `[from, until)` of [path]. Only where [supportsRanges] is true. */
+    suspend fun readRange(path: VPath, from: Long, until: Long): ByteArray =
+        p(path).readRange(path, from, until)
     suspend fun create(path: VPath, isDir: Boolean): VNode = p(path).create(path, isDir)
     suspend fun delete(path: VPath, recursive: Boolean = false) = p(path).delete(path, recursive)
     suspend fun rename(path: VPath, newName: String): VNode = p(path).rename(path, newName)
@@ -54,6 +70,20 @@ class Vfs(providers: List<FileSystemProvider>) {
 
     /** Shorthand for the question every write action asks. */
     fun canWrite(path: VPath): Boolean = Capability.WRITE in capabilities(path)
+
+    /** Whether [path] lives on another device. See [FileSystemProvider.remote]. */
+    fun isRemote(path: VPath): Boolean = p(path).remote
+
+    /**
+     * Whether [action] may be attempted on [path], from what the backend declares.
+     *
+     * The one place an action pipeline asks. Routing by scheme is this class's job, and the
+     * question "what is allowed here" is a question about the backend behind a path - so a
+     * caller that had to fetch the capabilities and the remote flag itself to ask it would be
+     * reaching past the VFS for two facts it owns.
+     */
+    fun permit(action: FileAction, path: VPath): Denial? =
+        ActionGate.check(action, path, capabilities(path), isRemote(path))
 
     /**
      * Copy [from] to [into], recursing through directories.
@@ -110,13 +140,26 @@ class Vfs(providers: List<FileSystemProvider>) {
         if (stat(dest) != null) throw VfsException.AlreadyExists(dest)
 
         if (!src.isDir) {
-            val out = openWrite(dest)
-            try {
-                openRead(src.path).use { input -> counter.pump(input, out, src.name) }
-            } finally {
-                out.close()
+            // The bytes move on the IO dispatcher, not on whoever asked.
+            //
+            // A provider declaring `withContext(Dispatchers.IO)` on `openWrite` moves only the
+            // stream's CONSTRUCTION. Every `write` after it, and the `close` that ends it, run on
+            // the calling coroutine - which for a drag or a paste is `viewModelScope`, the main
+            // thread. Local files tolerate that; a socket does not, so Android throws
+            // `NetworkOnMainThreadException` on the first byte and a copy to a mounted share
+            // fails while the same copy between two local folders succeeds.
+            //
+            // It belongs here rather than in each provider because this is the one place that
+            // holds both streams, and a rule kept in one place cannot be half-applied.
+            return withContext(Dispatchers.IO) {
+                val out = openWrite(dest)
+                try {
+                    openRead(src.path).use { input -> counter.pump(input, out, src.name) }
+                } finally {
+                    out.close()
+                }
+                stat(dest) ?: throw VfsException.Io(dest, IllegalStateException("vanished after copy"))
             }
-            return stat(dest) ?: throw VfsException.Io(dest, IllegalStateException("vanished after copy"))
         }
 
         val node = create(dest, isDir = true)

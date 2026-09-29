@@ -111,8 +111,7 @@ fun UpdateSheet(vm: BrowserViewModel, state: UpdateState) {
                     )
                     if (state.release.apkUrl == null) {
                         Text(
-                            "That release has no APK attached, so there is nothing to install " +
-                                "from here. The release page has the files.",
+                            "No APK on that release. The release page has the files.",
                             fontSize = 10.5.sp, color = colors.warn, lineHeight = 14.sp,
                             modifier = Modifier.padding(top = 8.dp),
                         )
@@ -162,8 +161,7 @@ fun UpdateSheet(vm: BrowserViewModel, state: UpdateState) {
                         "You are running Filet ${Updater.installed}, built from source.",
                     )
                     Text(
-                        "Nothing is tagged on GitHub for this app to offer. Build from the " +
-                            "repository until the first release lands.",
+                        "Nothing tagged on GitHub yet. Build from the repository.",
                         fontSize = 11.sp, color = colors.fg3, lineHeight = 15.sp,
                         modifier = Modifier.padding(top = 6.dp),
                     )

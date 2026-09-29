@@ -39,6 +39,10 @@ import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.browser.humanSize
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgPick
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
@@ -79,19 +83,29 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
             enter = fadeIn() + slideInVertically { it / 3 },
             exit = fadeOut() + slideOutVertically { it / 3 },
         ) {
-            chooser?.let { node -> OpenWithSheet(vm, node) }
+            // The merged dialogue, in its open-a-file mode. There used to be a second
+            // Open With in Settings with the same list and a different layout; see
+            // OpenWith.kt for why one composable does both jobs.
+            chooser?.let { node ->
+                dev.niccc2007.filet.handlers.OpenWithDialog(
+                    vm = vm,
+                    file = node,
+                    extension = node.extension,
+                    onDismiss = vm::dismissChooser,
+                )
+            }
         }
 
         // Where a viewer's Share goes. Bug identified: it handed straight to Android's share
         // sheet, so Filet's own network share was the one destination its own button could
         // not reach. Only shown when there is a real choice - see shareTargets.
-        val shareFor by vm.shareChoiceFor.collectAsState()
+        val shareFor by vm.shareChoice.collectAsState()
         AnimatedVisibility(
             visible = shareFor != null,
             enter = fadeIn() + slideInVertically { it / 3 },
             exit = fadeOut() + slideOutVertically { it / 3 },
         ) {
-            shareFor?.let { node -> ShareChoiceSheet(vm, node) }
+            shareFor?.let { ask -> ShareChoiceSheet(vm, ask) }
         }
 
         // The second sheet: not "what can Filet do with this" but "which installed app".
@@ -122,186 +136,36 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
 }
 
 /**
- * "Open with", listing what Filet itself can do plus a hand-off to the system chooser.
- *
- * "Always" writes the handler registry (PLAN.md L2) and the next single tap skips this sheet.
- * That is a per-type routing default, not a per-file one.
- */
-@Composable
-private fun OpenWithSheet(vm: BrowserViewModel, node: dev.niccc2007.filet.vfs.VNode) {
-    val colors = Filet.colors
-    var chosen by remember(node.path) { mutableStateOf<HandlerId?>(null) }
-    var showAll by remember(node.path) { mutableStateOf(false) }
-    // Two tiers. Bug identified: this list was built from the extension, so a file the tables
-    // did not recognise was offered the code editor, the hex viewer and "another app" and
-    // nothing else - a `.mcaddon`, which is a zip, could not be opened with the archive viewer
-    // at all. Every viewer is now reachable; the guess just goes first.
-    val offer = vm.registry.offerFor(node)
-    val candidates = if (showAll) offer.all else offer.likely
-
-    Box(
-        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable { vm.dismissChooser() },
-        contentAlignment = Alignment.BottomCenter,
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .clickable(enabled = false) {}
-                .padding(bottom = 16.dp),
-        ) {
-            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp)) {
-                Column(Modifier.weight(1f)) {
-                    Text("Open with", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "${node.name}  ·  ${humanSize(node.size)}",
-                        fontSize = 10.5.sp, color = colors.fg3, fontFamily = FontFamily.Monospace,
-                    )
-                }
-                Icon(
-                    FiletIcons.Close, "Close", tint = colors.fg2,
-                    modifier = Modifier.size(26.dp).clickable { vm.dismissChooser() }.padding(5.dp),
-                )
-            }
-            candidates.forEach { h ->
-                val on = h == chosen
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(if (on) colors.sel else Color.Transparent)
-                        .clickable { chosen = h }
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(iconFor(h), null, tint = colors.fg2, modifier = Modifier.size(17.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Text(h.label, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                    if (on) Icon(FiletIcons.Check, null, tint = colors.accent, modifier = Modifier.size(15.dp))
-                }
-            }
-            if (!showAll && offer.rest.isNotEmpty()) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { showAll = true }
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(FiletIcons.More, null, tint = colors.fg3, modifier = Modifier.size(17.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Every other viewer", fontSize = 13.sp, color = colors.fg2)
-                        // Honest about what they are. None of them can damage anything - a
-                        // viewer handed a file it cannot read says so and closes - and that is
-                        // a better outcome than a file with no way to open it.
-                        Text(
-                            "These do not match this file's name. One may still open it.",
-                            fontSize = 10.sp, color = colors.fg3,
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End) {
-                // "Always" is the one that writes a routing default, so it is not the one
-                // wearing the primary colour. Same rule as the app picker's unticked box.
-                SheetButton("Always", primary = false, enabled = chosen != null) {
-                    chosen?.let { vm.openWith(node, it, remember = true) }
-                }
-                Spacer(Modifier.width(8.dp))
-                SheetButton("Just once", primary = true, enabled = chosen != null) {
-                    chosen?.let { vm.openWith(node, it, remember = false) }
-                }
-            }
-        }
-    }
-}
-
-/**
- * Where to send a file from a viewer.
+ * Where to send a file.
  *
  * Two destinations, and the network one is Filet's own: a link any browser on this network can
  * open, with nothing installed at the other end. Handing the file to another app stays first
  * because it is still right most of the time.
+ *
+ * Was a hand-rolled scrim and sheet with its own paddings; now on the shared kit, so it agrees
+ * with every other dialogue about what a row and a header are.
  */
 @Composable
-private fun ShareChoiceSheet(vm: BrowserViewModel, node: dev.niccc2007.filet.vfs.VNode) {
-    val colors = Filet.colors
-    Box(
-        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))
-            .clickable { vm.dismissShareChoice() },
-        contentAlignment = Alignment.BottomCenter,
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
-                .background(MaterialTheme.colorScheme.surface)
-                .clickable(enabled = false) {}
-                .padding(bottom = 16.dp),
-        ) {
-            Text(
-                "Share ${node.name}",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 10.dp),
-            )
-            for (target in shareTargets(local = true)) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { vm.shareVia(node, target) }
-                        .padding(horizontal = 18.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        if (target == ShareTarget.NETWORK) FiletIcons.Wifi else FiletIcons.Share,
-                        null,
-                        tint = colors.fg2,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(14.dp))
-                    Column {
-                        Text(target.label, fontSize = 13.5.sp)
-                        Text(target.detail, fontSize = 11.sp, color = colors.fg3)
-                    }
-                }
+private fun ShareChoiceSheet(vm: BrowserViewModel, ask: BrowserViewModel.ShareAsk) {
+    Dlg(onDismiss = vm::dismissShareChoice) {
+        DlgHeader(
+            icon = FiletIcons.Share,
+            title = "Share ${ask.title}",
+            sub = if (ask.items.size > 1) "${ask.items.size} files" else null,
+            onClose = vm::dismissShareChoice,
+        )
+        DlgBody {
+            for (target in ask.targets) {
+                DlgPick(
+                    icon = if (target == ShareTarget.NETWORK) FiletIcons.Wifi else FiletIcons.Share,
+                    label = target.label,
+                    detail = target.detail,
+                    ours = target == ShareTarget.NETWORK,
+                    tag = if (target == ShareTarget.NETWORK) "Filet" else null,
+                ) { vm.shareVia(target) }
             }
         }
     }
-}
-
-@Composable
-private fun SheetButton(text: String, primary: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    val colors = Filet.colors
-    Text(
-        text,
-        fontSize = 12.5.sp,
-        color = when {
-            !enabled -> colors.fg3
-            primary -> MaterialTheme.colorScheme.onPrimary
-            else -> MaterialTheme.colorScheme.onSurface
-        },
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (primary && enabled) colors.accent else colors.high)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-    )
-}
-
-private fun iconFor(h: HandlerId) = when (h) {
-    HandlerId.TEXT -> FiletIcons.Code
-    HandlerId.IMAGE -> FiletIcons.Image
-    HandlerId.MEDIA -> FiletIcons.Play
-    HandlerId.HEX -> FiletIcons.Hex
-    HandlerId.ARCHIVE -> FiletIcons.Zip
-    HandlerId.APK -> FiletIcons.Apk
-    HandlerId.MANIFEST -> FiletIcons.Code
-    HandlerId.EXTERNAL -> FiletIcons.Share
 }
 
 /** The bar every viewer wears, so they all close and act the same way. */

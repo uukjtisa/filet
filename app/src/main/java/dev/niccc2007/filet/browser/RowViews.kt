@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,6 +47,11 @@ import java.util.Locale
  * not like the phone it is on. Below 270dp it *overrides the view step* entirely, because
  * six steps need room a narrow pane does not have.
  */
+/**
+ * @param showDate whether there is ROOM for a separate date column. Whether one is WANTED is
+ *   [EntryDisplay.dateColumn], and both have to agree - width is a constraint, the setting is a
+ *   choice, and collapsing them into one flag is how a preference became unreachable on a phone.
+ */
 data class PaneMetrics(val step: ViewStep, val showDate: Boolean, val showSize: Boolean, val showChips: Boolean) {
     companion object {
         fun forWidth(widthDp: Int, requested: ViewStep) = PaneMetrics(
@@ -69,6 +75,10 @@ fun FileRow(
     modifier: Modifier = Modifier,
     /** Off in the two compact list steps, where the glyph is only a few pixels wide. */
     thumbnails: Boolean = true,
+    /** What this row shows. See [EntryDisplay] for why the date column defaults off. */
+    display: EntryDisplay = EntryDisplay(),
+    /** Entries inside, for a folder. Null until read, and the column then shows nothing. */
+    count: Int? = null,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDoubleClick: () -> Unit = {},
@@ -127,9 +137,9 @@ fun FileRow(
                 fontWeight = if (node.isDir) FontWeight.Medium else FontWeight.Normal,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            if (step.twoLine) {
+            if (step.twoLine && display.subtitle) {
                 Text(
-                    text = subtitle(node),
+                    text = EntryFormat.subtitle(node.isDir, node.size, node.mtime, display),
                     fontSize = step.metaSize.sp,
                     color = colors.fg3,
                     maxLines = 1,
@@ -137,22 +147,38 @@ fun FileRow(
                 )
             }
         }
-        if (metrics.showSize && !node.isDir) {
-            Text(
-                text = humanSize(node.size),
-                fontSize = step.metaSize.sp,
-                fontFamily = FontFamily.Monospace,
-                color = colors.fg3,
-                textAlign = TextAlign.End,
-                modifier = Modifier.width(62.dp),
-            )
+        // ONE column for "how big is this". A file answers in bytes and a folder in items, which
+        // is the same question in different units - and the folder half is what used to be a
+        // permanent dash.
+        if (metrics.showSize && display.measure) {
+            val measure = EntryFormat.measure(node.isDir, node.size, count)
+            if (measure.isNotEmpty()) {
+                Text(
+                    text = measure,
+                    fontSize = step.metaSize.sp,
+                    // The list face with tabular figures, not Cascadia Mono. A code font in a
+                    // list of documents was the complaint; what the column actually needs is
+                    // digits that line up, which is a font FEATURE rather than a whole family.
+                    fontFamily = null,
+                    style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
+                    color = colors.fg3,
+                    textAlign = TextAlign.End,
+                    maxLines = 1,
+                    modifier = Modifier.width(if (node.isDir) 68.dp else 62.dp),
+                )
+            } else {
+                Spacer(Modifier.width(if (node.isDir) 68.dp else 62.dp))
+            }
         }
-        if (metrics.showDate) {
+        // Only when there is room AND it was asked for. Off by default: with the subtitle on it
+        // prints the same date again a few pixels to the right, which is the duplication reported.
+        if (metrics.showDate && display.dateColumn) {
             Spacer(Modifier.width(8.dp))
             Text(
-                text = if (node.mtime > 0) DATE.format(Date(node.mtime)) else "",
+                text = EntryFormat.date(node.mtime, display),
                 fontSize = step.metaSize.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = null,
+                style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
                 color = colors.fg3,
                 maxLines = 1,
                 modifier = Modifier.width(92.dp),
@@ -302,13 +328,6 @@ private fun Modifier.combinedClickableCompat(onClick: () -> Unit, onLongClick: (
 
 private fun iconTint(kind: FileKind, accent: Color, onSurfaceVariant: Color, fg2: Color): Color =
     if (kind == FileKind.FOLDER) accent else if (kind == FileKind.OTHER) fg2 else onSurfaceVariant
-
-private fun subtitle(node: VNode): String {
-    val when_ = if (node.mtime > 0) DATE.format(Date(node.mtime)) else ""
-    return if (node.isDir) when_ else listOf(humanSize(node.size), when_).filter { it.isNotEmpty() }.joinToString("  ·  ")
-}
-
-private val DATE = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
 
 fun humanSize(bytes: Long): String {
     if (bytes < 0) return ""

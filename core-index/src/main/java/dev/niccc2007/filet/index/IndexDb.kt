@@ -165,6 +165,31 @@ class IndexDb private constructor(val db: SQLiteDatabase, val hasFts: Boolean) {
                 """.trimIndent()
             )
 
+            // The frontier of a pass in flight: directories discovered and not yet listed.
+            //
+            // Keyed by generation, because that is what decides whether it can be resumed. A
+            // truncated pass does not advance META_GEN - the sweep and the stamp both happen only
+            // on a complete one - so the next pass computes the same generation, and rows left
+            // here under it are that pass's own unfinished half. See CrawlFrontier.
+            //
+            // The path is stored beside the node id rather than resolved from it. Resolving means
+            // walking parent_id per entry at the moment the walk is trying to start, and the
+            // frontier is small: directories only, about 1,821 of them on a phone holding 40,714
+            // files.
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS crawl_queue (
+                  gen     INTEGER NOT NULL,
+                  ord     INTEGER NOT NULL,
+                  node_id INTEGER NOT NULL,
+                  scheme  TEXT    NOT NULL,
+                  path    TEXT    NOT NULL,
+                  PRIMARY KEY (gen, ord)
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS crawl_queue_gen ON crawl_queue(gen)")
+
             db.execSQL(
                 """
                 CREATE TABLE IF NOT EXISTS meta (

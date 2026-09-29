@@ -274,7 +274,7 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
             onDismiss = { menuFor = null },
             onReveal = { menuFor = null; vm.revealInFolder(node) },
             onOpen = { menuFor = null; vm.openHomeEntry(node) },
-            onShare = { menuFor = null; vm.shareOne(node) },
+            onShare = { menuFor = null; vm.share(node) },
             onBookmark = { menuFor = null; vm.bookmarkOne(node) },
             onShortcut = { menuFor = null; vm.shortcutOne(node) },
             onForget = { menuFor = null; vm.forgetHomeEntry(node) },

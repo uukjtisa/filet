@@ -30,7 +30,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** What a pane is currently showing. Not every pane shows a directory. */
-enum class PaneKind { HOME, FOLDER, ABOUT, BOOKMARKS, RECENT, SETTINGS, ACTIVITY, SCRIPTS, NEARBY, REMOTES, SHORTCUTS, HISTORY }
+enum class PaneKind {
+    HOME, FOLDER, ABOUT, BOOKMARKS, RECENT, SETTINGS, ACTIVITY, SCRIPTS, NEARBY, REMOTES,
+    SHORTCUTS, HISTORY,
+
+    /** Installed apps, and extracting their APK back out. */
+    APPS,
+}
 
 data class SearchUi(
     val open: Boolean = false,
@@ -135,6 +141,13 @@ class PaneController(
      * captured Int would be exactly the stale-capture bug that broke pinch-to-zoom.
      */
     private val worldRevision: () -> Int = { 0 },
+    /**
+     * Whether a drag is in flight anywhere in the app.
+     *
+     * A function for the same reason as [worldRevision]: the pane outlives any reading of it,
+     * and the whole point is to be asked at the moment the decision is made.
+     */
+    private val dragging: () -> Boolean = { false },
 ) {
     private val _state = MutableStateFlow(PaneState(id = id))
     val state: StateFlow<PaneState> = _state.asStateFlow()
@@ -195,6 +208,7 @@ class PaneController(
             back.addLast(prev.copy(entries = emptyList()))
             forward.clear()
         }
+        val moved = prev.cwd != path
         _state.value = prev.copy(
             kind = PaneKind.FOLDER,
             cwd = path,
@@ -206,17 +220,45 @@ class PaneController(
             canGoBack = back.isNotEmpty(),
             canGoForward = forward.isNotEmpty(),
             search = _state.value.search.copy(hits = emptyList(), painted = false),
+            // Bug identified while measuring the wait on a camera folder, and it is most of what
+            // that wait LOOKED like. The rows were not cleared when the path changed, so for the
+            // whole read the pane showed the previous folder's contents under the new folder's
+            // breadcrumb. PaneView has a spinner for exactly this moment - `loading &&
+            // entries.isEmpty()` - and it could never appear, because entries were never empty.
+            // So the honest report of "I am reading a big folder" rendered as "nothing happened
+            // when you tapped", which is the worse of the two by a distance.
+            //
+            // Only on an actual move. Re-listing the SAME folder keeps its rows on purpose: that
+            // is what a refresh and a post-paste relist do, and blanking there would flash the
+            // whole list for a change of one row.
+            entries = if (moved) emptyList() else prev.entries,
+            // A request aimed at the folder being left cannot be satisfied in the one being
+            // entered, and holding it would make this folder jump to nothing. Kept on a re-list
+            // of the same folder, which is what a refresh and a post-paste relist are.
+            revealTarget = if (moved) null else prev.revealTarget,
         )
+        if (moved) raw = emptyList()
         // Read BEFORE the listing starts, not after it finishes: an operation that lands while
         // this read is in flight must leave the pane behind, or its change is the one that gets
         // lost. Stamping with the revision at the end would mark the pane current for a change
         // it never saw.
         val stamp = worldRevision()
         listJob = scope.launch {
-            runCatching { vfs.list(path) }
-                .onSuccess { list ->
-                    raw = list
+            // Accumulated rather than assigned per chunk: `render` sorts the whole set it is
+            // given, so each chunk has to arrive on top of the ones before it.
+            val acc = ArrayList<VNode>()
+            runCatching {
+                vfs.list(path) { chunk ->
+                    acc += chunk
+                    raw = acc.toList()
                     listedAt = stamp
+                    // loading stays true until the last chunk. It is what the path bar reads to
+                    // show that more is coming, and the spinner is already conditional on there
+                    // being no rows yet, so a partial list draws normally underneath it.
+                    _state.update { render(it) }
+                }
+            }
+                .onSuccess {
                     // After the listing lands, not before: if reading the folder failed there
                     // is nothing here worth indexing, and telling the indexer otherwise would
                     // spend a crawl budget on a path that does not resolve.
@@ -227,8 +269,10 @@ class PaneController(
                     if (_state.value.search.active) runSearch(_state.value.search.query)
                 }
                 .onFailure { e ->
-                    // The previous listing stays on screen: an error with an empty list behind
-                    // it is indistinguishable from an empty folder.
+                    // A failure PART WAY through keeps what arrived: those rows were really
+                    // read, and throwing them away to show an error would lose the only useful
+                    // half of the answer. A failure before the first chunk leaves the pane empty
+                    // with the error on it, which is the case this always handled.
                     _state.update { it.copy(loading = false, error = e.readable()) }
                 }
         }
@@ -260,16 +304,25 @@ class PaneController(
     private fun restore(s: PaneState) {
         val target = s.copy(canGoBack = back.isNotEmpty(), canGoForward = forward.isNotEmpty())
         if (target.kind == PaneKind.FOLDER && target.cwd != null) {
-            _state.value = target.copy(loading = true)
+            // Entries cleared for the same reason navigateTo clears them: a restored pane is
+            // arriving somewhere else, and the rows in `target` came off the history stack with
+            // entries already emptied, so the only thing they could show is the folder being
+            // left.
+            _state.value = target.copy(loading = true, entries = emptyList())
+            raw = emptyList()
             listJob?.cancel()
             val stamp = worldRevision()
             listJob = scope.launch {
-                runCatching { vfs.list(target.cwd) }
-                    .onSuccess {
-                        raw = it
+                val acc = ArrayList<VNode>()
+                runCatching {
+                    vfs.list(target.cwd) { chunk ->
+                        acc += chunk
+                        raw = acc.toList()
                         listedAt = stamp
-                        _state.update { s2 -> render(s2.copy(loading = false)) }
+                        _state.update { s2 -> render(s2) }
                     }
+                }
+                    .onSuccess { _state.update { s2 -> render(s2.copy(loading = false)) } }
                     .onFailure { e -> _state.update { s2 -> s2.copy(loading = false, error = e.readable()) } }
             }
         } else {
@@ -371,6 +424,7 @@ class PaneController(
             visible = visible,
             listedAtRevision = listedAt,
             worldRevision = worldRevision(),
+            dragging = dragging(),
         )
         if (stale) navigateTo(s.cwd ?: return, push = false)
     }
@@ -512,7 +566,12 @@ class PaneController(
         runSearch(q)
     }
 
-    private fun runSearch(q: String) {
+    /**
+     * @param keepOrder true for a re-run against a growing index: the rows already drawn keep
+     *   their places and only new ones append. False for a query the person just typed, which
+     *   should be ranked fresh - that is a different list, not a longer one.
+     */
+    private fun runSearch(q: String, keepOrder: Boolean = false) {
         searchJob?.cancel()
         if (q.isBlank()) {
             onSearched("")
@@ -528,9 +587,14 @@ class PaneController(
             _state.update { it.copy(search = it.search.copy(hits = emptyList(), running = false, painted = true)) }
             return
         }
+        // Resolved, not taken as given: Home has no cwd, and a folder-shaped scope with
+        // nowhere to stand is an impossible search rather than a narrow one. It used to be
+        // answered with an empty list and no explanation.
+        // Not named `scope`: this class already has one, and it is the CoroutineScope.
+        val searchScope = dev.niccc2007.filet.browser.SearchReach.resolve(s.search.scope, s.cwd)
         val req = SearchRequest(
             query = q,
-            scope = s.search.scope,
+            scope = searchScope,
             origin = s.cwd,
             roots = rootsForDevice,
             showHidden = prefs.showHidden.value,
@@ -545,7 +609,7 @@ class PaneController(
         // because the index declines a single-folder search.
         val wanted = sourcePlan(
             indexUsable = searchSources.any { it.handles(req.copy(scope = SearchScope.DEVICE)) },
-            scope = s.search.scope,
+            scope = searchScope,
             nativeOnly = s.search.nativeOnly,
         )
         // Bug identified, reported as the Native search toggle changing nothing: the source for
@@ -565,7 +629,7 @@ class PaneController(
                 origin = originLine(sources.map { src -> src.kind }),
                 nativeMatters = nativeToggleMatters(
                     indexUsable = searchSources.any { src -> src.handles(req.copy(scope = SearchScope.DEVICE)) },
-                    scope = s.search.scope,
+                    scope = searchScope,
                 ),
             ))
         }
@@ -573,6 +637,9 @@ class PaneController(
             _state.update { it.copy(search = it.search.copy(hits = emptyList(), running = false, painted = true)) }
             return
         }
+        // Started here rather than from publish, and at most once per open search: it keeps its
+        // own clock, and restarting it on every publish is what stopped that clock working.
+        watchConfirmations()
         searchJob = scope.launch {
             // Debounce 120 ms: 300 feels laggy, under 100 wastes queries (SEARCH.md §5.5).
             delay(120)
@@ -582,7 +649,10 @@ class PaneController(
             _state.update { it.copy(search = it.search.copy(running = true, painted = false)) }
 
             val collected = ArrayList<SearchHit>()
-            var painted = false
+            // A re-run starts as though it had already painted, which is what makes every one of
+            // its publishes stable. Without this the first publish of a re-run re-sorts the whole
+            // set by score and the list jumps - the exact instability this has to avoid.
+            var painted = keepOrder
             val firstPaintAt = System.currentTimeMillis() + 90
             // Merged as they arrive rather than one source after the other: the index answers
             // before the finger leaves the key, and a user who is going to be shown a result
@@ -638,16 +708,44 @@ class PaneController(
     private var confirmJob: Job? = null
 
     private fun watchConfirmations() {
-        confirmJob?.cancel()
+        // Already watching this search. Restarting would reset the tick, which is the fault.
+        if (confirmJob?.isActive == true) return
         confirmJob = scope.launch {
+            // What the answer on screen was built against, so a change can be an EDGE rather
+            // than a level. Re-asking on a level would re-ask on every tick of a running crawl.
+            var seen: IndexStatus? = indexStatus()
+            var sinceAsk = 0L
             while (true) {
                 delay(CONFIRM_TICK_MS)
                 val st = _state.value.search
                 if (!st.active) return@launch
                 val status = indexStatus() ?: return@launch
-                // Between passes every surviving row carries the completed generation, so
-                // there is nothing to re-read and nothing to draw.
-                if (!status.running) {
+
+                // Bug identified: this used to settle the badges and `return@launch`, so a query
+                // typed while a pass was running never saw the rows that pass went on to write.
+                // Retyping worked, which is what made it look like a display fault - it was not,
+                // the question was simply never asked again.
+                val rerun = SearchRefresh.shouldRerun(seen, status)
+                seen = status
+
+                // While a pass is running, ask again every so often rather than waiting for it to
+                // end. A crawl over a whole phone takes minutes, and a query typed at the start of
+                // one otherwise shows its first answer and nothing else until it finishes.
+                //
+                // Safe because of HOW the results merge, not because of how rarely this fires:
+                // `keepOrder` publishes stably, so rows already on screen hold their positions and
+                // only new ones append. A re-run can lengthen the list; it cannot reorder it.
+                if (status.running) {
+                    sinceAsk += CONFIRM_TICK_MS
+                    if (sinceAsk >= RERUN_WHILE_CRAWLING_MS) {
+                        sinceAsk = 0
+                        rerunActiveSearch()
+                    }
+                } else {
+                    sinceAsk = 0
+                }
+
+                if (SearchRefresh.shouldSettleBadges(status)) {
                     if (st.hits.any { it.state != HitState.AVAILABLE }) {
                         _state.update {
                             it.copy(search = it.search.copy(
@@ -655,7 +753,11 @@ class PaneController(
                             ))
                         }
                     }
-                    return@launch
+                    // Ask once more, now that the pass is over, and keep watching afterwards in
+                    // case a later background pass adds more. The re-run publishes stably, so
+                    // rows already on screen keep their places and new ones append.
+                    if (rerun) rerunActiveSearch()
+                    continue
                 }
                 val indexed = st.hits.filter { it.gen >= 0 }
                 if (indexed.isEmpty()) continue
@@ -675,6 +777,19 @@ class PaneController(
         }
     }
 
+    /**
+     * Run the open query again without disturbing what is already drawn.
+     *
+     * `runSearch` re-publishes from an empty collection, and `publish` is stable once something
+     * has been painted - so the rows on screen keep their order and anything new appends. That is
+     * the difference between more responsive and less stable, and it is the whole requirement.
+     */
+    private fun rerunActiveSearch() {
+        val st = _state.value.search
+        if (!st.active || st.query.isBlank()) return
+        runSearch(st.query, keepOrder = true)
+    }
+
     private fun publish(all: List<SearchHit>, stable: Boolean) {
         val shown = _state.value.search.hits
         val next = if (!stable || shown.isEmpty()) {
@@ -686,7 +801,9 @@ class PaneController(
             shown + all.distinctBestByKey().filterNot { it.key in keys }
         }
         _state.update { it.copy(search = it.search.copy(hits = next, painted = true)) }
-        watchConfirmations()
+        // NOT watchConfirmations() any more. Restarting it here reset the tick on every publish -
+        // several times per search - so its clock never ran and the end-of-pass edge could fall
+        // in the gap between a cancel and the next tick. It is started once, by runSearch.
     }
 
     /** Keeps the best-scoring hit per path, in first-seen order. */
@@ -725,3 +842,12 @@ class PaneController(
  * watching, slow enough that a page of rows costs nothing beside the crawl itself.
  */
 private const val CONFIRM_TICK_MS = 1_500L
+
+/**
+ * How often an open search re-asks the index while a crawl is running.
+ *
+ * Long enough that it is not a query per tick, short enough that a person watching results arrive
+ * sees them arrive. The merge is what keeps it stable, so this is a cost decision rather than a
+ * correctness one - an FTS match on this index measured 1.8 ms.
+ */
+private const val RERUN_WHILE_CRAWLING_MS = 4_500L

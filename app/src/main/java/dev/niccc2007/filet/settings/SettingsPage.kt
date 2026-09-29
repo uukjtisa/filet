@@ -106,7 +106,8 @@ fun SettingsPage(vm: BrowserViewModel) {
     val sort by prefs.sort.collectAsState()
     val indexOn by prefs.indexEnabled.collectAsState()
     val updatesOn by vm.updateNotificationsOn.collectAsState()
-    val selectionStyle by prefs.selectionStyle.collectAsState()
+    val selectionBar by prefs.selectionBar.collectAsState()
+    val drag by prefs.drag.collectAsState()
     val hideTermux by prefs.hideTermux.collectAsState()
     val tabSize by prefs.tabSize.collectAsState()
     var pickingOpenerFor by remember { mutableStateOf<String?>(null) }
@@ -147,8 +148,7 @@ fun SettingsPage(vm: BrowserViewModel) {
         }
         item {
             Text(
-                "Scales the whole chip — label, icon, close button and the padding around " +
-                    "them — because a bigger font inside the same box is no easier to hit.",
+                "Scales the whole chip, not just the label.",
                 fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp,
                 modifier = Modifier.padding(horizontal = 14.dp).padding(bottom = 4.dp),
             )
@@ -239,21 +239,47 @@ fun SettingsPage(vm: BrowserViewModel) {
         }
 
         item {
-            SegmentRow(
+            val bar = dev.niccc2007.filet.browser.SelectionBarConfig.normalise(selectionBar)
+            SettingsSection(
                 "When you select files",
-                listOf("Menu", "Bar"),
-                if (selectionStyle == dev.niccc2007.filet.browser.SelectionStyle.MENU) 0 else 1,
+                "${bar.size} of ${dev.niccc2007.filet.browser.SelectionBarConfig.MAX_ON_BAR} " +
+                    "on the bar. Everything else is behind More.",
+            )
+        }
+        items(dev.niccc2007.filet.browser.SelectionBarConfig.CHOOSABLE.size) { i ->
+            val (id, label) = dev.niccc2007.filet.browser.SelectionBarConfig.CHOOSABLE[i]
+            val bar = dev.niccc2007.filet.browser.SelectionBarConfig.normalise(selectionBar)
+            val on = id in bar
+            val full = dev.niccc2007.filet.browser.SelectionBarConfig.full(bar)
+            ToggleRow(
+                label,
+                when {
+                    on -> "On the bar, position ${bar.indexOf(id) + 1}"
+                    full -> "Behind More - the bar is full"
+                    else -> "Behind More"
+                },
+                on,
             ) {
-                vm.prefs.setSelectionStyle(
-                    if (it == 0) dev.niccc2007.filet.browser.SelectionStyle.MENU
-                    else dev.niccc2007.filet.browser.SelectionStyle.BAR
+                prefs.setSelectionBar(
+                    dev.niccc2007.filet.browser.SelectionBarConfig.encode(
+                        dev.niccc2007.filet.browser.SelectionBarConfig.toggled(bar, id),
+                    ),
                 )
+            }
+        }
+
+        item {
+            SegmentRow(
+                "Dragging between split panes",
+                dev.niccc2007.filet.browser.DragBehaviour.entries.map { it.label },
+                drag.ordinal,
+            ) {
+                prefs.setDrag(dev.niccc2007.filet.browser.DragBehaviour.entries[it])
             }
         }
         item {
             Text(
-                "Menu puts the eleven actions in a popup that fits the screen. Bar is the old " +
-                    "row along the bottom - one tap instead of two, but it has to scroll.",
+                dev.niccc2007.filet.browser.DragBehaviour.entries[drag.ordinal].detail,
                 fontSize = 11.sp,
                 lineHeight = 15.sp,
                 color = colors.fg3,
@@ -326,8 +352,7 @@ fun SettingsPage(vm: BrowserViewModel) {
         item { SettingsSection("Tracked folders", "Watched closely, so Home shows what just arrived.") }
         item {
             Text(
-                "Watched closely, so Home shows what just arrived. Keep this list short: each " +
-                    "folder costs an inotify watch, and the OS caps them.",
+                "Home shows what arrives here. Keep it short - the OS caps how many are watched.",
                 fontSize = 11.sp,
                 color = colors.fg3,
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
@@ -481,14 +506,16 @@ private fun IndexStatusCard(vm: BrowserViewModel) {
             SmallButton("Clear index") { vm.clearIndex() }
         }
         Spacer(Modifier.height(6.dp))
-        Text(
-            "Updating confirms what is still on the device, drops what has gone, and adds what " +
-                "is new — it does not start again from nothing, and Filet runs one every time " +
-                "it opens. It keeps going until it is done, through the lock screen, with a " +
-                "Stop in the notification shade; the only thing that halts it by itself is a " +
-                "battery under 15% that is not charging. Clear index throws the whole thing " +
-                "away, so the next run has to build it again from scratch.",
-            fontSize = 10.sp, color = colors.fg3, lineHeight = 13.5.sp,
+        // Was one 442-character paragraph. Nothing in it was wrong and none of it was needed
+        // before pressing the button, which is the definition of something that belongs shut.
+        dev.niccc2007.filet.ui.tabs.NoteStack(
+            "How indexing behaves",
+            listOf(
+                "Updating adds what is new and drops what has gone. It never starts from nothing.",
+                "One runs every time Filet opens, and keeps going through the lock screen.",
+                "Stop is in the notification shade. It also stops itself under 15% battery.",
+                "Clear index throws it away, so the next run rebuilds from scratch.",
+            ),
         )
     }
 }
@@ -506,8 +533,7 @@ private fun StorageAccessCard(vm: BrowserViewModel) {
             .padding(12.dp),
     ) {
         Text(
-            "All-files access lets Filet see the whole shared volume. Without it, only folders " +
-                "you pick by hand are visible — which still works, just narrower.",
+            "Lets Filet see the whole shared volume. Without it, only folders you pick.",
             fontSize = 11.sp, color = colors.fg2, lineHeight = 15.sp,
         )
         Spacer(Modifier.height(9.dp))

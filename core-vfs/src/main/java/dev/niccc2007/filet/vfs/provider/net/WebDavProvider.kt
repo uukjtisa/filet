@@ -35,6 +35,8 @@ import java.util.TimeZone
 class WebDavProvider(private val connections: NetConnections) : FileSystemProvider {
 
     override val scheme: String = NetProtocol.WEBDAV.scheme
+    override val remote: Boolean = true
+
     override val capabilities: Set<Capability> = setOf(
         Capability.READ, Capability.WRITE, Capability.RENAME, Capability.DELETE, Capability.CREATE_DIR,
     )
@@ -51,6 +53,65 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
         parseMultiStatus(body, path, remote)
     }
 
+    /**
+     * Free and total bytes, from RFC 4331.
+     *
+     * Without this a mounted share reported no size at all and every surface drew it as "size
+     * unknown" - including the storage card, which then had no bar and sat visibly shorter than
+     * the local volumes beside it.
+     *
+     * Cached briefly. It is asked for once per card draw and it is a network round trip, so a
+     * scrolling list would otherwise make one per frame.
+     */
+    private suspend fun quota(path: VPath): Pair<Long, Long>? {
+        val now = System.currentTimeMillis()
+        val key = splitNetPath(path).first
+        quotaCache[key]?.let { (cached, at) ->
+            // A hit and a miss do not keep for the same length of time. A real figure is stable
+            // for a while; a null means "not answering right now", and that stops being true the
+            // moment the other device wakes up. Caching both for 30s meant a share coming back
+            // online still read as offline for half a minute after it returned.
+            val ttl = if (cached == null) QUOTA_MISS_TTL_MS else QUOTA_TTL_MS
+            if (now - at < ttl) return cached
+        }
+
+        val got = runCatching {
+            val (id, remote) = splitNetPath(path)
+            val c = conn(id, path)
+            val body = request(
+                c, remote, "PROPFIND", depth = "0", body = PROPFIND_BODY, path = path, quick = true,
+            )
+            val avail = tagValue(body, "quota-available-bytes")?.toLongOrNull()
+            val used = tagValue(body, "quota-used-bytes")?.toLongOrNull()
+            if (avail == null || used == null) null else avail to used
+        }.getOrNull()
+
+        // A null is cached too. A server with no quota support would otherwise be asked on every
+        // single draw, forever, for an answer it is never going to give.
+        quotaCache[key] = got to now
+        return got
+    }
+
+    /** The first value of a DAV property, namespace prefix ignored. */
+    private fun tagValue(xml: String, local: String): String? {
+        val open = Regex("<[A-Za-z0-9]*:?" + local + "\\s*>")
+        val m = open.find(xml) ?: return null
+        val start = m.range.last + 1
+        val end = xml.indexOf('<', start)
+        if (end < 0) return null
+        return xml.substring(start, end).trim().takeIf { it.isNotEmpty() }
+    }
+
+    override suspend fun freeSpace(path: VPath): Long? = withContext(Dispatchers.IO) {
+        quota(path)?.first
+    }
+
+    override suspend fun totalSpace(path: VPath): Long? = withContext(Dispatchers.IO) {
+        // RFC 4331 gives free and used, not total. Their sum is the volume, which is what a
+        // reader means by "of 224 GB".
+        quota(path)?.let { (avail, used) -> avail + used }
+    }
+
     override suspend fun stat(path: VPath): VNode? = withContext(Dispatchers.IO) {
         val (id, remote) = splitNetPath(path)
         val c = conn(id, path)
@@ -62,13 +123,70 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
         }.getOrNull()
     }
 
+    /**
+     * Whether the server will serve part of a file.
+     *
+     * Cached per connection: it is a property of the server, not of the file, and asking once
+     * per read would put a HEAD in front of every range.
+     *
+     * An absent or `none` header is taken as NO. A server that ignores `Range` answers 200 with
+     * the whole body, and a caller that believed it was getting bytes 4000-4100 would read the
+     * first hundred bytes of the file and call them the central directory.
+     */
+    private val rangeable = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    override suspend fun supportsRanges(path: VPath): Boolean = withContext(Dispatchers.IO) {
+        val (id, remote) = splitNetPath(path)
+        rangeable.getOrPut(id) {
+            val c = conn(id, path)
+            runCatching {
+                val http = open(c, remote, "HEAD", path, quick = true)
+                val ok = http.getHeaderField("Accept-Ranges")
+                    ?.trim()?.lowercase()?.let { it.isNotEmpty() && it != "none" } == true
+                http.disconnect()
+                ok
+            }.getOrDefault(false)
+        }
+    }
+
+    /**
+     * Bytes [from] until [until], inclusive of the first and exclusive of the last.
+     *
+     * The whole point of the net providers supporting this: an archive reads its index from the
+     * END of the file and then seeks to each entry, so a forward-only stream cannot open one at
+     * all. With ranges, listing an archive of any size is a handful of small requests.
+     *
+     * Verified rather than trusted. A server that ignores the header answers **200** with the
+     * entire body; only **206** means it honoured the range, and anything else is refused here
+     * rather than handed back as if it were the slice that was asked for.
+     */
+    override suspend fun readRange(path: VPath, from: Long, until: Long): ByteArray =
+        withContext(Dispatchers.IO) {
+            require(from >= 0 && until > from) { "bad range $from..$until" }
+            val (id, remote) = splitNetPath(path)
+            val c = conn(id, path)
+            val http = open(c, remote, "GET", path)
+            http.setRequestProperty("Range", "bytes=$from-${until - 1}")
+            val code = http.responseCode
+            if (code != 206) {
+                http.disconnect()
+                throw VfsException.Unsupported(
+                    if (code == 200) "this server ignores Range" else "range refused: HTTP $code",
+                )
+            }
+            markGood(c)
+            val out = http.inputStream.use { it.readBytes() }
+            http.disconnect()
+            out
+        }
+
     override suspend fun openRead(path: VPath): InputStream = withContext(Dispatchers.IO) {
         val (id, remote) = splitNetPath(path)
         val c = conn(id, path)
         val http = open(c, remote, "GET", path)
         if (http.responseCode !in 200..299) {
             http.disconnect()
-            throw status(http.responseCode, path)
+            throw status(http.responseCode, path, "GET")
         }
         object : InputStream() {
             private val src = http.inputStream
@@ -84,21 +202,68 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
      * length unless chunked encoding is used - which several WebDAV servers reject. So the
      * write is buffered and sent on close, and the size cap is stated rather than discovered.
      */
+    /**
+     * `PUT`, spilled to a temporary file rather than held in the heap.
+     *
+     * This used to be a `ByteArrayOutputStream`: the whole file was accumulated in memory and
+     * sent on close. Three things were wrong with it, and together they are why a copy over a
+     * mounted share crawled.
+     *
+     *  1. **Nothing left the device until the last byte arrived.** Reading and sending were
+     *     strictly sequential, so the wall time was read-time plus send-time rather than the
+     *     larger of the two.
+     *  2. **The array doubled as it grew.** A 60 MB APK is copied through roughly 5, 10, 20, 40
+     *     and 80 MB arrays on the way, which is a great deal of allocation and GC for bytes that
+     *     are only passing through.
+     *  3. **It held the whole file twice** at the moment `toByteArray` ran - once in the stream's
+     *     buffer and once in the copy - which on a phone is where a large file starts trimming
+     *     other apps out of memory.
+     *
+     * A temp file has a known length, so the request still carries a real `Content-Length` and
+     * nothing has to rely on chunked encoding, which several WebDAV servers reject. The file is
+     * streamed out through a buffer and deleted afterwards, on failure as well as success.
+     */
     override suspend fun openWrite(path: VPath, append: Boolean): OutputStream = withContext(Dispatchers.IO) {
         if (append) throw VfsException.Unsupported("WebDAV has no append")
         val (id, remote) = splitNetPath(path)
         val c = conn(id, path)
-        object : ByteArrayOutputStream() {
+
+        val spill = java.io.File.createTempFile("filet-put-", ".tmp")
+        val sink = java.io.BufferedOutputStream(java.io.FileOutputStream(spill), UPLOAD_BUFFER)
+
+        object : OutputStream() {
+            private var closed = false
+
+            override fun write(b: Int) = sink.write(b)
+            override fun write(b: ByteArray, off: Int, len: Int) = sink.write(b, off, len)
+            override fun flush() = sink.flush()
+
             override fun close() {
-                super.close()
-                val bytes = toByteArray()
-                val http = open(c, remote, "PUT", path)
-                http.doOutput = true
-                http.setFixedLengthStreamingMode(bytes.size)
-                http.outputStream.use { it.write(bytes) }
-                val code = http.responseCode
-                http.disconnect()
-                if (code !in 200..299) throw status(code, path)
+                if (closed) return
+                closed = true
+                try {
+                    sink.close()
+                    val http = open(c, remote, "PUT", path)
+                    http.doOutput = true
+                    http.setFixedLengthStreamingMode(spill.length())
+                    java.io.BufferedOutputStream(http.outputStream, UPLOAD_BUFFER).use { out ->
+                        java.io.FileInputStream(spill).use { src ->
+                            val buf = ByteArray(UPLOAD_BUFFER)
+                            while (true) {
+                                val n = src.read(buf)
+                                if (n < 0) break
+                                out.write(buf, 0, n)
+                            }
+                        }
+                    }
+                    val code = http.responseCode
+                    http.disconnect()
+                    if (code !in 200..299) throw status(code, path, "PUT")
+                } finally {
+                    // On the failure path too. A temp file left behind per failed upload fills
+                    // the cache directory quietly.
+                    spill.delete()
+                }
             }
         }
     }
@@ -114,7 +279,7 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
         }
         val code = http.responseCode
         http.disconnect()
-        if (code !in 200..299) throw status(code, path)
+        if (code !in 200..299) throw status(code, path, if (isDir) "MKCOL" else "PUT")
         VNode(path, isDir, if (isDir) -1L else 0L, System.currentTimeMillis())
     }
 
@@ -124,7 +289,7 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
         val http = open(c, remote, "DELETE", path)
         val code = http.responseCode
         http.disconnect()
-        if (code !in 200..299 && code != 404) throw status(code, path)
+        if (code !in 200..299 && code != 404) throw status(code, path, "DELETE")
     }
 
     override suspend fun rename(path: VPath, newName: String): VNode = withContext(Dispatchers.IO) {
@@ -136,14 +301,50 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
         http.setRequestProperty("Overwrite", "F")
         val code = http.responseCode
         http.disconnect()
-        if (code !in 200..299) throw status(code, path)
+        if (code !in 200..299) throw status(code, path, "MOVE")
         VNode(path.parent!!.child(newName), false, -1L, System.currentTimeMillis())
     }
 
     // ────────────────────────── http ──────────────────────────
 
-    private fun conn(id: String, path: VPath): NetConnection =
-        connections.byId(id) ?: throw VfsException.NotFound(path)
+    /**
+     * Which address each remote is currently being reached on.
+     *
+     * In memory rather than stored: this is a live fact about the network as it is right now,
+     * and the durable half of it - the address that last actually answered - lives on the
+     * connection as `lastGood`.
+     */
+    private val active = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun conn(id: String, path: VPath): NetConnection {
+        val c = connections.byId(id) ?: throw VfsException.NotFound(path)
+        val candidates = connections.candidates(c)
+        if (candidates.isEmpty()) return c
+        val host = active[id]?.takeIf { h -> candidates.any { it.equals(h, ignoreCase = true) } }
+            ?: candidates.first().also { active[id] = it }
+        return c.copy(host = host)
+    }
+
+    /**
+     * The address in use did not answer. Move to the next one.
+     *
+     * Rotation rather than a parallel sweep, and that is deliberate: a sweep costs every
+     * address a timeout on every failure, while rotating costs one - and a remote that is
+     * genuinely away fails at the same speed either way, because it fails on the first.
+     *
+     * Wraps, so a remote that comes back on an address already tried is found again rather
+     * than being stuck past the end of the list.
+     */
+    private fun markBad(id: String) {
+        val c = connections.byId(id) ?: return
+        val candidates = connections.candidates(c)
+        if (candidates.size < 2) return
+        val at = candidates.indexOfFirst { it.equals(active[id], ignoreCase = true) }
+        active[id] = candidates[(at + 1).mod(candidates.size)]
+    }
+
+    /** The address answered. Promote it so a restart starts here rather than sweeping. */
+    private fun markGood(c: NetConnection) = connections.noteGood(c.id, c.host)
 
     private fun urlFor(c: NetConnection, remote: String): String {
         val scheme = if (c.useTls) "https" else "http"
@@ -189,12 +390,26 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
         throw VfsException.Unsupported("This device's HTTP stack refuses the $method method.")
     }
 
-    private fun open(c: NetConnection, remote: String, method: String, path: VPath): HttpURLConnection =
+    private fun open(
+        c: NetConnection,
+        remote: String,
+        method: String,
+        path: VPath,
+        /**
+         * Short timeouts, for a request whose only job is to find out whether anything is there.
+         *
+         * 15 seconds is right for reading a file and wrong for a liveness check: the card polls,
+         * and a poll that waits fifteen seconds to fail means a share that has been switched off
+         * keeps reading as online for most of a minute. A device on the same Wi-Fi answers in
+         * milliseconds or it is not going to.
+         */
+        quick: Boolean = false,
+    ): HttpURLConnection =
         runCatching {
             val http = URL(urlFor(c, remote)).openConnection() as HttpURLConnection
             setMethod(http, method)
-            http.connectTimeout = 15_000
-            http.readTimeout = 30_000
+            http.connectTimeout = if (quick) PROBE_TIMEOUT_MS else 15_000
+            http.readTimeout = if (quick) PROBE_TIMEOUT_MS else 30_000
             http.instanceFollowRedirects = true
             if (!c.anonymous && c.user.isNotEmpty()) {
                 val token = Base64.encodeToString("${c.user}:${c.password}".toByteArray(), Base64.NO_WRAP)
@@ -202,7 +417,13 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
             }
             http.setRequestProperty("User-Agent", "Filet")
             http
-        }.getOrElse { throw VfsException.Io(path, it) }
+        }.getOrElse {
+            // A connection that could not be made is the signal to try a different address.
+            // A request that connected and was REFUSED is not - that is an answer, and moving
+            // to another address would hide it behind a different failure.
+            runCatching { markBad(splitNetPath(path).first) }
+            throw VfsException.Io(path, it)
+        }
 
     private fun request(
         c: NetConnection,
@@ -211,8 +432,9 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
         depth: String?,
         body: String?,
         path: VPath,
+        quick: Boolean = false,
     ): String {
-        val http = open(c, remote, method, path)
+        val http = open(c, remote, method, path, quick = quick)
         depth?.let { http.setRequestProperty("Depth", it) }
         if (body != null) {
             http.doOutput = true
@@ -222,9 +444,11 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
             http.outputStream.use { it.write(bytes) }
         }
         val code = http.responseCode
+        // Any response proves the ADDRESS works, including a refusal - the server answered.
+        markGood(c)
         if (code !in 200..299) {
             http.disconnect()
-            throw status(code, path)
+            throw status(code, path, method)
         }
         val text = http.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
         http.disconnect()
@@ -317,14 +541,49 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
         fmt.parse(text)?.time ?: 0L
     }.getOrDefault(0L)
 
-    private fun status(code: Int, path: VPath): VfsException = when (code) {
-        401, 403 -> VfsException.AccessDenied(path)
+    /**
+     * An HTTP status as the failure the caller can act on.
+     *
+     * [method] is required because 405 means two unrelated things. RFC 4918 has MKCOL answer it
+     * when the collection is already there - but a share with writing switched off answers it to
+     * PUT, DELETE and MOVE as the plain HTTP "this method is not allowed here". Reading it as
+     * "already exists" for every verb told somebody trying to save a file that their file was
+     * already there, which is both wrong and the opposite of actionable.
+     */
+    private fun status(code: Int, path: VPath, method: String): VfsException = when (code) {
+        401 -> VfsException.AccessDenied(path, unauthenticated = true)
+        403 -> VfsException.AccessDenied(path)
         404 -> VfsException.NotFound(path)
-        405, 409 -> VfsException.AlreadyExists(path)
+        405 -> if (method == "MKCOL") VfsException.AlreadyExists(path) else VfsException.AccessDenied(path)
+        409 -> VfsException.AlreadyExists(path)
         else -> VfsException.Io(path, IllegalStateException("HTTP $code"))
     }
 
+    private val quotaCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Pair<Long, Long>?, Long>>()
+
     private companion object {
+        /** How long a free-space reading is reused. It is a network round trip per card draw. */
+        const val QUOTA_TTL_MS = 30_000L
+
+        /**
+         * How long an unreachable answer keeps.
+         *
+         * Short. It is a statement about this moment, not about the share.
+         */
+        const val QUOTA_MISS_TTL_MS = 4_000L
+
+        /** How long a liveness probe waits before deciding nothing is there. */
+        const val PROBE_TIMEOUT_MS = 2_500
+
+        /**
+         * Bytes moved per read and per write on an upload.
+         *
+         * 64 KB rather than the 8 KB default: on Wi-Fi the per-call overhead dominates below
+         * about this size, and the difference over a large file is measurable rather than
+         * theoretical.
+         */
+        const val UPLOAD_BUFFER = 64 * 1024
+
         val PROPFIND_BODY = """
             <?xml version="1.0" encoding="utf-8" ?>
             <d:propfind xmlns:d="DAV:">
@@ -332,6 +591,8 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
                 <d:resourcetype/>
                 <d:getcontentlength/>
                 <d:getlastmodified/>
+                <d:quota-available-bytes/>
+                <d:quota-used-bytes/>
               </d:prop>
             </d:propfind>
         """.trimIndent()

@@ -41,12 +41,23 @@ class SearchScopeTest {
 
     @Test
     fun `panes where search means nothing do not offer it`() {
-        // Home is a few cards and About is prose. A search box on either cannot do anything,
-        // which is rule R1.
-        assertEquals(SearchMode.NONE, searchPlan(PaneKind.HOME))
+        // About is a page of prose and there is nothing in it to find.
         assertEquals(SearchMode.NONE, searchPlan(PaneKind.ABOUT))
-        assertFalse(searchOffered(PaneKind.HOME))
         assertFalse(searchOffered(PaneKind.ABOUT))
+    }
+
+    @Test
+    fun `home searches the device`() {
+        // Changed deliberately, and the old expectation is why it is worth a test of its own.
+        // HOME was NONE, on the reasoning that Home is a few cards with nothing to search - but
+        // the search bar and all four scope chips were rendered on Home regardless, so the
+        // control was there and only the answer was missing. Typing on it returned nothing.
+        //
+        // A whole-device search is exactly what somebody typing on Home means, and the index can
+        // answer it. Which scopes get offered there is SearchReach's job, since Home has no
+        // folder for the folder-shaped ones to refer to.
+        assertEquals(SearchMode.FILESYSTEM, searchPlan(PaneKind.HOME))
+        assertTrue(searchOffered(PaneKind.HOME))
     }
 
     @Test
@@ -73,7 +84,8 @@ class SearchScopeTest {
     fun `the hint says which of the two it will do`() {
         assertTrue(searchHint(PaneKind.FOLDER).contains("device"))
         assertTrue(searchHint(PaneKind.SETTINGS).contains("screen"))
-        assertEquals("", searchHint(PaneKind.HOME))
+        // Home searches the device now, so it gets the device's hint rather than none.
+        assertTrue(searchHint(PaneKind.HOME).contains("device"))
     }
 
     @Test

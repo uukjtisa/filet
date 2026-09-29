@@ -83,8 +83,7 @@ fun ManifestEditorScreen(vm: BrowserViewModel, node: VNode) {
         LazyColumn(Modifier.fillMaxSize()) {
             item {
                 Text(
-                    "Editing writes into the decompiled working copy. Rebuild & sign turns it " +
-                        "into an installable APK; the original file is never touched.",
+                    "Edits go to the working copy. Rebuild & sign makes the APK.",
                     fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp,
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                 )
@@ -128,8 +127,7 @@ fun ManifestEditorScreen(vm: BrowserViewModel, node: VNode) {
                     Column(Modifier.weight(1f)) {
                         Text("Debuggable", fontSize = 13.sp)
                         Text(
-                            "Lets a debugger attach. Also lets any app with root read this " +
-                                "app's private data, so never ship it on.",
+                            "Lets a debugger attach, and any root app read its data.",
                             fontSize = 10.sp, color = colors.fg3, lineHeight = 13.sp,
                         )
                     }

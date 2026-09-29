@@ -32,6 +32,19 @@ import dev.niccc2007.filet.browser.FileKind
 import dev.niccc2007.filet.handlers.HandlerId
 import dev.niccc2007.filet.ui.HScroll
 import dev.niccc2007.filet.ui.tabs.SmallBtn
+import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgAction
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgCaption
+import dev.niccc2007.filet.ui.dialogs.DlgField
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgSection
+import dev.niccc2007.filet.ui.dialogs.DlgSpacer
+import dev.niccc2007.filet.ui.dialogs.DlgWarn
+import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 
@@ -63,7 +76,7 @@ fun ShortcutSheet(
                 FileKind.IMAGE -> add(HandlerId.IMAGE to "Image viewer")
                 FileKind.VIDEO, FileKind.AUDIO -> add(HandlerId.MEDIA to "Media player")
                 FileKind.APK -> add(HandlerId.APK to "APK inspector")
-                FileKind.ARCHIVE -> add(HandlerId.ARCHIVE to "Open as folder")
+                FileKind.ARCHIVE -> add(HandlerId.ARCHIVE to "Archive viewer")
                 else -> Unit
             }
             add(HandlerId.TEXT to "Text editor")
@@ -72,53 +85,40 @@ fun ShortcutSheet(
         }.distinctBy { it.first }
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add to home screen", fontSize = 16.sp) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = label,
-                    onValueChange = { label = it.take(40) },
-                    singleLine = true,
-                    label = { Text("Name") },
-                )
-                Spacer(Modifier.height(12.dp))
-                Text("Opens with", fontSize = 11.sp, color = colors.fg3)
-                Spacer(Modifier.height(6.dp))
-                HScroll(ground = colors.raised) {
-                    for ((id, name) in options) {
-                        val on = id == handler
-                        Text(
-                            name,
-                            fontSize = 11.sp,
-                            color = if (on) MaterialTheme.colorScheme.onPrimary else colors.fg2,
-                            modifier = Modifier
-                                .padding(end = 5.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (on) colors.accent else colors.high)
-                                .clickable { handler = id }
-                                .padding(horizontal = 9.dp, vertical = 5.dp),
-                        )
-                    }
+    // dismissOnScrim is off: there is typing in here, and a stray tap outside the card
+    // throwing away a half-entered name is the kind of loss nobody reports.
+    Dlg(onDismiss = onDismiss, dismissOnScrim = false) {
+        DlgHeader(FiletIcons.Pin, "Add to home screen", onClose = onDismiss)
+        DlgBody {
+            DlgField("Name", label, { label = it.take(40) })
+            DlgSection("Opens with")
+            Spacer(Modifier.height(2.dp))
+            HScroll(ground = colors.raised) {
+                for ((id, name) in options) {
+                    val on = id == handler
+                    Text(
+                        name,
+                        fontSize = 11.sp,
+                        color = if (on) MaterialTheme.colorScheme.onPrimary else colors.fg2,
+                        modifier = Modifier
+                            .padding(end = 5.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (on) colors.accent else colors.high)
+                            .clickable { handler = id }
+                            .padding(horizontal = 9.dp, vertical = 5.dp),
+                    )
                 }
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "The shortcut stores this file's Filet ID, not its path — move the file " +
-                        "and the shortcut follows it. Delete it and the shortcut says so " +
-                        "instead of doing nothing.",
-                    fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp,
-                )
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onCreate(label.trim().ifEmpty { node.name }, handler) },
-                enabled = label.isNotBlank(),
-            ) { Text("Add") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+            Spacer(Modifier.height(10.dp))
+            DlgCaption("Follows the file if you move it.")
+        }
+        DlgFooter {
+            DlgBtn("Cancel", onClick = onDismiss)
+            DlgBtn("Add", kind = BtnKind.PRIMARY, enabled = label.isNotBlank()) {
+                onCreate(label.trim().ifEmpty { node.name }, handler)
+            }
+        }
+    }
 }
 
 /** One row in the in-app shortcut list. */

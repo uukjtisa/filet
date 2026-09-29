@@ -25,6 +25,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -72,8 +73,37 @@ fun RemotesScreen(vm: BrowserViewModel) {
     val list = remember(revision) { vm.connections.all() }
     var editing by remember { mutableStateOf<NetConnection?>(null) }
 
+    // Scan only while this screen is up. Discovery holds a multicast lock, and holding one for
+    // a screen nobody is looking at is a battery cost with no answer attached.
+    val beacon = vm.davBeacon
+    val found by beacon.state.collectAsState()
+    DisposableEffect(Unit) {
+        beacon.startScan()
+        onDispose { beacon.stopScan() }
+    }
+
     LazyColumn(Modifier.fillMaxSize()) {
         item { TabHeader("Network and root") }
+
+        // Other phones running Filet and hosting right now. Above the saved list on purpose:
+        // adding one is the thing somebody is on this screen to do, and it used to mean reading
+        // an address off the other phone and typing it in here by hand.
+        if (found.hosts.isNotEmpty()) {
+            item { SectionRow("Phones on this network") }
+            items(found.hosts.size) { i ->
+                val h = found.hosts[i]
+                NRow(
+                    title = h.name,
+                    sub = "${h.host}:${h.port}${if (h.scope.isNotEmpty()) "  ·  " + h.scope else ""}",
+                    lead = NLead.Glyph(FiletIcons.Wifi),
+                    mono = true,
+                    // Opens the form already filled in, so the only field left is the code -
+                    // which is not broadcast, because a password that travels with the address
+                    // is not a password.
+                    trailing = { SmallBtn("Add") { editing = vm.connectionFromHost(h) } },
+                )
+            }
+        }
 
         item { SectionRow("Network") }
         if (list.isEmpty()) {
@@ -107,29 +137,24 @@ fun RemotesScreen(vm: BrowserViewModel) {
                     }
                     SmallBtn("Edit") { editing = c }
                 },
+                // The row itself opens it. This is what was missing entirely: the only control
+                // was Edit, so a saved place could be created and then never reached.
+                onClick = { vm.openConnection(c) },
             )
         }
         item {
-            // One button per protocol rather than a single Add a share, because the form
-            // differs by protocol - SMB asks for a share, WebDAV for a base path, and the
-            // encryption toggle only exists on two of the four.
-            FlowRow(
+            // ONE button.
+            //
+            // There used to be four, one per protocol, on the reasoning that the form differs by
+            // protocol. It does - but a row of +SMB +SFTP +FTP +WEBDAV asks the reader to already
+            // know which of four protocols their own PC speaks, which is the question they came
+            // here unable to answer. The dialogue asks what the thing IS and picks the protocol
+            // itself; see RemoteKinds.
+            Column(
                 Modifier.fillMaxWidth().padding(start = 15.dp, end = 15.dp, top = 2.dp, bottom = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
-                NetProtocol.entries.forEach { proto ->
-                    TabButton("+ ${proto.name}") {
-                        editing = NetConnection(
-                            id = vm.connections.newId(),
-                            protocol = proto,
-                            label = "",
-                            host = "",
-                            port = proto.defaultPort,
-                            user = "",
-                            password = "",
-                        )
-                    }
+                TabButton("Add a place", FiletIcons.Link, primary = true) {
+                    editing = RemoteKinds.blank(RemoteKind.WINDOWS_PC, vm.connections.newId())
                 }
             }
         }
@@ -153,9 +178,7 @@ fun RemotesScreen(vm: BrowserViewModel) {
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Browses the whole filesystem through a managed superuser shell. Asking " +
-                        "for it triggers your superuser prompt, so Filet only asks when you " +
-                        "press this — never at startup.",
+                    "The whole filesystem, through a superuser shell. Only asked for on this button.",
                     fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.7.sp,
                 )
                 Spacer(Modifier.height(11.dp))
@@ -171,6 +194,9 @@ fun RemotesScreen(vm: BrowserViewModel) {
     editing?.let { c ->
         ConnectionDialog(
             initial = c,
+            // A connection the user has never saved starts on the "what are you connecting to"
+            // chooser; an existing one goes straight to its fields.
+            isNew = vm.connections.all().none { s -> s.id == c.id },
             onDismiss = { editing = null },
             onDelete = { vm.deleteConnection(c.id); editing = null },
             onSave = { vm.saveConnection(it); editing = null },
@@ -183,167 +209,6 @@ private fun iconFor(p: NetProtocol) = when (p) {
     NetProtocol.SFTP -> FiletIcons.Terminal
     NetProtocol.FTP -> FiletIcons.Link
     NetProtocol.WEBDAV -> FiletIcons.Wifi
-}
-
-@Composable
-private fun ConnectionDialog(
-    initial: NetConnection,
-    onDismiss: () -> Unit,
-    onDelete: () -> Unit,
-    onSave: (NetConnection) -> Unit,
-) {
-    val colors = Filet.colors
-    var label by remember { mutableStateOf(initial.label) }
-    var host by remember { mutableStateOf(initial.host) }
-    var port by remember { mutableStateOf(initial.port.toString()) }
-    var user by remember { mutableStateOf(initial.user) }
-    var password by remember { mutableStateOf(initial.password) }
-    var share by remember { mutableStateOf(initial.share) }
-    var anonymous by remember { mutableStateOf(initial.anonymous) }
-    var tls by remember { mutableStateOf(initial.useTls) }
-    var domain by remember { mutableStateOf(initial.domain) }
-    var startPath by remember { mutableStateOf(initial.startPath) }
-    var readOnly by remember { mutableStateOf(initial.readOnly) }
-    var passive by remember { mutableStateOf(initial.passive) }
-    var timeout by remember { mutableStateOf(initial.timeoutSeconds.toString()) }
-    var privateKey by remember { mutableStateOf(initial.privateKey) }
-    var keyPass by remember { mutableStateOf(initial.keyPassphrase) }
-    // Shut by default. The six fields below it are the ones most shares never need, and
-    // putting them in the open makes a three-field form look like a twelve-field one.
-    var advanced by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("${initial.protocol.label}", fontSize = 15.sp) },
-        text = {
-            Column {
-                Field("Name", label) { label = it }
-                Field("Host", host) { host = it }
-                Field("Port", port) { port = it }
-                if (initial.protocol == NetProtocol.SMB) Field("Share", share) { share = it }
-                if (initial.protocol == NetProtocol.WEBDAV) Field("Base path", share) { share = it }
-                if (!anonymous) {
-                    Field("User", user) { user = it }
-                    Field("Password", password, password = true) { password = it }
-                    // A field the model always had and the form never showed. A domain-joined
-                    // NAS refuses a correct username without it, and the error it gives back
-                    // is an ordinary access denied.
-                    if (initial.protocol == NetProtocol.SMB) {
-                        Field("Domain or workgroup", domain) { domain = it }
-                    }
-                }
-                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Anonymous", fontSize = 12.sp, modifier = Modifier.weight(1f))
-                    Switch(checked = anonymous, onCheckedChange = { anonymous = it })
-                }
-                if (initial.protocol == NetProtocol.FTP || initial.protocol == NetProtocol.WEBDAV) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (initial.protocol == NetProtocol.FTP) "FTPS" else "HTTPS", fontSize = 12.sp, modifier = Modifier.weight(1f))
-                        Switch(checked = tls, onCheckedChange = { tls = it })
-                    }
-                }
-                Spacer(Modifier.height(6.dp))
-                Row(
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { advanced = !advanced }
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        if (advanced) "Fewer options" else "More options",
-                        fontSize = 12.sp, color = colors.accent, modifier = Modifier.weight(1f),
-                    )
-                }
-                if (advanced) {
-                    Field("Open at", startPath, hint = "A folder inside the share, or blank for its root") {
-                        startPath = it
-                    }
-                    Field("Timeout, seconds", timeout) { timeout = it.filter(Char::isDigit).take(3) }
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "Read only",
-                            fontSize = 12.sp,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Switch(checked = readOnly, onCheckedChange = { readOnly = it })
-                    }
-                    Text(
-                        "Filet refuses writes. The server still decides what is really allowed.",
-                        fontSize = 10.sp, color = colors.fg3, lineHeight = 13.sp,
-                    )
-                    if (initial.protocol == NetProtocol.FTP) {
-                        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Passive mode", fontSize = 12.sp, modifier = Modifier.weight(1f))
-                            Switch(checked = passive, onCheckedChange = { passive = it })
-                        }
-                        Text(
-                            "Leave on behind NAT. Active mode asks the server to connect back.",
-                            fontSize = 10.sp, color = colors.fg3, lineHeight = 13.sp,
-                        )
-                    }
-                    if (initial.protocol == NetProtocol.SFTP) {
-                        Field(
-                            "Private key",
-                            privateKey,
-                            multiline = true,
-                            hint = "Paste an OpenSSH or PEM key to use instead of a password",
-                        ) { privateKey = it }
-                        if (privateKey.isNotBlank()) {
-                            Field("Key passphrase", keyPass, password = true) { keyPass = it }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                // The honest note. Saying it here is cheaper than someone finding out later.
-                Text(
-                    when (initial.protocol) {
-                        NetProtocol.FTP -> if (tls) "FTPS encrypts the connection."
-                        else "Plain FTP sends your password in clear text over the network."
-                        NetProtocol.SFTP -> "The host key is not pinned yet, so a hostile network could impersonate this server on the first connection."
-                        NetProtocol.WEBDAV -> if (tls) "HTTPS encrypts the connection."
-                        else "Plain HTTP sends your password in clear text over the network."
-                        NetProtocol.SMB -> "SMB2 and SMB3 only. SMB1 is disabled everywhere for good reasons."
-                    },
-                    fontSize = 10.sp, color = colors.warn, lineHeight = 13.sp,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = host.isNotBlank(),
-                onClick = {
-                    onSave(
-                        initial.copy(
-                            label = label,
-                            host = host.trim(),
-                            port = port.toIntOrNull() ?: initial.protocol.defaultPort,
-                            user = user.trim(),
-                            password = password,
-                            share = share.trim(),
-                            domain = domain.trim(),
-                            anonymous = anonymous,
-                            useTls = tls,
-                            startPath = startPath.trim(),
-                            readOnly = readOnly,
-                            passive = passive,
-                            timeoutSeconds = timeout.toIntOrNull()?.coerceIn(3, 120) ?: 15,
-                            privateKey = privateKey.trim(),
-                            keyPassphrase = keyPass,
-                        )
-                    )
-                },
-            ) { Text("Save") }
-        },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onDelete) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-            }
-        },
-    )
 }
 
 @Composable

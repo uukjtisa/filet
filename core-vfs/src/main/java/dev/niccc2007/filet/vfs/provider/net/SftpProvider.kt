@@ -30,6 +30,8 @@ import java.util.EnumSet
 class SftpProvider(private val connections: NetConnections) : FileSystemProvider {
 
     override val scheme: String = NetProtocol.SFTP.scheme
+    override val remote: Boolean = true
+
     override val capabilities: Set<Capability> = setOf(
         Capability.READ, Capability.WRITE, Capability.RENAME, Capability.DELETE, Capability.CREATE_DIR,
     )

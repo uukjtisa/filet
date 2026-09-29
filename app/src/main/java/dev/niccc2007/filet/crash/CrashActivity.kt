@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.MainActivity
+import dev.niccc2007.filet.shortcuts.ShortcutRouterActivity
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.ui.theme.FiletTheme
 
@@ -58,6 +59,10 @@ class CrashActivity : ComponentActivity() {
         enableEdgeToEdge()
         val report = intent.getStringExtra(CrashReport.EXTRA_REPORT)
             ?: "No report was captured."
+        // Null when the public write failed - a revoked storage permission, a full volume. The
+        // screen then says the report is on screen only, which is true, instead of naming a
+        // path that does not exist.
+        val reportFile = intent.getStringExtra(CrashReport.EXTRA_REPORT_FILE)
 
         setContent {
             // Prefs directly, never the graph. This runs in its own `:crash` process, so
@@ -71,7 +76,10 @@ class CrashActivity : ComponentActivity() {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     CrashScreen(
                         report = report,
+                        reportFile = reportFile,
                         onCopy = { copy(this, report) },
+                        onCopyPath = { reportFile?.let { copy(this, it) } },
+                        onOpenFile = { reportFile?.let { openInFilet(it) } },
                         onRestart = {
                             startActivity(
                                 Intent(this, MainActivity::class.java)
@@ -90,12 +98,36 @@ class CrashActivity : ComponentActivity() {
         val clip = context.getSystemService(ClipboardManager::class.java) ?: return
         clip.setPrimaryClip(ClipData.newPlainText("Filet crash report", text))
     }
+
+    /**
+     * Open the report in Filet's own text viewer.
+     *
+     * Filet is a file manager, so the natural reader for its own log is itself - and a
+     * `file://` intent to anything else is blocked on every modern Android anyway.
+     *
+     * `CLEAR_TASK` is deliberately NOT set: this is a fresh start of the app that just died,
+     * and if the crash happens during startup the person needs the crash screen to still be
+     * behind them rather than replaced.
+     */
+    private fun openInFilet(path: String) {
+        runCatching {
+            startActivity(
+                Intent(this, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .putExtra(ShortcutRouterActivity.EXTRA_TARGET, "local://" + path)
+                    .putExtra(ShortcutRouterActivity.EXTRA_HANDLER, "TEXT"),
+            )
+        }
+    }
 }
 
 @Composable
 private fun CrashScreen(
     report: String,
+    reportFile: String?,
     onCopy: () -> Unit,
+    onCopyPath: () -> Unit,
+    onOpenFile: () -> Unit,
     onRestart: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -115,11 +147,53 @@ private fun CrashScreen(
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            "Nothing was sent anywhere. The report below is on this device only, and it is " +
-                "also saved so you can find it again from About.",
+            if (reportFile != null) {
+                "Nothing was sent anywhere. Saved on this device."
+            } else {
+                // Still says which case it is. "Saved" when the write failed is the kind of
+                // reassurance that costs somebody the report they were told they had.
+                "Nothing was sent anywhere. Saving to storage failed - copy it to keep it."
+            },
             fontSize = 13.sp,
+            lineHeight = 19.sp,
             color = colors.fg2,
         )
+
+        // The file, named. The item asked for the screen to point at the report it wrote, and a
+        // path is only a pointer if you can read it, copy it and open it.
+        if (reportFile != null) {
+            Spacer(Modifier.height(12.dp))
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(colors.sunken)
+                    .border(1.dp, colors.lineSoft, RoundedCornerShape(10.dp))
+                    .padding(11.dp),
+            ) {
+                Text(
+                    "SAVED TO",
+                    fontSize = 9.5.sp,
+                    letterSpacing = 1.2.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.fg3,
+                )
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    reportFile,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = colors.fg2,
+                    lineHeight = 16.sp,
+                )
+                Spacer(Modifier.height(9.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    CrashButton("Open it in Filet", primary = false, onClick = onOpenFile)
+                    CrashButton("Copy the path", primary = false, onClick = onCopyPath)
+                }
+            }
+        }
+
         Spacer(Modifier.height(14.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

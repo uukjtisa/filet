@@ -137,6 +137,9 @@ object FiletIcons {
     val Grid = stroke("grid", "M4 4h6.5v6.5H4z", "M13.5 4H20v6.5h-6.5z", "M4 13.5h6.5V20H4z", "M13.5 13.5H20V20h-6.5z", width = 1.8f)
     val Rows = stroke("rows", "M4 7h16M4 12h16M4 17h16", width = 1.9f)
     val Info = stroke("info", "M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0", "M12 11v5.5M12 7.8v.01")
+    /** A triangle with a bang in it. The one glyph a warning block needs and the set lacked. */
+    val Warn = stroke("warn", "M12 4.5 21 19.5H3z", "M12 10v4.4M12 17v.01")
+
     val Mark = stroke("mark", "M6 18V6l12 12V6", "M4.5 20.4c5-1.6 11-2.2 15 .2", width = 1.6f)
     val Play = stroke("play", "m7 4 13 8-13 8z")
     val Up = stroke("up", "M12 20V5", "m5.5 11.5 6.5-6.5 6.5 6.5", width = 1.9f)

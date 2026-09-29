@@ -196,6 +196,15 @@ object Thumbnails {
 
     // ── apk ──
 
+    /**
+     * The icon inside an APK file, at [px].
+     *
+     * Public because the inspector's identity block wants it too: a generic package glyph where
+     * the app's own icon could be is the inspector failing to say which app this is, which is
+     * the first thing the screen is for.
+     */
+    fun apkIcon(context: Context, os: String, px: Int): Bitmap? = fromApk(context, os, px)
+
     private fun fromApk(context: Context, os: String, px: Int): Bitmap? {
         val pm = context.packageManager
         val info = pm.getPackageArchiveInfo(os, 0) ?: return null

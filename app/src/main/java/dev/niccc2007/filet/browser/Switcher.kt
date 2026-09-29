@@ -47,6 +47,14 @@ import dev.niccc2007.filet.ui.theme.Filet
  * Rows arrive from -30px over 460 ms at a 50 ms stagger with a 60 ms first delay, on Trawl's
  * MenuItemEasing. Values read out of `TrawlSwitcher.kt`; the push transform itself lives in
  * [BrowserScreen] because it applies to the app card, not to this menu.
+ *
+ * ## Every row is a destination
+ *
+ * Back and Up used to sit at the top of this list as a pair of pill buttons, and they were the
+ * only two things in here that were not a place to go. They were also a second copy of controls
+ * the toolbar already carries at every width, so opening a drawer to press Back meant two taps
+ * for what the bar does in one. Gone, and the rule is worth keeping: this panel answers "where
+ * to", never "how to get there".
  */
 @Composable
 fun Switcher(vm: BrowserViewModel, tabs: List<PaneController>) {
@@ -94,19 +102,6 @@ fun Switcher(vm: BrowserViewModel, tabs: List<PaneController>) {
                     .padding(6.dp),
             )
         }
-        Row(
-            Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SwitcherAction(FiletIcons.Back, "Back") {
-                vm.focusedPane()?.let { if (!it.goBack()) it.goUp() }
-                vm.openSwitcher(false)
-            }
-            SwitcherAction(FiletIcons.Up, "Up") {
-                vm.focusedPane()?.goUp()
-                vm.openSwitcher(false)
-            }
-        }
         Spacer(Modifier.height(6.dp))
 
         var i = 0
@@ -116,23 +111,24 @@ fun Switcher(vm: BrowserViewModel, tabs: List<PaneController>) {
             }
         }
         SwitcherRow(FiletIcons.Home, "Home", i++, reduced) { vm.focusedPane()?.openHome(); vm.openSwitcher(false) }
-        SwitcherRow(FiletIcons.Clock, "Recent", i++, reduced) {
-            vm.focusedPane()?.openSpecial(PaneKind.RECENT, "Recent"); vm.openSwitcher(false)
-        }
-        SwitcherRow(FiletIcons.Star, "Bookmarks", i++, reduced, count = bookmarks.size.takeIf { it > 0 }?.toString()) {
-            vm.focusedPane()?.openSpecial(PaneKind.BOOKMARKS, "Bookmarks"); vm.openSwitcher(false)
-        }
-        SwitcherRow(FiletIcons.Wifi, "Nearby", i++, reduced) {
-            vm.focusedPane()?.openSpecial(PaneKind.NEARBY, "Nearby"); vm.openSwitcher(false)
-        }
-        SwitcherRow(FiletIcons.Device, "Remotes", i++, reduced) {
-            vm.focusedPane()?.openSpecial(PaneKind.REMOTES, "Remotes"); vm.openSwitcher(false)
-        }
-        SwitcherRow(FiletIcons.Home, "Shortcuts", i++, reduced) {
-            vm.focusedPane()?.openSpecial(PaneKind.SHORTCUTS, "Shortcuts"); vm.openSwitcher(false)
-        }
-        SwitcherRow(FiletIcons.Script, "Scripts", i++, reduced) {
-            vm.focusedPane()?.openSpecial(PaneKind.SCRIPTS, "Scripts"); vm.openSwitcher(false)
+        // Built from SpecialPanes, not from a copy of it. The switcher is the only route to
+        // a special pane on a PHONE and the rail is the only route on a tablet, so two
+        // hand-maintained lists meant a destination could exist on one and not the other -
+        // which is exactly how the Apps tab shipped unreachable on a phone.
+        for (d in SpecialPanes.DESTINATIONS) {
+            SwitcherRow(
+                d.icon,
+                d.label,
+                i++,
+                reduced,
+                count = if (d.kind == PaneKind.BOOKMARKS) {
+                    bookmarks.size.takeIf { it > 0 }?.toString()
+                } else {
+                    null
+                },
+            ) {
+                vm.focusedPane()?.openSpecial(d.kind, d.label); vm.openSwitcher(false)
+            }
         }
         SwitcherRow(FiletIcons.Jobs, "Activity", i++, reduced, count = jobs.count { it.running }.takeIf { it > 0 }?.toString()) {
             vm.openActivity(true); vm.openSwitcher(false)
@@ -152,28 +148,6 @@ fun Switcher(vm: BrowserViewModel, tabs: List<PaneController>) {
             color = colors.fg3,
             modifier = Modifier.padding(horizontal = 14.dp),
         )
-    }
-}
-
-@Composable
-private fun SwitcherAction(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    onClick: () -> Unit,
-) {
-    val colors = Filet.colors
-    Row(
-        Modifier
-            .padding(end = 6.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(colors.raised)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, tint = colors.fg2, modifier = Modifier.size(14.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(label, fontSize = 11.5.sp, color = colors.fg2)
     }
 }
 

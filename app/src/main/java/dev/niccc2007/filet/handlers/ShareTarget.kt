@@ -14,7 +14,7 @@ package dev.niccc2007.filet.handlers
  */
 enum class ShareTarget(val label: String, val detail: String) {
     /** Android's share sheet. Whatever is installed. */
-    APPS("Share to another app", "The usual Android share sheet"),
+    APPS("Share to another app", "The Android share sheet"),
 
     /**
      * Filet's own network share.
@@ -22,7 +22,7 @@ enum class ShareTarget(val label: String, val detail: String) {
      * Not "nearby" in the Android sense - this is Filet's HTTP share, which needs no app on the
      * other end and works to a laptop, a console browser, anything that can open a URL.
      */
-    NETWORK("Share over your network", "A link any browser here can open"),
+    NETWORK("Share over your network", "A link any browser can open"),
 }
 
 /**

@@ -22,6 +22,18 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgAction
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgCaption
+import dev.niccc2007.filet.ui.dialogs.DlgField
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgSection
+import dev.niccc2007.filet.ui.dialogs.DlgSpacer
+import dev.niccc2007.filet.ui.dialogs.DlgWarn
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
@@ -58,81 +70,40 @@ fun ArchiveSaveSheet(
     onDismiss: () -> Unit,
 ) {
     val colors = Filet.colors
-    AlertDialog(
-        onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text("Save $fileName", fontSize = 15.sp, maxLines = 2) },
-        text = {
-            Column {
-                Text(
-                    "inside $archiveName",
-                    fontSize = 10.5.sp,
-                    color = colors.fg3,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(10.dp))
-                if (refusal != null) {
-                    Text(refusal, fontSize = 11.5.sp, color = MaterialTheme.colorScheme.error)
-                } else {
-                    Text(cost, fontSize = 11.5.sp, color = colors.fg2)
-                }
-                Spacer(Modifier.height(14.dp))
-
-                if (refusal == null) {
-                    Choice(
-                        icon = FiletIcons.Zip,
-                        label = if (busy) "Saving…" else "Update the archive",
-                        note = "Puts the edit back where it came from.",
-                        enabled = !busy,
-                        onClick = onUpdate,
-                    )
-                }
-                Choice(
-                    icon = FiletIcons.FolderOpen,
-                    label = "Save somewhere else…",
-                    note = "Pick a folder. The archive is left exactly as it is.",
+    // Scrim dismissal is off while busy: the archive is being rewritten, and a stray tap
+    // outside the card during that is not a decision to cancel anything.
+    Dlg(onDismiss = { if (!busy) onDismiss() }, dismissOnScrim = false) {
+        DlgHeader(
+            FiletIcons.Zip,
+            "Save $fileName",
+            sub = "inside $archiveName",
+            onClose = { if (!busy) onDismiss() },
+        )
+        DlgBody {
+            // One banner, and only when the archive is actually refusing. The cost is a fact
+            // about what is about to happen, not an obstacle to it, so it is a caption.
+            if (refusal != null) DlgWarn(refusal, bad = true) else DlgCaption(cost)
+            Spacer(Modifier.height(10.dp))
+            if (refusal == null) {
+                DlgAction(
+                    FiletIcons.Zip,
+                    if (busy) "Saving…" else "Update the archive",
+                    sub = "Puts the edit back where it came from.",
                     enabled = !busy,
-                    onClick = onElsewhere,
+                    onClick = onUpdate,
                 )
             }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Cancel") } },
-    )
-}
-
-/** One of the two answers: a full-width row, with the consequence under it. */
-@Composable
-private fun Choice(
-    icon: ImageVector,
-    label: String,
-    note: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    val colors = Filet.colors
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = if (enabled) colors.accent else colors.fg3,
-            modifier = Modifier.size(16.dp),
-        )
-        Spacer(Modifier.width(10.dp))
-        Column {
-            Text(
-                label,
-                fontSize = 13.sp,
-                color = if (enabled) MaterialTheme.colorScheme.onSurface else colors.fg3,
+            DlgAction(
+                FiletIcons.FolderOpen,
+                "Save somewhere else…",
+                sub = "Pick a folder. The archive is left exactly as it is.",
+                enabled = !busy,
+                onClick = onElsewhere,
             )
-            Text(note, fontSize = 10.sp, color = colors.fg3)
+        }
+        DlgFooter {
+            DlgSpacer()
+            DlgBtn("Cancel", enabled = !busy, onClick = onDismiss)
         }
     }
 }

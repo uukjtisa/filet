@@ -58,6 +58,12 @@ const ALLOWED = [
   // apksig, smali and ARSCLib all take java.io.File and refuse streams. Every path this
   // package touches came from Vfs.osPath or from AppFiles.
   "app/src/main/java/dev/niccc2007/filet/apk/",
+  // Local copies of remote files, for the three things that take a path and refuse a stream:
+  // the zip reader, getPackageArchiveInfo, and the package installer. Everything it reads
+  // comes THROUGH the VFS - `vfs.openRead` - and what it writes is a hashed filename under
+  // cacheDir that it evicts itself. It never builds a user path and never reads one directly,
+  // which is the distinction R3 is about rather than the presence of java.io.File.
+  "app/src/main/java/dev/niccc2007/filet/ops/RemoteStaging.kt",
   // Reconciling the gallery means asking MediaStore what it already holds, and MediaStore is
   // the media index rather than a filesystem - it is asked which rows exist, never used to
   // read or write a file. The paths it returns are compared against what the VFS reported and

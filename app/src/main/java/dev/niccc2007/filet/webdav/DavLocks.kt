@@ -28,15 +28,36 @@ class DavLocks(private val now: () -> Long = System::currentTimeMillis) {
     private val random = SecureRandom()
 
     /**
-     * Take a lock on [rel], or null if somebody else holds an unexpired one.
+     * Take a lock on [rel], or null if SOMEBODY ELSE holds an unexpired one.
      *
      * Re-locking a path whose lock has expired succeeds, which is the whole point of the
      * expiry: the alternative is a share that accumulates permanently locked files.
+     *
+     * @param presented the token the requester says it already holds, from the `If:` header.
+     *
+     * **A holder refreshing its own lock is not a conflict, and treating it as one broke every
+     * large copy from Windows.** RFC 4918 section 9.10.2 refreshes a lock with a LOCK carrying
+     * the existing token and no body, and Explorer sends exactly that, periodically, for the
+     * duration of a transfer. Answering 423 to it surfaces as
+     * `0x80070021 - another process has locked a portion of the file`, mid-copy, on the file
+     * the client itself locked a moment earlier.
+     *
+     * It also explains the shape of the report: a SMALL file copied successfully and still
+     * raised the error, because the transfer finished before the refusal mattered while the
+     * refresh was refused all the same.
      */
-    fun acquire(rel: String, timeoutSeconds: Int): String? {
+    fun acquire(rel: String, timeoutSeconds: Int, presented: String? = null): String? {
         val t = now()
         val existing = held[rel]
-        if (existing != null && existing.expiresAt > t) return null
+        if (existing != null && existing.expiresAt > t) {
+            // The holder, coming back. Same token, new expiry - a refresh is not a new lock and
+            // handing out a different token would invalidate the one the client is using.
+            if (presented != null && presented == existing.token) {
+                held[rel] = existing.copy(expiresAt = t + timeoutSeconds * 1000L)
+                return existing.token
+            }
+            return null
+        }
         val token = "opaquelocktoken:" + (1..32)
             .map { HEX[random.nextInt(HEX.length)] }
             .joinToString("")
@@ -86,6 +107,27 @@ class DavLocks(private val now: () -> Long = System::currentTimeMillis) {
          * that never expires is one a disappearing client leaves behind forever. It is
          * answered with the maximum instead, which is a legal response to any timeout request.
          */
+        /**
+         * The lock token inside an `If:` header, or null.
+         *
+         * The header's full grammar is a list of tagged or untagged condition lists, and
+         * Explorer, curl, cadaver and the .NET client each write it differently - tagged with
+         * a resource URI, untagged, sometimes with an ETag beside the token. Parsing the
+         * grammar to find one token would be a parser with more failure modes than the thing
+         * it protects, so this pulls out the token and ignores the shape around it.
+         *
+         * That is deliberately lenient and it is safe here: the token is a 32-character random
+         * value the server minted, so presenting the right one IS the proof of holding it. The
+         * surrounding syntax adds nothing a caller could not also get right by accident.
+         */
+        fun tokenIn(header: String?): String? {
+            val raw = header ?: return null
+            val at = raw.indexOf("opaquelocktoken:")
+            if (at < 0) return null
+            val token = raw.substring(at).takeWhile { it != '>' && it != ')' && !it.isWhitespace() }
+            return token.ifBlank { null }
+        }
+
         fun timeoutSeconds(header: String?): Int {
             val h = header?.trim() ?: return DEFAULT_TIMEOUT_SECONDS
             for (part in h.split(',')) {

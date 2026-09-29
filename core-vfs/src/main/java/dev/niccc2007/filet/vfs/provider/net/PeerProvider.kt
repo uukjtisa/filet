@@ -43,6 +43,8 @@ class PeerProvider(
 ) : FileSystemProvider {
 
     override val scheme: String = SCHEME
+    override val remote: Boolean = true
+
     override val capabilities: Set<Capability> = setOf(Capability.READ, Capability.WRITE)
 
     override suspend fun roots(): List<VNode> = withContext(Dispatchers.IO) {

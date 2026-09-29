@@ -172,6 +172,13 @@ class MainActivity : ComponentActivity() {
         browser.onCheckUpdates = if (BuildConfig.UPDATER_ENABLED) {
             { browser.openUrl("https://github.com/uukjtisa/filet/releases/latest") }
         } else null
+
+        // Shares that asked to come up with the app. A no-op unless one was ticked, and it is
+        // ticked per share - nothing on a fresh install opens a socket by itself.
+        //
+        // Here rather than in the Application, because it needs the foreground service, and a
+        // service started before an Activity exists has nothing to put in its notification tap.
+        browser.startAutoHosting()
     }
 
     /**

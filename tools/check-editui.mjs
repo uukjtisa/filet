@@ -118,8 +118,12 @@ if (process.argv.includes("--selftest")) {
   // Wrap the unconditional offer in the guard the other one has. Matched by looking ahead for
   // the callback rather than by the widget's name, so a change of widget does not silently
   // turn this negative control into a no-op - which is exactly what happened once.
+  // Any call that reaches `onElsewhere`, not one named widget. Keying on the widget's name was
+  // the very trap the comment above describes, and it sprang the moment the row stopped being
+  // a local `Choice` and became the shared `DlgAction` - the control matched nothing and the
+  // checker said so rather than passing quietly, which is the only reason this was noticed.
   const gated = sheet.replace(
-    /(Choice\()(?=[\s\S]{0,320}?onClick = onElsewhere)/,
+    /([A-Z][A-Za-z]*\()(?=[\s\S]{0,320}?onClick = onElsewhere)/,
     "if (refusal == null) { $1",
   );
   if (gated === sheet) {

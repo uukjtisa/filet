@@ -33,6 +33,7 @@ import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.provider.ArchiveProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -71,15 +72,44 @@ data class DragState(
  * than a toast saying it afterwards - which is the difference between a file manager and a
  * guessing game.
  */
+/** A drop that has landed, held while the prompt is open. */
+data class PendingDrop(
+    val paths: List<VPath>,
+    val dest: VPath,
+    val destLabel: String,
+    val count: Int,
+    /** What the same-volume rule would have picked, used only to preselect a button. */
+    val suggested: DropAction,
+)
+
+/** A drop onto the folder the items already live in, waiting to be confirmed. */
+data class PendingDuplicate(
+    val paths: List<VPath>,
+    val label: String,
+    val count: Int,
+)
+
 data class DropPlan(
     val dest: VPath,
     val destLabel: String,
     val move: Boolean,
     /** Non-null when the drop is refused, and why. */
     val refusal: String? = null,
+    /**
+     * The items are already in [dest], so dropping means making another copy beside them.
+     *
+     * Not a refusal, which is what it used to be: "Already in X" is true and useless, naming
+     * something you can see and offering nothing.
+     */
+    val duplicate: Boolean = false,
 ) {
     val label: String
-        get() = refusal ?: "${if (move) "Move to" else "Copy to"} $destLabel"
+        get() = when {
+            refusal != null -> refusal
+            duplicate -> "Make a copy here"
+            move -> "Move to $destLabel"
+            else -> "Copy to $destLabel"
+        }
 }
 
 data class VolumeInfo(val node: VNode, val label: String, val free: Long?, val total: Long?)
@@ -134,6 +164,22 @@ data class AppState(
     val focused: Side = Side.A,
     val clipboard: Clipboard? = null,
     val drag: DragState? = null,
+    /**
+     * A drop that has landed and is waiting to be told what it is.
+     *
+     * Separate from [drag], which is the gesture in flight. The gesture ends when the finger
+     * lifts; the question outlives it.
+     */
+    val dropAsk: PendingDrop? = null,
+    /** A drop onto the source folder, waiting for a yes. */
+    val duplicateAsk: PendingDuplicate? = null,
+    /**
+     * An action that was refused rather than broken.
+     *
+     * Its own field rather than a toast, because a refusal has two things to say - what was
+     * refused and what would have to change - and a toast has room for neither.
+     */
+    val denied: dev.niccc2007.filet.vfs.Denial? = null,
     val volumes: List<VolumeInfo> = emptyList(),
     val switcherOpen: Boolean = false,
     val activityOpen: Boolean = false,
@@ -159,6 +205,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     val tabs: StateFlow<List<PaneController>> = _tabs.asStateFlow()
 
     val prefs get() = graph.prefs
+
+    /** For the row that reads a folder's item count. Read-only use only. */
+    val vfs get() = graph.vfs
     val bookmarks get() = graph.bookmarks
     val recents get() = graph.recents
     val ledger get() = graph.ledger
@@ -182,9 +231,65 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         _state.update { it.copy(volumes = volumeInfos(roots)) }
     }
 
+    /**
+     * Re-read the volumes while a surface showing them is up.
+     *
+     * Only network ones can change on their own: a local volume is there or it is not, and its
+     * free space moves slowly enough that a card draw is a fine time to read it. A mounted share
+     * is different - the far device sleeps, wakes, joins another network - and nothing was
+     * re-reading it, so a card drawn while the other phone was off stayed "Offline" for the rest
+     * of the session even after it came back.
+     *
+     * Started per visible surface and cancelled with it, so a backgrounded app is not polling
+     * the network.
+     */
+    fun watchVolumes(): kotlinx.coroutines.Job = viewModelScope.launch {
+        while (true) {
+            kotlinx.coroutines.delay(VOLUME_POLL_MS)
+            val hasNetwork = _state.value.volumes.any { it.node.path.scheme != "local" }
+            if (!hasNetwork) continue
+            loadVolumes()
+        }
+    }
+
+    /**
+     * Re-list when a mounted device changes something on this phone.
+     *
+     * Coalesced, and that is the whole difficulty. A desktop copying a folder in performs one
+     * write per file, so reacting to each would re-list the visible panes hundreds of times in a
+     * few seconds - a directory read per file, on a phone, while that same phone is serving the
+     * copy. So a write only ARMS a re-list, and the re-list happens once the writes stop for
+     * [REMOTE_SETTLE_MS].
+     *
+     * Settling rather than throttling on purpose: a throttle would redraw mid-copy showing a
+     * half-copied folder, and then again at the end. Waiting for quiet shows the finished state
+     * once. The cost is that a lone edit takes that long to appear, which is well under the time
+     * it takes to look up at the phone.
+     */
+    private fun watchRemoteWrites() {
+        viewModelScope.launch {
+            var last = graph.remoteWrites.value
+            graph.remoteWrites.collect { now ->
+                if (now == last) return@collect
+                last = now
+                // Wait for quiet. If more writes land while waiting, this job is replaced and the
+                // wait starts again, so a long copy re-lists once at the end rather than per file.
+                remoteSettle?.cancel()
+                remoteSettle = viewModelScope.launch {
+                    kotlinx.coroutines.delay(REMOTE_SETTLE_MS)
+                    refreshPanes()
+                }
+            }
+        }
+    }
+
+    private var remoteSettle: kotlinx.coroutines.Job? = null
+
     fun start() {
         if (started) return
         started = true
+        watchRemoteWrites()
+        watchDiscoveredAddresses()
         viewModelScope.launch {
             val roots = runCatching { graph.vfs.roots() }.getOrElse { emptyList() }
             _state.update { it.copy(volumes = volumeInfos(roots)) }
@@ -248,6 +353,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             // crawl is already running - see IndexCoordinator.indexFolderNow.
             onLanded = { path -> graph.indexCoordinator.indexFolderNow(path) },
             worldRevision = { _state.value.revision },
+            dragging = { _state.value.drag != null },
         )
         pane.rootsForDevice = _state.value.volumes.map { it.node.path }
         return pane
@@ -370,6 +476,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                     RefreshTarget.NEARBY_SCAN -> graph.nearby.startScan()
                     RefreshTarget.SHORTCUTS -> graph.shortcuts.reload()
                     RefreshTarget.SCRIPTS -> graph.scripts.reload()
+                    // Nothing cached to drop: the screen re-reads PackageManager when the
+                    // target fires, which is the only source there is.
+                    RefreshTarget.INSTALLED_APPS -> Unit
                     RefreshTarget.BOOKMARKS -> graph.bookmarks.reload()
                     RefreshTarget.RECENTS -> graph.recents.reload()
 
@@ -498,15 +607,19 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     private fun openUnclaimed(node: VNode) {
         viewModelScope.launch {
             val kind = runCatching {
-                graph.vfs.openRead(node.path).use { input ->
-                    val head = ByteArray(dev.niccc2007.filet.vfs.provider.Sniff.NEEDED)
-                    var read = 0
-                    while (read < head.size) {
-                        val n = input.read(head, read, head.size - read)
-                        if (n <= 0) break
-                        read += n
+                // Sniffing reads the first few hundred bytes of the file, which for an unclaimed
+                // file on a mounted share is a socket read.
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    graph.vfs.openRead(node.path).use { input ->
+                        val head = ByteArray(dev.niccc2007.filet.vfs.provider.Sniff.NEEDED)
+                        var read = 0
+                        while (read < head.size) {
+                            val n = input.read(head, read, head.size - read)
+                            if (n <= 0) break
+                            read += n
+                        }
+                        dev.niccc2007.filet.vfs.provider.Sniff.kindOf(head.copyOf(read))
                     }
-                    dev.niccc2007.filet.vfs.provider.Sniff.kindOf(head.copyOf(read))
                 }
             }.getOrDefault(dev.niccc2007.filet.vfs.provider.Sniff.Kind.UNKNOWN)
 
@@ -534,12 +647,32 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      */
     fun mountArchive(node: VNode) {
         val pane = focusedPane() ?: return
-        if (node.path.scheme != "local") {
-            toast("Open archives from local storage for now.")
+        graph.recents.record(node.path, isDir = false)
+
+        // A local archive opens where it lies.
+        val local = graph.vfs.osPath(node.path)
+        if (local != null) {
+            pane.navigateTo(ArchiveProvider.mount(local))
             return
         }
-        graph.recents.record(node.path, isDir = false)
-        pane.navigateTo(ArchiveProvider.mount(node.path.path))
+
+        // One on a share has no path, and a zip is read by seeking - from the END of the file
+        // for its index, then to each entry - so a forward-only stream cannot open one at all.
+        // A staged copy is what makes it work; REMOTE-FILES.md has why this is the last resort
+        // and what replaces it.
+        viewModelScope.launch {
+            runCatching { graph.staging.stage(node.path, node.size, node.mtime) }
+                .onSuccess { staged ->
+                    if (staged == null) {
+                        toast("This archive could not be opened.")
+                    } else {
+                        pane.navigateTo(ArchiveProvider.mount(staged.absolutePath))
+                    }
+                }
+                .onFailure {
+                    toast("Could not read ${node.name}: " + dev.niccc2007.filet.ops.FileOperations.readable(it))
+                }
+        }
     }
 
     // ── clipboard ──
@@ -567,7 +700,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             // Where each one lands, so the rows appear at the bottom instead of scattering
             // into sort order the instant the paste finishes.
             pane.noteArrived(clip.items.map { dest.child(it.name) })
-            reportAndRefresh(r.succeeded, r.failed.size, if (clip.op == PendingOp.COPY) "copied" else "moved")
+            reportAndRefresh(r.succeeded, r.failed, if (clip.op == PendingOp.COPY) "copied" else "moved", r.denial)
         }
     }
 
@@ -594,15 +727,17 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun deleteSelection() = withSelection { items ->
         viewModelScope.launch {
             val r = graph.ops.delete(items.map { it.path })
-            reportAndRefresh(r.succeeded, r.failed.size, "deleted")
+            reportAndRefresh(r.succeeded, r.failed, "deleted", r.denial)
         }
     }
 
     fun rename(target: VPath, newName: String) {
         if (newName.isBlank() || newName == target.name) return
         viewModelScope.launch {
-            runCatching { graph.vfs.rename(target, newName.trim()) }
-                .onSuccess {
+            runAction(
+                dev.niccc2007.filet.vfs.FileAction.RENAME,
+                target,
+                onDone = {
                     // A rename is the old row leaving and a new one arriving. Holding the new
                     // name at the bottom is what keeps it findable when the name it was given
                     // sorts it somewhere else entirely.
@@ -610,8 +745,8 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                         _tabs.value.forEach { p -> p.noteGone(target); p.noteArrived(listOf(renamed)) }
                     }
                     toast("Renamed"); refreshPanes()
-                }
-                .onFailure { toast(dev.niccc2007.filet.ops.FileOperations.readable(it)) }
+                },
+            ) { graph.vfs.rename(target, newName.trim()) }
         }
     }
 
@@ -620,9 +755,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         if (name.isBlank()) return
         viewModelScope.launch {
             val made = dest.child(name.trim())
-            runCatching { graph.vfs.create(made, isDir = true) }
-                .onSuccess { paneFor(side)?.noteArrived(listOf(made)); toast("Folder created"); refreshPanes() }
-                .onFailure { toast(dev.niccc2007.filet.ops.FileOperations.readable(it)) }
+            runAction(
+                dev.niccc2007.filet.vfs.FileAction.CREATE_DIR,
+                dest,
+                onDone = { paneFor(side)?.noteArrived(listOf(made)); toast("Folder created"); refreshPanes() },
+            ) { graph.vfs.create(made, isDir = true) }
         }
     }
 
@@ -631,9 +768,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         if (name.isBlank()) return
         viewModelScope.launch {
             val made = dest.child(name.trim())
-            runCatching { graph.vfs.create(made, isDir = false) }
-                .onSuccess { paneFor(side)?.noteArrived(listOf(made)); toast("File created"); refreshPanes() }
-                .onFailure { toast(dev.niccc2007.filet.ops.FileOperations.readable(it)) }
+            runAction(
+                dev.niccc2007.filet.vfs.FileAction.CREATE_FILE,
+                dest,
+                onDone = { paneFor(side)?.noteArrived(listOf(made)); toast("File created"); refreshPanes() },
+            ) { graph.vfs.create(made, isDir = false) }
         }
     }
 
@@ -661,7 +800,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             // left in the heap after a failed compress is the same password left after a
             // successful one.
             options.clearPassword()
-            reportAndRefresh(r.succeeded, r.failed.size, "compressed into $name")
+            reportAndRefresh(r.succeeded, r.failed, "compressed into $name", r.denial)
         }
     }
 
@@ -747,7 +886,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         viewModelScope.launch {
             val r = graph.extractOps.run(pending.archiveRoot, pending.into, pending.plan, pending.label)
             _extractPlan.value = null
-            reportAndRefresh(r.succeeded, r.failed.size, "extracted")
+            reportAndRefresh(r.succeeded, r.failed, "extracted", r.denial)
         }
     }
 
@@ -917,10 +1056,69 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         block(items)
     }
 
-    private fun reportAndRefresh(ok: Int, failed: Int, verb: String) {
-        toast(if (failed == 0) "$ok $verb" else "$ok $verb, $failed failed")
+    /**
+     * Say what happened, including WHY when something did not.
+     *
+     * The reason was always captured - every operation records `readable(throwable)` per failed
+     * path - and then thrown away here, so a failure surfaced as "0 copied, 1 failed" with
+     * nothing to act on. A count alone cannot be debugged by the person holding the phone, and it
+     * cannot be reported usefully either.
+     *
+     * One reason, not a list: several files failing usually fail the same way, and a toast is not
+     * a place for an error report. The path is named only when a single item failed, because with
+     * forty of them the name of one is noise.
+     */
+    private fun reportAndRefresh(
+        ok: Int,
+        failures: List<Pair<dev.niccc2007.filet.vfs.VPath, String>>,
+        verb: String,
+        denial: dev.niccc2007.filet.vfs.Denial? = null,
+    ) {
+        val failed = failures.size
+        val why = failures.firstOrNull()?.second
+        // A refusal gets the dialogue instead of the toast. Both would be two messages about one
+        // event, and the toast is the one that cannot say what to do about it.
+        if (denial != null) showDenial(denial) else toast(
+            when {
+                failed == 0 -> "$ok $verb"
+                failed == 1 && why != null -> "${failures[0].first.name}: $why"
+                why != null -> "$ok $verb, $failed failed - $why"
+                else -> "$ok $verb, $failed failed"
+            },
+        )
         _tabs.value.forEach { it.clearSelection() }
         refreshPanes()
+    }
+
+    fun showDenial(d: dev.niccc2007.filet.vfs.Denial) = _state.update { it.copy(denied = d) }
+
+    fun dismissDenial() = _state.update { it.copy(denied = null) }
+
+    /**
+     * Run one action the same way every other action runs.
+     *
+     * The single-target twin of `FileOperations.act`: ask what the backend allows before
+     * touching anything, do the work off the caller's thread because a remote path is a socket,
+     * and turn a refusal into a dialogue rather than an error string in a toast.
+     *
+     * Used by the actions that speak to the VFS directly - rename, new folder, new file - which
+     * are exactly the ones that used to report a refusal as whatever the backend called it.
+     */
+    private suspend fun <T> runAction(
+        action: dev.niccc2007.filet.vfs.FileAction,
+        path: dev.niccc2007.filet.vfs.VPath,
+        onDone: (T) -> Unit,
+        work: suspend () -> T,
+    ) {
+        graph.vfs.permit(action, path)?.let { showDenial(it); return }
+        val remote = graph.vfs.isRemote(path)
+        runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { work() } }
+            .onSuccess(onDone)
+            .onFailure { t ->
+                dev.niccc2007.filet.vfs.ActionGate.fromFailure(action, path, t, remote)
+                    ?.let { showDenial(it); return }
+                toast(dev.niccc2007.filet.ops.FileOperations.readable(t))
+            }
     }
 
     /**
@@ -935,6 +1133,21 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun refreshPanes() {
         _state.update { it.copy(revision = it.revision + 1) }
         val s = _state.value
+        // Never under a finger that is holding something.
+        //
+        // This is the path that actually cancelled the drag, and gating `freshenIfStale` alone
+        // did not stop it: `relist()` is called straight from here and never consults the
+        // freshness rule. A row's gesture is keyed on its path and survives recomposition, but
+        // not the row leaving the composition - which is exactly what re-listing does to it.
+        //
+        // The revision above is still bumped, so every pane is marked stale and `endDrag`
+        // freshens them the moment the finger lifts. Deferred, not dropped.
+        //
+        // It bites hardest on a network pane, which is where it was reported: a mounted share
+        // arms the remote-write settle timer, so a re-list can land at any moment while the
+        // other device is doing anything at all.
+        if (s.drag != null) return
+
         // relist, not refresh: this runs right after something was written, and `refresh` is
         // the gesture that puts the sort back. Using it here would sort the new file away in
         // the same frame it was created.
@@ -994,8 +1207,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
         val selfDrop = items.any { it.isDir && it.path.contains(dest) }
         if (selfDrop) return DropPlan(dest, label, move = true, refusal = "Cannot drop a folder into itself")
+        // Dropping onto the folder they came from is not a mistake to refuse - it is the
+        // gesture for "give me another one of these". It used to answer "Already in X", which
+        // is true and useless: it names what you can see and offers nothing.
         if (items.all { it.path.parent == dest }) {
-            return DropPlan(dest, label, move = true, refusal = "Already in $label")
+            return DropPlan(dest, label, move = false, duplicate = true)
         }
 
         // "Same volume" is the scheme plus the volume root - /storage/emulated/0 and
@@ -1022,15 +1238,84 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun endDrag(move: Boolean? = null) {
         val drag = _state.value.drag
         _state.update { it.copy(drag = null) }
+        // A re-list that came due mid-drag was deferred rather than dropped - see
+        // FolderFreshness - so the moment the finger lifts, let the panes catch up. A drop that
+        // changes something bumps the revision again below and re-lists a second time, which is
+        // one wasted listing in exchange for never tearing a list out from under a gesture.
+        _tabs.value.forEach { it.freshenIfStale() }
         val plan = drag?.drop ?: return
         if (plan.refusal != null) { toast(plan.refusal); return }
-        val doMove = move ?: plan.move
-        viewModelScope.launch {
-            val paths = drag.items.map { it.path }
-            val r = if (doMove) graph.ops.move(paths, plan.dest) else graph.ops.copy(paths, plan.dest)
-            reportAndRefresh(r.succeeded, r.failed.size, if (doMove) "moved" else "copied")
+        val paths = drag.items.map { it.path }
+
+        // Its own question, not the move-or-copy one: there is nothing to choose between here,
+        // only a yes. Moving something into the folder it is already in is a no-op.
+        if (plan.duplicate) {
+            _state.update {
+                it.copy(
+                    duplicateAsk = PendingDuplicate(
+                        paths = paths,
+                        label = drag.items.firstOrNull()?.name ?: plan.destLabel,
+                        count = paths.size,
+                    ),
+                )
+            }
+            return
+        }
+
+        // An explicit override - a Copy chosen from a drop menu - skips the question, because it
+        // has already been answered.
+        if (move != null) { runDrop(paths, plan.dest, move) ; return }
+
+        when (DragRules.resolve(graph.prefs.drag.value)) {
+            DropAction.MOVE -> runDrop(paths, plan.dest, move = true)
+            DropAction.COPY -> runDrop(paths, plan.dest, move = false)
+            DropAction.ASK -> _state.update {
+                it.copy(
+                    dropAsk = PendingDrop(
+                        paths = paths,
+                        dest = plan.dest,
+                        destLabel = plan.destLabel,
+                        count = paths.size,
+                        suggested = DragRules.suggested(plan.move),
+                    ),
+                )
+            }
         }
     }
+
+    /** Answer the prompt. [remember] stores the choice so it is not asked again. */
+    fun answerDrop(action: DropAction, remember: Boolean) {
+        val pending = _state.value.dropAsk ?: return
+        _state.update { it.copy(dropAsk = null) }
+        if (remember) graph.prefs.setDrag(DragRules.remembered(action))
+        runDrop(pending.paths, pending.dest, move = action == DropAction.MOVE)
+    }
+
+    fun cancelDrop() = _state.update { it.copy(dropAsk = null) }
+
+    fun cancelDuplicate() = _state.update { it.copy(duplicateAsk = null) }
+
+    /** Make a copy of each item beside itself. */
+    fun confirmDuplicate() {
+        val pending = _state.value.duplicateAsk ?: return
+        _state.update { it.copy(duplicateAsk = null) }
+        viewModelScope.launch {
+            val r = graph.ops.duplicate(pending.paths)
+            reportAndRefresh(r.succeeded, r.failed, "copied", r.denial)
+        }
+    }
+
+    private fun runDrop(paths: List<VPath>, dest: VPath, move: Boolean) {
+        viewModelScope.launch {
+            val r = if (move) graph.ops.move(paths, dest) else graph.ops.copy(paths, dest)
+            reportAndRefresh(r.succeeded, r.failed, if (move) "moved" else "copied", r.denial)
+        }
+    }
+
+    /** The stored drag behaviour, for the settings row. */
+    val dragBehaviour get() = graph.prefs.drag
+
+    fun setDragBehaviour(b: DragBehaviour) = graph.prefs.setDrag(b)
 
     fun cancelDrag() = _state.update { it.copy(drag = null) }
 
@@ -1300,36 +1585,72 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     /**
-     * The file a viewer's share button is asking about, or null when it is not asking.
+     * What a Share press is asking about, or null when nothing is asking.
      *
-     * Bug identified: the share button in the viewers handed straight to Android's share
-     * sheet, so Filet's own network share - a link any browser here can open, with nothing
-     * installed at the other end - was the one destination the button could not reach.
-     */
-    private val _shareChoiceFor = MutableStateFlow<VNode?>(null)
-    val shareChoiceFor: StateFlow<VNode?> = _shareChoiceFor.asStateFlow()
-
-    /**
-     * Share from a viewer.
+     * Bug identified, twice over. The first time it was the viewers handing straight to
+     * Android's share sheet, so Filet's own network share - a link any browser here can open,
+     * with nothing installed at the other end - was the one destination the button could not
+     * reach. That was fixed for the viewers and only for the viewers: four other Share
+     * presses still went straight past the chooser, and the reported one was the New files
+     * row, where the whole point is that a file just arrived and you want to pass it on.
      *
-     * Asks only when there is something to ask. A file with no path on this device cannot be
-     * served over the network, so it goes straight to the share sheet rather than opening a
-     * menu over a single option.
+     * So it is a held REQUEST rather than a held node now. Two reasons, and the second is the
+     * one that matters:
+     *  - a selection is a list, and the chooser had no way to express one
+     *  - the targets travel WITH the ask. The sheet used to call `shareTargets(local = true)`
+     *    with the flag hardcoded, which was true by luck because the only caller had already
+     *    checked it. Any new caller would have been offered a network share for a file inside
+     *    an archive, which has nothing to serve and fails after being chosen (R1).
      */
-    fun shareFromViewer(node: VNode) {
-        val local = graph.vfs.osPath(node.path) != null
-        if (!dev.niccc2007.filet.handlers.needsShareChoice(local)) { shareOne(node); return }
-        _shareChoiceFor.value = node
+    data class ShareAsk(
+        val items: List<VNode>,
+        val targets: List<dev.niccc2007.filet.handlers.ShareTarget>,
+    ) {
+        /** What to call this on the sheet: the file, or how many of them. */
+        val title: String get() =
+            if (items.size == 1) items.first().name else "${items.size} files"
     }
 
-    fun dismissShareChoice() { _shareChoiceFor.value = null }
+    private val _shareChoice = MutableStateFlow<ShareAsk?>(null)
+    val shareChoice: StateFlow<ShareAsk?> = _shareChoice.asStateFlow()
 
-    fun shareVia(node: VNode, target: dev.niccc2007.filet.handlers.ShareTarget) {
-        _shareChoiceFor.value = null
+    /**
+     * Share these files, asking where only when there is a real choice.
+     *
+     * The single entry point for every Share press in the app that offers one destination
+     * button. Folders are dropped rather than refused: selecting a folder alongside files and
+     * pressing Share should send the files, not stop and explain itself.
+     *
+     * **Every file has to be local for the network option to appear, not merely one of them.**
+     * A mixed selection would serve some and silently drop the rest, and a share that quietly
+     * sends four of six files is worse than one that only offers the sheet.
+     */
+    fun share(items: List<VNode>) {
+        val files = items.filterNot { it.isDir }
+        if (files.isEmpty()) { toast("Select a file to share."); return }
+        val local = files.all { graph.vfs.osPath(it.path) != null }
+        val targets = dev.niccc2007.filet.handlers.shareTargets(local)
+        if (targets.size == 1) { shareToApps(files); return }
+        _shareChoice.value = ShareAsk(files, targets)
+    }
+
+    /** One file. */
+    fun share(node: VNode) = share(listOf(node))
+
+    fun dismissShareChoice() { _shareChoice.value = null }
+
+    fun shareVia(target: dev.niccc2007.filet.handlers.ShareTarget) {
+        val ask = _shareChoice.value ?: return
+        _shareChoice.value = null
         when (target) {
-            dev.niccc2007.filet.handlers.ShareTarget.APPS -> shareOne(node)
-            dev.niccc2007.filet.handlers.ShareTarget.NETWORK -> shareOneNearby(node)
+            dev.niccc2007.filet.handlers.ShareTarget.APPS -> shareToApps(ask.items)
+            dev.niccc2007.filet.handlers.ShareTarget.NETWORK -> ask.items.forEach { shareOneNearby(it) }
         }
+    }
+
+    /** Straight to Android's sheet, no question asked. For buttons that say that is what they do. */
+    private fun shareToApps(items: List<VNode>) {
+        onShare?.invoke(items) ?: toast("Sharing is unavailable right now.")
     }
 
     /** One file into the shared set, starting the server if it is not already up. */
@@ -1341,12 +1662,22 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     // ── file content, for the viewers ──
 
-    /** Blocking. Every caller is already on an IO dispatcher; the viewers all are. */
+    /**
+     * Blocking, and every caller is already on an IO dispatcher - the viewers all are.
+     *
+     * The `runBlocking` names IO explicitly rather than inheriting the caller's context, so
+     * opening the stream is off the main thread even if a future caller forgets. The READS that
+     * follow are still the caller's, which is what the contract above is about.
+     */
     fun openRead(node: VNode): java.io.InputStream =
-        kotlinx.coroutines.runBlocking { graph.vfs.openRead(node.path) }
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            graph.vfs.openRead(node.path)
+        }
 
     suspend fun readText(node: VNode): String =
-        graph.vfs.openRead(node.path).use { String(it.readBytes(), Charsets.UTF_8) }
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            graph.vfs.openRead(node.path).use { String(it.readBytes(), Charsets.UTF_8) }
+        }
 
     /**
      * A save of a file that lives inside an archive, waiting on the choice.
@@ -1639,6 +1970,100 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         _openRequest.value = OpenRequest(node, HandlerId.APK)
     }
 
+    // ── installed apps ──
+
+    /** Every app the platform will admit to. See the manifest note on package visibility. */
+    suspend fun installedApps() =
+        dev.niccc2007.filet.apk.InstalledApps.list(graph.app)
+
+    /** Where extracted packages land. */
+    val extractedApksFolder: dev.niccc2007.filet.vfs.VPath
+        get() = dev.niccc2007.filet.vfs.VPath.of(
+            "local",
+            "/storage/emulated/0/" + dev.niccc2007.filet.apk.InstalledApps.FOLDER,
+        )
+
+    /**
+     * Copy an installed app's APK out to [extractedApksFolder].
+     *
+     * A split install becomes a FOLDER of parts rather than one file. Writing only the base
+     * would produce something that looks like a complete APK and fails at install time, because
+     * the base deliberately lacks the density and ABI resources that live in the splits - which
+     * is a worse outcome than refusing, since the failure arrives much later and elsewhere.
+     */
+    fun extractInstalled(app: dev.niccc2007.filet.apk.InstalledApp) {
+        viewModelScope.launch {
+            val root = extractedApksFolder
+            val id = graph.ledger.start("Extracting ${app.label}")
+            runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    ensureFolder(root)
+                    val sources = listOf(app.apkPath) + app.splitPaths
+                    val into = if (app.split) {
+                        val dir = root.child(
+                            dev.niccc2007.filet.apk.InstalledApps.folderNameFor(app),
+                        )
+                        ensureFolder(dir)
+                        dir
+                    } else {
+                        root
+                    }
+                    for ((n, source) in sources.withIndex()) {
+                        ensureActive()
+                        val name = if (app.split) source.substringAfterLast('/')
+                        else dev.niccc2007.filet.apk.InstalledApps.fileNameFor(app)
+                        graph.ledger.progress(id, (n + 1f) / sources.size, name)
+                        // Through the VFS, not java.io: an installed APK is at a real path that
+                        // the local provider addresses like any other file, and reaching past
+                        // L0 here would skip the dispatch and the permission gate as well as
+                        // breaking R3.
+                        val from = dev.niccc2007.filet.vfs.VPath.of("local", source)
+                        graph.vfs.openWrite(into.child(name)).use { out ->
+                            graph.vfs.openRead(from).use { input -> input.copyTo(out, 64 * 1024) }
+                        }
+                    }
+                    into
+                }
+            }.onSuccess { into ->
+                graph.ledger.finish(id)
+                dev.niccc2007.filet.media.MediaAnnounce.announce(graph.app, listOf(into))
+                toast(
+                    if (app.split) "Extracted ${app.parts} parts into ${into.name}"
+                    else "Extracted ${app.label}",
+                )
+            }.onFailure {
+                graph.ledger.fail(id, dev.niccc2007.filet.ops.FileOperations.readable(it))
+                toast("Could not extract ${app.label}: " + dev.niccc2007.filet.ops.FileOperations.readable(it))
+            }
+        }
+    }
+
+    private suspend fun ensureFolder(path: dev.niccc2007.filet.vfs.VPath) {
+        if (runCatching { graph.vfs.stat(path) }.getOrNull() == null) {
+            path.parent?.let { ensureFolder(it) }
+            runCatching { graph.vfs.create(path, isDir = true) }
+        }
+    }
+
+    /**
+     * Open the folder extracted packages land in.
+     *
+     * Same reason as the received folder: a tool that writes somewhere and cannot show you
+     * where is only slightly better than one that does not write at all.
+     */
+    fun openExtractedApksFolder() {
+        val pane = focusedPane() ?: return
+        viewModelScope.launch {
+            val folder = extractedApksFolder
+            runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ensureFolder(folder) } }
+            if (runCatching { graph.vfs.stat(folder) }.getOrNull() == null) {
+                toast("Nothing has been extracted yet.")
+                return@launch
+            }
+            pane.navigateTo(folder)
+        }
+    }
+
     /**
      * Open the folder incoming files land in, creating it if this is the first time.
      *
@@ -1659,10 +2084,25 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
     }
 
-    fun shareSelection() {
+    /**
+     * Share the selection, asking where.
+     *
+     * For the context menu, which offers a single "Share" and nothing beside it - so if this
+     * did not ask, network sharing would be unreachable from there entirely.
+     */
+    fun shareSelection() = share(focusedPane()?.selectedNodes().orEmpty())
+
+    /**
+     * Share the selection to another app, without asking.
+     *
+     * For the selection bar's **Send**, which sits next to its own **Nearby** button. Both
+     * destinations are already one press away there, so a chooser would put the sheet two
+     * presses behind a menu whose first entry is what the button already said it does.
+     */
+    fun shareSelectionToApps() {
         val items = focusedPane()?.selectedNodes().orEmpty().filterNot { it.isDir }
         if (items.isEmpty()) { toast("Select a file to share."); return }
-        onShare?.invoke(items) ?: toast("Sharing is unavailable right now.")
+        shareToApps(items)
     }
 
     fun openUrl(url: String) {
@@ -2214,13 +2654,17 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         val extras = dev.niccc2007.filet.apk.SplitPackage.extras(members.map { it.name })
         toast("Installing ${chosen.size} piece(s) from ${node.name}…")
 
-        val result = dev.niccc2007.filet.apk.SplitInstall.install(
-            context = graph.app,
-            label = node.name.substringBeforeLast('.'),
-            entries = chosen,
-        ) { entry ->
-            val member = byName[entry] ?: return@install null
-            runCatching { graph.vfs.openRead(member.path) to member.size }.getOrNull()
+        // The whole install, not just the opens: each piece is streamed into the session from
+        // this thread, and a bundle can be sitting on a mounted share.
+        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            dev.niccc2007.filet.apk.SplitInstall.install(
+                context = graph.app,
+                label = node.name.substringBeforeLast('.'),
+                entries = chosen,
+            ) { entry ->
+                val member = byName[entry] ?: return@install null
+                runCatching { graph.vfs.openRead(member.path) to member.size }.getOrNull()
+            }
         }
 
         when (result) {
@@ -2320,6 +2764,60 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun openPeer(peer: dev.niccc2007.filet.nearby.Peer) {
         val pane = focusedPane() ?: return
         pane.navigateTo(dev.niccc2007.filet.vfs.provider.net.PeerProvider.mount(peer.uuid))
+    }
+
+    /**
+     * Open a saved network place in the focused pane.
+     *
+     * This did not exist. The Remotes row had an Edit button and nothing else, so a place could
+     * be added and then never reached - which reads as the connection having silently failed.
+     *
+     * The path shape is the one every network provider shares: `scheme:///<connectionId>/<path>`,
+     * so the provider looks the connection up by id and a VPath stays a plain string.
+     */
+    fun openConnection(c: dev.niccc2007.filet.vfs.provider.net.NetConnection) {
+        val pane = focusedPane() ?: return
+        // **The share is part of the path.** Every network provider addresses as
+        // `scheme:///<id>/<share>/<rest>`, and the roots listing builds exactly that. Leaving the
+        // share out navigated to `scheme:///<id>`, so the client asked the server for `/` - which
+        // a hosting phone answers 400, because nothing lives above `/a/<code>`. It presented as
+        // an empty folder rather than as an error, which is why it looked like a listing problem.
+        val parts = listOf(c.share, c.startPath)
+            .map { it.trim('/') }
+            .filter { it.isNotEmpty() }
+        val path = dev.niccc2007.filet.vfs.VPath.of(
+            c.protocol.scheme,
+            "/" + c.id + if (parts.isEmpty()) "" else "/" + parts.joinToString("/"),
+        )
+        pane.navigateTo(path)
+        toast("Opening " + c.label.ifEmpty { c.host })
+    }
+
+    /**
+     * The name of a saved network place, for a path that carries its id.
+     *
+     * Network paths are `scheme:///<connectionId>/<remote>`, so the head of every breadcrumb was
+     * a generated id nobody has seen. Null for anything that is not a known connection, and the
+     * caller then draws the raw segment - a path that still works, just less friendly.
+     */
+    /** The icon inside an APK file, for the inspector's identity block. */
+    suspend fun apkIcon(node: VNode): android.graphics.Bitmap? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val os = graph.vfs.osPath(node.path) ?: return@withContext null
+            dev.niccc2007.filet.media.Thumbnails.apkIcon(graph.app, os, 128)
+        }
+
+    /** What is already installed under [packageName]: its version code and signing digest. */
+    suspend fun installedFacts(packageName: String) = graph.apkTools.installedFacts(packageName)
+
+    /** How many of [permissions] Android classes as dangerous. */
+    suspend fun dangerousPermissionCount(permissions: List<String>) =
+        graph.apkTools.dangerousCount(permissions)
+
+    fun connectionName(scheme: String, id: String): String? {
+        val c = graph.connections.byId(id) ?: return null
+        if (c.protocol.scheme != scheme) return null
+        return c.label.ifBlank { c.host }
     }
 
     /** Offer the selection to peers and browsers, in place - nothing is copied. */
@@ -2422,107 +2920,173 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     val davState: StateFlow<dev.niccc2007.filet.webdav.DavState> get() = graph.davState
 
     /**
-     * Start hosting, and keep an eye on the idle clock while it runs.
+     * Start one share, and keep an eye on the idle clocks while anything runs.
      *
-     * The idle check is a slow poll rather than a scheduled stop, because the window can be
-     * changed while the session is running and a timer set at start would carry the old value.
+     * The idle check is a slow poll rather than a scheduled stop, because a window can be changed
+     * while a share is running and a timer set at start would carry the old value. One poll covers
+     * every share; each has its own window and closes itself on its own terms.
      */
-    fun startHosting() {
+    fun startHosting(id: Long) {
         viewModelScope.launch {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { graph.webdav.start() }
-            if (graph.davState.value.running) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                graph.webdav.start(id)
+            }
+            val up = graph.davState.value.shares.firstOrNull { it.id == id }?.running == true
+            if (up) {
                 // The same foreground service the share uses. Without it the socket lives only
                 // as long as the process does, and a drive letter that vanishes on switching
                 // apps is worse than no drive letter.
                 dev.niccc2007.filet.nearby.NearbyService.start(graph.app)
-                toast("Hosting on the network")
+                toast("Sharing on the network")
             } else {
-                toast("Could not start hosting")
+                toast("Could not start this share")
             }
         }
-        viewModelScope.launch {
+        watchHostIdle()
+    }
+
+    private var hostIdleWatch: kotlinx.coroutines.Job? = null
+
+    private fun watchHostIdle() {
+        if (hostIdleWatch?.isActive == true) return
+        hostIdleWatch = viewModelScope.launch {
             while (graph.davState.value.running) {
                 kotlinx.coroutines.delay(30_000)
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { graph.webdav.stopIfIdle() }
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    graph.webdav.stopIfIdle()
+                }
             }
         }
     }
 
-    fun stopHosting() {
+    /** Stop one share. The others, and the socket, stay up if any remain. */
+    fun stopHosting(id: Long) {
+        viewModelScope.launch {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                graph.webdav.stop(id)
+            }
+            // Nudged rather than stopped: another share may still be running behind it, and this
+            // lets the service work out for itself whether it still has a reason to exist.
+            dev.niccc2007.filet.nearby.NearbyService.start(graph.app)
+            toast("Stopped sharing")
+        }
+    }
+
+    /** Stop everything. What the card's top-level stop means. */
+    fun stopAllHosting() {
         viewModelScope.launch {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { graph.webdav.stop() }
-            // Nudged rather than stopped: the share may still be running behind it, and this
-            // lets the service work out for itself whether it still has a reason to exist.
             dev.niccc2007.filet.nearby.NearbyService.start(graph.app)
             toast("Stopped hosting")
         }
     }
 
-    fun setHostWritable(on: Boolean) {
-        graph.webdav.writable = on
+    /** Bring up every share that asked to open with Filet. Called once, at startup. */
+    fun startAutoHosting() {
+        if (dev.niccc2007.filet.webdav.DavShares.autoStarting(graph.webdav.shares).isEmpty()) return
+        viewModelScope.launch {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                graph.webdav.startAutoShares()
+            }
+            if (graph.davState.value.running) {
+                dev.niccc2007.filet.nearby.NearbyService.start(graph.app)
+                watchHostIdle()
+            }
+        }
+    }
+
+    // ---- editing the share list ------------------------------------------------------------
+
+    private fun publishDav() {
         graph.davState.value = graph.webdav.state()
     }
 
     /**
-     * Change what the computer can see.
+     * Store an edited or new share.
      *
-     * Takes effect on the next start, and says so: moving the root under a drive Explorer has
-     * already mounted leaves it holding paths that no longer resolve, which looks to the user
-     * like every file vanished.
+     * A running share keeps running on the settings it started with: moving a root under a drive
+     * Explorer has already mounted leaves it holding paths that no longer resolve, which looks to
+     * the user like every file vanished. The card says so rather than the change being silent.
      */
-    fun setHostScope(scope: dev.niccc2007.filet.webdav.DavScope) {
-        graph.webdav.scope = scope
-        graph.davState.value = graph.webdav.state()
-        if (graph.davState.value.running) toast("Takes effect the next time you start hosting")
+    fun saveShare(share: dev.niccc2007.filet.webdav.DavShare) {
+        val shares = graph.webdav.shares
+        val clean = share.copy(
+            label = share.label.trim().ifBlank { "Share" },
+            code = share.code?.trim()?.takeIf { it.isNotEmpty() },
+        )
+        val before = shares.firstOrNull { it.id == clean.id }
+        graph.webdav.shares = dev.niccc2007.filet.webdav.DavShares.upsert(shares, clean)
+        val live = graph.davState.value.shares.firstOrNull { it.id == clean.id }?.running == true
+        if (live) {
+            // Policy reaches the running share at once. Only the endpoint waits, and only then is
+            // there anything to warn about - a blanket warning is what made "allow changes" look
+            // like it had been saved and ignored.
+            graph.webdav.applyLive(clean)
+            if (before != null && dev.niccc2007.filet.webdav.DavShares.needsRestart(before, clean)) {
+                toast("The address changed - restart this share to use it")
+            }
+        }
+        publishDav()
     }
 
-    fun setHostIdleMinutes(m: Int) {
-        graph.webdav.idleStopMinutes = m
-        graph.davState.value = graph.webdav.state()
+    /** A new share, named and coded so it cannot collide with one already there. */
+    fun newShare(): dev.niccc2007.filet.webdav.DavShare {
+        val shares = graph.webdav.shares
+        return dev.niccc2007.filet.webdav.DavShare(
+            id = dev.niccc2007.filet.webdav.DavShares.newId(shares),
+            label = dev.niccc2007.filet.webdav.DavShares.freeLabel(shares, "New share"),
+        )
+    }
+
+    fun deleteShare(id: Long) {
+        viewModelScope.launch {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                graph.webdav.stop(id)
+            }
+            val before = graph.webdav.shares
+            graph.webdav.shares = dev.niccc2007.filet.webdav.DavShares.remove(before, id)
+            publishDav()
+            if (graph.webdav.shares.size == before.size) toast("Keeping the last share")
+            else toast("Share removed")
+        }
+    }
+
+    /**
+     * Let the desktop change files, for this session only.
+     *
+     * Applies to a running share immediately - unlike the settings above, because this one is not
+     * baked into the endpoint and revoking it has to be instant to be worth having.
+     */
+    fun setShareWritable(id: Long, on: Boolean) {
+        graph.webdav.setWritable(id, on)
+        val shares = graph.webdav.shares
+        graph.webdav.shares = dev.niccc2007.filet.webdav.DavShares.upsert(
+            shares,
+            shares.first { it.id == id }.copy(writable = on),
+        )
+        publishDav()
     }
 
     fun kickHostClient(address: String) {
         graph.webdav.kick(address)
     }
 
-    /** The flat indexed views, on or off. */
-    fun setHostViews(on: Boolean) {
-        graph.webdav.showViews = on
-        graph.davState.value = graph.webdav.state()
-    }
-
-    /**
-     * Pin the access code, or go back to a fresh one per session.
-     *
-     * Random per session is the safer default and stays the default. A code that changes every
-     * time is genuinely annoying when the same PC mounts the drive every day, and a mapped
-     * network drive stores the address - so a new code silently breaks the saved mapping.
-     */
-    fun setHostCode(code: String?) {
-        graph.webdav.fixedCode = code?.trim()?.takeIf { it.isNotEmpty() }
-        graph.davState.value = graph.webdav.state()
-        if (graph.davState.value.running) toast("Takes effect the next time you start hosting")
-    }
-
     fun setHostPort(port: Int) {
         graph.webdav.preferredPort = port.coerceIn(1024, 65535)
-        graph.davState.value = graph.webdav.state()
+        publishDav()
         if (graph.davState.value.running) toast("Takes effect the next time you start hosting")
     }
 
-    /** Host one chosen folder rather than a preset. Null goes back to the presets. */
-    fun setHostFolder(path: VPath?) {
-        graph.webdav.customRoot = path
-        graph.davState.value = graph.webdav.state()
-        if (graph.davState.value.running) toast("Takes effect the next time you start hosting")
-    }
-
-    /** Pick the folder to host, starting from wherever the pane is. */
-    fun pickHostFolder() {
+    /** Pick the folder for one share, starting from wherever the pane is. */
+    fun pickShareFolder(id: Long) {
         val start = focusedPane()?.state?.value?.cwd
             ?: graph.app.let { VPath.of("local", "/storage/emulated/0") }
-        pickFolder("Host this folder", "Host this one", start) { dest -> setHostFolder(dest) }
+        pickFolder("Share this folder", "Share this one", start) { dest ->
+            val sh = graph.webdav.shares.firstOrNull { it.id == id } ?: return@pickFolder
+            saveShare(sh.copy(customRoot = dest.toString()))
+        }
     }
+
 
     /**
      * The addresses a computer can reach this phone on, reused from the Nearby server.
@@ -2542,6 +3106,61 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      */
     fun bumpRemotes() {
         _remotesRevision.value = _remotesRevision.value + 1
+    }
+
+    /** Phones on this network that are hosting right now. */
+    val davBeacon get() = graph.davBeacon
+
+    /**
+     * Turn a discovered host into a connection, filled in from what it announced.
+     *
+     * Everything except the code, which is not broadcast - so this hands back a connection that
+     * is complete apart from the one field only the person can supply, and the add form opens on
+     * it rather than on an empty one.
+     */
+    fun connectionFromHost(h: dev.niccc2007.filet.webdav.DavBeacon.Host):
+        dev.niccc2007.filet.vfs.provider.net.NetConnection =
+        dev.niccc2007.filet.vfs.provider.net.NetConnection(
+            id = graph.connections.newId(),
+            protocol = dev.niccc2007.filet.vfs.provider.net.NetProtocol.WEBDAV,
+            label = h.name,
+            host = h.host,
+            port = h.port,
+            user = "",
+            password = "",
+            // The advertised prefix ONLY, with no code - the code is not broadcast. The form
+            // turns what gets typed into `a/<code>`; leaving the bare prefix here put the letter
+            // "a" into a box labelled Access code, which is neither the code nor something anybody
+            // could correct without knowing the URL shape.
+            share = h.basePath.trim('/'),
+            anonymous = false,
+            // Carried so this entry can be recognised again when the device turns up on a
+            // different network. Without it, identity is the address - which is the one thing
+            // about a host guaranteed to change.
+            deviceId = h.deviceId,
+        )
+
+    /**
+     * Teach saved remotes the addresses their devices are currently seen at.
+     *
+     * Runs for as long as discovery does. The saving is what makes the whole multi-address
+     * feature invisible in the good case: change network, and the entry already knows where the
+     * device went before anybody opens it.
+     *
+     * Matched on the advertised device id and nothing else. An address is a place credentials
+     * get sent, so a host that cannot prove which device it is teaches nothing - see
+     * `NetConnections.learnForDevice`.
+     */
+    fun watchDiscoveredAddresses(): kotlinx.coroutines.Job = viewModelScope.launch {
+        graph.davBeacon.state.collect { state ->
+            var learned = false
+            for (h in state.hosts) {
+                if (graph.connections.learnForDevice(h.deviceId, h.host)) learned = true
+            }
+            // Only when something actually changed: discovery re-announces constantly, and a
+            // bump per packet would re-list the panes forever.
+            if (learned) bumpRemotes()
+        }
     }
 
     fun saveConnection(c: dev.niccc2007.filet.vfs.provider.net.NetConnection) {
@@ -2988,8 +3607,28 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     private fun volumeLabel(node: VNode): String = when {
         node.path.path.contains("emulated") -> "Internal storage"
         node.path.scheme == "saf" -> node.name.ifEmpty { "Granted folder" }
+
+        // A mounted remote is named by the REMOTE, not by its path.
+        //
+        // A share's node name is its share segment, which for a Filet host is the access code -
+        // so the card read "SARAH8" and the name set on the connection was never used anywhere
+        // it could be seen. A code is an implementation detail of the address; it is not what
+        // the device is called.
+        node.path.scheme != "local" ->
+            connectionIdOf(node.path)?.let { connectionName(node.path.scheme, it) }
+                ?: node.name.ifEmpty { "Network drive" }
+
         else -> node.name.ifEmpty { "Storage" }
     }
+
+    /**
+     * The saved-remote id out of a `scheme:/<id>/<remote>` path.
+     *
+     * The first segment, by the addressing every net provider shares - see `netPath`. Null for
+     * anything that is not shaped like one rather than guessing at a substring.
+     */
+    private fun connectionIdOf(path: dev.niccc2007.filet.vfs.VPath): String? =
+        path.path.trim('/').substringBefore('/').takeIf { it.isNotEmpty() }
 
     private companion object {
         const val KEY_TABS = "tabs.v1"
@@ -3001,3 +3640,20 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         const val CACHE_COPY_LIMIT = 256L * 1024 * 1024
     }
 }
+
+/**
+ * How long the writes from a mounted device must stop before the panes re-list.
+ *
+ * Long enough that a desktop copying a folder in produces ONE re-listing rather than one per
+ * file, short enough that a single edit appears before anyone has finished looking up at the
+ * phone. See `watchRemoteWrites`.
+ */
+private const val REMOTE_SETTLE_MS = 600L
+
+/**
+ * How often a surface showing volumes re-reads them.
+ *
+ * Slow enough that a mounted share is not asked constantly, quick enough that turning the other
+ * device on is noticed while somebody is still looking at the screen.
+ */
+private const val VOLUME_POLL_MS = 8_000L

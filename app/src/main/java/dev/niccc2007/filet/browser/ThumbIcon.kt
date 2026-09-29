@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.FiletApp
 import dev.niccc2007.filet.media.Thumbnails
 import dev.niccc2007.filet.ui.theme.Filet
@@ -64,7 +65,7 @@ fun FileThumb(
     val glyph = glyphSize ?: size
 
     if (!previewable) {
-        Icon(kind.icon, null, tint = fallbackTint, modifier = modifier.size(glyph))
+        Fallback(node, kind, glyph, fallbackTint, modifier)
         return
     }
 
@@ -89,7 +90,7 @@ fun FileThumb(
 
     val image = bitmap
     if (image == null) {
-        Icon(kind.icon, null, tint = fallbackTint, modifier = modifier.size(glyph))
+        Fallback(node, kind, glyph, fallbackTint, modifier)
     } else {
         Box(
             modifier
@@ -105,5 +106,43 @@ fun FileThumb(
                 modifier = Modifier.size(size),
             )
         }
+    }
+}
+
+/**
+ * What fills the slot when there is no picture: the kind's glyph, or the extension when the kind
+ * has no glyph of its own.
+ *
+ * Only for [FileKind.OTHER]. Every other kind already has a drawing that says more at this size
+ * than three letters would - see [Monogram] for the whole argument, including why an extension
+ * too long to fit gets nothing rather than getting cut.
+ *
+ * The one piece of layout worth noting: the token is drawn at [Monogram]'s size scaled to the
+ * slot, so a 15dp glyph slot and a 44dp header thumbnail both hold readable text rather than one
+ * of them holding a smudge.
+ */
+@Composable
+private fun Fallback(
+    node: VNode,
+    kind: FileKind,
+    glyph: Dp,
+    tint: Color,
+    modifier: Modifier = Modifier,
+) {
+    val token = if (kind == FileKind.OTHER && !node.isDir) Monogram.of(node.extension) else null
+    if (token == null) {
+        Icon(kind.icon, null, tint = tint, modifier = modifier.size(glyph))
+        return
+    }
+    Box(modifier.size(glyph), contentAlignment = Alignment.Center) {
+        androidx.compose.material3.Text(
+            token,
+            // 30dp is the size the sp figures were chosen against, so a bigger slot scales up.
+            fontSize = (Monogram.sizeSp(token) * (glyph.value / 30f).coerceIn(0.8f, 2.2f)).sp,
+            color = tint,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+            letterSpacing = (-0.2).sp,
+            maxLines = 1,
+        )
     }
 }

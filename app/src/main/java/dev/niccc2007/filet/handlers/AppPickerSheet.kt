@@ -292,8 +292,8 @@ private fun AppPickerBody(
                 Column(Modifier.weight(1f)) {
                     Text("Which app opens .$extension", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        if (apps.isEmpty()) "Nothing on this device handles this type."
-                        else "A single tap on a .$extension file will go straight here.",
+                        if (apps.isEmpty()) "Nothing here handles this type."
+                        else "A single tap goes straight here.",
                         fontSize = 10.5.sp, color = colors.fg3,
                     )
                 }

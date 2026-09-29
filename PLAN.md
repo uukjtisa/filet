@@ -353,7 +353,19 @@ Expected to reorder and slip (R5). Milestones have **exit criteria**, not dates.
 | **M9** | **Nearby** — shared set, HTTP+TLS server, mDNS, pairing, peer-as-a-pane (`NEARBY.md`) | Drag a file from another phone's pane into yours |
 | **M10** | Wear OS companion — approve transfers, activity glance, recipe tile | A transfer is accepted from the watch |
 | **M11** | **Editing and packaging** — code editor with syntax highlighting and jump-to-definition · a symbol and snippet pane driven without the on-screen keyboard · the plain text editor beside it · deeper APK tools · merging a split package (XAPK, APKM, APKS) into one installable `.apk` | Open a project file, jump from a call to where it is defined, edit it, and rebuild — then take a split package and install the merged result |
+| **M13** | **Network clients that stand up** — SMB proven against a real Windows share · discovery of non-Filet servers (SMB, SFTP, WebDAV) · streaming a remote file to an external player through a loopback relay · a transfer queue that resumes, retries and copies remote to remote · SMB share enumeration, guest and an SMB1 fallback · SFTP keys and host checking, FTPS and the FTP charset | Browse a Windows share found by name rather than by IP, play a film off it in VLC without downloading it, and have a 2 GB copy survive the Wi-Fi dropping |
+| **M14** | **Open hosting** — an open share other Filets mount with no code · remote volumes in the system file picker · a per-share choice of where the share is announced: other Filets, the Windows Network folder over WS-Discovery, a one-click drive mapper, `_webdav._tcp` for Linux, DLNA for TVs · guard rails, since open means anyone on that Wi-Fi | A second phone shows the share as a storage card with nothing typed, and the phone appears in Explorer's Network folder on a real PC |
+| **M15** | **Cloud storage** — the interface questions first (ids not paths, duplicate names, export-on-open, backoff, change tokens, API quota), then OneDrive or Dropbox, then Google Drive once the restricted-scope question is decided | A cloud folder browses, searches and copies through the same pipeline as a local one, with no special case above L0 |
 | **M12** | **Local automation server** — a LAN endpoint an agent can drive: browse and write files through the VFS, write and run Lua, install packages, open and navigate an APK, and make smali-level changes and rebuild. The surface is enumerated from the tool registry rather than hand-listed, so a capability the app gains is reachable without being added twice | An agent on the same network modifies an app end to end — open, change one smali method, rebuild, sign, install — without a human touching the phone |
+
+**M13, M14 and M15 now run ahead of M11 and M12.** The numbers are identifiers, not an order
+- R5 said the roadmap would reorder and this is it. The reasoning is that the power tools
+serve one person who already has them on a desktop, while the network gap is what every
+competing file manager has and Filet does not: three of its four network providers have never
+been spoken to a real server.
+
+M15 depends on nothing in M13 or M14 except the lesson: a backend nobody has connected to a
+real server is not a backend, it is a compiling guess.
 
 M11 and M12 are **after the polish**, and M12 depends on M11: an automation surface that can
 edit but not rebuild is a remote control for half a job.

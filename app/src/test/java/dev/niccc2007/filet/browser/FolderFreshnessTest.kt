@@ -81,4 +81,28 @@ class FolderFreshnessTest {
         assertTrue(ask(listedAt = 1, world = 2))
         assertFalse(ask(listedAt = 2, world = 2))
     }
+
+    @Test
+    fun `a stale pane waits rather than re-listing under a drag`() {
+        // Replacing the list replaces the row the finger is on, its pointer handler goes with
+        // it, and the gesture dies. Reported as a drag near the bottom of a pane letting go by
+        // itself, which was the volume poll landing mid-gesture on its own eight-second timer.
+        assertFalse(
+            FolderFreshness.shouldRelist(
+                isFolder = true, hasPath = true, loading = false, visible = true,
+                listedAtRevision = 1, worldRevision = 2, dragging = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `the same pane re-lists as soon as the drag is over`() {
+        // Deferred, not dropped: the revision that made it stale is still there.
+        assertTrue(
+            FolderFreshness.shouldRelist(
+                isFolder = true, hasPath = true, loading = false, visible = true,
+                listedAtRevision = 1, worldRevision = 2, dragging = false,
+            ),
+        )
+    }
 }

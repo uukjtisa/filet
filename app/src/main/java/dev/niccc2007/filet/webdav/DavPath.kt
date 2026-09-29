@@ -30,8 +30,13 @@ object DavPath {
 
     /** What a request resolved to, or why it did not. */
     sealed interface Resolved {
-        /** Inside the share. [rel] is the path relative to the share root, without a leading slash. */
-        data class Ok(val rel: String) : Resolved
+        /**
+         * Inside the share. [rel] is the path relative to the share root, without a leading slash.
+         *
+         * [code] is the code that matched, which is also which share was asked for - see
+         * [DavShares]. It defaults to empty so a single-share resolve reads exactly as it did.
+         */
+        data class Ok(val rel: String, val code: String = "") : Resolved
 
         /** The code was missing or wrong. */
         data object Forbidden : Resolved
@@ -46,7 +51,20 @@ object DavPath {
      * @param target the request line's path, still percent-encoded, query included.
      * @param code the access code this share was started with.
      */
-    fun resolve(target: String, code: String): Resolved {
+    fun resolve(target: String, code: String): Resolved = resolve(target, listOf(code))
+
+    /**
+     * Resolve against every code currently listening, and report which one answered.
+     *
+     * The codes are tried in order and each is compared in constant time. Comparing against
+     * several does leak how many shares are up, through timing, to someone who can measure a
+     * network round trip to a phone on their own Wi-Fi - which is not a secret and not worth
+     * making the code harder to read for.
+     *
+     * An empty list refuses everything. That is the honest answer for a socket with nothing
+     * behind it, and it is what the accept loop wants during a teardown.
+     */
+    fun resolve(target: String, codes: List<String>): Resolved {
         val path = target.substringBefore('?').substringBefore('#')
 
         // Windows asks for the literal string /DavWWWRoot when it is working out whether a
@@ -60,7 +78,8 @@ object DavPath {
         val rest = if (slash < 0) "" else p.substring(slash + 1)
 
         val decodedCode = decodeOnce(given) ?: return Resolved.Refused
-        if (!constantTimeEquals(decodedCode, code)) return Resolved.Forbidden
+        val matched = codes.firstOrNull { constantTimeEquals(decodedCode, it) }
+            ?: return Resolved.Forbidden
 
         val segments = ArrayList<String>()
         for (raw in rest.split('/')) {
@@ -73,7 +92,7 @@ object DavPath {
             if (seg.contains('\u0000')) return Resolved.Refused
             segments.add(seg)
         }
-        return Resolved.Ok(segments.joinToString("/"))
+        return Resolved.Ok(segments.joinToString("/"), matched)
     }
 
     /**

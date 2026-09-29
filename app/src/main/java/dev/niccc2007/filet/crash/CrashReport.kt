@@ -54,7 +54,7 @@ object CrashReport {
                     Intent(context, CrashActivity::class.java)
                         .setAction(context.packageName + ".CRASH")
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                        .putExtra(EXTRA_REPORT, text)
+                        .putExtra(EXTRA_REPORT_FILE, lastPublicPath).putExtra(EXTRA_REPORT, text)
                 )
             } catch (secondary: Throwable) {
                 // The handler itself failing must not replace the original crash with a
@@ -93,10 +93,25 @@ object CrashReport {
         // Second, and independently: one failing must not take the other with it.
         runCatching {
             val dir = File(PUBLIC_DIR, DIR).apply { mkdirs() }
-            File(dir, "crash-" + FILE_STAMP.format(Date(stamp)) + ".txt").writeText(text)
+            val f = File(dir, "crash-" + FILE_STAMP.format(Date(stamp)) + ".txt")
+            f.writeText(text)
+            // Carried to the crash screen so it can name the file rather than gesture at a
+            // folder. Passed through the intent and not read back off disk, because the screen
+            // runs in another process and the newest file there is not certainly this one -
+            // two crashes in the same second would make it a guess.
+            lastPublicPath = f.absolutePath
             prune(dir, PUBLIC_KEEP)
         }
     }
+
+    /**
+     * The public file the last [write] produced, or null if that write failed.
+     *
+     * Only meaningful inside the process that crashed, which is the only one that reads it.
+     */
+    @Volatile
+    var lastPublicPath: String? = null
+        private set
 
     /** Where the visible reports go, for the About screen to name. */
     fun publicDir(): File = File(PUBLIC_DIR, DIR)
@@ -147,6 +162,9 @@ object CrashReport {
     }
 
     const val EXTRA_REPORT = "filet.crashReport"
+
+    /** The file the report was written to, so the screen can name it and open it. */
+    const val EXTRA_REPORT_FILE = "filet.crashReportFile"
     private val STAMP = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
 
     // Filename stamps, not display ones. Colons are legal on ext4 and not on every volume a

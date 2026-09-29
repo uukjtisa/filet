@@ -30,7 +30,42 @@ data class NetConnection(
     val id: String,
     val protocol: NetProtocol,
     val label: String,
+    /**
+     * The address typed into the entry, and the one tried first when nothing is known to work.
+     *
+     * Kept as a single field rather than folded into [altHosts] so every existing caller keeps
+     * working: this is still "the address of this remote" for anything that only needs one.
+     */
     val host: String,
+
+    /**
+     * Other ways to reach the SAME device - a hotspot address, an mDNS name, a second network.
+     *
+     * A device is not its IP. The tablet on home Wi-Fi and the tablet on a phone hotspot is one
+     * device with two routes, and making it two saved entries duplicates the credentials, the
+     * storage card and the work of setting it up again. See [Endpoints] for the ordering.
+     *
+     * Some of these are typed and some are learned from discovery; they are not distinguished
+     * here because by the time an address is in this list it is simply a route that may work.
+     */
+    val altHosts: List<String> = emptyList(),
+
+    /**
+     * The address that most recently answered.
+     *
+     * Stored rather than held in memory so a restart does not go back to sweeping: the network
+     * a device was last reached on is almost always the network it is still on.
+     */
+    val lastGood: String = "",
+
+    /**
+     * The advertising device's stable id, when this remote was created from a discovered host.
+     *
+     * The key that makes learning an address safe. Matching on the access code instead would
+     * mean two shares that happen to share a code could teach each other addresses, and Filet
+     * would then send credentials to whichever answered - so an empty id learns nothing.
+     */
+    val deviceId: String = "",
     val port: Int,
     val user: String,
     val password: String,
@@ -108,6 +143,57 @@ class NetConnections(context: Context) {
 
     fun byId(id: String): NetConnection? = all().firstOrNull { it.id == id }
 
+    /**
+     * Addresses to try for [c], best first. See [Endpoints] for the ordering.
+     */
+    fun candidates(c: NetConnection): List<String> =
+        Endpoints.ordered(c.host, c.altHosts, c.lastGood.takeIf { it.isNotBlank() })
+
+    /**
+     * Remember that [host] answered.
+     *
+     * Written only when it CHANGES. A remote in steady use would otherwise rewrite the whole
+     * connection store on every request, encrypting each password again on the way through.
+     */
+    fun noteGood(id: String, host: String) {
+        val c = byId(id) ?: return
+        if (c.lastGood.equals(host, ignoreCase = true)) return
+        save(c.copy(lastGood = host))
+    }
+
+    /**
+     * Record an address discovered for [id], if it is genuinely new.
+     *
+     * @return true when something was learned, which is also the signal not to write on every
+     *   repeat sighting - discovery repeats constantly by design.
+     */
+    /**
+     * Teach every remote that belongs to [deviceId] about an address it was seen at.
+     *
+     * @return true when anything was written, which is the signal not to act on the constant
+     *   repeat sightings discovery produces by design.
+     *
+     * A blank [deviceId] learns nothing. An address is a place credentials get sent, so it is
+     * added only when the far end proved which device it is.
+     */
+    fun learnForDevice(deviceId: String, host: String): Boolean {
+        if (deviceId.isBlank() || host.isBlank()) return false
+        var changed = false
+        for (c in all()) {
+            if (!c.deviceId.equals(deviceId, ignoreCase = true)) continue
+            if (learnAddress(c.id, host)) changed = true
+        }
+        return changed
+    }
+
+    fun learnAddress(id: String, host: String): Boolean {
+        val c = byId(id) ?: return false
+        val known = listOf(c.host) + c.altHosts
+        val grown = Endpoints.learn(known, host) ?: return false
+        save(c.copy(altHosts = grown.drop(1)))
+        return true
+    }
+
     fun save(connection: NetConnection) {
         val list = all().filterNot { it.id == connection.id } + connection
         write(list)
@@ -128,6 +214,9 @@ class NetConnections(context: Context) {
         put("protocol", c.protocol.name)
         put("label", c.label)
         put("host", c.host)
+        put("altHosts", org.json.JSONArray(c.altHosts))
+        put("lastGood", c.lastGood)
+        put("deviceId", c.deviceId)
         put("port", c.port)
         put("user", c.user)
         put("password", encrypt(c.password))
@@ -150,6 +239,11 @@ class NetConnections(context: Context) {
             protocol = NetProtocol.valueOf(o.getString("protocol")),
             label = o.optString("label"),
             host = o.optString("host"),
+            altHosts = o.optJSONArray("altHosts")?.let { arr ->
+                (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }
+            }.orEmpty(),
+            lastGood = o.optString("lastGood"),
+            deviceId = o.optString("deviceId"),
             port = o.optInt("port"),
             user = o.optString("user"),
             password = decrypt(o.optString("password")),

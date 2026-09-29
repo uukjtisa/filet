@@ -45,6 +45,15 @@ import dev.niccc2007.filet.ui.tabs.EmptyTab
 import dev.niccc2007.filet.ui.tabs.SectionRow
 import dev.niccc2007.filet.ui.tabs.TabButton
 import dev.niccc2007.filet.ui.tabs.TabHeader
+import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgNote
+import dev.niccc2007.filet.ui.dialogs.DlgSpacer
+import dev.niccc2007.filet.ui.dialogs.DlgTone
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
@@ -209,30 +218,38 @@ private fun ApprovalDialog(
     onAlwaysAllow: () -> Unit,
 ) {
     val colors = Filet.colors
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Run “${script.name}”?", fontSize = 15.sp) },
-        text = {
-            Column {
-                Text("This script will be allowed to:", fontSize = 12.sp, color = colors.fg2)
-                Spacer(Modifier.height(6.dp))
-                script.permissions.describe().forEach {
-                    Text("· $it", fontSize = 12.sp, lineHeight = 17.sp)
-                }
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    "Nothing outside that list is reachable, even if the script asks. " +
-                        "Approval covers this exact version — editing it will ask again.",
-                    fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp,
-                )
+    Dlg(onDismiss = onDismiss) {
+        // WARN, not NORMAL. This is the one dialogue in the app that grants a capability, and
+        // the tile colour is the fastest signal that it is not an ordinary confirmation.
+        DlgHeader(
+            FiletIcons.Script,
+            "Run “${script.name}”?",
+            tone = DlgTone.WARN,
+        )
+        DlgBody {
+            Text("This script will be allowed to:", fontSize = 12.sp, color = colors.fg2)
+            Spacer(Modifier.height(6.dp))
+            script.permissions.describe().forEach {
+                Text("· $it", fontSize = 12.sp, lineHeight = 17.sp)
             }
-        },
-        confirmButton = { TextButton(onClick = onAllowOnce) { Text("Run once") } },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-                TextButton(onClick = onAlwaysAllow) { Text("Always allow") }
-            }
-        },
-    )
+            Spacer(Modifier.height(8.dp))
+            // Kept, and shut. This is the one dialogue in the app that grants a capability, so
+            // the two facts about the grant's SCOPE have to be reachable - but they are facts
+            // for the reader who goes looking, not a paragraph for the one who already knows.
+            DlgNote(
+                "What this approval covers",
+                "Nothing outside that list is reachable, even if the script asks. The approval " +
+                    "is for this exact version - editing the script asks again.",
+            )
+        }
+        // Three answers, and the order is the point. "Run once" is primary because it is the
+        // safe one; "Always allow" is a plain button because it writes a standing grant, which
+        // is the same rule the opener dialogue follows - the button that changes a default is
+        // never the one wearing the accent.
+        DlgFooter {
+            DlgBtn("Cancel", onClick = onDismiss)
+            DlgBtn("Always allow", onClick = onAlwaysAllow)
+            DlgBtn("Run once", kind = BtnKind.PRIMARY, onClick = onAllowOnce)
+        }
+    }
 }

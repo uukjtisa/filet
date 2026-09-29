@@ -5,8 +5,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 /**
  * What you can do with a selection, as data.
  *
- * The design calls for the selection's actions to appear as a context menu that fits the screen,
- * made the default, with the old scrolling bar kept as an option in Settings.
+ * One bar holding the actions worth one tap, with More opening the rest. There used to be a
+ * setting choosing between a bar and a menu; see [SelectionBarConfig] for why that was the
+ * wrong question and what replaced it.
  *
  * Two renderings of the same thing is exactly how the two drift apart: an action added to the
  * menu and forgotten in the bar, or blocked in one and live in the other. So the list is built
@@ -193,17 +194,3 @@ data class SelectionCallbacks(
     val extractToOtherPane: () -> Unit = {},
     val install: () -> Unit = {},
 )
-
-/** How the selection's actions are presented. */
-enum class SelectionStyle {
-    /** A popup menu. The default: it fits the screen and never hides an action off an edge. */
-    MENU,
-
-    /** The scrolling bar along the bottom. Kept because some people prefer one tap. */
-    BAR;
-
-    companion object {
-        fun valueOfOr(raw: String?, fallback: SelectionStyle): SelectionStyle =
-            entries.firstOrNull { it.name == raw } ?: fallback
-    }
-}

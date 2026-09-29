@@ -86,6 +86,15 @@ import dev.niccc2007.filet.data.ViewStep
 import dev.niccc2007.filet.jobs.ActivitySheet
 import dev.niccc2007.filet.ui.Motion
 import dev.niccc2007.filet.ui.HScroll
+import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgAction
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgSection
+import dev.niccc2007.filet.ui.dialogs.DlgSpacer
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VPath
 import kotlin.math.roundToInt
@@ -112,16 +121,21 @@ fun BrowserScreen(vm: BrowserViewModel) {
     // and the way back is not discoverable, so the one thing it must do is name the place.
     val homeHint by vm.homeHint.collectAsState()
     if (homeHint) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { vm.dismissHomeHint() },
-            title = { Text(HomeTarget.REMINDER_TITLE, fontSize = 15.sp) },
-            text = { Text(HomeTarget.REMINDER_BODY, fontSize = 12.5.sp, lineHeight = 18.sp) },
-            confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { vm.dismissHomeHint() }) {
-                    Text("Got it")
-                }
-            },
-        )
+        Dlg(onDismiss = { vm.dismissHomeHint() }) {
+            DlgHeader(FiletIcons.Home, HomeTarget.REMINDER_TITLE, onClose = { vm.dismissHomeHint() })
+            DlgBody {
+                Text(
+                    HomeTarget.REMINDER_BODY,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    color = Filet.colors.fg2,
+                )
+            }
+            DlgFooter {
+                DlgSpacer()
+                DlgBtn("Got it", kind = BtnKind.PRIMARY) { vm.dismissHomeHint() }
+            }
+        }
     }
 
     val active = if (app.focused == Side.A || app.split == SplitMode.OFF) paneA else paneB
@@ -429,6 +443,7 @@ private fun tabIcon(s: PaneState) = when (s.kind) {
     PaneKind.SHORTCUTS -> FiletIcons.Home
     PaneKind.ACTIVITY -> FiletIcons.Jobs
     PaneKind.SCRIPTS -> FiletIcons.Script
+    PaneKind.APPS -> FiletIcons.Apk
     PaneKind.NEARBY -> FiletIcons.Wifi
     PaneKind.REMOTES -> FiletIcons.Device
     PaneKind.FOLDER -> if (s.cwd?.scheme == "zip") FiletIcons.Zip else FiletIcons.Folder
@@ -611,7 +626,7 @@ private fun PathBar(vm: BrowserViewModel, active: PaneController?, s: PaneState?
                 modifier = Modifier.size(20.dp).clickable { active?.startEditingPath(false) }.padding(3.dp),
             )
         } else {
-            Breadcrumb(s, Modifier.weight(1f)) { active?.navigateTo(it) }
+            Breadcrumb(s, vm, Modifier.weight(1f)) { active?.navigateTo(it) }
             Icon(
                 FiletIcons.Copy, "Copy path", tint = colors.fg3,
                 modifier = Modifier.size(21.dp).clickable { vm.copyPathToClipboard(s.cwd) }.padding(4.dp),
@@ -639,12 +654,18 @@ private class Crumb(val label: String, val target: VPath?)
  * Those outer crumbs therefore navigate with the **host** scheme, and the archive's own name
  * is a crumb that returns to its root.
  */
-private fun crumbsOf(cwd: VPath): List<Crumb> {
+private fun crumbsOf(cwd: VPath, nameForId: (String, String) -> String? = { _, _ -> null }): List<Crumb> {
     val cut = cwd.path.indexOf('!')
     if (cut < 0) {
         val segs = cwd.segments
         return segs.mapIndexed { i, seg ->
-            Crumb(seg, VPath.of(cwd.scheme, "/" + segs.take(i + 1).joinToString("/")))
+            // On a network scheme the FIRST segment is a connection id, not a folder - the path
+            // shape every net provider shares is `scheme:///<id>/<remote>`. Drawn raw it put a
+            // string like `nmuknmxy0` at the head of the breadcrumb, which names nothing a person
+            // has ever seen. It navigates to exactly the same place either way; only the label
+            // changes.
+            val label = if (i == 0) nameForId(cwd.scheme, seg) ?: seg else seg
+            Crumb(label, VPath.of(cwd.scheme, "/" + segs.take(i + 1).joinToString("/")))
         }
     }
 
@@ -694,14 +715,19 @@ private fun resolveTyped(raw: String, cwd: VPath?): VPath? {
 }
 
 @Composable
-private fun Breadcrumb(s: PaneState, modifier: Modifier, onNavigate: (VPath) -> Unit) {
+private fun Breadcrumb(
+    s: PaneState,
+    vm: BrowserViewModel,
+    modifier: Modifier,
+    onNavigate: (VPath) -> Unit,
+) {
     val colors = Filet.colors
     val cwd = s.cwd
     if (cwd == null) {
         Text(s.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = modifier)
         return
     }
-    val crumbs = remember(cwd) { crumbsOf(cwd) }
+    val crumbs = remember(cwd) { crumbsOf(cwd) { scheme, id -> vm.connectionName(scheme, id) } }
     val scroll = rememberScrollState()
     LaunchedEffect(cwd) { scroll.scrollTo(scroll.maxValue) }
     // Deliberately NOT HScroll, and this is the exception the checker records. Rejected:
@@ -855,30 +881,77 @@ private fun Divider(vertical: Boolean, modifier: Modifier) {
 private fun Rail(vm: BrowserViewModel, app: AppState) {
     val colors = Filet.colors
     val bookmarks by vm.bookmarks.items.collectAsState()
+    val recents by vm.recents.items.collectAsState()
     val jobs by vm.ledger.jobs.collectAsState()
+    val remotesRevision by vm.remotesRevision.collectAsState()
+    val connections = remember(remotesRevision) { vm.connections.all() }
+    val here = vm.focusedPane()?.state?.collectAsState()?.value?.cwd
+
+    // Folders only, and the count is what makes Quick access mean anything - see QuickAccess
+    // for why a pin outranks a count and why the two groups never repeat each other.
+    val visited = recents.filter { it.isDir }.map {
+        QuickAccess.Entry(it.path, it.label, pinned = false, visits = it.visits, lastAt = it.at)
+    }
+    val pinned = bookmarks.map {
+        QuickAccess.Entry(it.path, it.label, pinned = true, visits = 0, lastAt = 0)
+    }
+    val quick = QuickAccess.quick(pinned, visited)
+    val recent = QuickAccess.recent(visited, quick)
+
     Column(
         Modifier
-            .width(184.dp)
+            .width(212.dp)
             .fillMaxHeight()
             .background(colors.raised)
             .verticalScroll(rememberScrollState()),
     ) {
-        SectionLabel("Storage")
-        app.volumes.forEach { v ->
-            RailItem(FiletIcons.Storage, v.label) { vm.focusedPane()?.navigateTo(v.node.path) }
-        }
-        SectionLabel("Places")
-        RailItem(FiletIcons.Home, "Home") { vm.focusedPane()?.openHome() }
-        RailItem(FiletIcons.Clock, "Recent") { vm.focusedPane()?.openSpecial(PaneKind.RECENT, "Recent") }
-        RailItem(FiletIcons.Star, "Bookmarks") { vm.focusedPane()?.openSpecial(PaneKind.BOOKMARKS, "Bookmarks") }
-        RailItem(FiletIcons.Wifi, "Nearby") { vm.focusedPane()?.openSpecial(PaneKind.NEARBY, "Nearby") }
-        RailItem(FiletIcons.Device, "Remotes") { vm.focusedPane()?.openSpecial(PaneKind.REMOTES, "Remotes") }
-        RailItem(FiletIcons.Script, "Scripts") { vm.focusedPane()?.openSpecial(PaneKind.SCRIPTS, "Scripts") }
-        if (bookmarks.isNotEmpty()) {
-            bookmarks.take(8).forEach { b ->
-                RailItem(FiletIcons.Folder, b.label, indent = true) { vm.focusedPane()?.navigateTo(b.path) }
+        // Quick access leads, the way Explorer's pane does, because navigation in a file
+        // manager is overwhelmingly repetitive - the same few folders, over and over - and
+        // making somebody walk down to them every time re-derives what the app already knows.
+        if (quick.isNotEmpty()) {
+            SectionLabel("Quick access")
+            quick.forEach { q ->
+                RailItem(
+                    if (q.pinned) FiletIcons.Star else FiletIcons.Folder,
+                    q.label,
+                    current = here == q.path,
+                ) { vm.focusedPane()?.navigateTo(q.path) }
             }
         }
+
+        if (recent.isNotEmpty()) {
+            SectionLabel("Recent")
+            recent.forEach { r ->
+                RailItem(FiletIcons.Clock, r.label, current = here == r.path) {
+                    vm.focusedPane()?.navigateTo(r.path)
+                }
+            }
+        }
+
+        SectionLabel("This device")
+        app.volumes.forEach { v ->
+            RailItem(FiletIcons.Storage, v.label, current = here == v.node.path) {
+                vm.focusedPane()?.navigateTo(v.node.path)
+            }
+        }
+
+        // Saved remotes by name, rather than one row reading "Remotes" that costs a tap to find
+        // out what is behind it. The list is short by nature and this is the pane where a
+        // network location is supposed to be as reachable as a local one.
+        if (connections.isNotEmpty()) {
+            SectionLabel("Network")
+            connections.take(8).forEach { c ->
+                RailItem(FiletIcons.Device, c.label.ifEmpty { c.host }) { vm.openConnection(c) }
+            }
+        }
+
+        SectionLabel("Places")
+        RailItem(FiletIcons.Home, "Home") { vm.focusedPane()?.openHome() }
+        // The same list the switcher draws. See SpecialPanes for why this is one declaration.
+        SpecialPanes.DESTINATIONS.forEach { d ->
+            RailItem(d.icon, d.label) { vm.focusedPane()?.openSpecial(d.kind, d.label) }
+        }
+
         Spacer(Modifier.weight(1f))
         RailItem(FiletIcons.Jobs, "Activity", badge = jobs.count { it.running }) { vm.openActivity(true) }
         RailItem(FiletIcons.Cog, "Settings") { vm.focusedPane()?.openSpecial(PaneKind.SETTINGS, "Settings") }
@@ -892,14 +965,19 @@ private fun RailItem(
     label: String,
     badge: Int = 0,
     indent: Boolean = false,
+    /** The pane is showing this place right now, so the row says so. */
+    current: Boolean = false,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
     Row(
         Modifier
             .fillMaxWidth()
+            .padding(horizontal = 6.dp, vertical = 1.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (current) colors.sel else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(start = if (indent) 26.dp else 12.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
+            .padding(start = if (indent) 20.dp else 6.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, tint = colors.fg2, modifier = Modifier.size(15.dp))
@@ -1019,8 +1097,8 @@ private fun NavItem(
 @Composable
 private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
     val colors = Filet.colors
-    val style by vm.prefs.selectionStyle.collectAsState()
-    var menuOpen by remember { mutableStateOf(false) }
+    val onBar = SelectionBarConfig.normalise(vm.prefs.selectionBar.collectAsState().value)
+    var moreOpen by remember { mutableStateOf(false) }
     val single = count == 1
 
     val actions = selectionActions(
@@ -1036,7 +1114,7 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
         on = SelectionCallbacks(
             copy = { vm.copySelection() },
             move = { vm.cutSelection() },
-            send = { vm.shareSelection() },
+            send = { vm.shareSelectionToApps() },
             delete = { vm.confirmDelete() },
             compress = { vm.askCompress() },
             rename = { vm.renameSelection() },
@@ -1059,7 +1137,7 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
     Column(Modifier.fillMaxWidth().background(colors.raised)) {
         HorizontalDivider(color = colors.lineSoft)
         Row(
-            Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 7.dp, bottom = if (style == SelectionStyle.MENU) 7.dp else 0.dp),
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -1086,27 +1164,31 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
                 )
                 Spacer(Modifier.width(6.dp))
             }
-            if (style == SelectionStyle.MENU) {
-                Box {
-                    Text(
-                        "Actions",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = colors.fg2,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.high)
-                            .clickable { menuOpen = true }
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                    )
-                    SelectionMenu(
-                        expanded = menuOpen,
-                        actions = actions,
-                        onDismiss = { menuOpen = false },
-                        onBlocked = vm::toast,
-                    )
-                }
-                Spacer(Modifier.width(6.dp))
+            // Everything not on the bar, behind one button. The bar cannot hold fifteen
+            // actions and a menu puts the four anybody uses two taps away, so the split is the
+            // answer and WHICH four is the setting.
+            val (barActions, more) = SelectionBarConfig.split(actions, onBar)
+            for (action in barActions) {
+                FootButton(
+                    action.icon,
+                    action.label,
+                    if (action.danger) colors.bad else colors.fg2,
+                    blocked = action.blocked,
+                    onBlocked = vm::toast,
+                    onClick = action.run,
+                )
+            }
+            if (more.isNotEmpty()) {
+                Text(
+                    "More",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.fg2,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { moreOpen = true }
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                )
             }
             Text(
                 "Clear",
@@ -1118,92 +1200,18 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
                     .padding(horizontal = 10.dp, vertical = 4.dp),
             )
         }
+    }
 
-        if (style == SelectionStyle.BAR) {
-            // The legacy rendering. Now on the shared scroller, so it carries the same
-            // chevron every other sideways-scrolling row in the app does.
-            HScroll(
-                ground = colors.raised,
-                contentPadding = 8.dp,
-                spacing = 3.dp,
-                modifier = Modifier.padding(vertical = 6.dp),
-            ) {
-                var previous: SelectionAction.Group? = null
-                for (action in actions) {
-                    if (previous != null && previous != action.group) FootDivider()
-                    previous = action.group
-                    FootButton(
-                        action.icon,
-                        action.label,
-                        if (action.danger) colors.bad else colors.fg2,
-                        blocked = action.blocked,
-                        onBlocked = vm::toast,
-                        onClick = action.run,
-                    )
-                }
-            }
-        }
+    if (moreOpen) {
+        val (_, more) = SelectionBarConfig.split(actions, onBar)
+        ActionsPopup(
+            actions = more,
+            onBlocked = vm::toast,
+            onDismiss = { moreOpen = false },
+        )
     }
 }
 
-/**
- * The actions as a popup.
- *
- * A `DropdownMenu` rather than a bottom sheet: it is anchored to the button that opened it,
- * the platform keeps it on screen by itself, and it scrolls if a small screen cannot hold
- * eleven rows. "Make it fit properly" is the requirement, and the cheapest way to meet it is
- * to use the thing whose entire job is fitting.
- *
- * A blocked row is shown, greyed, and STILL TAPPABLE - it answers with the reason instead of
- * acting. Same rule as the bar: a phone has no hover, so a dead control tells nobody anything.
- */
-@Composable
-private fun SelectionMenu(
-    expanded: Boolean,
-    actions: List<SelectionAction>,
-    onDismiss: () -> Unit,
-    onBlocked: (String) -> Unit,
-) {
-    val colors = Filet.colors
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismiss,
-        containerColor = colors.high,
-        shape = RoundedCornerShape(12.dp),
-    ) {
-        var previous: SelectionAction.Group? = null
-        for (action in actions) {
-            if (previous != null && previous != action.group) {
-                HorizontalDivider(color = colors.lineSoft, modifier = Modifier.padding(vertical = 4.dp))
-            }
-            previous = action.group
-            val tint = when {
-                action.blocked != null -> colors.fg3
-                action.danger -> colors.bad
-                else -> colors.fg2
-            }
-            DropdownMenuItem(
-                text = {
-                    Column {
-                        Text(action.label, fontSize = 13.sp, color = tint)
-                        // The reason, in the menu, rather than only in a toast after the tap.
-                        action.blocked?.let {
-                            Text(it, fontSize = 10.sp, color = colors.fg3, lineHeight = 13.sp)
-                        }
-                    }
-                },
-                leadingIcon = { Icon(action.icon, action.label, tint = tint, modifier = Modifier.size(17.dp)) },
-                onClick = {
-                    val why = action.blocked
-                    if (why != null) onBlocked(why) else action.run()
-                    onDismiss()
-                },
-            )
-        }
-    }
-}
-
-/** A hairline between groups, so ten buttons read as three things rather than one wall. */
 @Composable
 private fun FootDivider() {
     Box(

@@ -24,11 +24,28 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!--
-      Package visibility (API 30+). Filet needs to see what can open a file in order to offer
-      "Open with" honestly, and to find Trawl for the bridge. Declared narrowly rather than
-      with QUERY_ALL_PACKAGES, which Play treats as a restricted permission and which F-Droid
-      reviewers rightly ask about.
+      Package visibility (API 30+).
+
+      The narrow <queries> below came first and is kept: it is what makes "Open with" honest and
+      what finds Trawl for the bridge, and it keeps working if the broad permission is ever
+      refused.
+
+      QUERY_ALL_PACKAGES was added because two features cannot exist without it, and the narrow
+      form is not a partial answer for either - it is the wrong answer:
+
+        - Extracting the APK of an installed app has to be able to ENUMERATE installed apps.
+          A filter-based query returns the handful that declare a VIEW or SEND filter for */*,
+          which is a few percent of what is on a phone.
+        - Telling you whether the APK in front of you is already installed. Without this, an
+          invisible package is indistinguishable from an absent one, so the inspector reported
+          most installed apps as not installed - confidently and wrongly.
+
+      The cost, stated rather than discovered later: Play treats this as a restricted permission
+      needing a declaration form, and F-Droid reviewers ask about it. Filet is sideloaded and
+      F-Droid-flavoured, and "the app is a file manager that inspects and installs packages" is
+      the core-functionality case the permission exists for.
     -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />

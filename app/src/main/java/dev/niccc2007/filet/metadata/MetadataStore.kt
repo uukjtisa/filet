@@ -136,7 +136,9 @@ class MetadataStore(private val vfs: Vfs) {
         }
 
         return runCatching {
-            vfs.openWrite(path, append = false).use { it.write(built) }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                vfs.openWrite(path, append = false).use { it.write(built) }
+            }
             Result.Ok
         }.getOrElse { Result.Failed("Could not write the file: ${it.message ?: "unknown error"}") }
     }
@@ -164,5 +166,5 @@ class MetadataStore(private val vfs: Vfs) {
     }
 
     private suspend fun readAll(path: VPath): ByteArray =
-        vfs.openRead(path).use { it.readBytes() }
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { vfs.openRead(path).use { it.readBytes() } }
 }

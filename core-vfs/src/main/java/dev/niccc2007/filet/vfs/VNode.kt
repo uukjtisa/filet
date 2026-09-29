@@ -46,7 +46,16 @@ enum class Capability { READ, WRITE, RENAME, DELETE, CREATE_DIR, RANDOM_ACCESS }
 sealed class VfsException(message: String, cause: Throwable? = null) : Exception(message, cause) {
     class NotFound(path: VPath) : VfsException("not found: $path")
     class AlreadyExists(path: VPath) : VfsException("already exists: $path")
-    class AccessDenied(path: VPath, cause: Throwable? = null) : VfsException("access denied: $path", cause)
+    /**
+   * @param unauthenticated the credentials were rejected, rather than the operation refused.
+   *   Separate because the two lead somewhere different: one is a sign-in to correct, the other
+   *   is a permission on the far side that no amount of retrying will change.
+   */
+    class AccessDenied(
+        path: VPath,
+        cause: Throwable? = null,
+        val unauthenticated: Boolean = false,
+    ) : VfsException("access denied: $path", cause)
     class NotADirectory(path: VPath) : VfsException("not a directory: $path")
     class IsADirectory(path: VPath) : VfsException("is a directory: $path")
     class Unsupported(what: String) : VfsException("unsupported: $what")

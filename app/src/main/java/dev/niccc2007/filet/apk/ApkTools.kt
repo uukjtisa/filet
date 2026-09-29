@@ -62,6 +62,8 @@ class ApkTools(
     private val context: Context,
     private val vfs: Vfs,
     private val ledger: JobLedger,
+    /** Local copies of remote files. Null in a test that never touches one. */
+    private val staging: dev.niccc2007.filet.ops.RemoteStaging? = null,
 ) {
 
     /**
@@ -81,6 +83,13 @@ class ApkTools(
     private suspend fun readableApk(apk: VPath): String {
         vfs.osPath(apk)?.let { if (!BundleRoute.isBundle(apk.name)) return it }
         if (!BundleRoute.isBundle(apk.name)) {
+            // A file on a share has no path, and the parsers here all take one. Staging a copy
+            // is what turns "Inspect APKs from local storage" - accurate and useless - into the
+            // feature working. See RemoteStaging, and REMOTE-FILES.md for why this is the last
+            // resort rather than the first move.
+            val node = runCatching { vfs.stat(apk) }.getOrNull()
+            val staged = staging?.stage(apk, node?.size ?: -1L, node?.mtime ?: 0L)
+            if (staged != null) return staged.absolutePath
             throw IllegalArgumentException("Inspect APKs from local storage.")
         }
         val on = vfs.osPath(apk) ?: throw IllegalArgumentException("Inspect bundles from local storage.")
@@ -96,7 +105,11 @@ class ApkTools(
         // Re-extracted each time rather than cached on name: the bundle may have been replaced
         // with a different build carrying the same filename, and showing the previous one's
         // permissions would be worse than the wait.
-        vfs.openRead(member.path).use { input -> out.outputStream().use { input.copyTo(it) } }
+        // Off the calling thread: the bundle may be on a mounted share, and a socket read on
+        // the main thread throws rather than merely stalling.
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            vfs.openRead(member.path).use { input -> out.outputStream().use { input.copyTo(it) } }
+        }
         return out.absolutePath
     }
 
@@ -173,6 +186,57 @@ class ApkTools(
             sizeBytes = file.length(),
             warnings = warnings,
         )
+    }
+
+    /**
+     * What is already installed under this package name, read from `PackageManager`.
+     *
+     * Both halves of the answer come from the same source the installer itself consults, so the
+     * comparison predicts what the installer will do rather than describing what the file
+     * contains. A package that is not installed is an ordinary answer, not a failure.
+     */
+    suspend fun installedFacts(packageName: String): Pair<Long?, String?> =
+        withContext(Dispatchers.IO) {
+            val pm = context.packageManager
+            val info = runCatching {
+                pm.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+            }.getOrNull() ?: return@withContext null to null
+
+            val signer = info.signingInfo?.apkContentsSigners?.firstOrNull()
+            val digest = signer?.let { sig ->
+                runCatching {
+                    val cert = java.security.cert.CertificateFactory.getInstance("X.509")
+                        .generateCertificate(sig.toByteArray().inputStream())
+                            as java.security.cert.X509Certificate
+                    java.security.MessageDigest.getInstance("SHA-256").digest(cert.encoded)
+                        .joinToString(":") { b -> "%02X".format(b) }
+                }.getOrNull()
+            }
+            info.longVersionCode to digest
+        }
+
+    /**
+     * How many of [permissions] Android classes as dangerous.
+     *
+     * Asked of the platform per permission rather than matched against a list kept here: the
+     * set changes with the API level, and a list in this file would be wrong on some devices
+     * and right on others with nothing to say which.
+     *
+     * A permission the platform does not know - one an app declares for itself - is not counted
+     * as dangerous, because it is not a runtime grant and reporting it as one inflates the
+     * number that is supposed to mean something.
+     */
+    suspend fun dangerousCount(permissions: List<String>): Int = withContext(Dispatchers.IO) {
+        val pm = context.packageManager
+        permissions.count { name ->
+            runCatching {
+                val info = pm.getPermissionInfo(name, 0)
+                @Suppress("DEPRECATION")
+                val level = info.protectionLevel
+                (level and android.content.pm.PermissionInfo.PROTECTION_MASK_BASE) ==
+                    android.content.pm.PermissionInfo.PROTECTION_DANGEROUS
+            }.getOrDefault(false)
+        }
     }
 
     /**

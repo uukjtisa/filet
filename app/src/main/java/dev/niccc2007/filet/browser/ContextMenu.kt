@@ -31,6 +31,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import dev.niccc2007.filet.ui.dialogs.DlgCtxHead
+import dev.niccc2007.filet.ui.dialogs.DlgIconBar
+import dev.niccc2007.filet.ui.dialogs.DlgIconBtn
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
@@ -55,6 +58,10 @@ import dev.niccc2007.filet.ui.theme.Filet
 fun ContextMenu(
     title: String,
     subtitle: String?,
+    /** One line of facts under the path - the size and the date, or how many are selected. */
+    meta: String? = null,
+    /** The file this menu is about, for the thumbnail. Null for a multi-selection. */
+    thumb: dev.niccc2007.filet.vfs.VNode? = null,
     quick: List<SelectionAction>,
     rest: List<SelectionAction>,
     onDismiss: () -> Unit,
@@ -70,46 +77,41 @@ fun ContextMenu(
     ) {
         Column(
             Modifier
-                .widthIn(min = 232.dp, max = 300.dp)
+                // Wider than it was. The header now carries a path, and 300dp ellipsised a
+                // path down to almost nothing on the screen where the path matters most.
+                .widthIn(min = 248.dp, max = 330.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(colors.high)
                 // A hairline, not a shadow. The palette is warm and nearly flat, and a drop
                 // shadow on a dark ground reads as a smudge rather than as elevation.
                 .border(1.dp, colors.lineSoft, RoundedCornerShape(14.dp))
-                .padding(vertical = 6.dp),
+                .padding(bottom = 6.dp),
         ) {
-            // What this menu is about. On a multi-selection it says how many, which is the
-            // answer to the only dangerous question a context menu raises.
-            Text(
-                title,
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 4.dp),
-            )
-            if (subtitle != null) {
-                Text(
-                    subtitle,
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    color = colors.fg3,
-                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 2.dp),
-                )
-            }
+            // The name, the path, and how many when it is a selection. DlgCtxHead, so this
+            // menu's header is the same object as every other dialogue's - the reason the
+            // path is in it rather than the file kind is written there.
+            // `thumb` is null on a multi-selection: there is no one file for the slot to show,
+            // and a placeholder for "several" would be a picture of nothing.
+            DlgCtxHead(name = title, path = subtitle ?: "", meta = meta, thumb = thumb)
 
             if (quick.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
+                DlgIconBar {
                     for (action in quick) {
-                        QuickAction(action, onDismiss, onBlocked)
+                        DlgIconBtn(
+                            icon = action.icon,
+                            label = action.label,
+                            // Blocked stays TAPPABLE and answers with the reason. A phone has
+                            // no hover, so a dimmed glyph that also ignores the tap tells
+                            // nobody anything - the same rule the selection bar follows.
+                            enabled = true,
+                            danger = action.danger,
+                        ) {
+                            val why = action.blocked
+                            if (why != null) onBlocked(why) else action.run()
+                            onDismiss()
+                        }
                     }
                 }
-                Spacer(Modifier.height(6.dp))
-                HorizontalDivider(color = colors.lineSoft)
             }
 
             Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -126,36 +128,6 @@ fun ContextMenu(
                 }
             }
         }
-    }
-}
-
-/**
- * One of the five across the top.
- *
- * Blocked actions are dimmed and **still tappable**: they answer with the reason instead of
- * acting. A phone has no hover, so a disabled icon with no label and no response tells nobody
- * anything at all - which is the same rule the selection bar follows.
- */
-@Composable
-private fun QuickAction(action: SelectionAction, onDismiss: () -> Unit, onBlocked: (String) -> Unit) {
-    val colors = Filet.colors
-    val tint = when {
-        action.blocked != null -> colors.fg3.copy(alpha = 0.5f)
-        action.danger -> colors.bad
-        else -> colors.fg2
-    }
-    Box(
-        Modifier
-            .size(42.dp)
-            .clip(RoundedCornerShape(9.dp))
-            .clickable {
-                val why = action.blocked
-                if (why != null) onBlocked(why) else action.run()
-                onDismiss()
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(action.icon, action.label, tint = tint, modifier = Modifier.size(19.dp))
     }
 }
 
@@ -207,7 +179,13 @@ fun splitForContextMenu(all: List<SelectionAction>): Pair<List<SelectionAction>,
     return quick to rest
 }
 
-/** An extra row that is not a selection action - "Select", which starts a multi-selection. */
+/**
+ * An extra row that is not a selection action.
+ *
+ * Was introduced for "Select" and for "Copy path". Select is gone - see the note at its old
+ * call site - so Copy path is the only user left, and the helper stays because a second one
+ * will turn up and building it as a one-off is how the list stopped being the single source.
+ */
 fun menuAction(
     id: String,
     label: String,

@@ -17,6 +17,72 @@ import kotlin.math.max
  */
 object RevealScroll {
 
+    /** What to do with a reveal request against the listing as it stands. */
+    enum class Act {
+        /** Not here yet, and the listing is still arriving. Keep the request and look again. */
+        WAIT,
+
+        /** Scroll to it, and keep the request: later chunks may move it. */
+        SCROLL_AGAIN,
+
+        /** Scroll to it and let the request go. The listing is final. */
+        SCROLL_DONE,
+
+        /** Drop the request so a later folder does not jump. */
+        GIVE_UP,
+    }
+
+    /**
+     * Whether a reveal request can be acted on yet.
+     *
+     * Bug identified: this used to be two lines inside the list's effect, and it read a missing
+     * target as "not in this listing". That was sound while a listing went from empty to complete
+     * in one step. Once folders began arriving in chunks it became wrong twice over:
+     *
+     *  - **Absence is provisional.** A row that is not in the first 120 entries may be in the
+     *    next 400. Giving up on chunk one threw the request away, and nothing scrolled.
+     *  - **So is the index.** A position worked out from a partial list moves as the rest lands,
+     *    because the whole set is re-sorted each time - so even a hit scrolled to a row that
+     *    was about to be somewhere else.
+     *
+     * Both answers are therefore the same: wait for the read to finish. A folder small enough for
+     * this to be noticeable finishes in milliseconds, and a folder large enough to matter is one
+     * where scrolling to a position that is about to change is worse than scrolling once.
+     *
+     * @param settled whether the listing has finished arriving.
+     * @param rowCount rows currently in the list.
+     * @param targetIndex where the target sits, or -1 when it is not there.
+     */
+    fun act(
+        settled: Boolean,
+        rowCount: Int,
+        targetIndex: Int,
+        userTookOver: Boolean = false,
+    ): Act = when {
+        // Their scroll wins, always and immediately. A reveal is something the app was asked to
+        // do a moment ago; a finger on the list is what is being asked for now.
+        userTookOver -> Act.GIVE_UP
+
+        // Found. Go there NOW rather than when the folder finishes reading.
+        //
+        // The first version of this fix waited for the whole listing, which was correct about
+        // the index being provisional and wrong about what to do with that: the wait is visible,
+        // and a person can tap during it. Scrolling immediately and again as later chunks land
+        // costs nothing - the list is already on screen - and puts the row in front of them at
+        // the first possible moment.
+        targetIndex >= 0 && settled -> Act.SCROLL_DONE
+        targetIndex >= 0 -> Act.SCROLL_AGAIN
+
+        // Not found, and the listing is still arriving in chunks. Absence is provisional: a row
+        // that is not in the first 120 entries may be in the next 400. Giving up here is what
+        // stopped the reveal working at all once listings were chunked.
+        !settled -> Act.WAIT
+
+        // Not found and the read is over. Hidden by a filter, or deleted since the row was
+        // drawn, or the folder is empty. Nothing to scroll to.
+        else -> Act.GIVE_UP
+    }
+
     /**
      * Which row to put at the top so [targetIndex] lands in the middle.
      *

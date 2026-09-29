@@ -1,5 +1,11 @@
 package dev.niccc2007.filet.ui.tabs
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -547,10 +553,20 @@ fun NRow(
     mono: Boolean = false,
     titleMono: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
+    /**
+     * What tapping the row does, or null when it is only something to look at.
+     *
+     * There was no such parameter, so every row built from this was inert - including a saved
+     * network place, which had an Edit button and no way at all to OPEN it. A row that looks
+     * like a list item and does nothing when tapped reads as the app being broken.
+     */
+    onClick: (() -> Unit)? = null,
 ) {
     val colors = Filet.colors
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 7.dp),
+        Modifier.fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 14.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -938,6 +954,14 @@ fun StorageTile(
     caption: String,
     fraction: Float? = null,
     onHide: (() -> Unit)? = null,
+    /**
+     * A small dot beside the label. Null draws none.
+     *
+     * For a place whose reachability is a live fact rather than a stored setting - a mounted
+     * network drive is either answering right now or it is not, and that is worth showing where
+     * the eye already is.
+     */
+    live: Boolean? = null,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
@@ -956,6 +980,31 @@ fun StorageTile(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Icon(icon, null, tint = colors.accent, modifier = Modifier.size(13.dp))
+            if (live != null) {
+                // Breathing while it is reachable, still when it is not. A blink says "being
+                // checked"; a steady dot on an unreachable drive says nothing at all.
+                val pulse = rememberInfiniteTransition(label = "live")
+                val alpha by pulse.animateFloat(
+                    initialValue = 1f,
+                    targetValue = 0.35f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1100, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                    label = "liveAlpha",
+                )
+                Box(
+                    Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (live) colors.good.copy(alpha = alpha)
+                            // Neutral, not red. Nothing has failed - it is simply not answering,
+                            // and red would read as a fault somebody has to go and fix.
+                            else colors.fg3.copy(alpha = 0.55f),
+                        ),
+                )
+            }
             // The label takes the slack and the close sits after it, so the close is flush
             // right at every tile width. Weighting BOTH - which is what this did - splits the
             // slack between them, and the button drifts inward the moment a tile widens to
@@ -997,10 +1046,16 @@ fun StorageTile(
         )
         Spacer(Modifier.height(3.dp))
         Text(caption, fontSize = 10.5.sp, color = colors.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (fraction != null) {
-            Spacer(Modifier.height(8.dp))
-            val f = fraction.coerceIn(0f, 1f)
-            Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(colors.sunken)) {
+        // The bar's space is ALWAYS taken, drawn or not.
+        //
+        // A tile with no figure used to omit it entirely and end up visibly shorter than the one
+        // beside it, which in a two-up row reads as the card having failed to finish loading.
+        // An empty track is honest - there is a bar here and it has nothing to say - and it keeps
+        // the row even.
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(colors.sunken)) {
+            if (fraction != null) {
+                val f = fraction.coerceIn(0f, 1f)
                 Box(
                     Modifier
                         .fillMaxWidth(f)

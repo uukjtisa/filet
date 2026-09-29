@@ -37,6 +37,16 @@ import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.browser.SectionLabel
+import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgAction
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgCaption
+import dev.niccc2007.filet.ui.dialogs.DlgField
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgSpacer
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
@@ -87,8 +97,7 @@ private fun OpenersIntro(vm: BrowserViewModel) {
     val overrides by vm.handlers.overrides.collectAsState()
     Column(Modifier.padding(horizontal = 14.dp, vertical = 2.dp)) {
         Text(
-            "What a single tap opens. Double tap always offers the system chooser instead, so " +
-                "nothing here can lock you out of another app.",
+            "What a single tap opens. Double tap always offers the system chooser.",
             fontSize = 11.sp, color = colors.fg3, lineHeight = 15.sp,
         )
         if (overrides.isNotEmpty()) {
@@ -222,174 +231,84 @@ private fun AddExtensionRow(vm: BrowserViewModel) {
         Column(Modifier.weight(1f)) {
             Text("Another extension", fontSize = 12.5.sp)
             Text(
-                "Anything not listed above. It is added straight away — tap it afterwards to " +
-                    "choose what opens it.",
+                "Added straight away. Tap it afterwards to choose.",
                 fontSize = 10.sp, color = colors.fg3,
             )
         }
     }
 
     if (asking) {
-        AlertDialog(
-            onDismissRequest = { asking = false },
-            title = { Text("Which extension?", fontSize = 15.sp) },
-            text = {
-                OutlinedTextField(
-                    // NOT normalised as it is typed. Silently deleting characters under
-                    // somebody's cursor is how a deliberate entry becomes an unexplained one;
-                    // the dots are raised after, where they can be answered.
-                    value = typed,
-                    onValueChange = { typed = it },
-                    singleLine = true,
-                    label = { Text("Extension") },
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val v = ExtensionEntry.inspect(typed)
-                        if (!v.valid) { asking = false; return@TextButton }
+        Dlg(onDismiss = { asking = false }, dismissOnScrim = false) {
+            DlgHeader(FiletIcons.File, "Which extension?", onClose = { asking = false })
+            DlgBody {
+                // NOT normalised as it is typed. Silently deleting characters under somebody's
+                // cursor is how a deliberate entry becomes an unexplained one; the dots are
+                // raised after, where they can be answered.
+                DlgField("Extension", typed, { typed = it }, hint = "png, tar.gz")
+            }
+            DlgFooter {
+                DlgBtn("Cancel") { asking = false }
+                DlgBtn(
+                    "Add",
+                    kind = BtnKind.PRIMARY,
+                    enabled = ExtensionEntry.inspect(typed).valid,
+                ) {
+                    val v = ExtensionEntry.inspect(typed)
+                    if (v.valid) {
                         asking = false
                         if (v.askAboutDots) dots = v else commit(v.cleaned)
-                    },
-                    enabled = ExtensionEntry.inspect(typed).valid,
-                ) { Text("Add") }
-            },
-            dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
-        )
+                    } else {
+                        asking = false
+                    }
+                }
+            }
+        }
     }
 
     // The dots are a question with three defensible answers, so all three are offered rather
     // than one being applied quietly.
     dots?.let { v ->
-        AlertDialog(
-            onDismissRequest = { dots = null },
-            title = { Text("That has extra dots", fontSize = 15.sp) },
-            text = { Text(ExtensionEntry.dotQuestion(v), fontSize = 12.sp, lineHeight = 16.sp) },
-            confirmButton = {
-                TextButton(onClick = {
+        // Three defensible answers, so all three are rows of equal weight rather than one
+        // confirm and two afterthoughts crammed into the dismiss slot - which is what they were
+        // when this was an AlertDialog with only two buttons to put them in.
+        Dlg(onDismiss = { dots = null }) {
+            DlgHeader(FiletIcons.Info, "That has extra dots", onClose = { dots = null })
+            DlgBody {
+                Text(
+                    ExtensionEntry.dotQuestion(v),
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    color = Filet.colors.fg2,
+                )
+                Spacer(Modifier.height(10.dp))
+                DlgAction(FiletIcons.Check, "Use ${v.cleaned}") {
                     dots = null
                     commit(ExtensionEntry.resolve(v, ExtensionEntry.Choice.DROP_DOTS))
-                }) { Text("Use ${v.cleaned}") }
-            },
-            dismissButton = {
-                Row {
-                    TextButton(onClick = {
-                        dots = null
-                        commit(ExtensionEntry.resolve(v, ExtensionEntry.Choice.ONE_DOT))
-                    }) { Text("Use .${v.cleaned}") }
-                    TextButton(onClick = {
-                        dots = null
-                        commit(ExtensionEntry.resolve(v, ExtensionEntry.Choice.KEEP))
-                    }) { Text("Keep ${v.typed}") }
                 }
-            },
-        )
+                DlgAction(FiletIcons.Check, "Use .${v.cleaned}") {
+                    dots = null
+                    commit(ExtensionEntry.resolve(v, ExtensionEntry.Choice.ONE_DOT))
+                }
+                DlgAction(FiletIcons.Check, "Keep ${v.typed}") {
+                    dots = null
+                    commit(ExtensionEntry.resolve(v, ExtensionEntry.Choice.KEEP))
+                }
+            }
+            DlgFooter {
+                DlgSpacer()
+                DlgBtn("Cancel") { dots = null }
+            }
+        }
     }
 }
 
 /**
- * The picker itself.
+ * Settings' route into "Open with".
  *
- * Shown from Settings for one extension. It lists exactly what [HandlerRegistry.candidatesFor]
- * offers at a tap — no more, because an option here that the chooser does not have is a
- * setting that does not take effect (PLAN.md R1).
+ * Kept as a name rather than replaced at the call site, because this one is about a TYPE and the
+ * other is about a FILE, and the two readings are worth keeping distinct where they are called
+ * from. The dialogue they open is the same one - see [OpenWithDialog] for why it was two.
  */
 @Composable
-fun OpenerPicker(vm: BrowserViewModel, extension: String, onDismiss: () -> Unit) {
-    val colors = Filet.colors
-    val context = LocalContext.current
-    val candidates = remember(extension) { vm.handlers.candidatesForExtension(extension) }
-    val builtIn = remember(extension) { vm.handlers.builtInFor(extension) }
-    val overrides by vm.handlers.overrides.collectAsState()
-    val externals by vm.handlers.externals.collectAsState()
-    val current = overrides[extension] ?: builtIn
-
-    // Second stage: "Another app" is not an answer until it names one.
-    var pickingApp by remember(extension) { mutableStateOf(false) }
-    if (pickingApp) {
-        val apps = remember(extension) {
-            ExternalApps.candidates(context, mimeForExtension(extension))
-        }
-        // No dead end here any more.
-        //
-        // Bug identified: an extension nothing on the device DECLARES - `.mcaddon`, say -
-        // resolved to the wildcard mime, which the candidate query deliberately answers with
-        // nothing. That emptiness was then shown as "No app for .mcaddon" and the flow
-        // stopped. It is not true: Minecraft opens `.mcaddon` perfectly well, it simply never
-        // registered the type with Android. Filet has no way to know what can open a file it
-        // has no type for, and refusing on that basis states a fact it does not have.
-        //
-        // The sheet already handles an empty first tier - it says so and offers every
-        // launchable app underneath. So it is shown rather than withheld, and the choice is
-        // left where it belongs.
-        AppPickerForExtension(extension, apps) { app ->
-            pickingApp = false
-            if (app != null) {
-                vm.handlers.setExternal(extension, app, alsoRoute = true)
-                onDismiss()
-            }
-        }
-        return
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Open .$extension with", fontSize = 15.sp) },
-        text = {
-            Column {
-                for (id in candidates) {
-                    val on = id == current
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                // One tested function decides this; see OpenerChoice.kt.
-                                // The order of its branches is the fix, and the .docx case in
-                                // OpenerChoiceTest is what holds that order in place.
-                                when (val choice = openerChoice(id, builtIn)) {
-                                    is OpenerChoice.PickApp -> pickingApp = true
-                                    is OpenerChoice.ClearOverride -> {
-                                        vm.handlers.clearDefault(extension); onDismiss()
-                                    }
-                                    is OpenerChoice.SetHandler -> {
-                                        vm.handlers.setDefault(extension, choice.id); onDismiss()
-                                    }
-                                }
-                            }
-                            .padding(horizontal = 8.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                id.label,
-                                fontSize = 13.sp,
-                                color = if (on) colors.accent else MaterialTheme.colorScheme.onSurface,
-                            )
-                            if (id == builtIn) {
-                                Text("Filet's default for this type", fontSize = 10.sp, color = colors.fg3)
-                            }
-                            if (id == HandlerId.EXTERNAL) {
-                                val app = externals[extension]
-                                Text(
-                                    if (app == null) "Pick which app — it is remembered"
-                                    else "Currently ${app.label} — tap to change",
-                                    fontSize = 10.sp, color = colors.fg3,
-                                )
-                            }
-                        }
-                        if (on) {
-                            Icon(
-                                FiletIcons.Check, null, tint = colors.accent,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-    )
-}
+fun OpenerPicker(vm: BrowserViewModel, extension: String, onDismiss: () -> Unit) =
+    OpenWithDialog(vm = vm, file = null, extension = extension, onDismiss = onDismiss)

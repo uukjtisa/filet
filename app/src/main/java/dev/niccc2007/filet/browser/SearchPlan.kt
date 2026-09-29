@@ -44,10 +44,19 @@ fun searchPlan(kind: PaneKind): SearchMode = when (kind) {
     PaneKind.REMOTES -> SearchMode.FILTER
     PaneKind.ACTIVITY -> SearchMode.FILTER
     PaneKind.NEARBY -> SearchMode.FILTER
+    PaneKind.APPS -> SearchMode.FILTER
 
-    // Home is a handful of cards, About is a page of prose. A search box on either is a
-    // control that cannot do anything, which is rule R1.
-    PaneKind.HOME -> SearchMode.NONE
+    // Home searches the device.
+    //
+    // Bug identified: this was NONE, with a comment saying a search box on Home "cannot do
+    // anything, which is rule R1" - while the search bar, the four scope chips and the field
+    // chips were all rendered on Home regardless. So the control was there and only the answer
+    // was missing, which is the same R1 violation arrived at from the other side. Typing on Home
+    // with Whole device selected returned nothing, under a banner saying the index was working.
+    //
+    // Home has no folder to stand in, so the folder-shaped scopes are not offered there and a
+    // stale one is coerced to the device. See SearchReach.
+    PaneKind.HOME -> SearchMode.FILESYSTEM
     PaneKind.ABOUT -> SearchMode.NONE
 }
 

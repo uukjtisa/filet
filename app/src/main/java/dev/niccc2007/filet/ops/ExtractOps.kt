@@ -1,6 +1,9 @@
 package dev.niccc2007.filet.ops
 
 import dev.niccc2007.filet.jobs.JobLedger
+import dev.niccc2007.filet.vfs.ActionGate
+import dev.niccc2007.filet.vfs.Denial
+import dev.niccc2007.filet.vfs.FileAction
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
 import dev.niccc2007.filet.vfs.provider.ArchiveEntry
@@ -29,7 +32,21 @@ import kotlinx.coroutines.ensureActive
  * Everything here goes through the VFS (PLAN.md R3), so an archive on a network share extracts
  * to an SD card with no branch per backend.
  */
-class ExtractOperations(private val vfs: Vfs, private val ledger: JobLedger) {
+class ExtractOperations(
+    private val vfs: Vfs,
+    private val ledger: JobLedger,
+    /**
+     * Files this has written, handed to whatever tells Android's media index about them.
+     *
+     * Defaulted to nothing so a test needs no scanner, and wired up in FiletApp exactly as
+     * [FileOperations] is. It was missing here, which meant a picture extracted from a zip was
+     * on the disk and absent from the gallery: everything Filet WRITES was announced, and
+     * extraction is a write that went through its own class and so through its own gap.
+     * MediaCatchUp swept it up on the next reconcile, so it healed rather than staying broken -
+     * which is precisely why nobody noticed.
+     */
+    private val announce: (List<VPath>) -> Unit = {},
+) {
 
     /**
      * Read the archive and work out what extracting it into [into] would produce.
@@ -103,8 +120,15 @@ class ExtractOperations(private val vfs: Vfs, private val ledger: JobLedger) {
      * the folder half full with no account of it.
      */
     suspend fun run(archiveRoot: VPath, into: VPath, plan: ExtractPlan, label: String): OpResult {
+        // Asked once, about the destination, before a single entry is written. Finding out
+        // halfway through means a half-extracted folder to clean up by hand.
+        vfs.permit(FileAction.CREATE_FILE, into)?.let {
+            return OpResult(0, listOf(into to it.short), listOf(it))
+        }
         val id = ledger.start("Extracting", label)
         val failed = ArrayList<Pair<VPath, String>>()
+        val denials = ArrayList<Denial>()
+        val written = ArrayList<VPath>()
         var done = 0
         val total = plan.items.count { !it.isDir }
 
@@ -129,19 +153,35 @@ class ExtractOperations(private val vfs: Vfs, private val ledger: JobLedger) {
                     // The parent may be implicit: plenty of archives store no folder records.
                     dest.parent?.let { if (vfs.stat(it) == null) vfs.create(it, isDir = true) }
                     val from = childOf(archiveRoot, item.source)
-                    vfs.openRead(from).use { input ->
-                        vfs.openWrite(dest).use { output -> input.copyTo(output, 64 * 1024) }
+                    // Off the caller's thread - see the note in `Vfs.copyNode`.
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        vfs.openRead(from).use { input ->
+                            vfs.openWrite(dest).use { output -> input.copyTo(output, 64 * 1024) }
+                        }
                     }
-                }.onSuccess { done++ }.onFailure { failed += dest to FileOperations.readable(it) }
+                }.onSuccess { done++; written += dest }
+                    .onFailure {
+                        failed += dest to FileOperations.readable(it)
+                        ActionGate.fromFailure(FileAction.CREATE_FILE, into, it, vfs.isRemote(into))
+                            ?.let { d -> denials += d }
+                    }
             }
         } catch (e: Throwable) {
+            // Cancelled or failed half way, and the half that landed is real. Not announcing it
+            // would leave exactly the files a person is most likely to go looking for invisible.
+            announce(written)
             ledger.fail(id, FileOperations.readable(e))
-            return OpResult(done, failed + (archiveRoot to FileOperations.readable(e)))
+            return OpResult(done, failed + (archiveRoot to FileOperations.readable(e)), denials)
         }
+
+        // Announced from the successes only, and after the loop rather than per file: a
+        // thousand-file archive would otherwise wake the scanner a thousand times for a folder
+        // it is about to be told about anyway.
+        announce(written)
 
         if (failed.isEmpty()) ledger.finish(id, "$done file(s)")
         else ledger.fail(id, "${failed.size} failed, $done succeeded")
-        return OpResult(done, failed)
+        return OpResult(done, failed, denials)
     }
 
     /** Walk a relative path down from [base], one segment at a time. */

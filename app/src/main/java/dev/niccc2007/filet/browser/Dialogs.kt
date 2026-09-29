@@ -36,6 +36,23 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.border
+import androidx.compose.ui.text.font.FontWeight
+import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgCaption
+import dev.niccc2007.filet.ui.dialogs.DlgField
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgKv
+import dev.niccc2007.filet.ui.dialogs.DlgPick
+import dev.niccc2007.filet.ui.dialogs.DlgSection
+import dev.niccc2007.filet.ui.dialogs.DlgSpacer
+import dev.niccc2007.filet.ui.dialogs.DlgTick
+import dev.niccc2007.filet.ui.dialogs.DlgTone
+import dev.niccc2007.filet.ui.dialogs.DlgWarn
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.provider.ArchiveCapabilities
@@ -131,6 +148,14 @@ fun FiletDialogs(vm: BrowserViewModel) {
         )
     }
 
+    // A drop waiting to be told what it is. Not a `Dialog` case: it is a pending OPERATION
+    // holding the paths it will act on, and it lives on the browser state beside the drag it
+    // came from rather than in the one-at-a-time modal slot.
+    val browser by vm.state.collectAsState()
+    browser.dropAsk?.let { DropDialog(it, vm::answerDrop, vm::cancelDrop) }
+    browser.denied?.let { DeniedDialog(it, vm::dismissDenial) }
+    browser.duplicateAsk?.let { DuplicateDialog(it, vm::confirmDuplicate, vm::cancelDuplicate) }
+
     val dialog by vm.dialog.collectAsState()
     when (val d = dialog) {
         null -> Unit
@@ -152,6 +177,141 @@ fun FiletDialogs(vm: BrowserViewModel) {
 }
 
 /**
+ * Dropping items back onto the folder they came from.
+ *
+ * One question with one answer, so it is a confirm and not the move-or-copy prompt: there is
+ * nothing to choose between here. Moving something into the folder it is already in is a no-op,
+ * which is why this case used to be refused outright.
+ */
+@Composable
+fun DuplicateDialog(
+    pending: dev.niccc2007.filet.browser.PendingDuplicate,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dlg(onDismiss = onDismiss) {
+        DlgHeader(FiletIcons.Copy, "Make a copy", onClose = onDismiss)
+        DlgBody {
+            Text(
+                if (pending.count == 1) {
+                    "Make a copy of \"${pending.label}\" in this folder?"
+                } else {
+                    "Make a copy of ${pending.count} items in this folder?"
+                },
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+                color = Filet.colors.fg2,
+            )
+            Spacer(Modifier.height(8.dp))
+            // Says the name it will use rather than leaving it to be discovered afterwards -
+            // the one thing somebody wants to know before agreeing is what they will end up
+            // looking at.
+            DlgCaption(
+                if (pending.count == 1) {
+                    "Named " + dev.niccc2007.filet.browser.DuplicateName.PREFIX + pending.label
+                } else {
+                    "Each named " + dev.niccc2007.filet.browser.DuplicateName.PREFIX +
+                        "the original, numbered if that is taken"
+                },
+            )
+        }
+        DlgFooter {
+            DlgBtn("Cancel", onClick = onDismiss)
+            DlgBtn("Make a copy", kind = BtnKind.PRIMARY) { onConfirm() }
+        }
+    }
+}
+
+/**
+ * An action that was refused.
+ *
+ * Not a toast. A refusal has two things to say - what was refused, and what would have to change
+ * before it would not be - and the second one is the part that is worth showing at all. A toast
+ * has room for neither, which is why "permission denied" used to be the whole message.
+ *
+ * One banner, carrying the headline. The detail is body text below it rather than a second
+ * banner, because only one of the two is an obstacle.
+ */
+@Composable
+fun DeniedDialog(denial: dev.niccc2007.filet.vfs.Denial, onDismiss: () -> Unit) {
+    Dlg(onDismiss = onDismiss) {
+        DlgHeader(FiletIcons.Info, "Not allowed", tone = DlgTone.BAD, onClose = onDismiss)
+        DlgBody {
+            DlgWarn(denial.headline, bad = true)
+            Spacer(Modifier.height(10.dp))
+            Text(denial.detail, fontSize = 13.sp, lineHeight = 19.sp, color = Filet.colors.fg2)
+            Spacer(Modifier.height(10.dp))
+            DlgKv(denial.action.verb.replaceFirstChar { it.uppercase() }, denial.path.name, mono = true)
+            // The host's own words, when it gave any. Shown verbatim and never interpreted - a
+            // server's explanation is usually better than a guess at one.
+            denial.hostSaid?.let {
+                Spacer(Modifier.height(6.dp))
+                DlgCaption(it)
+            }
+        }
+        DlgFooter {
+            DlgSpacer()
+            DlgBtn("OK", kind = BtnKind.PRIMARY, onClick = onDismiss)
+        }
+    }
+}
+
+/**
+ * What a drop between two panes should do.
+ *
+ * Both answers are rows of equal weight rather than a footer's confirm and cancel: a move and a
+ * copy are two different operations, not an action and its refusal. The suggested one is only
+ * marked, because the same-volume rule it comes from is a good guess and a bad decision - see
+ * [DragBehaviour].
+ */
+@Composable
+fun DropDialog(
+    pending: PendingDrop,
+    onAnswer: (DropAction, Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var always by remember { mutableStateOf(false) }
+    Dlg(onDismiss = onDismiss) {
+        DlgHeader(
+            FiletIcons.Cut,
+            if (pending.count == 1) "Drop 1 item" else "Drop ${pending.count} items",
+            onClose = onDismiss,
+        )
+        DlgBody {
+            DlgCaption("Into ${pending.destLabel}")
+            Spacer(Modifier.height(8.dp))
+            DlgPick(
+                icon = FiletIcons.Cut,
+                label = "Move",
+                detail = "Takes it out of where it came from",
+                tag = if (pending.suggested == DropAction.MOVE) "suggested" else null,
+                ours = true,
+                onClick = { onAnswer(DropAction.MOVE, always) },
+            )
+            DlgPick(
+                icon = FiletIcons.Copy,
+                label = "Copy",
+                detail = "Leaves the original where it is",
+                tag = if (pending.suggested == DropAction.COPY) "suggested" else null,
+                ours = true,
+                onClick = { onAnswer(DropAction.COPY, always) },
+            )
+            Spacer(Modifier.height(10.dp))
+            DlgTick(
+                on = always,
+                label = "Always do this",
+                sub = "Stops the question. Changeable in Settings.",
+                onToggle = { always = !always },
+            )
+        }
+        DlgFooter {
+            DlgSpacer()
+            DlgBtn("Cancel", onClick = onDismiss)
+        }
+    }
+}
+
+/**
  * @param selectStem pre-selects the name without its extension, the way every desktop rename
  *   does. Selecting the whole thing means the extension gets typed over by accident.
  */
@@ -169,35 +329,60 @@ fun NameDialog(
         mutableStateOf(TextFieldValue(initial, TextRange(0, stemEnd)))
     }
     val invalid = value.text.contains('/') || value.text == "." || value.text == ".."
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title, fontSize = 16.sp) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    singleLine = true,
-                    isError = invalid,
-                    label = { Text("Name") },
-                )
-                if (invalid) {
-                    Text(
-                        "A name cannot contain a slash.",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.error,
+    // dismissOnScrim is off: there is typing in here, and a stray tap outside the card throwing
+    // away a half-entered name is the kind of loss nobody reports and everybody resents.
+    Dlg(onDismiss = onDismiss, dismissOnScrim = false) {
+        DlgHeader(FiletIcons.Rename, title, onClose = onDismiss)
+        DlgBody {
+            // A raw BasicTextField rather than DlgField, for one reason: this dialogue needs the
+            // TextFieldValue so it can pre-select the stem, and DlgField takes a String. The
+            // frame around it is drawn to DlgField's spec so the two are indistinguishable.
+            Text(
+                "NAME",
+                fontSize = 10.sp,
+                letterSpacing = 1.0.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Filet.colors.fg3,
+            )
+            Spacer(Modifier.height(6.dp))
+            androidx.compose.foundation.text.BasicTextField(
+                value = value,
+                onValueChange = { value = it },
+                singleLine = true,
+                textStyle = androidx.compose.material3.LocalTextStyle.current.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.sp,
+                ),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(Filet.colors.accent),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(Filet.colors.sunken)
+                    .border(
+                        1.dp,
+                        if (invalid) Filet.colors.bad else MaterialTheme.colorScheme.outline,
+                        RoundedCornerShape(9.dp),
                     )
-                }
+                    .padding(horizontal = 11.dp, vertical = 9.dp),
+            )
+            if (invalid) {
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    "A name cannot contain a slash.",
+                    fontSize = 10.5.sp,
+                    color = Filet.colors.bad,
+                )
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onDone(value.text.trim()); onDismiss() },
+        }
+        DlgFooter {
+            DlgBtn("Cancel", onClick = onDismiss)
+            DlgBtn(
+                confirm,
+                kind = BtnKind.PRIMARY,
                 enabled = value.text.isNotBlank() && !invalid,
-            ) { Text(confirm) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+            ) { onDone(value.text.trim()); onDismiss() }
+        }
+    }
 }
 
 @Composable
@@ -209,20 +394,26 @@ fun ConfirmDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title, fontSize = 16.sp) },
-        text = { Text(body, fontSize = 13.sp) },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(); onDismiss() }) {
-                Text(
-                    confirm,
-                    color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                )
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    Dlg(onDismiss = onDismiss) {
+        // A destructive confirmation gets the red icon tile and the red button, and it gets no
+        // close cross - the two answers are both in the footer, and a third way out that means
+        // "no" without saying so is how a delete prompt becomes ambiguous.
+        DlgHeader(
+            if (destructive) FiletIcons.Delete else FiletIcons.Info,
+            title,
+            tone = if (destructive) DlgTone.BAD else DlgTone.NORMAL,
+        )
+        DlgBody {
+            Text(body, fontSize = 13.sp, lineHeight = 19.sp, color = Filet.colors.fg2)
+        }
+        DlgFooter {
+            DlgBtn("Cancel", onClick = onDismiss)
+            DlgBtn(
+                confirm,
+                kind = if (destructive) BtnKind.DANGER else BtnKind.PRIMARY,
+            ) { onConfirm(); onDismiss() }
+        }
+    }
 }
 
 @Composable
@@ -231,53 +422,53 @@ private fun PropertiesDialog(vm: BrowserViewModel, node: VNode, onDismiss: () ->
     var origin by remember(node.path) { mutableStateOf<dev.niccc2007.filet.index.Provenance?>(null) }
     LaunchedEffect(node.path) { origin = runCatching { vm.provenanceOf(node.path) }.getOrNull() }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(node.name, fontSize = 15.sp, maxLines = 2) },
-        text = {
-            Column {
-                Prop("Type", if (node.isDir) "Folder" else FileKind.of(node).name.lowercase())
-                Prop("Location", node.path.parent?.path ?: node.path.path)
-                Prop("Volume", node.path.scheme)
-                if (!node.isDir) Prop("Size", "${humanSize(node.size)}  (${node.size} bytes)")
-                Prop("Modified", if (node.mtime > 0) STAMP.format(Date(node.mtime)) else "unknown")
-                Prop("Readable", if (node.readable) "yes" else "no")
-                Prop("Writable", if (node.writable) "yes" else "no")
-                if (node.hidden) Prop("Hidden", "yes")
+    Dlg(onDismiss = onDismiss) {
+        DlgHeader(
+            if (node.isDir) FiletIcons.Folder else FiletIcons.Info,
+            node.name,
+            sub = node.path.parent?.path ?: node.path.path,
+            onClose = onDismiss,
+        )
+        DlgBody {
+            DlgKv("Type", if (node.isDir) "Folder" else FileKind.of(node).name.lowercase())
+            DlgKv("Volume", node.path.scheme, mono = true)
+            if (!node.isDir) DlgKv("Size", "${humanSize(node.size)}  (${node.size} bytes)")
+            DlgKv("Modified", if (node.mtime > 0) STAMP.format(Date(node.mtime)) else "unknown")
+            DlgKv("Readable", if (node.readable) "yes" else "no")
+            DlgKv("Writable", if (node.writable) "yes" else "no")
+            if (node.hidden) DlgKv("Hidden", "yes")
 
-                // The Source chip. Android has no mark-of-the-web, so this is the only
-                // memory a file has of where it came from (PLAN.md §5.1).
-                origin?.let { p ->
-                    Spacer(Modifier.height(10.dp))
-                    Text("SOURCE", fontSize = 9.sp, color = colors.fg3, letterSpacing = 1.sp)
-                    Spacer(Modifier.height(4.dp))
-                    p.origin?.let { Prop("From", it) }
-                    p.pageTitle?.let { Prop("Title", it) }
-                    p.uploader?.let { Prop("By", it) }
-                    p.format?.let { Prop("Format", it) }
-                    Prop("Recorded", if (p.at > 0) STAMP.format(Date(p.at)) else "")
-                    Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        p.origin?.let { url ->
-                            SmallAction("Open original") { vm.openUrl(url); onDismiss() }
-                            SmallAction("Find others") { vm.searchByOrigin(hostOf(url)); onDismiss() }
-                            SmallAction("Get again") {
-                                vm.requestRedownload(url, p.format, node.name); onDismiss()
-                            }
+            // The Source block, kept whole and kept last.
+            //
+            // Android has no mark-of-the-web, so this is the only memory a file has of where it
+            // came from (PLAN.md 5.1), and it carries three actions that exist nowhere else in
+            // the app: open the page it came from, find other files from the same host, fetch it
+            // again. An earlier pass at this dialogue invented a hash row and dropped this
+            // entirely, which is why it is called out here - it is the one part of Details that
+            // is not in every other file manager.
+            origin?.let { p ->
+                DlgSection("Source")
+                p.origin?.let { DlgKv("From", it, mono = true) }
+                p.pageTitle?.let { DlgKv("Title", it) }
+                p.uploader?.let { DlgKv("By", it) }
+                p.format?.let { DlgKv("Format", it) }
+                DlgKv("Recorded", if (p.at > 0) STAMP.format(Date(p.at)) else "")
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    p.origin?.let { url ->
+                        SmallAction("Open original") { vm.openUrl(url); onDismiss() }
+                        SmallAction("Find others") { vm.searchByOrigin(hostOf(url)); onDismiss() }
+                        SmallAction("Get again") {
+                            vm.requestRedownload(url, p.format, node.name); onDismiss()
                         }
                     }
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-    )
-}
-
-@Composable
-private fun Prop(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().height(22.dp)) {
-        Text(label, fontSize = 11.5.sp, color = Filet.colors.fg3, modifier = Modifier.width(76.dp))
-        Text(value, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace, maxLines = 1)
+        }
+        DlgFooter {
+            DlgSpacer()
+            DlgBtn("Close", fill = false, onClick = onDismiss)
+        }
     }
 }
 
@@ -332,11 +523,15 @@ private fun CompressDialog(vm: BrowserViewModel) {
     var value by remember { mutableStateOf(TextFieldValue(suggested, TextRange(0, suggested.length))) }
     val invalid = value.text.contains('/') || value.text.trim() == "." || value.text.trim() == ".."
 
-    AlertDialog(
-        onDismissRequest = vm::dismissDialog,
-        title = { Text("Compress", fontSize = 16.sp) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
+    Dlg(onDismiss = vm::dismissDialog, dismissOnScrim = false) {
+        DlgHeader(
+            FiletIcons.Zip,
+            "Compress",
+            sub = "${sizes.size} item${if (sizes.size == 1) "" else "s"}  ·  " +
+                humanSize(totalBytes),
+            onClose = vm::dismissDialog,
+        )
+        DlgBody {
                 OutlinedTextField(
                     value = value,
                     onValueChange = { value = it },
@@ -408,31 +603,31 @@ private fun CompressDialog(vm: BrowserViewModel) {
                     splitProblem = splitProblem,
                 )
 
-                EstimateLine(estimate)
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    vm.dismissDialog()
-                    vm.compressSelection(
-                        value.text.trim(),
-                        format,
-                        ArchiveOptions(
-                            strength = strength,
-                            password = password.takeIf { it.isNotEmpty() }?.toCharArray(),
-                            encryption = encryption ?: capability.password.default.takeIf { password.isNotEmpty() },
-                            splitBytes = splitBytes,
-                        ),
-                    )
-                },
-                // A part size that cannot work is refused HERE, before a byte is written -
-                // the alternative is finding out at part 100 of a 4 GB archive.
+            EstimateLine(estimate)
+        }
+        DlgFooter {
+            DlgBtn("Cancel", onClick = vm::dismissDialog)
+            DlgBtn(
+                "Compress",
+                kind = BtnKind.PRIMARY,
+                // A part size that cannot work is refused HERE, before a byte is written - the
+                // alternative is finding out at part 100 of a 4 GB archive.
                 enabled = value.text.isNotBlank() && !invalid && splitProblem == null,
-            ) { Text("Compress") }
-        },
-        dismissButton = { TextButton(onClick = vm::dismissDialog) { Text("Cancel") } },
-    )
+            ) {
+                vm.dismissDialog()
+                vm.compressSelection(
+                    value.text.trim(),
+                    format,
+                    ArchiveOptions(
+                        strength = strength,
+                        password = password.takeIf { it.isNotEmpty() }?.toCharArray(),
+                        encryption = encryption ?: capability.password.default.takeIf { password.isNotEmpty() },
+                        splitBytes = splitBytes,
+                    ),
+                )
+            }
+        }
+    }
 }
 
 /** One line each, saying what the format is actually for. */
@@ -464,18 +659,18 @@ private fun EstimateLine(estimate: SizeEstimate) {
         if (estimate.partial) {
             // A folder in the selection: its contents were never listed, so the honest form is
             // a floor rather than a range.
-            "Estimated output: at least ~${byteSize(estimate.low)} — folders were not measured"
+            "At least ~${byteSize(estimate.low)} (folders not measured)"
         } else {
-            "Estimated output: ~${byteSize(estimate.low)} to ~${byteSize(estimate.high)}"
+            "~${byteSize(estimate.low)} to ~${byteSize(estimate.high)}"
         },
         fontSize = 11.sp,
         color = colors.fg2,
     )
     Text(
         if (estimate.mostlyIncompressible) {
-            "An estimate. Most of this is already compressed, so a higher setting mostly costs time."
+            "An estimate. Most of this is already compressed."
         } else {
-            "An estimate — how much it shrinks depends on the bytes, not the format."
+            "An estimate."
         },
         fontSize = 9.5.sp,
         color = colors.fg3,

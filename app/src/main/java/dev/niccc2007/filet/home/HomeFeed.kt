@@ -229,6 +229,15 @@ class HomeFeed(
     /** Supplies the Source chip once provenance exists. Set by the bridge at M7. */
     var originLookup: (suspend (VPath) -> String?)? = null
 
+    /** When the pass now running began, for the partial grace window. */
+    private var passStartedAt = 0L
+
+    /** Each tracked folder's own mtime: an upper bound on when anything arrived inside it. */
+    private var folderMtimes: Map<VPath, Long> = emptyMap()
+
+    /** Tracked folders this pass has not read yet. Only these can still displace a row. */
+    private var unreadFolders: MutableSet<VPath> = mutableSetOf()
+
     /** The last time a change arrived, and the first one of the current burst. */
     private var burstStartedAt = 0L
     private var lastChangeAt = 0L
@@ -338,6 +347,23 @@ class HomeFeed(
                 return@launch
             }
             val gathered = java.util.concurrent.ConcurrentHashMap<VPath, List<FeedItem>>()
+
+            // When this pass began, and how new each folder is. Both exist so a partial answer
+            // can be judged instead of simply allowed: see FeedPublish.partialIsFinal.
+            //
+            // One stat per tracked folder, before any listing. It is the cheapest thing in the
+            // pass - a dozen stats against listings that walk thousands of entries - and it is
+            // what lets the common cold start paint once, correctly, instead of painting whoever
+            // finished first and then correcting.
+            passStartedAt = System.currentTimeMillis()
+            folderMtimes = folders.associate { f ->
+                f.path to (runCatching { vfs.stat(f.path)?.mtime }.getOrNull() ?: Long.MAX_VALUE)
+            }
+            // MAX_VALUE for a folder that cannot be statted, deliberately: an unknown bound must
+            // never read as "older than everything", which would let a partial claim to be final
+            // on the strength of a folder it knows nothing about.
+            unreadFolders = folders.map { it.path }.toMutableSet()
+
             coroutineScope {
                 for (batch in folders.chunked(FEED_PARALLELISM)) {
                     batch.map { folder ->
@@ -360,6 +386,9 @@ class HomeFeed(
                             } else {
                                 gathered[folder.path] = lastGood[folder.path].orEmpty()
                             }
+                            // Read means answered, whether it answered with anything or not: an
+                            // empty folder can no longer contribute, so it stops bounding.
+                            unreadFolders.remove(folder.path)
                             publish(gathered.values)
                         }
                     }.awaitAll()
@@ -402,7 +431,18 @@ class HomeFeed(
         // - was assigned unconditionally below it. So the protection existed and the screen
         // never got it: a refresh still painted every intermediate answer, which is the
         // flicker as reported. A blocked publish now changes nothing at all.
-        if (!FeedPublish.publishable(kind, _all.value.isEmpty())) return
+        // A partial is drawn when it can be shown to be final for the rows it would show, and
+        // otherwise only once the grace window has passed. The oldest visible row is the
+        // threshold every unread folder is measured against.
+        val window = everything.take(SHOWN)
+        val provenFinal = FeedPublish.partialIsFinal(
+            shownCount = window.size,
+            shownLimit = SHOWN,
+            oldestShownAt = window.lastOrNull()?.at ?: Long.MAX_VALUE,
+            unreadFolderMtimes = unreadFolders.map { folderMtimes[it] ?: Long.MAX_VALUE },
+        )
+        val elapsed = System.currentTimeMillis() - passStartedAt
+        if (!FeedPublish.publishable(kind, _all.value.isEmpty(), elapsed, provenFinal)) return
         _all.value = everything
         if (kind == PublishKind.COMPLETE) _settled.value = everything
         val top = everything.take(SHOWN)

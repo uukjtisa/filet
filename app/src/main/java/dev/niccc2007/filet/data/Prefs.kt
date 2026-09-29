@@ -2,6 +2,9 @@ package dev.niccc2007.filet.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import dev.niccc2007.filet.browser.EntryDisplay
+import dev.niccc2007.filet.browser.DateStyle
+import dev.niccc2007.filet.browser.DateOrder
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +35,56 @@ class Prefs(context: Context) {
 
     private val _showHidden = MutableStateFlow(sp.getBoolean(K_HIDDEN, false))
     val showHidden: StateFlow<Boolean> = _showHidden.asStateFlow()
+
+    /**
+     * What a row in the file list shows, and how it writes a date.
+     *
+     * Read as one value rather than as seven flags, because the settings screen previews it and a
+     * preview has to be given the whole thing to render. See [EntryDisplay].
+     */
+    private val _entry = MutableStateFlow(
+        EntryDisplay(
+            subtitle = sp.getBoolean(K_E_SUB, true),
+            measure = sp.getBoolean(K_E_MEASURE, true),
+            dateColumn = sp.getBoolean(K_E_DATECOL, false),
+            style = enumOr(sp.getString(K_E_STYLE, null), DateStyle.NUMERIC),
+            order = enumOr(sp.getString(K_E_ORDER, null), DateOrder.YMD),
+            separator = sp.getString(K_E_SEP, "-") ?: "-",
+            relative = sp.getBoolean(K_E_REL, true),
+        )
+    )
+    val entry: StateFlow<EntryDisplay> = _entry.asStateFlow()
+
+    /**
+     * What dragging between panes does.
+     *
+     * Defaults to asking. The two outcomes are not equally recoverable - a copy that should have
+     * been a move leaves a duplicate to delete, while a move that should have been a copy has
+     * already taken the file off the source, which across a network may be a device nobody is
+     * holding.
+     */
+    private val _drag = MutableStateFlow(
+        enumOr(sp.getString(K_DRAG, null), dev.niccc2007.filet.browser.DragBehaviour.ASK)
+    )
+    val drag: StateFlow<dev.niccc2007.filet.browser.DragBehaviour> = _drag.asStateFlow()
+
+    fun setDrag(b: dev.niccc2007.filet.browser.DragBehaviour) {
+        _drag.value = b
+        sp.edit().putString(K_DRAG, b.name).apply()
+    }
+
+    fun setEntry(d: EntryDisplay) {
+        _entry.value = d
+        sp.edit()
+            .putBoolean(K_E_SUB, d.subtitle)
+            .putBoolean(K_E_MEASURE, d.measure)
+            .putBoolean(K_E_DATECOL, d.dateColumn)
+            .putString(K_E_STYLE, d.style.name)
+            .putString(K_E_ORDER, d.order.name)
+            .putString(K_E_SEP, d.separator)
+            .putBoolean(K_E_REL, d.relative)
+            .apply()
+    }
 
     /**
      * Whether the tabs you had open come back the next time Filet starts.
@@ -122,17 +175,15 @@ class Prefs(context: Context) {
     /**
      * How the actions for a selection are shown.
      *
-     * Default MENU. The bar had to scroll to hold eleven actions, and an action off the edge of
-     * a row nobody knows scrolls does not exist. BAR is kept because one tap beats two when you
-     * already know where the button is.
+     * Which selection actions sit on the bar, comma separated.
+     *
+     * Replaces a setting that chose between a bar and a menu. That question had no good answer:
+     * the bar could not hold fifteen actions so it scrolled and hid some, and the menu put the
+     * four anybody uses two taps away. One bar plus More is the answer to it, and the setting
+     * that survives is the one that actually differs per person - which four.
      */
-    private val _selectionStyle = MutableStateFlow(
-        dev.niccc2007.filet.browser.SelectionStyle.valueOfOr(
-            sp.getString(K_SELECTION_STYLE, null),
-            dev.niccc2007.filet.browser.SelectionStyle.MENU,
-        )
-    )
-    val selectionStyle: StateFlow<dev.niccc2007.filet.browser.SelectionStyle> = _selectionStyle.asStateFlow()
+    private val _selectionBar = MutableStateFlow(sp.getString(K_SELECTION_BAR, null))
+    val selectionBar: StateFlow<String?> = _selectionBar.asStateFlow()
 
     /**
      * Storage cards the user has hidden, by VPath.
@@ -225,9 +276,9 @@ class Prefs(context: Context) {
         sp.edit().putStringSet(K_HIDDEN_CARDS, HashSet(v)).apply()
     }
 
-    fun setSelectionStyle(v: dev.niccc2007.filet.browser.SelectionStyle) {
-        _selectionStyle.value = v
-        sp.edit().putString(K_SELECTION_STYLE, v.name).apply()
+    fun setSelectionBar(v: String) {
+        _selectionBar.value = v
+        sp.edit().putString(K_SELECTION_BAR, v).apply()
     }
 
     fun setNotesFraction(v: Float) { _notesFraction.value = v; sp.edit().putFloat(K_NOTES_FRACTION, v).apply() }
@@ -282,6 +333,8 @@ class Prefs(context: Context) {
     fun putString(key: String, value: String?) { sp.edit().putString(key, value).apply() }
     fun getBool(key: String, def: Boolean) = sp.getBoolean(key, def)
     fun putBool(key: String, value: Boolean) { sp.edit().putBoolean(key, value).apply() }
+    fun getInt(key: String, def: Int) = sp.getInt(key, def)
+    fun putInt(key: String, value: Int) { sp.edit().putInt(key, value).apply() }
     fun getLong(key: String, def: Long) = sp.getLong(key, def)
     fun putLong(key: String, value: Long) { sp.edit().putLong(key, value).apply() }
 
@@ -304,9 +357,20 @@ class Prefs(context: Context) {
         const val K_HIDE_STORAGE = "home.hideStorage"
         const val K_HIDDEN_CARDS = "home.hiddenCards"
         const val K_HIDE_TERMUX = "home.hideTermux"
-        const val K_SELECTION_STYLE = "browse.selectionStyle"
+        // A new key rather than a reused one. The old value was MENU or BAR, which is not a
+        // list of action ids, and a stored MENU read as a list normalises to the default -
+        // correct, but only by accident, and it leaves a value that means nothing behind.
+        const val K_SELECTION_BAR = "browse.selectionBar"
         const val K_NOTES_FRACTION = "update.notesFraction"
         const val K_UPD_UNTIL = "update.silencedUntil"
+        const val K_E_SUB = "entry.subtitle"
+        const val K_E_MEASURE = "entry.measure"
+        const val K_E_DATECOL = "entry.dateColumn"
+        const val K_E_STYLE = "entry.dateStyle"
+        const val K_E_ORDER = "entry.dateOrder"
+        const val K_E_SEP = "entry.dateSeparator"
+        const val K_E_REL = "entry.relativeDates"
+
         const val K_UPD_VERSION = "update.silencedVersion"
         const val K_UPD_SKIPPED = "update.skippedVersion"
         const val K_UPD_OFF = "update.notificationsOff"
@@ -408,3 +472,50 @@ data class SortSpec(
     val descending: Boolean = true,
     val foldersFirst: Boolean = true,
 )
+
+/** A stored enum name, or the default when it is missing or no longer exists. */
+private inline fun <reified E : Enum<E>> enumOr(name: String?, def: E): E =
+    enumValues<E>().firstOrNull { it.name == name } ?: def
+
+/**
+ * The hosting endpoint, remembered between launches.
+ *
+ * `http://<ip>:<port>/a/<code>` is what a desktop mounts, and a mapped network drive stores that
+ * string - so all three parts have to outlive the process or the mapping on the PC stops
+ * resolving and has to be made again. They were in-memory fields: settable, and gone on restart.
+ *
+ * The port is written even when it is the default, so a later change to the default cannot
+ * silently move an endpoint somebody has already mapped.
+ */
+private const val K_DRAG = "drag.behaviour"
+private const val DAV_SHARES = "dav.shares"
+private const val DAV_CODE = "dav.code"
+private const val DAV_PORT = "dav.port"
+private const val DAV_ROOT = "dav.root"
+
+class PrefsDavStore(private val prefs: Prefs) : dev.niccc2007.filet.webdav.DavSettingsStore {
+
+    /**
+     * The whole share list, encoded by `DavShares`.
+     *
+     * `code` and `root` below are the pre-list keys. They are still READ, because the server folds
+     * them into the first share on upgrade, and still written, so that downgrading does not lose
+     * the endpoint outright. They stop being the source of truth the moment a list exists.
+     */
+    override var shares: String?
+        get() = prefs.getString(DAV_SHARES, null)
+        set(value) = prefs.putString(DAV_SHARES, value)
+
+    override var code: String?
+        get() = prefs.getString(DAV_CODE, null)
+        set(value) = prefs.putString(DAV_CODE, value)
+
+    override var port: Int
+        get() = prefs.getInt(DAV_PORT, dev.niccc2007.filet.webdav.WebDavServer.DEFAULT_PORT)
+        set(value) = prefs.putInt(DAV_PORT, value)
+
+    override var root: dev.niccc2007.filet.vfs.VPath?
+        get() = prefs.getString(DAV_ROOT, null)
+            ?.let { runCatching { dev.niccc2007.filet.vfs.VPath.parse(it) }.getOrNull() }
+        set(value) = prefs.putString(DAV_ROOT, value?.toString())
+}

@@ -53,6 +53,13 @@ import dev.niccc2007.filet.ui.tabs.EmptyTab
 import dev.niccc2007.filet.ui.tabs.HomeSearchBar
 import dev.niccc2007.filet.ui.tabs.StorageTile
 import dev.niccc2007.filet.ui.tabs.Tiles
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgAction
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgCtxHead
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgSpacer
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 
@@ -78,6 +85,19 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     var menuFor by remember { mutableStateOf<VNode?>(null) }
 
     LaunchedEffect(app.revision) { vm.home.refresh() }
+
+    // Re-read the volumes while this tab is up, so a mounted share that comes back online
+    // updates its card instead of staying Offline for the rest of the session.
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val job = vm.watchVolumes()
+        onDispose { job.cancel() }
+    }
+
+    // No discovery on this tab.
+    //
+    // A mounted place is a volume and appears as a storage card like any other, with its size
+    // read through the VFS. Listing what is merely ON the network is a different question and it
+    // belongs on Remotes, where adding one is the thing somebody came to do.
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {
         // Hideable, because on a phone with one volume the card is a fifth of the first
@@ -129,21 +149,40 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
             // and one-that-fills rather than two and a gap.
             item {
                 Tiles {
-                    shown.forEach { v ->
+                    // A network drive that is not answering is not shown at all.
+                    //
+                    // It was drawn as an "Offline" card, which reads as a fault to go and fix
+                    // and takes a full tile to say nothing actionable. With several addresses
+                    // per remote there is also no longer a single thing to report as down: the
+                    // card comes back by itself the moment any address answers.
+                    val live = shown.filter {
+                        it.node.path.scheme == "local" || (it.free != null && it.total != null)
+                    }
+                    live.forEach { v ->
                         tile {
                             val used = if (v.free != null && v.total != null && v.total > 0)
                                 (v.total - v.free).coerceAtLeast(0) else null
+                            // A network volume is reachable or it is not, and that is a live fact
+                            // rather than a stored setting. A local one is simply there.
+                            val net = v.node.path.scheme != "local"
+                            val reachable = v.free != null && v.total != null
                             StorageTile(
-                                icon = FiletIcons.Storage,
+                                icon = if (net) FiletIcons.Wifi else FiletIcons.Storage,
+                                live = if (net) reachable else null,
                                 kind = v.label,
                                 // Free is the number being looked for, with the denominator
                                 // underneath. "12 GB free" alone says nothing about whether
                                 // that is an empty card or a full phone.
-                                value = v.free?.let { humanSize(it) } ?: "—",
+                                value = v.free?.let { humanSize(it) }
+                                    ?: if (net) "Offline" else "—",
                                 caption = when {
                                     used != null && v.total != null ->
                                         "free of ${humanSize(v.total)} · ${humanSize(used)} used"
                                     v.free != null -> "free"
+                                    // A network drive that does not answer is not a drive with an
+                                    // unreadable size - it is a drive that is not there, and
+                                    // saying so names something the reader can act on.
+                                    net -> "Network drive not answering"
                                     // "Tap to open" was a promise this card could not keep. A
                                     // volume with no readable size is usually one of /storage's
                                     // pseudo-directories, and tapping it did nothing at all.
@@ -208,6 +247,11 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
             }
         }
 
+        // ---- Network -------------------------------------------------------------------
+        //
+        // Saved places, and anything advertising on the LAN this second. A phone that turns
+        // hosting on appears here by itself, and disappears when it stops - which is the whole
+        // point: a share is a thing that is happening, not a thing that was configured once.
         // What is being watched, and a way to stop. Without this the tracked list was
         // write-only: you could add a folder from its menu and never see the set again.
         if (tracked.isNotEmpty()) {
@@ -281,7 +325,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
             onDismiss = { menuFor = null },
             onReveal = { menuFor = null; vm.revealInFolder(node) },
             onOpen = { menuFor = null; vm.openHomeEntry(node) },
-            onShare = { menuFor = null; vm.shareOne(node) },
+            onShare = { menuFor = null; vm.share(node) },
             onBookmark = { menuFor = null; vm.bookmarkOne(node) },
             onShortcut = { menuFor = null; vm.shortcutOne(node) },
             onForget = { menuFor = null; vm.forgetHomeEntry(node) },
@@ -290,12 +334,27 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
 }
 
 /**
- * The actions a Home row offers. Kept flat: a sheet of seven is already a lot.
+ * The actions a Home row offers.
  *
- * Not private, because the expanded tab shows the same rows and must offer the same actions.
- * Two copies of this list would drift, and the drift would be silent - a row that answers a
- * long press differently depending on which screen it is on is worse than one that does not
- * answer at all.
+ * Not private, because the expanded tab and the search results show the same rows and must
+ * offer the same actions. Two copies of this list would drift, and the drift would be silent -
+ * a row that answers a long press differently depending on which screen it is on is worse than
+ * one that does not answer at all.
+ *
+ * ## What the redesign changed here
+ *
+ * It was a stock `AlertDialog` holding six unadorned 13sp `Text` rows and a "Close" button.
+ * Nothing about it was decided; it was the Material default with labels dropped in, which is
+ * why it looked like a different app from the screen that opened it.
+ *
+ * Now on the same kit as every other dialogue, and the header earns its space: the name, then
+ * the **path**, which on this sheet is the whole point. Every list that opens this one - New
+ * files, Recent, the Home feed, a search result - shows files from somewhere other than where
+ * you are standing, so "which IMG_2043.jpg is this" is the first question and it used to be
+ * unanswerable without leaving.
+ *
+ * The verbs keep icons for the same reason the context menu's row does: five bare sentences
+ * read slower than five glyphs, and the rows here are the same five verbs.
  */
 @Composable
 fun HomeRowSheet(
@@ -315,44 +374,42 @@ fun HomeRowSheet(
      */
     onForget: (() -> Unit)? = null,
 ) {
-    val colors = Filet.colors
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(node.name, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        text = {
-            Column {
-                SheetAction("Go to containing folder", onReveal)
-                SheetAction(if (node.isDir) "Open folder" else "Open", onOpen)
-                SheetAction("Share", onShare)
-                SheetAction("Bookmark", onBookmark)
-                SheetAction("Add to home screen", onShortcut)
-                if (onForget != null) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Remove from this list",
-                        fontSize = 13.sp,
-                        color = colors.bad,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClick = onForget)
-                            .padding(vertical = 10.dp),
-                    )
-                }
+    Dlg(onDismiss = onDismiss) {
+        DlgCtxHead(
+            name = node.name,
+            path = node.path.path.substringBeforeLast('/'),
+            meta = if (node.isDir) "Folder" else humanSize(node.size),
+            thumb = node,
+            onClose = onDismiss,
+        )
+        DlgBody(padded = false) {
+            Spacer(Modifier.height(6.dp))
+            DlgAction(FiletIcons.FolderOpen, "Go to containing folder", onClick = onReveal)
+            DlgAction(
+                if (node.isDir) FiletIcons.Folder else FiletIcons.Open,
+                if (node.isDir) "Open folder" else "Open",
+                onClick = onOpen,
+            )
+            DlgAction(FiletIcons.Share, "Share", onClick = onShare)
+            DlgAction(FiletIcons.Star, "Bookmark", onClick = onBookmark)
+            DlgAction(FiletIcons.Home, "Add to home screen", onClick = onShortcut)
+            if (onForget != null) {
+                androidx.compose.material3.HorizontalDivider(
+                    color = Filet.colors.lineSoft,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+                // Separated and red, because it is the one row here that changes something
+                // rather than going somewhere.
+                DlgAction(
+                    FiletIcons.Close, "Remove from this list",
+                    danger = true, onClick = onForget,
+                )
             }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-    )
-}
-
-@Composable
-private fun SheetAction(label: String, onClick: () -> Unit) {
-    Text(
-        label,
-        fontSize = 13.sp,
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp),
-    )
+            Spacer(Modifier.height(6.dp))
+        }
+        // No footer. The close is in the corner and the scrim dismisses, so a row holding one
+        // button that says the same thing is a row of nothing.
+    }
 }
 
 @Composable
