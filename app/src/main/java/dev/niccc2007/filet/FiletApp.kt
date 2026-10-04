@@ -116,6 +116,9 @@ class FiletGraph(context: Context) {
     /** Local copies of remote files, for the operations that cannot take a stream. */
     val staging = dev.niccc2007.filet.ops.RemoteStaging(vfs, ledger, app.cacheDir)
 
+    /** Reads and writes a file's own metadata. The screen that reaches it is MetadataScreen. */
+    val metadata = dev.niccc2007.filet.metadata.MetadataStore(vfs)
+
     val apkTools = dev.niccc2007.filet.apk.ApkTools(app, vfs, ledger, staging)
     val bridge = dev.niccc2007.filet.bridge.TrawlBridge(app, ledger)
     /** What Filet has put on the home screen, so it is manageable from inside the app. */

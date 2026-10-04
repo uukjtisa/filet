@@ -218,5 +218,6 @@ internal fun iconOf(h: HandlerId) = when (h) {
     HandlerId.ARCHIVE -> FiletIcons.Zip
     HandlerId.APK -> FiletIcons.Apk
     HandlerId.MANIFEST -> FiletIcons.Code
+    HandlerId.METADATA -> FiletIcons.Info
     HandlerId.EXTERNAL -> FiletIcons.Share
 }

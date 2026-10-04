@@ -74,6 +74,8 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
                     HandlerId.MEDIA -> MediaScreen(vm, r.node)
                     HandlerId.HEX -> HexViewerScreen(vm, r.node)
                     HandlerId.APK -> dev.niccc2007.filet.apk.ApkInspectorScreen(vm, r.node)
+                    HandlerId.METADATA ->
+                        dev.niccc2007.filet.metadata.MetadataScreen(vm, r.node)
                     HandlerId.MANIFEST -> dev.niccc2007.filet.apk.ManifestEditorScreen(vm, r.node)
                     else -> Unit
                 }

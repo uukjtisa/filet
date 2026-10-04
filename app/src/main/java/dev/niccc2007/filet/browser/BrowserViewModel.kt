@@ -2050,6 +2050,58 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
     }
 
+    /** Everything this file's container already carries. */
+    suspend fun readMetadata(node: VNode): List<Pair<String, String>> =
+        graph.metadata.read(node.path)
+
+    /**
+     * Write the fields back, optionally keeping a copy of the file first.
+     *
+     * Field by field, because that is the store's unit of work and it verifies each write by
+     * reading it back. A failure part way therefore leaves the earlier fields written, which is
+     * why the backup is offered and why it is taken BEFORE anything is touched rather than as a
+     * rollback afterwards - there is no rollback for a rewritten container.
+     */
+    fun writeMetadata(
+        node: VNode,
+        fields: List<Pair<String, String>>,
+        backup: Boolean,
+        onDone: () -> Unit,
+    ) {
+        viewModelScope.launch {
+            val result = runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    if (backup) {
+                        val copy = node.path.parent?.child(node.name + ".bak")
+                        if (copy != null) {
+                            graph.vfs.openRead(node.path).use { input ->
+                                val out = graph.vfs.openWrite(copy)
+                                try { input.copyTo(out) } finally { out.close() }
+                            }
+                        }
+                    }
+                    var written = 0
+                    for ((key, value) in fields) {
+                        val r = graph.metadata.put(node.path, key, value)
+                        if (r is dev.niccc2007.filet.metadata.MetadataStore.Result.Ok) written++
+                    }
+                    written
+                }
+            }
+            onDone()
+            result
+                .onSuccess {
+                    dev.niccc2007.filet.log.FiletLog.i("metadata", "wrote $it field(s) to ${node.path}")
+                    toast(if (it == 0) "Nothing changed" else "Saved $it field" + if (it == 1) "" else "s")
+                    refreshPanes()
+                }
+                .onFailure {
+                    dev.niccc2007.filet.log.FiletLog.e("metadata", "could not write ${node.path}", it)
+                    toast("Could not write metadata: " + dev.niccc2007.filet.ops.FileOperations.readable(it))
+                }
+        }
+    }
+
     fun saveText(node: VNode, text: String, onSaved: () -> Unit) {
         // A file inside an archive cannot simply be written to - the provider refuses, and it
         // is right to. This is the prompt instead: update the archive, or put the

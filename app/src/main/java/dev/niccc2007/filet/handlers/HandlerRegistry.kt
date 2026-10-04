@@ -28,6 +28,14 @@ enum class HandlerId(val label: String) {
     ARCHIVE("Archive viewer"),
     APK("APK inspector"),
     MANIFEST("Manifest editor"),
+
+    /**
+     * The metadata writer.
+     *
+     * Not a default for any extension: it is a thing you ask for about a file, like Properties,
+     * rather than a way of opening one. Reached from the action sheet.
+     */
+    METADATA("Metadata"),
     EXTERNAL("Another app"),
 }
 
