@@ -44,15 +44,18 @@ FG3 = (0x6B, 0x68, 0x60)
 ACCENT = (0x7F, 0xA8, 0xB8)
 ACCENT_DIM = (0x31, 0x43, 0x4B)
 
-W, H = 2560, 1080
+W, H = 2560, 1200
 
-#: The five screens the banner shows, in the order they are arced.
+#: The screens the banner shows, in the order they are arced.
+#:
+#: Three, not five. A banner is read at about a third of its own width once a README scales it
+#: to the column, and at that size the words have to be big - which means the fan has to leave
+#: room for them. Two more phones mostly hidden behind the others bought nothing and cost the
+#: text the space it needed to be legible.
 SHOTS = [
     "02-browse.png",
-    "05-context-menu.png",
     "01-home.png",
-    "06-extract.png",
-    "09-remotes.png",
+    "10-metadata.png",
 ]
 
 #: The four pillars, named, each with the thing that makes it true.
@@ -431,17 +434,17 @@ def main():
     draw = ImageDraw.Draw(img)
 
     # ── the phones, arced, outside first so the centre lands on top ───────────────────────
-    height = 760
+    height = 880
     frames = [phone(os.path.join(SHOTS_DIR, s), height) for s in SHOTS]
-    overlap = 0.72
+    overlap = 0.74
     step = round(frames[0].width * overlap)
     total = frames[0].width + step * (len(frames) - 1)
     left = W - 110 - total
     base = (H - height) // 2 - 16
-    lift = [84, 32, 0, 32, 84]
-    order = [0, 4, 1, 3, 2]
+    lift = [74, 0, 74]
+    order = [0, 2, 1]
     # Dimmer the further from the middle, so the fan has a front and a back.
-    dim = [0.30, 0.15, 0.0, 0.15, 0.30]
+    dim = [0.26, 0.0, 0.26]
     for i in order:
         frames[i] = recede(frames[i], dim[i])
         x = left + step * i
@@ -455,42 +458,42 @@ def main():
 
     # ── the left block ───────────────────────────────────────────────────────────────────
     x = 150
-    y = 252
-    title = font("Fraunces", 124, "Bold")
+    y = 196
+    title = font("Fraunces", 150, "Bold")
     if os.path.exists(ICON):
-        icon = Image.open(ICON).convert("RGBA").resize((96, 96), Image.LANCZOS)
-        img.paste(icon, (x, y + 30), icon)
-        draw.text((x + 126, y), "Filet", font=title, fill=FG)
+        icon = Image.open(ICON).convert("RGBA").resize((116, 116), Image.LANCZOS)
+        img.paste(icon, (x, y + 36), icon)
+        draw.text((x + 150, y), "Filet", font=title, fill=FG)
     else:
         draw.text((x - 6, y), "Filet", font=title, fill=FG)
-    y += 172
+    y += 206
 
-    draw.rounded_rectangle([x, y, x + 104, y + 6], 3, fill=ACCENT)
-    y += 44
+    draw.rounded_rectangle([x, y, x + 128, y + 7], 4, fill=ACCENT)
+    y += 52
 
-    eyebrow = font("Inter", 20, "SemiBold")
-    spaced(draw, (x + 1, y), EYEBROW, eyebrow, FG3, 2.6)
-    y += 70
+    eyebrow = font("Inter", 31, "SemiBold")
+    spaced(draw, (x + 1, y), EYEBROW, eyebrow, FG3, 4.2)
+    y += 94
 
     # The pillars, hung off a shared vertical axis: the claims end where the proofs begin.
     #
     # Right-aligning the left column is the whole of the layout. Set flush left, four words of
     # five to eleven letters leave a ragged gutter down the middle of the block and the rows
     # stop looking related; hung off one axis they read as a table somebody drew on purpose.
-    name = font("Inter", 27, "SemiBold")
-    proof = font("Inter", 25, "Regular")
-    axis = x + 196
+    name = font("Inter", 42, "SemiBold")
+    proof = font("Inter", 39, "Regular")
+    axis = x + 300
     for i, (word, line) in enumerate(PILLARS):
         if i:
             # A hairline between rows rather than a box around the block. It separates without
             # enclosing, so the list stays part of the page instead of becoming a card on it.
-            draw.line([(x, y - 17), (axis + 470, y - 17)], fill=LINE, width=1)
+            draw.line([(x, y - 26), (axis + 800, y - 26)], fill=LINE, width=2)
         draw.text((axis - draw.textlength(word, font=name), y), word, font=name, fill=ACCENT)
-        draw.text((axis + 30, y + 2), line, font=proof, fill=FG2)
-        y += 58
-    y += 30
+        draw.text((axis + 46, y + 3), line, font=proof, fill=FG2)
+        y += 90
+    y += 44
 
-    foot = font("Inter", 23, "Regular")
+    foot = font("Inter", 34, "Regular")
     draw.text((x, y), "GPL-3.0  \u00b7  Android 8.0+  \u00b7  no ads, no accounts, no telemetry",
               font=foot, fill=FG3)
 
