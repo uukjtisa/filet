@@ -52,19 +52,20 @@ someone *because* of their part in this project.
 
 ## Reporting
 
-**Open a private report:**
-[**github.com/uukjtisa/filet/security/advisories/new**](https://github.com/uukjtisa/filet/security/advisories/new)
+**Email <trescariasa2007@gmail.com>**, with `[filet conduct]` in the subject. It reaches the
+maintainer and nobody else. Say what happened, where, and roughly when — a link to the thread
+is enough if it happened here.
 
-That form is the only private channel a GitHub repository gives its maintainer, so it is
-also the one used for conduct reports. It is visible to the maintainer and to nobody else —
-not to the person being reported, and not publicly. Put `conduct` in the title; a report
-filed there is not published and does not become an advisory.
+If you would rather not send an email, [open a private security
+advisory](https://github.com/uukjtisa/filet/security/advisories/new) on this repository
+instead. It is the only other private channel GitHub gives a maintainer: visible to them, not
+to the person being reported, and not published. Put `conduct` in the title.
 
-If the person you need to report is the maintainer, or you would rather not use this
-repository at all, [GitHub's own abuse
-reporting](https://github.com/contact/report-abuse) goes to GitHub Support and is
-independent of this project entirely. Use it without hesitating — being the only maintainer
-is exactly why that route needs saying out loud.
+If the person you need to report is the maintainer, or you would rather not involve this
+project at all, [GitHub's own abuse
+reporting](https://github.com/contact/report-abuse) goes to GitHub Support and is independent
+of it entirely. Use it without hesitating — being the only maintainer is exactly why that
+route needs saying out loud.
 
 **What happens then.** One person reads it, and that person has a degree to finish, so a
 reply can take days. Every report gets a reply. What was reported stays private; reporters
