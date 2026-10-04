@@ -58,9 +58,16 @@ is being built, fixes still have to reach a phone. They go onto a staging number
 and installed but never released; when the large one ships it carries them. If a fix in there
 cannot wait, the staging version publishes on its own and the staging line moves on.
 
-**STAGING: 0.1.11** — fixes made while 0.2.0 is being drawn. Built and installed, not published.
+**STAGING: 0.1.12** — fixes made while 0.2.0 is being drawn. Built and installed, not published.
 
-0.1.9 was a staging version and published anyway, which is the case this rule already allows:
+0.1.9 and 0.1.11 were both staging versions and published anyway, which is the case this rule
+already allows. 0.1.11 is the clearer example: it carried a metadata writer, an image editor and
+a hex editor, which the bump table above calls a MINOR change rather than a patch. It went out on
+the staging number instead, because 0.2.0 is the redesign release and is reserved for the round
+that replaces every screen. A number is a promise about what somebody is getting, and spending
+0.2.0 early would have meant the redesign arriving as 0.3.0 with nothing to explain the gap.
+
+The 0.1.9 case, which set the rule:
 the network work in it — one remote holding several addresses, and archives and APKs opening on
 a share — was worth more to somebody on a second device than waiting for the redesign to finish
 was worth to anybody. The staging line moves on rather than being deleted; 0.2.0 is unchanged.
