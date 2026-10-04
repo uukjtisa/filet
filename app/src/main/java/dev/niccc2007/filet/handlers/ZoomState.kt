@@ -37,7 +37,7 @@ data class ZoomView(
      *   must multiply the current scale rather than a captured one.
      */
     fun pinched(zoom: Float, panX: Float, panY: Float, boxW: Float, boxH: Float): ZoomView {
-        val next = (scale * zoom).coerceIn(1f, MAX)
+        val next = (scale * zoom).coerceIn(MIN, MAX)
         return ZoomView(
             scale = next,
             offsetX = clampPan(offsetX + panX, next, boxW),
@@ -85,6 +85,21 @@ data class ZoomView(
 
         /** Past this a photo is single pixels and panning it is hopeless. */
         const val MAX = 12f
+
+        /**
+         * How far OUT the view can go, past fitting the screen.
+         *
+         * The floor used to be 1 - the image could never be smaller than the viewport. That is
+         * fine for looking at a photograph and wrong for editing one: pushed right to the edges,
+         * there is nowhere to stand to see what is being done to them, and a crop or a rotation
+         * is mostly about the edges.
+         *
+         * A fifth of fit, which leaves a phone-sized image around 200px across - small enough to
+         * see all of it with room around it, large enough to still be aiming at something.
+         * [clampPan] already returns no slack below the flat threshold, so a view smaller than
+         * the box simply centres itself.
+         */
+        const val MIN = 0.2f
 
         /** Where one double tap lands. Enough to read small text, not so far it is lost. */
         const val STEP = 2.5f

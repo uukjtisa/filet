@@ -16,6 +16,30 @@ import org.junit.Test
  */
 class ZoomStateTest {
 
+    @Test
+    fun `it zooms out past fitting the screen`() {
+        // An editor pushed right to the edges has nowhere to stand to see what is being done to
+        // them, and a crop or a rotation is mostly about the edges. The floor used to be 1.
+        val out = ZoomView().pinched(0.5f, 0f, 0f, 1000f, 1000f)
+        assertEquals(0.5f, out.scale, 0.001f)
+    }
+
+    @Test
+    fun `zooming out stops at the floor`() {
+        var v = ZoomView()
+        repeat(40) { v = v.pinched(0.5f, 0f, 0f, 1000f, 1000f) }
+        assertEquals(ZoomView.MIN, v.scale, 0.001f)
+    }
+
+    @Test
+    fun `an image smaller than the screen stays centred`() {
+        // No slack to pan into, so a drag must not be able to push it off the side.
+        val out = ZoomView().pinched(0.4f, 0f, 0f, 1000f, 1000f).panned(500f, 500f, 1000f, 1000f)
+        assertEquals(0f, out.offsetX, 0.001f)
+        assertEquals(0f, out.offsetY, 0.001f)
+    }
+
+
     private val W = 1000f
     private val H = 2000f
 
@@ -60,11 +84,16 @@ class ZoomStateTest {
     }
 
     @Test
-    fun `pinching back in returns to flat and does not go below it`() {
+    fun `pinching back in goes past flat and stops at the floor`() {
+        // This asserted that an image never shrinks below the screen it is viewed on, which was
+        // the deliberate rule until editing needed the opposite: pushed right to the edges there
+        // is nowhere to stand to see what is being done to them. The part worth keeping is that
+        // it STOPS - a pinch that runs away is the fault this test was really guarding.
         var v = ZoomView.NONE
         repeat(35) { v = v.pinched(1.02f, 0f, 0f, W, H) }
         repeat(80) { v = v.pinched(0.98f, 0f, 0f, W, H) }
-        assertEquals("an image never shrinks below the screen it is being viewed on", 1f, v.scale, 0.001f)
+        assertTrue("it goes below fit now", v.scale < 1f)
+        assertTrue("and never past the floor", v.scale >= ZoomView.MIN - 0.001f)
     }
 
     @Test
