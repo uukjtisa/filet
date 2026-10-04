@@ -4,7 +4,7 @@
 
 # Filet
 
-**A file manager for doing real work on your phone, without reaching for a PC.**
+**A file manager that does real work.**
 
 [![Licence](https://img.shields.io/badge/Licence-GPL--3.0-4E7382?style=for-the-badge)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-4E7382?style=for-the-badge&logo=android&logoColor=white)](#building-it-yourself)

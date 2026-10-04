@@ -54,18 +54,25 @@ SHOTS = [
     "09-remotes.png",
 ]
 
-CHIPS = ["Search", "Archives", "APKs", "Lua", "WebDAV"]
+CHIPS = ["Search", "Archives", "APKs", "Metadata", "Lua"]
 
+#: The one positioning line, shared with the README and the repository description.
+#:
+#: Written the way a flagship app writes one: a plain declarative, the category named, one
+#: claim, no comparison to anything else. The line it replaces ended "without reaching for a
+#: PC", which defines the app by what it is not - and a product that introduces itself by
+#: naming its competition has conceded the frame before it has said what it does.
 TAGLINE = [
-    "A file manager for doing real",
-    "work on your phone, without",
-    "reaching for a PC.",
+    "A file manager",
+    "that does real work.",
 ]
 
+#: The proof, in three parallel verbs. Each one is a thing a reader can go and check, which
+#: is the same rule the rest of the repository holds its claims to.
 SUB = [
-    "Whole-device search in milliseconds.",
-    "Edit files inside archives. Serve the lot",
-    "to any browser on your network.",
+    "Search the whole device in milliseconds.",
+    "Edit files inside archives.",
+    "Share to any browser on your network.",
 ]
 
 FONTS = os.path.join(

@@ -2,7 +2,7 @@
     <string name="app_name">Filet</string>
 
     <!-- Onboarding strings ported from Trawl, then edited for Filet. -->
-    <string name="onboard_1_body">A file manager for doing real work on your phone, without reaching for a PC. Open source, no ads, no accounts, no telemetry.</string>
+    <string name="onboard_1_body">A file manager that does real work. Open source, no ads, no accounts, no telemetry.</string>
     <string name="onboard_2_body">Most of Filet works the way you would expect. These three do not, and they are the reason it exists.</string>
     <string name="onboard_2_title">Three things worth knowing</string>
     <string name="onboard_3_body">Only all-files access really matters, and even that can be refused — you will just be limited to folders you pick by hand.</string>
