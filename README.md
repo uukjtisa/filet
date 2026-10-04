@@ -70,24 +70,26 @@ first
 </sub></p>
 
 <p align="center">
+  <img src="docs/screenshots/callouts/01-home.png" width="23%" alt="The home screen, with the storage tile for a PC mounted over the network ringed and labelled">
   <img src="docs/screenshots/03-new-files.png" width="23%" alt="New files grouped by day, each heading carrying a count and a size">
-  <img src="docs/screenshots/04-view.png" width="23%" alt="The view control: density from list to grid, and the sort">
   <img src="docs/screenshots/07-scripts.png" width="23%" alt="The script list, each script showing exactly what it is allowed to touch">
   <img src="docs/screenshots/09-remotes.png" width="23%" alt="Remotes: SMB, SFTP, FTP and WebDAV, and hosting this phone as a drive on your PC">
 </p>
 
 <p align="center"><sub>
-<b>New files</b> answers a question the filesystem cannot: not when a file was made, but when it
-turned up here &middot; <b>one slider</b> from a dense list to a wall of thumbnails &middot; a
-<b>script</b> declares what it may touch and you approve that before it runs &middot; and the
-<b>Remotes</b> tab both mounts other machines and hosts this phone as a drive on yours
+A <b>PC on the network sits beside internal storage</b> as a tile like any other, and the bar
+under each one is coloured by how full it is &middot; <b>New files</b> answers a question the
+filesystem cannot: not when a file was made, but when it turned up here &middot; a <b>script</b>
+declares what it may touch and you approve that before it runs &middot; and the <b>Remotes</b>
+tab both mounts other machines and hosts this phone as a drive on yours
 </sub></p>
 
 <p align="center"><sub>
 Screenshots use a seeded demo folder, not real files. The lists that are nothing <i>but</i>
 personal data &mdash; recents, bookmarks, pinned shortcuts &mdash; are left out rather than
-staged, and the share access codes are redacted. The banner at the top is composed from the same
-shots by <code>tools/make-glimpse.py</code>.
+staged, and the share access codes are redacted. The banner at the top and the ringed copy above
+are both built from these same files by <code>tools/make-glimpse.py</code>; the files themselves
+are never annotated.
 </sub></p>
 
 ---

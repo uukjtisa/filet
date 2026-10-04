@@ -56,6 +56,7 @@ import dev.niccc2007.filet.ui.dialogs.DlgWarn
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.provider.ArchiveCapabilities
+import dev.niccc2007.filet.vfs.provider.ArchiveNaming
 import dev.niccc2007.filet.vfs.provider.ArchiveOptions
 import dev.niccc2007.filet.vfs.provider.Archives
 import dev.niccc2007.filet.vfs.provider.CompressEstimate
@@ -497,9 +498,11 @@ private val STAMP = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
  * 7z is smaller and much slower. Each row says which it is rather than leaving the user to
  * already know.
  *
- * The suffix comes from the format and never from the typed name, so picking Tar + gzip with
- * "Photos.zip" still in the box makes a `Photos.tar.gz` and not a gzipped tar wearing a zip's
- * name.
+ * The extension is a field of its own rather than a label, because plenty of formats in the
+ * world are an ordinary archive under a name of their own - `.mcaddon`, `.cbz`, `.epub`. It
+ * follows the format while it still holds a default, so switching to Tar + gzip with a
+ * pre-filled `.zip` in it moves to `.tar.gz`; once it holds something typed, it is left alone.
+ * See `ArchiveNaming`.
  */
 @Composable
 private fun CompressDialog(vm: BrowserViewModel) {
@@ -523,6 +526,8 @@ private fun CompressDialog(vm: BrowserViewModel) {
     val suggested = remember { Archives.baseName(vm.suggestedArchiveName()) }
     var value by remember { mutableStateOf(TextFieldValue(suggested, TextRange(0, suggested.length))) }
     val invalid = value.text.contains('/') || value.text.trim() == "." || value.text.trim() == ".."
+    var suffix by remember { mutableStateOf(formats.first().suffix) }
+    val mismatch = remember(suffix, format) { ArchiveNaming.mismatchNote(suffix, format) }
 
     Dlg(onDismiss = vm::dismissDialog, dismissOnScrim = false) {
         DlgHeader(
@@ -533,27 +538,43 @@ private fun CompressDialog(vm: BrowserViewModel) {
             onClose = vm::dismissDialog,
         )
         DlgBody {
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    singleLine = true,
-                    isError = invalid,
-                    label = { Text("Name") },
-                    suffix = {
-                        Text(
-                            format.suffix,
+                // The name and the extension side by side: two fields, because the extension
+                // is a choice now rather than a label reporting the format's own.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = value,
+                        onValueChange = { value = it },
+                        singleLine = true,
+                        isError = invalid,
+                        label = { Text("Name") },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedTextField(
+                        value = suffix,
+                        onValueChange = { suffix = ArchiveNaming.cleanSuffix(it) },
+                        singleLine = true,
+                        label = { Text("Ext") },
+                        textStyle = androidx.compose.ui.text.TextStyle(
                             fontSize = 12.sp,
                             fontFamily = FontFamily.Monospace,
                             color = colors.accent,
-                        )
-                    },
-                )
+                        ),
+                        modifier = Modifier.width(120.dp),
+                    )
+                }
                 if (invalid) {
                     Text(
                         "A name cannot contain a slash.",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.error,
                     )
+                }
+                if (mismatch != null) {
+                    // Said, not prevented. Writing a 7z under another name is the feature;
+                    // doing it by accident is the mistake, and the two look identical here.
+                    Spacer(Modifier.height(4.dp))
+                    Text(mismatch, fontSize = 10.sp, lineHeight = 14.sp, color = colors.fg3)
                 }
                 Spacer(Modifier.height(10.dp))
                 for (f in formats) {
@@ -563,7 +584,10 @@ private fun CompressDialog(vm: BrowserViewModel) {
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (on) colors.sel else Color.Transparent)
-                            .clickable { format = f }
+                            .clickable {
+                                suffix = ArchiveNaming.suffixWhenFormatChanges(suffix, f, formats)
+                                format = f
+                            }
                             .padding(horizontal = 8.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -619,6 +643,7 @@ private fun CompressDialog(vm: BrowserViewModel) {
                 vm.compressSelection(
                     value.text.trim(),
                     format,
+                    suffix,
                     ArchiveOptions(
                         strength = strength,
                         password = password.takeIf { it.isNotEmpty() }?.toCharArray(),

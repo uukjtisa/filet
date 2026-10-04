@@ -23,6 +23,7 @@ reads as a stock template, and the content is the thing being sold.
 
 Everything is derived from `SHOTS` below. Adding a screen is one line there.
 """
+import math
 import os
 import sys
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -56,15 +57,22 @@ SHOTS = [
 
 CHIPS = ["Search", "Archives", "APKs", "Metadata", "Lua"]
 
-#: A ring and an arrow drawn over one of the phones, pointing at something worth noticing.
+#: Rings and arrows drawn onto a copy of a single screenshot, for the detail strip.
 #:
-#: The box is given in fractions of the SCREENSHOT rather than in banner pixels, so it survives
-#: the phones being resized or re-arranged - which they have been twice already. Set to None for
-#: no callout.
-CALLOUT = {
-    "shot": "01-home.png",
-    "box": (0.420, 0.247, 0.806, 0.345),
-    "label": "your PC, mounted as a drive",
+#: **Not onto the banner.** A banner points at nothing: it is the first thing anybody sees and
+#: its job is to look like the product, not to teach. Annotation belongs on the shots further
+#: down, where somebody is already reading and a pointer answers a question they now have.
+#:
+#: Each box is in fractions of the SCREENSHOT rather than in pixels, so it survives the shot
+#: being re-taken at another size.
+CALLOUTS = {
+    "01-home.png": [
+        {
+            "box": (0.512, 0.286, 0.964, 0.395),
+            "label": "your PC, mounted as a drive",
+            "side": "left",
+        },
+    ],
 }
 
 #: The one positioning line, shared with the README and the repository description.
@@ -201,72 +209,94 @@ def glow(size, centre, radius, colour, strength):
     return layer.filter(ImageFilter.GaussianBlur(radius // 2))
 
 
-def draw_callout(img, placement, box, label, height):
+def annotate(shot, callouts):
     """
-    Ring something on one of the phones and point an arrow at it.
+    A copy of a screenshot with something ringed and named.
 
-    Drawn onto the finished banner rather than onto the screenshot on purpose: the files in
-    docs/screenshots stay exactly what the screen looked like, and the pointing lives in the
-    presentation. A screenshot with an arrow baked into it cannot be reused for anything else
-    and quietly stops being a record of the screen.
+    The label goes in a strip added ABOVE the screen rather than on top of it. An arrow drawn
+    over the content hides the content, which on a 540-pixel-wide shot is most of the thing
+    being pointed at - and a reader cannot tell whether what is underneath matters.
+
+    The original file is never touched. `docs/screenshots` stays a record of the screen, and
+    these copies live beside it as presentation.
     """
-    px, py, pw, ph = placement
-    bezel = max(8, height // 90)
-    iw, ih = pw - bezel * 2, ph - bezel * 2
-    x0 = px + bezel + box[0] * iw
-    x1 = px + bezel + box[2] * iw
-    y0 = py + bezel + box[1] * ih
-    y1 = py + bezel + box[3] * ih
-    pad = 16
-    ring = [x0 - pad, y0 - pad, x1 + pad, y1 + pad]
-    cx, cy = (ring[0] + ring[2]) / 2, (ring[1] + ring[3]) / 2
+    band = 120
+    out = Image.new("RGBA", (shot.width, shot.height + band), BG + (255,))
+    out.paste(shot.convert("RGBA"), (0, band))
+    d = ImageDraw.Draw(out)
+    f = font("Inter-0.ttf", 25, weight=560)
 
-    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    # A soft halo under the ring so it reads on a busy screenshot without a hard outline.
-    halo = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    ImageDraw.Draw(halo).ellipse(
-        [ring[0] - 10, ring[1] - 10, ring[2] + 10, ring[3] + 10], fill=ACCENT + (70,),
-    )
-    layer = Image.alpha_composite(layer, halo.filter(ImageFilter.GaussianBlur(22)))
-    d = ImageDraw.Draw(layer)
-    d.ellipse(ring, outline=ACCENT + (255,), width=5)
+    for c in callouts:
+        bx = c["box"]
+        pad = 6
+        ring = [
+            max(2, bx[0] * shot.width - pad),
+            band + bx[1] * shot.height - pad,
+            min(shot.width - 3, bx[2] * shot.width + pad),
+            band + bx[3] * shot.height + pad,
+        ]
+        # A rounded rectangle, not an ellipse. The thing being ringed here is a card, and an
+        # ellipse wide enough to contain a wide short box has to be far bigger than the box -
+        # which is how the first version ended up circling the heading above the tile instead.
+        radius = round(min(ring[2] - ring[0], ring[3] - ring[1]) * 0.28)
+        halo = Image.new("RGBA", out.size, (0, 0, 0, 0))
+        ImageDraw.Draw(halo).rounded_rectangle(
+            [ring[0] - 6, ring[1] - 6, ring[2] + 6, ring[3] + 6], radius + 6, fill=ACCENT + (85,),
+        )
+        out = Image.alpha_composite(out, halo.filter(ImageFilter.GaussianBlur(13)))
+        d = ImageDraw.Draw(out)
+        d.rounded_rectangle(ring, radius, outline=ACCENT + (255,), width=4)
 
-    f = font("Inter-0.ttf", 30, weight=560)
-    tw = round(f.getlength(label))
-    # Above and to the left, in the empty band over the fan. Clamped so a longer label cannot
-    # run off the canvas.
-    lx = max(140, min(int(cx) - tw - 150, img.width - tw - 60))
-    ly = max(44, int(ring[1]) - 230)
-    d.text((lx, ly), label, font=f, fill=FG)
-    d.line([lx, ly + f.size + 12, lx + tw, ly + f.size + 12], fill=ACCENT + (190,), width=3)
+        label = c["label"]
+        tw = round(f.getlength(label))
+        # Off to the side the callout names, so the stem is a curve with somewhere to go
+        # rather than a vertical line that reads as a crop mark.
+        lx = 16 if c.get("side") == "left" else max(14, out.width - tw - 16)
+        ly = 24
+        d.text((lx, ly), label, font=f, fill=FG)
 
-    # A curve from under the label into the top-left of the ring, as three Bezier segments.
-    sx, sy = lx + tw, ly + f.size + 12
-    ex, ey = cx - (ring[2] - ring[0]) * 0.36, ring[1] - 4
-    c1 = (sx + (ex - sx) * 0.55, sy)
-    pts = []
-    for i in range(41):
-        t = i / 40
-        u = 1 - t
-        pts.append((
-            u * u * sx + 2 * u * t * c1[0] + t * t * ex,
-            u * u * sy + 2 * u * t * c1[1] + t * t * ey,
-        ))
-    d.line(pts, fill=ACCENT + (235,), width=4, joint="curve")
-    # The head, aimed along the last segment of the curve.
-    import math
-    ax, ay = pts[-1]
-    bx, by = pts[-6]
-    ang = math.atan2(ay - by, ax - bx)
-    size = 20
-    d.polygon([
-        (ax, ay),
-        (ax - size * math.cos(ang - 0.42), ay - size * math.sin(ang - 0.42)),
-        (ax - size * math.cos(ang + 0.42), ay - size * math.sin(ang + 0.42)),
-    ], fill=ACCENT + (255,))
+        sx = lx + tw // 2
+        sy = ly + f.size + 10
+        ex = ring[0] + (ring[2] - ring[0]) * (0.30 if c.get("side") == "left" else 0.70)
+        ey = ring[1] - 3
+        pts = []
+        for i in range(33):
+            t = i / 32
+            u = 1 - t
+            # One control point, pulled down under the label, so the stem leaves vertically
+            # and arrives vertically with a bend in the middle.
+            cx0, cy0 = sx, (sy + ey) * 0.62
+            pts.append((
+                u * u * sx + 2 * u * t * cx0 + t * t * ex,
+                u * u * sy + 2 * u * t * cy0 + t * t * ey,
+            ))
+        d.line(pts, fill=ACCENT + (235,), width=3, joint="curve")
+        ax, ay = pts[-1]
+        bx2, by2 = pts[-5]
+        ang = math.atan2(ay - by2, ax - bx2)
+        size = 14
+        d.polygon([
+            (ax, ay),
+            (ax - size * math.cos(ang - 0.45), ay - size * math.sin(ang - 0.45)),
+            (ax - size * math.cos(ang + 0.45), ay - size * math.sin(ang + 0.45)),
+        ], fill=ACCENT + (255,))
 
-    img.paste(Image.alpha_composite(img.convert("RGBA"), layer).convert("RGB"), (0, 0))
+    return out.convert("RGB")
+
+
+def write_callouts():
+    """Write the annotated copies the README's detail strip points at."""
+    folder = os.path.join(SHOTS_DIR, "callouts")
+    os.makedirs(folder, exist_ok=True)
+    made = []
+    for name, spec in CALLOUTS.items():
+        src = os.path.join(SHOTS_DIR, name)
+        if not os.path.exists(src):
+            continue
+        out = os.path.join(folder, name)
+        annotate(Image.open(src).convert("RGB"), spec).save(out, optimize=True)
+        made.append(name)
+    return made
 
 
 def check_palette():
@@ -325,7 +355,6 @@ def main():
     order = [0, 4, 1, 3, 2]
     # Dimmer the further from the middle, so the fan has a front and a back.
     dim = [0.30, 0.15, 0.0, 0.15, 0.30]
-    placed = {}
     for i in order:
         frames[i] = recede(frames[i], dim[i])
         x = left + step * i
@@ -336,10 +365,6 @@ def main():
             (x - pad, y - pad),
         )
         img.paste(frames[i], (x, y), frames[i])
-        placed[SHOTS[i]] = (x, y, frames[i].width, height)
-
-    if CALLOUT and CALLOUT["shot"] in placed:
-        draw_callout(img, placed[CALLOUT["shot"]], CALLOUT["box"], CALLOUT["label"], height)
 
     # ── the left block ───────────────────────────────────────────────────────────────────
     x = 150
@@ -384,6 +409,8 @@ def main():
               font=foot, fill=FG3)
 
     img.save(OUT, optimize=True)
+    for name in write_callouts():
+        print("annotated docs/screenshots/callouts/%s" % name)
     size_kb = os.path.getsize(OUT) // 1024
     print("wrote %s  (%dx%d, %d KB, %d screens)" % (
         os.path.relpath(OUT, ROOT).replace("\\", "/"), W, H, size_kb, len(SHOTS)))

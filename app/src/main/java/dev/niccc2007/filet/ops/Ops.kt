@@ -218,6 +218,20 @@ class FileOperations(
         val failed = ArrayList<Pair<VPath, String>>()
         var count = 0
         try {
+            // Bug identified here: `ArchiveWriter.writeToPath` - the 7z branch below - ran on
+            // whatever dispatcher the caller was on, and the view model launches into
+            // viewModelScope, which is the main one. So compressing to 7z did the entire
+            // LZMA2 pass on the thread that draws, and the app was unresponsive from the tap
+            // until the archive existed. The progress row it was writing to the whole time
+            // never got a frame to draw in.
+            //
+            // The stream branch beside it was already dispatched, which is why this survived
+            // review: the two branches looked alike and only one of them was safe. Everything
+            // in here is dispatched now rather than the one call, so the next branch added
+            // cannot be wrong in the same way. The VFS calls do not need it - the providers
+            // dispatch their own IO - but being inside it costs nothing and removes the
+            // question.
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val sources = ArrayList<ArchiveSource>(items.size * 4)
             for (node in items) {
                 currentCoroutineContext().ensureActive()
@@ -250,6 +264,7 @@ class FileOperations(
                         ArchiveWriter.writeToStream(format, out, sources, options) { ledger.progress(id, null, it) }
                     }
                 }
+            }
             }
         } catch (e: Throwable) {
             // A half-written archive is worse than none: it looks like a file and opens as

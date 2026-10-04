@@ -9,6 +9,7 @@ import dev.niccc2007.filet.handlers.ExternalApps
 import dev.niccc2007.filet.handlers.HandlerId
 import dev.niccc2007.filet.handlers.editedName
 import dev.niccc2007.filet.vfs.provider.ArchiveFormat
+import dev.niccc2007.filet.vfs.provider.ArchiveNaming
 import dev.niccc2007.filet.vfs.provider.ArchiveEdits
 import dev.niccc2007.filet.vfs.provider.ArchiveOptions
 import dev.niccc2007.filet.vfs.provider.EditCosts
@@ -990,22 +991,29 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     /**
-     * @param typed what the user put in the box, with or without a suffix.
-     * @param format which container to write. The suffix comes from the format rather than
-     *   from the typed name, so picking Tar + gzip and leaving "Photos.zip" in the box makes
-     *   a `Photos.tar.gz` and not a gzipped tar wearing a zip's name.
+     * @param typed the name, without its extension.
+     * @param suffix the extension, which is the caller's and not the format's. A 7z named
+     *   `.mcaddon` is still a 7z - see `ArchiveNaming`.
+     * @param format which container to write.
      */
     fun compressSelection(
         typed: String,
         format: ArchiveFormat,
+        suffix: String = format.suffix,
         options: ArchiveOptions = ArchiveOptions.NONE,
     ) = withSelection { items ->
         val dest = focusedPane()?.state?.value?.cwd ?: return@withSelection
+        // Said before any work starts, because the work may finish in a tenth of a second or
+        // run for a minute and the reader cannot tell which in advance. The job row is where
+        // the progress is; this is the pointer to it.
+        toast("Added archive creation to the activity list")
         viewModelScope.launch {
-            val base = Archives.baseName(typed.trim()).ifEmpty { "Archive" }
-            val existing = runCatching { graph.vfs.list(dest).map { it.name }.toHashSet() }
-                .getOrDefault(HashSet())
-            val name = archiveName(base, format) { it in existing }
+            val existing = runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    graph.vfs.list(dest).map { it.name }.toHashSet()
+                }
+            }.getOrDefault(HashSet())
+            val name = ArchiveNaming.fileName(typed, suffix) { it in existing }
             val r = graph.ops.compress(
                 items, dest.child(name), format, { graph.files.scratchPath(it) }, options,
             )

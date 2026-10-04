@@ -69,6 +69,31 @@ const COMPOSABLES = [
   { file: `${APP}/nearby/NearbyScreen.kt`, what: "the Nearby screen" },
 ];
 
+/**
+ * Files where every filesystem call has to sit inside a dispatch.
+ *
+ * Bug identified later: `ArchiveWriter.writeToPath`, the 7z branch of `Ops.compress`, ran on
+ * the caller's thread. The view model launches into `viewModelScope`, which is the main one,
+ * so compressing to 7z did the whole LZMA2 pass on the thread that draws and the app was
+ * unresponsive from the tap until the archive existed.
+ *
+ * It survived review because the stream branch beside it WAS dispatched: two branches that
+ * look alike, one of them safe, and nothing looking at the difference.
+ *
+ * **This deliberately does not police `vfs.` calls.** The first version of this rule did, and
+ * it was wrong: the providers dispatch their own IO - `LocalProvider.list` opens with
+ * `withContext(Dispatchers.IO)` - so every one of those was already safe and the rule reported
+ * seven faults that were not faults. A check that cries wolf is one people switch off. What
+ * belongs here is the short list of calls that compute or block **without** dispatching for
+ * themselves, which is the archive writer.
+ */
+const DISPATCHED = [
+  { file: `${APP}/ops/Ops.kt`, what: "the operations layer" },
+];
+
+/** Calls that do their work on the caller's thread, so the caller has to dispatch. */
+const BLOCKING = /\bArchiveWriter\.(writeToPath|writeToStream)\s*\(/g;
+
 /** The flag a busy control reads has to be set before the slow part, not after. */
 const BUSY_FIRST = [
   {
@@ -100,6 +125,56 @@ function code(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 }
 
+/**
+ * Comments blanked to the same length, so reported offsets are the file's own.
+ *
+ * Stripping them instead shifts every position after the first comment, and a checker that
+ * reports the wrong line is worse than no checker - which this repository has already learned
+ * once, in check-actions.
+ */
+function blanked(src) {
+  const keepNewlines = (m) => m.split("\n").map((l) => " ".repeat(l.length)).join("\n");
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, keepNewlines)
+    .replace(/\/\/.*/g, keepNewlines);
+}
+
+/**
+ * Is this offset inside a block that was opened by a dispatch?
+ *
+ * Walks backwards counting braces. Each time the depth drops below where it started, the line
+ * that opened that block is examined - if it dispatches, everything inside it is off the
+ * caller's thread and the call is fine.
+ */
+export function dispatched(src, at) {
+  let depth = 0;
+  for (let i = at; i >= 0; i--) {
+    const c = src[i];
+    if (c === "}") depth++;
+    else if (c === "{") {
+      if (depth === 0) {
+        const lineStart = src.lastIndexOf("\n", i) + 1;
+        const line = src.slice(lineStart, i + 1);
+        if (/withContext\s*\(\s*(kotlinx\.coroutines\.)?Dispatchers\.IO\s*\)/.test(line)) return true;
+      } else {
+        depth--;
+      }
+    }
+  }
+  return false;
+}
+
+/** Every blocking VFS call in [src] that is not inside a dispatch, as line numbers. */
+export function undispatched(src) {
+  const text = blanked(src);
+  const out = [];
+  for (const m of text.matchAll(BLOCKING)) {
+    if (dispatched(text, m.index)) continue;
+    out.push({ line: text.slice(0, m.index).split("\n").length, call: m[0] });
+  }
+  return out;
+}
+
 export function problems(files) {
   const found = [];
 
@@ -121,6 +196,17 @@ export function problems(files) {
     }
   }
 
+  for (const d of DISPATCHED) {
+    const src = files[d.file];
+    if (src == null) { found.push(`${d.file} is gone - move this list with it`); continue; }
+    for (const u of undispatched(src)) {
+      found.push(
+        `${d.what}: ${u.call} at ${d.file.split("/").pop()}:${u.line} is not inside a ` +
+          `dispatch, and it does its work on the thread that calls it`,
+      );
+    }
+  }
+
   for (const b of BUSY_FIRST) {
     const src = files[b.file];
     if (src == null) continue;
@@ -137,7 +223,14 @@ export function problems(files) {
 if (process.argv.includes("--selftest")) {
   const M = `${APP}/nearby/NearbyManager.kt`;
   const S = `${APP}/nearby/NearbyScreen.kt`;
+  const O = `${APP}/ops/Ops.kt`;
   const good = {
+    [O]: `suspend fun compress() {
+  withContext(Dispatchers.IO) {
+` +
+         `    ArchiveWriter.writeToPath(format, os, sources, options) { p(it) }
+  }
+}`,
     [M]: `fun start() {\n _starting.value = true\n scope.launch(Dispatchers.IO) { off() }\n}\n` +
          `fun stop(origin: StopOrigin = X) {\n stopToken.incrementAndGet()\n _stopping.value = true\n scope.launch(Dispatchers.IO) { off() }\n}\n` +
          `private fun off() { NetAddresses.reachable(); ServerSocket(1); }`,
@@ -145,6 +238,21 @@ if (process.argv.includes("--selftest")) {
   };
   const CASES = [
     ["the fixed version", good, false],
+    // The one this rule was added for: the writer back outside the dispatch.
+    ["the archive writer back on the caller's thread", {
+      ...good,
+      [O]: good[O].replace("withContext(Dispatchers.IO) {", "run {"),
+    }, true],
+    // And the control that keeps it from being a plain substring search: a dispatch that is
+    // there but wraps something else.
+    ["the writer beside a dispatch rather than inside it", {
+      ...good,
+      [O]: `suspend fun compress() {
+  withContext(Dispatchers.IO) { vfs.openWrite(d) }
+` +
+           `  ArchiveWriter.writeToStream(format, out, sources, options) { p(it) }
+}`,
+    }, true],
     ["the interface walk back on the click", {
       ...good,
       [M]: good[M].replace("_starting.value = true", "_starting.value = true\n val b = NetAddresses.reachable()"),
@@ -186,7 +294,7 @@ if (process.argv.includes("--selftest")) {
 }
 
 const files = {};
-for (const f of [...new Set([...ENTRIES, ...COMPOSABLES, ...BUSY_FIRST].map((x) => x.file))]) {
+for (const f of [...new Set([...ENTRIES, ...COMPOSABLES, ...BUSY_FIRST, ...DISPATCHED].map((x) => x.file))]) {
   try {
     files[f] = readFileSync(f, "utf8");
   } catch {
@@ -200,5 +308,7 @@ if (found.length) {
   process.exit(1);
 }
 console.log(
-  `MAIN THREAD OK  (${ENTRIES.length} press paths and ${COMPOSABLES.length} screen(s) clear of ${SLOW.length} known blocking calls)`,
+  `MAIN THREAD OK  (${ENTRIES.length} press paths and ${COMPOSABLES.length} screen(s) clear of ` +
+    `${SLOW.length} known blocking calls; every self-threaded call in ${DISPATCHED.length} ` +
+    `file(s) is inside a dispatch)`,
 );
