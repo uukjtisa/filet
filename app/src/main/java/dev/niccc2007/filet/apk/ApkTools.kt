@@ -226,9 +226,23 @@ class ApkTools(
      * as dangerous, because it is not a runtime grant and reporting it as one inflates the
      * number that is supposed to mean something.
      */
-    suspend fun dangerousCount(permissions: List<String>): Int = withContext(Dispatchers.IO) {
+    suspend fun dangerousCount(permissions: List<String>): Int = dangerous(permissions).size
+
+    /**
+     * Which of these permissions Android itself classes as dangerous.
+     *
+     * The names rather than a count, because the inspector needs both: the count for the one line
+     * it shows up front, and the names to put those permissions at the top of the list and mark
+     * them. A list of sixty permissions in declaration order asks the reader to know which of them
+     * matter, which is the question they opened the inspector to have answered.
+     *
+     * Asked of the platform, never matched against a table: the protection level of a permission
+     * is a property of the device's own definition of it, and a baked-in list is wrong on any
+     * device that defines one differently.
+     */
+    suspend fun dangerous(permissions: List<String>): Set<String> = withContext(Dispatchers.IO) {
         val pm = context.packageManager
-        permissions.count { name ->
+        permissions.filterTo(LinkedHashSet()) { name ->
             runCatching {
                 val info = pm.getPermissionInfo(name, 0)
                 @Suppress("DEPRECATION")

@@ -8,6 +8,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
@@ -35,6 +38,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -111,6 +115,11 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
     var dirty by remember(node.path) { mutableStateOf(false) }
     var exitArmed by remember(node.path) { mutableStateOf(false) }
 
+    // The controls retract while the picture is being looked at, and a tap brings them back - the
+    // same rule as the video viewer, decided in the same place. See ViewerChrome.
+    var chromeVisible by remember(node.path) { mutableStateOf(true) }
+    var chromeTouchedAt by remember(node.path) { mutableLongStateOf(System.currentTimeMillis()) }
+
     // Bounded, and the oldest is recycled as it falls off the end: an unbounded history of
     // 20 MP bitmaps is an out-of-memory kill two or three taps in.
     val history = remember(node.path) { mutableStateListOf<Bitmap>() }
@@ -185,70 +194,47 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
     val shown = image
     val dims = if (shown == null) sourceSize else "${shown.width} x ${shown.height}"
 
-    Column(Modifier.fillMaxSize()) {
-        ViewerBar(
-            title = node.name,
-            subtitle = listOfNotNull(
-                dims.takeIf { it.isNotEmpty() },
-                if (dirty) "edited, not saved" else humanSize(node.size),
-            ).joinToString("  ·  "),
-            onClose = {
-                // Walking away from unsaved edits is a real loss, so the first back arms it and
-                // says so. One warning, not a dialog: a modal here would be in the way of the
-                // common case, which is leaving a picture you only looked at.
-                when {
-                    !dirty -> vm.closeHandler()
-                    exitArmed -> vm.closeHandler()
-                    else -> {
-                        exitArmed = true
-                        vm.toast("Edits are not saved. Tap back again to discard them.")
-                    }
-                }
-            },
-        ) {
-            if (editing) {
-                ViewerAction(FiletIcons.Undo, "Undo", enabled = history.isNotEmpty() && !busy) {
-                    val previous = history.removeLastOrNull() ?: return@ViewerAction
-                    image?.recycle()
-                    image = previous
-                    dirty = history.isNotEmpty()
-                    resetView()
-                }
-                ViewerAction(FiletIcons.Save, "Save a copy", enabled = shown != null && !busy) {
-                    val bmp = shown ?: return@ViewerAction
-                    scope.launch {
-                        busy = true
-                        val encoded = withContext(Dispatchers.Default) {
-                            runCatching { encode(bmp, node.extension) }.getOrNull()
-                        }
-                        busy = false
-                        if (encoded == null) { vm.toast("Could not encode the edited image."); return@launch }
-                        vm.saveEditedImage(node, encoded.bytes, encoded.extension) {
-                            dirty = false
-                            exitArmed = false
-                        }
-                    }
-                }
-                ViewerAction(FiletIcons.Close, "Done editing") { editing = false; tool = Tool.NONE }
-            } else {
-                ViewerAction(FiletIcons.Rename, "Edit", enabled = shown != null) {
-                    editing = true
-                    resetView()
-                }
-                ViewerAction(FiletIcons.Refresh, "Reset zoom", enabled = shown != null) { resetView() }
-                // The gap found while looking at a PNG: the in-app viewer had no way out.
-                ViewerAction(FiletIcons.Link, "Open in another app") { vm.openExternally(node, force = true) }
-                ViewerAction(FiletIcons.Share, "Share") { vm.share(node) }
-                ViewerAction(FiletIcons.Info, "Properties") { vm.showProperties(node) }
+    // Editing holds the controls open: they ARE the tools, and tools that retract mid-edit are
+    // worse than no tools. Looking at a picture holds nothing.
+    //
+    // `rememberUpdatedState` rather than a plain val, because the loop below is launched once and
+    // keyed on the file - anything it closes over is frozen at the composition that started it.
+    // That is the trap this file already documents for `pointerInput`, and here it would have let
+    // the tools vanish in the middle of an edit begun after the viewer opened.
+    val holdingChrome = rememberUpdatedState(editing || tool != Tool.NONE || busy)
+    LaunchedEffect(node.path) {
+        while (true) {
+            kotlinx.coroutines.delay(400)
+            if (chromeVisible &&
+                ViewerChrome.shouldRetract(
+                    System.currentTimeMillis(), chromeTouchedAt, holdingChrome.value,
+                )
+            ) {
+                chromeVisible = false
             }
         }
+    }
 
-        Box(
-            Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.background)
-        ) {
+    /** A tap on the picture: show the controls, or put them away again. */
+    fun wakeChrome() {
+        chromeVisible = !chromeVisible
+        chromeTouchedAt = System.currentTimeMillis()
+    }
+
+    // An error or a picture that has not arrived keeps the controls up: there is nothing to look
+    // at yet, and the way out is on the bar.
+    val chromeUp = chromeVisible || shown == null || error != null
+
+    // The picture gets the whole screen, system bars included.
+    ImmersiveViewer()
+
+    // A Box rather than a Column, and that IS the fullscreen change. Stacked vertically, the
+    // bar owned a strip of the screen whether or not anybody wanted it and the picture got
+    // what was left - so hiding the bar RESIZED the picture, which is a worse distraction than
+    // the bar was. Overlaid, the picture is the whole screen at all times and the controls
+    // come and go on top of it.
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Box(Modifier.fillMaxSize()) {
             when {
                 error != null -> Text(
                     error!!, fontSize = 13.sp, color = colors.fg2,
@@ -285,7 +271,7 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
                     if (w != shown.width || h != shown.height) runOp { it.stretched(w, h) }
                 }
 
-                else -> ZoomableImage(shown, node.name, view) { view = it }
+                else -> ZoomableImage(shown, node.name, view, onTap = { wakeChrome() }) { view = it }
             }
             if (busy) {
                 CircularProgressIndicator(
@@ -294,14 +280,83 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
             }
         }
 
-        if (editing && tool == Tool.NONE) {
-            ToolStrip(
-                enabled = shown != null && !busy,
-                onCrop = { tool = Tool.CROP },
-                onDraw = { tool = Tool.DRAW },
-                onResize = { tool = Tool.RESIZE },
-                onOp = ::runOp,
-            )
+        AnimatedVisibility(
+            visible = chromeUp,
+            modifier = Modifier.align(Alignment.TopCenter),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            ViewerBar(
+                title = node.name,
+                subtitle = listOfNotNull(
+                    dims.takeIf { it.isNotEmpty() },
+                    if (dirty) "edited, not saved" else humanSize(node.size),
+                ).joinToString("  ·  "),
+                onClose = {
+                    // Walking away from unsaved edits is a real loss, so the first back arms it and
+                    // says so. One warning, not a dialog: a modal here would be in the way of the
+                    // common case, which is leaving a picture you only looked at.
+                    when {
+                        !dirty -> vm.closeHandler()
+                        exitArmed -> vm.closeHandler()
+                        else -> {
+                            exitArmed = true
+                            vm.toast("Edits are not saved. Tap back again to discard them.")
+                        }
+                    }
+                },
+            ) {
+                if (editing) {
+                    ViewerAction(FiletIcons.Undo, "Undo", enabled = history.isNotEmpty() && !busy) {
+                        val previous = history.removeLastOrNull() ?: return@ViewerAction
+                        image?.recycle()
+                        image = previous
+                        dirty = history.isNotEmpty()
+                        resetView()
+                    }
+                    ViewerAction(FiletIcons.Save, "Save a copy", enabled = shown != null && !busy) {
+                        val bmp = shown ?: return@ViewerAction
+                        scope.launch {
+                            busy = true
+                            val encoded = withContext(Dispatchers.Default) {
+                                runCatching { encode(bmp, node.extension) }.getOrNull()
+                            }
+                            busy = false
+                            if (encoded == null) { vm.toast("Could not encode the edited image."); return@launch }
+                            vm.saveEditedImage(node, encoded.bytes, encoded.extension) {
+                                dirty = false
+                                exitArmed = false
+                            }
+                        }
+                    }
+                    ViewerAction(FiletIcons.Close, "Done editing") { editing = false; tool = Tool.NONE }
+                } else {
+                    ViewerAction(FiletIcons.Rename, "Edit", enabled = shown != null) {
+                        editing = true
+                        resetView()
+                    }
+                    ViewerAction(FiletIcons.Refresh, "Reset zoom", enabled = shown != null) { resetView() }
+                    // The gap found while looking at a PNG: the in-app viewer had no way out.
+                    ViewerAction(FiletIcons.Link, "Open in another app") { vm.openExternally(node, force = true) }
+                    ViewerAction(FiletIcons.Share, "Share") { vm.share(node) }
+                    ViewerAction(FiletIcons.Info, "Properties") { vm.showProperties(node) }
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = chromeUp && editing && tool == Tool.NONE,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+                ToolStrip(
+                    enabled = shown != null && !busy,
+                    onCrop = { tool = Tool.CROP },
+                    onDraw = { tool = Tool.DRAW },
+                    onResize = { tool = Tool.RESIZE },
+                    onOp = ::runOp,
+                )
         }
     }
 }
@@ -313,6 +368,7 @@ private fun ZoomableImage(
     bitmap: Bitmap,
     label: String,
     view: ZoomView,
+    onTap: () -> Unit,
     onView: (ZoomView) -> Unit,
 ) {
     var box by remember { mutableStateOf(Size.Zero) }
@@ -330,6 +386,7 @@ private fun ZoomableImage(
     // than a copy taken once. Same reason the double tap now toggles back out correctly.
     val live = rememberUpdatedState(view)
     val emit = rememberUpdatedState(onView)
+    val tapped = rememberUpdatedState(onTap)
 
     Box(
         Modifier
@@ -337,6 +394,9 @@ private fun ZoomableImage(
             .onSizeChanged { box = Size(it.width.toFloat(), it.height.toFloat()) }
             .pointerInput(bitmap) {
                 detectTapGestures(
+                    // One tap shows or hides the controls. It is the only way back to them once
+                    // they have retracted, so it is the whole picture rather than any part of it.
+                    onTap = { tapped.value() },
                     onDoubleTap = { at ->
                         emit.value(live.value.doubleTapped(at.x, at.y, box.width, box.height))
                     },

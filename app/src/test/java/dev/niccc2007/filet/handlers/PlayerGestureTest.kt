@@ -41,6 +41,42 @@ class PlayerGestureTest {
     }
 
     @Test
+    fun `a sideways drag that starts with a wobble is still a seek`() {
+        // The reported fault, as the numbers that caused it. The answer is decided once and held
+        // for the rest of the gesture, and it used to be decided at 24px of travel - a few pixels
+        // past the platform's own touch slop, where a horizontal drag carries several pixels of
+        // vertical jitter and either axis can be the larger. One wobble and the whole drag became
+        // a brightness or volume drag.
+        assertEquals(PlayerGesture.Drag.NONE, PlayerGesture.drag(900f, 12f, 15f, W))
+        // By the time it has gone far enough to mean anything, it is plainly sideways.
+        assertEquals(PlayerGesture.Drag.SEEK, PlayerGesture.drag(900f, 50f, 15f, W))
+        assertEquals(PlayerGesture.Drag.SEEK, PlayerGesture.drag(200f, -50f, 15f, W))
+    }
+
+    @Test
+    fun `a level needs a drag that is clearly up or down`() {
+        // Not quite vertical enough: it seeks, which is the harmless one.
+        assertEquals(PlayerGesture.Drag.SEEK, PlayerGesture.drag(900f, 50f, -55f, W))
+        // Clearly vertical: it is the volume.
+        assertEquals(PlayerGesture.Drag.VOLUME, PlayerGesture.drag(900f, 20f, -100f, W))
+        assertEquals(PlayerGesture.Drag.BRIGHTNESS, PlayerGesture.drag(200f, 20f, -100f, W))
+    }
+
+    @Test
+    fun `nothing is ignored once it has travelled far enough`() {
+        // Whatever the angle, a committed drag means something. A viewer that swallows a gesture
+        // reads as a frozen picture.
+        var angle = 0
+        while (angle < 360) {
+            val r = Math.toRadians(angle.toDouble())
+            val dx = (120 * Math.cos(r)).toFloat()
+            val dy = (120 * Math.sin(r)).toFloat()
+            assertTrue("angle=$angle", PlayerGesture.drag(900f, dx, dy, W) != PlayerGesture.Drag.NONE)
+            angle += 15
+        }
+    }
+
+    @Test
     fun `a small movement is not a drag at all`() {
         // Otherwise a tap that wobbles changes the volume.
         assertEquals(PlayerGesture.Drag.NONE, PlayerGesture.drag(200f, 5f, 5f, W))

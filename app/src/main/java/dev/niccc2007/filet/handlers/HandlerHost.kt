@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -180,17 +182,42 @@ fun ViewerBar(
     Row(
         Modifier
             .fillMaxWidth()
-            .background(colors.raised)
-            .padding(horizontal = 4.dp, vertical = 4.dp),
+            // A gradient, not a filled strip.
+            //
+            // The bar floats over the picture now rather than sitting above it, and a solid panel
+            // laid on a photograph reads as a lid on it. A scrim that is dense behind the text and
+            // gone by the bottom edge keeps the words legible over anything - a white sky, a dark
+            // frame - without drawing a shape of its own. The same reason a video player's top
+            // chrome is a gradient everywhere it is done well.
+            .background(
+                androidx.compose.ui.graphics.Brush.verticalGradient(
+                    0f to MaterialTheme.colorScheme.background.copy(alpha = 0.92f),
+                    0.65f to MaterialTheme.colorScheme.background.copy(alpha = 0.55f),
+                    1f to androidx.compose.ui.graphics.Color.Transparent,
+                ),
+            )
+            // Below the status bar rather than under it, now that the viewer draws behind the
+            // system bars. Without this the title sits in the clock.
+            .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.Companion.statusBars)
+            .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            FiletIcons.Back, "Close", tint = colors.fg2,
-            modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onClose).padding(7.dp),
+            FiletIcons.Back, "Close", tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = onClose).padding(7.dp),
         )
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 13.sp, maxLines = 1, fontWeight = FontWeight.Medium)
-            if (subtitle.isNotEmpty()) Text(subtitle, fontSize = 9.5.sp, color = colors.fg3, maxLines = 1)
+            Text(
+                title,
+                fontSize = 13.sp,
+                maxLines = 1,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+            if (subtitle.isNotEmpty()) {
+                Text(subtitle, fontSize = 9.5.sp, color = colors.fg2, maxLines = 1)
+            }
         }
         actions()
     }
@@ -201,10 +228,11 @@ fun ViewerAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: S
     val colors = Filet.colors
     Icon(
         icon, label,
-        tint = if (enabled) colors.fg2 else colors.fg3.copy(alpha = 0.4f),
+        // Brighter than the old fg2: these sit over a photograph now, not over a panel.
+        tint = if (enabled) MaterialTheme.colorScheme.onSurface else colors.fg3.copy(alpha = 0.4f),
         modifier = Modifier
-            .size(32.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .size(34.dp)
+            .clip(RoundedCornerShape(10.dp))
             .clickable(enabled = enabled, onClick = onClick)
             .padding(7.dp),
     )

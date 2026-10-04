@@ -859,15 +859,30 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         // A staged copy is what makes it work; REMOTE-FILES.md has why this is the last resort
         // and what replaces it.
         viewModelScope.launch {
+            dev.niccc2007.filet.log.FiletLog.i(
+                "archive",
+                "opening " + node.path + " (" + node.size + " bytes, remote=" +
+                    graph.vfs.isRemote(node.path) + ")",
+            )
             runCatching { graph.staging.stage(node.path, node.size, node.mtime) }
                 .onSuccess { staged ->
                     if (staged == null) {
-                        toast("This archive could not be opened.")
+                        // Reachable only when the file is not remote after all - which here means
+                        // it had no local path AND is not on a remote provider, so nothing can
+                        // open it. Said plainly rather than as a shrug, and recorded, because the
+                        // last time this surfaced the message gave the reader nothing to act on.
+                        dev.niccc2007.filet.log.FiletLog.w("archive", "nothing staged for " + node.path + "; not a remote file")
+                        toast("${node.name} is not on a drive Filet can read from.")
                     } else {
+                        dev.niccc2007.filet.log.FiletLog.i(
+                            "archive",
+                            "staged " + staged.length() + " bytes to " + staged.name + ", mounting",
+                        )
                         pane.navigateTo(ArchiveProvider.mount(staged.absolutePath))
                     }
                 }
                 .onFailure {
+                    dev.niccc2007.filet.log.FiletLog.e("archive", "could not stage " + node.path, it)
                     toast("Could not read ${node.name}: " + dev.niccc2007.filet.ops.FileOperations.readable(it))
                 }
         }
@@ -3027,6 +3042,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     /** How many of [permissions] Android classes as dangerous. */
     suspend fun dangerousPermissionCount(permissions: List<String>) =
         graph.apkTools.dangerousCount(permissions)
+
+    /** Which permissions Android classes as dangerous, so the inspector can lead with them. */
+    suspend fun dangerousPermissions(permissions: List<String>) =
+        graph.apkTools.dangerous(permissions)
 
     fun connectionName(scheme: String, id: String): String? {
         val c = graph.connections.byId(id) ?: return null

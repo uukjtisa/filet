@@ -54,13 +54,51 @@ object PlayerGesture {
      *   brightness drag.
      * @param slop how far it must travel before it counts as a drag at all.
      */
-    fun drag(startX: Float, dx: Float, dy: Float, width: Float, slop: Float = 24f): Drag {
+    fun drag(startX: Float, dx: Float, dy: Float, width: Float, slop: Float = COMMIT): Drag {
+        // Far enough to be an intention at all.
         if (abs(dx) < slop && abs(dy) < slop) return Drag.NONE
+        // And far enough from the diagonal to say WHICH intention. A drag that is still roughly
+        // diagonal has not decided yet, so neither does this - the caller keeps asking, and the
+        // answer arrives when the finger has actually committed.
+        //
+        // This is the fix for a sideways drag turning into a brightness drag. The threshold used
+        // to be 24px with no ratio, which is a few pixels past Compose's own touch slop: at that
+        // distance a horizontal drag carries three or four pixels of vertical jitter, either axis
+        // can be the larger, and the answer was then held for the whole gesture. One wobble at the
+        // start and the rest of the drag was the wrong gesture.
+        val horizontal = abs(dx)
+        val vertical = abs(dy)
         // Ties go to seeking: it is the reversible one. A seek by mistake is undone by seeking
         // back, where a volume change by mistake is only noticed once it is too loud.
-        if (abs(dx) >= abs(dy)) return Drag.SEEK
+        if (horizontal >= vertical) return Drag.SEEK
+        // Vertical, but it has to be CLEARLY vertical. The asymmetry is deliberate and it is the
+        // same reasoning as the tie: the ambiguous middle goes to the harmless gesture. Returning
+        // NONE here instead would be defensible and is worse in the hand - the picture would sit
+        // there doing nothing while a finger moves on it.
+        if (vertical < horizontal * DOMINANCE) return Drag.SEEK
         return if (startX < width / 2f) Drag.BRIGHTNESS else Drag.VOLUME
     }
+
+    /**
+     * How far a finger travels before the gesture is allowed to mean anything.
+     *
+     * Deliberately well past the platform's touch slop. The decision is held for the rest of the
+     * gesture, so it is worth waiting for: being slightly late to start seeking costs nothing that
+     * anybody can perceive, and being wrong costs the whole drag.
+     */
+    const val COMMIT = 48f
+
+    /**
+     * How much more vertical than horizontal a drag has to be to move a level.
+     *
+     * Applied to the vertical gestures only. Seeking is the one that is cheap to get wrong, so it
+     * takes the benefit of every doubt; brightness and volume have to be asked for clearly.
+     *
+     * 1.25 is about 51 degrees from horizontal - past the wobble in a real sideways drag, and
+     * still comfortably inside what somebody performing a vertical drag actually produces. A ratio
+     * rather than an angle because two deltas is the arithmetic the caller already has.
+     */
+    const val DOMINANCE = 1.25f
 
     /**
      * A level from 0 to 1, moved by a vertical drag.

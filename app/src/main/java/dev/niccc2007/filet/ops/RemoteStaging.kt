@@ -43,11 +43,18 @@ class RemoteStaging(
      *   real path it already had, and never pays for a copy of a file that is already here.
      */
     suspend fun stage(path: VPath, size: Long, mtime: Long): File? = withContext(Dispatchers.IO) {
-        if (!vfs.isRemote(path)) return@withContext null
+        if (!vfs.isRemote(path)) {
+            dev.niccc2007.filet.log.FiletLog.d("staging", "not remote, nothing to stage: " + path)
+            return@withContext null
+        }
 
         val target = File(dir(), keyFor(path, size, mtime))
         // Already here, and the key guarantees it is a copy of THIS version of the file.
-        if (target.isFile && target.length() == size) return@withContext target
+        if (target.isFile && target.length() == size) {
+            dev.niccc2007.filet.log.FiletLog.d("staging", "already staged: " + target.name)
+            return@withContext target
+        }
+        dev.niccc2007.filet.log.FiletLog.i("staging", "fetching " + path.name + " (" + size + " bytes)")
 
         // Announced only when the wait is long enough to wonder about. A small file arriving in
         // under a second produces a job row that appears and vanishes, which reads as a glitch.
@@ -77,9 +84,11 @@ class RemoteStaging(
             if (!part.renameTo(target)) throw java.io.IOException("could not finish the copy")
         }.onFailure {
             part.delete()
+            dev.niccc2007.filet.log.FiletLog.e("staging", "fetch failed for " + path, it)
             id?.let { j -> ledger.fail(j, FileOperations.readable(it)) }
             throw it
         }
+        dev.niccc2007.filet.log.FiletLog.i("staging", "fetched " + target.length() + " bytes to " + target.name)
         id?.let { ledger.finish(it) }
         evictDownTo()
         target

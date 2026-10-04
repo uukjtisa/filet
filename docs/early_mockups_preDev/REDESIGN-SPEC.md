@@ -41,7 +41,7 @@ that surface which is easiest to lose on the way across.
 | **Extract** | `app/src/main/java/dev/niccc2007/filet/browser/ExtractSheet.kt:60` | `DIALOGS.extract` | N59 | Shows the plan before writing anything, so a clash is a question not a surprise. |
 | **Archive save** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:389` | `DIALOGS.archsave` | N59 | Names the backup and the re-sign as steps, because both happen and neither is obvious. |
 | **Folder picker** | `app/src/main/java/dev/niccc2007/filet/browser/FolderPicker.kt:52` | `DIALOGS.folder` | N59 | Can create a folder from inside itself. |
-| **APK inspector** | `app/src/main/java/dev/niccc2007/filet/apk/ApkInspectorScreen.kt:59` | `DIALOGS.apk` | N64 | Needs a full-screen form as well as the sheet: it is a tool, not a question. |
+| **APK inspector** | `app/src/main/java/dev/niccc2007/filet/apk/ApkInspectorScreen.kt:60` | `DIALOGS.apk` | N64 | Needs a full-screen form as well as the sheet: it is a tool, not a question. |
 | **XAPK inspector** | _new, nothing to replace_ | `DIALOGS.xapk` | N64 | New. Says plainly it is not an archive, which is why it could not be installed before. |
 | **Metadata writer** | _new, nothing to replace_ | `metaHTML` | N46 | Fields first, support matrix folded away. Needs a full-screen form as well. |
 | **Update sheet** | `app/src/main/java/dev/niccc2007/filet/update/UpdateSheet.kt:61` | `DIALOGS.update` | N68 | Keeps every element it has; the notes get the room and the chrome gets out of the way. |

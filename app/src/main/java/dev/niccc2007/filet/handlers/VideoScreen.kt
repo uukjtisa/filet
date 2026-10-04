@@ -93,8 +93,13 @@ import kotlin.math.roundToInt
  * The gesture arithmetic is in `SeekGesture.kt` and tested there.
  */
 
-/** How long the chrome stays up after a touch while something is playing. */
-private const val CHROME_MS = 3_200L
+/**
+ * How long the chrome stays up after a touch.
+ *
+ * Not "while something is playing" any more. See [ViewerChrome]: a paused frame being studied is
+ * exactly the case where the controls are most in the way, and the old rule kept them up for it.
+ */
+private const val CHROME_MS = ViewerChrome.IDLE_MS
 
 /** How long the "-10s" flash stays up after the last double tap of a run. */
 private const val FLASH_MS = 700L
@@ -284,11 +289,22 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     // Position ticker, and the auto-hide clock, on one loop. Two loops would be two clocks to
     // keep in step for no gain.
     LaunchedEffect(playing, ready, node.path) {
+        // Runs while the view exists, not only while it is playing: the retract timer is now
+        // about being touched rather than about playback, so it has to tick when paused.
         while (ready) {
             val v = handle.view
             if (v != null && scrubTo == null) position = v.currentPosition.toLong().coerceAtLeast(0L)
             if (v != null) buffered = v.bufferPercentage
-            if (playing && chromeVisible && System.currentTimeMillis() - chromeTouchedAt > CHROME_MS) {
+            if (chromeVisible &&
+                ViewerChrome.shouldRetract(
+                    now = System.currentTimeMillis(),
+                    lastTouchedAt = chromeTouchedAt,
+                    // A drag on the picture or the scrubber holds them open; letting go starts
+                    // the clock from there rather than from the touch that began the drag.
+                    interacting = scrubTo != null,
+                    idleMs = CHROME_MS,
+                )
+            ) {
                 chromeVisible = false
             }
             delay(200)
@@ -385,8 +401,13 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     }
 
     val shownPosition = scrubTo ?: position
-    // Paused counts as up: a paused video with no controls looks like a frozen one.
-    val chromeUp = error == null && (chromeVisible || !playing)
+    // Paused no longer forces them up. It used to, on the reasoning that a paused video with no
+    // controls looks like a frozen one - but pausing to look at a frame is a reason to UNCOVER it,
+    // and a touch anywhere brings them straight back.
+    val chromeUp = error == null && chromeVisible
+
+    // The picture gets the whole screen. Restored automatically when this screen is left.
+    ImmersiveViewer()
 
     Box(
         Modifier
