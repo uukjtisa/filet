@@ -11,6 +11,10 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -101,7 +105,7 @@ private const val EDIT_MAX_EDGE = 2400
 
 private const val UNDO_DEPTH = 5
 
-private enum class Tool { NONE, CROP, DRAW, RESIZE }
+private enum class Tool { NONE, CROP, DRAW, RESIZE, ROTATE, TEXT }
 
 @Composable
 fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
@@ -268,6 +272,27 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
                     }
                 }
 
+                tool == Tool.ROTATE -> RotateSurface(shown, busy) { angle ->
+                    tool = Tool.NONE
+                    if (angle != 0f) runOp { it.rotatedBy(angle) }
+                }
+
+                tool == Tool.TEXT -> TextSurface(shown, busy) { items ->
+                    tool = Tool.NONE
+                    if (items.isNotEmpty()) {
+                        scope.launch {
+                            busy = true
+                            val next = withContext(Dispatchers.Default) {
+                                runCatching { bakeText(shown, items) }.getOrNull()
+                            }
+                            busy = false
+                            if (next == null) { vm.toast("Not enough memory to apply that."); return@launch }
+                            keep(shown)
+                            image = next
+                        }
+                    }
+                }
+
                 tool == Tool.RESIZE -> ResizeSurface(shown, busy) { w, h ->
                     tool = Tool.NONE
                     if (w != shown.width || h != shown.height) runOp { it.stretched(w, h) }
@@ -357,6 +382,8 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
                     onCrop = { tool = Tool.CROP },
                     onDraw = { tool = Tool.DRAW },
                     onResize = { tool = Tool.RESIZE },
+                    onRotate = { tool = Tool.ROTATE },
+                    onText = { tool = Tool.TEXT },
                     onOp = ::runOp,
                 )
         }
@@ -749,6 +776,58 @@ private fun DrawSurface(bitmap: Bitmap, busy: Boolean, onDone: (List<InkStroke>)
 }
 
 /** Burn the strokes into a copy of the bitmap, at the working image's full resolution. */
+/**
+ * A piece of text placed on the picture, in the picture's own coordinates.
+ *
+ * Stored where it lands on the IMAGE rather than where it was tapped on screen, for the same
+ * reason ink is: the surface can be zoomed and panned afterwards, and the text has to stay on the
+ * pixels it was put on rather than on the part of the screen it was dropped at.
+ */
+private data class ImageText(
+    val text: String,
+    val colour: Color,
+    val sizePx: Float,
+    val x: Float,
+    val y: Float,
+)
+
+/**
+ * Burn text onto a copy of the bitmap.
+ *
+ * Centred on its anchor, so a tap puts the text where the finger was rather than starting a line
+ * to the right of it.
+ *
+ * **A dark outline is drawn under every glyph**, and that is not decoration. Text placed on a
+ * photograph lands on whatever happens to be there, and white on a bright sky or black on a
+ * shadow is text that cannot be read at all. The outline is what lets one chosen colour work on
+ * any background, which is why this does not simply draw the fill.
+ */
+private fun bakeText(source: Bitmap, items: List<ImageText>): Bitmap {
+    val out = source.copy(Bitmap.Config.ARGB_8888, true)
+    val canvas = android.graphics.Canvas(out)
+    for (item in items) {
+        if (item.text.isEmpty()) continue
+        val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.argb(
+                (item.colour.alpha * 255).roundToInt(),
+                (item.colour.red * 255).roundToInt(),
+                (item.colour.green * 255).roundToInt(),
+                (item.colour.blue * 255).roundToInt(),
+            )
+            textSize = item.sizePx
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+        val edge = android.graphics.Paint(fill).apply {
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = (item.sizePx / 14f).coerceAtLeast(1.5f)
+            color = android.graphics.Color.argb(190, 0, 0, 0)
+        }
+        canvas.drawText(item.text, item.x, item.y, edge)
+        canvas.drawText(item.text, item.x, item.y, fill)
+    }
+    return out
+}
+
 private fun bakeStrokes(source: Bitmap, strokes: List<InkStroke>): Bitmap {
     val out = source.copy(Bitmap.Config.ARGB_8888, true)
     val canvas = android.graphics.Canvas(out)
@@ -821,6 +900,293 @@ private fun ResizeSurface(bitmap: Bitmap, busy: Boolean, onDone: (Int, Int) -> U
     }
 }
 
+/**
+ * Glyphs that can be dropped on a picture without opening a keyboard.
+ *
+ * Deliberately short. A full emoji keyboard is the system's and it is one tap away in the field;
+ * what this row is for is the handful anybody actually puts on a screenshot, reachable without
+ * the keyboard covering the picture they are aiming at.
+ */
+private val QUICK_GLYPHS = listOf(
+    "→", "←", "↑", "↓", "✔", "✘", "⭐", "❤",
+    "👍", "🔥", "😂", "🤔", "👀",
+    "⚠", "📌", "🎉",
+)
+
+/**
+ * Put text or an emoji on the picture.
+ *
+ * One tool for both, because an emoji IS text - what the tool actually has to provide is
+ * placement, size, colour and a way to pick a glyph without a keyboard in the way.
+ *
+ * **Tap to place, drag to move.** The text appears where it is tapped and can be dragged
+ * afterwards, because nobody lands it in the right spot first time and a tool that makes you
+ * undo to reposition is a tool people stop using.
+ */
+@Composable
+private fun TextSurface(bitmap: Bitmap, busy: Boolean, onDone: (List<ImageText>) -> Unit) {
+    val colors = Filet.colors
+    var box by remember { mutableStateOf(Size.Zero) }
+    var typed by remember(bitmap) { mutableStateOf("") }
+    var ink by remember(bitmap) { mutableStateOf(PEN_COLOURS.first()) }
+    val longEdge = maxOf(bitmap.width, bitmap.height).toFloat()
+    var size by remember(bitmap) { mutableFloatStateOf(longEdge / 12f) }
+    val placed = remember(bitmap) { mutableStateListOf<ImageText>() }
+    var ticks by remember(bitmap) { mutableIntStateOf(0) }
+
+    Column(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .onSizeChanged { box = Size(it.width.toFloat(), it.height.toFloat()) }
+                .pointerInput(bitmap) {
+                    detectTapGestures { at ->
+                        if (typed.isEmpty()) return@detectTapGestures
+                        val fit = fitInside(box.width, box.height, bitmap.width, bitmap.height)
+                        if (!fit.ready) return@detectTapGestures
+                        placed.add(
+                            ImageText(
+                                text = typed,
+                                colour = ink,
+                                sizePx = size,
+                                x = fit.toImageX(at.x, bitmap.width),
+                                y = fit.toImageY(at.y, bitmap.height),
+                            ),
+                        )
+                        ticks++
+                    }
+                }
+                .pointerInput(bitmap) {
+                    // Dragging moves whatever was placed last, which is the one just put down.
+                    detectDragGestures { change, drag ->
+                        change.consume()
+                        val fit = fitInside(box.width, box.height, bitmap.width, bitmap.height)
+                        val last = placed.lastOrNull() ?: return@detectDragGestures
+                        if (!fit.ready) return@detectDragGestures
+                        placed[placed.lastIndex] = last.copy(
+                            x = last.x + drag.x / fit.scale,
+                            y = last.y + drag.y / fit.scale,
+                        )
+                        ticks++
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(bitmap.asImageBitmap(), null, modifier = Modifier.fillMaxSize())
+            Canvas(Modifier.fillMaxSize()) {
+                if (ticks >= 0) {
+                    val fit = fitInside(this.size.width, this.size.height, bitmap.width, bitmap.height)
+                    if (fit.ready) {
+                        for (item in placed) {
+                            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                                textSize = item.sizePx * fit.scale
+                                textAlign = android.graphics.Paint.Align.CENTER
+                            }
+                            val outline = android.graphics.Paint(paint).apply {
+                                style = android.graphics.Paint.Style.STROKE
+                                strokeWidth = (paint.textSize / 14f).coerceAtLeast(1.5f)
+                                color = android.graphics.Color.argb(190, 0, 0, 0)
+                            }
+                            paint.color = android.graphics.Color.argb(
+                                (item.colour.alpha * 255).roundToInt(),
+                                (item.colour.red * 255).roundToInt(),
+                                (item.colour.green * 255).roundToInt(),
+                                (item.colour.blue * 255).roundToInt(),
+                            )
+                            drawContext.canvas.nativeCanvas.drawText(
+                                item.text, fit.toViewX(item.x), fit.toViewY(item.y), outline,
+                            )
+                            drawContext.canvas.nativeCanvas.drawText(
+                                item.text, fit.toViewX(item.x), fit.toViewY(item.y), paint,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(colors.raised)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        ) {
+            BasicTextField(
+                value = typed,
+                onValueChange = { typed = it },
+                singleLine = true,
+                textStyle = TextStyle(fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(colors.accent),
+                decorationBox = { inner ->
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(colors.sunken)
+                            .border(1.dp, colors.lineSoft, RoundedCornerShape(9.dp))
+                            .padding(horizontal = 10.dp, vertical = 9.dp),
+                    ) {
+                        if (typed.isEmpty()) {
+                            Text("Type something, then tap the picture", fontSize = 12.sp, color = colors.fg3)
+                        }
+                        inner()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(7.dp))
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                for (glyph in QUICK_GLYPHS) {
+                    Text(
+                        glyph,
+                        fontSize = 19.sp,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { typed += glyph }
+                            .padding(horizontal = 5.dp, vertical = 2.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(5.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                for (c in PEN_COLOURS) {
+                    Box(
+                        Modifier
+                            .size(26.dp)
+                            .padding(3.dp)
+                            .clip(CircleShape)
+                            .background(c)
+                            .border(
+                                width = if (c == ink) 2.dp else 1.dp,
+                                color = if (c == ink) colors.accent else colors.lineSoft,
+                                shape = CircleShape,
+                            )
+                            .clickable { ink = c },
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Slider(
+                    value = size,
+                    onValueChange = { size = it },
+                    valueRange = (longEdge / 40f)..(longEdge / 4f),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        ToolFooter(
+            caption = when {
+                placed.isEmpty() && typed.isEmpty() -> "nothing placed"
+                placed.isEmpty() -> "tap the picture to place it"
+                else -> "${placed.size} placed"
+            },
+            confirmLabel = "Add text",
+            enabled = !busy && placed.isNotEmpty(),
+            secondaryLabel = "Undo last",
+            onSecondary = {
+                if (placed.isNotEmpty()) {
+                    placed.removeAt(placed.lastIndex)
+                    ticks++
+                }
+            },
+            onCancel = { onDone(emptyList()) },
+            onConfirm = { onDone(placed.toList()) },
+        )
+    }
+}
+
+/**
+ * Turn the picture by any angle.
+ *
+ * The preview is a layer rotation on the same bitmap, so dragging the slider costs nothing -
+ * resampling a 20 MP buffer sixty times a second would not survive it. The real rotation happens
+ * once, on confirm, through `rotatedBy`, which grows the canvas so the corners are not cut off.
+ *
+ * Snapping is offered rather than imposed. The common use is straightening a photograph by a
+ * degree or two, and a slider that jumps to the nearest fifteen degrees cannot do that at all;
+ * the step buttons are there for when a round number is what was wanted.
+ */
+@Composable
+private fun RotateSurface(bitmap: Bitmap, busy: Boolean, onDone: (Float) -> Unit) {
+    val colors = Filet.colors
+    var angle by remember(bitmap) { mutableFloatStateOf(0f) }
+    Column(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Image(
+                bitmap.asImageBitmap(), null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        rotationZ = angle
+                        // Held back from the edges so the corners stay on screen while turning.
+                        // The real operation grows the canvas instead; this is only the preview.
+                        scaleX = 0.72f
+                        scaleY = 0.72f
+                    },
+            )
+        }
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(colors.raised)
+                .padding(horizontal = 14.dp, vertical = 4.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Angle", fontSize = 11.sp, color = colors.fg2, modifier = Modifier.width(50.dp))
+                Slider(
+                    value = angle,
+                    onValueChange = { angle = it },
+                    valueRange = -180f..180f,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    formatAngle(angle),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = colors.fg3,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.width(62.dp),
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                for (step in listOf(-90f, -45f, -1f, 1f, 45f, 90f)) {
+                    Text(
+                        (if (step > 0) "+" else "") + step.toInt(),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = colors.fg2,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, colors.lineSoft, RoundedCornerShape(8.dp))
+                            .clickable { angle = (angle + step).coerceIn(-180f, 180f) }
+                            .padding(horizontal = 9.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        }
+        ToolFooter(
+            caption = if (angle == 0f) "unchanged" else "turns " + formatAngle(angle),
+            confirmLabel = "Rotate",
+            enabled = !busy,
+            secondaryLabel = "Reset",
+            onSecondary = { angle = 0f },
+            onCancel = { onDone(0f) },
+            onConfirm = { onDone(angle) },
+        )
+    }
+}
+
+/** One decimal and a degree sign, so a one-degree straighten is visibly different from none. */
+private fun formatAngle(angle: Float): String = "%.1f°".format(angle)
+
 @Composable
 private fun ResizeRow(label: String, percent: Float, from: Int, to: Int, onChange: (Float) -> Unit) {
     val colors = Filet.colors
@@ -851,6 +1217,8 @@ private fun ToolStrip(
     onCrop: () -> Unit,
     onDraw: () -> Unit,
     onResize: () -> Unit,
+    onRotate: () -> Unit,
+    onText: () -> Unit,
     onOp: ((Pixels) -> Pixels) -> Unit,
 ) {
     val colors = Filet.colors
@@ -865,7 +1233,9 @@ private fun ToolStrip(
     ) {
         ToolButton(FiletIcons.Crop, "Crop", enabled, onCrop)
         ToolButton(FiletIcons.Draw, "Draw", enabled, onDraw)
+        ToolButton(FiletIcons.Rename, "Text", enabled, onText)
         ToolButton(FiletIcons.Stretch, "Resize", enabled, onResize)
+        ToolButton(FiletIcons.RotateRight, "Turn", enabled, onRotate)
         ToolButton(FiletIcons.RotateLeft, "Left", enabled) { onOp { it.rotated(Turn.LEFT) } }
         ToolButton(FiletIcons.RotateRight, "Right", enabled) { onOp { it.rotated(Turn.RIGHT) } }
         ToolButton(FiletIcons.FlipH, "Mirror", enabled) { onOp { it.flipped(horizontal = true) } }
