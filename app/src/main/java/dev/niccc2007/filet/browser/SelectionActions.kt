@@ -58,6 +58,7 @@ fun selectionActions(
     otherPane: Boolean = false,
     picking: Boolean = false,
     installable: Boolean = false,
+    hasMetadata: Boolean = false,
 ): List<SelectionAction> {
     val single = count == 1
     // Written out rather than inlined three times: these two sentences are the whole of what a
@@ -77,6 +78,11 @@ fun selectionActions(
         // on a photo is not unavailable, it is meaningless.
         if (single && installable) {
             add(SelectionAction("install", "Install", icons.apk, run = on.install))
+        }
+        // Absent rather than blocked for a format nothing can read: "Metadata" on a file that has
+        // none is not unavailable, it is meaningless - the same rule Install follows two lines up.
+        if (single && hasMetadata) {
+            add(SelectionAction("metadata", "Metadata", icons.cog, run = on.metadata))
         }
         add(
             SelectionAction(
@@ -174,6 +180,7 @@ data class SelectionIcons(
     val wifi: ImageVector,
     val home: ImageVector,
     val apk: ImageVector,
+    val cog: ImageVector,
 )
 
 /** What each action does. Separate from the list so the list can be built in a test. */
@@ -193,4 +200,5 @@ data class SelectionCallbacks(
     val extractTo: () -> Unit = {},
     val extractToOtherPane: () -> Unit = {},
     val install: () -> Unit = {},
+    val metadata: () -> Unit = {},
 )

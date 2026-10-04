@@ -1020,7 +1020,7 @@ private fun PaneContextMenu(
             delete = FiletIcons.Delete, zip = FiletIcons.Zip, rename = FiletIcons.Rename,
             open = FiletIcons.Open, info = FiletIcons.Info, star = FiletIcons.Star,
             wifi = FiletIcons.Wifi, home = FiletIcons.Home,
-            apk = FiletIcons.Apk,
+            apk = FiletIcons.Apk, cog = FiletIcons.Cog,
         ),
         on = SelectionCallbacks(
             copy = { vm.copySelection() },
@@ -1035,6 +1035,7 @@ private fun PaneContextMenu(
             nearby = { vm.shareSelectionNearby() },
             shortcut = { vm.shortcutSelection() },
             install = { vm.installSelection() },
+            metadata = { vm.metadataForSelection() },
             extractHere = { vm.extractSelection() },
             extractTo = { vm.extractSelectionToPicked() },
             extractToOtherPane = { vm.extractSelectionToOtherPane() },
@@ -1043,6 +1044,7 @@ private fun PaneContextMenu(
         otherPane = vm.isSplit(),
         picking = vm.picking,
         installable = vm.selectionIsInstallable(),
+        hasMetadata = vm.selectionHasMetadata(),
     )
 
     // "Select" is gone, and it had to go for two reasons rather than one. It was asked to be

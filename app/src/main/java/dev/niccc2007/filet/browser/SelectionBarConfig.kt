@@ -48,6 +48,7 @@ object SelectionBarConfig {
         "nearby" to "Nearby",
         "shortcut" to "Shortcut",
         "install" to "Install",
+        "metadata" to "Metadata",
     )
 
     val IDS: List<String> = CHOOSABLE.map { it.first }

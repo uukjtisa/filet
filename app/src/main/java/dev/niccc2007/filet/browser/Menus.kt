@@ -174,17 +174,6 @@ fun MoreMenu(
                 // something with it.
                 Item(FiletIcons.FolderOpen, "Show in folder") { onDismiss(); vm.revealInFolder(selection[0]) }
                 Item(FiletIcons.Info, "Properties") { onDismiss(); vm.showProperties(selection[0]) }
-                // Only where the engine can actually do something, which is what makes this an
-                // offer rather than a dead row. A format Filet can only READ is still worth
-                // opening - the screen says what it found and why it cannot write it back.
-                if (dev.niccc2007.filet.metadata.MetadataSupport
-                        .forExtension(selection[0].extension).isNotEmpty()
-                ) {
-                    Item(FiletIcons.Cog, "Metadata") {
-                        onDismiss()
-                        vm.openWith(selection[0], dev.niccc2007.filet.handlers.HandlerId.METADATA, remember = false)
-                    }
-                }
             }
             // Works on a folder as well as a file, and on any number of them: several paths
             // one per line is what you want when you are about to paste them into a script.

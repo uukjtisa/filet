@@ -2050,6 +2050,25 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
     }
 
+    /**
+     * Whether the one selected file is a format whose metadata Filet knows anything about.
+     *
+     * Read-only formats count: the screen can still say what it found and why it cannot write it
+     * back, which is more useful than the action not being there.
+     */
+    fun selectionHasMetadata(): Boolean {
+        val items = focusedPane()?.selectedNodes().orEmpty()
+        val one = items.singleOrNull() ?: return false
+        if (one.isDir) return false
+        return dev.niccc2007.filet.metadata.MetadataSupport.forExtension(one.extension).isNotEmpty()
+    }
+
+    /** Open the metadata screen on the one selected file. */
+    fun metadataForSelection() {
+        val one = focusedPane()?.selectedNodes().orEmpty().singleOrNull() ?: return
+        openWith(one, dev.niccc2007.filet.handlers.HandlerId.METADATA, remember = false)
+    }
+
     /** Everything this file's container already carries. */
     suspend fun readMetadata(node: VNode): List<Pair<String, String>> =
         graph.metadata.read(node.path)

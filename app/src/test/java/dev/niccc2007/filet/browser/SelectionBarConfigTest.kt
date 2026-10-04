@@ -107,13 +107,16 @@ class SelectionBarConfigTest {
             count = 1,
             readOnly = null,
             icons = SelectionIcons(
-                icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon,
+                icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon,
             ),
             on = SelectionCallbacks(
                 copy = {}, move = {}, send = {}, delete = {}, compress = {}, rename = {},
                 openWith = {}, details = {}, bookmark = {}, nearby = {}, shortcut = {},
             ),
+            // Every conditional action switched ON, because the question this asks is whether the
+            // catalogue can ever produce each id - not whether it does for one particular file.
             installable = true,
+            hasMetadata = true,
         ).map { it.id }.toSet()
 
         for (id in SelectionBarConfig.IDS) {
