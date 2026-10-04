@@ -6,10 +6,10 @@ import dev.niccc2007.filet.vfs.Vfs
 /**
  * Reading and writing a file's metadata, through the VFS.
  *
- * The routing lives here and the format knowledge lives in [PngText] and [ContainerComments],
- * which work on byte arrays and have tests. This layer's whole job is the part those cannot
- * do: deciding whether a write is allowed at all, and making sure a failed one cannot destroy
- * the file.
+ * The format knowledge lives in the containers listed by [MetadataSupport], each of which works on
+ * byte arrays and has tests. This layer's whole job is the part those cannot do: finding the right
+ * one, deciding whether a write is allowed at all, and making sure a failed one cannot destroy the
+ * file.
  *
  * **Nothing is ever written in place.** The sequence is: read the whole file, build the new
  * bytes in memory, re-parse those bytes and confirm the change is actually there, and only
@@ -18,8 +18,15 @@ import dev.niccc2007.filet.vfs.Vfs
  * reasonably nervous about metadata editors.
  *
  * The size ceiling is the honest limit of that approach and it is stated rather than hidden:
- * holding a file twice in memory is fine for a photo and not fine for a 4 GB video. The
- * formats above the ceiling are all read-only here anyway, so the two limits agree.
+ * holding a file twice in memory is fine for a photo and not fine for a 4 GB video.
+ *
+ * ## Why there is no chain of format conditions here any more
+ *
+ * There used to be three of them - one in `read`, one in `put`, one in `verify` - and a fourth
+ * list of formats in the support table. Adding a format meant four edits, and three times over a
+ * format was added to the table and to none of the rest, which is how MP3 came to advertise cover
+ * art that no code could read. Routing now asks [MetadataSupport] which containers recognise the
+ * file and lets each one answer for itself.
  */
 class MetadataStore(private val vfs: Vfs) {
 
@@ -37,6 +44,9 @@ class MetadataStore(private val vfs: Vfs) {
     sealed interface Result {
         data object Ok : Result
 
+        /** Nothing needed doing: the file already said this. */
+        data object Unchanged : Result
+
         /** The format is understood but not safely writable. [why] names the format's problem. */
         data class Refused(val why: String) : Result
 
@@ -44,31 +54,114 @@ class MetadataStore(private val vfs: Vfs) {
         data class Failed(val why: String) : Result
     }
 
-    /** Every text field readable from [path], as key-value pairs in the order found. */
+    /**
+     * Every readable field, in the order found, from every container that recognises the file.
+     *
+     * Several can at once, and that is the point: a photo out of a camera has both a JPEG comment
+     * and an EXIF block, and showing one of the two because the chain of conditions stopped at
+     * the first match is how half a file's metadata stays invisible.
+     */
     suspend fun read(path: VPath): List<Pair<String, String>> {
-        val ext = path.name.substringAfterLast('.', "")
         val bytes = runCatching { readAll(path) }.getOrNull() ?: return emptyList()
-        return when {
-            PngText.isPng(bytes) -> PngText.read(bytes).map { it.key to it.value }
-            ContainerComments.isJpeg(bytes) ->
-                ContainerComments.readJpegComment(bytes)?.let { listOf("Comment" to it) } ?: emptyList()
-            ext.lowercase() in setOf("zip", "apk", "jar", "xapk", "apkm") ->
-                ContainerComments.readZipComment(bytes)?.let { listOf("Comment" to it) } ?: emptyList()
-            else -> emptyList()
+        return read(path.name.substringAfterLast('.', ""), bytes)
+    }
+
+    /** The same, on bytes already in hand. */
+    fun read(ext: String, bytes: ByteArray): List<Pair<String, String>> {
+        val seen = LinkedHashMap<String, String>()
+        for (format in MetadataSupport.forFile(ext, bytes)) {
+            for ((key, value) in runCatching { format.engine.read(bytes) }.getOrDefault(emptyList())) {
+                // First container to claim a label keeps it, and the list is ordered most
+                // capable first - so a writable comment is the one shown as editable rather
+                // than a read-only namesake from another block in the same file.
+                if (value.isNotBlank()) seen.putIfAbsent(key, value)
+            }
         }
+        return seen.toList()
     }
 
     /**
      * Set one field.
      *
-     * @param key the field name. Only PNG can carry an arbitrary one; every other writable
-     *   format here has a single comment slot, and a key it does not know is refused rather
-     *   than silently written into the one field it has.
+     * @param key the field label as the format names it. A key the container does not know is
+     *   refused rather than written into whichever slot happens to be nearest.
      */
-    suspend fun put(path: VPath, key: String, value: String): Result {
+    suspend fun put(path: VPath, key: String, value: String): Result =
+        rewrite(path) { format, bytes ->
+            format.engine.put(bytes, key, value) to { built: ByteArray ->
+                format.engine.verify(built, key, value)
+            }
+        }.first
+
+    /** Remove one field. */
+    suspend fun remove(path: VPath, key: String): Result = put(path, key, "")
+
+    // ── cover art ─────────────────────────────────────────────────────────────────────────
+
+    /** The attached picture, if this file has one. */
+    suspend fun cover(path: VPath): Cover? {
+        val bytes = runCatching { readAll(path) }.getOrNull() ?: return null
         val ext = path.name.substringAfterLast('.', "")
-        val format = MetadataSupport.writerFor(ext)
-            ?: return Result.Refused(MetadataSupport.refusalFor(ext))
+        return MetadataSupport.forFile(ext, bytes)
+            .firstNotNullOfOrNull { runCatching { it.engine.cover(bytes) }.getOrNull() }
+    }
+
+    /**
+     * Replace the attached picture, or remove it when given null.
+     *
+     * Verified the same way a field is: the rebuilt file has to read back with a picture of
+     * exactly the bytes handed in, or it is discarded. A cover is the one piece of metadata big
+     * enough that a length mistake shows up as a file that will not play rather than as a wrong
+     * line of text, so it gets the same gate and not a weaker one.
+     */
+    suspend fun putCover(path: VPath, cover: Cover?): Result =
+        rewrite(path) { format, bytes ->
+            if (!format.binary) {
+                null to { _: ByteArray -> false }
+            } else {
+                format.engine.putCover(bytes, cover) to { built: ByteArray ->
+                    val back = format.engine.cover(built)
+                    if (cover == null) back == null else back?.bytes?.contentEquals(cover.bytes) == true
+                }
+            }
+        }.first
+
+    suspend fun removeCover(path: VPath): Result = putCover(path, null)
+
+    /**
+     * Write the attached picture out beside the file.
+     *
+     * The extension comes from the image's own bytes rather than from what the tag claims, because
+     * taggers get that wrong often enough to matter - a cover saved as `.png` that is really a
+     * JPEG opens in nothing on a phone.
+     */
+    suspend fun extractCover(path: VPath): VPath? {
+        val cover = cover(path) ?: return null
+        val parent = path.parent ?: return null
+        val stem = path.name.substringBeforeLast('.', path.name)
+        val target = parent.child(stem + "-cover" + cover.extension)
+        return runCatching {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                vfs.openWrite(target, append = false).use { it.write(cover.bytes) }
+            }
+            target
+        }.getOrNull()
+    }
+
+    // ── the one write path ────────────────────────────────────────────────────────────────
+
+    /**
+     * Read, build, verify, replace - the sequence every write goes through, written once.
+     *
+     * [build] returns the new bytes and the check to run against them. Returning null for the
+     * bytes means the container refused the change, which is a different outcome from failing to
+     * produce them and is reported differently.
+     */
+    private suspend fun rewrite(
+        path: VPath,
+        build: (MetadataSupport.Format, ByteArray) -> Pair<ByteArray?, (ByteArray) -> Boolean>,
+    ): Pair<Result, MetadataSupport.Format?> {
+        val ext = path.name.substringAfterLast('.', "")
 
         val size = runCatching { vfs.stat(path)?.size ?: -1 }.getOrDefault(-1)
         if (size > maxRewriteBytes) {
@@ -76,93 +169,66 @@ class MetadataStore(private val vfs: Vfs) {
                 "This file is larger than ${maxRewriteBytes / 1024 / 1024} MB. Changing its " +
                     "metadata means rewriting it, and Filet will not hold a file that size " +
                     "twice in memory to do it."
-            )
+            ) to null
         }
 
         val bytes = runCatching { readAll(path) }.getOrNull()
-            ?: return Result.Failed("Could not read the file.")
+            ?: return Result.Failed("Could not read the file.") to null
 
-        val built: ByteArray? = when {
-            PngText.isPng(bytes) -> {
-                if (!PngText.isValidKeyword(key)) {
-                    return Result.Refused(
-                        "A PNG keyword must be 1 to 79 printable characters with no leading, " +
-                            "trailing or doubled spaces."
-                    )
-                }
-                PngText.put(bytes, key, value)
-            }
-            ContainerComments.isJpeg(bytes) -> {
-                if (!key.equals("Comment", ignoreCase = true)) {
-                    return Result.Refused(
-                        "A JPEG has one comment slot and no custom fields. Only Comment can be set."
-                    )
-                }
-                ContainerComments.writeJpegComment(bytes, value)
-            }
-            ContainerComments.isGif(bytes) -> {
-                if (!key.equals("Comment", ignoreCase = true)) {
-                    return Result.Refused("A GIF has one comment slot and no custom fields.")
-                }
-                ContainerComments.writeGifComment(bytes, value)
-            }
-            ContainerComments.readZipComment(bytes) != null -> {
-                if (!key.equals("Comment", ignoreCase = true)) {
-                    return Result.Refused(
-                        "A zip has one archive comment and no custom fields. Only Comment can be set."
-                    )
-                }
-                ContainerComments.writeZipComment(bytes, value)
-            }
-            else -> return Result.Refused(
-                "The contents do not match what the extension claims, so Filet will not " +
-                    "rewrite it. The file itself is fine - only the name is misleading."
-            )
-        }
+        val format = MetadataSupport.writerFor(ext, bytes)
+            ?: return formatRefusal(ext, bytes) to null
 
+        // What this one file makes impossible, as opposed to what the format makes impossible.
+        format.engine.refusal(bytes)?.let { return Result.Refused(it) to format }
+
+        val (built, check) = build(format, bytes)
         if (built == null) {
-            return Result.Failed(
-                "The file could not be rebuilt safely, so nothing was changed. It is likely " +
-                    "truncated or uses a variant Filet does not handle."
-            )
+            return Result.Refused(fieldRefusal(format)) to format
         }
+        if (built.contentEquals(bytes)) return Result.Unchanged to format
 
         // Re-parse the RESULT and confirm the change is in it, before the original is touched.
         // A writer that trusts its own output is a writer that overwrites a good file with a
         // bad one and reports success.
-        val verified = verify(built, key, value)
-        if (!verified) {
-            return Result.Failed("The rewritten file did not read back correctly, so it was discarded.")
+        if (!runCatching { check(built) }.getOrDefault(false)) {
+            return Result.Failed(
+                "The rewritten file did not read back correctly, so it was discarded and the " +
+                    "original is untouched."
+            ) to format
         }
 
         return runCatching {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 vfs.openWrite(path, append = false).use { it.write(built) }
             }
-            Result.Ok
-        }.getOrElse { Result.Failed("Could not write the file: ${it.message ?: "unknown error"}") }
+            Result.Ok as Result
+        }.getOrElse {
+            Result.Failed("Could not write the file: ${it.message ?: "unknown error"}")
+        } to format
     }
 
-    /** Remove one field. */
-    suspend fun remove(path: VPath, key: String): Result = put(path, key, "")
+    /** Why no container will write this file at all. */
+    private fun formatRefusal(ext: String, bytes: ByteArray): Result.Refused {
+        val recognised = MetadataSupport.forFile(ext, bytes)
+        if (recognised.isNotEmpty()) {
+            return Result.Refused(recognised.first().caveat ?: MetadataSupport.refusalFor(ext))
+        }
+        if (MetadataSupport.forExtension(ext).isNotEmpty()) {
+            return Result.Refused(
+                "The contents do not match what the extension claims, so Filet will not " +
+                    "rewrite it. The file itself is fine - only the name is misleading."
+            )
+        }
+        return Result.Refused(MetadataSupport.refusalFor(ext))
+    }
 
-    /**
-     * Does the rebuilt file read back with the value that was just written?
-     *
-     * Deliberately re-reads rather than trusting the writer. This is the single check standing
-     * between a misunderstood variant and a destroyed file.
-     */
-    private fun verify(built: ByteArray, key: String, value: String): Boolean = when {
-        PngText.isPng(built) ->
-            if (value.isEmpty()) PngText.read(built).none { it.key == key && it.value.isNotEmpty() }
-            else PngText.read(built).any { it.key == key && it.value == value }
-        ContainerComments.isJpeg(built) ->
-            if (value.isEmpty()) ContainerComments.readJpegComment(built).isNullOrEmpty()
-            else ContainerComments.readJpegComment(built) == value
-        ContainerComments.isGif(built) -> true // no reader; the writer is append-only and shaped
-        ContainerComments.readZipComment(built) != null ->
-            ContainerComments.readZipComment(built) == value
-        else -> false
+    /** Why this format will not take that particular field. */
+    private fun fieldRefusal(format: MetadataSupport.Format): String = if (format.custom) {
+        "${format.name} could not store that field. The name may contain a character the " +
+            "format reserves."
+    } else {
+        "${format.name} has a fixed set of fields and no slot for a name of your own. " +
+            "Filet writes " + format.fields.joinToString(", ") + "."
     }
 
     private suspend fun readAll(path: VPath): ByteArray =

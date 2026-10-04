@@ -1194,6 +1194,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         val loading: Boolean,
         val atRoot: Boolean,
         val onPick: (VPath) -> Unit,
+        /**
+         * When set, files that pass it are listed too and tapping one picks it.
+         *
+         * The picker stays one dialogue rather than becoming two. "Where should this go" and
+         * "which picture" are the same gesture over the same tree, and the only difference is
+         * whether a file row is tappable - so it is a predicate, not a second screen.
+         */
+        val takeFile: ((VNode) -> Boolean)? = null,
+        val onFile: ((VPath) -> Unit)? = null,
     )
 
     private val _folderPick = MutableStateFlow<FolderPick?>(null)
@@ -1212,11 +1221,41 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         loadPick(at)
     }
 
+    /**
+     * Browse for one file rather than a folder.
+     *
+     * Filet's own tree, not the system picker: a cover image may well be on a network share, and
+     * the platform chooser cannot see one of those. R3 - everything above the VFS goes through
+     * the VFS - also makes this the only honest way to do it.
+     */
+    fun pickFile(
+        title: String,
+        accept: (VNode) -> Boolean,
+        start: VPath? = null,
+        onPick: (VPath) -> Unit,
+    ) {
+        val at = start ?: focusedPane()?.state?.value?.cwd ?: return
+        _folderPick.value = FolderPick(
+            title, "Cancel", at, emptyList(), loading = true, atRoot = isVolumeRoot(at),
+            onPick = {}, takeFile = accept, onFile = onPick,
+        )
+        loadPick(at)
+    }
+
+    /** Take the file that was tapped, which only happens when the picker is after one. */
+    fun pickThisFile(path: VPath) {
+        val current = _folderPick.value ?: return
+        val onFile = current.onFile ?: return
+        _folderPick.value = null
+        onFile(path)
+    }
+
     /** Move the picker. The callback survives; only the location changes. */
     fun browsePick(to: VPath) {
         val current = _folderPick.value ?: return
         _folderPick.value = FolderPick(
-            current.title, current.confirmLabel, to, emptyList(), true, isVolumeRoot(to), current.onPick,
+            current.title, current.confirmLabel, to, emptyList(), true, isVolumeRoot(to),
+            current.onPick, current.takeFile, current.onFile,
         )
         loadPick(to)
     }
@@ -1238,17 +1277,21 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     private fun loadPick(at: VPath) {
         viewModelScope.launch {
-            // Folders only. A file is never a destination, and listing them would make the
-            // chooser a second file browser in which two rows in three cannot be tapped.
-            val entries = runCatching { graph.vfs.list(at).filter { it.isDir } }
+            // Folders only, unless the caller is after a file. Listing untappable files would
+            // make the chooser a second file browser in which two rows in three do nothing.
+            val take = _folderPick.value?.takeFile
+            val entries = runCatching {
+                graph.vfs.list(at).filter { it.isDir || (take != null && take(it)) }
+            }
                 .getOrElse { emptyList() }
-                .sortedBy { it.name.lowercase() }
+                .sortedWith(compareBy({ !it.isDir }, { it.name.lowercase() }))
             val current = _folderPick.value ?: return@launch
             // Someone can tap through faster than a slow volume lists. Only the listing for
             // where the picker actually is may be applied.
             if (current.at != at) return@launch
             _folderPick.value = FolderPick(
-                current.title, current.confirmLabel, at, entries, false, current.atRoot, current.onPick,
+                current.title, current.confirmLabel, at, entries, false, current.atRoot,
+                current.onPick, current.takeFile, current.onFile,
             )
         }
     }
@@ -2100,24 +2143,135 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                         }
                     }
                     var written = 0
+                    var refusal: String? = null
+                    var failure: String? = null
                     for ((key, value) in fields) {
-                        val r = graph.metadata.put(node.path, key, value)
-                        if (r is dev.niccc2007.filet.metadata.MetadataStore.Result.Ok) written++
+                        when (val r = graph.metadata.put(node.path, key, value)) {
+                            is dev.niccc2007.filet.metadata.MetadataStore.Result.Ok -> written++
+                            // A refusal is the format's answer and worth saying out loud. The
+                            // old version counted it as "nothing changed", so a field the
+                            // container cannot hold looked exactly like a field that was
+                            // already correct - which is how somebody types a value four times.
+                            is dev.niccc2007.filet.metadata.MetadataStore.Result.Refused ->
+                                if (refusal == null) refusal = r.why
+                            is dev.niccc2007.filet.metadata.MetadataStore.Result.Failed ->
+                                if (failure == null) failure = r.why
+                            dev.niccc2007.filet.metadata.MetadataStore.Result.Unchanged -> Unit
+                        }
                     }
-                    written
+                    Triple(written, refusal, failure)
                 }
             }
             onDone()
             result
-                .onSuccess {
-                    dev.niccc2007.filet.log.FiletLog.i("metadata", "wrote $it field(s) to ${node.path}")
-                    toast(if (it == 0) "Nothing changed" else "Saved $it field" + if (it == 1) "" else "s")
+                .onSuccess { (written, refusal, failure) ->
+                    dev.niccc2007.filet.log.FiletLog.i(
+                        "metadata",
+                        "wrote " + written + " field(s) to " + node.path +
+                            (if (refusal != null) " (refused: " + refusal + ")" else "") +
+                            (if (failure != null) " (failed: " + failure + ")" else ""),
+                    )
+                    toast(
+                        when {
+                            failure != null -> failure
+                            refusal != null && written == 0 -> refusal
+                            refusal != null -> "Saved " + written + ", and one field was refused"
+                            written == 0 -> "Nothing changed"
+                            else -> "Saved " + written + " field" + if (written == 1) "" else "s"
+                        },
+                    )
                     refreshPanes()
                 }
                 .onFailure {
                     dev.niccc2007.filet.log.FiletLog.e("metadata", "could not write ${node.path}", it)
                     toast("Could not write metadata: " + dev.niccc2007.filet.ops.FileOperations.readable(it))
                 }
+        }
+    }
+
+    /** The attached picture this file carries, if its container has one. */
+    suspend fun readCover(node: VNode): dev.niccc2007.filet.metadata.Cover? =
+        graph.metadata.cover(node.path)
+
+    /**
+     * Pick an image with Filet itself and make it the attached picture.
+     *
+     * The size check is here rather than in the store because it is about taste, not safety: a
+     * cover is carried inside every copy of the file forever, and a 12 MP photo pasted in as
+     * album art makes a four-minute song bigger than the album.
+     */
+    fun replaceCover(node: VNode, onDone: () -> Unit) {
+        pickFile(
+            "Choose a picture for " + node.name,
+            accept = { it.extension.lowercase() in setOf("jpg", "jpeg", "png", "webp", "gif") },
+        ) { picked ->
+            viewModelScope.launch {
+                val bytes = runCatching {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        graph.vfs.openRead(picked).use { it.readBytes() }
+                    }
+                }.getOrNull()
+                if (bytes == null) {
+                    toast("Could not read that picture.")
+                    onDone()
+                    return@launch
+                }
+                if (dev.niccc2007.filet.metadata.Cover.sniff(bytes) == null) {
+                    toast("That is not an image Filet recognises, so it was not attached.")
+                    onDone()
+                    return@launch
+                }
+                if (bytes.size > MAX_COVER_BYTES) {
+                    toast(
+                        "That picture is " + humanSize(bytes.size.toLong()) + ". Cover art is " +
+                            "carried inside the file itself, so Filet keeps it under " +
+                            humanSize(MAX_COVER_BYTES.toLong()) + ".",
+                    )
+                    onDone()
+                    return@launch
+                }
+                report(
+                    graph.metadata.putCover(node.path, dev.niccc2007.filet.metadata.Cover.of(bytes)),
+                    "Picture attached",
+                )
+                onDone()
+            }
+        }
+    }
+
+    fun removeCover(node: VNode, onDone: () -> Unit) {
+        viewModelScope.launch {
+            report(graph.metadata.removeCover(node.path), "Picture removed")
+            onDone()
+        }
+    }
+
+    /** Save the attached picture as a file of its own, beside the one it came out of. */
+    fun extractCover(node: VNode, onDone: () -> Unit) {
+        viewModelScope.launch {
+            val written = graph.metadata.extractCover(node.path)
+            if (written == null) {
+                toast("There is no picture in this file to extract.")
+            } else {
+                dev.niccc2007.filet.log.FiletLog.i("metadata", "extracted cover to " + written)
+                toast("Saved " + written.name)
+                refreshPanes()
+            }
+            onDone()
+        }
+    }
+
+    /** One sentence for whatever the store answered, so every cover action reports the same way. */
+    private fun report(result: dev.niccc2007.filet.metadata.MetadataStore.Result, done: String) {
+        when (result) {
+            is dev.niccc2007.filet.metadata.MetadataStore.Result.Ok -> {
+                dev.niccc2007.filet.log.FiletLog.i("metadata", done.lowercase())
+                toast(done)
+                refreshPanes()
+            }
+            dev.niccc2007.filet.metadata.MetadataStore.Result.Unchanged -> toast("Nothing changed")
+            is dev.niccc2007.filet.metadata.MetadataStore.Result.Refused -> toast(result.why)
+            is dev.niccc2007.filet.metadata.MetadataStore.Result.Failed -> toast(result.why)
         }
     }
 
@@ -4032,6 +4186,16 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
         /** Past this, copying a file into the cache just to play it is not worth the wait. */
         const val CACHE_COPY_LIMIT = 256L * 1024 * 1024
+
+        /**
+         * The largest picture worth attaching to a file.
+         *
+         * Not a safety limit - the store's rewrite ceiling is that. This is about what cover art
+         * is for: it is carried inside every copy of the file forever and displayed at a few
+         * hundred pixels, so a phone photo pasted in whole would multiply the file's size for no
+         * visible gain.
+         */
+        const val MAX_COVER_BYTES = 8 * 1024 * 1024
     }
 }
 

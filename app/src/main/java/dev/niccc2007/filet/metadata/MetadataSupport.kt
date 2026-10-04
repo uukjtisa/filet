@@ -22,6 +22,19 @@ package dev.niccc2007.filet.metadata
  *
  * The tiers are deliberately conservative. A format sitting in READ_ONLY costs a feature; a
  * format wrongly in FULL costs somebody their file.
+ *
+ * ## Every row points at the code that keeps its promise
+ *
+ * Three rows of this table were once pure fiction - MP3 claimed an attached picture, EXIF claimed
+ * nine fields, WebP claimed a comment slot, and not one of the three had any code behind it at
+ * all. They were not spotted by review; they were spotted by somebody opening a file and finding
+ * nothing there.
+ *
+ * The fix is structural rather than a round of corrections. Every [Format] now names its
+ * [MetadataContainer], its field list is read **out of** that container rather than typed again
+ * here, and `MetadataSupportTest` asserts that a row cannot claim a tier or a capability its
+ * container does not implement. A fictional row is now a failing test rather than a disappointed
+ * user.
  */
 object MetadataSupport {
 
@@ -41,9 +54,10 @@ object MetadataSupport {
 
     /**
      * @param extensions lowercase, no dot.
+     * @param engine the code that actually does it. Not optional, and checked against the claims.
      * @param custom whether arbitrary user-named keys can be stored. A format without this can
      *   only hold the fields it defines, so "secret note" has nowhere to go.
-     * @param binary whether arbitrary bytes - an embedded image, for instance - can be stored.
+     * @param binary whether an attached picture can be stored.
      * @param caveat what the tier does not cover. Required on anything below FULL, because a
      *   tier without a reason is a claim nobody can check.
      */
@@ -51,6 +65,7 @@ object MetadataSupport {
         val name: String,
         val extensions: List<String>,
         val tier: Tier,
+        val engine: MetadataContainer,
         val fields: List<String>,
         val custom: Boolean,
         val binary: Boolean,
@@ -69,16 +84,20 @@ object MetadataSupport {
             name = "PNG",
             extensions = listOf("png"),
             tier = Tier.FULL,
+            engine = PngContainer,
             // tEXt and iTXt keys are arbitrary by specification, which is why this is the one
-            // format where a custom key and an embedded image both work without a trick.
+            // image format where a field of your own naming works without a trick.
             fields = listOf("Title", "Author", "Description", "Copyright", "Creation Time", "Software"),
             custom = true,
-            binary = true,
+            // A PNG is itself the picture. There is no second image to attach to it, and the
+            // table used to say there was.
+            binary = false,
         ),
         Format(
             name = "JPEG comment",
             extensions = listOf("jpg", "jpeg"),
             tier = Tier.FULL,
+            engine = JpegCommentContainer,
             // The COM segment, not EXIF. A comment is a length-prefixed segment that can be
             // replaced without touching anything else in the file.
             fields = listOf("Comment"),
@@ -89,6 +108,7 @@ object MetadataSupport {
             name = "ZIP",
             extensions = listOf("zip", "apk", "jar", "xapk", "apkm"),
             tier = Tier.FULL,
+            engine = ZipContainer,
             // The archive comment lives after the central directory and is length-prefixed in
             // the end-of-central-directory record. Nothing inside the archive moves.
             fields = listOf("Comment"),
@@ -101,32 +121,91 @@ object MetadataSupport {
             name = "GIF",
             extensions = listOf("gif"),
             tier = Tier.FULL,
+            engine = GifContainer,
             fields = listOf("Comment"),
             custom = false,
             binary = false,
+        ),
+        Format(
+            name = "FLAC",
+            extensions = listOf("flac"),
+            tier = Tier.FULL,
+            engine = FlacContainer,
+            // The one lossless format that is genuinely easy: the comment block is at the front
+            // and length-prefixed, and SEEKTABLE offsets are measured from the first audio frame
+            // rather than from the start of the file - so resizing the header moves nothing that
+            // anything points at.
+            fields = VorbisComment.FIELDS.map { it.first },
+            custom = true,
+            binary = true,
         ),
 
         // ── conditional ───────────────────────────────────────────────────────────────
         Format(
-            name = "WebP",
-            extensions = listOf("webp"),
-            tier = Tier.PARTIAL,
-            fields = listOf("Comment"),
-            custom = false,
-            binary = false,
-            caveat = "Extended (VP8X) files only. A simple lossy or lossless WebP has no " +
-                "chunk to put metadata in and would have to be rewritten into the extended " +
-                "form, which re-encodes the image.",
-        ),
-        Format(
             name = "MP3 (ID3v2)",
             extensions = listOf("mp3"),
             tier = Tier.PARTIAL,
-            fields = listOf("Title", "Artist", "Album", "Year", "Track", "Genre", "Comment"),
+            engine = Id3Container,
+            fields = Id3.FIELDS.map { it.second },
+            // An ID3 tag has a fixed set of frames. TXXX would allow a named one, and inventing
+            // a frame for a typo is worse than refusing the field.
+            custom = false,
+            binary = true,
+            caveat = "ID3v2.3 and 2.4 only, and always written back as 2.3. A file with an " +
+                "ID3v1 tag at the end keeps it, and the two can then disagree - players differ " +
+                "on which they believe.",
+        ),
+        Format(
+            name = "Ogg / Opus",
+            extensions = listOf("ogg", "opus", "oga", "spx"),
+            tier = Tier.PARTIAL,
+            engine = OggContainer,
+            fields = VorbisComment.FIELDS.map { it.first },
             custom = true,
             binary = true,
-            caveat = "ID3v2.3 and 2.4 only. A file with an ID3v1 tag at the end keeps it, and " +
-                "the two can then disagree - players differ on which they believe.",
+            caveat = "One logical stream per file. Changing the tag means re-paginating from " +
+                "the comment packet and recomputing every page checksum after it, which is done " +
+                "- but a chained or multiplexed file has several streams and no way to tell " +
+                "which one you meant.",
+        ),
+        Format(
+            name = "MP4 / M4A",
+            extensions = listOf("mp4", "m4v", "m4a", "m4b", "mov"),
+            tier = Tier.PARTIAL,
+            engine = Mp4Container,
+            fields = Mp4Tags.FIELDS.map { it.first },
+            custom = false,
+            binary = true,
+            caveat = "Tags live in a moov atom, and resizing it moves the media after it - so " +
+                "every chunk offset in stco and co64 is corrected by the same amount. " +
+                "Fragmented files keep offsets outside moov as well and are refused.",
+        ),
+        Format(
+            name = "PDF",
+            extensions = listOf("pdf"),
+            tier = Tier.PARTIAL,
+            engine = PdfContainer,
+            fields = PdfInfo.FIELDS.map { it.first },
+            custom = false,
+            binary = false,
+            caveat = "Written as an incremental update: the new properties are appended and not " +
+                "one original byte is touched, so even a signed PDF keeps its signature. A file " +
+                "whose cross-reference table is a compressed stream is read but not extended.",
+        ),
+        Format(
+            name = "Office document",
+            extensions = listOf(
+                "docx", "docm", "dotx", "dotm", "xlsx", "xlsm", "xltx", "xltm",
+                "pptx", "pptm", "potx", "ppsx",
+            ),
+            tier = Tier.PARTIAL,
+            engine = OoxmlContainer,
+            fields = Ooxml.FIELDS.map { it.first },
+            custom = false,
+            binary = false,
+            caveat = "The properties are an XML file inside the zip, and only that one entry is " +
+                "rewritten - everything else is copied still compressed, in its original order. " +
+                "A package that has no properties file yet is refused rather than given one.",
         ),
 
         // ── read only ─────────────────────────────────────────────────────────────────
@@ -134,10 +213,8 @@ object MetadataSupport {
             name = "JPEG EXIF",
             extensions = listOf("jpg", "jpeg"),
             tier = Tier.READ_ONLY,
-            fields = listOf(
-                "Camera", "Lens", "Exposure", "Aperture", "ISO", "Focal length",
-                "Date taken", "Orientation", "GPS",
-            ),
+            engine = JpegExifContainer,
+            fields = Exif.FIELDS,
             custom = false,
             binary = false,
             caveat = "EXIF is a TIFF structure of internal offsets. Changing the length of any " +
@@ -145,39 +222,16 @@ object MetadataSupport {
                 "unreadable - including the thumbnail some galleries show instead of the photo.",
         ),
         Format(
-            name = "MP4 / M4A",
-            extensions = listOf("mp4", "m4v", "m4a", "mov"),
+            name = "WebP EXIF",
+            extensions = listOf("webp"),
             tier = Tier.READ_ONLY,
-            fields = listOf("Title", "Artist", "Album", "Duration", "Resolution", "Date"),
+            engine = WebpExifContainer,
+            fields = Exif.FIELDS,
             custom = false,
             binary = false,
-            caveat = "Tags live in a moov atom whose size is recorded in its own header and " +
-                "whose position the sample tables point at. Growing it moves every offset in " +
-                "the file, and a video that plays until it silently stops halfway is worse " +
-                "than one that will not open at all.",
-        ),
-        Format(
-            name = "PDF",
-            extensions = listOf("pdf"),
-            tier = Tier.READ_ONLY,
-            fields = listOf("Title", "Author", "Subject", "Keywords", "Producer", "Created"),
-            custom = false,
-            binary = false,
-            caveat = "The Info dictionary is reachable only through the cross-reference table, " +
-                "which records a byte offset for every object. Rewriting it correctly means " +
-                "rebuilding the xref, and getting that wrong produces a file that opens in one " +
-                "reader and not another.",
-        ),
-        Format(
-            name = "FLAC / OGG",
-            extensions = listOf("flac", "ogg", "opus", "oga"),
-            tier = Tier.READ_ONLY,
-            fields = listOf("Title", "Artist", "Album", "Date", "Comment"),
-            custom = false,
-            binary = false,
-            caveat = "Vorbis comments are writable in principle, but in Ogg they sit inside a " +
-                "page stream whose CRCs and granule positions have to be recomputed across " +
-                "every page that shifts.",
+            caveat = "The same camera record a JPEG carries, in a RIFF chunk instead. Writing " +
+                "it has the same offset problem, and a simple WebP has no chunk to add metadata " +
+                "to at all without re-encoding the image.",
         ),
     )
 
@@ -187,12 +241,28 @@ object MetadataSupport {
         return FORMATS.filter { e in it.extensions }.sortedBy { it.tier.ordinal }
     }
 
+    /**
+     * Every format whose container also recognises these bytes, most capable first.
+     *
+     * The extension alone is a hint - a `.m4a` that is really an MP3 is a thing that happens -
+     * and asking the container settles it.
+     */
+    fun forFile(ext: String, bytes: ByteArray): List<Format> =
+        forExtension(ext).filter { it.engine.matches(ext, bytes) }
+
     /** The best writable format for [ext], or null if nothing here may write it. */
     fun writerFor(ext: String): Format? =
         forExtension(ext).firstOrNull { it.tier != Tier.READ_ONLY }
 
+    /** The same, confirmed against the bytes rather than trusting the name. */
+    fun writerFor(ext: String, bytes: ByteArray): Format? =
+        forFile(ext, bytes).firstOrNull { it.tier != Tier.READ_ONLY }
+
     /** Whether anything at all can be written to a file with this extension. */
     fun canWrite(ext: String): Boolean = writerFor(ext) != null
+
+    /** Every format that can carry an attached picture. */
+    fun withPictures(): List<Format> = FORMATS.filter { it.binary }
 
     /**
      * Why a write was refused, in words that name the format's problem rather than the app's.

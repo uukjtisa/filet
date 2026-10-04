@@ -60,6 +60,8 @@ fun FolderPicker(
     onUp: () -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    /** Set when the caller wants a file: the rows become tappable and the confirm button goes. */
+    onFile: ((VPath) -> Unit)? = null,
 ) {
     val colors = Filet.colors
     Dlg(onDismiss = onDismiss) {
@@ -82,14 +84,24 @@ fun FolderPicker(
                     }
                 }
                 items(entries, key = { it.path.path }) { node ->
-                    PickRow(FiletIcons.Folder, node.name, MaterialTheme.colorScheme.onSurface) { onOpen(node.path) }
+                    if (node.isDir) {
+                        PickRow(FiletIcons.Folder, node.name, MaterialTheme.colorScheme.onSurface) { onOpen(node.path) }
+                    } else {
+                        PickRow(FiletIcons.Image, node.name, Filet.colors.accent) {
+                            onFile?.invoke(node.path)
+                        }
+                    }
                 }
                 if (entries.isEmpty()) {
                     item(key = "empty") {
                         Text(
-                            // "No folders" and not "empty": an empty folder is a perfectly
-                            // good destination, and the row has to not read as a failure.
-                            if (loading) "Reading…" else "No folders in here",
+                            when {
+                                loading -> "Reading…"
+                                onFile != null -> "Nothing to choose in here"
+                                // "No folders" and not "empty": an empty folder is a perfectly
+                                // good destination, and the row has to not read as a failure.
+                                else -> "No folders in here"
+                            },
                             fontSize = 10.5.sp,
                             color = colors.fg3,
                             modifier = Modifier.padding(vertical = 10.dp),
@@ -100,7 +112,11 @@ fun FolderPicker(
         }
         DlgFooter {
             DlgBtn("Cancel", onClick = onDismiss)
-            DlgBtn(confirmLabel, kind = BtnKind.PRIMARY, onClick = onConfirm)
+            // A file is picked by tapping it, so there is nothing for a confirm button to mean.
+            // Drawing one that cannot be pressed is the dead control R1 forbids.
+            if (onFile == null) {
+                DlgBtn(confirmLabel, kind = BtnKind.PRIMARY, onClick = onConfirm)
+            }
         }
     }
 }

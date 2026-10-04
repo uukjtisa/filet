@@ -35,8 +35,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.asImageBitmap
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
+import dev.niccc2007.filet.browser.humanSize
 import dev.niccc2007.filet.handlers.ViewerAction
 import dev.niccc2007.filet.handlers.ViewerBar
 import dev.niccc2007.filet.ui.dialogs.DlgTick
@@ -54,13 +56,16 @@ import dev.niccc2007.filet.vfs.VNode
  * standard fields, the arbitrary ones, the backup tick and the collapsible format matrix are all
  * the mock's, in its order.
  *
- * ## One thing in the mock that is deliberately not here
+ * ## The cover art block, which took a second round to earn
  *
- * The mock draws a **cover art** block with Replace, Extract and Remove. `MetadataStore` writes
- * string values and has no binary path at all, so those three buttons would be drawn, enabled,
- * and do nothing - which is exactly the dead control R1 forbids, and it is the fault this app has
- * already fixed twice on other screens. The block is left out until the engine can honour it, and
- * the formats that take an attached picture still say so in the matrix.
+ * The mock draws **cover art** with Replace, Extract and Remove, and the first version of this
+ * screen left it out: the store wrote string values and had no binary path at all, so three
+ * buttons would have been drawn, enabled, and dead. That was the right call then and the wrong
+ * state to leave it in - the block is the part somebody actually opens a metadata editor for.
+ *
+ * The engine now carries pictures in five containers, so the block is here. Extract and Remove
+ * appear only when there is something to extract or remove, which is the same R1 rule that kept
+ * the whole block out before.
  */
 @Composable
 fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
@@ -78,10 +83,23 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
     // the file, and a field that commits as you type would rewrite it per keystroke.
     val fields = remember(node.path) { mutableStateListOf<Pair<String, String>>() }
     var dirty by remember(node.path) { mutableStateOf(false) }
+    // What the file said when it was opened, so Save can send only what actually changed. The
+    // store rewrites the whole container once per field, so saving eight untouched fields
+    // rewrites the file eight times to no purpose.
+    val asOpened = remember(node.path) { mutableStateListOf<Pair<String, String>>() }
+
+    var cover by remember(node.path) { mutableStateOf<Cover?>(null) }
+    var coverPass by remember(node.path) { mutableStateOf(0) }
+
+    LaunchedEffect(node.path, coverPass) {
+        cover = runCatching { vm.readCover(node) }.getOrNull()
+    }
 
     LaunchedEffect(node.path) {
         fields.clear()
         fields.addAll(runCatching { vm.readMetadata(node) }.getOrDefault(emptyList()))
+        asOpened.clear()
+        asOpened.addAll(fields)
         // Every field the format declares, shown whether or not the file carries it yet - an
         // empty Title is a thing to fill in, and a writer that only lists what is already there
         // can never add anything.
@@ -99,9 +117,14 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
         ) {
             ViewerAction(FiletIcons.Check, "Save", enabled = dirty && !busy && format != null) {
                 busy = true
-                vm.writeMetadata(node, fields.toList(), backup) {
+                val changed = fields.filter { (key, value) ->
+                    asOpened.none { it.first.equals(key, ignoreCase = true) && it.second == value }
+                }
+                vm.writeMetadata(node, changed, backup) {
                     busy = false
                     dirty = false
+                    asOpened.clear()
+                    asOpened.addAll(fields)
                 }
             }
         }
@@ -115,6 +138,29 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
 
         LazyColumn(Modifier.fillMaxSize()) {
             item { SupportBanner(format, readable, node.extension) { matrixOpen = !matrixOpen } }
+
+            // Above the fields, as the mock has it: a picture is the first thing anyone looks for
+            // in a music file's metadata, and the one part of it that is not a line of text.
+            if (format?.binary == true) {
+                item {
+                    CoverBlock(
+                        cover = cover,
+                        busy = busy,
+                        onReplace = {
+                            busy = true
+                            vm.replaceCover(node) { busy = false; coverPass++ }
+                        },
+                        onExtract = {
+                            busy = true
+                            vm.extractCover(node) { busy = false }
+                        },
+                        onRemove = {
+                            busy = true
+                            vm.removeCover(node) { busy = false; coverPass++ }
+                        },
+                    )
+                }
+            }
 
             if (format != null) {
                 item { FieldGroup("Standard fields") }
@@ -182,6 +228,116 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
             item { Spacer(Modifier.height(24.dp)) }
         }
     }
+}
+
+/**
+ * The attached picture, and the three things worth doing to it.
+ *
+ * The thumbnail is decoded from the bytes in the tag rather than taken from a thumbnail cache,
+ * because the question this block answers is "what picture is actually inside this file" - and a
+ * cached answer to that is the one thing that would make it untrustworthy.
+ */
+@Composable
+private fun CoverBlock(
+    cover: Cover?,
+    busy: Boolean,
+    onReplace: () -> Unit,
+    onExtract: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val colors = Filet.colors
+    val bitmap = remember(cover) {
+        cover?.let {
+            runCatching {
+                android.graphics.BitmapFactory.decodeByteArray(it.bytes, 0, it.bytes.size)
+            }.getOrNull()
+        }
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(
+            Modifier
+                .size(84.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(colors.sunken)
+                .border(1.dp, colors.lineSoft, RoundedCornerShape(11.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (bitmap != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "The attached picture",
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(FiletIcons.Image, null, tint = colors.fg3, modifier = Modifier.size(26.dp))
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "Cover art",
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (cover == null) {
+                    "Nothing attached yet. A picture added here lives inside the file, so it " +
+                        "travels with it rather than sitting beside it."
+                } else {
+                    buildString {
+                        append(cover.mime.substringAfterLast('/').uppercase())
+                        if (bitmap != null) {
+                            append(" · ")
+                            append(bitmap.width)
+                            append('×')
+                            append(bitmap.height)
+                        }
+                        append(" · ")
+                        append(humanSize(cover.bytes.size.toLong()))
+                        if (cover.description.isNotBlank()) {
+                            append(" · ")
+                            append(cover.description)
+                        }
+                    }
+                },
+                fontSize = 10.5.sp,
+                color = colors.fg3,
+                lineHeight = 14.5.sp,
+            )
+            Spacer(Modifier.height(9.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Chip(if (cover == null) "Attach…" else "Replace…", !busy, onReplace)
+                // Only when there is something to act on. Three buttons of which two can do
+                // nothing is the dead control this screen already refused once.
+                if (cover != null) {
+                    Chip("Extract", !busy, onExtract)
+                    Chip("Remove", !busy, onRemove)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Chip(label: String, enabled: Boolean, onClick: () -> Unit) {
+    val colors = Filet.colors
+    Text(
+        label,
+        fontSize = 11.sp,
+        color = if (enabled) colors.fg2 else colors.fg3,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(colors.sunken)
+            .border(1.dp, colors.lineSoft, RoundedCornerShape(8.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    )
 }
 
 /**

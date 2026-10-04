@@ -120,6 +120,7 @@ fun FiletDialogs(vm: BrowserViewModel) {
             onUp = vm::pickUp,
             onConfirm = vm::confirmPick,
             onDismiss = vm::cancelPick,
+            onFile = if (p.takeFile == null) null else vm::pickThisFile,
         )
     }
 
