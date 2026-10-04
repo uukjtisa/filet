@@ -61,11 +61,64 @@ SHOTS = [
 #: About field are one message rather than two. The word on the left is the claim; the line
 #: beside it is what a reader can go and check, which is the only reason the claim is allowed
 #: to be an abstract noun at all.
+#: Ordered long, short, long, short so the left column alternates instead of stacking its two
+#: eleven-letter words on top of each other - and, read down, it is also the order the work
+#: happens in: find it, do something to it, whatever it turns out to be, send it on.
+#:
+#: Every proof is one verb phrase of about the same length. They were four different shapes
+#: before - a noun triplet, a noun phrase, two verbs, a preposition - which is why the right
+#: column read as four unrelated sentences rather than as a set.
 PILLARS = [
-    ("Versatility", "every archive, every drive, every format"),
-    ("Convenience", "whole-device search in milliseconds"),
-    ("Power", "edit inside archives and APKs, script it in Lua"),
-    ("Sharing", "to any browser on your network"),
+    ("Convenience", "search the whole device in milliseconds"),
+    ("Power", "edit inside archives, APKs and dex"),
+    ("Versatility", "open any archive, any drive, any format"),
+    ("Sharing", "send to any browser, nothing installed"),
+]
+
+#: Rings and arrows drawn onto a copy of a single screenshot, for the detail strip.
+#:
+#: **Not onto the banner.** A banner points at nothing: it is the first thing anybody sees and
+#: its job is to look like the product, not to teach. Annotation belongs on the shots further
+#: down, where somebody is already reading and a pointer answers a question they now have.
+#:
+#: Each box is in fractions of the SCREENSHOT rather than in pixels, so it survives the shot
+#: being re-taken at another size.
+CALLOUTS = {
+    "01-home.png": [
+        {
+            "box": (0.512, 0.286, 0.964, 0.395),
+            "label": "your PC, mounted as a drive",
+            "side": "left",
+        },
+    ],
+}
+
+#: The category, said small, because the headline below no longer says it.
+#:
+#: A flagship page states what the thing IS in an eyebrow and spends the headline on what it
+#: does for you. Dropping the eyebrow and letting the headline carry both is what produced "A
+#: file manager that does real work" - a sentence that names the category twice over and
+#: promises nothing a competitor would not also claim.
+EYEBROW = "ANDROID FILE MANAGER"
+
+#: The four pillars, named, each with the thing that makes it true.
+#:
+#: The same four the repository description names and in the same order, so the banner and the
+#: About field are one message rather than two. The word on the left is the claim; the line
+#: beside it is what a reader can go and check, which is the only reason the claim is allowed
+#: to be an abstract noun at all.
+#: Ordered long, short, long, short so the left column alternates instead of stacking its two
+#: eleven-letter words on top of each other - and, read down, it is also the order the work
+#: happens in: find it, do something to it, whatever it turns out to be, send it on.
+#:
+#: Every proof is one verb phrase of about the same length. They were four different shapes
+#: before - a noun triplet, a noun phrase, two verbs, a preposition - which is why the right
+#: column read as four unrelated sentences rather than as a set.
+PILLARS = [
+    ("Convenience", "search the whole device in milliseconds"),
+    ("Power", "edit inside archives, APKs and dex"),
+    ("Versatility", "open any archive, any drive, any format"),
+    ("Sharing", "send to any browser, nothing installed"),
 ]
 
 #: Rings and arrows drawn onto a copy of a single screenshot, for the detail strip.
@@ -402,7 +455,7 @@ def main():
 
     # ── the left block ───────────────────────────────────────────────────────────────────
     x = 150
-    y = 250
+    y = 252
     title = font("Fraunces", 124, "Bold")
     if os.path.exists(ICON):
         icon = Image.open(ICON).convert("RGBA").resize((96, 96), Image.LANCZOS)
@@ -417,24 +470,25 @@ def main():
 
     eyebrow = font("Inter", 20, "SemiBold")
     spaced(draw, (x + 1, y), EYEBROW, eyebrow, FG3, 2.6)
-    y += 44
+    y += 70
 
-    tag = font("Inter", 48, "SemiBold")
-    for line in TAGLINE:
-        draw.text((x, y), line, font=tag, fill=FG)
+    # The pillars, hung off a shared vertical axis: the claims end where the proofs begin.
+    #
+    # Right-aligning the left column is the whole of the layout. Set flush left, four words of
+    # five to eleven letters leave a ragged gutter down the middle of the block and the rows
+    # stop looking related; hung off one axis they read as a table somebody drew on purpose.
+    name = font("Inter", 27, "SemiBold")
+    proof = font("Inter", 25, "Regular")
+    axis = x + 196
+    for i, (word, line) in enumerate(PILLARS):
+        if i:
+            # A hairline between rows rather than a box around the block. It separates without
+            # enclosing, so the list stays part of the page instead of becoming a card on it.
+            draw.line([(x, y - 17), (axis + 470, y - 17)], fill=LINE, width=1)
+        draw.text((axis - draw.textlength(word, font=name), y), word, font=name, fill=ACCENT)
+        draw.text((axis + 30, y + 2), line, font=proof, fill=FG2)
         y += 58
-    y += 32
-
-    # The pillars, as a two-column list: the claim, then what makes it true. A fixed first
-    # column rather than a measured one, so the proofs line up with each other down the page -
-    # which is what makes four rows read as a set rather than as four sentences.
-    name = font("Inter", 26, "SemiBold")
-    proof = font("Inter", 24, "Regular")
-    for word, line in PILLARS:
-        draw.text((x, y), word, font=name, fill=ACCENT)
-        draw.text((x + 196, y + 1), line, font=proof, fill=FG2)
-        y += 45
-    y += 40
+    y += 30
 
     foot = font("Inter", 23, "Regular")
     draw.text((x, y), "GPL-3.0  \u00b7  Android 8.0+  \u00b7  no ads, no accounts, no telemetry",
