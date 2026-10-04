@@ -12,7 +12,6 @@
 [![Release](https://img.shields.io/github/v/release/uukjtisa/filet?style=for-the-badge&color=4E7382&label=release)](https://github.com/uukjtisa/filet/releases/latest)
 [![Status](https://img.shields.io/badge/early%20development-C25E3A?style=for-the-badge)](FIXES.md)
 
-Companion to **[Trawl](https://github.com/uukjtisa/trawl)**.
 Built by **[Niccc2007](https://github.com/uukjtisa)**.
 
 </div>

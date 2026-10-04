@@ -112,7 +112,21 @@ data class DropPlan(
         }
 }
 
-data class VolumeInfo(val node: VNode, val label: String, val free: Long?, val total: Long?)
+/**
+ * A storage card's data.
+ *
+ * @param remote whether this volume is reached over the network. Carried on the row rather than
+ *   re-derived in the UI from the path's scheme: the scheme test that was there read `local` as
+ *   the only on-device scheme, and `root:` and `saf:` are not it - so a card on this very phone
+ *   could be treated as an unreachable network drive and taken off Home.
+ */
+data class VolumeInfo(
+    val node: VNode,
+    val label: String,
+    val free: Long?,
+    val total: Long?,
+    val remote: Boolean = false,
+)
 
 /** The APK toolchain's actions, for the one function that says whether each can run. */
 enum class ApkAction { DECOMPILE, REBUILD, SIGN, MANIFEST, INSTALL }
@@ -235,10 +249,30 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     val registry get() = graph.registry
 
-    /** Re-measure every volume: a card can be unmounted while the app is backgrounded. */
+    /**
+     * Re-measure every volume: a card can be unmounted while the app is backgrounded.
+     *
+     * **A failed read never blanks the cards.** `roots()` returning nothing is not the same fact
+     * as there being no volumes - it is also what a throw looks like after `getOrElse`, and the
+     * reported fault of the drive information vanishing *as though Filet had been disconnected
+     * from its own device* is exactly that: a list replaced by the result of a read that failed.
+     * The previous list is kept instead, and the failure is recorded rather than rendered.
+     *
+     * An empty list is still allowed to win when it is the truth, which is the first run, before
+     * any volume has been seen.
+     */
     suspend fun loadVolumes() {
-        val roots = runCatching { graph.vfs.roots() }.getOrElse { emptyList() }
-        _state.update { it.copy(volumes = volumeInfos(roots)) }
+        val roots = runCatching { graph.vfs.roots() }.getOrNull()
+        if (roots == null) {
+            dev.niccc2007.filet.log.FiletLog.w("volumes", "roots() failed; keeping the cards that were already there")
+            return
+        }
+        if (roots.isEmpty() && _state.value.volumes.isNotEmpty()) {
+            dev.niccc2007.filet.log.FiletLog.w("volumes", "roots() came back empty over " +
+                _state.value.volumes.size + " known volume(s); keeping them")
+            return
+        }
+        measureVolumes(roots)
     }
 
     /**
@@ -302,9 +336,25 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         watchDiscoveredAddresses()
         watchNetworkMoves()
         viewModelScope.launch {
-            val roots = runCatching { graph.vfs.roots() }.getOrElse { emptyList() }
-            _state.update { it.copy(volumes = volumeInfos(roots)) }
-            restoreTabs(roots.firstOrNull()?.path)
+            val roots = dev.niccc2007.filet.log.FiletLog.span("launch", "vfs.roots") {
+                runCatching { graph.vfs.roots() }.getOrElse { emptyList() }
+            }
+            // The order here is the whole of the slow cold start, and it was the wrong way round.
+            //
+            // Measuring the volumes came first and `restoreTabs` - the panes, which is the part
+            // somebody is looking at - came after it. Measuring a volume asks it for its free
+            // space, and for a mounted share that is a network round trip: one that is asleep
+            // costs a connect timeout per saved address, twice over, before it gives up. Two
+            // shares that are away were enough to hold the first screen for twenty seconds, and
+            // nothing on it needed them.
+            //
+            // So the tabs go first and the drives fill in behind them. Same work, and the screen
+            // is usable while it happens.
+            dev.niccc2007.filet.log.FiletLog.span("launch", "restoreTabs") { restoreTabs(roots.firstOrNull()?.path) }
+            // The number that matters, and the one the report was about: everything a person
+            // looks at on opening Filet is on screen by here. What follows fills in figures.
+            dev.niccc2007.filet.log.FiletLog.i("launch", "first screen ready at +" + dev.niccc2007.filet.log.FiletLog.sinceStart() + "ms")
+            loadVolumes()
             updateIndexOnOpen(roots)
         }
     }
@@ -337,13 +387,105 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * Home showed a bar-less card depending on which code path had last refreshed. One
      * function, so the two cannot disagree again.
      */
-    private suspend fun volumeInfos(roots: List<VNode>): List<VolumeInfo> = roots.map { node ->
-        VolumeInfo(
-            node = node,
-            label = volumeLabel(node),
-            free = runCatching { graph.vfs.freeSpace(node.path) }.getOrNull(),
-            total = runCatching { graph.vfs.totalSpace(node.path) }.getOrNull(),
-        )
+    /**
+     * The cards, carrying whatever was last measured.
+     *
+     * **A figure already known is never thrown away to re-measure it**, and that is the point of
+     * this function rather than a plain map. Home hides a card whose figures are null, so
+     * publishing the list unmeasured - which is what makes the cards appear before the slow
+     * volumes answer - would make every one of them vanish and come back on each pass. The first
+     * version of this did exactly that, every eight seconds.
+     *
+     * It is also the reported fault, from the other direction: *the home drives information
+     * disappears as if Filet got disconnected from my device*. A volume whose measurement fails
+     * once - a busy superuser shell, a document provider that declines for a moment - lost its
+     * figures, and losing its figures is losing its card. Now a failure leaves the last known
+     * figure in place; only `roots()` no longer listing a volume takes it off the screen, which
+     * is the one signal that actually means it is gone.
+     */
+    private suspend fun volumeInfos(roots: List<VNode>): List<VolumeInfo> {
+        val known = _state.value.volumes.associateBy { it.node.path }
+        return roots.map { node ->
+            val before = known[node.path]
+            VolumeInfo(
+                node = node,
+                label = volumeLabel(node),
+                free = before?.free,
+                total = before?.total,
+                remote = graph.vfs.isRemote(node.path),
+            )
+        }
+    }
+
+    /**
+     * Draw every card at once, then fill in its figures as they arrive.
+     *
+     * Three separate costs were being paid in series here, and all three are avoidable:
+     *
+     *  1. **The cards waited for the slowest volume.** Nothing is shown until the whole list is
+     *     built, so one sleeping share decided when Home appeared. Now the cards are published
+     *     unmeasured - a card with no figure yet is a card you can read and tap - and each figure
+     *     lands when it lands.
+     *  2. **The volumes were measured one after another.** They are independent, and a local
+     *     volume answers in microseconds while a remote one may never answer. Measured together.
+     *  3. **Nothing was bounded.** A remote with several saved addresses tries each in turn, and
+     *     an asleep device costs a connect timeout on every one - then does it again for the
+     *     total. [MEASURE_BUDGET_MS] caps the whole measurement of one volume, so a drive that is
+     *     away costs one budget rather than an unbounded sum of timeouts.
+     */
+    /**
+     * Consecutive failed measurements per volume, for the backoff.
+     *
+     * Per volume rather than one flag for all of them: a sleeping share must not slow down the
+     * polling of a local disk that is answering in a millisecond.
+     */
+    private val failures = java.util.concurrent.ConcurrentHashMap<dev.niccc2007.filet.vfs.VPath, Int>()
+
+    /** Measurement passes so far, which is what the backoff counts in. */
+    private var passes = 0L
+
+    private suspend fun measureVolumes(roots: List<VNode>) {
+        _state.update { it.copy(volumes = volumeInfos(roots)) }
+        if (roots.isEmpty()) return
+        passes++
+        kotlinx.coroutines.coroutineScope {
+            for (node in roots) {
+                // A volume that is not answering is not asked again on every pass. One sleeping
+                // share was costing five seconds of the eight-second poll, for ever, to be told
+                // the same thing - and the backoff is what makes the poll affordable rather than
+                // something to switch off.
+                if (!VolumePolling.shouldProbe(passes, failures[node.path] ?: 0)) continue
+                launch {
+                    val began = System.nanoTime()
+                    val measured = runCatching {
+                        kotlinx.coroutines.withTimeout(MEASURE_BUDGET_MS) {
+                            graph.vfs.freeSpace(node.path) to graph.vfs.totalSpace(node.path)
+                        }
+                    }.getOrNull()
+                    val ms = (System.nanoTime() - began) / 1_000_000
+                    if (measured == null) {
+                        dev.niccc2007.filet.log.FiletLog.w("volumes", "no figures for " + node.path + " after " + ms + "ms")
+                        // Nothing is written back. The card keeps the last figure it had rather
+                        // than losing it - and with it, losing its place on Home.
+                        failures[node.path] = (failures[node.path] ?: 0) + 1
+                        return@launch
+                    }
+                    failures.remove(node.path)
+                    dev.niccc2007.filet.log.FiletLog.mark("volumes", "measured " + node.path, ms)
+                    // Patched in by path rather than by rebuilding the list: the list can have
+                    // been replaced underneath this while a slow volume was still answering, and
+                    // writing a whole list back would undo whatever changed in the meantime.
+                    _state.update { st ->
+                        st.copy(
+                            volumes = st.volumes.map { v ->
+                                if (v.node.path != node.path) v
+                                else v.copy(free = measured.first, total = measured.second)
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 
     // ── tabs ──
@@ -544,8 +686,19 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * somebody is reading a folder is noise.
      */
     private fun watchNetworkMoves(): kotlinx.coroutines.Job = viewModelScope.launch {
+        // The value present when this attaches is the network the app STARTED on, which is not a
+        // move. Acting on it measured every volume a second time during the launch, concurrently
+        // with the first pass - visible in the log as two of every line, and it cost about a
+        // second of a cold start to learn nothing. Skipping a fixed number would have been wrong:
+        // if the app starts with no network, the first bump IS a real change, and this skips the
+        // baseline rather than the first event.
+        var baseline: Long? = null
         graph.netWatch.moves.collect { moves ->
-            if (moves == 0L) return@collect
+            if (baseline == null) {
+                baseline = moves
+                return@collect
+            }
+            dev.niccc2007.filet.log.FiletLog.i("net", "network moved (" + moves + ")")
             _state.update { it.copy(networkMoves = moves) }
             applyRefresh(RefreshTarget.VOLUMES, null)
             applyRefresh(RefreshTarget.REMOTES, null)
@@ -2096,6 +2249,22 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * Same reason as the received folder: a tool that writes somewhere and cannot show you
      * where is only slightly better than one that does not write at all.
      */
+    /** Open the folder this run's log is being written into. */
+    fun openLogsFolder() {
+        val pane = focusedPane() ?: return
+        viewModelScope.launch {
+            val folder = dev.niccc2007.filet.vfs.VPath.of(
+                "local",
+                "/storage/emulated/0/" + dev.niccc2007.filet.log.FiletLog.FOLDER,
+            )
+            if (runCatching { graph.vfs.stat(folder) }.getOrNull() == null) {
+                toast("No logs have been written yet.")
+                return@launch
+            }
+            pane.navigateTo(folder)
+        }
+    }
+
     fun openExtractedApksFolder() {
         val pane = focusedPane() ?: return
         viewModelScope.launch {
@@ -3737,3 +3906,14 @@ private const val REMOTE_SETTLE_MS = 600L
  * device on is noticed while somebody is still looking at the screen.
  */
 private const val VOLUME_POLL_MS = 8_000L
+
+/**
+ * How long one volume gets to report its size before it is drawn without a figure.
+ *
+ * A local volume answers in microseconds. A mounted share that is awake answers in milliseconds,
+ * and one that is asleep answers never - it costs a connect timeout per saved address, and then
+ * does it again for the total. Unbounded, that sum is what held the first screen for twenty
+ * seconds; a card with no figure on it is a far smaller problem than a Home screen that has not
+ * arrived, and the next poll fills it in.
+ */
+private const val MEASURE_BUDGET_MS = 3_000L

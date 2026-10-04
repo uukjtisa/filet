@@ -105,6 +105,12 @@ ledger was tidied: **F22** (a shortcut's id died with the crawl's generation swe
 
 ## Trawl bridge
 
+**Dormant, and deliberately not advertised.** Filet stands on its own and the README says nothing
+about a companion app. The bridge stays in the build as something that lights up if a peer with a
+matching signature is ever there - it costs one package lookup per process when it is not, and
+nothing afterwards. The installed peer currently exports no provenance provider, so the features
+below are present and unreachable, which is why none of them is mentioned anywhere a user looks.
+
 | # | Feature | L | M | Status | Notes |
 |---|---|---|---|---|---|
 | F35 | Provenance records | L1/L6 | M7 | SHIPPED | Trawl writes, Filet stores + indexes. |

@@ -149,14 +149,23 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
             // and one-that-fills rather than two and a gap.
             item {
                 Tiles {
-                    // A network drive that is not answering is not shown at all.
+                    // A NETWORK drive that is not answering is not shown at all.
                     //
                     // It was drawn as an "Offline" card, which reads as a fault to go and fix
                     // and takes a full tile to say nothing actionable. With several addresses
                     // per remote there is also no longer a single thing to report as down: the
                     // card comes back by itself the moment any address answers.
+                    //
+                    // The test used to be "local, or it has figures", and that is wider than it
+                    // reads: `root:` and `saf:` are not the local scheme either, so a superuser
+                    // shell that was busy or a document provider that declined for a moment took
+                    // those cards off Home as well. That is the reported fault - *the home drives
+                    // information disappears as if Filet got disconnected from my device* - and it
+                    // needed nothing more than one slow measurement. A volume on this device is
+                    // shown whether or not its size is known; only something reached over the
+                    // network has to prove it is there.
                     val live = shown.filter {
-                        it.node.path.scheme == "local" || (it.free != null && it.total != null)
+                        !it.remote || (it.free != null && it.total != null)
                     }
                     live.forEach { v ->
                         tile {

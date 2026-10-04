@@ -3,6 +3,7 @@ package dev.niccc2007.filet.vfs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.io.OutputStream
@@ -30,7 +31,47 @@ class Vfs(providers: List<FileSystemProvider>) {
 
     private fun p(path: VPath) = provider(path.scheme)
 
-    suspend fun roots(): List<VNode> = byScheme.values.flatMap { it.roots() }
+    /**
+     * Every volume, from every backend.
+     *
+     * **Concurrent callers share one fan-out.** Measured on a cold start: this is asked for twice
+     * while the first screen is being built - once to decide which folder a tab opens on, once to
+     * build the storage cards - and the two overlapped, taking 387ms and 1020ms for the same
+     * answer. Asking a superuser shell and a document provider whether they are there is not free,
+     * and doing it twice at once makes both slower.
+     *
+     * This coalesces callers that arrive while a fan-out is **in flight**, and nothing more. It is
+     * deliberately not a cache with a lifetime: a completed answer is never handed back, so
+     * granting a folder or saving a remote and then asking for the roots gives the new list. A
+     * time window here would be a bug with a stopwatch on it - the SAF grant path asks for the
+     * roots immediately after the grant, and a stale answer would leave the new volume missing
+     * from Home with nothing to blame.
+     */
+    suspend fun roots(): List<VNode> {
+        inFlightRoots?.let { return it.await() }
+        return rootsLock.withLock {
+            // Checked again inside the lock: the winner may have been set between the read above
+            // and acquiring it, and starting a second fan-out here is the thing being avoided.
+            inFlightRoots?.let { return@withLock it.await() }
+            val job = kotlinx.coroutines.CompletableDeferred<List<VNode>>()
+            inFlightRoots = job
+            try {
+                val out = byScheme.values.flatMap { it.roots() }
+                job.complete(out)
+                out
+            } catch (t: Throwable) {
+                job.completeExceptionally(t)
+                throw t
+            } finally {
+                inFlightRoots = null
+            }
+        }
+    }
+
+    private val rootsLock = kotlinx.coroutines.sync.Mutex()
+
+    @Volatile
+    private var inFlightRoots: kotlinx.coroutines.CompletableDeferred<List<VNode>>? = null
     suspend fun list(path: VPath): List<VNode> = p(path).list(path)
 
     /** How many entries a directory holds. Null when it cannot be counted. */

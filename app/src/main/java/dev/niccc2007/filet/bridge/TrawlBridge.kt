@@ -19,16 +19,71 @@ import kotlinx.coroutines.withContext
  */
 class TrawlBridge(private val context: Context, private val ledger: JobLedger) {
 
+    /**
+     * The answer to "is there a trusted peer", worked out once per process.
+     *
+     * It was worked out per call, and the calls are not rare: the Source chip asks for a file's
+     * provenance once per row of the Home feed, and each answer cost `getPackageInfo` plus
+     * `checkSignatures` for every candidate package - two binder round trips to the package
+     * manager, per row, for a fact that cannot change while the process lives. A package being
+     * installed or removed DOES change it, and that is what [forget] is for; the app already
+     * listens for those broadcasts.
+     *
+     * `Optional`-by-sentinel rather than a nullable field, because "not looked up yet" and
+     * "looked up, and there is nobody" are different states and collapsing them means re-asking
+     * forever in the common case of no peer installed - which is the case on most devices.
+     */
+    @Volatile
+    private var cachedAuthority: String? = null
+
+    @Volatile
+    private var lookedUp = false
+
     /** @return the authority to talk to, or null when no trusted peer is installed. */
     fun peerAuthority(): String? {
-        val pm = context.packageManager
-        for (pkg in PEER_PACKAGES) {
-            val installed = runCatching { pm.getPackageInfo(pkg, 0) }.getOrNull() ?: continue
-            if (!trusted(pkg)) continue
-            return "$pkg.bridge"
+        if (lookedUp) return cachedAuthority
+        synchronized(this) {
+            if (lookedUp) return cachedAuthority
+            val pm = context.packageManager
+            var found: String? = null
+            for (pkg in PEER_PACKAGES) {
+                runCatching { pm.getPackageInfo(pkg, 0) }.getOrNull() ?: continue
+                if (!trusted(pkg)) continue
+                found = "$pkg.bridge"
+                break
+            }
+            cachedAuthority = found
+            lookedUp = true
+            dev.niccc2007.filet.log.FiletLog.d("bridge", "peer authority: " + (found ?: "none installed"))
+            return found
         }
-        return null
     }
+
+    /**
+     * Forget the cached answer, because a package was installed or removed.
+     *
+     * The one thing that genuinely changes it. Without this the cache would be a correctness bug
+     * rather than an optimisation: installing the companion app would leave Filet convinced for
+     * the rest of the session that it was not there.
+     */
+    fun forgetPeer() {
+        synchronized(this) {
+            lookedUp = false
+            cachedAuthority = null
+        }
+    }
+
+    /**
+     * Whether the peer's provider actually answered the last time it was asked.
+     *
+     * Separate from whether the peer is installed, because the two disagree in practice and the
+     * disagreement is noisy: a companion app can be installed at a version that does not export
+     * the provider at all, and every query then fails deep in the platform with *Failed to find
+     * provider info* - twenty-five of them in one cold start, each a failed binder resolution. One
+     * failure is enough to stop asking for the rest of the session.
+     */
+    @Volatile
+    private var providerMissing = false
 
     fun isPeerInstalled(): Boolean = peerAuthority() != null
 
@@ -73,10 +128,13 @@ class TrawlBridge(private val context: Context, private val ledger: JobLedger) {
 
     /** Ask the peer for this file's biography, when the peer is the one who knows. */
     suspend fun provenanceOf(path: String): Provenance? = withContext(Dispatchers.IO) {
+        if (providerMissing) return@withContext null
         val authority = peerAuthority() ?: return@withContext null
         val uri = BridgeContract.provenanceUri(authority)
             .buildUpon().appendPath(android.net.Uri.encode(path)).build()
-        runCatching {
+        // A provider that is not there resolves to null rather than throwing, so the absence has
+        // to be noticed here. Noticed once: the Home feed asks per row.
+        val answer = runCatching {
             context.contentResolver.query(uri, BridgeContract.Provenance.ALL, null, null, null)?.use { c ->
                 if (!c.moveToFirst()) return@use null
                 Provenance(
@@ -88,8 +146,13 @@ class TrawlBridge(private val context: Context, private val ledger: JobLedger) {
                     at = c.getLong(6),
                     extra = c.getString(7),
                 )
+            } ?: run {
+                providerMissing = true
+                dev.niccc2007.filet.log.FiletLog.i("bridge", "peer is installed but exports no provenance provider; not asking again")
+                null
             }
-        }.getOrNull()
+        }
+        answer.getOrNull()
     }
 
     /**

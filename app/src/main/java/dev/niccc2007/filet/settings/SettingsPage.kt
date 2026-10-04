@@ -105,6 +105,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val storedBar by prefs.bottomBar.collectAsState()
     val sort by prefs.sort.collectAsState()
     val indexOn by prefs.indexEnabled.collectAsState()
+    val verboseLogs by prefs.verboseLogs.collectAsState()
     val updatesOn by vm.updateNotificationsOn.collectAsState()
     val selectionBar by prefs.selectionBar.collectAsState()
     val drag by prefs.drag.collectAsState()
@@ -304,6 +305,25 @@ fun SettingsPage(vm: BrowserViewModel) {
         }
         item { IndexStatusCard(vm) }
 
+        item {
+            SettingsSection(
+                "Logs",
+                "A file per run, so a fault that happens once can still be looked at afterwards.",
+            )
+        }
+        item {
+            ToggleRow(
+                "Detailed logging",
+                "Records what Filet is doing, step by step, into " +
+                    dev.niccc2007.filet.log.FiletLog.FOLDER +
+                    ". Off still records warnings and failures. " +
+                    "The newest " + dev.niccc2007.filet.log.FiletLog.KEEP +
+                    " runs are kept and older ones are deleted.",
+                verboseLogs,
+            ) { prefs.setVerboseLogs(it) }
+        }
+        item { LogFileRow(vm) }
+
         // Only on the flavour that has an updater at all. R1, no dead switches: on F-Droid
         // this would be a control over something that is compiled out.
         if (dev.niccc2007.filet.BuildConfig.UPDATER_ENABLED) {
@@ -399,6 +419,31 @@ private fun sortIndex(k: SortKey) = when (k) {
 
 private fun sortKey(i: Int) = when (i) {
     1 -> SortKey.SIZE; 2 -> SortKey.MODIFIED; 3 -> SortKey.TYPE; else -> SortKey.NAME
+}
+
+/**
+ * This run's log file, and the way to it.
+ *
+ * A setting that writes a file somebody cannot find is a setting that does nothing for them. The
+ * row names the file this run is writing and opens the folder in Filet itself - which is the whole
+ * reason the logs are in shared storage rather than app-private storage.
+ */
+@Composable
+private fun LogFileRow(vm: BrowserViewModel) {
+    val colors = Filet.colors
+    val file = dev.niccc2007.filet.log.FiletLog.file
+    Column(
+        Modifier.fillMaxWidth().padding(start = 15.dp, end = 15.dp, top = 2.dp, bottom = 6.dp),
+    ) {
+        Text(
+            if (file == null) "No log file for this run" else "This run is writing " + file.name,
+            fontSize = 10.5.sp,
+            color = colors.fg3,
+            fontFamily = FontFamily.Monospace,
+        )
+        Spacer(Modifier.height(7.dp))
+        SmallButton("Open the logs folder") { vm.openLogsFolder() }
+    }
 }
 
 @Composable

@@ -326,14 +326,19 @@ class FiletGraph(context: Context) {
 
     fun onFirstScreen() {
         scope.launch {
-            val roots = runCatching { vfs.roots().map { it.path } }.getOrElse { emptyList() }
-            tracked.seedDefaults(roots)
+            dev.niccc2007.filet.log.FiletLog.i("launch", "onFirstScreen begins")
+            val roots = dev.niccc2007.filet.log.FiletLog.span("launch", "vfs.roots") {
+                runCatching { vfs.roots().map { it.path } }.getOrElse { emptyList() }
+            }
+            dev.niccc2007.filet.log.FiletLog.span("launch", "tracked.seedDefaults") { tracked.seedDefaults(roots) }
             // One-time cleanup of what the old seeding did: a Download folder on every root,
             // including remotes. See pruneSeededRemotes for why it is this narrow.
-            tracked.pruneSeededRemotes()
-            scripts.seedExamples()
-            home.refresh()
-            index.status.value.let { if (it.enabled) indexCoordinator.onStart(roots) }
+            dev.niccc2007.filet.log.FiletLog.span("launch", "tracked.pruneSeededRemotes") { tracked.pruneSeededRemotes() }
+            dev.niccc2007.filet.log.FiletLog.span("launch", "scripts.seedExamples") { scripts.seedExamples() }
+            dev.niccc2007.filet.log.FiletLog.span("launch", "home.refresh") { home.refresh() }
+            index.status.value.let {
+                if (it.enabled) dev.niccc2007.filet.log.FiletLog.span("launch", "index.onStart") { indexCoordinator.onStart(roots) }
+            }
             // Follow the tracked list rather than sampling it once at startup. A folder
             // tracked afterwards was never watched at all, so it only ever updated when Home
             // was reopened - the other half of "its not latest".
@@ -420,10 +425,39 @@ private class NullIndex : FileIndex {
 }
 
 class FiletApp : Application() {
-    val graph: FiletGraph by lazy { FiletGraph(this) }
+    // Timed because the graph is built on whatever thread first asks for it - the main thread,
+    // during onCreate - so every constructor in it is on the path to the first frame.
+    val graph: FiletGraph by lazy {
+        dev.niccc2007.filet.log.FiletLog.span("launch", "graph build") { FiletGraph(this).also { graphBuilt = true } }
+    }
+
+    /**
+     * Whether the graph has been built yet.
+     *
+     * So a broadcast arriving while Filet is in the background can decide whether it has anything
+     * to tell. Touching `graph` to answer that would build the whole thing - index, server,
+     * watcher - as a side effect of some other app being installed.
+     */
+    @Volatile
+    private var graphBuilt = false
 
     override fun onCreate() {
         super.onCreate()
+        // First, and before the graph: this is the earliest point in the process, so a session
+        // opened here covers everything that follows - including the graph construction that is
+        // itself under suspicion for the slow cold start. Reading one boolean out of
+        // SharedPreferences is the only work done ahead of it.
+        //
+        // Not in the crash process, which has its own job and must not write into the log of the
+        // run it is reporting on.
+        if (!isCrashProcess()) {
+            val verbose = runCatching {
+                getSharedPreferences("filet", MODE_PRIVATE)
+                    .getBoolean(dev.niccc2007.filet.log.FiletLog.PREF_VERBOSE, true)
+            }.getOrDefault(true)
+            dev.niccc2007.filet.log.FiletLog.open(this, verbose)
+            dev.niccc2007.filet.log.FiletLog.i("launch", "process start")
+        }
         // Installed before anything else touches the graph, so a crash *while building the
         // graph* is caught too. No analytics, ever: a file manager's stack traces carry
         // paths, and paths are the most private strings on the device.
@@ -459,6 +493,10 @@ class FiletApp : Application() {
         val receiver = object : android.content.BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 dev.niccc2007.filet.handlers.OpenerCatalog.invalidate()
+                // The other thing a package change invalidates: whether the companion app is
+                // installed, which is cached for the life of the process precisely because it
+                // cannot change without one of these arriving.
+                if (graphBuilt) runCatching { graph.bridge.forgetPeer() }
             }
         }
         val filter = android.content.IntentFilter().apply {

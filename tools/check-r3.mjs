@@ -64,6 +64,13 @@ const ALLOWED = [
   // cacheDir that it evicts itself. It never builds a user path and never reads one directly,
   // which is the distinction R3 is about rather than the presence of java.io.File.
   "app/src/main/java/dev/niccc2007/filet/ops/RemoteStaging.kt",
+  // The session log cannot go through the VFS, because it has to exist BEFORE the VFS does.
+  // It opens at process start - ahead of the graph - for the reason it was built: the graph
+  // build is itself on the path being timed, and a logger that starts after it cannot measure
+  // it. Routing it through the VFS would also make the one record of a failure depend on the
+  // subsystem most likely to be failing. It writes exactly one file, whose name it generates,
+  // in one folder it owns, and reads nothing.
+  "app/src/main/java/dev/niccc2007/filet/log/FiletLog.kt",
   // Reconciling the gallery means asking MediaStore what it already holds, and MediaStore is
   // the media index rather than a filesystem - it is asked which rows exist, never used to
   // read or write a file. The paths it returns are compared against what the VFS reported and

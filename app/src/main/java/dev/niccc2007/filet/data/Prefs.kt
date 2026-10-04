@@ -169,6 +169,26 @@ class Prefs(context: Context) {
     private val _indexEnabled = MutableStateFlow(sp.getBoolean(K_INDEX, true))
     val indexEnabled: StateFlow<Boolean> = _indexEnabled.asStateFlow()
 
+    /**
+     * Write a detailed log of each run.
+     *
+     * On by default, and that is a decision rather than an oversight. The two faults this was
+     * added for - a slow cold start, and the drive information on Home going blank - are both
+     * intermittent, so a log that has to be switched on BEFORE the thing happens is a log that is
+     * off every time it would have mattered. Sessions are capped by count, so the cost is bounded.
+     *
+     * Off still records warnings, failures and the shape of the session; it drops the per-step
+     * detail. There is no level below that, because a run with no log at all is the state this
+     * setting exists to end.
+     */
+    // The key is owned by the logger, not by this class: it is read at process start, by the
+    // Application, before a Prefs instance exists. Two spellings of one key is how a setting
+    // quietly stops being the setting that is obeyed.
+    private val _verboseLogs =
+        MutableStateFlow(sp.getBoolean(dev.niccc2007.filet.log.FiletLog.PREF_VERBOSE, true))
+    
+    val verboseLogs: StateFlow<Boolean> = _verboseLogs.asStateFlow()
+
     private val _tabSize = MutableStateFlow(TabSize.valueOfOr(sp.getString(K_TAB_SIZE, null), TabSize.NORMAL))
     val tabSize: StateFlow<TabSize> = _tabSize.asStateFlow()
 
@@ -319,6 +339,15 @@ class Prefs(context: Context) {
     fun setTheme(v: ThemeChoice) { _theme.value = v; sp.edit().putString(K_THEME, v.name).apply() }
     fun setAccent(v: AccentChoice) { _accent.value = v; sp.edit().putString(K_ACCENT, v.name).apply() }
     fun setIndexEnabled(v: Boolean) { _indexEnabled.value = v; sp.edit().putBoolean(K_INDEX, v).apply() }
+
+    fun setVerboseLogs(v: Boolean) {
+        _verboseLogs.value = v
+        sp.edit().putBoolean(dev.niccc2007.filet.log.FiletLog.PREF_VERBOSE, v).apply()
+        // Takes effect on this run, not the next one. A setting that needs a restart to mean
+        // anything is one somebody flips and then reports as broken.
+        dev.niccc2007.filet.log.FiletLog.verbose = v
+        dev.niccc2007.filet.log.FiletLog.i("prefs", "verbose logging " + if (v) "on" else "off")
+    }
     fun setTabSize(v: TabSize) { _tabSize.value = v; sp.edit().putString(K_TAB_SIZE, v.name).apply() }
 
     /** Written on drag release only — persisting every frame of a divider drag would thrash disk. */
