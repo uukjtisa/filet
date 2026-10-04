@@ -58,6 +58,76 @@ private fun Pixels.rotatedRight(): Pixels =
     // checks and still fills the buffer, it just indexes out of bounds on a non-square image.
     Pixels.of(height, width) { x, y -> this[y, height - 1 - x] }
 
+/**
+ * Rotate by any angle, growing the canvas so nothing is cut off.
+ *
+ * ## Why this is not a finer version of [rotated]
+ *
+ * A quarter turn is a permutation: every source pixel lands exactly on a destination pixel, the
+ * canvas swaps its sides, and nothing is created or lost. An arbitrary angle is neither. The
+ * corners sweep outside the old rectangle, so the canvas has to GROW to hold them, and the new
+ * corners are areas that were never in the picture and have to be filled with something.
+ *
+ * Both of those are decisions, which is why this is here with a test rather than inside a slider.
+ *
+ * - **The canvas grows to the rotated bounding box.** Keeping the old size would quietly crop the
+ *   picture, and a rotation that eats the corners is the kind of loss somebody only notices after
+ *   saving over the original.
+ * - **What was never there is transparent**, not white or black. Transparent is the only fill
+ *   that is honest about being absent, and it is the one a later crop or a PNG save handles
+ *   correctly. On a format with no alpha the encoder decides, which is its business rather than
+ *   this function's.
+ *
+ * Sampled by reading backwards from each destination pixel, as the quarter turn does: iterating
+ * the source instead leaves unfilled holes wherever the mapping is not onto, which is most angles.
+ */
+fun Pixels.rotatedBy(degrees: Float): Pixels {
+    val turns = ((degrees % 360f) + 360f) % 360f
+    // Exact quarter turns go through the lossless path. Resampling a 90-degree turn would soften
+    // every pixel for nothing.
+    if (turns == 0f) return this
+    if (turns == 90f) return rotated(Turn.RIGHT)
+    if (turns == 180f) return rotated(Turn.RIGHT).rotated(Turn.RIGHT)
+    if (turns == 270f) return rotated(Turn.LEFT)
+
+    val radians = Math.toRadians(turns.toDouble())
+    val cos = kotlin.math.cos(radians)
+    val sin = kotlin.math.sin(radians)
+    val outW = kotlin.math.ceil(kotlin.math.abs(width * cos) + kotlin.math.abs(height * sin))
+        .toInt().coerceAtLeast(1)
+    val outH = kotlin.math.ceil(kotlin.math.abs(width * sin) + kotlin.math.abs(height * cos))
+        .toInt().coerceAtLeast(1)
+
+    val srcCx = width / 2.0
+    val srcCy = height / 2.0
+    val dstCx = outW / 2.0
+    val dstCy = outH / 2.0
+
+    return Pixels.of(outW, outH) { x, y ->
+        // Destination to source, so the rotation is by the NEGATIVE angle here.
+        val dx = x - dstCx + 0.5
+        val dy = y - dstCy + 0.5
+        val sx = dx * cos + dy * sin + srcCx - 0.5
+        val sy = -dx * sin + dy * cos + srcCy - 0.5
+        val x0 = kotlin.math.floor(sx).toInt()
+        val y0 = kotlin.math.floor(sy).toInt()
+        if (x0 < -1 || y0 < -1 || x0 > width - 1 || y0 > height - 1) {
+            0
+        } else {
+            // Bilinear, clamped at the edges. Nearest would leave a visibly stepped diagonal on
+            // every edge of the picture, which is the one part of a rotation anybody looks at.
+            val x1 = (x0 + 1).coerceIn(0, width - 1)
+            val y1 = (y0 + 1).coerceIn(0, height - 1)
+            val cx0 = x0.coerceIn(0, width - 1)
+            val cy0 = y0.coerceIn(0, height - 1)
+            blend(
+                this[cx0, cy0], this[x1, cy0], this[cx0, y1], this[x1, y1],
+                (sx - x0).toFloat().coerceIn(0f, 1f), (sy - y0).toFloat().coerceIn(0f, 1f),
+            )
+        }
+    }
+}
+
 fun Pixels.flipped(horizontal: Boolean): Pixels =
     if (horizontal) Pixels.of(width, height) { x, y -> this[width - 1 - x, y] }
     else Pixels.of(width, height) { x, y -> this[x, height - 1 - y] }

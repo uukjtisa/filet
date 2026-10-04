@@ -68,6 +68,30 @@ data class ZoomView(
         )
     }
 
+    /**
+     * Where a point on the SCREEN lands on the untransformed picture.
+     *
+     * Needed the moment a transformed surface also has to be drawn on. The image is painted
+     * through a scale about the centre plus an offset, so a finger at (x, y) is not over the
+     * pixel that would be there unzoomed - and a tool that skips this paints its stroke at a
+     * steadily increasing distance from the finger as the zoom goes up.
+     *
+     * The inverse of what the graphics layer does, in the order it does it: undo the offset, then
+     * undo the scale about the centre.
+     */
+    fun unprojectX(screenX: Float, boxW: Float): Float {
+        if (scale <= 0f) return screenX
+        val centre = boxW / 2f
+        return (screenX - offsetX - centre) / scale + centre
+    }
+
+    /** See [unprojectX]. */
+    fun unprojectY(screenY: Float, boxH: Float): Float {
+        if (scale <= 0f) return screenY
+        val centre = boxH / 2f
+        return (screenY - offsetY - centre) / scale + centre
+    }
+
     companion object {
         /** Nothing applied. Also what a double tap on a zoomed view returns to. */
         val NONE = ZoomView()

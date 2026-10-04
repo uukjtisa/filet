@@ -17,6 +17,44 @@ import org.junit.Test
 class ZoomStateTest {
 
     @Test
+    fun `an untransformed view maps a point to itself`() {
+        assertEquals(300f, ZoomView.NONE.unprojectX(300f, 1000f), 0.001f)
+        assertEquals(120f, ZoomView.NONE.unprojectY(120f, 800f), 0.001f)
+    }
+
+    @Test
+    fun `the centre stays the centre however it is scaled`() {
+        val v = ZoomView(scale = 3f)
+        assertEquals(500f, v.unprojectX(500f, 1000f), 0.001f)
+    }
+
+    @Test
+    fun `zooming in brings the edges of the picture inward`() {
+        // At 2x, the left edge of the screen is half way out to the old left edge.
+        val v = ZoomView(scale = 2f)
+        assertEquals(250f, v.unprojectX(0f, 1000f), 0.001f)
+    }
+
+    @Test
+    fun `a pan is undone before the scale`() {
+        // The order matters and is the whole reason this is a tested function rather than two
+        // lines at a call site: undoing them the other way round is wrong by the offset times
+        // the scale, which looks correct until the picture is both zoomed AND moved.
+        val v = ZoomView(scale = 2f, offsetX = 100f)
+        // Checked against the forward transform rather than guessed: content 250 is painted at
+        // (250 - 500) * 2 + 500 + 100 = 100, so screen 100 must map back to 250. The first
+        // expectation written here was 200, which is this arithmetic done in the wrong order -
+        // exactly the mistake the function exists to stop being made at a call site.
+        assertEquals(250f, v.unprojectX(100f, 1000f), 0.001f)
+    }
+
+    @Test
+    fun `it survives a degenerate scale`() {
+        assertEquals(42f, ZoomView(scale = 0f).unprojectX(42f, 1000f), 0.001f)
+    }
+
+
+    @Test
     fun `it zooms out past fitting the screen`() {
         // An editor pushed right to the edges has nowhere to stand to see what is being done to
         // them, and a crop or a rotation is mostly about the edges. The floor used to be 1.

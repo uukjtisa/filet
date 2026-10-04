@@ -11,6 +11,8 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
@@ -605,6 +607,9 @@ private fun DrawSurface(bitmap: Bitmap, busy: Boolean, onDone: (List<InkStroke>)
     // The stroke list is mutated in place while a finger is down, and Compose cannot see that.
     // Bumping a counter is what makes the line appear as it is drawn rather than on lift.
     var ticks by remember(bitmap) { mutableIntStateOf(0) }
+    // The draw surface gets its own zoom. Editing the edges of a picture means being able to see
+    // them, and this tool had none at all - a pinch here just drew another line.
+    var view by remember(bitmap) { mutableStateOf(ZoomView.NONE) }
 
     Column(Modifier.fillMaxSize()) {
         Box(
@@ -613,39 +618,64 @@ private fun DrawSurface(bitmap: Bitmap, busy: Boolean, onDone: (List<InkStroke>)
                 .fillMaxWidth()
                 .onSizeChanged { box = Size(it.width.toFloat(), it.height.toFloat()) }
                 .pointerInput(bitmap) {
-                    detectDragGestures(
-                        onDragStart = { at ->
-                            val fit = fitInside(box.width, box.height, bitmap.width, bitmap.height)
-                            if (fit.ready) {
-                                val s = InkStroke(ink, nib)
-                                s.points.add(
-                                    Offset(
-                                        fit.toImageX(at.x, bitmap.width),
-                                        fit.toImageY(at.y, bitmap.height),
-                                    )
-                                )
-                                strokes.add(s)
-                                ticks++
+                    // One finger draws, two fingers move the picture.
+                    //
+                    // `detectDragGestures` cannot tell them apart - it reports a pinch as a drag,
+                    // so putting a second finger down to zoom drew a second line instead. Nor can
+                    // two ready-made detectors be stacked: they compete for the same events and
+                    // whichever consumes first wins. So the pointer loop is written out and the
+                    // finger count is read directly.
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val down = event.changes.count { it.pressed }
+                            if (down >= 2) {
+                                // The first finger has usually already begun a stroke by the time
+                                // the second lands. Without dropping it, every pinch leaves a dot
+                                // or a flick behind on the picture.
+                                if (strokes.isNotEmpty()) {
+                                    strokes.removeAt(strokes.lastIndex)
+                                    ticks++
+                                }
+                                val zoom = event.calculateZoom()
+                                val pan = event.calculatePan()
+                                if (zoom != 1f || pan != Offset.Zero) {
+                                    view = view.pinched(zoom, pan.x, pan.y, box.width, box.height)
+                                }
+                                event.changes.forEach { it.consume() }
+                                continue
                             }
-                        },
-                    ) { change, _ ->
-                        change.consume()
-                        val fit = fitInside(box.width, box.height, bitmap.width, bitmap.height)
-                        if (fit.ready) {
-                            strokes.lastOrNull()?.points?.add(
-                                Offset(
-                                    fit.toImageX(change.position.x, bitmap.width),
-                                    fit.toImageY(change.position.y, bitmap.height),
-                                )
-                            )
+                            val change = event.changes.firstOrNull { it.pressed } ?: continue
+                            val fit = fitInside(box.width, box.height, bitmap.width, bitmap.height)
+                            if (!fit.ready) continue
+                            // Through the transform, not around it: at any zoom other than 1 the
+                            // finger is not over the pixel it appears to be over, and a stroke
+                            // that skips this drifts further from the finger the further in it is.
+                            val ix = fit.toImageX(view.unprojectX(change.position.x, box.width), bitmap.width)
+                            val iy = fit.toImageY(view.unprojectY(change.position.y, box.height), bitmap.height)
+                            if (change.previousPressed) {
+                                strokes.lastOrNull()?.points?.add(Offset(ix, iy))
+                            } else {
+                                val stroke = InkStroke(ink, nib)
+                                stroke.points.add(Offset(ix, iy))
+                                strokes.add(stroke)
+                            }
                             ticks++
+                            change.consume()
                         }
                     }
                 },
             contentAlignment = Alignment.Center,
         ) {
-            Image(bitmap.asImageBitmap(), null, modifier = Modifier.fillMaxSize())
-            Canvas(Modifier.fillMaxSize()) {
+            // Both layers carry the same transform, so the ink stays on the pixels it was put on.
+            val layer = Modifier.fillMaxSize().graphicsLayer {
+                scaleX = view.scale
+                scaleY = view.scale
+                translationX = view.offsetX
+                translationY = view.offsetY
+            }
+            Image(bitmap.asImageBitmap(), null, modifier = layer)
+            Canvas(layer) {
                 // Reading the counter inside the draw scope is what subscribes this canvas to
                 // it; without the read the in-place mutations above go unnoticed.
                 if (ticks >= 0) {
