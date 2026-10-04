@@ -38,6 +38,7 @@ import dev.niccc2007.filet.ui.tabs.TRow
 import dev.niccc2007.filet.ui.tabs.TabButton
 import dev.niccc2007.filet.ui.tabs.TabHeader
 import dev.niccc2007.filet.ui.tabs.Trailing
+import dev.niccc2007.filet.ui.theme.Capacity
 import dev.niccc2007.filet.ui.theme.Filet
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -182,7 +183,12 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** A capacity bar. Turns warm past 85% because that is when it starts to matter. */
+/**
+ * A capacity bar, coloured by how full it is.
+ *
+ * The same gauge the storage tiles draw, from the same spectrum, so a drive reads the same in
+ * the places row as it does on the home screen. See [Capacity].
+ */
 @Composable
 fun CapacityBar(fraction: Float, modifier: Modifier = Modifier) {
     val colors = Filet.colors
@@ -192,14 +198,14 @@ fun CapacityBar(fraction: Float, modifier: Modifier = Modifier) {
             .fillMaxWidth()
             .height(4.dp)
             .clip(RoundedCornerShape(3.dp))
-            .background(colors.lineSoft)
+            .background(colors.lineSoft),
     ) {
         Box(
             Modifier
                 .fillMaxWidth(f)
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(3.dp))
-                .background(if (f > 0.85f) colors.warn else colors.accent)
+                .background(Capacity.colourAt(f)),
         )
     }
 }

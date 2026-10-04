@@ -30,10 +30,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.niccc2007.filet.ui.theme.Capacity
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 import java.util.Locale
@@ -1061,7 +1062,9 @@ fun StorageTile(
                         .fillMaxWidth(f)
                         .fillMaxHeight()
                         .clip(RoundedCornerShape(3.dp))
-                        .background(if (f > 0.85f) colors.warn else colors.accent),
+                        // One solid colour, taken from the fullness itself rather than from the
+                        // accent. See Capacity.
+                        .background(Capacity.colourAt(f)),
                 )
             }
         }
