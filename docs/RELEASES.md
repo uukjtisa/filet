@@ -70,6 +70,37 @@ a storage tool that did not exist, adds a metadata writer, and changes what a fi
 default. Somebody updating from 0.1.8 opens an app that does not look like the one they closed.
 `tools/check-version.mjs` reads that line, so the decision lives in one place.
 
+## Two release lines in one repository
+
+The desktop companion tool ships from this repository and **does not ride on the app's
+releases**. They are different products on different schedules: a fix to the phone app has
+nothing to do with the mount tool, and making one wait for the other either holds up a fix or
+publishes a version of the tool in which nothing changed.
+
+| Line | Tag | Carries |
+|---|---|---|
+| The Android app | `v0.1.11` | `filet-<version>.apk` |
+| The desktop tool | `filet-desktop-mount-tool-v0.1.0` | the Kotlin/JVM build, which runs wherever a JVM does |
+
+A GitHub release list sorts by date, so the two appear interleaved and each is obviously
+labelled by its own tag. Neither buries the other, and `Releases ▸ latest` still resolves to
+whichever is newest overall - which is why the tag shape is not cosmetic.
+
+**The tag shape is load-bearing in two places, and both are enforced:**
+
+- `ReleaseTags.kt` is what the in-app updater filters on. Without it the tool's tag parses as
+  an ordinary version, beats the app's, and every phone is offered an update whose release
+  carries no APK. There is a test for exactly that.
+- `check-release.mjs` partitions on the same rule before asking any question about the app's
+  version, and reports a tag matching neither shape rather than guessing.
+
+**A tag of neither shape is a release nobody can find.** `nightly`, `filet-v1.0`, `desktop-v2`
+all fail the check. Use one of the two shapes or add a third deliberately, in both places.
+
+The desktop tool gets its own sideload updater, the same shape as the app's, reading its own
+line. Its version numbering is its own: the tool at 0.3.0 says nothing about the app at 0.1.11,
+and trying to keep them in step would mean releasing one to describe the other.
+
 ## The order of operations, which is not optional
 
 Releases 0.1.5 and 0.1.6 both turned the repository's checks red for a while, for the same

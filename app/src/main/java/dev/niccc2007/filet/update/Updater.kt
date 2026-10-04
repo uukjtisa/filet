@@ -143,6 +143,10 @@ object Updater {
                     .filter { !it.optBoolean("draft", false) }
                     .filter { includePreRelease || !it.optBoolean("prerelease", false) }
                     .map { it.toRelease() }
+                    // This repository publishes two release lines - see ReleaseTags. Without
+                    // this filter the desktop tool's tag parses as a higher version, wins, and
+                    // the phone is offered an update whose release carries no APK at all.
+                    .filter { ReleaseTags.isApp(it.tag) }
                     .maxByOrNull { it.version }
             }
         }

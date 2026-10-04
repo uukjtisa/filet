@@ -32,6 +32,17 @@
  * | build ahead, tag pushed, no release | **fail** - a tag with no release behind it |
  * | build behind the newest release | **fail** - people are installing something newer than main |
  *
+ * ## Two release lines in one repository
+ *
+ * The desktop companion tool ships from this repository under its own tags
+ * (`filet-desktop-mount-tool-vX.Y.Z`) so neither product has to wait for the other. Every
+ * question below is about the APP line, so the tool's releases are partitioned out before any
+ * of them is asked - otherwise the first desktop release becomes "the newest release", fails
+ * to match the app's version, and reports a regression that is not one.
+ *
+ * The rule is `ReleaseTags.kt`'s, and it is the app's updater that has to agree with it: that
+ * filter is what stops a phone being offered an update whose release carries no APK.
+ *
  *   node tools/check-release.mjs              check the live release
  *   node tools/check-release.mjs --selftest   prove it fails on each way this breaks
  *
@@ -46,6 +57,25 @@ const OWNER = "uukjtisa";
 const REPO = "filet";
 const API = `https://api.github.com/repos/${OWNER}/${REPO}/releases?per_page=20`;
 const TAGS = `https://api.github.com/repos/${OWNER}/${REPO}/tags?per_page=50`;
+
+/** The desktop companion's tag prefix. Mirrors `ReleaseTags.DESKTOP_PREFIX`. */
+export const DESKTOP_PREFIX = "filet-desktop-mount-tool-";
+
+const APP_TAG = /^v?\d+\.\d+(\.\d+)?([-+].+)?$/;
+// A literal, not a template built from DESKTOP_PREFIX: inside a template literal `\d` is just
+// the letter d, which silently produced a pattern that matched no tag at all.
+const DESKTOP_TAG = /^filet-desktop-mount-tool-v?\d+\.\d+(\.\d+)?([-+].+)?$/;
+if (!DESKTOP_TAG.test(`${DESKTOP_PREFIX}v1.0.0`)) {
+  throw new Error("DESKTOP_PREFIX and DESKTOP_TAG have drifted apart");
+}
+
+/** Which release line a tag belongs to. Mirrors `ReleaseTags.lineOf`. */
+export function lineOf(tag) {
+  const t = String(tag ?? "").trim();
+  if (DESKTOP_TAG.test(t)) return "desktop";
+  if (APP_TAG.test(t)) return "app";
+  return "unknown";
+}
 
 /**
  * The asset the updater would pick, using the same rule `Updater.toRelease` uses.
@@ -90,7 +120,18 @@ export function compareVersions(a, b) {
 function check({ releases, gradle, readme, tags = [] }, inFlight = []) {
   const problems = [];
 
-  const published = releases.filter((r) => !r.draft);
+  // A tag of neither shape is a release nobody can classify, so it is named rather than
+  // silently dropped into one line or the other.
+  for (const r of releases) {
+    if (!r.draft && lineOf(r.tag_name) === "unknown") {
+      problems.push(
+        `release "${r.tag_name}" matches neither the app's tag shape nor the desktop tool's, ` +
+          `so no updater will ever offer it`,
+      );
+    }
+  }
+
+  const published = releases.filter((r) => !r.draft && lineOf(r.tag_name) === "app");
   if (published.length === 0) {
     problems.push("no published release: the updater has nothing to find");
     // Everything below is about a release, so stop rather than pile on.
@@ -255,8 +296,46 @@ if (process.argv.includes("--selftest")) {
     process.exit(1);
   }
 
+  // A third positive control, and the reason the partition exists. The desktop tool releases
+  // from this repository under its own tag, carries a JAR and no APK, and its version number
+  // is higher. Before the partition this was "the newest release": it failed the version
+  // match, reported a regression that was not one, and - in the app rather than here - would
+  // have offered every phone an update with nothing to install.
+  const alongside = {
+    ...good,
+    releases: [
+      {
+        tag_name: "filet-desktop-mount-tool-v0.9.0",
+        draft: false,
+        prerelease: false,
+        assets: [{ name: "filet-desktop-mount-tool-0.9.0.jar", size: 18_000_000 }],
+      },
+      good.releases[0],
+    ],
+    tags: ["v0.1.0", "filet-desktop-mount-tool-v0.9.0"],
+  };
+  const alongsideProblems = check(alongside);
+  if (alongsideProblems.length) {
+    console.error(
+      "SELFTEST FAIL: the desktop tool's own release line was read as the app's: " +
+        alongsideProblems.join("; "),
+    );
+    process.exit(1);
+  }
+
   const cases = [
     ["nothing published", { ...good, releases: [] }, /no published release/],
+    [
+      "a tag of neither shape, which no updater can ever offer",
+      {
+        ...good,
+        releases: [
+          { tag_name: "nightly", draft: false, prerelease: false, assets: [{ name: "a.apk", size: 1 }] },
+          good.releases[0],
+        ],
+      },
+      /matches neither/,
+    ],
     // Not a negative control - it asserts the OPPOSITE, and it is here because the rule it
     // guards was added after older runs turned out to be impossible to re-run green.
     // Handled just below as a dedicated positive case.
