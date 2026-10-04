@@ -51,8 +51,8 @@ android {
         applicationId = "dev.niccc2007.filet"
         minSdk = 26
         targetSdk = 37
-        versionCode = 12
-        versionName = "0.1.12"
+        versionCode = 13
+        versionName = "0.1.13"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
