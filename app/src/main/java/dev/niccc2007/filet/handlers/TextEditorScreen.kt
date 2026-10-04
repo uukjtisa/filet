@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -139,7 +140,24 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode) {
                 Text(error!!, fontSize = 13.sp, color = colors.fg2)
             }
             else -> AndroidView(
-                modifier = Modifier.fillMaxSize(),
+                // Two fixes, both about where the text can actually be seen.
+                //
+                // `imePadding` is the one that matters most: the editor filled the window, so the
+                // keyboard covered its bottom third and a caret down there was behind it. Nothing
+                // scrolled it into view because as far as the editor was concerned it WAS in
+                // view - the window had not changed size. Inset by the keyboard, the editor is
+                // the part of the screen that is actually visible, and its own scrolling does the
+                // rest.
+                //
+                // The end padding is for wrapped lines clipping at the right edge. A glyph whose
+                // ink is wider than the advance width it was measured by paints outside the box
+                // the wrap was computed for - the same fault as an italic terminal overhanging its
+                // own box. A few pixels of reserve costs nothing and is simpler than fighting the
+                // measurement.
+                modifier = Modifier
+                    .fillMaxSize()
+                    .imePadding()
+                    .padding(end = 4.dp),
                 factory = { ctx ->
                     CodeEditor(ctx).apply {
                         setEditorLanguage(FiletLanguage(Syntax.forExtension(node.extension)))
@@ -159,6 +177,14 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode) {
                         setLineNumberEnabled(true)
                         setTabWidth(4)
                         setWordwrap(wrap)
+                        // Scroll past the last line, always, with a ceiling.
+                        //
+                        // Without it the content ends at the last line, so a caret on that line
+                        // cannot be scrolled any higher - which is exactly the case where the
+                        // keyboard is in the way and scrolling is what you want. A factor rather
+                        // than a fixed number of lines, so it is the same gesture on any screen,
+                        // and well under 1 so the file cannot be scrolled off into nothing.
+                        setVerticalExtraSpaceFactor(EXTRA_SCROLL)
                         setText(text)
                         // The dirty flag drives the save button, so it must come from the
                         // editor's own content events, not from a guess about focus.
@@ -216,3 +242,12 @@ private fun filetScheme(
     setColor(EditorColorScheme.SCROLL_BAR_THUMB, lineNumber)
     setColor(EditorColorScheme.SCROLL_BAR_THUMB_PRESSED, accent)
 }
+
+/**
+ * How much empty space is scrollable past the last line, as a fraction of the viewport.
+ *
+ * Enough to lift the final line clear of a keyboard, which is the whole reason it exists. Kept
+ * well below 1 so a short file cannot be scrolled until it is off the screen entirely - scroll
+ * past the end is a convenience, and an unbounded one is its own annoyance.
+ */
+private const val EXTRA_SCROLL = 0.6f

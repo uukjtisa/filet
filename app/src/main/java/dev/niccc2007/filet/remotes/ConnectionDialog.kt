@@ -197,24 +197,50 @@ private fun ConnectionFields(
             onClose = onDismiss,
         )
         DlgBody {
-            if (spec.setupHint.isNotBlank() && isNew) {
-                // Shut. Worth having once, and not about the state of this form, so it does
-                // not earn a banner - see DlgWarn for the one-per-surface rule.
+            // Shut. Worth having once, and not about the state of this form, so it does not earn
+            // a banner - see DlgWarn for the one-per-surface rule.
+            //
+            // Not for a Filet phone any more: the access-code field below says where the code
+            // comes from, at the moment the reader needs it, which is the same sentence delivered
+            // better. Two of them is the clutter.
+            if (spec.setupHint.isNotBlank() && isNew && kind != RemoteKind.FILET_PHONE) {
                 DlgNote("First, on the other device", spec.setupHint)
             }
 
             DlgSection("Address")
             DlgField("", address, { address = it }, hint = addressHintFor(kind), tight = true)
-            // ONE banner on this surface, and only for the thing standing between the reader
-            // and a working place. There were four here, each short enough to pass the character
-            // budget, and together they read as a wall of yellow boxes that all look like faults.
-            if (phoneNeedsCode && address.isNotBlank()) {
-                DlgWarn("Add the access code on the end.")
-                Spacer(Modifier.height(8.dp))
-                DlgNote(
-                    "Where to find it",
-                    "The four characters the other phone shows on its hosting card. It is never " +
-                        "broadcast, which is why discovery cannot fill it in.",
+
+            // The code gets its own box, and that is the whole fix for this screen.
+            //
+            // Discovery fills in everything except the code - it is deliberately never broadcast -
+            // so the address arrived finished-looking, ending in a slash, with nothing saying four
+            // more characters belonged on the end. The answer used to be a warning and a collapsed
+            // note UNDER the field, which is a paragraph explaining a riddle instead of not
+            // setting one.
+            //
+            // It is still one stored value. `ShareAddress` splits it for display and joins it
+            // straight back, so the two boxes are two editors onto one string rather than two
+            // strings to keep in step - which is the reason it was a single field to begin with,
+            // and that reason still holds.
+            if (kind == RemoteKind.FILET_PHONE && address.contains(ShareAddress.MARKER)) {
+                val parts = ShareAddress.split(address)
+                Spacer(Modifier.height(10.dp))
+                DlgSection("Access code")
+                DlgField(
+                    "",
+                    parts.code,
+                    { typed -> address = ShareAddress.join(parts.prefix, typed) },
+                    hint = "the four characters the other phone shows",
+                    tight = true,
+                )
+                DlgCaption(
+                    if (parts.code.isBlank()) {
+                        "On the other phone: Network and root, Mount this phone on your PC. The " +
+                            "code is on that card. It is not broadcast, which is why it cannot be " +
+                            "filled in here."
+                    } else {
+                        "Opens  " + address
+                    },
                 )
             } else if (address.isNotBlank()) {
                 // Feedback on what was typed - not a warning and not news. A quiet line under
@@ -335,7 +361,14 @@ private fun ConnectionFields(
 
             // The honest note. Shut: it is true of the PROTOCOL rather than of anything the
             // reader is in the middle of, and it is the same sentence every time.
-            if (parsed != null && parsed.usable) {
+            //
+            // Left off for a Filet phone, where it would say that plain HTTP sends the code in
+            // clear text. True, and already stated on the hosting card of the device being
+            // connected to - which is where the decision to host over plain HTTP is actually
+            // made, and where `check-webdav` requires the warnings to stay. Repeating it on the
+            // client form is a third collapsed box under the inputs saying something the reader
+            // has already been told and cannot act on from here.
+            if (parsed != null && parsed.usable && kind != RemoteKind.FILET_PHONE) {
                 Spacer(Modifier.height(10.dp))
                 val tls = parsed.tls
                 DlgNote(
