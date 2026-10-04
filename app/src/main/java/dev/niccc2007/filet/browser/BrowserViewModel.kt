@@ -1995,6 +1995,61 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         return "$stem ($n)$ext"
     }
 
+    /**
+     * Write pending byte edits into a file.
+     *
+     * Read-modify-write, because there is no partial write to a mounted share and none through a
+     * document provider either. That is why there is a ceiling and why it is checked here, before
+     * anything is read, rather than discovered when a phone runs out of memory holding two copies
+     * of the file.
+     *
+     * The edits are applied to the bytes that were actually read back, not to the page the screen
+     * happened to be showing. A hex editor that writes what it last drew would write whatever was
+     * on screen over whatever the file became if anything else touched it in between.
+     */
+    fun saveBytes(node: VNode, edits: dev.niccc2007.filet.handlers.HexEdits, onSaved: () -> Unit) {
+        if (edits.isEmpty) return
+        if (node.size > dev.niccc2007.filet.handlers.HexEdits.MAX_PATCH_BYTES) {
+            toast(
+                "Too large to patch: saving rewrites the whole file, and this one is " +
+                    humanSize(node.size) + ".",
+            )
+            return
+        }
+        viewModelScope.launch {
+            val written = runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val original = graph.vfs.openRead(node.path).use { it.readBytes() }
+                    val patched = edits.applyTo(original, bufferStart = 0L)
+                    val out = graph.vfs.openWrite(node.path)
+                    try { out.write(patched) } finally { out.close() }
+                    patched.size
+                }
+            }
+            written
+                .onSuccess {
+                    dev.niccc2007.filet.log.FiletLog.i(
+                        "hex", "wrote " + edits.count + " byte edit(s) to " + node.path,
+                    )
+                    toast("Saved " + edits.count + " change" + if (edits.count == 1) "" else "s")
+                    onSaved()
+                }
+                .onFailure {
+                    dev.niccc2007.filet.log.FiletLog.e("hex", "could not patch " + node.path, it)
+                    // A refusal from the far end gets the dialogue that says what to do about it;
+                    // anything else is an ordinary failure and says what went wrong.
+                    val denial = dev.niccc2007.filet.vfs.ActionGate.fromFailure(
+                        dev.niccc2007.filet.vfs.FileAction.WRITE,
+                        node.path,
+                        it,
+                        remote = graph.vfs.isRemote(node.path),
+                    )
+                    if (denial != null) showDenial(denial)
+                    else toast("Could not save: " + dev.niccc2007.filet.ops.FileOperations.readable(it))
+                }
+        }
+    }
+
     fun saveText(node: VNode, text: String, onSaved: () -> Unit) {
         // A file inside an archive cannot simply be written to - the provider refuses, and it
         // is right to. This is the prompt instead: update the archive, or put the
