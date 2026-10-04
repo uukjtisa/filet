@@ -186,6 +186,16 @@ data class AppState(
     val toast: String? = null,
     /** Bumped whenever a job finishes, so the current panes re-list without a manual pull. */
     val revision: Int = 0,
+
+    /**
+     * Bumped whenever this device moves to a different network.
+     *
+     * Here rather than only in the graph so a composable can key a read on it. The hosting card
+     * prints the address a PC should mount, computed once per state change because enumerating
+     * interfaces is a syscall each - and a change of network is exactly when that answer is
+     * wrong and nothing else about the state has moved.
+     */
+    val networkMoves: Long = 0L,
 )
 
 /**
@@ -290,6 +300,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         started = true
         watchRemoteWrites()
         watchDiscoveredAddresses()
+        watchNetworkMoves()
         viewModelScope.launch {
             val roots = runCatching { graph.vfs.roots() }.getOrElse { emptyList() }
             _state.update { it.copy(volumes = volumeInfos(roots)) }
@@ -467,43 +478,77 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun refreshPane(pane: PaneController) {
         val plan = refreshPlan(pane.state.value.kind)
         viewModelScope.launch {
-            for (target in plan.targets) {
-                when (target) {
-                    RefreshTarget.LISTING -> pane.refresh()
-                    RefreshTarget.VOLUMES -> loadVolumes()
-                    RefreshTarget.HOME_FEED -> graph.home.refresh()
-                    RefreshTarget.NEARBY -> graph.nearby.resync()
-                    RefreshTarget.NEARBY_SCAN -> graph.nearby.startScan()
-                    RefreshTarget.SHORTCUTS -> graph.shortcuts.reload()
-                    RefreshTarget.SCRIPTS -> graph.scripts.reload()
-                    // Nothing cached to drop: the screen re-reads PackageManager when the
-                    // target fires, which is the only source there is.
-                    RefreshTarget.INSTALLED_APPS -> Unit
-                    RefreshTarget.BOOKMARKS -> graph.bookmarks.reload()
-                    RefreshTarget.RECENTS -> graph.recents.reload()
-
-                    // Bug identified: these three shared one branch and one comment claiming
-                    // all of them were live, and for one of them that was false. Remotes reads
-                    // its own revision flow, which nothing here was bumping - so the button on
-                    // that tab toasted "Remotes refreshed" and re-read nothing, including
-                    // whether root had been granted since, which genuinely changes outside the
-                    // app. A shared justification is where a dead branch hides, so each target
-                    // now answers for itself.
-                    RefreshTarget.REMOTES -> bumpRemotes()
-
-                    // Live by construction: `graph.index.status` is a StateFlow the settings
-                    // and about panes collect, so it is already pushing changes.
-                    RefreshTarget.INDEX_STATUS -> Unit
-
-                    // Live by construction: the job ledger is in-memory and its flow is
-                    // collected directly, so there is no stored copy that can go stale.
-                    RefreshTarget.JOBS -> Unit
-                }
-            }
+            for (target in plan.targets) applyRefresh(target, pane)
             // Panes that read straight from a store on every composition need a nudge to
             // recompose at all, which is what this is.
             _state.update { it.copy(revision = it.revision + 1) }
             toast("${plan.label} refreshed")
+        }
+    }
+
+    /**
+     * Carry out ONE refresh target.
+     *
+     * Its own function rather than a `when` inside the button handler, because the button is no
+     * longer the only thing that needs these: a change of network has to re-read the volumes and
+     * the remotes too, and a second copy of this table is a second place for a target to be
+     * forgotten.
+     *
+     * @param pane the pane being refreshed, or null when the refresh has no pane behind it - a
+     *   network change re-reads what is stored, and re-listing whatever happens to be on screen is
+     *   not part of that.
+     */
+    private suspend fun applyRefresh(target: RefreshTarget, pane: PaneController?) {
+        when (target) {
+            RefreshTarget.LISTING -> pane?.refresh()
+            RefreshTarget.VOLUMES -> loadVolumes()
+            RefreshTarget.HOME_FEED -> graph.home.refresh()
+            RefreshTarget.NEARBY -> graph.nearby.resync()
+            RefreshTarget.NEARBY_SCAN -> graph.nearby.startScan()
+            RefreshTarget.SHORTCUTS -> graph.shortcuts.reload()
+            RefreshTarget.SCRIPTS -> graph.scripts.reload()
+            // Nothing cached to drop: the screen re-reads PackageManager when the
+            // target fires, which is the only source there is.
+            RefreshTarget.INSTALLED_APPS -> Unit
+            RefreshTarget.BOOKMARKS -> graph.bookmarks.reload()
+            RefreshTarget.RECENTS -> graph.recents.reload()
+
+            // Bug identified: these three shared one branch and one comment claiming
+            // all of them were live, and for one of them that was false. Remotes reads
+            // its own revision flow, which nothing here was bumping - so the button on
+            // that tab toasted "Remotes refreshed" and re-read nothing, including
+            // whether root had been granted since, which genuinely changes outside the
+            // app. A shared justification is where a dead branch hides, so each target
+            // now answers for itself.
+            RefreshTarget.REMOTES -> bumpRemotes()
+
+            // Live by construction: `graph.index.status` is a StateFlow the settings
+            // and about panes collect, so it is already pushing changes.
+            RefreshTarget.INDEX_STATUS -> Unit
+
+            // Live by construction: the job ledger is in-memory and its flow is
+            // collected directly, so there is no stored copy that can go stale.
+            RefreshTarget.JOBS -> Unit
+        }
+    }
+
+    /**
+     * The network moved, so re-read the things that were true on the old one.
+     *
+     * The rest of the recovery is not here: the beacon re-announces and re-listens from the graph,
+     * because a share can be up with no UI at all. This is the part a person sees - the storage card
+     * for a mounted drive going back to answering, and the remotes list redrawing - and it runs
+     * through the same target table the refresh button uses rather than a private copy of it.
+     *
+     * No toast. Nobody asked for this refresh, and a message about a network change arriving while
+     * somebody is reading a folder is noise.
+     */
+    private fun watchNetworkMoves(): kotlinx.coroutines.Job = viewModelScope.launch {
+        graph.netWatch.moves.collect { moves ->
+            if (moves == 0L) return@collect
+            _state.update { it.copy(networkMoves = moves) }
+            applyRefresh(RefreshTarget.VOLUMES, null)
+            applyRefresh(RefreshTarget.REMOTES, null)
         }
     }
 
@@ -3161,7 +3206,14 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             }
             // Only when something actually changed: discovery re-announces constantly, and a
             // bump per packet would re-list the panes forever.
-            if (learned) bumpRemotes()
+            if (learned) {
+                bumpRemotes()
+                // And re-probe the drives straight away. A remote that has just been taught where
+                // its device went is reachable NOW; waiting for the next poll leaves its storage
+                // card reading Offline for up to a poll interval after it is actually back, which
+                // is the difference between "it recovered" and "it recovered eventually".
+                applyRefresh(RefreshTarget.VOLUMES, null)
+            }
         }
     }
 

@@ -30,6 +30,7 @@ import dev.niccc2007.filet.vfs.provider.net.PeerProvider
 import dev.niccc2007.filet.vfs.provider.net.SftpProvider
 import dev.niccc2007.filet.vfs.provider.net.SmbProvider
 import dev.niccc2007.filet.vfs.provider.net.WebDavProvider
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.CoroutineScope
@@ -234,6 +235,44 @@ class FiletGraph(context: Context) {
      * counts that change constantly, and republishing the menu on every request would hit the
      * platform's shortcut rate limit and then silently stop updating at all.
      */
+    /**
+     * Notices when this device moves to a different network, so nothing has to be retried by hand.
+     *
+     * Not lazy and not tied to the UI: a share can be up while the app is in the background, which
+     * is exactly when a phone moves between networks.
+     */
+    val netWatch = dev.niccc2007.filet.webdav.NetworkWatch(app).also { it.start() }
+
+    /**
+     * Everything that has to happen again when the network changes.
+     *
+     * One collector rather than a call in each of three places, because the three are one event
+     * and were previously handled by the person: stop and start hosting, then open a screen until
+     * the other device reappeared.
+     *
+     *  - **Announce again.** A registration is bound to the interface it was made on, so after a
+     *    move the record names an address that no longer exists.
+     *  - **Listen again.** A discovery listener holds the view it built on the old interface, and
+     *    mDNS does not re-announce on request.
+     *  - **Re-read what was shown.** The hosting card prints the address a PC should mount, and
+     *    that address has just changed.
+     *
+     * Zero means nothing has been seen yet, which is not a move. Every later value is acted on,
+     * including the first sighting at startup - by then there is nothing advertised to re-announce
+     * and no scan to restart, so it costs nothing and needs no special case.
+     */
+    private val networkMoves = scope.launch {
+        netWatch.moves.filter { it > 0L }.collect {
+            runCatching { davBeacon.readvertiseAll() }
+            runCatching { davBeacon.restartScan(forget = true) }
+            // Peer discovery has the same staleness for the same reason.
+            runCatching { nearby.startScan() }
+            // Only when something is hosting: the server is lazy, and building it here to ask for
+            // a state nobody is showing would open its socket as a side effect of a Wi-Fi change.
+            if (davState.value.running) runCatching { davState.value = webdav.state() }
+        }
+    }
+
     private val launcherMenu = scope.launch {
         nearby.state
             .map { it.running }

@@ -17,6 +17,14 @@
 //  resolve its connection through the retry wrapper, and the builder must not
 //  claim to rotate. `WhereConnectHappensTest` proves the premise.
 //
+//  RULE 3 — A CHANGE OF NETWORK IS HANDLED, NOT WAITED OUT. An mDNS
+//  registration is bound to the interface it was made on, and a discovery
+//  listener holds the view it built there. Nothing watched the network, so
+//  moving a hosting device from mobile data to Wi-Fi left it announcing an
+//  address that no longer existed - recoverable only by stopping and starting
+//  hosting by hand, and then by opening a screen until the other device
+//  reappeared. One watcher, one signal, three things redone.
+//
 //  RULE 2 — DISCOVERY IS NOT OWNED BY ONE SCREEN. Addresses are learned from
 //  announcements, and the scan was started only by the Remotes screen - which
 //  also stopped it on dispose. So "learns the address by itself in the
@@ -33,6 +41,8 @@ const DAV = join(NET, "WebDavProvider.kt");
 const DIAL = join(NET, "NetDial.kt");
 const BEACON = join(ROOT, "app/src/main/java/dev/niccc2007/filet/webdav/DavBeacon.kt");
 const ACTIVITY = join(ROOT, "app/src/main/java/dev/niccc2007/filet/MainActivity.kt");
+const WATCH = join(ROOT, "app/src/main/java/dev/niccc2007/filet/webdav/NetworkWatch.kt");
+const GRAPH = join(ROOT, "app/src/main/java/dev/niccc2007/filet/FiletApp.kt");
 
 // Every provider that reaches a saved remote. All four have the addresses field; all four have
 // to read it, or it is a switch that does nothing on three of them.
@@ -168,6 +178,40 @@ if (!process.argv.includes("--selftest")) {
   if (!/override fun onStop\(\)/.test(activity) || !/davBeacon\.stopScan\(\)/.test(activity)) {
     fails.push("MainActivity — starts a scan and never stops it");
   }
+
+  // Rule 3: something watches the network, and all three stale things are redone.
+  const watch = strip(readFileSync(WATCH, "utf8"));
+  if (!/registerNetworkCallback\(/.test(watch)) {
+    fails.push("NetworkWatch — registers no callback, so a change of network is never noticed");
+  }
+  if (!/NetIdentity\.changed\(/.test(watch)) {
+    fails.push(
+      "NetworkWatch — decides for itself what a network change is; that decision is pure and " +
+        "tested in NetIdentity, and one association fires several callbacks",
+    );
+  }
+  const graph = strip(readFileSync(GRAPH, "utf8"));
+  if (!/netWatch\.moves/.test(graph)) {
+    fails.push("FiletApp — nothing collects the network moves, so the watcher reports to nobody");
+  }
+  for (const [needle, what] of [
+    [/readvertiseAll\(\)/, "re-announce the shares, whose records name the old address"],
+    [/restartScan\(forget = true\)/, "listen again, since mDNS does not re-announce on request"],
+  ]) {
+    if (!needle.test(graph)) fails.push(`FiletApp — a network move does not ${what}`);
+  }
+  if (!/fun readvertiseAll\(/.test(beacon) || !/private val ads[ =]/.test(beacon)) {
+    fails.push(
+      "DavBeacon — cannot announce a share again: re-registering needs the details it was given, " +
+        "and only the listener was kept",
+    );
+  }
+  if (!/RESOLVE_TRIES/.test(beacon)) {
+    fails.push(
+      "DavBeacon — a failed resolve is dropped; the platform resolves one service at a time, so " +
+        "a device announcing several loses all but the first and never reaches the list",
+    );
+  }
 }
 
 if (process.argv.includes("--selftest")) {
@@ -217,6 +261,6 @@ if (fails.length) {
   process.exit(1);
 }
 console.log(
-  "ROTATE OK  (rotation sits at the response, every operation goes through it, and discovery " +
-    "runs for the app rather than for one screen)",
+  "ROTATE OK  (rotation sits at the response, every operation goes through it, discovery runs " +
+    "for the app rather than for one screen, and a change of network re-announces and re-listens)",
 );

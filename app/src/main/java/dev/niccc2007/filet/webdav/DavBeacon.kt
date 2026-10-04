@@ -75,6 +75,27 @@ class DavBeacon(private val context: Context) {
 
     /** One registration per share, by share id. Several shares ride one port. */
     private val registrations = ConcurrentHashMap<Long, NsdManager.RegistrationListener>()
+
+    /**
+     * What each live share announced, kept so it can be announced again.
+     *
+     * The registration listener alone is not enough to re-register: the platform needs the whole
+     * `NsdServiceInfo` back. Without this, reacting to a network change meant asking the server to
+     * re-derive every share's details, and the beacon already had them.
+     */
+    private data class Ad(
+        val id: Long,
+        val label: String,
+        val port: Int,
+        val basePath: String,
+        val scope: String,
+        val writable: Boolean,
+    )
+
+    private val ads = ConcurrentHashMap<Long, Ad>()
+
+    /** For retrying a resolve and for the periodic re-scan. Both are delayed work, not loops. */
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private var discovery: NsdManager.DiscoveryListener? = null
 
     /**
@@ -117,13 +138,32 @@ class DavBeacon(private val context: Context) {
             override fun onUnregistrationFailed(i: NsdServiceInfo, code: Int) = Unit
         }
         registrations[id] = listener
+        ads[id] = Ad(id, label, port, basePath, scope, writable)
         runCatching { manager.registerService(info, NsdManager.PROTOCOL_DNS_SD, listener) }
         refreshAdvertising()
+    }
+
+    /**
+     * Announce every live share again, because the network moved underneath them.
+     *
+     * A registration is bound to the interface it was made on. When a device changes network the
+     * record keeps naming an address that has stopped existing, so anything looking for the share
+     * finds nothing - and the only fix available was stopping and starting hosting by hand, which
+     * is precisely what this does automatically. [advertise] withdraws first, so re-calling it IS
+     * the stop and start.
+     */
+    fun readvertiseAll() {
+        for (ad in ads.values.toList()) {
+            advertise(ad.id, ad.label, ad.port, ad.basePath, ad.scope, ad.writable)
+        }
     }
 
     /** Withdraw one share's announcement. */
     fun stopAdvertising(id: Long) {
         val manager = nsd ?: return
+        // The record is dropped by the caller's stop, and restored by [advertise] when this is
+        // being called as the first half of a re-announcement.
+        ads.remove(id)
         registrations.remove(id)?.let { runCatching { manager.unregisterService(it) } }
         refreshAdvertising()
     }
@@ -131,6 +171,7 @@ class DavBeacon(private val context: Context) {
     /** Withdraw everything. */
     fun stopAdvertising() {
         val manager = nsd ?: return
+        ads.clear()
         for (id in registrations.keys.toList()) {
             registrations.remove(id)?.let { runCatching { manager.unregisterService(it) } }
         }
@@ -170,6 +211,48 @@ class DavBeacon(private val context: Context) {
         endScan()
     }
 
+    /**
+     * Start listening again from scratch, because what was heard before is no longer true.
+     *
+     * Called when this device changes network. A discovery listener carries the view it built on
+     * the old interface: hosts that were reachable are not, and hosts that are now reachable were
+     * never announced to it. Restarting is the only way to get a fresh round of announcements,
+     * because mDNS does not re-announce on request.
+     *
+     * @param forget true when the addresses already collected are known to be stale - which they
+     *   are after THIS device moves, and are not after a periodic heal.
+     */
+    fun restartScan(forget: Boolean) {
+        if (scanners.get() <= 0) return
+        endScan()
+        if (forget) _state.value = _state.value.copy(hosts = emptyList())
+        beginScan()
+    }
+
+    /**
+     * Rebuild the listener periodically while scanning.
+     *
+     * Not paranoia: NSD drops announcements in ways nothing reports. A resolve that collides with
+     * one already in flight fails, a listener can stop delivering after the peer's own network
+     * churn, and neither produces an error anybody can act on. The symptom is a host that is on the
+     * network and not in the list, which is indistinguishable from the feature being broken - and
+     * was being worked around by hand, by opening a screen until it appeared.
+     *
+     * Hosts already found are kept: this asks for a fresh round of announcements, it does not
+     * declare what is known to be wrong.
+     */
+    private fun scheduleHeal() {
+        handler.removeCallbacks(heal)
+        handler.postDelayed(heal, HEAL_EVERY_MS)
+    }
+
+    private val heal = Runnable {
+        if (scanners.get() > 0) {
+            endScan()
+            beginScan()
+        }
+    }
+
     private fun beginScan() {
         val manager = nsd ?: run {
             _state.value = _state.value.copy(error = "This device has no network service discovery.")
@@ -206,20 +289,40 @@ class DavBeacon(private val context: Context) {
         }
         discovery = listener
         runCatching { manager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener) }
+        scheduleHeal()
     }
 
     private fun endScan() {
         val manager = nsd ?: return
+        handler.removeCallbacks(heal)
         discovery?.let { runCatching { manager.stopServiceDiscovery(it) } }
         discovery = null
         _state.value = _state.value.copy(scanning = false)
     }
 
-    private fun resolve(manager: NsdManager, info: NsdServiceInfo) {
+    /**
+     * Turn a found service into an address, retrying when the platform says "not now".
+     *
+     * A failed resolve used to be discarded without a word, and the most common failure is not
+     * about the service at all: the platform resolves one at a time, so a device announcing several
+     * shares - or a re-announcement arriving while another resolve is in flight - loses all but the
+     * first with `FAILURE_ALREADY_ACTIVE`. From outside, that is a host sitting on the network and
+     * never appearing in the list, which is the symptom that was being worked around by opening a
+     * screen and waiting.
+     */
+    private fun resolve(manager: NsdManager, info: NsdServiceInfo, attempt: Int = 0) {
         @Suppress("DEPRECATION")
         runCatching {
             manager.resolveService(info, object : NsdManager.ResolveListener {
-                override fun onResolveFailed(i: NsdServiceInfo, code: Int) = Unit
+                override fun onResolveFailed(i: NsdServiceInfo, code: Int) {
+                    if (attempt + 1 >= RESOLVE_TRIES) return
+                    // Backed off, and only while somebody is still scanning - a retry firing into
+                    // a stopped scan would put a host into a list nothing is showing.
+                    handler.postDelayed(
+                        { if (scanners.get() > 0) resolve(manager, info, attempt + 1) },
+                        RESOLVE_BACKOFF_MS * (attempt + 1),
+                    )
+                }
                 override fun onServiceResolved(i: NsdServiceInfo) {
                     val address = pickAddress(i) ?: return
                     val found = Host(
@@ -284,6 +387,25 @@ class DavBeacon(private val context: Context) {
          * port, a different credential and a different lifetime. One service type answering two
          * questions is how a client ends up connecting to the wrong port.
          */
+        /**
+         * How often the listener is rebuilt while scanning.
+         *
+         * Long enough that it is not a poll - one re-registration a minute costs nothing - and
+         * short enough that a host which was missed appears without anybody waiting on it.
+         */
+        const val HEAL_EVERY_MS = 45_000L
+
+        /**
+         * How many times a resolve is retried, and how long apart.
+         *
+         * `FAILURE_ALREADY_ACTIVE` is the common one and it is not an error about the service: the
+         * platform allows one resolve at a time, so a phone announcing three shares loses two of
+         * them. They were being dropped silently, which is a host found and never resolved - so it
+         * never reached the list and never taught a saved remote anything.
+         */
+        const val RESOLVE_TRIES = 4
+        const val RESOLVE_BACKOFF_MS = 700L
+
         const val SERVICE_TYPE = "_filet-dav._tcp."
         const val ATTR_PATH = "path"
         const val ATTR_SCOPE = "scope"

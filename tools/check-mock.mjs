@@ -236,9 +236,21 @@ const FORBIDDEN = [
   ["the About card still carries the tagline the README was rewritten away from",
    /people who want to do real work on their phone without a PC/i],
   // A theme may take a palette; it may not take the name that goes with it. A colour is not a
-  // claim of association and a name is, so these are refused anywhere in the file including
-  // in a comment.
-  ["a theme is named after the product its palette came from", /(macos|mac os|anthropic|claude)/i],
+  // claim of association and a name is.
+  //
+  // Scoped to the THEMES table and the attribute that selects one, which is where a name makes
+  // that claim. It was written to refuse the words anywhere in the file including a comment, and
+  // that was wrong twice over: the scope comment at the top says "macOS Finder + Windows File
+  // Explorer" because that is the brief, in prose, about what kind of app this is - and the same
+  // sentence names Windows, which the list never banned. A rule that fires on one of two products
+  // in one sentence of design reference is not guarding anything.
+  //
+  // It also never fired. Both word boundaries in it were backspace characters, not \\b, so the
+  // pattern could not match any text at all - the rule sat here through four rounds looking
+  // enforced. That is the reason it is worth stating what this now checks rather than trimming it.
+  ["a theme is named after the product its palette came from",
+   /(const THEMES = \[[\s\S]*?\];|data-theme="[^"]*")/g,
+   (m) => /\b(macos|mac os|anthropic|claude)\b/i.test(m[0])],
   ["the open-with dialogue has a Just once button as well as a remember control, which is one binary twice",
    /openWithHTML[\s\S]{0,2600}Just once/],
   // The screen shows what a script may REACH, never what it says. Source belongs behind Edit.
@@ -262,8 +274,19 @@ function problems(html, spec, template) {
   for (const [gate, what, re] of WANTED) {
     if (!re.test(html)) found.push(`${gate}: ${what} - not in the mock`);
   }
-  for (const [what, re] of FORBIDDEN) {
-    if (re.test(html)) found.push(what);
+  // A rule may narrow itself with a third element: the regex selects the REGION to look in and
+  // the predicate decides whether what it found is actually the fault. Without that, a rule about
+  // a theme name could only be written as a search of the whole file - which is how the one below
+  // came to fire on a scope comment describing the brief.
+  for (const [what, re, verdict] of FORBIDDEN) {
+    if (verdict == null) {
+      if (re.test(html)) found.push(what);
+      continue;
+    }
+    // EVERY region, not the first one. A global regex whose first match alone was examined would
+    // pass a file whose SECOND theme declaration is the offending one, which is the narrowest
+    // possible way for a rule to be wrong.
+    if ([...html.matchAll(re)].some((m) => verdict(m))) found.push(what);
   }
   if (spec != null) {
     // The spec is half the deliverable, and the two reference tools it is matching are

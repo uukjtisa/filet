@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.flow.map
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.ui.tabs.ChipRow
@@ -87,7 +88,11 @@ fun HostingCard(vm: BrowserViewModel) {
 
     // Walked once per state change rather than on every recomposition: enumerating interfaces
     // is a syscall per interface and this card redraws on every request that arrives.
-    val addresses = remember(dav.running, dav.port) {
+    // Keyed on the network as well: this is the address somebody types into Explorer, and the
+    // whole point of watching for a move is that it changes underneath a card nothing else
+    // invalidates.
+    val moves by vm.state.map { it.networkMoves }.collectAsState(0L)
+    val addresses = remember(dav.running, dav.port, moves) {
         if (dav.running) vm.hostAddresses() else emptyList()
     }
     val reachable = addresses.filter { it.kind.reachable }
