@@ -1,10 +1,6 @@
 <div align="center">
 
-<img src="docs/icon.png" width="112" height="112" alt="Filet">
-
-# Filet
-
-**A file manager that does real work.**
+<img src="docs/glimpse.png" width="100%" alt="Filet: a file manager that does real work. Five phone screens side by side - a folder listing with thumbnails, the long-press menu, the home overview with its storage tiles and a PC mounted as a drive, an extraction preview, and the Remotes tab">
 
 [![Licence](https://img.shields.io/badge/Licence-GPL--3.0-4E7382?style=for-the-badge)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-4E7382?style=for-the-badge&logo=android&logoColor=white)](#building-it-yourself)
@@ -59,28 +55,39 @@ Free and open source. No ads, no accounts, no telemetry, no paid tier.
 ## A glimpse of it
 
 <p align="center">
-  <img src="docs/glimpse.png" width="100%" alt="Filet: five phone screens side by side - a folder listing with thumbnails, the long-press menu, the home overview with storage tiles and recent files, an extraction preview, and the Remotes tab">
+  <img src="docs/screenshots/10-metadata.png" width="23%" alt="The metadata screen on an MP3, with its cover art, the tags read out of the file, and Replace, Extract and Remove">
+  <img src="docs/screenshots/11-image-editor.png" width="23%" alt="The image editor rotating a photo to a free angle on a slider, with the result previewed live">
+  <img src="docs/screenshots/12-hex.png" width="23%" alt="The hex editor with one byte changed, shown in a warning colour and counted as unsaved">
+  <img src="docs/screenshots/06-extract.png" width="23%" alt="An extraction preview showing the folder it is about to create and the redundant parent it lifted away">
 </p>
+
+<p align="center"><sub>
+<b>Metadata</b> read and written, cover art included &middot; an <b>image editor</b> that rotates
+to any angle rather than in quarter turns &middot; the <b>hex editor</b>, where an edit is staged
+and counted until you save it &middot; and an <b>extraction</b> previewed <i>before</i> it
+happens, so an archive that would spray forty files into the folder you are standing in says so
+first
+</sub></p>
 
 <p align="center">
   <img src="docs/screenshots/03-new-files.png" width="23%" alt="New files grouped by day, each heading carrying a count and a size">
   <img src="docs/screenshots/04-view.png" width="23%" alt="The view control: density from list to grid, and the sort">
   <img src="docs/screenshots/07-scripts.png" width="23%" alt="The script list, each script showing exactly what it is allowed to touch">
-  <img src="docs/screenshots/08-nearby.png" width="23%" alt="Nearby: sharing over the local network, and where received files land">
+  <img src="docs/screenshots/09-remotes.png" width="23%" alt="Remotes: SMB, SFTP, FTP and WebDAV, and hosting this phone as a drive on your PC">
 </p>
 
 <p align="center"><sub>
 <b>New files</b> answers a question the filesystem cannot: not when a file was made, but when it
 turned up here &middot; <b>one slider</b> from a dense list to a wall of thumbnails &middot; a
-<b>script</b> declares what it may touch and you approve that before it runs &mdash; the lines on
-each row are the whole of it &middot; <b>sharing</b> to any browser on the network, no app and no
-account at the other end
+<b>script</b> declares what it may touch and you approve that before it runs &middot; and the
+<b>Remotes</b> tab both mounts other machines and hosts this phone as a drive on yours
 </sub></p>
 
 <p align="center"><sub>
 Screenshots use a seeded demo folder, not real files. The lists that are nothing <i>but</i>
 personal data &mdash; recents, bookmarks, pinned shortcuts &mdash; are left out rather than
-staged. The banner is composed from the same shots by <code>tools/make-glimpse.py</code>.
+staged, and the share access codes are redacted. The banner at the top is composed from the same
+shots by <code>tools/make-glimpse.py</code>.
 </sub></p>
 
 ---

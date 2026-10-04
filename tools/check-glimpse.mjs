@@ -59,6 +59,9 @@ const SHOWS = {
   "08-nearby.png": ["app/src/main/java/dev/niccc2007/filet/nearby/NearbyScreen.kt"],
   "09-remotes.png": ["app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt",
     "app/src/main/java/dev/niccc2007/filet/remotes/HostingCard.kt"],
+  "10-metadata.png": ["app/src/main/java/dev/niccc2007/filet/metadata/MetadataScreen.kt"],
+  "11-image-editor.png": ["app/src/main/java/dev/niccc2007/filet/handlers/ImageScreen.kt"],
+  "12-hex.png": ["app/src/main/java/dev/niccc2007/filet/handlers/Viewers.kt"],
 };
 
 /** The section, as markdown. */
@@ -78,6 +81,12 @@ export function images(sec) {
 
 export function structure(md, exists = existsSync) {
   const found = [];
+  // The banner opens the README rather than living in the glimpse section - it is the first
+  // impression, and burying it under a table of contents wastes it. So it is looked for in the
+  // whole file, while the section below still has to carry the detail shots.
+  if (!md.includes(BANNER)) {
+    found.push(`${BANNER} is not in the README at all`);
+  }
   const sec = section(md);
   if (sec === null) return ["the README has no glimpse section at all"];
 
@@ -95,10 +104,6 @@ export function structure(md, exists = existsSync) {
   // An image with no width renders full-bleed and breaks the grid the section is built as.
   for (const m of sec.matchAll(/<img\s+(?![^>]*width=)[^>]*>/g)) {
     found.push(`an image has no width: ${m[0].slice(0, 60)}`);
-  }
-
-  if (!sec.includes(BANNER)) {
-    found.push(`the section no longer leads with ${BANNER}`);
   }
 
   // The note about seeded content is load-bearing: the screenshots must never look like they
@@ -230,6 +235,6 @@ if (old.length) {
 
 const sec = section(md);
 console.log(
-  `GLIMPSE OK  (a banner built from ${Object.keys(SHOWS).length} shots plus ` +
-    `${images(sec).length - 1} detail shots, all present, captioned and current)`,
+  `GLIMPSE OK  (a banner at the top built from ${Object.keys(SHOWS).length} shots, ` +
+    `${images(sec).length} detail shots below it, all present, captioned and current)`,
 );

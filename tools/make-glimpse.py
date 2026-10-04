@@ -56,6 +56,17 @@ SHOTS = [
 
 CHIPS = ["Search", "Archives", "APKs", "Metadata", "Lua"]
 
+#: A ring and an arrow drawn over one of the phones, pointing at something worth noticing.
+#:
+#: The box is given in fractions of the SCREENSHOT rather than in banner pixels, so it survives
+#: the phones being resized or re-arranged - which they have been twice already. Set to None for
+#: no callout.
+CALLOUT = {
+    "shot": "01-home.png",
+    "box": (0.420, 0.247, 0.806, 0.345),
+    "label": "your PC, mounted as a drive",
+}
+
 #: The one positioning line, shared with the README and the repository description.
 #:
 #: Written the way a flagship app writes one: a plain declarative, the category named, one
@@ -190,6 +201,74 @@ def glow(size, centre, radius, colour, strength):
     return layer.filter(ImageFilter.GaussianBlur(radius // 2))
 
 
+def draw_callout(img, placement, box, label, height):
+    """
+    Ring something on one of the phones and point an arrow at it.
+
+    Drawn onto the finished banner rather than onto the screenshot on purpose: the files in
+    docs/screenshots stay exactly what the screen looked like, and the pointing lives in the
+    presentation. A screenshot with an arrow baked into it cannot be reused for anything else
+    and quietly stops being a record of the screen.
+    """
+    px, py, pw, ph = placement
+    bezel = max(8, height // 90)
+    iw, ih = pw - bezel * 2, ph - bezel * 2
+    x0 = px + bezel + box[0] * iw
+    x1 = px + bezel + box[2] * iw
+    y0 = py + bezel + box[1] * ih
+    y1 = py + bezel + box[3] * ih
+    pad = 16
+    ring = [x0 - pad, y0 - pad, x1 + pad, y1 + pad]
+    cx, cy = (ring[0] + ring[2]) / 2, (ring[1] + ring[3]) / 2
+
+    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    # A soft halo under the ring so it reads on a busy screenshot without a hard outline.
+    halo = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(halo).ellipse(
+        [ring[0] - 10, ring[1] - 10, ring[2] + 10, ring[3] + 10], fill=ACCENT + (70,),
+    )
+    layer = Image.alpha_composite(layer, halo.filter(ImageFilter.GaussianBlur(22)))
+    d = ImageDraw.Draw(layer)
+    d.ellipse(ring, outline=ACCENT + (255,), width=5)
+
+    f = font("Inter-0.ttf", 30, weight=560)
+    tw = round(f.getlength(label))
+    # Above and to the left, in the empty band over the fan. Clamped so a longer label cannot
+    # run off the canvas.
+    lx = max(140, min(int(cx) - tw - 150, img.width - tw - 60))
+    ly = max(44, int(ring[1]) - 230)
+    d.text((lx, ly), label, font=f, fill=FG)
+    d.line([lx, ly + f.size + 12, lx + tw, ly + f.size + 12], fill=ACCENT + (190,), width=3)
+
+    # A curve from under the label into the top-left of the ring, as three Bezier segments.
+    sx, sy = lx + tw, ly + f.size + 12
+    ex, ey = cx - (ring[2] - ring[0]) * 0.36, ring[1] - 4
+    c1 = (sx + (ex - sx) * 0.55, sy)
+    pts = []
+    for i in range(41):
+        t = i / 40
+        u = 1 - t
+        pts.append((
+            u * u * sx + 2 * u * t * c1[0] + t * t * ex,
+            u * u * sy + 2 * u * t * c1[1] + t * t * ey,
+        ))
+    d.line(pts, fill=ACCENT + (235,), width=4, joint="curve")
+    # The head, aimed along the last segment of the curve.
+    import math
+    ax, ay = pts[-1]
+    bx, by = pts[-6]
+    ang = math.atan2(ay - by, ax - bx)
+    size = 20
+    d.polygon([
+        (ax, ay),
+        (ax - size * math.cos(ang - 0.42), ay - size * math.sin(ang - 0.42)),
+        (ax - size * math.cos(ang + 0.42), ay - size * math.sin(ang + 0.42)),
+    ], fill=ACCENT + (255,))
+
+    img.paste(Image.alpha_composite(img.convert("RGBA"), layer).convert("RGB"), (0, 0))
+
+
 def check_palette():
     """
     Assert the colours here are still the app's.
@@ -246,6 +325,7 @@ def main():
     order = [0, 4, 1, 3, 2]
     # Dimmer the further from the middle, so the fan has a front and a back.
     dim = [0.30, 0.15, 0.0, 0.15, 0.30]
+    placed = {}
     for i in order:
         frames[i] = recede(frames[i], dim[i])
         x = left + step * i
@@ -256,6 +336,10 @@ def main():
             (x - pad, y - pad),
         )
         img.paste(frames[i], (x, y), frames[i])
+        placed[SHOTS[i]] = (x, y, frames[i].width, height)
+
+    if CALLOUT and CALLOUT["shot"] in placed:
+        draw_callout(img, placed[CALLOUT["shot"]], CALLOUT["box"], CALLOUT["label"], height)
 
     # ── the left block ───────────────────────────────────────────────────────────────────
     x = 150
