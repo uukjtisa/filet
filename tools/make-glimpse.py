@@ -86,11 +86,16 @@ TAGLINE = [
     "that does real work.",
 ]
 
-#: The proof, in three parallel verbs. Each one is a thing a reader can go and check, which
-#: is the same rule the rest of the repository holds its claims to.
+#: The four things the app is for, in the order the repository description names them.
+#:
+#: They started life as four virtues - versatile, convenient, powerful, seamless - and each one
+#: here is the same claim with its proof substituted in. A virtue is something every competitor
+#: also claims and nobody can check; what replaced it is something a reader can go and try.
+#: Same four ideas, same order, said in a way that survives being tested.
 SUB = [
     "Search the whole device in milliseconds.",
-    "Edit files inside archives.",
+    "Edit files inside archives and APKs.",
+    "Script it in Lua.",
     "Share to any browser on your network.",
 ]
 
