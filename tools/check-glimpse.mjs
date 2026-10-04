@@ -28,6 +28,18 @@ import { execSync } from "node:child_process";
 const README = "README.md";
 
 /**
+ * The composite the section leads with, and the tool that builds it.
+ *
+ * The banner is generated from the shots below, so it has a failure mode the shots do not: a
+ * re-shoot that is committed without re-running the tool leaves the README showing the old
+ * screens inside a new-looking image, which is worse than a stale strip because it does not
+ * look stale. Unlike staleness, that IS fixable here - it is one command - so it is a failure
+ * rather than a skip.
+ */
+const BANNER = "docs/glimpse.png";
+const BANNER_TOOL = "tools/make-glimpse.py";
+
+/**
  * Which source each screenshot is a picture of.
  *
  * The point of the mapping is that it is specific. "The UI changed" is true every day and
@@ -85,6 +97,10 @@ export function structure(md, exists = existsSync) {
     found.push(`an image has no width: ${m[0].slice(0, 60)}`);
   }
 
+  if (!sec.includes(BANNER)) {
+    found.push(`the section no longer leads with ${BANNER}`);
+  }
+
   // The note about seeded content is load-bearing: the screenshots must never look like they
   // are somebody's actual files, and the line saying so is the only thing that makes that
   // clear to a reader.
@@ -102,6 +118,30 @@ export function structure(md, exists = existsSync) {
  * mtime to the moment it ran, which would report either everything or nothing as stale
  * depending on the order things landed on disk.
  */
+/** The last commit that touched a path, in milliseconds, or null. */
+export function committedAt(p, run = execSync) {
+  try {
+    const out = run(`git log -1 --format=%ct -- "${p}"`, { encoding: "utf8" }).trim();
+    return out ? Number(out) * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Shots that have been re-taken since the banner was last built from them. */
+export function bannerBehind() {
+  if (!existsSync(BANNER)) return ["(the banner itself is missing)"];
+  const bannerAt = committedAt(BANNER) ?? statSync(BANNER).mtimeMs;
+  const behind = [];
+  for (const shot of Object.keys(SHOWS)) {
+    const path = `docs/screenshots/${shot}`;
+    if (!existsSync(path)) continue;
+    const shotAt = committedAt(path);
+    if (shotAt && shotAt > bannerAt) behind.push(shot);
+  }
+  return behind;
+}
+
 export function stale() {
   const when = (p) => {
     try {
@@ -142,7 +182,8 @@ if (process.argv.includes("--selftest")) {
     ["alt text too short to say anything", `## A glimpse of it\n<img src="ok.png" width="31%" alt="pic">\n<sub>seeded demo folder</sub>\n`, true],
     ["an image with no width", `## A glimpse of it\n<img src="ok.png" alt="Browsing with thumbnails">\n<sub>seeded demo folder</sub>\n`, true],
     ["the seeded-content note removed", `## A glimpse of it\n<img src="ok.png" width="31%" alt="Browsing with thumbnails">\n`, true],
-    ["a sound section", `## A glimpse of it\n<img src="ok.png" width="31%" alt="Browsing with thumbnails">\n<sub>Screenshots use a seeded demo folder, not real files.</sub>\n`, false],
+    ["the banner dropped from the section", `## A glimpse of it\n<img src="ok.png" width="31%" alt="Browsing with thumbnails">\n<sub>seeded demo folder</sub>\n`, true],
+    ["a sound section", `## A glimpse of it\n<img src="docs/glimpse.png" width="100%" alt="Browsing with thumbnails">\n<sub>Screenshots use a seeded demo folder, not real files.</sub>\n`, false],
   ];
   let bad = 0;
   for (const [name, md, expect] of CASES) {
@@ -163,6 +204,11 @@ if (process.argv.includes("--selftest")) {
 
 const md = existsSync(README) ? readFileSync(README, "utf8") : "";
 const faults = structure(md);
+for (const shot of bannerBehind()) {
+  faults.push(
+    `${shot} was re-taken after the banner was built - run \`python ${BANNER_TOOL}\``,
+  );
+}
 if (faults.length) {
   console.error("The glimpse section is broken:\n");
   for (const p of faults) console.error("  " + p);
@@ -183,4 +229,7 @@ if (old.length) {
 }
 
 const sec = section(md);
-console.log(`GLIMPSE OK  (${images(sec).length} shots, all present, captioned and current)`);
+console.log(
+  `GLIMPSE OK  (a banner built from ${Object.keys(SHOWS).length} shots plus ` +
+    `${images(sec).length - 1} detail shots, all present, captioned and current)`,
+);

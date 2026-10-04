@@ -31,6 +31,7 @@ Built by **[Niccc2007](https://github.com/uukjtisa)**.
 - [Browsing](#browsing)
 - [Search](#search)
 - [Archives and APKs](#archives-and-apks)
+- [Opening things](#opening-things)
 - [Scripting](#scripting)
 - [Sharing over your network](#sharing-over-your-network)
 - [Shortcuts and surfaces](#shortcuts-and-surfaces)
@@ -58,47 +59,28 @@ Free and open source. No ads, no accounts, no telemetry, no paid tier.
 ## A glimpse of it
 
 <p align="center">
-  <img src="docs/screenshots/01-home.png" width="31%" alt="Home: a search field, storage tiles and the files that turned up in tracked folders">
-  <img src="docs/screenshots/02-browse.png" width="31%" alt="A folder listing with thumbnails, sizes and dates">
-  <img src="docs/screenshots/03-new-files.png" width="31%" alt="New files grouped by day, each heading carrying a count and a size">
+  <img src="docs/glimpse.png" width="100%" alt="Filet: five phone screens side by side - a folder listing with thumbnails, the long-press menu, the home overview with storage tiles and recent files, an extraction preview, and the Remotes tab">
 </p>
-
-<p align="center"><sub>
-<b>Home</b> opens on a search field rather than a title, with what arrived while you were away
-underneath &middot; <b>a folder</b>, with a real preview on anything that has one &middot;
-<b>New files</b>, which answers a question the filesystem cannot: not when a file was made, but
-when it turned up here
-</sub></p>
 
 <p align="center">
-  <img src="docs/screenshots/04-view.png" width="31%" alt="The view control: density from list to grid, and the sort">
-  <img src="docs/screenshots/05-context-menu.png" width="31%" alt="The context menu on a file, with the common verbs as an icon row">
-  <img src="docs/screenshots/06-extract.png" width="31%" alt="An extraction preview showing the folder it is about to create">
+  <img src="docs/screenshots/03-new-files.png" width="23%" alt="New files grouped by day, each heading carrying a count and a size">
+  <img src="docs/screenshots/04-view.png" width="23%" alt="The view control: density from list to grid, and the sort">
+  <img src="docs/screenshots/07-scripts.png" width="23%" alt="The script list, each script showing exactly what it is allowed to touch">
+  <img src="docs/screenshots/08-nearby.png" width="23%" alt="Nearby: sharing over the local network, and where received files land">
 </p>
 
 <p align="center"><sub>
-One slider from a dense list to a wall of thumbnails &middot; the verbs you use constantly as
-icons, the rest as a list &middot; and an extraction previewed <i>before</i> it happens, so an
-archive that would spray forty files into the folder you are standing in says so first
-</sub></p>
-
-<p align="center">
-  <img src="docs/screenshots/07-scripts.png" width="31%" alt="The script list, each script showing exactly what it is allowed to touch">
-  <img src="docs/screenshots/08-nearby.png" width="31%" alt="Nearby: sharing over the local network, and where received files land">
-  <img src="docs/screenshots/09-remotes.png" width="31%" alt="Remotes: SMB, SFTP, FTP and WebDAV, and hosting this phone as a drive">
-</p>
-
-<p align="center"><sub>
-A script declares what it may touch and you approve that before it runs &mdash; the lines on
-each row are the whole of it &middot; sharing to any browser on the network, no app and no
-account at the other end &middot; and the same tab mounts <b>this phone</b> in Windows Explorer
-as a drive
+<b>New files</b> answers a question the filesystem cannot: not when a file was made, but when it
+turned up here &middot; <b>one slider</b> from a dense list to a wall of thumbnails &middot; a
+<b>script</b> declares what it may touch and you approve that before it runs &mdash; the lines on
+each row are the whole of it &middot; <b>sharing</b> to any browser on the network, no app and no
+account at the other end
 </sub></p>
 
 <p align="center"><sub>
 Screenshots use a seeded demo folder, not real files. The lists that are nothing <i>but</i>
 personal data &mdash; recents, bookmarks, pinned shortcuts &mdash; are left out rather than
-staged.
+staged. The banner is composed from the same shots by <code>tools/make-glimpse.py</code>.
 </sub></p>
 
 ---
@@ -198,6 +180,38 @@ scorer reranks those in memory. Neither half is asked to do the other's job.
 - **Edit the binary manifest** without needing aapt2
 - **Rebuild and re-sign**, reading minSdk from the APK being rebuilt so the dex format it
   emits is one the target device can actually load
+
+---
+
+## Opening things
+
+Filet opens a file rather than handing it away. Every one of these reads and writes through the
+storage layer, so it works the same inside an archive and on a network share as it does on
+internal storage.
+
+- **Text and code**, with syntax highlighting from TextMate grammars and tree-sitter. Long lines
+  wrap, and the document scrolls past its own end so the line you are typing is never under the
+  keyboard
+- **Hex, as an editor rather than a viewer.** Tap a byte, type the new value; edits stage up and
+  show in a warning colour until you save, and the whole patch is applied in one write
+- **Images, with the tools you would otherwise go to a PC for** — crop, rotate to any angle on a
+  slider, draw, resize, add text and emoji. Two fingers zoom and pan even in the middle of a
+  stroke, and it zooms out past the fit so there is somewhere to work
+- **Video and audio fullscreen**, with the top bar retracting while you watch and coming back on
+  a touch. Drag to seek; brightness and volume need a clearly vertical drag, so a sideways seek
+  cannot trip them
+- **Metadata, read and written.** Twelve containers in three honest tiers — what is safe to
+  write, what is writable with a stated exception, and what is read-only and why. Tags in MP3,
+  FLAC, Ogg, Opus, MP4 and M4A; properties in PDF and in Word, Excel and PowerPoint documents;
+  text in PNG, comments in JPEG, GIF and zip; EXIF read from JPEG and WebP
+- **Cover art**, shown, extracted to a file beside the original, or replaced with any image on
+  the device — including one on a network share, because the picker is Filet's own
+- **Nothing is written in place.** A rewrite is built in memory, re-parsed, and only replaces the
+  original once the change reads back. A format Filet does not fully understand is refused with
+  the reason, which is the feature rather than the shortfall
+- **A session log**, off by default and one timestamped file per cold boot in `Filet/Logs`. It is
+  what a bug report attaches, and it is how the twenty-second cold start turned out to be two
+  unrelated faults rather than one
 
 ---
 

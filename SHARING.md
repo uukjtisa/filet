@@ -98,8 +98,8 @@ Four levels rather than a set of flags, because they are genuinely ordered — t
 "can delete but not read" — and an ordered level can be compared, inherited and reasoned about in
 one function. Flags would need a truth table and would let nonsense be expressed.
 
-`HIDDEN` returns **404, not 403**. A 403 confirms the path exists, and for the case this is
-actually for — *"cause some files are yknow.. that way"* — the point is that the folder does not
+`HIDDEN` returns **404, not 403**. A 403 confirms the path exists, and the case this is
+actually for is a folder nobody else is meant to know about — so the point is that it does not
 appear at all.
 
 ### Inheritance, and the thing it is really for
@@ -190,8 +190,8 @@ Cached briefly, for the same reason the view snapshot is: Explorer asks per fold
 
 ## 3. The transfer cap
 
-*"a restriction for the amount of data a whole stuff can send"* — a ceiling on how much a share
-moves, tracked from what clients actually read, wrote and deleted.
+A ceiling on how much a share moves in total, tracked from what clients actually read, wrote
+and deleted.
 
 ### What is counted
 
@@ -206,7 +206,7 @@ moves, tracked from what clients actually read, wrote and deleted.
 **Two separate numbers, not one.** Conflating them makes a share that only ever sends look like it
 is filling the phone:
 
-- **`egress`** — bytes sent to clients. The cap that answers *"how much can this thing send"*.
+- **`egress`** — bytes sent to clients. The cap that answers how much this share may send.
 - **`net written`** — `written − freed`, which can go negative. The number that informs
   `quota-available-bytes`.
 

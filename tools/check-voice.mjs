@@ -33,9 +33,14 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 
-const ROOTS = ["app/src", "core-vfs/src", "core-index/src", "tools", "docs"];
-const TOP_DOCS = ["README.md", "FEATURES.md", "FIXES.md", "PLAN.md", "GATES.md", "SEARCH.md", "NEARBY.md", "TEMPLATE.md"];
-const EXT = [".kt", ".mjs", ".md"];
+const ROOTS = ["app/src", "core-vfs/src", "core-index/src", "tools", "docs", ".github"];
+// The repository-citizenship files are the most outward-facing prose here - the first thing
+// a contributor reads - so they are scanned rather than trusted.
+const TOP_DOCS = [
+  "README.md", "FEATURES.md", "FIXES.md", "PLAN.md", "GATES.md", "SEARCH.md", "NEARBY.md",
+  "TEMPLATE.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SHARING.md", "REMOTE-FILES.md",
+];
+const EXT = [".kt", ".mjs", ".md", ".yml"];
 
 /**
  * Each pattern is a form that actually appeared in this repository before the sweep.

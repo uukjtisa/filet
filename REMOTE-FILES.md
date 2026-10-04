@@ -109,7 +109,7 @@ folder picker opens. That is rejected, and the reason is worth keeping:
 - It is **two decisions for one intention**. You asked to rebuild; being handed a file-manager
   copy flow in the middle of that is the app changing the subject.
 - It **downloads once and then copies again**, so a 34 MB file costs 68 MB of work.
-- It conflates **"where do I keep this"** with **"what did I ask for"**, and the second is the
+- It conflates **where the file is kept** with **what was asked for**, and the second is the
   thing actually in flight.
 
 A destination chosen inside the one prompt gives the same control — including the same folder
@@ -118,7 +118,7 @@ picker, behind *Change folder* — for one decision and one transfer.
 ### Rules
 
 1. **Refuse before starting, not at 90%.** Not enough room says so up front, with the figure:
-   *"Needs 340 MB free."*
+   `Needs 340 MB free.`
 2. **Default is Temporary.** The common case is inspect-and-forget, and a file that cleans
    itself up is the one that does not accumulate.
 3. **The chosen folder is remembered**, the Temporary-or-Keep choice is not. Somebody who picks

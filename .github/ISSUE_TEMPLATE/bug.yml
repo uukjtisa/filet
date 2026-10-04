@@ -1,0 +1,145 @@
+name: Something is broken
+description: A thing Filet does wrong, with enough in it that somebody can make it happen again.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **The one thing that matters here: can somebody else make it happen?**
+
+        A report nobody can reproduce is a report nobody can act on - not because it is not
+        believed, but because there is nothing to test a fix against. Everything asked for
+        below exists to get a bug from "it broke" to "it breaks when you do this".
+
+        If you cannot reproduce it either, say so in the steps and file it anyway. An
+        intermittent bug with a log attached is far more use than no report, and the log is
+        often the only thing that catches it.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected instead
+      description: Both halves. "It didn't work" leaves the second one to guesswork.
+      placeholder: |
+        I opened a zip on a network share and the listing stayed empty.
+        I expected the files inside it, the way it works on internal storage.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to make it happen
+      description: >
+        Numbered, from a cold start. Include the boring steps - which screen you were on, what
+        you tapped, whether the file was local or on a share. The boring step is usually the one
+        that matters.
+      placeholder: |
+        1. Fresh launch of Filet.
+        2. Remotes tab, open the saved WebDAV share.
+        3. Tap any .zip in it.
+        4. The archive screen opens with no rows and no error.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: reproducible
+    attributes:
+      label: Does it happen every time?
+      options:
+        - Every time, following the steps above
+        - Most times
+        - Occasionally, and I cannot force it
+        - Once, and never again
+    validations:
+      required: true
+
+  - type: textarea
+    id: proof
+    attributes:
+      label: A screenshot or a screen recording
+      description: >
+        Drag the file straight into this box. A recording beats a screenshot for anything
+        involving a gesture, an animation or a thing that appears and goes - which is most of
+        them. **Check what else is on screen first:** a file listing is a list of your own
+        files, and other people's names and your own paths go public with the issue. Crop, or
+        reproduce it in a folder of nothing.
+    validations:
+      required: false
+
+  - type: textarea
+    id: log
+    attributes:
+      label: The session log
+      description: >
+        Settings ▸ Logs ▸ **Verbose logging**, then reproduce the bug and attach the newest
+        file from `Filet/Logs`. One file per cold boot, timestamped. This is the single most
+        useful thing in the whole form, and it is the reason the logger exists. It records
+        paths and file names from the session, so read it before attaching it.
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Filet version
+      description: Settings ▸ About, or the filename of the APK you installed.
+      placeholder: "0.1.11"
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device and Android version
+      description: >
+        The manufacturer's skin matters as much as the version - a few of these bugs only
+        happen on one vendor's storage permissions.
+      placeholder: "Pixel 6a, Android 15"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where the files were
+      description: Which backend was in play. A bug in one of these is usually absent from the others.
+      multiple: true
+      options:
+        - Internal storage
+        - An SD card
+        - A USB drive
+        - Inside an archive
+        - A network share (WebDAV, SMB, FTP, SFTP)
+        - Another Filet over the network
+        - Root
+        - Not about files
+    validations:
+      required: true
+
+  - type: textarea
+    id: fix
+    attributes:
+      label: Where you think it is, if you looked
+      description: >
+        Entirely optional and genuinely useful if you did. A file name, a function, a guess at
+        the cause, a diff. Being wrong about it costs nothing - a wrong guess at the cause
+        still says which part of the app you were looking at, and that narrows the search.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Before filing
+      options:
+        - label: I searched the open issues and this is not one of them.
+          required: true
+        - label: >
+            I read what I am attaching - the screenshot and the log - and there is nothing in
+            them I would not post publicly.
+          required: true

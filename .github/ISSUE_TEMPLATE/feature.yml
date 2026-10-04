@@ -1,0 +1,62 @@
+name: An idea
+description: Something Filet should do that it doesn't.
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are welcome, including ones I say no to. A no with a reason is worth more to both
+        of us than a maybe, so the questions below are aimed at the reason rather than at the
+        feature - what you were trying to do matters more than the control you had in mind.
+
+        Worth knowing first: **[FEATURES.md](../../blob/main/FEATURES.md)** is what Filet does
+        today and **[PLAN.md](../../blob/main/PLAN.md)** is the shape it is being built to. If
+        an idea fights the layer model in PLAN.md, that is not an automatic no - but it is the
+        conversation.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What were you trying to do?
+      description: >
+        The task, not the feature. "I wanted to get forty photos off my phone onto my laptop
+        without a cable" is a problem with several answers; "add a sync button" is one of them
+        and maybe not the best.
+    validations:
+      required: true
+
+  - type: textarea
+    id: now
+    attributes:
+      label: How you do it now
+      description: >
+        Including "I don't, I give up and use a PC" - that is the most useful answer there is,
+        and it is why Filet exists.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: Rough is fine. A sketch, a screenshot of another app, a paragraph.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Roughly where it belongs
+      description: A guess is fine; it only helps with triage.
+      options:
+        - Browsing and the file list
+        - Search
+        - Archives and APKs
+        - The network share, or another Filet
+        - Editing - text, hex, metadata, images
+        - Scripting
+        - Looks, theming, motion
+        - Settings and behaviour
+        - Somewhere else, or a new screen
+    validations:
+      required: true

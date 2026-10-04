@@ -13,7 +13,7 @@ Status: `IDEA` → `SPEC` → `BUILT` → `SHIPPED` · or `CUT`
 
 ## Where this stands — 2026-09-15, after round 9
 
-**83 SHIPPED · 13 BUILT · 4 IDEA · 4 CUT.** Measured on a HUAWEI NCO-LX1 (API 31); see
+**86 SHIPPED · 13 BUILT · 4 IDEA · 4 CUT.** Measured on a HUAWEI NCO-LX1 (API 31); see
 `GATES.md` for the per-milestone evidence and the abandoned gates.
 
 Round 9 added fifteen rows and cut one. **The cut is the one worth reading**: F94, the native
@@ -88,10 +88,13 @@ ledger was tidied: **F22** (a shortcut's id died with the crawl's generation swe
 
 | # | Feature | L | M | Status | Notes |
 |---|---|---|---|---|---|
-| F26 | Text/code editor with syntax highlighting | L3 | M2 | SHIPPED | sora-editor (LGPL-2.1), TextMate + tree-sitter. |
-| F27 | Hex editor | L3 | M2 | SHIPPED | Paged hex viewer, registered as a handler. |
-| F28 | Image viewer + EXIF | L3 | M2 | SHIPPED | Sampled decode + pinch-zoom. |
-| F29 | Media player | L3 | M2 | SHIPPED | |
+| F26 | Text/code editor with syntax highlighting | L3 | M2 | SHIPPED | sora-editor (LGPL-2.1), TextMate + tree-sitter. Wrapping, and scrollable past the end so the caret clears the keyboard. |
+| F27 | Hex editor | L3 | M2 | SHIPPED | Paged. Edits are per-byte and staged, applied in one write. |
+| F28 | Image viewer and editor | L3 | M2 | SHIPPED | Crop, free-angle rotate, draw, resize, text and emoji. Zooms out past fit; two fingers pan and zoom even mid-stroke. |
+| F29 | Media player | L3 | M2 | SHIPPED | Fullscreen, chrome retracts while watching. Brightness and volume need a clearly vertical drag, so a sideways seek cannot trip them. |
+| F119 | Metadata reader and writer | L3 | M2 | SHIPPED | 12 formats across 3 tiers, each with its own engine and tests. Nothing is written in place and every rewrite is re-parsed before it replaces the original. |
+| F120 | Cover art | L3 | M2 | SHIPPED | Read, extract and replace, in MP3, FLAC, Ogg/Opus and MP4/M4A. |
+| F121 | Session log | L3 | M2 | SHIPPED | One timestamped file per cold boot in `Filet/Logs`, off unless Verbose logging is on. What a bug report attaches. |
 
 ## Scripting
 

@@ -1,0 +1,10 @@
+blank_issues_enabled: false
+contact_links:
+  - name: A question, rather than a bug
+    url: https://github.com/uukjtisa/filet/discussions
+    about: How something works, whether something is possible, or whether a thing is meant to do that.
+  - name: Something that looks like a security problem
+    url: https://github.com/uukjtisa/filet/security/advisories/new
+    about: >
+      Report it privately here rather than in an issue. Filet reads every file on the device
+      and can serve them over the network, so a bug in that is worth not publishing first.
