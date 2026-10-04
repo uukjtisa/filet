@@ -55,7 +55,18 @@ SHOTS = [
     "09-remotes.png",
 ]
 
-CHIPS = ["Search", "Archives", "APKs", "Metadata", "Lua"]
+#: The four pillars, named, each with the thing that makes it true.
+#:
+#: The same four the repository description names and in the same order, so the banner and the
+#: About field are one message rather than two. The word on the left is the claim; the line
+#: beside it is what a reader can go and check, which is the only reason the claim is allowed
+#: to be an abstract noun at all.
+PILLARS = [
+    ("Versatility", "every archive, every drive, every format"),
+    ("Convenience", "whole-device search in milliseconds"),
+    ("Power", "edit inside archives and APKs, script it in Lua"),
+    ("Sharing", "to any browser on your network"),
+]
 
 #: Rings and arrows drawn onto a copy of a single screenshot, for the detail strip.
 #:
@@ -96,43 +107,51 @@ TAGLINE = [
     "Change it. Send it.",
 ]
 
-#: The four things the app is for, in the order the repository description names them.
-#:
-#: They started life as four virtues - versatile, convenient, powerful, seamless - and each one
-#: here is the same claim with its proof substituted in. A virtue is something every competitor
-#: also claims and nobody can check; what replaced it is something a reader can go and try.
-#: Same four ideas, same order, said in a way that survives being tested.
-SUB = [
-    "Search the whole device in milliseconds.",
-    "Edit files inside archives and APKs.",
-    "Script it in Lua.",
-    "Share to any browser on your network.",
-]
-
 FONTS = os.path.join(
     os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Windows", "Fonts"
 )
 
 
-def font(name, size, weight=None):
-    """
-    Load a font, setting a variable axis where the file has one.
+#: Family and weight to the file that actually holds it.
+#:
+#: These are static instances, not variable fonts - asking one to set a weight axis raises and
+#: the earlier version swallowed that, so every line on the banner rendered in Regular however
+#: heavy it asked to be. A headline in the body weight is most of what made the type look
+#: cheap, and it was invisible because the code said SemiBold.
+FACES = {
+    ("Fraunces", "Regular"): "Fraunces-0.ttf",
+    ("Fraunces", "Bold"): "Fraunces-1.ttf",
+    ("Fraunces", "Black"): "Fraunces-2.ttf",
+    ("Inter", "Regular"): "Inter-0.ttf",
+    ("Inter", "SemiBold"): "Inter-1.ttf",
+    ("Inter", "ExtraBold"): "Inter-2.ttf",
+    ("Inter", "Black"): "Inter-3.ttf",
+}
 
-    Fraunces and Inter both ship as variable fonts here, and a variable font's default
-    instance is whatever the designer set - for Inter that is Thin, which at heading size
-    looks like a rendering fault rather than a choice.
-    """
+
+def font(family, size, weight="Regular"):
+    """Load one face. An unknown family or weight is a mistake worth stopping on, not guessing."""
+    name = FACES.get((family, weight))
+    if name is None:
+        sys.exit("no face for %s %s - see FACES" % (family, weight))
     for folder in (FONTS, r"C:\Windows\Fonts"):
         path = os.path.join(folder, name)
         if os.path.exists(path):
-            f = ImageFont.truetype(path, size)
-            if weight is not None:
-                try:
-                    f.set_variation_by_axes([weight])
-                except Exception:
-                    pass
-            return f
-    return ImageFont.load_default(size)
+            return ImageFont.truetype(path, size)
+    sys.exit("%s is not installed; install it or change FACES" % name)
+
+
+def spaced(draw, xy, text, f, fill, tracking):
+    """
+    Draw text with letter-spacing, which the imaging library has no setting for.
+
+    An eyebrow without it is just small text; the spacing is what makes it read as a label.
+    """
+    x, y = xy
+    for ch in text:
+        draw.text((x, y), ch, font=f, fill=fill)
+        x += f.getlength(ch) + tracking
+    return x - tracking
 
 
 def rounded_mask(size, radius):
@@ -239,7 +258,7 @@ def annotate(shot, callouts):
     out = Image.new("RGBA", (shot.width, shot.height + band), BG + (255,))
     out.paste(shot.convert("RGBA"), (0, band))
     d = ImageDraw.Draw(out)
-    f = font("Inter-0.ttf", 25, weight=560)
+    f = font("Inter", 25, "SemiBold")
 
     for c in callouts:
         bx = c["box"]
@@ -384,7 +403,7 @@ def main():
     # ── the left block ───────────────────────────────────────────────────────────────────
     x = 150
     y = 250
-    title = font("Fraunces-0.ttf", 124, weight=600)
+    title = font("Fraunces", 124, "Bold")
     if os.path.exists(ICON):
         icon = Image.open(ICON).convert("RGBA").resize((96, 96), Image.LANCZOS)
         img.paste(icon, (x, y + 30), icon)
@@ -396,34 +415,28 @@ def main():
     draw.rounded_rectangle([x, y, x + 104, y + 6], 3, fill=ACCENT)
     y += 44
 
-    eyebrow = font("Inter-0.ttf", 19, weight=600)
-    draw.text((x + 1, y), EYEBROW, font=eyebrow, fill=FG3)
-    y += 42
+    eyebrow = font("Inter", 20, "SemiBold")
+    spaced(draw, (x + 1, y), EYEBROW, eyebrow, FG3, 2.6)
+    y += 44
 
-    tag = font("Inter-0.ttf", 44, weight=600)
+    tag = font("Inter", 48, "SemiBold")
     for line in TAGLINE:
         draw.text((x, y), line, font=tag, fill=FG)
-        y += 54
-    y += 22
+        y += 58
+    y += 32
 
-    sub = font("Inter-0.ttf", 29, weight=400)
-    for line in SUB:
-        draw.text((x, y), line, font=sub, fill=FG2)
-        y += 41
-    y += 34
+    # The pillars, as a two-column list: the claim, then what makes it true. A fixed first
+    # column rather than a measured one, so the proofs line up with each other down the page -
+    # which is what makes four rows read as a set rather than as four sentences.
+    name = font("Inter", 26, "SemiBold")
+    proof = font("Inter", 24, "Regular")
+    for word, line in PILLARS:
+        draw.text((x, y), word, font=name, fill=ACCENT)
+        draw.text((x + 196, y + 1), line, font=proof, fill=FG2)
+        y += 45
+    y += 40
 
-    chipf = font("Inter-0.ttf", 25, weight=520)
-    cx = x
-    for text in CHIPS:
-        c = chip(text, chipf)
-        if cx + c.width > 950:
-            cx = x
-            y += c.height + 12
-        img.paste(c, (cx, y), c)
-        cx += c.width + 11
-    y += 92
-
-    foot = font("Inter-0.ttf", 24, weight=420)
+    foot = font("Inter", 23, "Regular")
     draw.text((x, y), "GPL-3.0  \u00b7  Android 8.0+  \u00b7  no ads, no accounts, no telemetry",
               font=foot, fill=FG3)
 
