@@ -75,15 +75,25 @@ CALLOUTS = {
     ],
 }
 
-#: The one positioning line, shared with the README and the repository description.
+#: The category, said small, because the headline below no longer says it.
 #:
-#: Written the way a flagship app writes one: a plain declarative, the category named, one
-#: claim, no comparison to anything else. The line it replaces ended "without reaching for a
-#: PC", which defines the app by what it is not - and a product that introduces itself by
-#: naming its competition has conceded the frame before it has said what it does.
+#: A flagship page states what the thing IS in an eyebrow and spends the headline on what it
+#: does for you. Dropping the eyebrow and letting the headline carry both is what produced "A
+#: file manager that does real work" - a sentence that names the category twice over and
+#: promises nothing a competitor would not also claim.
+EYEBROW = "ANDROID FILE MANAGER"
+
+#: The headline: four verbs, which are the four things anybody does to a file.
+#:
+#: They are the same four the repository description names, in the same order - find, open,
+#: change, send - so the promise and the proof underneath it line up one to one.
+#:
+#: No comparison in it, deliberately. Two earlier versions defined the app against a laptop
+#: ("without reaching for a PC"), and a product that introduces itself by naming what it is not
+#: has conceded the frame before it has said what it does.
 TAGLINE = [
-    "A file manager",
-    "that does real work.",
+    "Find it. Open it.",
+    "Change it. Send it.",
 ]
 
 #: The four things the app is for, in the order the repository description names them.
@@ -384,9 +394,13 @@ def main():
     y += 172
 
     draw.rounded_rectangle([x, y, x + 104, y + 6], 3, fill=ACCENT)
-    y += 46
+    y += 44
 
-    tag = font("Inter-0.ttf", 40, weight=560)
+    eyebrow = font("Inter-0.ttf", 19, weight=600)
+    draw.text((x + 1, y), EYEBROW, font=eyebrow, fill=FG3)
+    y += 42
+
+    tag = font("Inter-0.ttf", 44, weight=600)
     for line in TAGLINE:
         draw.text((x, y), line, font=tag, fill=FG)
         y += 54
