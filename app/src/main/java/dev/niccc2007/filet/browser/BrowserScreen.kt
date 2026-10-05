@@ -205,6 +205,17 @@ fun BrowserScreen(vm: BrowserViewModel) {
                 if (activeState?.selecting == true) {
                     SelectionBar(vm, activeState.selected.size, vm.writeBlockReason(activeState.cwd))
                 }
+
+                // Above the bottom bar and below everything else, so it is present on every
+                // pane - Home, a folder, Settings, Remotes - rather than only where a file list
+                // is. "Everywhere in the app" was the ask and this is the one row that satisfies
+                // it without being pinned over the content.
+                //
+                // Outside the `wide` branch below on purpose: a tablet has no bottom bar, and
+                // hanging the strip off it would make the player uncontrollable on exactly the
+                // screens with room for it.
+                dev.niccc2007.filet.playback.NowPlayingStrip(vm)
+
                 if (!wide) BottomNav(vm, app, active)
             }
 

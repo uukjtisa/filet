@@ -22,6 +22,15 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!--
+      Playing a track with the app in the background.
+
+      A separate permission from DATA_SYNC and the right one to ask for: mediaPlayback is the
+      only foreground type with no daily time cap, because playing a long album is exactly what
+      it exists for. Declaring dataSync for it instead would work and then stop working after
+      six hours in a day, which is a fault that only appears to somebody who actually uses it.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <!--
       Package visibility (API 30+).
@@ -216,6 +225,24 @@
             android:name=".nearby.NearbyService"
             android:foregroundServiceType="dataSync"
             android:exported="false" />
+
+        <!--
+          Playback. Keeps a track alive with the app in the background, and owns the
+          MediaSession that earphone buttons, a car stereo and the lock screen all arrive at.
+
+          The MEDIA_BUTTON intent filter is what makes a media button reach this app at all when
+          nothing of ours is on screen: the system routes it to whatever last held an active
+          session, and without a declared receiver there is nothing for it to route to on the
+          older path. The session itself handles it; this is the doorway.
+        -->
+        <service
+            android:name=".playback.PlaybackService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </service>
 
         <!-- Shortcut launcher (M4): resolves a stable file ID to its current path. -->
         <activity

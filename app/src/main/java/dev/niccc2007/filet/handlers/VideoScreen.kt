@@ -53,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
@@ -202,6 +203,9 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     // Off means follow the phone, which is what it did before and is still the default.
     var lockedOrientation by remember(node.path) { mutableStateOf<Int?>(null) }
     var repeating by remember(node.path) { mutableStateOf(true) }
+    // Remembered in preferences rather than per video - see `Prefs.videoKeepsPlaying` for why
+    // a per-file switch would be useless for the one case this is for.
+    val keepPlaying by vm.prefs.videoKeepsPlaying.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = context as? android.app.Activity
 
@@ -276,7 +280,21 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
         position = target
     }
 
+    /**
+     * Where to start, when this video is the one playing in the background.
+     *
+     * The other half of the hand-off contract in the `DisposableEffect` above. Opening the
+     * video while the background player holds it means taking it back: read the position,
+     * stop that player, and resume here. Skipping this would leave both playing the same
+     * audio a few hundred milliseconds apart.
+     */
+    var resumeAt by remember(node.path) { mutableLongStateOf(0L) }
+
     LaunchedEffect(node.path) {
+        if (vm.playback.isCurrent(node.path.toString())) {
+            resumeAt = vm.playback.state.value.positionMs
+            vm.playback.stop()
+        }
         val u = runCatching { vm.localUriFor(node) }.getOrNull()
         if (u == null) {
             error = "This file has to be copied to local storage before it can play. " +
@@ -388,14 +406,45 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
         onDispose { }
     }
 
+    /**
+     * Keep the sound going after the screen is gone, when the option is on.
+     *
+     * ## The contract, which is the part that matters
+     *
+     * **Exactly one of the two players ever holds this file.** The video screen owns a
+     * `VideoView`; the background player in the graph owns a `MediaPlayer`. Handing over means
+     * this screen stops first and the other starts at the position this one reached - and
+     * re-opening the video does the reverse, in the `LaunchedEffect` below. Letting both run
+     * would play the same audio twice, a few hundred milliseconds apart, which is unmistakable
+     * and would read as the app being broken rather than as a race.
+     *
+     * The pictures are simply not drawn. `MediaPlayer` carries on decoding audio with no
+     * surface attached, which is what makes this cheap: nothing transcodes and nothing is
+     * re-read beyond re-opening the file.
+     *
+     * The honest limit, and it is why this is a hand-off rather than a shared player: there is
+     * a gap while the second player prepares. Seamless would mean rebuilding this screen on top
+     * of the graph's player, and this screen's seek gesture, storyboard previews and zoom are
+     * all built around owning its own `VideoView`. A gap of a few hundred milliseconds on
+     * leaving a screen is worth considerably less than that rewrite.
+     */
     DisposableEffect(handle) {
         onDispose {
             activity?.requestedOrientation =
                 android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            val handOver = keepPlaying && playing && position > 0L
+            val at = position
             runCatching {
                 handle.view?.stopPlayback()
                 handle.view = null
                 handle.player = null
+            }
+            if (handOver) {
+                runCatching {
+                    vm.playback.play(
+                        dev.niccc2007.filet.playback.tracksOf(listOf(node)), 0, startAtMs = at,
+                    )
+                }
             }
         }
     }
@@ -448,6 +497,13 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                             mp.isLooping = repeating
                             duration = mp.duration.toLong().coerceAtLeast(0L)
                             ready = true
+                            // Taken back off the background player, so the video picks up where
+                            // the sound got to rather than restarting it.
+                            if (resumeAt > 0L) {
+                                handle.seekExactly(resumeAt)
+                                position = resumeAt
+                                resumeAt = 0L
+                            }
                             mp.start()
                             playing = true
                         }
@@ -502,6 +558,11 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                         if (repeating) "Repeat is on" else "Repeat is off",
                         active = repeating,
                     ) { repeating = !repeating; wake() }
+                    OverlayAction(
+                        FiletIcons.Audio,
+                        if (keepPlaying) "Keeps playing when you leave" else "Stops when you leave",
+                        active = keepPlaying,
+                    ) { vm.prefs.setVideoKeepsPlaying(!keepPlaying); wake() }
                     OverlayAction(FiletIcons.Expand, orientationLabel(lockedOrientation)) {
                         // Three states rather than a toggle: follow the phone, hold landscape,
                         // hold portrait. A two-state button cannot express "stop rotating",

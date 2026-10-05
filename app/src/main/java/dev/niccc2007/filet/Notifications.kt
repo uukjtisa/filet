@@ -5,8 +5,6 @@ package dev.niccc2007.filet
  *
  * ## Why this file exists
  *
- * Round 9. .
- *
  * `NearbyService` used `4201` and, from round 8, `UpdateNotifier` used `4_201`. The same
  * number, written two different ways - which is precisely why a grep for `4201` while adding
  * the updater found nothing and the clash shipped.
@@ -15,8 +13,8 @@ package dev.niccc2007.filet
  * already taken replaces the other notification, and cancelling with it cancels somebody
  * else's. Nearby's is a FOREGROUND SERVICE notification, so the updater cancelling 4201 pulled
  * the notification out from under a running service; Android stops a foreground service whose
- * notification goes away, the service restarted, re-posted, and the loop is what he was
- * watching it flicker on a home screen.
+ * notification goes away, the service restarted, re-posted, and that loop is what
+ * presented as a notification flickering on a home screen.
  *
  * The lesson is not "be careful with numbers". It is that a global key was being declared
  * locally in whichever file happened to need one. They are declared here now, and
@@ -40,10 +38,21 @@ object Notifications {
      */
     const val UPDATE = 4401
 
+    /**
+     * The track being played. A foreground service, like [NEARBY] and [INDEX].
+     *
+     * This one is driven hardest of the four - it is re-posted on every track change - which is
+     * exactly why it must not share an id with anything. Replacing another foreground service's
+     * notification by accident is the fault recorded above, and a notification that updates
+     * once a song is the most likely thing to do it.
+     */
+    const val PLAYBACK = 4501
+
     /** Every id above, for the checker and for a test to assert they are distinct. */
     val ALL: List<Pair<String, Int>> = listOf(
         "NEARBY" to NEARBY,
         "INDEX" to INDEX,
         "UPDATE" to UPDATE,
+        "PLAYBACK" to PLAYBACK,
     )
 }

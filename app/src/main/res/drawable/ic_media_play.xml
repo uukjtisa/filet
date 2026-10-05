@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Play, for a notification action.
+
+  A notification action takes a resource id rather than a Compose ImageVector, so the app's own
+  FiletIcons cannot reach here and these five live as drawables. The system tints them from the
+  alpha channel, so the fill colour is arbitrary - solid white is the convention because it is
+  what the shape reads as before tinting.
+
+  Solid rather than outlined, unlike the in-app icons. The system draws these at roughly 16dp
+  in a collapsed notification row, and a 2dp stroke at that size closes up into a blur.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M8,5.14V19.14L19,12.14L8,5.14Z" />
+</vector>

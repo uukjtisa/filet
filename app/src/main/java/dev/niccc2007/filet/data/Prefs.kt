@@ -256,6 +256,23 @@ class Prefs(context: Context) {
     private val _updateLastCheckedAt = MutableStateFlow(sp.getLong(K_UPD_CHECKED, 0L))
     val updateLastCheckedAt: StateFlow<Long> = _updateLastCheckedAt.asStateFlow()
 
+    /**
+     * Whether leaving a video hands its sound to the background player.
+     *
+     * Off by default. Audio carrying on when a video screen is closed is useful for a lecture
+     * or a music video and wrong for everything else - a clip closed mid-sentence should go
+     * quiet, not follow you into the next folder. So it is a switch on the player, remembered
+     * between videos because setting it per file would make it useless for the one case it is
+     * for: a folder of talks played one after another.
+     */
+    private val _videoKeepsPlaying = MutableStateFlow(sp.getBoolean(K_VIDEO_BG, false))
+    val videoKeepsPlaying: StateFlow<Boolean> = _videoKeepsPlaying.asStateFlow()
+
+    fun setVideoKeepsPlaying(on: Boolean) {
+        _videoKeepsPlaying.value = on
+        sp.edit().putBoolean(K_VIDEO_BG, on).apply()
+    }
+
     fun setSort(s: SortSpec) {
         _sort.value = s
         sp.edit().putString(K_SORT, s.key.name).putBoolean(K_SORT_DESC, s.descending)
@@ -403,6 +420,7 @@ class Prefs(context: Context) {
         const val K_UPD_VERSION = "update.silencedVersion"
         const val K_UPD_SKIPPED = "update.skippedVersion"
         const val K_UPD_OFF = "update.notificationsOff"
+        const val K_VIDEO_BG = "video.keepsPlaying"
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
 }

@@ -1752,6 +1752,19 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun closeHandler() { _openRequest.value = null }
 
+    /**
+     * Open the full player on whatever is playing now.
+     *
+     * What the strip does when it is tapped. It goes through `OpenRequest` like every other
+     * viewer rather than having a route of its own, so the player opens, closes and stacks
+     * exactly as it does when a track is tapped in a folder - and the back gesture needs no
+     * special case.
+     */
+    fun maximisePlayer() {
+        val node = nodeOfTrack(graph.playback.state.value.current) ?: return
+        _openRequest.value = OpenRequest(node, HandlerId.MEDIA)
+    }
+
     // ── handing a file to another app, and remembering which one ──
 
     private val _appPickerFor = MutableStateFlow<AppPick?>(null)
@@ -2385,25 +2398,41 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun osPathOf(node: VNode): String? = graph.vfs.osPath(node.path)
 
     /**
+     * The player, which is in the graph and not here.
+     *
+     * Exposed so the player screen and the strip can reach it the way they reach everything
+     * else. It is NOT owned by this view model, and that is the point: a view model is scoped
+     * to what is on screen, and the whole of the reported fault was playback dying with the
+     * thing that was on screen.
+     */
+    val playback: dev.niccc2007.filet.playback.Playback get() = graph.playback
+
+    /**
+     * The node a queue entry came from, or null when it has since moved or gone.
+     *
+     * A [dev.niccc2007.filet.playback.Track] carries an id rather than a node, so anything
+     * wanting to act on the file - Share, Properties, Open with - comes back through here. Null
+     * is an ordinary answer: a track can be playing out of the cache after its original was
+     * deleted, and the player keeps working.
+     */
+    fun nodeOfTrack(track: dev.niccc2007.filet.playback.Track?): VNode? {
+        val id = track?.id ?: return null
+        val path = runCatching { dev.niccc2007.filet.vfs.VPath.parse(id) }.getOrNull() ?: return null
+        // Rebuilt from the path rather than looked up in whatever the pane is listing. The
+        // player outlives the folder it was opened from, so by the time Share is pressed the
+        // pane may be showing something else entirely - and a lookup against the visible list
+        // would answer null for a track that is playing perfectly well.
+        return VNode(path = path, isDir = false, size = -1L, mtime = 0L)
+    }
+
+    /**
      * A `Uri` the media players can seek in.
      *
-     * `MediaPlayer` and `VideoView` need a seekable source and cannot take an `InputStream`,
-     * so anything without a real path is copied to the cache first. That is honest but slow,
-     * hence the cap: past it the viewer says so rather than silently copying 2 GB.
+     * The work is in `TrackMedia`, because the player in the graph needs the same answer and
+     * must not reach a view model to get it. This stays as the call every screen already makes.
      */
-    suspend fun localUriFor(node: VNode): android.net.Uri? {
-        osPathOf(node)?.let { return graph.files.localUri(graph.files.fileAt(it)) }
-        if (node.size > CACHE_COPY_LIMIT) return null
-        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val out = graph.files.playCache(node.name)
-            if (!graph.files.exists(out) || graph.files.size(out) != node.size) {
-                graph.vfs.openRead(node.path).use { input ->
-                    graph.vfs.openWrite(graph.files.vpath(out)).use { o -> input.copyTo(o) }
-                }
-            }
-            graph.files.localUri(out)
-        }
-    }
+    suspend fun localUriFor(node: VNode): android.net.Uri? =
+        dev.niccc2007.filet.playback.TrackMedia.uriFor(graph.vfs, graph.files, node)
 
     /** Like [localUriFor] but always a FileProvider URI, because this one leaves the process. */
     private suspend fun localUriForShare(node: VNode): android.net.Uri? {
