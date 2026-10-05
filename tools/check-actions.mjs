@@ -28,7 +28,7 @@ import { join, relative } from "node:path";
 const ROOT = join(import.meta.dirname, "..");
 const APP = join(ROOT, "app/src/main/java");
 const OPS = join(APP, "dev/niccc2007/filet/ops/Ops.kt");
-const VFS = join(ROOT, "core-vfs/src/main/java/dev/niccc2007/filet/vfs/Vfs.kt");
+const VFS = join(ROOT, "core-vfs-jvm/src/main/java/dev/niccc2007/filet/vfs/Vfs.kt");
 
 // Files that run on threads they own, with the reason each one is safe.
 const OWN_THREADS = {

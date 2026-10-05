@@ -31,11 +31,18 @@ class LocalProvider(
     /**
      * Where a row's metadata comes from. See [Stats] for why one call replaced seven.
      *
-     * Injected rather than reached for so the fast path is reachable from a plain JVM test:
-     * on a desktop there is no `android.system.Os`, [Stats.OS] answers null forever, and
-     * without a seam every test would only ever exercise the fallback.
+     * Injected rather than reached for, and defaulting to the reader that has nothing to offer.
+     *
+     * The platform reader is `OsStats` in `:core-vfs` and the Android wiring passes it; a
+     * desktop and a unit test take this default and get the per-field `java.io.File` route.
+     * That is not a degraded path off Android - the round trip through a FUSE daemon is what
+     * made the per-field listing expensive there, and it is not in the way on a PC.
+     *
+     * The default used to BE the Android reader, which read better until this file had to
+     * compile without `android.system.Os` on the classpath. A default that names a platform is
+     * a default that pins the file to that platform.
      */
-    private val stats: Stats = Stats.OS,
+    private val stats: Stats = Stats.NONE,
 ) : FileSystemProvider {
 
     override val capabilities: Set<Capability> = setOf(
@@ -270,20 +277,24 @@ class LocalProvider(
         readable = canRead(),
         writable = canWrite(),
         hidden = name.startsWith("."),
-        inode = inodeOf(this),
+        /**
+         * No inode on this route, which is the documented "the backend has none" value every
+         * reader of [VNode.inode] already handles for archives and network shares.
+         *
+         * This used to call `android.system.Os.lstat` directly, and two things were wrong with
+         * it. The compile-time one is that naming `android.system.Os` in this file is what
+         * stopped it being shared with a desktop build at all. The behavioural one was already
+         * written down three lines above and contradicted by the call: this route follows
+         * symlinks throughout, deliberately, and `lstat` reports the LINK's inode - so the one
+         * case where it returned anything useful was the one case where the number described a
+         * different file from every other field in the row.
+         *
+         * Nothing else is lost. Getting here means [Stats] answered null, and on a device that
+         * means `stat` failed for this path; where it succeeds the inode comes from `st_ino` on
+         * the fast route above, which is where every real listing goes.
+         */
+        inode = 0L,
     )
-
-    /**
-     * The file's inode, or 0 if it cannot be read.
-     *
-     * `android.system.Os` is the only cheap way to reach `st_ino` - `java.io.File` never
-     * exposes it and NIO's `fileKey()` is null on several platforms. It is absent from the
-     * JVM test classpath, so the call is guarded and simply reports "unknown" there; every
-     * reader of [VNode.inode] already has to handle 0 for archives and network shares.
-     */
-    private fun inodeOf(f: File): Long = runCatching {
-        android.system.Os.lstat(f.absolutePath).st_ino
-    }.getOrDefault(0L)
 
     /** Like deleteRecursively, but reports failure instead of returning a cheerful false. */
     private fun File.deleteRecursivelyChecked(): Boolean {

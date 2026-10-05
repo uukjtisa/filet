@@ -3639,7 +3639,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * is complete apart from the one field only the person can supply, and the add form opens on
      * it rather than on an empty one.
      */
-    fun connectionFromHost(h: dev.niccc2007.filet.webdav.DavBeacon.Host):
+    fun connectionFromHost(h: dev.niccc2007.filet.webdav.DavHost):
         dev.niccc2007.filet.vfs.provider.net.NetConnection =
         dev.niccc2007.filet.vfs.provider.net.NetConnection(
             id = graph.connections.newId(),
@@ -3694,11 +3694,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     /** A discovered host as the matching rules see it. */
-    fun sightingOf(h: dev.niccc2007.filet.webdav.DavBeacon.Host) =
+    fun sightingOf(h: dev.niccc2007.filet.webdav.DavHost) =
         dev.niccc2007.filet.vfs.provider.net.Sightings.Seen(h.deviceId, h.host, h.port)
 
     /** The saved remote a discovered host already is, or null when it is something new. */
-    fun savedRemoteFor(h: dev.niccc2007.filet.webdav.DavBeacon.Host) =
+    fun savedRemoteFor(h: dev.niccc2007.filet.webdav.DavHost) =
         graph.connections.savedFor(sightingOf(h))
 
     /**
@@ -3709,7 +3709,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * made before ids existed is one network change away from that, and this is the one tap that
      * ends it - afterwards the entry carries the id and keeps up on its own.
      */
-    fun linkRemote(connectionId: String, h: dev.niccc2007.filet.webdav.DavBeacon.Host) {
+    fun linkRemote(connectionId: String, h: dev.niccc2007.filet.webdav.DavHost) {
         val c = graph.connections.byId(connectionId) ?: return
         if (graph.connections.link(connectionId, sightingOf(h))) {
             bumpRemotes()

@@ -26,13 +26,13 @@
 import { readFileSync, existsSync } from "node:fs";
 
 const SRC = {
-  server: "app/src/main/java/dev/niccc2007/filet/webdav/WebDavServer.kt",
-  path: "app/src/main/java/dev/niccc2007/filet/webdav/DavPath.kt",
-  xml: "app/src/main/java/dev/niccc2007/filet/webdav/DavXml.kt",
-  locks: "app/src/main/java/dev/niccc2007/filet/webdav/DavLocks.kt",
-  range: "app/src/main/java/dev/niccc2007/filet/webdav/DavRange.kt",
+  server: "core-dav/src/main/java/dev/niccc2007/filet/webdav/WebDavServer.kt",
+  path: "core-dav/src/main/java/dev/niccc2007/filet/webdav/DavPath.kt",
+  xml: "core-dav/src/main/java/dev/niccc2007/filet/webdav/DavXml.kt",
+  locks: "core-dav/src/main/java/dev/niccc2007/filet/webdav/DavLocks.kt",
+  range: "core-dav/src/main/java/dev/niccc2007/filet/webdav/DavRange.kt",
   card: "app/src/main/java/dev/niccc2007/filet/remotes/HostingCard.kt",
-  shares: "app/src/main/java/dev/niccc2007/filet/webdav/DavShare.kt",
+  shares: "core-dav/src/main/java/dev/niccc2007/filet/webdav/DavShare.kt",
   screen: "app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt",
 };
 

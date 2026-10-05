@@ -202,8 +202,12 @@ class WebDavServer(
      *
      * Set from the graph. Without it hosting still works and is simply silent, which is what it
      * was - the address had to be read off one phone and typed into another.
+     *
+     * The interface rather than a concrete beacon, because this server runs on a phone and on a
+     * PC and those are the one place the two differ: `NsdManager` exists only on Android, and a
+     * desktop JVM has no discovery API at all. Everything else about hosting is the same code.
      */
-    var beacon: DavBeacon? = null
+    var beacon: DavAnnouncer? = null
 
     /**
      * Where the shares and the port are remembered between launches, or null in a test.
@@ -409,7 +413,7 @@ class WebDavServer(
     /**
      * Announce a share, so another phone can add it without anybody reading out an address.
      *
-     * The code is NOT in the announcement - see DavBeacon. What travels is where to knock.
+     * The code is NOT in the announcement - see [DavDiscovery]. What travels is where to knock.
      * Called once the port is settled, because the announcement carries it and the preferred port
      * is often taken.
      */

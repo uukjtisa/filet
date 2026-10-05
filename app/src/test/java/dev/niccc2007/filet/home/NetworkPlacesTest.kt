@@ -2,7 +2,7 @@ package dev.niccc2007.filet.home
 
 import dev.niccc2007.filet.vfs.provider.net.NetConnection
 import dev.niccc2007.filet.vfs.provider.net.NetProtocol
-import dev.niccc2007.filet.webdav.DavBeacon
+import dev.niccc2007.filet.webdav.DavHost
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -26,7 +26,7 @@ class NetworkPlacesTest {
         name: String = "Tablet",
         host: String = "192.168.1.9",
         port: Int = 8321,
-    ) = DavBeacon.Host(
+    ) = DavHost(
         name = name, host = host, port = port, basePath = "/a/", scope = "Whole phone",
     )
 

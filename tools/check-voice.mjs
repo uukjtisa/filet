@@ -33,7 +33,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 
-const ROOTS = ["app/src", "core-vfs/src", "core-index/src", "tools", "docs", ".github"];
+const ROOTS = ["app/src", "core-vfs/src", "core-vfs-jvm/src", "core-dav/src", "core-index/src", "desktop/src", "tools", "docs", ".github"];
 // The repository-citizenship files are the most outward-facing prose here - the first thing
 // a contributor reads - so they are scanned rather than trusted.
 const TOP_DOCS = [

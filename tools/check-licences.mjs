@@ -33,7 +33,47 @@ const KNOWN = {
   // RAR decoder, which is the comparison worth keeping in mind here.
   zip4j: { licence: "Apache-2.0", ok: true },
   xz: { licence: "Public domain", ok: true },
-  json: { licence: "JSON License", ok: true, note: "test-only, never shipped in the APK" },
+  /**
+   * `org.json:json` — **Public Domain**, and the old note here was wrong twice over.
+   *
+   * It said "JSON License" and "test-only, never shipped". Both were true once and neither is
+   * now. Looked up in the POM for 20250517, which declares `Public Domain`: the JSON
+   * License's "shall be used for Good, not Evil" clause - a field-of-use restriction GPL-3
+   * cannot take, and the reason the test-only note mattered - was dropped upstream in 2025.
+   *
+   * And it IS shipped now, in the desktop tool. `android.jar` carries `org.json` on the
+   * platform so `:core-dav` takes it `compileOnly`, but a desktop JVM has none and the
+   * `:desktop` module declares it for real. Which is only allowed because of the relicence
+   * above; under the old terms the share codec would have had to be rewritten instead.
+   */
+  json: {
+    licence: "Public Domain",
+    ok: true,
+    note: "shipped in the desktop build; android.jar provides it on the phone",
+  },
+
+  /**
+   * mDNS for the desktop tool. Apache-2.0, read off the 3.6.3 POM.
+   *
+   * Needed because Android has `NsdManager` and a desktop JVM has no service-discovery API at
+   * all, so the one platform without one is the one that takes a library.
+   */
+  jmdns: { licence: "Apache-2.0", ok: true },
+
+  /**
+   * JNA, for the mount calls - `WNetAddConnection2`, `mount.davfs`, `NetFSMountURLSync`.
+   *
+   * Dual-licensed Apache-2.0 **or** LGPL-2.1-or-later, at the recipient's choice. GPL-3 takes
+   * it under Apache-2.0, which is the option recorded here deliberately: LGPL-2.1 alone is not
+   * GPL-3 compatible without its "or later" clause, so the dual licence is what makes this
+   * dependency safe rather than a thing to argue about later.
+   */
+  jna: { licence: "Apache-2.0 (dual with LGPL-2.1+; taken under Apache-2.0)", ok: true },
+  "jna-platform": {
+    licence: "Apache-2.0 (dual with LGPL-2.1+; taken under Apache-2.0)",
+    ok: true,
+    note: "the pre-mapped Win32 bindings, so none of the mount calls is hand-written",
+  },
   "sora-editor": { licence: "LGPL-2.1", ok: true, note: "linked unmodified, never vendored" },
   editor: { licence: "LGPL-2.1", ok: true, note: "sora-editor; linked unmodified, never vendored" },
   "luaj-jse": { licence: "MIT", ok: true },

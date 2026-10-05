@@ -66,7 +66,7 @@ import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.provider.RootProvider
 import dev.niccc2007.filet.vfs.provider.net.NetConnection
 import dev.niccc2007.filet.vfs.provider.net.NetProtocol
-import dev.niccc2007.filet.webdav.DavBeacon
+import dev.niccc2007.filet.webdav.DavHost
 
 /**
  * Network shares and root, in one place.
@@ -97,7 +97,7 @@ fun RemotesScreen(vm: BrowserViewModel) {
     // Remotes a discovered Filet host could be. WebDAV only: a beacon is a Filet share, and
     // offering to link one to an SFTP entry would be offering something that cannot work.
     val linkable = remember(revision) { list.filter { it.protocol == NetProtocol.WEBDAV } }
-    var linking by remember { mutableStateOf<DavBeacon.Host?>(null) }
+    var linking by remember { mutableStateOf<DavHost?>(null) }
 
     LazyColumn(Modifier.fillMaxSize()) {
         item { TabHeader("Network and root") }
@@ -254,7 +254,7 @@ fun RemotesScreen(vm: BrowserViewModel) {
 @Composable
 private fun LinkHostDialog(
     vm: BrowserViewModel,
-    host: DavBeacon.Host,
+    host: DavHost,
     choices: List<NetConnection>,
     onDismiss: () -> Unit,
 ) {

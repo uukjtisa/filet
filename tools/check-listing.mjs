@@ -26,10 +26,10 @@
  */
 import { readFileSync, existsSync } from "node:fs";
 
-const LOCAL = "core-vfs/src/main/java/dev/niccc2007/filet/vfs/provider/LocalProvider.kt";
-const STATS = "core-vfs/src/main/java/dev/niccc2007/filet/vfs/provider/Stats.kt";
-const CHUNKS = "core-vfs/src/main/java/dev/niccc2007/filet/vfs/ListChunks.kt";
-const PROVIDER = "core-vfs/src/main/java/dev/niccc2007/filet/vfs/FileSystemProvider.kt";
+const LOCAL = "core-vfs-jvm/src/main/java/dev/niccc2007/filet/vfs/provider/LocalProvider.kt";
+const STATS = "core-vfs-jvm/src/main/java/dev/niccc2007/filet/vfs/provider/Stats.kt";
+const CHUNKS = "core-vfs-jvm/src/main/java/dev/niccc2007/filet/vfs/ListChunks.kt";
+const PROVIDER = "core-vfs-jvm/src/main/java/dev/niccc2007/filet/vfs/FileSystemProvider.kt";
 const PANE = "app/src/main/java/dev/niccc2007/filet/browser/PaneController.kt";
 
 /**

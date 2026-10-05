@@ -74,3 +74,8 @@ signing.properties
 /core-native/build/
 /core-native/.cxx/
 .damaged.txt
+
+# Python bytecode. `pc-drives.py` imports `filet-sim.py` by path to reuse its mDNS record
+# builders, and importing it writes a cache next to it.
+__pycache__/
+*.pyc

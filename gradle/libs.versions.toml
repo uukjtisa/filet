@@ -8,6 +8,9 @@ lifecycleRuntimeKtx = "2.10.0"
 activityCompose = "1.13.0"
 kotlin = "2.2.10"
 composeBom = "2026.02.01"
+# Compose Multiplatform, which is a different thing from the Android BOM above: it supplies the
+# desktop widget set and the `jpackage` wiring. Kept at the release that pairs with Kotlin 2.2.
+composeMultiplatform = "1.9.0"
 coroutines = "1.10.2"
 
 [libraries]
@@ -28,6 +31,14 @@ androidx-compose-material3 = { group = "androidx.compose.material3", name = "mat
 
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+# The platform-free coroutines artifact, for the two modules that are plain JVM. The `-android`
+# one above pulls in a Main dispatcher backed by a `Looper`, which does not exist off a device -
+# so a module shared with a desktop build has to take `-core` and let each consumer bring its own
+# Main. `-android` already depends on `-core`, so nothing is duplicated on the Android side.
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
+# Swing's event thread as a coroutine dispatcher. Compose Desktop renders on it, so this is the
+# desktop module's answer to the `Main` dispatcher `-android` would have provided.
+kotlinx-coroutines-swing = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-swing", version.ref = "coroutines" }
 
 androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycleRuntimeKtx" }
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleRuntimeKtx" }
@@ -64,6 +75,23 @@ zip4j = { group = "net.lingala.zip4j", name = "zip4j", version = "2.11.5" }
 # test. The real implementation on the test classpath is what lets the persistence code be
 # tested at all, and persistence is where a silent upgrade bug lives.
 jsonTest = { group = "org.json", name = "json", version = "20250517" }
+# The same artifact, aliased separately because off Android it is not a test stand-in but the
+# real implementation. `android.jar` carries `org.json` on the platform, so :core-dav takes it
+# `compileOnly` and the desktop module takes it for real - that way the shared module compiles
+# against one API and neither consumer ends up with two copies of it.
+json = { group = "org.json", name = "json", version = "20250517" }
+
+# mDNS for the desktop host, advertising the same `_filet-dav._tcp.` service the phone does.
+# Android has `NsdManager` and a desktop has nothing, so the one platform without a service
+# discovery API is the one that needs a library. Apache-2.0, pure Java.
+jmdns = { group = "org.jmdns", name = "jmdns", version = "3.6.3" }
+# Mounting is a native call on every OS - `WNetAddConnection2`, `mount.davfs`,
+# `NetFSMountURLSync` - and the spec's reason for using the API rather than shelling out to
+# `net use` is that an API returns an error code where a subprocess returns localised text.
+# From the JVM that means JNA. Dual Apache-2.0 / LGPL-2.1, and the Apache option is what GPL-3
+# links. `jna-platform` already maps the Win32 side, so none of it is hand-written.
+jna = { group = "net.java.dev.jna", name = "jna", version = "5.19.1" }
+jna-platform = { group = "net.java.dev.jna", name = "jna-platform", version = "5.19.1" }
 
 sora-editor = { group = "io.github.Rosemoe.sora-editor", name = "editor", version = "0.23.6" }
 
@@ -79,4 +107,11 @@ androidx-test-core = { group = "androidx.test", name = "core", version = "1.7.0"
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+# Plain Kotlin on the JVM, for the modules that are shared with the desktop build and therefore
+# cannot be Android libraries. Pinned to the same Kotlin version as everything else.
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+# Compose Multiplatform: the desktop widgets, and `jpackage` wrapped as a Gradle task. The
+# compose COMPILER comes from `kotlin-compose` above - with Kotlin 2.x the two are separate
+# plugins, and this one only brings the dependencies and the packaging.
+compose = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 

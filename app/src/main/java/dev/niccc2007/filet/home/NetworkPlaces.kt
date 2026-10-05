@@ -1,7 +1,7 @@
 package dev.niccc2007.filet.home
 
 import dev.niccc2007.filet.vfs.provider.net.NetConnection
-import dev.niccc2007.filet.webdav.DavBeacon
+import dev.niccc2007.filet.webdav.DavHost
 
 /**
  * Network places, for the Home tab.
@@ -23,7 +23,7 @@ data class NetworkPlace(
     /** The saved connection, when there is one. Null for a host that has only been discovered. */
     val connection: NetConnection?,
     /** The discovered host, when it is on the air. */
-    val host: DavBeacon.Host?,
+    val host: DavHost?,
 ) {
     /** Openable right now. A discovered host that has never been added needs its code first. */
     val openable: Boolean get() = connection != null
@@ -54,7 +54,7 @@ object NetworkPlaces {
      * NOT compared: a saved place carries `a/<code>` and the announcement carries only `a/`, since
      * the code is never broadcast - so comparing paths would never match anything.
      */
-    fun matches(c: NetConnection, h: DavBeacon.Host): Boolean =
+    fun matches(c: NetConnection, h: DavHost): Boolean =
         c.host.equals(h.host, ignoreCase = true) && c.port == h.port
 
     /**
@@ -66,7 +66,7 @@ object NetworkPlaces {
      */
     fun merge(
         saved: List<NetConnection>,
-        discovered: List<DavBeacon.Host>,
+        discovered: List<DavHost>,
     ): List<NetworkPlace> {
         val out = ArrayList<NetworkPlace>(saved.size + discovered.size)
 
@@ -108,6 +108,6 @@ object NetworkPlaces {
     }
 
     /** Whether the Home section should be drawn at all. */
-    fun hasAnything(saved: List<NetConnection>, discovered: List<DavBeacon.Host>): Boolean =
+    fun hasAnything(saved: List<NetConnection>, discovered: List<DavHost>): Boolean =
         saved.isNotEmpty() || discovered.isNotEmpty()
 }

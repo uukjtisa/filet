@@ -52,7 +52,7 @@ const EXEMPT = {
 };
 
 const SANCTIONED = "HScroll";
-const ROOTS = ["app/src/main/java", "core-vfs/src/main/java", "core-index/src/main/java"];
+const ROOTS = ["app/src/main/java", "core-vfs/src/main/java", "core-vfs-jvm/src/main/java", "core-dav/src/main/java", "core-index/src/main/java"];
 
 function walk(dir, out = []) {
   let entries;

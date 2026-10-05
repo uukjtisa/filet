@@ -52,7 +52,7 @@ object AndroidStorage {
         return path.trim('/').split('/').size in 2..3
     }
 
-    fun localProvider(context: Context) = LocalProvider(roots(context))
+    fun localProvider(context: Context) = LocalProvider(roots(context), stats = OsStats)
 
     /**
      * The content URI that signals "shared storage changed".

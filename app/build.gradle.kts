@@ -134,6 +134,10 @@ dependencies {
     // named here so the .so is packaged into the APK.
     implementation(project(":core-native"))
     implementation(project(":core-vfs"))
+    // Hosting this phone over WebDAV. In its own module because the desktop tool serves the
+    // same protocol from the same code - a second implementation of PROPFIND is a second set
+    // of the corners this one already has tests for.
+    implementation(project(":core-dav"))
     implementation(project(":core-index"))
     implementation(libs.androidx.work)
     // LGPL-2.1: linked as an unmodified binary dependency, never vendored.

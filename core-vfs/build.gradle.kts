@@ -20,6 +20,16 @@ android {
 }
 
 dependencies {
+    /**
+     * The platform-free half of this module, re-exported.
+     *
+     * `api`, not `implementation`, and that is the whole point: `Vfs`, `VPath`, `VNode`,
+     * `FileSystemProvider` and `LocalProvider` live over there now but are still in the
+     * `dev.niccc2007.filet.vfs` package and still reach every consumer through `:core-vfs`.
+     * Nothing above L0 changed an import, and nothing above L0 can tell which module a type
+     * came out of - which is the property that makes the split free rather than a migration.
+     */
+    api(project(":core-vfs-jvm"))
     // The RAR readers. Native, because every JVM RAR decoder carries the UnRAR licence's
     // field-of-use restriction and GPL-3 cannot take one; libarchive's are BSD-2-Clause.
     api(project(":core-native"))
