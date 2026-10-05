@@ -119,6 +119,31 @@ class FiletGraph(context: Context) {
     /** Reads and writes a file's own metadata. The screen that reaches it is MetadataScreen. */
     val metadata = dev.niccc2007.filet.metadata.MetadataStore(vfs)
 
+    /**
+     * The music and video player, owned here so it outlives every screen.
+     *
+     * In the graph rather than in a view model, and that is the fix for the reported fault:
+     * state held by a composition dies with the composition, so closing the player stopped the
+     * music and there was no way to put a queue in the background. Here it is a process-wide
+     * thing that screens, the strip above the bottom bar and the notification all read.
+     *
+     * Not `by lazy` would mean building a player on every cold start for the vast majority of
+     * launches that never play anything, so it is - the first `open` is what brings it up.
+     */
+    val playback: dev.niccc2007.filet.playback.Playback by lazy {
+        dev.niccc2007.filet.playback.Playback(
+            app = app,
+            scope = scope,
+            resolve = { id -> dev.niccc2007.filet.playback.TrackMedia.uriFor(vfs, files, id) },
+            readTags = { id, uri ->
+                dev.niccc2007.filet.playback.TrackMedia.tagsFor(app, vfs, id, uri)
+            },
+            onServiceWanted = { wanted ->
+                dev.niccc2007.filet.playback.PlaybackService.reconcile(app, wanted)
+            },
+        )
+    }
+
     val apkTools = dev.niccc2007.filet.apk.ApkTools(app, vfs, ledger, staging)
     val bridge = dev.niccc2007.filet.bridge.TrawlBridge(app, ledger)
     /** What Filet has put on the home screen, so it is manageable from inside the app. */
@@ -333,7 +358,16 @@ class FiletGraph(context: Context) {
             val roots = dev.niccc2007.filet.log.FiletLog.span("launch", "vfs.roots") {
                 runCatching { vfs.roots().map { it.path } }.getOrElse { emptyList() }
             }
-            dev.niccc2007.filet.log.FiletLog.span("launch", "tracked.seedDefaults") { tracked.seedDefaults(roots) }
+            val freshInstall = dev.niccc2007.filet.log.FiletLog.span("launch", "tracked.seedDefaults") {
+                tracked.seedDefaults(roots)
+            }
+            // The conventional media folders, so Home opens with something in it rather than
+            // with one card and no sign that the list can be added to. See `TrackedSeeds`.
+            dev.niccc2007.filet.log.FiletLog.span("launch", "tracked.seedCommonFolders") {
+                tracked.seedCommonFolders(roots, fresh = freshInstall) { path ->
+                    runCatching { vfs.stat(path)?.isDir == true }.getOrDefault(false)
+                }
+            }
             // One-time cleanup of what the old seeding did: a Download folder on every root,
             // including remotes. See pruneSeededRemotes for why it is this narrow.
             dev.niccc2007.filet.log.FiletLog.span("launch", "tracked.pruneSeededRemotes") { tracked.pruneSeededRemotes() }

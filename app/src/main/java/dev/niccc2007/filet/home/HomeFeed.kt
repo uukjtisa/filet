@@ -94,13 +94,65 @@ class TrackedFolders(private val prefs: Prefs, private val scope: CoroutineScope
      * A remote share is a fine thing to track; it is not a sensible thing to track by default,
      * because nobody asked for it and nobody will think to remove it.
      */
-    fun seedDefaults(roots: List<VPath>) {
-        if (prefs.getBool(SEEDED, false)) return
+    /**
+     * @return true when this call did the seeding, which is to say this is a first launch.
+     *
+     * Returned rather than kept, because [seedCommonFolders] has to tell a fresh install from
+     * an existing one and the only honest signal is whether THIS launch was the one that
+     * seeded. A pref of its own cannot answer it: both installs reach the new code for the
+     * first time on the same launch.
+     */
+    fun seedDefaults(roots: List<VPath>): Boolean {
+        if (prefs.getBool(SEEDED, false)) return false
         prefs.putBool(SEEDED, true)
         for (r in roots) {
             if (r.scheme !in SEEDABLE_SCHEMES) continue
             _folders.value = _folders.value + TrackedFolder(r.child("Download"))
         }
+        save()
+        return true
+    }
+
+    /**
+     * Track the conventional media folders too, once.
+     *
+     * [TrackedSeeds] holds the reasoning and the candidate table; this is the IO half. Runs on
+     * its own one-time key rather than extending [seedDefaults], because that one has already
+     * run on every existing install - so without a second key the folders would only ever
+     * appear for people installing the app after this change, which is the smaller half of the
+     * people who would want them.
+     *
+     * **`Download` is deliberately excluded on an existing install.** It is the one folder
+     * earlier versions seeded, so its absence from the list is a decision somebody made, and a
+     * migration that overrules a removal is worse than one that misses a folder. A fresh
+     * install has no such history and gets all five.
+     *
+     * @param exists asked once per candidate. Suspending because a volume may be a document
+     *   tree, where "is there a folder called DCIM" is a content-provider query.
+     */
+    suspend fun seedCommonFolders(
+        roots: List<VPath>,
+        fresh: Boolean,
+        exists: suspend (VPath) -> Boolean,
+    ) {
+        if (prefs.getBool(SEEDED_COMMON, false)) return
+        prefs.putBool(SEEDED_COMMON, true)
+
+        val candidates = TrackedSeeds.candidatesFor(roots)
+        val present = candidates.filter { runCatching { exists(it) }.getOrDefault(false) }.toSet()
+        val skip = if (fresh) {
+            emptySet()
+        } else {
+            candidates.filter { it.name == "Download" }.toSet()
+        }
+        val add = TrackedSeeds.plan(
+            roots = roots,
+            present = present,
+            already = _folders.value.map { it.path },
+            skip = skip,
+        )
+        if (add.isEmpty()) return
+        _folders.value = _folders.value + add
         save()
     }
 
@@ -161,6 +213,7 @@ class TrackedFolders(private val prefs: Prefs, private val scope: CoroutineScope
         const val KEY = "tracked.folders"
         const val SEEDED = "tracked.seeded"
         const val PRUNED = "tracked.prunedRemotes"
+        const val SEEDED_COMMON = "tracked.seededCommon"
 
         /**
          * Where a default is allowed to be seeded.
