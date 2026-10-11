@@ -127,6 +127,16 @@ export function checkBody(body, doc, tag = "") {
     }
   }
 
+  // The support line, at the foot of every release from 0.1.13 on.
+  //
+  // A release page is where somebody has already decided to install the thing, which makes it
+  // the one place the question is fair - and unlike the foot of a long README it is a page
+  // people actually land on. Checked for the address rather than for wording, so the sentence
+  // can be rewritten without the check going stale.
+  if (openerRuleApplies(tag) && !/ko-fi\.com\//i.test(body)) {
+    problems.push("the body has no support link: every release ends with one, see docs/RELEASES.md");
+  }
+
   // Sections, so it is not one undifferentiated block.
   const headings = [...body.matchAll(/^#{1,6}\s+\S/gm)];
   if (headings.length < 2) {
@@ -201,6 +211,8 @@ if (process.argv.includes("--selftest")) {
     "### Installing",
     "",
     "One APK, Android 8.0 or newer. You will need to allow installing from unknown sources.",
+    "",
+    "Free and open source always. https://ko-fi.com/thethirdy2007 if it is useful to you.",
   ].join("\n");
 
   // The positive control. Without it, a checker whose regexes never match "passes" everything.
@@ -264,6 +276,12 @@ if (process.argv.includes("--selftest")) {
       good.replace(/### Installing[\s\S]*$/, "### Notes\n\n- **Something.** And a second line so\n  the word count holds up here.\n"),
       doc,
       /never mentions installing/,
+    ],
+    [
+      "a release that forgets the support line",
+      good.replace("Free and open source always. https://ko-fi.com/thethirdy2007 if it is useful to you.", ""),
+      doc,
+      /no support link/,
     ],
     ["the rule document itself going missing", good, "", /RELEASES\.md/],
   ];

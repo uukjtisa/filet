@@ -158,7 +158,12 @@ So there is no opener to write and no apology to make. Name the change:
 | "Nothing visual this time — mostly fixes." | "Copying to a share no longer stalls on big folders." |
 | "This one is mostly internal." | "Folders with thousands of files open straight away." |
 
-`check-releasedoc.mjs` enforces it from **0.1.13 onward**. Releases published before that keep
+**Every release body ends with the support line.** A release page is where somebody arrives
+having decided the app is worth installing, which is the one moment the question is fair to
+ask - and it is the page people actually land on, unlike the foot of a long README. One
+sentence, after Known limits, never before the changes. `check-releasedoc.mjs` requires it.
+
+`check-releasedoc.mjs` enforces the opener rule from **0.1.13 onward**. Releases published before that keep
 the opener the old rule asked for; nothing already public is rewritten.
 
 **Open with pictures when there ARE any.** A centred `<div>` of `<img>` tags becomes one screenshot strip in the

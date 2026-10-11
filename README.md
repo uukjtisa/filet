@@ -7,8 +7,11 @@
 [![Kotlin](https://img.shields.io/badge/Kotlin-Compose-4E7382?style=for-the-badge&logo=kotlin&logoColor=white)](#building-it-yourself)
 [![Release](https://img.shields.io/github/v/release/uukjtisa/filet?style=for-the-badge&color=4E7382&label=release)](https://github.com/uukjtisa/filet/releases/latest)
 [![Status](https://img.shields.io/badge/early%20development-C25E3A?style=for-the-badge)](FIXES.md)
+[![Support](https://img.shields.io/badge/Support-Ko--fi-C25E3A?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/thethirdy2007)
 
 Built by **[Niccc2007](https://github.com/uukjtisa)**.
+
+Free and open source, always. **[Support its development](https://ko-fi.com/thethirdy2007)** if it is useful to you.
 
 </div>
 
@@ -24,6 +27,7 @@ Built by **[Niccc2007](https://github.com/uukjtisa)**.
 
 - [What Filet is](#what-filet-is)
 - [A glimpse of it](#a-glimpse-of-it)
+- [Supporting it](#supporting-it)
 - [Browsing](#browsing)
 - [Search](#search)
 - [Archives and APKs](#archives-and-apks)
@@ -93,6 +97,15 @@ are never annotated.
 </sub></p>
 
 ---
+
+## Supporting it
+
+Filet is free and open source and always will be. There is no paid tier, nothing is locked,
+no feature is held back, and the app asks for nothing - the only mention of this inside it is
+one row on the About screen.
+
+If it is useful to you, **[ko-fi.com/thethirdy2007](https://ko-fi.com/thethirdy2007)** pays for
+the test devices and the hours. If it is not, the app is exactly the same.
 
 ## Browsing
 
@@ -392,10 +405,3 @@ Every one of those is compatible with GPL-3.0, and `tools/check-licences.mjs` fa
 if a dependency is added that is not. That check is also where the RAR decision is recorded:
 the available Java decoders carry the UnRAR licence, which restricts what the software may be
 used to build, and a GPL-3 project cannot accept that restriction.
-
----
-
-Filet is free and always will be. Nothing is locked, nothing expires, and there is no paid
-tier to upgrade to. If it is useful to you, you can
-[support its development](https://ko-fi.com/thethirdy2007) — and if not, the app is exactly
-the same.
