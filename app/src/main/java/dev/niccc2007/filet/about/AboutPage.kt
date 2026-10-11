@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.luminance
 
 private data class Credit(val name: String, val what: String, val licence: String)
 
@@ -328,6 +329,10 @@ private fun SignatureBanner() {
                         highlight = colors.accent,
                         phase = if (reduced) -1f else phase,
                         width = nameWidth,
+                        // Read off the surface rather than from `isSystemInDarkTheme`: the
+                        // palette can be overridden in settings, so the system's idea of the
+                        // theme is not reliably the one on screen.
+                        light = MaterialTheme.colorScheme.surface.luminance() > 0.5f,
                     ),
                 ),
                 onTextLayout = { nameWidth = it.size.width.toFloat() },
@@ -363,12 +368,22 @@ private fun SignatureBanner() {
  * The band is narrow deliberately. A wide one reads as the whole word changing brightness
  * rather than as something crossing it.
  */
-private fun nameGlare(base: Color, highlight: Color, phase: Float, width: Float): Brush {
+private fun nameGlare(
+    base: Color,
+    highlight: Color,
+    phase: Float,
+    width: Float,
+    light: Boolean,
+): Brush {
     if (width <= 1f || phase < 0f) return SolidColor(base)
-    // Pushed toward white: the straight accent is barely brighter than the text it crosses, so
-    // the streak sinks into it. Lifting it is what makes it read as a specular highlight
-    // rather than as a tint.
-    val lit = lerp(highlight, Color.White, 0.55f)
+    // A highlight has to move AWAY from the background, not toward white.
+    //
+    // Toward white is right on the dark theme and wrong on the light one, which the device
+    // showed plainly: against near-black text on a pale card, lightening the glyphs makes
+    // them fade into the page, so the streak read as a smudge wiping the name out rather than
+    // as light crossing it. The direction is the whole of the rule - on a dark ground lift
+    // toward white, on a light ground deepen into the accent.
+    val lit = if (light) lerp(highlight, Color.Black, 0.25f) else lerp(highlight, Color.White, 0.55f)
     val band = width * 0.42f
     val start = -band + phase * (width + band * 2f)
     return Brush.linearGradient(
