@@ -488,6 +488,18 @@ fun SettingsPage(vm: BrowserViewModel) {
 
         item { SettingsSection("Storage access", "What Android lets Filet see.") }
         item { StorageAccessCard(vm) }
+
+        item {
+            SettingsSection(
+                "Permissions",
+                "What Filet holds, and what it costs to go without the rest.",
+            )
+        }
+        item {
+            // Re-read whenever the app comes back to the front, which is the only moment a
+            // permission can have changed - see PermissionWatch for why that beats a timer.
+            dev.niccc2007.filet.perms.PermissionsCard { intents -> vm.openFirstThatResolves(intents) }
+        }
     }
 
     pickingOpenerFor?.let { ext ->
@@ -650,6 +662,14 @@ private fun IndexStatusCard(vm: BrowserViewModel) {
 @Composable
 private fun StorageAccessCard(vm: BrowserViewModel) {
     val colors = Filet.colors
+    // Reads the actual state instead of assuming the worst.
+    //
+    // This card offered **Grant all files** whether or not all-files access was already
+    // granted, which was the report: a button that offers something you already have makes
+    // you doubt that the grant took. It knows now, and when it has the access it says so and
+    // offers only the thing that is still useful - another folder on top.
+    val granted = dev.niccc2007.filet.perms.rememberGrantedPermissions()
+    val hasAll = dev.niccc2007.filet.perms.Perms.ALL_FILES in granted
     Column(
         Modifier
             .fillMaxWidth()
@@ -660,12 +680,16 @@ private fun StorageAccessCard(vm: BrowserViewModel) {
             .padding(12.dp),
     ) {
         Text(
-            "Lets Filet see the whole shared volume. Without it, only folders you pick.",
+            if (hasAll) {
+                "Filet can see the whole shared volume. Granted folders still work alongside it."
+            } else {
+                "Filet can only see folders you grant. All files access covers the lot."
+            },
             fontSize = 11.sp, color = colors.fg2, lineHeight = 15.sp,
         )
         Spacer(Modifier.height(9.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SmallButton("Grant all files") { vm.requestAllFiles() }
+            if (!hasAll) SmallButton("Grant all files") { vm.requestAllFiles() }
             SmallButton("Add a folder") { vm.requestFolderGrant() }
         }
     }

@@ -194,8 +194,21 @@ class WebDavServer(
      *
      * Fired for writes only. A desktop merely reading the share must not be able to make the
      * phone re-list folders.
+     *
+     * ## It carries the paths, and that is the second thing it is for
+     *
+     * Reported: files sent to the phone over a network drive were on the disk and missing
+     * from the gallery and the music player. Nothing was wrong with the transfer. Android has
+     * not background-scanned storage for years - a gallery reads MediaStore, and MediaStore
+     * only learns about a file when something announces it. Filet's own copies have been
+     * announced for a while; a write that arrived through THIS server never was, because
+     * this module is pure JVM and cannot reach `MediaScannerConnection`.
+     *
+     * So the server reports what it touched and the app decides what to do about it. A
+     * DELETE is reported too: scanning a path that has gone is what removes a stale thumbnail
+     * from the gallery, and the scanner does both jobs from the same call.
      */
-    var onRemoteWrite: (() -> Unit)? = null
+    var onRemoteWrite: ((List<VPath>) -> Unit)? = null
 
     /**
      * Announces each running share on the local network, or null in a test.
@@ -874,7 +887,7 @@ class WebDavServer(
         }
 
         sh.clients[address]?.let { it.writes++ }
-        onRemoteWrite?.invoke()
+        onRemoteWrite?.invoke(listOf(path))
         // 201 for a new resource, 204 for one that was replaced. Explorer uses the difference
         // when it decides whether its copy dialog succeeded.
         status(out, if (existed) 204 else 201, if (existed) "No Content" else "Created",
@@ -900,7 +913,7 @@ class WebDavServer(
         val node = runCatching { runBlocking { vfs.stat(path) } }.getOrNull()
             ?: return status(out, 404, "Not Found")
         val ok = runCatching { runBlocking { vfs.delete(path, recursive = node.isDir) } }.isSuccess
-        if (ok) onRemoteWrite?.invoke()
+        if (ok) onRemoteWrite?.invoke(listOf(path))
         status(out, if (ok) 204 else 500, if (ok) "No Content" else "Internal Server Error",
             listOf("Content-Length: 0"))
     }
@@ -910,7 +923,7 @@ class WebDavServer(
             return status(out, 405, "Method Not Allowed")
         }
         val ok = runCatching { runBlocking { vfs.create(path, isDir = true) } }.isSuccess
-        if (ok) onRemoteWrite?.invoke()
+        if (ok) onRemoteWrite?.invoke(listOf(path))
         status(out, if (ok) 201 else 409, if (ok) "Created" else "Conflict",
             listOf("Content-Length: 0"))
     }
@@ -952,7 +965,9 @@ class WebDavServer(
                 else vfs.copy(from, parent, rename = newName)
             }
         }.isSuccess
-        if (ok) onRemoteWrite?.invoke()
+        // BOTH ends. The old path has to be scanned so it stops being a thumbnail of
+        // something that is no longer there, and the new one so it starts being one.
+        if (ok) onRemoteWrite?.invoke(if (move) listOf(from, parent.child(newName)) else listOf(parent.child(newName)))
         status(out, if (!ok) 500 else if (existed) 204 else 201,
             if (!ok) "Internal Server Error" else if (existed) "No Content" else "Created",
             listOf("Content-Length: 0"))

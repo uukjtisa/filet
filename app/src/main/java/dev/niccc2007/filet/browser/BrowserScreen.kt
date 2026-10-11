@@ -1171,6 +1171,7 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
             shortcut = { vm.shortcutSelection() },
             install = { vm.installSelection() },
             metadata = { vm.metadataForSelection() },
+            announce = { vm.announceSelectionToMedia() },
             extractHere = { vm.extractSelection() },
             extractTo = { vm.extractSelectionToPicked() },
             extractToOtherPane = { vm.extractSelectionToOtherPane() },
@@ -1180,6 +1181,7 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
         picking = vm.picking,
         installable = vm.selectionIsInstallable(),
         hasMetadata = vm.selectionHasMetadata(),
+        announceable = vm.selectionIsOnThisDevice(),
     )
 
     Column(Modifier.fillMaxWidth().background(colors.raised)) {

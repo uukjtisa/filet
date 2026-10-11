@@ -59,6 +59,8 @@ fun selectionActions(
     picking: Boolean = false,
     installable: Boolean = false,
     hasMetadata: Boolean = false,
+    /** The selection is on this device's own storage, so the media index can hold it. */
+    announceable: Boolean = false,
 ): List<SelectionAction> {
     val single = count == 1
     // Written out rather than inlined three times: these two sentences are the whole of what a
@@ -83,6 +85,25 @@ fun selectionActions(
         // none is not unavailable, it is meaningless - the same rule Install follows two lines up.
         if (single && hasMetadata) {
             add(SelectionAction("metadata", "Metadata", icons.cog, run = on.metadata))
+        }
+        // Add to gallery, when the selection is on this phone's own storage.
+        //
+        // Filet announces everything it writes, so this is not usually needed - it is for
+        // the files that got onto the phone some OTHER way and are invisible to every gallery
+        // and music player as a result. Android has not background-scanned storage for years,
+        // so a file nothing announced simply is not in MediaStore, and the only way back in
+        // is somebody asking.
+        //
+        // Absent rather than blocked off-device, on the same rule Install and Metadata
+        // follow: a file on a share cannot be in this phone's media index, so the action is
+        // not unavailable there, it is meaningless.
+        if (announceable) {
+            add(
+                SelectionAction(
+                    "gallery", "Add to gallery", icons.star,
+                    group = SelectionAction.Group.PLACE, run = on.announce,
+                ),
+            )
         }
         add(
             SelectionAction(
@@ -201,4 +222,5 @@ data class SelectionCallbacks(
     val extractToOtherPane: () -> Unit = {},
     val install: () -> Unit = {},
     val metadata: () -> Unit = {},
+    val announce: () -> Unit = {},
 )

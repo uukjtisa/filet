@@ -312,12 +312,22 @@ private fun RoutesPage(active: Boolean) {
         Spacer(Modifier.height(14.dp))
         Body(stringResource(R.string.onboard_2_body), stagger(active, 460))
 
+        // The four pillars, in the order and the words the banner and the repository
+        // description already use, so the first screen of the app and the first screen of
+        // the listing are one message rather than two.
+        //
+        // What they replaced was three lines of copywriting - "an APK is a folder you walk
+        // into" and friends. A turn of phrase is a claim nobody can check, and this is the
+        // screen somebody reads before they trust the app with their storage. Every line
+        // here is a claim on the left and the thing that makes it true on the right.
         Spacer(Modifier.height(24.dp))
-        RouteRow("Two panes", "drag between them", stagger(active, 640))
+        RouteRow("Convenience", "search the whole device in milliseconds", stagger(active, 620))
         Spacer(Modifier.height(8.dp))
-        RouteRow("Tabs", "each remembers where it was", stagger(active, 720))
+        RouteRow("Power", "edit inside archives, APKs and dex", stagger(active, 690))
         Spacer(Modifier.height(8.dp))
-        RouteRow("An APK", "is a folder you walk into", stagger(active, 800))
+        RouteRow("Versatility", "open any archive, any drive, any format", stagger(active, 760))
+        Spacer(Modifier.height(8.dp))
+        RouteRow("Sharing", "send to any browser, nothing installed", stagger(active, 830))
     }
 }
 
@@ -547,6 +557,17 @@ private fun GlyphBadge(icon: ImageVector, alpha: Float) {
     }
 }
 
+/**
+ * One pillar: the claim, and the thing a reader can go and check.
+ *
+ * The emphasis is the other way round from the version this replaced. There the right-hand
+ * side was the bold accent, which was fine when it held two or three words; the proofs are
+ * whole verb phrases, and a 39-character bold accent line beside a one-word label reads as
+ * the label being the caption.
+ *
+ * So the NAME carries the colour and the proof is the quiet half - which is also the right
+ * order to read them in, because the name is the thing being claimed.
+ */
 @Composable
 private fun RouteRow(label: String, engine: String, alpha: Float) {
     val tokens = FiletTokens
@@ -562,15 +583,17 @@ private fun RouteRow(label: String, engine: String, alpha: Float) {
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = engine,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Bold,
             color = tokens.accent,
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = engine,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
         )
     }
 }

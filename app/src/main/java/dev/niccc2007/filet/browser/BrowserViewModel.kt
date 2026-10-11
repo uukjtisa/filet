@@ -1871,6 +1871,51 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun requestExit() { onExit?.invoke() }
 
+    /**
+     * Open the first of [intents] this phone can actually handle.
+     *
+     * A list rather than one intent, because the per-app Settings pages are not guaranteed:
+     * some OEM builds refuse `ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION` with a package
+     * URI and only answer the generic list. A dead button is worse than one extra tap, so
+     * every caller passes its fallbacks and this takes the first that resolves.
+     */
+    fun openFirstThatResolves(intents: List<android.content.Intent>) {
+        val pm = graph.app.packageManager
+        val usable = intents.firstOrNull { it.resolveActivity(pm) != null }
+        if (usable == null) toast("This phone has no settings page for that.")
+        else onIntent?.invoke(usable)
+    }
+
+    /** Whether every selected item is somewhere this phone's media index can hold. */
+    fun selectionIsOnThisDevice(): Boolean {
+        val items = focusedPane()?.selectedNodes().orEmpty()
+        return items.isNotEmpty() &&
+            items.all { dev.niccc2007.filet.media.MediaAnnounce.worthAnnouncing(it.path) }
+    }
+
+    /**
+     * Hand the selection to the media index by hand.
+     *
+     * For files that reached the phone some way Filet did not write - restored from a backup,
+     * dropped in by another app, pulled over adb. Android stopped background-scanning storage
+     * years ago, so such a file is on the disk and in no gallery, and nothing will ever notice
+     * it on its own.
+     */
+    fun announceSelectionToMedia() = withSelection { items ->
+        val paths = items.map { it.path }
+        val real = dev.niccc2007.filet.media.MediaAnnounce.filesystemPaths(paths)
+        if (real.isEmpty()) {
+            toast("Nothing here is on this phone's own storage.")
+            return@withSelection
+        }
+        dev.niccc2007.filet.media.MediaAnnounce.announce(graph.app, paths)
+        // "Sent to" rather than "added": the scanner is asked, and what it decides to index is
+        // its business. Claiming the gallery now has them would be a promise we cannot keep
+        // for a file it refuses to recognise.
+        toast(if (real.size == 1) "Sent to the media index" else "${real.size} sent to the media index")
+        focusedPane()?.clearSelection()
+    }
+
     fun requestAllFiles() {
         val intent = dev.niccc2007.filet.vfs.provider.StorageAccess.resolvableRequestIntent(graph.app)
         if (intent == null) toast("This device has no all-files settings screen.")

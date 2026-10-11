@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -67,7 +68,12 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
         val r = request
         if (r != null) {
             BackHandler(enabled = true) { vm.closeHandler() }
-            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .swallowPointers(),
+            ) {
                 when (r.handler) {
                     HandlerId.TEXT -> TextEditorScreen(vm, r.node)
                     HandlerId.IMAGE -> ImageViewerScreen(vm, r.node)
@@ -238,4 +244,30 @@ fun ViewerAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: S
             .clickable(enabled = enabled, onClick = onClick)
             .padding(7.dp),
     )
+}
+
+/**
+ * Eat every pointer event no child wanted.
+ *
+ * A viewer is drawn OVER the browser rather than instead of it, and a `background()` paints
+ * pixels without taking input - Compose only routes a gesture to a node that asked for one.
+ * So every part of a viewer with no clickable child was transparent to touch: a tap on the
+ * song title in the player went through to the file list underneath and opened whatever
+ * happened to be at that spot. Reported as the player; it was true of the text editor, the
+ * image viewer, the hex viewer and the APK inspector as well.
+ *
+ * Consumed on [PointerEventPass.Main], which is the pass where children are offered the event
+ * BEFORE their parent. A button inside the viewer still wins; only what nothing claimed ends
+ * up here. Doing it on `Initial` would reverse that and make the whole viewer inert.
+ *
+ * A tap-only version of this (`detectTapGestures { }`) is not enough: a drag that starts on
+ * empty space would still scroll the list behind. Every change on every event goes.
+ */
+private fun Modifier.swallowPointers(): Modifier = this.pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Main)
+            event.changes.forEach { if (!it.isConsumed) it.consume() }
+        }
+    }
 }

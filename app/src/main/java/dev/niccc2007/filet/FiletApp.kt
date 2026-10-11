@@ -221,7 +221,12 @@ class FiletGraph(context: Context) {
             // saved network drive stopped resolving.
             it.store = dev.niccc2007.filet.data.PrefsDavStore(prefs)
             it.beacon = davBeacon
-            it.onRemoteWrite = { remoteWrites.value = remoteWrites.value + 1 }
+            it.onRemoteWrite = { touched ->
+                remoteWrites.value = remoteWrites.value + 1
+                // The reason a file sent to this phone over a network drive was on the disk
+                // and absent from the gallery: nothing had told the media index about it.
+                dev.niccc2007.filet.media.MediaAnnounce.announce(app, touched)
+            }
         }
     }
 

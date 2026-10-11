@@ -117,6 +117,7 @@ class SelectionBarConfigTest {
             // catalogue can ever produce each id - not whether it does for one particular file.
             installable = true,
             hasMetadata = true,
+            announceable = true,
         ).map { it.id }.toSet()
 
         for (id in SelectionBarConfig.IDS) {

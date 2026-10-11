@@ -2,12 +2,12 @@
     <string name="app_name">Filet</string>
 
     <!-- Onboarding strings ported from Trawl, then edited for Filet. -->
-    <string name="onboard_1_body">A file manager that does real work. Open source, no ads, no accounts, no telemetry.</string>
-    <string name="onboard_2_body">Most of Filet works the way you would expect. These three do not, and they are the reason it exists.</string>
-    <string name="onboard_2_title">Three things worth knowing</string>
+    <string name="onboard_1_body">An Android file manager. Open source, no ads, no accounts, no telemetry.</string>
+    <string name="onboard_2_body">Four things it does that the file manager already on this phone does not.</string>
+    <string name="onboard_2_title">What it does</string>
     <string name="onboard_3_body">Only all-files access really matters, and even that can be refused — you will just be limited to folders you pick by hand.</string>
     <string name="onboard_3_title">What it asks for</string>
-    <string name="onboard_4_body">Long-press to select, tap to add more. Copy or Move puts files on the clipboard; open another folder and paste from the top bar.
+    <string name="onboard_4_body">Long-press to select, tap to add more. Copy or Move puts files on the clipboard; open another folder and the Paste button appears over the list.
 
 This is early, and it is a one-person project. Expect rough edges.</string>
     <string name="onboard_4_title">What to expect</string>
