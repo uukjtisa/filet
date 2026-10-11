@@ -261,13 +261,26 @@ fun ViewerAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: S
  * up here. Doing it on `Initial` would reverse that and make the whole viewer inert.
  *
  * A tap-only version of this (`detectTapGestures { }`) is not enough: a drag that starts on
- * empty space would still scroll the list behind. Every change on every event goes.
+ * empty space would still scroll the list behind.
+ *
+ * ## Why it leaves moves alone
+ *
+ * A press and a release are enough to stop anything behind reacting - a scroll cannot start
+ * without a press. Consuming the MOVES as well is what risks the screen in front: the video
+ * player tracks brightness, volume, scrub and pinch through long move sequences, and a
+ * gesture that has already begun can be cancelled by someone else claiming a change it is
+ * still reading. Taking the two events that matter and nothing else leaves every child
+ * gesture exactly as it was.
  */
 private fun Modifier.swallowPointers(): Modifier = this.pointerInput(Unit) {
     awaitPointerEventScope {
         while (true) {
             val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Main)
-            event.changes.forEach { if (!it.isConsumed) it.consume() }
+            val kind = event.type
+            val worthEating =
+                kind == androidx.compose.ui.input.pointer.PointerEventType.Press ||
+                    kind == androidx.compose.ui.input.pointer.PointerEventType.Release
+            if (worthEating) event.changes.forEach { if (!it.isConsumed) it.consume() }
         }
     }
 }

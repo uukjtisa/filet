@@ -20,6 +20,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -915,7 +918,16 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                     Modifier
                         .fillMaxWidth()
                         .background(Color.Black.copy(alpha = 0.5f))
-                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                        // Out of the system's gesture strip.
+                        //
+                        // This screen is immersive, so the navigation bar is hidden - but the
+                        // few dp at the very bottom edge still belong to the OS, which reads a
+                        // touch there as a back or home gesture before the app ever sees it.
+                        // The chrome used to end with the clock and had padding to spare; the
+                        // modes row went in below it and landed in exactly that strip, which
+                        // is why its buttons needed two or three goes.
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 10.dp)
                 ) {
                     ScrubBar(
                         positionMs = shownPosition,
@@ -949,7 +961,7 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                     // switch whose state you have to open a menu to read. There is a whole
                     // row of width here and the clock was using a tenth of it.
                     Row(
-                        Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 6.dp),
+                        Modifier.fillMaxWidth().padding(top = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         OverlayAction(
