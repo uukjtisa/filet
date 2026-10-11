@@ -10,6 +10,7 @@ class TrackedSeedsTest {
     private val primary = VPath.of("local", "/storage/emulated/0")
     private val card = VPath.of("local", "/storage/1A2B-3C4D")
     private val share = VPath.of("webdav", "/a/code")
+    private val granted = VPath.of("saf", "/tree/primary%3AAndroid%2Fmedia")
 
     private fun p(root: VPath, name: String) = root.child(name)
 
@@ -70,6 +71,22 @@ class TrackedSeedsTest {
         )
         assertTrue(plan.none { it.path.name == "Download" })
         assertTrue(plan.any { it.path.name == "DCIM" })
+    }
+
+    /**
+     * The one the device caught. A granted tree is a subtree, not a volume, so a `DCIM` under
+     * it is a guess - and on a real phone the grant was `Android/media`, where the provider
+     * cheerfully answered that all four candidates existed.
+     */
+    @Test
+    fun `a granted document tree is never seeded`() {
+        assertTrue(TrackedSeeds.candidatesFor(listOf(granted)).isEmpty())
+        val plan = TrackedSeeds.plan(
+            listOf(granted),
+            present = setOf(p(granted, "DCIM"), p(granted, "Pictures")),
+            already = emptyList(),
+        )
+        assertTrue(plan.isEmpty())
     }
 
     @Test

@@ -54,8 +54,25 @@ object TrackedSeeds {
         "Documents" to false,
     )
 
-    /** Schemes it is sensible to track by default. See `TrackedFolders.seedDefaults`. */
-    val SEEDABLE_SCHEMES = setOf("local", "saf")
+    /**
+     * Local volumes only, and `saf` is excluded on purpose.
+     *
+     * **This was wrong on the first run and the device said so.** A SAF root is a granted
+     * SUBTREE, not a volume, so appending `DCIM` to it guesses at a structure nobody promised.
+     * On a real phone the granted tree was `Android/media`, and the seeder duly tracked
+     * `Android/media/DCIM`, `…/Pictures`, `…/Music` and `…/Documents` - four folders that do
+     * not exist, two of them recursively.
+     *
+     * The existence check did not save it, which is the part worth keeping: asking the
+     * document provider whether `Android/media/DCIM` was there came back yes for all four. So
+     * the guard cannot be "check harder" - it has to be "do not ask the question", because the
+     * conventional media folders live on the volume and a granted subtree is not one.
+     *
+     * `seedDefaults` keeps its own wider set. Narrowing that one would change behaviour nobody
+     * reported a problem with, and `Download` under a granted tree at least names a folder
+     * people really do grant.
+     */
+    val SEEDABLE_SCHEMES = setOf("local")
 
     /**
      * Every folder that could be seeded, for a caller to test for existence.

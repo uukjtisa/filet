@@ -173,7 +173,19 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                                 (v.total - v.free).coerceAtLeast(0) else null
                             // A network volume is reachable or it is not, and that is a live fact
                             // rather than a stored setting. A local one is simply there.
-                            val net = v.node.path.scheme != "local"
+                            //
+                            // `remote`, NOT a scheme test. This line read
+                            // `v.node.path.scheme != "local"` and that is the same mistake the
+                            // filter above was fixed for, left behind in the renderer: `root:`
+                            // and `saf:` are not the local scheme and are not network drives
+                            // either. The visible result was `/data`, `/system` and a granted
+                            // media tree drawn with a Wi-Fi glyph, one of them captioned
+                            // "Network drive not answering" - about a partition on this phone.
+                            //
+                            // `VolumeInfo.remote` exists precisely to be the one answer to this,
+                            // and its own KDoc says so. Two readings of the same question is how
+                            // the filter got fixed and the icon did not.
+                            val net = v.remote
                             val reachable = v.free != null && v.total != null
                             StorageTile(
                                 icon = if (net) FiletIcons.Wifi else FiletIcons.Storage,

@@ -291,7 +291,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun watchVolumes(): kotlinx.coroutines.Job = viewModelScope.launch {
         while (true) {
             kotlinx.coroutines.delay(VOLUME_POLL_MS)
-            val hasNetwork = _state.value.volumes.any { it.node.path.scheme != "local" }
+            // `remote`, not a scheme test: a superuser volume and a granted document tree are
+            // not reached over the network, and re-polling every volume on their account is
+            // work with no question behind it.
+            val hasNetwork = _state.value.volumes.any { it.remote }
             if (!hasNetwork) continue
             loadVolumes()
         }
@@ -4199,7 +4202,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         // so the card read "SARAH8" and the name set on the connection was never used anywhere
         // it could be seen. A code is an implementation detail of the address; it is not what
         // the device is called.
-        node.path.scheme != "local" ->
+        // Asked of the provider, not of the scheme. The test here was `scheme != "local"`,
+        // which made every superuser volume fall through to the literal words "Network drive"
+        // when its node had no name - so `/system` and `/data` were captioned as network
+        // drives on a phone with nothing mounted at all.
+        graph.vfs.isRemote(node.path) ->
             connectionIdOf(node.path)?.let { connectionName(node.path.scheme, it) }
                 ?: node.name.ifEmpty { "Network drive" }
 
