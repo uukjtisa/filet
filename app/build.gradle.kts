@@ -37,6 +37,16 @@ android {
                 // FIRST published APK, this key can never be replaced, only lost. v1 is off
                 // (nothing below API 24 can install this) and v4 is an adb-incremental
                 // sidecar file that a GitHub release has nowhere to put.
+                // The certificate's subject is PUBLIC - it travels in every signed APK and
+                // anyone can read it with `apksigner verify --print-certs`. Verified on the
+                // 0.1.13 release build: `CN=Niccc2007, OU=Filet, O=uukjtisa, C=PH`. The
+                // display name and the handle, and no legal name anywhere in it, which is
+                // what it should be and is recorded here because a certificate DN is the kind
+                // of public surface that gets audited late and cannot be changed afterwards.
+                //
+                // Any new app's keystore is generated the same way, with the handle, for the
+                // same reason the key above cannot be replaced: a DN is fixed at generation
+                // and a new one is a new identity, so getting it wrong is permanent.
                 enableV1Signing = false
                 enableV2Signing = true
                 enableV3Signing = true
