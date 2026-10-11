@@ -58,7 +58,7 @@ is being built, fixes still have to reach a phone. They go onto a staging number
 and installed but never released; when the large one ships it carries them. If a fix in there
 cannot wait, the staging version publishes on its own and the staging line moves on.
 
-**STAGING: 0.1.13** — fixes made while 0.2.0 is being drawn. Built and installed, not published.
+**STAGING: 0.1.14** — fixes made while 0.2.0 is being drawn. Built and installed, not published.
 
 0.1.9, 0.1.11 and 0.1.12 were all staging versions and published anyway, which is the case this
 rule already allows. 0.1.11 is the clearer example: it carried a metadata writer, an image editor and
