@@ -3,6 +3,7 @@ package dev.niccc2007.filet.browser
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.niccc2007.filet.FiletGraph
+import dev.niccc2007.filet.data.SettingsTransfer
 import dev.niccc2007.filet.ops.Clipboard
 import dev.niccc2007.filet.handlers.ExternalApp
 import dev.niccc2007.filet.handlers.ExternalApps
@@ -33,6 +34,8 @@ import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.provider.ArchiveProvider
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -811,7 +814,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             val kind = runCatching {
                 // Sniffing reads the first few hundred bytes of the file, which for an unclaimed
                 // file on a mounted share is a socket read.
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
                     graph.vfs.openRead(node.path).use { input ->
                         val head = ByteArray(dev.niccc2007.filet.vfs.provider.Sniff.NEEDED)
                         var read = 0
@@ -1012,7 +1015,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         toast("Added archive creation to the activity list")
         viewModelScope.launch {
             val existing = runCatching {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
                     graph.vfs.list(dest).map { it.name }.toHashSet()
                 }
             }.getOrDefault(HashSet())
@@ -1219,6 +1222,189 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     private val _folderPick = MutableStateFlow<FolderPick?>(null)
     val folderPick: StateFlow<FolderPick?> = _folderPick.asStateFlow()
 
+    // ── carrying a setup to another phone ──
+
+    /**
+     * Non-null while the export chooser is up, carrying how much each section would hold.
+     *
+     * A flow of its own rather than a `Dialog` case: the counts are read from storage when
+     * the chooser opens, and a value type compared for equality is the wrong home for them.
+     */
+    private val _exportPlan = MutableStateFlow<Map<SettingsTransfer.Section, Int>?>(null)
+    val exportPlan: StateFlow<Map<SettingsTransfer.Section, Int>?> = _exportPlan.asStateFlow()
+
+    /** The file being imported, already read and understood, before anything is applied. */
+    data class ImportOffer(val from: String, val reading: SettingsTransfer.Reading.Ok)
+
+    private val _importOffer = MutableStateFlow<ImportOffer?>(null)
+    val importOffer: StateFlow<ImportOffer?> = _importOffer.asStateFlow()
+
+    fun dismissTransfer() {
+        _exportPlan.value = null
+        _importOffer.value = null
+    }
+
+    /**
+     * Count what there is to take, then offer the chooser.
+     *
+     * Counting first is what lets the chooser grey out a section that would carry nothing.
+     * The counts are deliberately different units per section - preferences for the settings
+     * groups, entries for the lists - because "3" under Bookmarks meaning three bookmarks is
+     * what somebody expects, and a count of preference keys there would be meaningless.
+     */
+    fun openSettingsExport() {
+        val counts = LinkedHashMap<SettingsTransfer.Section, Int>()
+        for (section in SettingsTransfer.Section.entries) {
+            counts[section] = when (section) {
+                SettingsTransfer.Section.REMOTES -> graph.connections.all().size
+                SettingsTransfer.Section.TRACKED -> graph.tracked.folders.value.size
+                SettingsTransfer.Section.BOOKMARKS -> graph.bookmarks.items.value.size
+                else -> graph.prefs.snapshot(section.keys).size
+            }
+        }
+        _exportPlan.value = counts
+    }
+
+    /**
+     * Write the file, into a folder picked in Filet itself.
+     *
+     * Filet's own picker rather than the system document creator: this is a file manager, so
+     * choosing where a file goes is the thing it is for, and the system sheet would hand back
+     * a `content://` write that bypasses the VFS every other write in the app goes through.
+     */
+    fun exportSettings(sections: Set<SettingsTransfer.Section>, withSecrets: Boolean) {
+        _exportPlan.value = null
+        pickFolder("Where to put the settings file", "Save here", start = somewhereToStart()) { dest ->
+            viewModelScope.launch {
+                val stamp = java.text.SimpleDateFormat("yyyy-MM-dd-HHmm", java.util.Locale.US)
+                    .format(java.util.Date())
+                val name = SettingsTransfer.fileNameFor(stamp)
+                val text = SettingsTransfer.build(
+                    appVersion = dev.niccc2007.filet.BuildConfig.VERSION_NAME,
+                    exportedAt = System.currentTimeMillis(),
+                    sections = sections,
+                    values = graph.prefs.snapshot(SettingsTransfer.EXPORTED),
+                    remotes = if (SettingsTransfer.Section.REMOTES in sections) {
+                        graph.connections.exportAll(withSecrets)
+                    } else {
+                        emptyList()
+                    },
+                    withSecrets = withSecrets,
+                )
+                val at = dest.child(name)
+                val ok = runCatching {
+                    withContext(Dispatchers.IO) {
+                        graph.vfs.openWrite(at).use { it.write(text.toByteArray()) }
+                    }
+                }.isSuccess
+                if (!ok) {
+                    toast("Could not write the settings file here.")
+                    return@launch
+                }
+                // The unportable count is reported at the point of writing, not buried in the
+                // file: a granted folder that will not survive the trip is something to know
+                // now, while the other phone is still being set up.
+                val stranded =
+                    SettingsTransfer.unportableCount(graph.prefs.getString("tracked.folders")) +
+                        SettingsTransfer.unportableCount(graph.prefs.getString("bookmarks"))
+                toast(
+                    if (stranded > 0) "Saved $name · $stranded granted folder(s) cannot travel"
+                    else "Saved $name",
+                )
+                refreshPanes()
+            }
+        }
+    }
+
+    /** Pick a settings file and read it, without applying any of it yet. */
+    fun openSettingsImport() {
+        pickFile(
+            title = "Pick a settings file",
+            accept = { it.name.endsWith(".json", ignoreCase = true) },
+            start = somewhereToStart(),
+        ) { path ->
+            viewModelScope.launch {
+                val text = runCatching {
+                    withContext(Dispatchers.IO) {
+                        graph.vfs.openRead(path).use { it.readBytes().decodeToString() }
+                    }
+                }.getOrNull()
+                if (text == null) {
+                    toast("Could not read that file.")
+                    return@launch
+                }
+                when (val reading = SettingsTransfer.read(text)) {
+                    is SettingsTransfer.Reading.Refused -> toast(reading.why)
+                    is SettingsTransfer.Reading.Ok ->
+                        _importOffer.value = ImportOffer(path.name, reading)
+                }
+            }
+        }
+    }
+
+    /**
+     * Apply the chosen sections.
+     *
+     * Preferences are written straight into the store rather than through each typed setter,
+     * because the setters are the things that hold the live flows and there is no setter for
+     * half of these keys. The cost is that the screens reading those flows do not see the new
+     * values until the app is restarted - which is why the toast says so rather than leaving
+     * somebody to wonder why their theme did not change.
+     */
+    fun importSettings(sections: Set<SettingsTransfer.Section>) {
+        val offer = _importOffer.value ?: return
+        _importOffer.value = null
+        viewModelScope.launch {
+            var keys = 0
+            var remotes = 0
+            for (section in sections) {
+                if (section == SettingsTransfer.Section.REMOTES) {
+                    remotes = graph.connections.importAll(offer.reading.remotes())
+                    continue
+                }
+                keys += graph.prefs.restore(offer.reading.valuesOf(section))
+                // The stores that cache their list have to be told. A preference written
+                // underneath a `MutableStateFlow` is a value nothing is watching.
+                when (section) {
+                    SettingsTransfer.Section.TRACKED -> graph.tracked.reload()
+                    SettingsTransfer.Section.BOOKMARKS -> graph.bookmarks.reload()
+                    else -> Unit
+                }
+            }
+            val parts = buildList {
+                if (keys > 0) add("$keys setting(s)")
+                if (remotes > 0) add("$remotes network drive(s)")
+            }
+            refreshPanes()
+            // Honest about the half that needs a restart. Tracked folders, bookmarks and the
+            // remotes come back immediately because their stores were told; a theme or a
+            // density lives behind a flow that was built at startup from the value that was
+            // there then, and nothing short of a restart re-reads it.
+            toast(
+                if (parts.isEmpty()) "Nothing to import."
+                else "Imported " + parts.joinToString(" and ") +
+                    " - restart Filet for the look and layout",
+            )
+        }
+    }
+
+    /**
+     * A folder for a picker opened from a screen that is not a folder.
+     *
+     * `pickFolder` and `pickFile` both default to the focused pane's `cwd`, and **Settings
+     * has none** - it is a pane with a kind and no directory. So both of them returned early
+     * and the button silently did nothing, which is how Export reached a device test looking
+     * like a dead control.
+     *
+     * Download rather than the storage root: it is where a file somebody is about to move to
+     * another phone belongs, and it is the folder every Android has.
+     */
+    private fun somewhereToStart(): VPath {
+        focusedPane()?.state?.value?.cwd?.let { return it }
+        val downloads = dev.niccc2007.filet.vfs.VPath.of("local", "/storage/emulated/0/Download")
+        return downloads
+    }
+
     fun pickFolder(
         title: String,
         confirmLabel: String,
@@ -1379,7 +1565,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     ) {
         graph.vfs.permit(action, path)?.let { showDenial(it); return }
         val remote = graph.vfs.isRemote(path)
-        runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { work() } }
+        runCatching { kotlinx.coroutines.withContext(Dispatchers.IO) { work() } }
             .onSuccess(onDone)
             .onFailure { t ->
                 dev.niccc2007.filet.vfs.ActionGate.fromFailure(action, path, t, remote)
@@ -1993,7 +2179,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
 
     suspend fun readText(node: VNode): String =
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
             graph.vfs.openRead(node.path).use { String(it.readBytes(), Charsets.UTF_8) }
         }
 
@@ -2029,7 +2215,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         viewModelScope.launch {
             val id = ledger.start("Saving into", pending.archiveName)
             runCatching {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
                     val bytes = pending.text.toByteArray(Charsets.UTF_8)
                     ArchiveEdits.replace(pending.node.path) { java.io.ByteArrayInputStream(bytes) }
                 }
@@ -2059,14 +2245,14 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             viewModelScope.launch {
                 val id = ledger.start("Saving", pending.node.name)
                 runCatching {
-                    val taken = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val taken = kotlinx.coroutines.withContext(Dispatchers.IO) {
                         runCatching { graph.vfs.list(folder).map { it.name }.toHashSet() }
                             .getOrDefault(hashSetOf())
                     }
                     // Never silently over something already there. The whole reason somebody
                     // picks this option is that they did not want to overwrite anything.
                     val name = freeName(pending.node.name, taken)
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
                         graph.vfs.create(folder.child(name), isDir = false)
                         graph.vfs.openWrite(folder.child(name)).use {
                             it.write(pending.text.toByteArray(Charsets.UTF_8))
@@ -2123,7 +2309,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
         viewModelScope.launch {
             val written = runCatching {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
                     val original = graph.vfs.openRead(node.path).use { it.readBytes() }
                     val patched = edits.applyTo(original, bufferStart = 0L)
                     val out = graph.vfs.openWrite(node.path)
@@ -2194,7 +2380,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     ) {
         viewModelScope.launch {
             val result = runCatching {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
                     if (backup) {
                         val copy = node.path.parent?.child(node.name + ".bak")
                         if (copy != null) {
@@ -2269,7 +2455,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         ) { picked ->
             viewModelScope.launch {
                 val bytes = runCatching {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
                         graph.vfs.openRead(picked).use { it.readBytes() }
                     }
                 }.getOrNull()
@@ -2343,10 +2529,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         // edited file somewhere else.
         if (ArchiveEdits.isMember(node.path)) {
             viewModelScope.launch {
-                val refusal = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val refusal = kotlinx.coroutines.withContext(Dispatchers.IO) {
                     runCatching { ArchiveEdits.refusalFor(node.path) }.getOrElse { it.message }
                 }
-                val cost = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val cost = kotlinx.coroutines.withContext(Dispatchers.IO) {
                     runCatching { EditCosts.describe(ArchiveEdits.costOf(node.path)) }
                         .getOrElse { "Filet could not read this archive well enough to say what a save would cost." }
                 }
@@ -2364,7 +2550,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         viewModelScope.launch {
             val id = ledger.start("Saving", node.name)
             runCatching {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
                     graph.vfs.openWrite(node.path).use { it.write(text.toByteArray(Charsets.UTF_8)) }
                 }
             }.onSuccess {
@@ -2399,12 +2585,12 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             if (!graph.vfs.canWrite(folder)) { toast("This folder is read-only."); return@launch }
             val id = ledger.start("Saving", node.name)
             runCatching {
-                val taken = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val taken = kotlinx.coroutines.withContext(Dispatchers.IO) {
                     runCatching { graph.vfs.list(folder).map { it.name }.toHashSet() }
                         .getOrDefault(HashSet())
                 }
                 val name = editedName(node.name, extension) { it in taken }
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
                     graph.vfs.openWrite(folder.child(name)).use { out -> out.write(bytes) }
                 }
                 name
@@ -2559,7 +2745,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     private suspend fun cacheIncoming(uri: android.net.Uri): VPath? =
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
             runCatching {
                 val name = uri.lastPathSegment?.substringAfterLast('/') ?: "shared"
                 val out = graph.files.inboxCache(name)
@@ -2601,7 +2787,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             val root = extractedApksFolder
             val id = graph.ledger.start("Extracting ${app.label}")
             runCatching {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
                     ensureFolder(root)
                     val sources = listOf(app.apkPath) + app.splitPaths
                     val into = if (app.split) {
@@ -2676,7 +2862,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         val pane = focusedPane() ?: return
         viewModelScope.launch {
             val folder = extractedApksFolder
-            runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ensureFolder(folder) } }
+            runCatching { kotlinx.coroutines.withContext(Dispatchers.IO) { ensureFolder(folder) } }
             if (runCatching { graph.vfs.stat(folder) }.getOrNull() == null) {
                 toast("Nothing has been extracted yet.")
                 return@launch
@@ -3277,7 +3463,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
         // The whole install, not just the opens: each piece is streamed into the session from
         // this thread, and a bundle can be sitting on a mounted share.
-        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val result = kotlinx.coroutines.withContext(Dispatchers.IO) {
             dev.niccc2007.filet.apk.SplitInstall.install(
                 context = graph.app,
                 label = node.name.substringBeforeLast('.'),
@@ -3423,7 +3609,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      */
     /** The icon inside an APK file, for the inspector's identity block. */
     suspend fun apkIcon(node: VNode): android.graphics.Bitmap? =
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
             val os = graph.vfs.osPath(node.path) ?: return@withContext null
             dev.niccc2007.filet.media.Thumbnails.apkIcon(graph.app, os, 128)
         }
@@ -3553,7 +3739,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      */
     fun startHosting(id: Long) {
         viewModelScope.launch {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
                 graph.webdav.start(id)
             }
             val up = graph.davState.value.shares.firstOrNull { it.id == id }?.running == true
@@ -3587,7 +3773,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     /** Stop one share. The others, and the socket, stay up if any remain. */
     fun stopHosting(id: Long) {
         viewModelScope.launch {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
                 graph.webdav.stop(id)
             }
             // Nudged rather than stopped: another share may still be running behind it, and this
@@ -3600,7 +3786,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     /** Stop everything. What the card's top-level stop means. */
     fun stopAllHosting() {
         viewModelScope.launch {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { graph.webdav.stop() }
+            kotlinx.coroutines.withContext(Dispatchers.IO) { graph.webdav.stop() }
             dev.niccc2007.filet.nearby.NearbyService.start(graph.app)
             toast("Stopped hosting")
         }
@@ -3610,7 +3796,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun startAutoHosting() {
         if (dev.niccc2007.filet.webdav.DavShares.autoStarting(graph.webdav.shares).isEmpty()) return
         viewModelScope.launch {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
                 graph.webdav.startAutoShares()
             }
             if (graph.davState.value.running) {
@@ -3665,7 +3851,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun deleteShare(id: Long) {
         viewModelScope.launch {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
                 graph.webdav.stop(id)
             }
             val before = graph.webdav.shares
@@ -3844,7 +4030,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      */
     fun enableRoot() {
         viewModelScope.launch {
-            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val ok = kotlinx.coroutines.withContext(Dispatchers.IO) {
                 dev.niccc2007.filet.vfs.provider.RootProvider.isAvailable()
             }
             if (ok) {

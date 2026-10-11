@@ -106,6 +106,24 @@ fun FiletDialogs(vm: BrowserViewModel) {
         )
     }
 
+    // Carrying a setup to another phone. Flows of their own for the same reason as the
+    // sheets above: one holds counts read from storage, the other a parsed file.
+    vm.exportPlan.collectAsState().value?.let { counts ->
+        dev.niccc2007.filet.settings.ExportSheet(
+            counts = counts,
+            onExport = vm::exportSettings,
+            onDismiss = vm::dismissTransfer,
+        )
+    }
+    vm.importOffer.collectAsState().value?.let { offer ->
+        dev.niccc2007.filet.settings.ImportSheet(
+            from = offer.from,
+            reading = offer.reading,
+            onImport = vm::importSettings,
+            onDismiss = vm::dismissTransfer,
+        )
+    }
+
     // Same reason as the sheet below: this one carries a callback, which a value type compared
     // for equality cannot.
     val pick by vm.folderPick.collectAsState()

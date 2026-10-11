@@ -80,6 +80,16 @@ class TrackedFolders(private val prefs: Prefs, private val scope: CoroutineScope
         save()
     }
 
+    /**
+     * Re-read the list from storage.
+     *
+     * For an import, which writes the stored key directly rather than going through [add] -
+     * there is no setter for "replace the whole list", and inventing one that imports
+     * understand would put the import's rules in here. Without this the new folders are on
+     * disk and the screen keeps showing the old ones until the app is restarted.
+     */
+    fun reload() { _folders.value = load() }
+
     fun contains(p: VPath) = _folders.value.any { it.path == p }
 
     fun isRecursive(p: VPath) = _folders.value.firstOrNull { it.path == p }?.recursive == true

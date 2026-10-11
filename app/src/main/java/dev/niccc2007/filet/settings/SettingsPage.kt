@@ -463,6 +463,29 @@ fun SettingsPage(vm: BrowserViewModel) {
             )
         }
 
+        item {
+            SettingsSection(
+                "Moving to another phone",
+                "Write your setup to a file, and read one back in.",
+            )
+        }
+        item {
+            Column(Modifier.padding(horizontal = 15.dp, vertical = 4.dp)) {
+                Text(
+                    "Plain text. Nothing that identifies this phone travels.",
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                    color = Filet.colors.fg3,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row {
+                    SmallButton("Export settings") { vm.openSettingsExport() }
+                    Spacer(Modifier.width(8.dp))
+                    SmallButton("Import settings") { vm.openSettingsImport() }
+                }
+            }
+        }
+
         item { SettingsSection("Storage access", "What Android lets Filet see.") }
         item { StorageAccessCard(vm) }
     }

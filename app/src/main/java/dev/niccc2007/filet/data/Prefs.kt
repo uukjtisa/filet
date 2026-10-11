@@ -403,6 +403,42 @@ class Prefs(context: Context) {
     }
 
     // ── free-form string slots, used by features that own their own encoding ──
+    /**
+     * The stored value of each of [keys] that has one, for an export.
+     *
+     * Reads `sp.all` once rather than one typed getter per key, because a typed getter needs
+     * to know the type and the whole point of a snapshot is that it does not.
+     */
+    fun snapshot(keys: Collection<String>): Map<String, Any?> {
+        val all = sp.all
+        return keys.mapNotNull { k -> all[k]?.let { k to it } }.toMap()
+    }
+
+    /**
+     * Write values back from an import, returning how many landed.
+     *
+     * One `edit()` for the lot, so a partial failure cannot leave half a theme applied. A
+     * value of a type that does not belong in preferences is skipped rather than coerced -
+     * see `SettingsTransfer.encode` for why coercion is the dangerous option.
+     */
+    fun restore(values: Map<String, Any>): Int {
+        val e = sp.edit()
+        var n = 0
+        for ((k, v) in values) {
+            when (v) {
+                is String -> e.putString(k, v)
+                is Boolean -> e.putBoolean(k, v)
+                is Int -> e.putInt(k, v)
+                is Long -> e.putLong(k, v)
+                is Float -> e.putFloat(k, v)
+                else -> continue
+            }
+            n++
+        }
+        e.apply()
+        return n
+    }
+
     fun getString(key: String, def: String? = null): String? = sp.getString(key, def)
     fun putString(key: String, value: String?) { sp.edit().putString(key, value).apply() }
     fun getBool(key: String, def: Boolean) = sp.getBoolean(key, def)

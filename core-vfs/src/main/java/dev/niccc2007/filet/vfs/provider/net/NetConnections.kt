@@ -262,6 +262,63 @@ class NetConnections(context: Context) {
 
     fun newId(): String = "n" + System.currentTimeMillis().toString(36)
 
+    /**
+     * Every connection in PLAIN form, for carrying to another phone.
+     *
+     * The stored form cannot be carried. Passwords here are encrypted with an AES-GCM key
+     * held in the Android keystore, and that key never leaves the device - so copying
+     * `filet-net.xml` to a second phone moves ciphertext nobody can decrypt. Transferring a
+     * usable password means moving the plaintext, which is why this is a separate method
+     * with `plainSecrets` on it rather than something `all()` does quietly.
+     *
+     * @param plainSecrets true writes the real passwords and keys into the result. The caller
+     *   is responsible for having asked; nothing here warns, because by this point the
+     *   decision has been made.
+     */
+    fun exportAll(plainSecrets: Boolean): List<JSONObject> = all().map { c ->
+        toJson(if (plainSecrets) c else c.copy(password = "", privateKey = "", keyPassphrase = ""))
+            .also { o ->
+                // Written back in plain, replacing what `toJson` just encrypted under THIS
+                // phone's key. A re-encrypted blob is useless on the other side.
+                o.put("password", if (plainSecrets) c.password else "")
+                o.put("privateKey", if (plainSecrets) c.privateKey else "")
+                o.put("keyPassphrase", if (plainSecrets) c.keyPassphrase else "")
+            }
+    }
+
+    /**
+     * Take connections from another phone, re-encrypting their secrets under this one's key.
+     *
+     * Matched by id: an entry already here is replaced rather than duplicated, because the id
+     * is what paths already saved in bookmarks and tracked folders point at. Returns how many
+     * were written.
+     */
+    fun importAll(entries: List<JSONObject>): Int {
+        var n = 0
+        val merged = all().associateBy { it.id }.toMutableMap()
+        for (o in entries) {
+            // `fromJson` would try to DECRYPT fields that arrived in plain, so the secrets are
+            // lifted out first and put back on the parsed object.
+            val plainPassword = o.optString("password")
+            val plainKey = o.optString("privateKey")
+            val plainPassphrase = o.optString("keyPassphrase")
+            val stripped = JSONObject(o.toString()).apply {
+                put("password", "")
+                put("privateKey", "")
+                put("keyPassphrase", "")
+            }
+            val parsed = fromJson(stripped) ?: continue
+            merged[parsed.id] = parsed.copy(
+                password = plainPassword,
+                privateKey = plainKey,
+                keyPassphrase = plainPassphrase,
+            )
+            n++
+        }
+        write(merged.values.toList())
+        return n
+    }
+
     private fun write(list: List<NetConnection>) {
         val arr = JSONArray()
         for (c in list) arr.put(toJson(c))
