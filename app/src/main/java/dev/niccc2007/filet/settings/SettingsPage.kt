@@ -110,7 +110,6 @@ fun SettingsPage(vm: BrowserViewModel) {
     val selectionBar by prefs.selectionBar.collectAsState()
     val navWhileSelecting by prefs.navWhileSelecting.collectAsState()
     val uninterrupted by prefs.uninterrupted.collectAsState()
-    val videoKeepsPlaying by prefs.videoKeepsPlaying.collectAsState()
     val playerFace by prefs.playerFace.collectAsState()
     val drag by prefs.drag.collectAsState()
     val hideTermux by prefs.hideTermux.collectAsState()
@@ -346,18 +345,6 @@ fun SettingsPage(vm: BrowserViewModel) {
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
                 )
             }
-        }
-        item {
-            ToggleRow(
-                "Video keeps playing when you leave it",
-                if (videoKeepsPlaying) {
-                    "Closing a video hands its sound to the player, and the player screen " +
-                        "shows a few seconds of the picture on a loop."
-                } else {
-                    "Closing a video stops it. On for a lecture or a long mix."
-                },
-                videoKeepsPlaying,
-            ) { prefs.setVideoKeepsPlaying(it) }
         }
         item {
             ToggleRow(

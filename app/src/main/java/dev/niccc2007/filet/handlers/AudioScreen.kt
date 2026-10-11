@@ -133,6 +133,12 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     var titleOverflow by remember(track?.id) { mutableStateOf(0f) }
     val marquee = dev.niccc2007.filet.playback.rememberMarquee(titleOverflow)
 
+    // The status bar goes, the navigation bar stays. A player is a screen you leave from,
+    // so hiding the way out to gain a clock's worth of height is a bad trade - but the top
+    // strip is worth having, because the artwork's light should reach the corner instead of
+    // stopping under a black bar.
+    ImmersiveViewer(active = !classic, statusOnly = true)
+
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         // The light, under everything. Absent on Classic, which is what makes it classic.
         if (!classic) {
@@ -346,6 +352,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
                 positionMs = shownPosition,
                 durationMs = state.durationMs,
                 enabled = state.durationMs > 0,
+                fill = tint,
                 onScrub = { scrubTo = it },
                 onScrubEnd = { target ->
                     scrubTo = null

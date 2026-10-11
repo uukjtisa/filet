@@ -74,18 +74,35 @@ object ViewerChrome {
  * including by a gesture, a crash in a child composable, or the activity being recreated.
  */
 @Composable
-fun ImmersiveViewer(active: Boolean = true) {
+fun ImmersiveViewer(
+    active: Boolean = true,
+    /**
+     * Hide the status bar and leave the navigation bar alone.
+     *
+     * A video wants the whole slab: there is nothing to navigate to while it plays and the
+     * picture is the point. A MUSIC player does not - it is a screen you sit on for twenty
+     * minutes and leave from, and hiding the way out to gain a clock's worth of height is a
+     * bad trade. What it does want is the top strip, so the artwork's light reaches the
+     * corner instead of stopping under a black bar.
+     */
+    statusOnly: Boolean = false,
+) {
     val context = LocalContext.current
-    DisposableEffect(active, context) {
+    DisposableEffect(active, statusOnly, context) {
         val window = (context as? Activity)?.window
         val controller = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
+        val bars = if (statusOnly) {
+            androidx.core.view.WindowInsetsCompat.Type.statusBars()
+        } else {
+            androidx.core.view.WindowInsetsCompat.Type.systemBars()
+        }
         if (active && controller != null) {
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            controller.hide(bars)
         }
         onDispose {
-            controller?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            controller?.show(bars)
         }
     }
 }

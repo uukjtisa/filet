@@ -82,7 +82,16 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     val hiddenCards by vm.prefs.hiddenCards.collectAsState()
     val hideTermux by vm.prefs.hideTermux.collectAsState()
     val colors = Filet.colors
-    var menuFor by remember { mutableStateOf<VNode?>(null) }
+    /**
+     * The row a long press opened, and whether it came from the OPENED feed.
+     *
+     * Both feeds share one sheet, and the sheet was always offering "Remove from this list" -
+     * which is an action on the recents list and means nothing for a file that turned up in
+     * a tracked folder. There is no list to remove it from; the file is simply there, and
+     * the only way to stop seeing it is to stop tracking the folder or to delete it. So the
+     * action is absent for an arrival rather than present and lying about what it does.
+     */
+    var menuFor by remember { mutableStateOf<Pair<VNode, Boolean>?>(null) }
 
     LaunchedEffect(app.revision) { vm.home.refresh() }
 
@@ -263,7 +272,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                     when_ = ago(d.at),
                     sub = d.origin,
                     onClick = { vm.openHomeEntry(d.node) },
-                    onLongClick = { menuFor = d.node },
+                    onLongClick = { menuFor = d.node to false },
                 )
             }
         }
@@ -319,7 +328,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                     when_ = ago(r.at),
                     sub = r.path.parent?.path,
                     onClick = { if (r.isDir) pane.navigateTo(r.path) else vm.openHomeEntry(node) },
-                    onLongClick = { menuFor = node },
+                    onLongClick = { menuFor = node to true },
                 )
             }
         }
@@ -340,7 +349,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     // "Go to containing folder" is the one that was missing and the one that is wanted most:
     // Home shows you a file out of context, and the next thought is almost always "where does
     // this live".
-    menuFor?.let { node ->
+    menuFor?.let { (node, fromOpened) ->
         HomeRowSheet(
             node = node,
             onDismiss = { menuFor = null },
@@ -349,7 +358,8 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
             onShare = { menuFor = null; vm.share(node) },
             onBookmark = { menuFor = null; vm.bookmarkOne(node) },
             onShortcut = { menuFor = null; vm.shortcutOne(node) },
-            onForget = { menuFor = null; vm.forgetHomeEntry(node) },
+            // Only the opened list has anything to forget. See `menuFor`.
+            onForget = if (fromOpened) ({ menuFor = null; vm.forgetHomeEntry(node) }) else null,
         )
     }
 }

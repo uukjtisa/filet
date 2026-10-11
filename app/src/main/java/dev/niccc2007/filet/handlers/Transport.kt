@@ -57,10 +57,19 @@ fun ScrubBar(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     bufferedFraction: Float = 0f,
+    /**
+     * The colour of the filled part and the knob, when the caller has one.
+     *
+     * The music player passes the colour it took off the artwork, so the bar belongs to the
+     * track like the rest of its controls do. Null keeps the theme accent, which is what the
+     * video player and everything else wants.
+     */
+    fill: Color? = null,
     onScrub: (Long) -> Unit = {},
     onScrubEnd: (Long) -> Unit,
 ) {
     val colors = Filet.colors
+    val played = fill ?: colors.accent
     var width by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
     var dragX by remember { mutableFloatStateOf(0f) }
@@ -121,14 +130,14 @@ fun ScrubBar(
                 )
             }
             drawRoundRectLine(
-                if (enabled) colors.accent else colors.fg3,
+                if (enabled) played else colors.fg3,
                 0f, size.width * shownFraction, y, trackHeight, radius,
             )
             if (enabled) {
                 // The knob grows under the finger. It is feedback that the bar took the touch,
                 // which a bar that only moves does not give on a fast drag.
                 drawCircle(
-                    colors.accent,
+                    played,
                     (if (dragging) 9.dp else 6.dp).toPx(),
                     Offset(size.width * shownFraction, y),
                 )

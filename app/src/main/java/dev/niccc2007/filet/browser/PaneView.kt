@@ -42,6 +42,7 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -920,7 +921,19 @@ private fun dragModifier(
     val liveHeldStill = rememberUpdatedState(onHeldStill)
     var origin by remember(node.path) { mutableStateOf(Offset.Zero) }
     var pointer by remember(node.path) { mutableStateOf(Offset.Zero) }
-    var moved by remember(node.path) { mutableStateOf(false) }
+    /**
+     * How far the finger has travelled since the long press, in pixels.
+     *
+     * Not a boolean any more. `moved` used to be set true by the FIRST onDrag callback, and
+     * `detectDragGesturesAfterLongPress` fires that for a one-pixel twitch - which a finger
+     * resting on glass always produces. So a long press that never went anywhere counted as
+     * a drag, the drop landed on the folder the file was already in, and the answer to
+     * press-and-hold was "Make a copy here?".
+     *
+     * A distance with a threshold tells the two apart the way a person means them: holding
+     * still is the menu, going somewhere is a drag.
+     */
+    var travelled by remember(node.path) { mutableFloatStateOf(0f) }
     val rowKey = "row-${node.path}"
 
     DisposableEffect(rowKey) { onDispose { registry.remove(rowKey) } }
@@ -940,7 +953,7 @@ private fun dragModifier(
         .pointerInput(node.path) {
             detectDragGesturesAfterLongPress(
                 onDragStart = { local ->
-                    moved = false
+                    travelled = 0f
                     pointer = origin + local
                     vm.focusSide(side)
                     val current = pane.state.value
@@ -958,7 +971,7 @@ private fun dragModifier(
                 },
                 onDrag = { change, delta ->
                     change.consume()
-                    moved = true
+                    travelled += kotlin.math.hypot(delta.x, delta.y)
                     pointer += delta
                     liveGhost.value(pointer)
                     vm.dragOver(registry.hitTest(pointer))
@@ -967,7 +980,11 @@ private fun dragModifier(
                     liveGhost.value(null)
                     // Move or copy is the plan's call, not the caller's - same volume moves,
                     // a different one copies, exactly as a desktop file manager does.
-                    if (moved) {
+                    // Measured against a real distance rather than against any movement at
+                    // all. Twice the touch slop: far enough that a resting finger never
+                    // reaches it, near enough that a deliberate short drag onto the folder
+                    // beside this one still counts.
+                    if (travelled > viewConfiguration.touchSlop * 2f) {
                         vm.endDrag()
                     } else {
                         // Long-pressed and held STILL. That is the right-click gesture, and it

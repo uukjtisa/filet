@@ -17,6 +17,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -183,21 +185,35 @@ fun rememberMarquee(overflowPx: Float): Float {
     return -overflowPx * t
 }
 
-/** The two-sided fade a running marquee is drawn behind. */
+/**
+ * The two-sided fade a running marquee is drawn behind.
+ *
+ * **`CompositingStrategy.Offscreen` is not optional here.** A `DstIn` blend inside
+ * `drawWithContent` composites against whatever the canvas already holds, and without an
+ * offscreen layer that canvas is the whole screen - so instead of masking the text it
+ * punched two black rectangles into the background at either end of the title. Exactly the
+ * same trap as the About card's sheen, which was drawn with `SrcAtop` and produced a
+ * rectangle for the same reason.
+ *
+ * The layer makes the content its own destination, so the gradient masks the text and
+ * nothing else.
+ */
 fun Modifier.marqueeFade(running: Boolean): Modifier =
     if (!running) this
-    else this.drawWithContent {
-        drawContent()
-        drawRect(
-            Brush.horizontalGradient(
-                0.00f to Color.Transparent,
-                0.07f to Color.Black,
-                0.93f to Color.Black,
-                1.00f to Color.Transparent,
-            ),
-            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
-        )
-    }
+    else this
+        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        .drawWithContent {
+            drawContent()
+            drawRect(
+                Brush.horizontalGradient(
+                    0.00f to Color.Transparent,
+                    0.07f to Color.Black,
+                    0.93f to Color.Black,
+                    1.00f to Color.Transparent,
+                ),
+                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+            )
+        }
 
 private const val SATURATION = 3.4f
 private const val WIDE_ALPHA = 0.52f

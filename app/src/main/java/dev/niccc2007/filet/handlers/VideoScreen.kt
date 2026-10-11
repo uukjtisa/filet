@@ -229,9 +229,6 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
      * the next track starts in the other player, and has to be what Settings shows.
      */
     val uninterrupted by vm.prefs.uninterrupted.collectAsStateWithLifecycle()
-    // Remembered in preferences rather than per video - see `Prefs.videoKeepsPlaying` for why
-    // a per-file switch would be useless for the one case this is for.
-    val keepPlaying by vm.prefs.videoKeepsPlaying.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = context as? android.app.Activity
 
@@ -467,11 +464,17 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
             // The hand-off itself still has to happen, because it is what carries the
             // position across the rebuild; it is the AS-AUDIO part that must not.
             val rotating = activity?.isChangingConfigurations == true
-            // `playing` is required for the IMPLICIT hand-off and deliberately not for the
-            // explicit one. Leaving a paused video must not start music nobody asked for -
-            // but Play as audio is somebody asking, and refusing it because the video
-            // happened to be paused is a button that silently does nothing.
-            val handOver = position > 0L && (handOffNow || (keepPlaying && playing))
+            // ONLY the explicit button hands over.
+            //
+            // Closing a video used to start the music player whenever the keeps-playing
+            // preference was on, which made Close and Play as audio do the same thing - so
+            // the button looked pointless and the back arrow looked broken. Reported as
+            // exactly that: closing the video player "does exactly what clicking play as
+            // music feels like".
+            //
+            // Close means close. Play as audio means keep the sound. The preference now
+            // decides nothing about leaving, which is why it is gone from Settings.
+            val handOver = position > 0L && handOffNow
             val at = position
             runCatching {
                 handle.view?.stopPlayback()
