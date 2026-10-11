@@ -53,102 +53,79 @@ object SupportLink {
 }
 
 /**
- * The support panel, directly under the signature banner.
+ * The support panel: first row of the Project section, and the second loudest thing on the page.
  *
- * ## Prominent, and why that is not a contradiction
+ * ## The hierarchy, which is the whole of the layout decision
  *
- * The first version of this was one quiet row among Source, Licence and Trawl. The brief
- * changed to prominent and noticeable, and the two are reconcilable because of WHERE it is:
- * About is a screen somebody opens deliberately, usually having already decided they like the
- * app. Being unmissable on a page nobody visits by accident is not the same as being pushy.
+ * The signature card is the biggest thing on About and stays that way - it is the maker's mark
+ * and the reason the screen exists. This sits below it, inside Project, and is deliberately
+ * the only row there with a ground of its own: everything else in that list TELLS you
+ * something, and this is the one that ASKS for something.
  *
- * What makes it quiet is everything it does NOT do, and that list is the real design:
+ * It was first drawn directly under the banner as a full-width outlined block with two
+ * paragraphs and a chip. That was too big and read as a second header arguing with the name
+ * above it. A tinted ground with no border at row height says the same thing without
+ * competing.
+ *
+ * **First in the section, above Source.** Buried under three links it has nothing to do with,
+ * it reads as a footnote.
+ *
+ * ## What keeps it quiet is everything it does NOT do
  *
  *  - no popup, ever, on any launch count
  *  - no reminder, no "maybe later", no second ask
  *  - nothing is locked, limited, delayed, watermarked or counted behind it
  *  - no badge on the menu, no dot on the About entry
  *
- * ## The reason is on the card, in the app, not only in the README
+ * ## The reason is on the card, not only in the README
  *
  * A bare Donate button asks for money without saying what for, which is the thing that reads
- * as begging. Two short lines carry it: the app is free and stays free, and the money pays for
- * the hardware and the time rather than for a feature somebody is waiting on. That framing is
- * also the honest one - there is no roadmap item gated on this.
+ * as begging. One line carries it: the app is free and stays free, and this pays for the
+ * hardware and the time rather than for a feature somebody is waiting on. That framing is also
+ * the honest one - there is no roadmap item gated on this.
  */
 @Composable
 fun SupportCard(onOpen: (String) -> Unit) {
     if (!SupportLink.configured) return
     val colors = Filet.colors
 
-    Column(
+    Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp)
-            .clip(RoundedCornerShape(14.dp))
-            // The accent border is the whole of the prominence. A filled accent panel competes
-            // with the signature banner immediately above it and makes the page read as two
-            // headers; an outline at full accent is noticeable without becoming the subject.
-            .border(1.dp, colors.accent.copy(alpha = 0.55f), RoundedCornerShape(14.dp))
-            .background(colors.raised)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            // A tint of the accent rather than a border. At 11% it is visible as a different
+            // KIND of row without drawing a box around itself, which is what made the previous
+            // version read as a panel bolted onto the page.
+            .background(colors.accent.copy(alpha = 0.11f))
             .clickable { onOpen(SupportLink.URL) }
-            .padding(14.dp),
+            .padding(horizontal = 12.dp, vertical = 11.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                FiletIcons.Heart, null,
-                tint = colors.accent,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.size(9.dp))
+        Icon(
+            FiletIcons.Heart, null,
+            tint = colors.accent,
+            modifier = Modifier.size(17.dp),
+        )
+        Spacer(Modifier.size(11.dp))
+        Column {
             Text(
                 "Support Filet",
-                fontSize = 14.5.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Spacer(Modifier.weight(1f))
-            Icon(
-                FiletIcons.Link, null,
-                tint = colors.fg3,
-                modifier = Modifier.size(14.dp),
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "Free and open source, always. Nothing is locked — this covers the test " +
+                    "devices and the hours.",
+                fontSize = 10.5.sp,
+                lineHeight = 15.sp,
+                color = colors.fg2,
             )
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        Text(
-            "Filet is free, open source, and always will be. Nothing here is paid for, " +
-                "nothing is locked, and this is the only place it is ever mentioned.",
-            fontSize = 11.5.sp,
-            lineHeight = 16.sp,
-            color = colors.fg2,
-        )
-
-        Spacer(Modifier.height(6.dp))
-
-        Text(
-            "If it is useful to you, this covers the test devices and the hours. " +
-                "If it is not, the app is exactly the same.",
-            fontSize = 11.5.sp,
-            lineHeight = 16.sp,
-            color = colors.fg3,
-        )
-
-        Spacer(Modifier.height(10.dp))
-
-        Row(
-            Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(colors.accent.copy(alpha = 0.14f))
-                .padding(horizontal = 11.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-        ) {
+            Spacer(Modifier.height(3.dp))
             Text(
                 SupportLink.URL.removePrefix("https://"),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
+                fontSize = 10.5.sp,
                 color = colors.accent,
             )
         }
