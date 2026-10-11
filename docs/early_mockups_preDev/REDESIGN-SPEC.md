@@ -23,7 +23,7 @@ that surface which is easiest to lose on the way across.
 | **Shortcuts tab** | `app/src/main/java/dev/niccc2007/filet/shortcuts/ShortcutsScreen.kt:60` | `TABS3.shortcuts` | N59 | Shows shortcuts the system has dropped, which is the only place they can be cleaned up. |
 | **Remotes tab** | `app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt:80` | `TABS3.remotes` | N59 | An unreachable remote is shown as unreachable and never waited for. |
 | **Activity tab** | `app/src/main/java/dev/niccc2007/filet/jobs/ActivitySheet.kt:48` | `TABS3.activity` | N59 | Running above finished. The index job names the folder it is reading. |
-| **About tab** | `app/src/main/java/dev/niccc2007/filet/about/AboutPage.kt:89` | `aboutHTML` | N58 | Four words from the repo, in one line. Watermark is the app mark, not the author seal. |
+| **About tab** | `app/src/main/java/dev/niccc2007/filet/about/AboutPage.kt:90` | `aboutHTML` | N58 | Four words from the repo, in one line. Watermark is the app mark, not the author seal. |
 | **Settings tab** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:98` | `setHTML` | N56 | Sub-tabs. The List pane carries a live view rendered by the same code as the real list. |
 | **File row** | `app/src/main/java/dev/niccc2007/filet/browser/RowViews.kt:70` | `rowsHTML3` | N55 | No date column. Files show bytes, folders show item count. Tabular figures, not a code font. |
 | **Search result row** | `app/src/main/java/dev/niccc2007/filet/browser/RowViews.kt:253` | `SearchResultRow` | N79 | Carries Available or Confirming while a pass runs, and nothing between passes. |
