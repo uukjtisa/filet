@@ -280,6 +280,22 @@ class Prefs(context: Context) {
         sp.edit().putBoolean(K_VIDEO_BG, on).apply()
     }
 
+    /**
+     * Uninterrupted playback: Filet takes no audio focus and yields to none.
+     *
+     * Off by default, and it has to be, because it is deliberately bad behaviour in both
+     * directions - starting a track will not pause whatever else is playing, and nothing else
+     * will pause Filet. That is exactly what somebody listening over another app's audio
+     * wants and exactly what everybody else would report as a bug.
+     */
+    private val _uninterrupted = MutableStateFlow(sp.getBoolean(K_UNINTERRUPTED, false))
+    val uninterrupted: StateFlow<Boolean> = _uninterrupted.asStateFlow()
+
+    fun setUninterrupted(on: Boolean) {
+        _uninterrupted.value = on
+        sp.edit().putBoolean(K_UNINTERRUPTED, on).apply()
+    }
+
     fun setSort(s: SortSpec) {
         _sort.value = s
         sp.edit().putString(K_SORT, s.key.name).putBoolean(K_SORT_DESC, s.descending)
@@ -434,6 +450,7 @@ class Prefs(context: Context) {
         const val K_UPD_SKIPPED = "update.skippedVersion"
         const val K_UPD_OFF = "update.notificationsOff"
         const val K_VIDEO_BG = "video.keepsPlaying"
+        const val K_UNINTERRUPTED = "play.uninterrupted"
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
 }

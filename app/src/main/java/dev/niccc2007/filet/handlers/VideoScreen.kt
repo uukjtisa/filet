@@ -203,6 +203,16 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     // Off means follow the phone, which is what it did before and is still the default.
     var lockedOrientation by remember(node.path) { mutableStateOf<Int?>(null) }
     var repeating by remember(node.path) { mutableStateOf(true) }
+
+    /**
+     * Set by Play as audio, read by the hand-off on the way out.
+     *
+     * A flag rather than doing the hand-off in the button, because the hand-off needs the
+     * position and the player teardown to happen in the right order and `onDispose` is
+     * already the one place that gets that right. The button says what it wants; the exit
+     * path does it.
+     */
+    var handOffNow by remember(node.path) { mutableStateOf(false) }
     // Remembered in preferences rather than per video - see `Prefs.videoKeepsPlaying` for why
     // a per-file switch would be useless for the one case this is for.
     val keepPlaying by vm.prefs.videoKeepsPlaying.collectAsStateWithLifecycle()
@@ -432,7 +442,20 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
         onDispose {
             activity?.requestedOrientation =
                 android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            val handOver = keepPlaying && playing && position > 0L
+            // A rotation is not leaving.
+            //
+            // A configuration change destroys and rebuilds the composition, so `onDispose`
+            // fires for it exactly as it does for a real exit - and the hand-off marks the
+            // track as held for its sound, which on the way back in routes the file to the
+            // music face. Turning the phone sideways turned the video into a music player.
+            // The hand-off itself still has to happen, because it is what carries the
+            // position across the rebuild; it is the AS-AUDIO part that must not.
+            val rotating = activity?.isChangingConfigurations == true
+            // `playing` is required for the IMPLICIT hand-off and deliberately not for the
+            // explicit one. Leaving a paused video must not start music nobody asked for -
+            // but Play as audio is somebody asking, and refusing it because the video
+            // happened to be paused is a button that silently does nothing.
+            val handOver = position > 0L && (handOffNow || (keepPlaying && playing))
             val at = position
             runCatching {
                 handle.view?.stopPlayback()
@@ -443,6 +466,10 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                 runCatching {
                     vm.playback.play(
                         dev.niccc2007.filet.playback.tracksOf(listOf(node)), 0, startAtMs = at,
+                        // Marked as held for its sound, which is what routes the player strip
+                        // back to the music face instead of to this screen. Reopening the
+                        // screen you just left is not what "show me what is playing" means.
+                        asAudio = !rotating,
                     )
                 }
             }
@@ -558,11 +585,22 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                         if (repeating) "Repeat is on" else "Repeat is off",
                         active = repeating,
                     ) { repeating = !repeating; wake() }
-                    OverlayAction(
-                        FiletIcons.Audio,
-                        if (keepPlaying) "Keeps playing when you leave" else "Stops when you leave",
-                        active = keepPlaying,
-                    ) { vm.prefs.setVideoKeepsPlaying(!keepPlaying); wake() }
+                    // An ACTION, not a toggle.
+                    //
+                    // It used to flip `videoKeepsPlaying` and do nothing visible, so turning
+                    // it on and then pressing Close was two presses to express one intention -
+                    // and the first of them looked like it had not worked. The tap should do
+                    // the whole thing: minimise into the player strip, on the screen the
+                    // video was opened from.
+                    //
+                    // The preference it used to flip still exists and still governs what
+                    // CLOSING does; it lives in Settings under Playing media, which is where
+                    // a standing choice belongs. This button is the one-off: keep the sound,
+                    // give me the screen back.
+                    OverlayAction(FiletIcons.Audio, "Play as audio") {
+                        handOffNow = true
+                        vm.closeHandler()
+                    }
                     OverlayAction(FiletIcons.Expand, orientationLabel(lockedOrientation)) {
                         // Three states rather than a toggle: follow the phone, hold landscape,
                         // hold portrait. A two-state button cannot express "stop rotating",

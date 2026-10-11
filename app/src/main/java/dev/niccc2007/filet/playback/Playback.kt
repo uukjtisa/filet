@@ -91,6 +91,39 @@ class Playback(
     val art: StateFlow<Bitmap?> = _art.asStateFlow()
 
     /**
+     * What the current track actually resolved to, for a second reader of the same file.
+     *
+     * The player screen's looping video peek opens its own muted `MediaPlayer` on this, and
+     * resolving it again there would mean a second copy off a network share - the staging
+     * rule, the cache-reuse check and the size cap all live in `TrackMedia` and must have one
+     * answer. Null while nothing is loaded or while a load is in flight.
+     */
+    private val _source = MutableStateFlow<Uri?>(null)
+    val source: StateFlow<Uri?> = _source.asStateFlow()
+
+    /**
+     * Uninterrupted playback: take no audio focus, and yield to none.
+     *
+     * Asked for directly, and it is genuinely two switches behind one name. Not requesting
+     * focus means starting a track does not pause whatever else is playing; ignoring the focus
+     * callbacks means nothing else pausing us. Both are deliberate bad citizenship, which is
+     * why it is off by default and why it is one setting rather than something clever - the
+     * person who wants it wants both halves.
+     *
+     * What it cannot do is override the platform: a phone call still takes the speaker, and an
+     * OEM battery manager can still stop a background service. The setting's own text says so
+     * rather than promising more than Android allows.
+     */
+    @Volatile
+    var uninterrupted: Boolean = false
+        set(value) {
+            field = value
+            // Turning it on while something else holds focus does not need a request; turning
+            // it OFF mid-track does, because we may have been playing without ever asking.
+            if (!value && _state.value.playing) requestFocus()
+        }
+
+    /**
      * The one handle, never in Compose state.
      *
      * A `MediaPlayer` read from a recomposition is a half-released one eventually. Exactly one
@@ -119,6 +152,10 @@ class Playback(
         .build()
 
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        // The second half of uninterrupted playback. Checked here rather than by not
+        // registering the listener, because the flag can be turned on while focus is already
+        // held - and a listener we registered earlier keeps arriving either way.
+        if (uninterrupted) return@OnAudioFocusChangeListener
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 // Gone for good - another player started. Stop asking for it back.
@@ -167,8 +204,9 @@ class Playback(
      * second half of the report: the screen is now a view, and a view that reloads the player
      * when it opens would have reproduced the bug through a different door.
      */
-    fun play(tracks: List<Track>, index: Int, startAtMs: Long = 0L) {
+    fun play(tracks: List<Track>, index: Int, startAtMs: Long = 0L, asAudio: Boolean = false) {
         if (tracks.isEmpty()) return
+        _asAudio.value = asAudio
         val safe = index.coerceIn(0, tracks.lastIndex)
         val now = _state.value
         val sameTrack = now.active && now.current?.id == tracks[safe].id
@@ -183,6 +221,26 @@ class Playback(
     /** Whether [id] is the track the player is on, so a screen can tell. */
     fun isCurrent(id: String): Boolean = _state.value.current?.id == id
 
+    /**
+     * True while a VIDEO is being held as sound only, because its screen was left.
+     *
+     * This is what decides which face a video opens into. Before it, tapping the player strip
+     * on a video reopened the full video screen - which is the screen you had just
+     * deliberately left, so the gesture that means "show me what is playing" undid the thing
+     * you had asked for. With it, a handed-over video opens as the player: the title, the
+     * queue, the scrub bar, and its own picture looping in the art square.
+     *
+     * Reset by [play], so opening a file from the list always means what it says, and by
+     * [watchAsVideo] when the picture is asked for back.
+     */
+    private val _asAudio = MutableStateFlow(false)
+    val asAudio: StateFlow<Boolean> = _asAudio.asStateFlow()
+
+    /** Give the pictures back. The next composition of the media host routes to the video. */
+    fun watchAsVideo() {
+        _asAudio.value = false
+    }
+
     private fun load(restart: Boolean, startAtMs: Long = 0L) {
         loadJob?.cancel()
         releasePlayer()
@@ -192,6 +250,7 @@ class Playback(
         }
         _state.value = _state.value.copy(playing = false, positionMs = 0, durationMs = 0, error = null)
         _art.value = null
+        _source.value = null
         onServiceWanted(PlaybackNotice.shouldKeepService(_state.value))
 
         loadJob = scope.launch {
@@ -217,8 +276,16 @@ class Playback(
                 return@launch
             }
             player = prepared
+            _source.value = uri
             surface?.let { runCatching { prepared.setSurface(it) } }
             prepared.setOnCompletionListener { onCompletion() }
+            // Repeat-one loops INSIDE the decoder rather than by re-opening the file.
+            //
+            // It used to go round through onCompletion -> load(restart = true), which tears
+            // the player down and prepares a new one - a gap of a few hundred milliseconds,
+            // and a header re-read each time. On a three-minute song that is a seam you might
+            // not notice. On the two-second clip he is looping it is most of the playback.
+            applyLooping(prepared)
             _state.value = _state.value.copy(
                 durationMs = prepared.duration.toLong().coerceAtLeast(0L),
             )
@@ -321,6 +388,30 @@ class Playback(
 
     fun setRepeat(repeat: Repeat) {
         _state.value = _state.value.copy(repeat = repeat)
+        // Applied to the running player, not only to the next one. Switching to Repeat one
+        // while a track is playing has to loop THIS track at its end, which means telling the
+        // decoder now - and switching away has to stop it looping, or the queue is stuck.
+        player?.let { applyLooping(it) }
+        onServiceWanted(PlaybackNotice.shouldKeepService(_state.value))
+    }
+
+    /** Cycle off -> all -> one -> off. One implementation, for the screen and the shade. */
+    fun cycleRepeat() = setRepeat(
+        when (_state.value.repeat) {
+            Repeat.OFF -> Repeat.ALL
+            Repeat.ALL -> Repeat.ONE
+            Repeat.ONE -> Repeat.OFF
+        },
+    )
+
+    /**
+     * Hand repeat-one to the decoder.
+     *
+     * `isLooping` suppresses the completion callback entirely, which is the point - but it is
+     * also why this has to be kept in step with [setRepeat] rather than set once at load.
+     */
+    private fun applyLooping(p: MediaPlayer) {
+        runCatching { p.isLooping = _state.value.repeat == Repeat.ONE }
     }
 
     fun setShuffle(on: Boolean) {
@@ -333,6 +424,8 @@ class Playback(
         releasePlayer()
         abandonFocus()
         _art.value = null
+        _source.value = null
+        _asAudio.value = false
         _state.value = NowPlaying()
         onServiceWanted(false)
     }
@@ -385,6 +478,9 @@ class Playback(
 
     @Suppress("DEPRECATION")
     private fun requestFocus(): Boolean {
+        // Never asked for. Requesting AUDIOFOCUS_GAIN is what tells the system to stop
+        // everybody else, so the only way not to interrupt other playback is not to ask.
+        if (uninterrupted) return true
         val manager = audio ?: return true
         val granted = if (focusRequest != null) {
             manager.requestAudioFocus(focusRequest)

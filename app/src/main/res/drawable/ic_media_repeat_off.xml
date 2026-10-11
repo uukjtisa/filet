@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Repeat is off: the same arrows, struck through.
+
+  A stroke rather than a hollow outline. The shade draws these small and monochrome, and an
+  outlined version of a filled icon reads as a different icon rather than as the same one turned
+  off - whereas a line through something is the one mark everybody already reads as "not".
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillAlpha="0.55"
+        android:pathData="M7,7H17V10L21,6L17,2V5H5V11H7V7ZM17,17H7V14L3,18L7,22V19H19V13H17V17Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M3.9,2.8L2.8,3.9L20.1,21.2L21.2,20.1L3.9,2.8Z" />
+</vector>

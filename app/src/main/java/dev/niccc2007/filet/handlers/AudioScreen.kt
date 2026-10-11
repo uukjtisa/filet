@@ -99,6 +99,10 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
 
     val track = state.current
     val shownPosition = scrubTo ?: state.positionMs
+    val isVideo = track?.medium == dev.niccc2007.filet.playback.Medium.VIDEO
+    // Only collected for a video, but a composable cannot be conditional about that; the flow
+    // is null the rest of the time and the peek is not drawn, so it costs nothing.
+    val source by playback.source.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         ViewerBar(
@@ -110,12 +114,10 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
                 showQueue = !showQueue
             }
             ViewerAction(FiletIcons.Link, "Open in another app") {
-                vm.openExternally(vm.nodeOfTrack(track) ?: node, force = true)
+                vm.openTrackExternally(track, node)
             }
-            ViewerAction(FiletIcons.Share, "Share") { vm.share(vm.nodeOfTrack(track) ?: node) }
-            ViewerAction(FiletIcons.Info, "Properties") {
-                vm.showProperties(vm.nodeOfTrack(track) ?: node)
-            }
+            ViewerAction(FiletIcons.Share, "Share") { vm.shareTrack(track, node) }
+            ViewerAction(FiletIcons.Info, "Properties") { vm.propertiesOfTrack(track, node) }
         }
 
         Column(
@@ -126,15 +128,14 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
             // player off the top leaves it in the middle of the screen with a hole under it.
             verticalArrangement = Arrangement.Center,
         ) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = false)
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(colors.raised),
-                contentAlignment = Alignment.Center,
-            ) {
+            /**
+             * The square: cover art, or a few seconds of the video on a loop.
+             *
+             * Written as one lambda used in two places rather than two copies, because it is
+             * also what the peek shows while its first frame is still decoding - and a
+             * placeholder that differs from the thing it precedes is a visible swap.
+             */
+            val still: @Composable () -> Unit = {
                 val picture = art
                 if (picture != null) {
                     Image(
@@ -145,10 +146,63 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
                 } else {
                     // No embedded art is normal, not a failure, so the placeholder is a piece
                     // of the design rather than an error state.
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            if (isVideo) FiletIcons.Video else FiletIcons.Audio, null,
+                            tint = colors.accent.copy(alpha = 0.55f),
+                            modifier = Modifier.fillMaxSize(0.32f),
+                        )
+                    }
+                }
+            }
+
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(colors.raised),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (isVideo) {
+                    dev.niccc2007.filet.playback.VideoPeekView(
+                        source = source,
+                        playing = state.playing,
+                        modifier = Modifier.fillMaxSize(),
+                        placeholder = still,
+                    )
+                } else {
+                    still()
+                }
+            }
+
+            // Said out loud, because the screen otherwise claims to be a music player holding
+            // a video. The row is also where Watch lives: the one thing this screen cannot do
+            // is show you the picture at any size, and the way back has to be here rather than
+            // in the file list you are no longer looking at.
+            if (isVideo) {
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        FiletIcons.Audio, null,
-                        tint = colors.accent.copy(alpha = 0.55f),
-                        modifier = Modifier.fillMaxSize(0.32f),
+                        FiletIcons.Video, null,
+                        tint = colors.fg3,
+                        modifier = Modifier.size(13.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Playing as audio", fontSize = 11.sp, color = colors.fg3)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "Watch",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.accent,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(7.dp))
+                            .clickable {
+                                vm.openVideoOfTrack(track)
+                            }
+                            .padding(horizontal = 9.dp, vertical = 4.dp),
                     )
                 }
             }
@@ -242,13 +296,10 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
                     size = 38.dp,
                     active = state.repeat != Repeat.OFF,
                 ) {
-                    playback.setRepeat(
-                        when (state.repeat) {
-                            Repeat.OFF -> Repeat.ALL
-                            Repeat.ALL -> Repeat.ONE
-                            Repeat.ONE -> Repeat.OFF
-                        },
-                    )
+                    // The cycle lives on the player, because the notification's repeat
+                    // button runs the same one. Two copies of off-all-one-off is two places
+                    // for the order to drift.
+                    playback.cycleRepeat()
                 }
             }
             if (state.repeat == Repeat.ONE) {

@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
@@ -88,6 +89,7 @@ class PlaybackService : Service() {
             ACTION_TOGGLE -> playback.toggle()
             ACTION_NEXT -> playback.next()
             ACTION_PREVIOUS -> playback.previous()
+            ACTION_REPEAT -> playback.cycleRepeat()
             ACTION_STOP -> {
                 playback.stop()
                 leave()
@@ -106,15 +108,23 @@ class PlaybackService : Service() {
         // One collector, replacing itself rather than stacking. A second delivery of the same
         // intent must not leave two collectors posting the same notification twice.
         watch?.cancel()
+        // The ART is watched too, not only the state.
+        //
+        // It arrives AFTER the track starts - tags are read off the file once it is open, and
+        // for a video the picture is a decoded frame - so a notification posted from the state
+        // alone is posted before there is a picture to put on it, and nothing ever posts it
+        // again. The result was a shade entry that stayed blank for the whole track while the
+        // player screen showed the artwork perfectly well.
         watch = scope.launch {
-            playback.state.collectLatest { state ->
-                if (!PlaybackNotice.shouldKeepService(state)) {
-                    leave()
-                    return@collectLatest
+            combine(playback.state, playback.art) { state, art -> state to art }
+                .collectLatest { (state, art) ->
+                    if (!PlaybackNotice.shouldKeepService(state)) {
+                        leave()
+                        return@collectLatest
+                    }
+                    runCatching { post(state, art) }
+                    runCatching { publish(state, art) }
                 }
-                runCatching { post(state) }
-                runCatching { publish(state) }
-            }
         }
 
         // NOT sticky. A restart with a null intent would re-post a notification for a player
@@ -213,7 +223,7 @@ class PlaybackService : Service() {
     }
 
     /** Tell the system what is playing, which is what draws the lock screen and a watch face. */
-    private fun publish(state: NowPlaying) {
+    private fun publish(state: NowPlaying, art: android.graphics.Bitmap?) {
         val s = session ?: return
         val track = state.current ?: return
         s.setMetadata(
@@ -222,6 +232,12 @@ class PlaybackService : Service() {
                 .putString(MediaMetadata.METADATA_KEY_ARTIST, track.artist.orEmpty())
                 .putString(MediaMetadata.METADATA_KEY_ALBUM, track.album.orEmpty())
                 .putLong(MediaMetadata.METADATA_KEY_DURATION, state.durationMs)
+                // Both keys, deliberately. ALBUM_ART is what a lock screen and a car head unit
+                // read; ART is what some watch faces and older launchers read. They are
+                // different keys for the same bitmap and handing over only one leaves a
+                // surface blank for no reason.
+                .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, art)
+                .putBitmap(MediaMetadata.METADATA_KEY_ART, art)
                 .build(),
         )
         s.setPlaybackState(
@@ -247,7 +263,7 @@ class PlaybackService : Service() {
 
     // ── the notification ──
 
-    private fun post(state: NowPlaying?) {
+    private fun post(state: NowPlaying?, art: android.graphics.Bitmap? = null) {
         val manager = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
@@ -264,7 +280,7 @@ class PlaybackService : Service() {
                 },
             )
         }
-        val notification = build(state)
+        val notification = build(state, art)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 Notifications.PLAYBACK, notification,
@@ -275,7 +291,7 @@ class PlaybackService : Service() {
         }
     }
 
-    private fun build(state: NowPlaying?): Notification {
+    private fun build(state: NowPlaying?, art: android.graphics.Bitmap?): Notification {
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL)
         } else {
@@ -294,8 +310,16 @@ class PlaybackService : Service() {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
+        // The picture. For a song this is its embedded cover; for a video played as audio it
+        // is a frame taken where the player screen's loop starts, so the shade and the screen
+        // show the same moment of the same file.
+        art?.let { builder.setLargeIcon(it) }
 
         val stepping = state?.canStep == true
+        // Order is the compact row's order, and the compact row is three. Previous, play/pause
+        // and next are the three somebody reaches for without looking, so they come first and
+        // repeat and stop live in the expanded view - which is where a decision rather than a
+        // reflex belongs anyway.
         if (stepping) builder.addAction(action(FiletIconRes.PREVIOUS, "Previous", ACTION_PREVIOUS))
         builder.addAction(
             action(
@@ -305,6 +329,8 @@ class PlaybackService : Service() {
             ),
         )
         if (stepping) builder.addAction(action(FiletIconRes.NEXT, "Next", ACTION_NEXT))
+        val repeat = state?.repeat ?: Repeat.OFF
+        builder.addAction(action(FiletIconRes.repeatOf(repeat), repeatLabel(repeat), ACTION_REPEAT))
         builder.addAction(action(FiletIconRes.CLOSE, "Stop", ACTION_STOP))
 
         val style = Notification.MediaStyle()
@@ -317,6 +343,19 @@ class PlaybackService : Service() {
         builder.style = style
 
         return builder.build()
+    }
+
+    /**
+     * What pressing repeat would be leaving, said as where it IS.
+     *
+     * A notification action's label is read as the state on Android's own media notifications,
+     * not as the verb - so "Repeat off" has to mean repeat is currently off, the opposite
+     * convention to the rest of the buttons here, which say what they will do.
+     */
+    private fun repeatLabel(repeat: Repeat): String = when (repeat) {
+        Repeat.OFF -> "Repeat off"
+        Repeat.ALL -> "Repeating the queue"
+        Repeat.ONE -> "Repeating this track"
     }
 
     private fun action(icon: Int, label: String, act: String): Notification.Action {
@@ -346,6 +385,7 @@ class PlaybackService : Service() {
         const val ACTION_NEXT = "dev.niccc2007.filet.playback.NEXT"
         const val ACTION_PREVIOUS = "dev.niccc2007.filet.playback.PREVIOUS"
         const val ACTION_STOP = "dev.niccc2007.filet.playback.STOP"
+        const val ACTION_REPEAT = "dev.niccc2007.filet.playback.REPEAT"
 
         /**
          * Start or stop the service to match what the player is doing.
@@ -383,4 +423,10 @@ private object FiletIconRes {
     val NEXT = R.drawable.ic_media_next
     val PREVIOUS = R.drawable.ic_media_previous
     val CLOSE = R.drawable.ic_media_stop
+
+    fun repeatOf(repeat: Repeat): Int = when (repeat) {
+        Repeat.OFF -> R.drawable.ic_media_repeat_off
+        Repeat.ALL -> R.drawable.ic_media_repeat
+        Repeat.ONE -> R.drawable.ic_media_repeat_one
+    }
 }

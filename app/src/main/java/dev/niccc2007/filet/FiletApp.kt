@@ -141,7 +141,12 @@ class FiletGraph(context: Context) {
             onServiceWanted = { wanted ->
                 dev.niccc2007.filet.playback.PlaybackService.reconcile(app, wanted)
             },
-        )
+        ).also { player ->
+            // The setting follows the player for as long as the process lives, rather than
+            // being read when a track starts. Turning it on mid-track has to take effect on
+            // the track that is running - that is the whole situation it gets turned on in.
+            scope.launch { prefs.uninterrupted.collect { player.uninterrupted = it } }
+        }
     }
 
     val apkTools = dev.niccc2007.filet.apk.ApkTools(app, vfs, ledger, staging)

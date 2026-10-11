@@ -1610,7 +1610,28 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun askNewFile() = _dialog.update { Dialog.NewFile }
     fun askRename(node: VNode) = _dialog.update { Dialog.Rename(node) }
     fun askCompress() = _dialog.update { Dialog.Compress }
-    fun showProperties(node: VNode) = _dialog.update { Dialog.Properties(node) }
+    /**
+     * Properties, which re-stats a node nobody has measured.
+     *
+     * The guard is here and not only at the player's door because `size < 0` means "not
+     * looked at" wherever it comes from, and this dialog is reachable from the video screen,
+     * the music face, the action sheet and the overflow. Opened on a video that was reached
+     * through the player it showed **Size (-1 bytes)** and **Modified unknown** for a file
+     * sitting in Download.
+     *
+     * A node that already has a size is shown immediately, with no coroutine and no frame of
+     * delay - which is every caller that came from a listing.
+     */
+    fun showProperties(node: VNode) {
+        if (node.isDir || node.size >= 0) {
+            _dialog.update { Dialog.Properties(node) }
+            return
+        }
+        viewModelScope.launch {
+            val real = runCatching { graph.vfs.stat(node.path) }.getOrNull()
+            _dialog.update { Dialog.Properties(real ?: node) }
+        }
+    }
 
     fun confirmDelete() {
         val items = focusedPane()?.selectedNodes().orEmpty()
@@ -1763,6 +1784,23 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * exactly as it does when a track is tapped in a folder - and the back gesture needs no
      * special case.
      */
+    /**
+     * Give a video being played as audio its picture back.
+     *
+     * Only the flag is flipped. The media host is already composed around this node, so
+     * clearing it swaps the music face for the video screen in place - and that screen reads
+     * the background player's position and takes the file over, so the picture resumes where
+     * the sound got to rather than from the beginning.
+     */
+    fun openVideoOfTrack(track: dev.niccc2007.filet.playback.Track?) {
+        graph.playback.watchAsVideo()
+        val node = nodeOfTrack(track) ?: return
+        // Also issued as an open, for the case where the music face was reached from the
+        // strip on some other screen: the flag alone changes nothing if the host is not
+        // already showing this file.
+        _openRequest.value = OpenRequest(node, HandlerId.MEDIA)
+    }
+
     fun maximisePlayer() {
         val node = nodeOfTrack(graph.playback.state.value.current) ?: return
         _openRequest.value = OpenRequest(node, HandlerId.MEDIA)
@@ -2427,6 +2465,40 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         // would answer null for a track that is playing perfectly well.
         return VNode(path = path, isDir = false, size = -1L, mtime = 0L)
     }
+
+    /**
+     * Act on the file behind a queue entry, having actually looked at it first.
+     *
+     * [nodeOfTrack] rebuilds a node from the track's path alone, which is right for
+     * identifying the file and wrong for describing it: the node it returns carries
+     * `size = -1` and `mtime = 0` because nothing has stat'd it. Properties then printed
+     * **Size (-1 bytes)** and **Modified unknown** for a file sitting on the phone, from
+     * both the music face and the video screen.
+     *
+     * So the stat happens here, off the main thread, and the action runs with whatever came
+     * back. The unstat'd node is still the fallback and still an ordinary answer - a track
+     * can be playing out of the cache after its original was deleted, and Share on it should
+     * do something rather than nothing.
+     */
+    private fun withTrackNode(track: dev.niccc2007.filet.playback.Track?, fallback: VNode?, act: (VNode) -> Unit) {
+        val rough = nodeOfTrack(track) ?: fallback ?: return
+        viewModelScope.launch {
+            val real = runCatching { graph.vfs.stat(rough.path) }.getOrNull()
+            act(real ?: rough)
+        }
+    }
+
+    /** Properties for what is playing, with a real size and date on it. */
+    fun propertiesOfTrack(track: dev.niccc2007.filet.playback.Track?, fallback: VNode?) =
+        withTrackNode(track, fallback) { showProperties(it) }
+
+    /** Share what is playing. */
+    fun shareTrack(track: dev.niccc2007.filet.playback.Track?, fallback: VNode?) =
+        withTrackNode(track, fallback) { share(it) }
+
+    /** Hand what is playing to another app. */
+    fun openTrackExternally(track: dev.niccc2007.filet.playback.Track?, fallback: VNode?) =
+        withTrackNode(track, fallback) { openExternally(it, force = true) }
 
     /**
      * A `Uri` the media players can seek in.

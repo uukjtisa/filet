@@ -88,6 +88,15 @@ object TrackMedia {
                     ?.takeIf { it.isNotBlank() },
                 album = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
                     ?.takeIf { it.isNotBlank() },
+                // A frame, when the file has no embedded picture.
+                //
+                // This is what gives a video played as audio a picture in the notification and
+                // on the lock screen. Without it every video is the generic icon, so a lecture
+                // and a clip of somebody's dog look identical in the shade - which is the one
+                // place you are looking BECAUSE you cannot see the app.
+                //
+                // Taken at the same point the player screen's loop starts, so the two agree:
+                // not frame zero, which on most things anybody films or edits is black.
                 art = r.embeddedPicture?.let { bytes ->
                     // Sampled to roughly a phone's width. Album art is routinely 1500 square,
                     // and decoding that at full size for a 400 px box is 9 MB for nothing.
@@ -101,7 +110,7 @@ object TrackMedia {
                         bytes, 0, bytes.size,
                         BitmapFactory.Options().apply { inSampleSize = sample },
                     )
-                },
+                } ?: posterOf(r),
             )
         } catch (_: Throwable) {
             Playback.TrackTags(fallback, null, null, null)
@@ -112,5 +121,39 @@ object TrackMedia {
         }
     }
 
+    /**
+     * A still from a video to stand in for cover art, or null for anything that is not one.
+     *
+     * `OPTION_CLOSEST_SYNC` rather than `OPTION_CLOSEST`: the exact frame means decoding
+     * forward from the previous keyframe, and this runs for every track that starts. A
+     * keyframe within a second of the mark is the same picture for this purpose.
+     *
+     * Scaled down on API 27 and up, where the retriever will do it during the decode. Below
+     * that it comes back at the video's own size, which for a 4K clip is a 30 MB bitmap held
+     * for as long as the track plays - so it is dropped rather than kept.
+     */
+    private fun posterOf(r: MediaMetadataRetriever): android.graphics.Bitmap? {
+        val isVideo = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO) == "yes"
+        if (!isVideo) return null
+        val duration = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            ?.toLongOrNull() ?: 0L
+        val window = dev.niccc2007.filet.playback.VideoPeek.windowOf(duration)
+        val atUs = dev.niccc2007.filet.playback.VideoPeek.loopStart(window) * 1000L
+        return runCatching {
+            if (android.os.Build.VERSION.SDK_INT >= 27) {
+                r.getScaledFrameAtTime(
+                    atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, POSTER_MAX, POSTER_MAX,
+                )
+            } else {
+                val full = r.getFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                full?.takeIf { it.width <= ART_MAX && it.height <= ART_MAX }
+                    ?: full?.also { it.recycle() }?.let { null }
+            }
+        }.getOrNull()
+    }
+
     private const val ART_MAX = 1200
+
+    /** A notification's large icon and a lock screen's background; not a gallery view. */
+    private const val POSTER_MAX = 640
 }

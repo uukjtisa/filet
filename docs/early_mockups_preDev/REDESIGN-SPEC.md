@@ -37,7 +37,7 @@ that surface which is easiest to lose on the way across.
 | **Rename** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:321` | `DIALOGS.rename` | N59 | Selection stops at the dot, so typing replaces the name and keeps the extension. |
 | **Delete** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:391` | `DIALOGS.delete` | N59 | Says there is no bin, and offers the holding folder instead. |
 | **Properties** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:422` | `DIALOGS.properties` | N59 | Says creation time is not recorded rather than showing the modification time twice. |
-| **Create archive** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:508` | `DIALOGS.archive` | N59 | Says zip leaves names readable and 7z does not. |
+| **Create archive** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:519` | `DIALOGS.archive` | N59 | Says zip leaves names readable and 7z does not. |
 | **Extract** | `app/src/main/java/dev/niccc2007/filet/browser/ExtractSheet.kt:60` | `DIALOGS.extract` | N59 | Shows the plan before writing anything, so a clash is a question not a surprise. |
 | **Archive save** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:391` | `DIALOGS.archsave` | N59 | Names the backup and the re-sign as steps, because both happen and neither is obvious. |
 | **Folder picker** | `app/src/main/java/dev/niccc2007/filet/browser/FolderPicker.kt:52` | `DIALOGS.folder` | N59 | Can create a folder from inside itself. |

@@ -109,6 +109,8 @@ fun SettingsPage(vm: BrowserViewModel) {
     val updatesOn by vm.updateNotificationsOn.collectAsState()
     val selectionBar by prefs.selectionBar.collectAsState()
     val navWhileSelecting by prefs.navWhileSelecting.collectAsState()
+    val uninterrupted by prefs.uninterrupted.collectAsState()
+    val videoKeepsPlaying by prefs.videoKeepsPlaying.collectAsState()
     val drag by prefs.drag.collectAsState()
     val hideTermux by prefs.hideTermux.collectAsState()
     val tabSize by prefs.tabSize.collectAsState()
@@ -315,6 +317,39 @@ fun SettingsPage(vm: BrowserViewModel) {
         // Directly under Browsing, not at the bottom. It was below the Tracked-folders list,
         // which can run to a dozen rows, and "where is that?" was the result.
         defaultOpenersSection(vm) { pickingOpenerFor = it }
+
+        item {
+            SettingsSection(
+                "Playing media",
+                "How the player behaves against the rest of the phone.",
+            )
+        }
+        item {
+            ToggleRow(
+                "Video keeps playing when you leave it",
+                if (videoKeepsPlaying) {
+                    "Closing a video hands its sound to the player, and the player screen " +
+                        "shows a few seconds of the picture on a loop."
+                } else {
+                    "Closing a video stops it. On for a lecture or a long mix."
+                },
+                videoKeepsPlaying,
+            ) { prefs.setVideoKeepsPlaying(it) }
+        }
+        item {
+            ToggleRow(
+                "Uninterrupted playback",
+                if (uninterrupted) {
+                    "Filet takes no audio focus and gives none up: it plays over other apps " +
+                        "and they cannot pause it. A phone call still wins - that one is not " +
+                        "Filet's to refuse."
+                } else {
+                    "Normal behaviour: Filet pauses for a call and ducks for a prompt, and " +
+                        "starting a track stops whatever else was playing."
+                },
+                uninterrupted,
+            ) { prefs.setUninterrupted(it) }
+        }
 
         item { SettingsSection("Search index", "The database that makes whole-device search answer instantly.") }
         item {

@@ -434,7 +434,18 @@ private fun PropertiesDialog(vm: BrowserViewModel, node: VNode, onDismiss: () ->
         DlgBody {
             DlgKv("Type", if (node.isDir) "Folder" else FileKind.of(node).name.lowercase())
             DlgKv("Volume", node.path.scheme, mono = true)
-            if (!node.isDir) DlgKv("Size", "${humanSize(node.size)}  (${node.size} bytes)")
+            // A negative size means nobody has stat'd this node, not a file of minus one
+            // byte. It reached the screen as "(-1 bytes)" from the player, whose nodes are
+            // rebuilt from a track id - fixed at the source, and refused here as well,
+            // because this dialog is reachable from anywhere and a nonsense number is worse
+            // than an admission.
+            if (!node.isDir) {
+                DlgKv(
+                    "Size",
+                    if (node.size >= 0) "${humanSize(node.size)}  (${node.size} bytes)"
+                    else "unknown",
+                )
+            }
             DlgKv("Modified", if (node.mtime > 0) STAMP.format(Date(node.mtime)) else "unknown")
             DlgKv("Readable", if (node.readable) "yes" else "no")
             DlgKv("Writable", if (node.writable) "yes" else "no")

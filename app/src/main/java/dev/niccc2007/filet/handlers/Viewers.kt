@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,7 +51,16 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun MediaScreen(vm: BrowserViewModel, node: VNode) {
-    if (FileKind.of(node) == FileKind.VIDEO) VideoScreen(vm, node) else AudioScreen(vm, node)
+    // A video opens into the video screen UNLESS it is the one currently being held as sound
+    // only - see `Playback.asAudio`. Collected rather than read, so pressing Watch on the
+    // music face swaps this composition to the video screen without reopening anything.
+    val asAudio by vm.playback.asAudio.collectAsStateWithLifecycle()
+    val heldAsAudio = asAudio && vm.playback.isCurrent(node.path.toString())
+    if (FileKind.of(node) == FileKind.VIDEO && !heldAsAudio) {
+        VideoScreen(vm, node)
+    } else {
+        AudioScreen(vm, node)
+    }
 }
 
 /**
