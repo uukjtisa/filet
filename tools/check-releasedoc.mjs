@@ -40,15 +40,35 @@ const CODE_TALK = [
   [/\brefactor(ed|ing)?\b/i, "describes the refactor rather than the effect"],
 ];
 
+/**
+ * Whether the opener rule covers this release.
+ *
+ * Versions are compared numerically rather than as strings, because "0.1.9" sorts after
+ * "0.1.13" as text and that is exactly the comparison a release-numbering check must not get
+ * wrong. An untagged or unparseable tag is treated as covered: a new release is the common
+ * case, and the failure direction to prefer is flagging something to look at.
+ */
+const OPENER_RULE_FROM = [0, 1, 13];
+
+export function openerRuleApplies(tag) {
+  const m = /(\d+)\.(\d+)(?:\.(\d+))?/.exec(tag || "");
+  if (!m) return true;
+  const v = [Number(m[1]), Number(m[2]), Number(m[3] || 0)];
+  for (let i = 0; i < 3; i++) {
+    if (v[i] !== OPENER_RULE_FROM[i]) return v[i] > OPENER_RULE_FROM[i];
+  }
+  return true;
+}
+
 /** Rough word count, for "is there any prose at all". */
 function words(text) {
   return text.split(/\s+/).filter(Boolean).length;
 }
 
-export function checkBody(body, doc) {
+export function checkBody(body, doc, tag = "") {
   const problems = [];
 
-  if (!doc || !/Open with pictures/i.test(doc)) {
+  if (!doc || !/names the best thing in the release/i.test(doc)) {
     problems.push(`${DOC} is missing or no longer states the rule`);
   }
 
@@ -61,17 +81,41 @@ export function checkBody(body, doc) {
   const images = [...body.matchAll(/<img\s[^>]*src\s*=\s*"([^"]+)"/gi)].map((m) => m[1]);
   const mdImages = [...body.matchAll(/!\[[^\]]*]\(([^)\s]+)/g)].map((m) => m[1]);
   const all = images.concat(mdImages);
-  // Amended 2026-09-15: "if pictures are necessary then include but if not then
-  // dont." A release that adds no screen has nothing to photograph, and padding it with shots
-  // of screens that did not change is exactly the stale gallery he complained about in the
-  // README. So pictures are required UNLESS the body says plainly, up front, that there are
-  // no new screens - which is a claim a reader can check rather than a silence.
-  const declaresNoScreens = /no new screens/i.test(body.slice(0, 600));
-  if (all.length === 0 && !declaresNoScreens) {
-    problems.push(
-      "the body opens with no screenshot: docs/RELEASES.md says open with pictures, " +
-        "or say \"no new screens\" in the opening if this release genuinely adds none",
-    );
+  // Pictures are optional, and a release with none says nothing about it.
+  //
+  // This rule has now been wrong in both directions and the second mistake was mine. It began
+  // as "always open with a screenshot", which padded releases with shots of screens that had
+  // not changed - the stale gallery the README already had. The amendment made pictures
+  // optional but demanded the absence be DECLARED up front, "no new screens", on the grounds
+  // that a stated claim beats a silence.
+  //
+  // That reasoning does not survive asking who reads the notes. Somebody opening them has
+  // already decided to care about the update, and the first thing they read being a disclaimer
+  // about what the release does not have frames it as thin before they reach a single real
+  // change. The absence of screenshots is a fact about the pictures; it is not news, and the
+  // honest treatment is no sentence at all.
+  //
+  // So nothing is required here, and the opener is checked below instead - for what it must NOT
+  // be.
+  // Applied from 0.1.13 onward: that is the release the rule changed at, and the ones already
+  // published carry the opener the OLD rule demanded. Failing the check on history would mean
+  // either a permanently red check or editing release bodies people have already read.
+  const OPENERS = [
+    /no new screens/i,
+    /nothing visual/i,
+    /no (?:new )?(?:pictures|screenshots|images)/i,
+    /^\s*(?:this one is|this release is) (?:mostly|just|only|all)\b/i,
+    /^\s*(?:just|only|mostly) (?:fixes|bug ?fixes|internal)/i,
+  ];
+  // The first paragraph, which is the only place an opener can do this damage.
+  const opener = body.trim().split(/\n\s*\n/)[0] ?? "";
+  for (const pattern of (openerRuleApplies(tag) ? OPENERS : [])) {
+    if (pattern.test(opener)) {
+      problems.push(
+        `the body opens by naming what the release LACKS (matched ${pattern}): ` +
+          "open on the best thing in it instead",
+      );
+    }
   }
   for (const src of all) {
     if (!/^https?:\/\//i.test(src)) {
@@ -132,7 +176,7 @@ function fetchNewest() {
 }
 
 if (process.argv.includes("--selftest")) {
-  const doc = "Open with pictures. Do not be detailed about the code.";
+  const doc = "The first line names the best thing in the release. Do not be detailed about the code.";
   const good = [
     '<div align="center">',
     '<img src="https://raw.githubusercontent.com/uukjtisa/filet/v0.1.0/docs/screenshots/01.png" alt="Browsing">',
@@ -160,7 +204,8 @@ if (process.argv.includes("--selftest")) {
   ].join("\n");
 
   // The positive control. Without it, a checker whose regexes never match "passes" everything.
-  const clean = checkBody(good, doc);
+  const COVERED = "v0.1.13";
+  const clean = checkBody(good, doc, COVERED);
   if (clean.length) {
     console.error("SELFTEST FAIL: the good body did not pass: " + clean.join("; "));
     process.exit(1);
@@ -168,7 +213,26 @@ if (process.argv.includes("--selftest")) {
 
   const cases = [
     ["no body at all", "", doc, /no body at all/],
-    ["a bare changelog with no pictures", good.replace(/<div[\s\S]*?<\/div>\n\n/, ""), doc, /no screenshot/],
+    // Pictures are no longer required, so a body without them is not a finding. What IS a
+    // finding is an opener that leads on the absence.
+    [
+      "an opener announcing there are no new screens",
+      ["No new screens for this one, but plenty underneath.", "", good].join("\n"),
+      doc,
+      /naming what the release LACKS/,
+    ],
+    [
+      "an opener apologising for being internal",
+      ["This one is mostly internal plumbing.", "", good].join("\n"),
+      doc,
+      /naming what the release LACKS/,
+    ],
+    [
+      "an opener calling itself just fixes",
+      ["Just fixes this time.", "", good].join("\n"),
+      doc,
+      /naming what the release LACKS/,
+    ],
     [
       "images pinned to a branch instead of the tag",
       good.replace("/v0.1.0/", "/main/"),
@@ -204,9 +268,28 @@ if (process.argv.includes("--selftest")) {
     ["the rule document itself going missing", good, "", /RELEASES\.md/],
   ];
 
+  // The floor, asserted on its own because "this produces NO finding" is the opposite shape
+  // from every other case here. A release published before the rule changed keeps the opener
+  // the old rule demanded, and flagging it would mean a permanently red check or editing
+  // bodies people have already read.
+  const historic = checkBody(
+    ["No new screens for this one, but plenty underneath.", "", good].join("\n"),
+    doc,
+    "v0.1.12",
+  );
+  if (historic.some((p) => /LACKS/.test(p))) {
+    console.error("SELFTEST FAIL: the opener rule was applied to a release that predates it");
+    process.exit(1);
+  }
+  if (!openerRuleApplies("v0.1.13") || !openerRuleApplies("v0.2.0") ||
+      openerRuleApplies("v0.1.12") || openerRuleApplies("v0.1.9")) {
+    console.error("SELFTEST FAIL: the version floor compares versions as text, not as numbers");
+    process.exit(1);
+  }
+
   let failures = 0;
-  for (const [name, body, d, expected] of cases) {
-    const problems = checkBody(body, d);
+  for (const [name, body, d, expected, tag] of cases) {
+    const problems = checkBody(body, d, tag ?? COVERED);
     if (!problems.some((p) => expected.test(p))) {
       failures++;
       console.error(`SELFTEST FAIL: "${name}" not caught. Got: ${problems.join("; ") || "(nothing)"}`);
@@ -228,7 +311,7 @@ if (process.argv.includes("--selftest")) {
     console.error("RELEASEDOC CHECK COULD NOT RUN: " + e.message);
     process.exit(2);
   }
-  const problems = checkBody(release.body || "", doc);
+  const problems = checkBody(release.body || "", doc, release.tag_name);
   if (problems.length) {
     console.error(`RELEASEDOC PROBLEMS in ${release.tag_name}: ` + problems.length);
     for (const p of problems) console.error("  " + p);

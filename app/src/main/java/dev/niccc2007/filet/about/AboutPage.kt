@@ -79,6 +79,12 @@ fun AboutPage(vm: BrowserViewModel) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
         item { SignatureBanner() }
 
+        // Directly under the banner, before any section label, because that is what
+        // "prominent" means on a list screen - above the first heading rather than inside a
+        // section competing with Source and Licence. It draws nothing at all until an address
+        // is configured; see `SupportCard`.
+        item { SupportCard(onOpen = { url -> vm.openUrl(url) }) }
+
         item { SectionLabel("Project") }
         item {
             AboutRow(FiletIcons.Code, "Source", "github.com/uukjtisa/filet") {

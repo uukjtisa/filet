@@ -159,6 +159,13 @@ object FiletIcons {
     val Device = stroke("device", "M7 3h10v18H7z", "M10.5 18.5h3")
     val Wifi = stroke("wifi", "M3.5 9.5a13 13 0 0 1 17 0", "M6.5 13a9 9 0 0 1 11 0", "M9.5 16.4a5 5 0 0 1 5 0", "M12 20h.01")
     val Link = stroke("link", "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 1 0-5.7-5.7L11.6 6.8", "M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 1 0 5.7 5.7l1.4-1.4")
+    // Outlined, like every other icon here, and deliberately not a filled heart. A solid one
+    // at accent colour reads as a "liked" state - something already done - where this is an
+    // invitation that has not been taken up.
+    val Heart = stroke(
+        "heart",
+        "M12 20s-7.5-4.6-7.5-9.4A4.1 4.1 0 0 1 12 8a4.1 4.1 0 0 1 7.5 2.6c0 4.8-7.5 9.4-7.5 9.4z",
+    )
     val Lock = stroke("lock", "M5 11h14v9H5z", "M8 11V8a4 4 0 0 1 8 0v3")
     val Key = stroke("key", "M14.5 12a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0", "M13.5 10.5H21v3M18 10.5v3")
     val Sign = stroke("sign", "M12 3 4 6v6c0 4.4 3.4 7.9 8 9 4.6-1.1 8-4.6 8-9V6z", "m9 12 2 2 4-4")

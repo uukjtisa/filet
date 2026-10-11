@@ -136,9 +136,30 @@ exists — the check is a fact about the repository, not about that moment, so i
 
 **Pictures only when there is something new to show.** A release of pure repairs has nothing
 to photograph, and filling the strip with shots of screens that did not change is how a
-gallery goes stale. Such a release says *no new screens in this one* in the opening paragraph;
-`check-releasedoc.mjs` accepts that in place of images, so the absence is a stated claim
-rather than an oversight.
+gallery goes stale.
+
+**The first line names the best thing in the release. Never what the release lacks.**
+
+This rule has been wrong in both directions, and the second version is the one to learn from.
+Pictures were once mandatory, which padded repair releases with shots of unchanged screens.
+The fix made them optional but required the absence to be *declared* up front — *no new
+screens in this one* — on the reasoning that a stated claim beats a silence.
+
+It does not, and asking who reads the notes is enough to see why. Somebody opening them has
+already decided to care about the update. The first thing they read being a disclaimer about
+what is missing frames the whole release as thin before they reach one real change. The absence
+of screenshots is a fact about the pictures: it is not news, and it needs no sentence at all.
+
+So there is no opener to write and no apology to make. Name the change:
+
+| Not this | This |
+|---|---|
+| "No new screens for this one, but…" | "Music keeps playing when you close the player." |
+| "Nothing visual this time — mostly fixes." | "Copying to a share no longer stalls on big folders." |
+| "This one is mostly internal." | "Folders with thousands of files open straight away." |
+
+`check-releasedoc.mjs` enforces it from **0.1.13 onward**. Releases published before that keep
+the opener the old rule asked for; nothing already public is rewritten.
 
 **Open with pictures when there ARE any.** A centred `<div>` of `<img>` tags becomes one screenshot strip in the
 app. Show what changed: a release that adds a screen should show that screen. Point the `src`
