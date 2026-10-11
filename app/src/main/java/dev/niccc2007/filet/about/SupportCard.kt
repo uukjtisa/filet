@@ -46,8 +46,8 @@ import dev.niccc2007.filet.ui.theme.Filet
  */
 object SupportLink {
 
-    /** `https://ko-fi.com/<handle>`. Empty until the account exists. */
-    const val URL = ""
+    /** `https://ko-fi.com/<handle>`. Empty hides the card; see the note above. */
+    const val URL = "https://ko-fi.com/thethirdy2007"
 
     val configured: Boolean get() = URL.isNotBlank()
 }
