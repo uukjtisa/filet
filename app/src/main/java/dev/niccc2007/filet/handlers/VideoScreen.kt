@@ -26,6 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -213,6 +215,17 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
      * path does it.
      */
     var handOffNow by remember(node.path) { mutableStateOf(false) }
+
+    /** The overflow menu, which now holds everything that is neither a mode nor frequent. */
+    var overflow by remember(node.path) { mutableStateOf(false) }
+
+    /**
+     * The SAME preference the music player and Settings read.
+     *
+     * One value with three doors, not three switches: turning it on here has to be on when
+     * the next track starts in the other player, and has to be what Settings shows.
+     */
+    val uninterrupted by vm.prefs.uninterrupted.collectAsStateWithLifecycle()
     // Remembered in preferences rather than per video - see `Prefs.videoKeepsPlaying` for why
     // a per-file switch would be useless for the one case this is for.
     val keepPlaying by vm.prefs.videoKeepsPlaying.collectAsStateWithLifecycle()
@@ -571,6 +584,13 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                         .padding(horizontal = 4.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // Back, the name, and everything else behind one button.
+                    //
+                    // It carried six actions beside the title on a 423dp phone, which left
+                    // the filename about 40% of the row and the icons shoulder to shoulder.
+                    // The modes moved DOWN to the transport, where there was a whole row of
+                    // empty space beside the clock and where a mode belongs anyway; the
+                    // three that are neither modes nor frequent are behind the overflow.
                     OverlayAction(FiletIcons.Back, "Close") { vm.closeHandler() }
                     Text(
                         node.name,
@@ -578,41 +598,28 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                         fontSize = 12.5.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                     )
-                    OverlayAction(
-                        FiletIcons.Repeat,
-                        if (repeating) "Repeat is on" else "Repeat is off",
-                        active = repeating,
-                    ) { repeating = !repeating; wake() }
-                    // An ACTION, not a toggle.
-                    //
-                    // It used to flip `videoKeepsPlaying` and do nothing visible, so turning
-                    // it on and then pressing Close was two presses to express one intention -
-                    // and the first of them looked like it had not worked. The tap should do
-                    // the whole thing: minimise into the player strip, on the screen the
-                    // video was opened from.
-                    //
-                    // The preference it used to flip still exists and still governs what
-                    // CLOSING does; it lives in Settings under Playing media, which is where
-                    // a standing choice belongs. This button is the one-off: keep the sound,
-                    // give me the screen back.
-                    OverlayAction(FiletIcons.Audio, "Play as audio") {
-                        handOffNow = true
-                        vm.closeHandler()
+                    Box {
+                        OverlayAction(FiletIcons.More, "More") { overflow = true; wake() }
+                        DropdownMenu(
+                            expanded = overflow,
+                            onDismissRequest = { overflow = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Open in another app", fontSize = 13.sp) },
+                                onClick = { overflow = false; vm.openExternally(node, force = true) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Share", fontSize = 13.sp) },
+                                onClick = { overflow = false; vm.share(node) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Properties", fontSize = 13.sp) },
+                                onClick = { overflow = false; vm.showProperties(node) },
+                            )
+                        }
                     }
-                    OverlayAction(FiletIcons.Expand, orientationLabel(lockedOrientation)) {
-                        // Three states rather than a toggle: follow the phone, hold landscape,
-                        // hold portrait. A two-state button cannot express "stop rotating",
-                        // which is the thing you want while lying down.
-                        lockedOrientation = nextOrientation(lockedOrientation)
-                        wake()
-                    }
-                    OverlayAction(FiletIcons.Link, "Open in another app") {
-                        vm.openExternally(node, force = true)
-                    }
-                    OverlayAction(FiletIcons.Share, "Share") { vm.share(node) }
-                    OverlayAction(FiletIcons.Info, "Properties") { vm.showProperties(node) }
                 }
             }
 
@@ -922,7 +929,7 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                             wake()
                         },
                     )
-                    Row(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
+                    Row(Modifier.fillMaxWidth()) {
                         Text(
                             clockOf(shownPosition),
                             color = Color.White, fontSize = 10.5.sp,
@@ -934,6 +941,53 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                             color = Color.White.copy(alpha = 0.8f), fontSize = 10.5.sp,
                             fontFamily = FontFamily.Monospace,
                         )
+                    }
+                    // The modes, under the clock rather than crowded against the title.
+                    //
+                    // Each one is a switch whose STATE matters - is it looping, can anything
+                    // stop it, is the screen locked - and a switch in an overflow menu is a
+                    // switch whose state you have to open a menu to read. There is a whole
+                    // row of width here and the clock was using a tenth of it.
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OverlayAction(
+                            FiletIcons.Repeat,
+                            if (repeating) "Repeat is on" else "Repeat is off",
+                            active = repeating,
+                        ) { repeating = !repeating; wake() }
+                        OverlayAction(
+                            FiletIcons.Shield,
+                            if (uninterrupted) {
+                                "Uninterrupted - nothing will pause this"
+                            } else {
+                                "Uninterrupted playback is off"
+                            },
+                            active = uninterrupted,
+                        ) { vm.prefs.setUninterrupted(!uninterrupted); wake() }
+                        // Named in words whenever it is on, because a lit shield is a state
+                        // somebody has to learn and this is the switch that decides whether
+                        // a call can take the sound away.
+                        if (uninterrupted) {
+                            Text(
+                                "Uninterrupted",
+                                color = Filet.colors.accent,
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.6.sp,
+                                modifier = Modifier.padding(start = 2.dp),
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
+                        OverlayAction(FiletIcons.Audio, "Play as audio") {
+                            handOffNow = true
+                            vm.closeHandler()
+                        }
+                        OverlayAction(FiletIcons.Expand, orientationLabel(lockedOrientation)) {
+                            lockedOrientation = nextOrientation(lockedOrientation)
+                            wake()
+                        }
                     }
                 }
             }

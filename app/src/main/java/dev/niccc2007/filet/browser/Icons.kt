@@ -206,6 +206,15 @@ object FiletIcons {
     val Repeat = stroke("repeat", "M4 11V9a3 3 0 0 1 3-3h10", "m14 3 3 3-3 3", "M20 13v2a3 3 0 0 1-3 3H7", "m10 21-3-3 3-3")
     val Expand = stroke("expand", "M4 9V4h5", "M20 9V4h-5", "M4 15v5h5", "M20 15v5h-5")
 
+    /**
+     * Uninterrupted playback.
+     *
+     * A shield, because the switch says "nothing may take this away" - which is a guard, not
+     * a speaker. A crossed-out bell or a do-not-disturb circle would read as Filet going
+     * quiet, which is the opposite of what it does.
+     */
+    val Shield = stroke("shield", "M12 3.5 19 6v6c0 4.2-3 7-7 8.5C8 19 5 16.2 5 12V6z")
+
     // -- image editing --
     val Crop = stroke("crop", "M6 2v16h16", "M2 6h16v16")
     val Draw = stroke("draw", "m3 21 1.3-4.3L14.6 6.4l3 3L7.3 19.7z", "m13 8 3 3", "M16.8 4.2 19.8 7.2l-2.2 2.2-3-3z")

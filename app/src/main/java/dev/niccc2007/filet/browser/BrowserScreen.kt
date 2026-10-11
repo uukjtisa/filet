@@ -1367,27 +1367,34 @@ private fun FootButton(
     val colors = Filet.colors
     val enabled = blocked == null
     val shown = if (enabled) tint else colors.fg3.copy(alpha = 0.38f)
-    // One row, not an icon stacked over a label.
+    // The caption goes back UNDER the icon, on a chip.
     //
-    // The stacked form was a 30dp circle, a gap and a 9sp caption, which made the selection
-    // bar about 56dp of chrome sitting on top of a bottom bar that is already there - two
-    // thick bands over the list at the moment you most want to see the list. Side by side the
-    // same button is 32dp and the label gets to be 11sp instead of 9sp, which is legible
-    // rather than merely present.
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    // Three shapes have been through here and the arithmetic is the whole argument. The
+    // original was a 30dp circle over a 9.5sp caption at about 56dp, and it was too thick -
+    // but only because a full-height nav bar sat underneath it, two bands over the list at
+    // the moment you most want to see the list. Replacing it with a side-by-side pill got
+    // the bar to 39dp and lost the captions, which is what he actually valued.
+    //
+    // So: the stack returns, the circle does not. A bare 19dp glyph with the chip's rounding
+    // doing the work the circle used to do, 10sp of caption, and tighter padding, which
+    // measures 49dp against the mock - 7dp over the pill, 7dp under the original, and with
+    // the nav bar now stepping aside the total chrome is still well down on the complaint.
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(if (enabled) colors.high else Color.Transparent)
             .clickable { if (enabled) onClick() else onBlocked(blocked!!) }
-            .padding(start = 9.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+            .widthIn(min = 52.dp)
+            .padding(start = 9.dp, end = 9.dp, top = 5.dp, bottom = 4.dp),
     ) {
-        Icon(icon, label, tint = shown, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(6.dp))
+        Icon(icon, label, tint = shown, modifier = Modifier.size(19.dp))
+        Spacer(Modifier.height(2.dp))
         Text(
             label,
-            fontSize = 11.sp,
-            color = shown,
+            fontSize = 9.5.sp,
+            lineHeight = 11.sp,
+            color = if (enabled) colors.fg3 else shown,
             maxLines = 1,
             softWrap = false,
         )
