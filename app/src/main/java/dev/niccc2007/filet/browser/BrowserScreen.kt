@@ -203,7 +203,12 @@ fun BrowserScreen(vm: BrowserViewModel) {
                 }
 
                 if (activeState?.selecting == true) {
-                    SelectionBar(vm, activeState.selected.size, vm.writeBlockReason(activeState.cwd))
+                    SelectionBar(
+                        vm,
+                        activeState.selected.size,
+                        activeState.visible.size,
+                        vm.writeBlockReason(activeState.cwd),
+                    )
                 }
 
                 // Above the bottom bar and below everything else, so it is present on every
@@ -216,7 +221,17 @@ fun BrowserScreen(vm: BrowserViewModel) {
                 // screens with room for it.
                 dev.niccc2007.filet.playback.NowPlayingStrip(vm)
 
-                if (!wide) BottomNav(vm, app, active)
+                // The nav bar gets out of the way while a selection is running - how far is
+                // the setting. See `NavDuringSelection` for why it has to do something.
+                if (!wide) {
+                    val navMode = NavDuringSelection.of(vm.prefs.navWhileSelecting.collectAsState().value)
+                    val selecting = activeState?.selecting == true
+                    when {
+                        !selecting -> BottomNav(vm, app, active)
+                        navMode == NavDuringSelection.HIDDEN -> Unit
+                        else -> BottomNav(vm, app, active, compact = navMode == NavDuringSelection.COMPACT)
+                    }
+                }
             }
 
             // Tapping the pushed-away app closes the sidebar.
@@ -1004,7 +1019,13 @@ private fun RailItem(
 }
 
 @Composable
-private fun BottomNav(vm: BrowserViewModel, app: AppState, active: PaneController?) {
+private fun BottomNav(
+    vm: BrowserViewModel,
+    app: AppState,
+    active: PaneController?,
+    /** Icons only, no captions. The form the bar takes under a selection bar. */
+    compact: Boolean = false,
+) {
     val colors = Filet.colors
     val jobs by vm.ledger.jobs.collectAsState()
     val stored by vm.prefs.bottomBar.collectAsState()
@@ -1013,7 +1034,7 @@ private fun BottomNav(vm: BrowserViewModel, app: AppState, active: PaneControlle
     val row: @Composable () -> Unit = {
         for (item in items) {
             val badge = if (item == BarItem.ACTIVITY) jobs.count { it.running } else 0
-            NavItem(barIcon(item), item.label, badge) { runBarItem(item, vm, active) }
+            NavItem(barIcon(item), item.label, badge, compact) { runBarItem(item, vm, active) }
         }
     }
 
@@ -1021,7 +1042,7 @@ private fun BottomNav(vm: BrowserViewModel, app: AppState, active: PaneControlle
         .fillMaxWidth()
         .background(colors.raised)
         .windowInsetsPadding(WindowInsets.navigationBars)
-        .padding(vertical = 4.dp)
+        .padding(vertical = if (compact) 1.dp else 4.dp)
 
     // Past six the labels stop being readable on a narrow phone, so the bar takes its natural
     // width and scrolls rather than squeezing every entry thinner. HScroll and not a bare
@@ -1078,22 +1099,36 @@ private fun NavItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     badge: Int = 0,
+    /**
+     * Drop the caption and tighten the box. The label becomes the icon's
+     * `contentDescription` rather than disappearing, so the entry is still named to a screen
+     * reader - the caption is what gets dropped, not the name.
+     */
+    compact: Boolean = false,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clip(RoundedCornerShape(9.dp)).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 4.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(9.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = if (compact) 7.dp else 4.dp),
     ) {
         Box {
-            Icon(icon, null, tint = colors.fg2, modifier = Modifier.size(19.dp))
+            Icon(
+                icon,
+                if (compact) label else null,
+                tint = colors.fg2,
+                modifier = Modifier.size(19.dp),
+            )
             if (badge > 0) {
                 Box(
                     Modifier.align(Alignment.TopEnd).size(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.accent)
                 )
             }
         }
-        Text(label, fontSize = 9.5.sp, color = colors.fg3)
+        if (!compact) Text(label, fontSize = 9.5.sp, color = colors.fg3)
     }
 }
 
@@ -1106,7 +1141,7 @@ private fun NavItem(
  * instead of by the width of a row, so it always fits and every action is readable at once.
  */
 @Composable
-private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
+private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly: String?) {
     val colors = Filet.colors
     val onBar = SelectionBarConfig.normalise(vm.prefs.selectionBar.collectAsState().value)
     var moreOpen by remember { mutableStateOf(false) }
@@ -1158,8 +1193,12 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
                 color = colors.accent,
+                // Never wraps. See the comment on the scrolling group below - a squeezed Text
+                // with no line limit breaks WITHIN the word, one glyph per line.
+                maxLines = 1,
+                softWrap = false,
             )
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
             // While picking, the thing that finishes the job sits with the other actions
             // rather than in a bar of its own, and it is the emphasised one because it is the
             // only reason this screen is open.
@@ -1181,36 +1220,92 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, readOnly: String?) {
             // actions and a menu puts the four anybody uses two taps away, so the split is the
             // answer and WHICH four is the setting.
             val (barActions, more) = SelectionBarConfig.split(actions, onBar)
-            for (action in barActions) {
-                FootButton(
-                    action.icon,
-                    action.label,
-                    if (action.danger) colors.bad else colors.fg2,
-                    blocked = action.blocked,
-                    onBlocked = vm::toast,
-                    onClick = action.run,
+            /**
+             * The actions SCROLL. They used to be inflexible children of a `fillMaxWidth` Row,
+             * and that is the whole of the reported fault.
+             *
+             * A Row with no room left does not stop laying out - it squeezes whatever cannot
+             * flex. The buttons shrank, then `More` was handed a box narrower than the word,
+             * and a `Text` with no line limit in a box that narrow breaks INSIDE the word:
+             * "Mor" on one line and "e" on the next. `Clear` was pushed off the edge entirely.
+             * Seen on a 320dp screen; it is a function of how many actions are on the bar, so
+             * a wider phone with more of them reaches the same place.
+             *
+             * `HScroll` is the house component for this and carries the edge cue that
+             * `check-scrollcue.mjs` requires, so the row says there is more of it.
+             */
+            dev.niccc2007.filet.ui.HScroll(
+                modifier = Modifier.weight(1f),
+                ground = colors.raised,
+                spacing = 6.dp,
+            ) {
+                for (action in barActions) {
+                    FootButton(
+                        action.icon,
+                        action.label,
+                        if (action.danger) colors.bad else colors.fg2,
+                        blocked = action.blocked,
+                        onBlocked = vm::toast,
+                        onClick = action.run,
+                    )
+                }
+            }
+            // More and Clear stay OUTSIDE the scroller, pinned.
+            //
+            // They are the two that must never be unreachable: one opens everything the bar
+            // could not hold, and the other is how you get out. Putting them in the scroll
+            // area would mean the escape hatch is the thing that scrolls away.
+            // Select all, pinned on the right with Clear rather than mixed into the actions.
+            //
+            // Asked for directly: having picked one file you often want the lot, and the only
+            // way to say so was the toolbar overflow - a menu that is not where you are
+            // looking, in a bar that exists because a selection is running.
+            //
+            // It belongs with Clear, not with Copy and Delete. Those act on the selection;
+            // these two CHANGE it, and together they are the pair - take everything, take
+            // nothing. So the left of the bar says how many, and the right changes how many.
+            //
+            // Gone once everything is already in, because then it does nothing and Clear is
+            // the only move left. A control that is present and inert teaches people to stop
+            // reading the bar.
+            if (count < total) {
+                Text(
+                    "All",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.fg2,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(7.dp))
+                        .clickable { vm.focusedPane()?.selectAll() }
+                        .padding(horizontal = 9.dp, vertical = 6.dp),
                 )
             }
             if (more.isNotEmpty()) {
                 Text(
                     "More",
-                    fontSize = 12.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.Medium,
                     color = colors.fg2,
+                    maxLines = 1,
+                    softWrap = false,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { moreOpen = true }
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                 )
             }
             Text(
                 "Clear",
                 fontSize = 11.5.sp,
                 color = colors.fg2,
+                maxLines = 1,
+                softWrap = false,
                 modifier = Modifier
                     .clip(RoundedCornerShape(7.dp))
                     .clickable { vm.focusedPane()?.clearSelection() }
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                    .padding(horizontal = 9.dp, vertical = 6.dp),
             )
         }
     }
@@ -1270,24 +1365,30 @@ private fun FootButton(
     val colors = Filet.colors
     val enabled = blocked == null
     val shown = if (enabled) tint else colors.fg3.copy(alpha = 0.38f)
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    // One row, not an icon stacked over a label.
+    //
+    // The stacked form was a 30dp circle, a gap and a 9sp caption, which made the selection
+    // bar about 56dp of chrome sitting on top of a bottom bar that is already there - two
+    // thick bands over the list at the moment you most want to see the list. Side by side the
+    // same button is 32dp and the label gets to be 11sp instead of 9sp, which is legible
+    // rather than merely present.
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (enabled) colors.high else Color.Transparent)
             .clickable { if (enabled) onClick() else onBlocked(blocked!!) }
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .padding(start = 9.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
     ) {
-        Box(
-            Modifier
-                .size(30.dp)
-                .clip(CircleShape)
-                .background(if (enabled) colors.high else Color.Transparent),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(icon, label, tint = shown, modifier = Modifier.size(17.dp))
-        }
-        Spacer(Modifier.height(3.dp))
-        Text(label, fontSize = 9.sp, color = shown, maxLines = 1)
+        Icon(icon, label, tint = shown, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(
+            label,
+            fontSize = 11.sp,
+            color = shown,
+            maxLines = 1,
+            softWrap = false,
+        )
     }
 }
 

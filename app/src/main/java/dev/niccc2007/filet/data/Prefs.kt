@@ -206,6 +206,13 @@ class Prefs(context: Context) {
     val selectionBar: StateFlow<String?> = _selectionBar.asStateFlow()
 
     /**
+     * What the bottom nav bar does while a selection is running. See [NavDuringSelection] -
+     * the default hides it, because two full-height bands over the list was the fault.
+     */
+    private val _navWhileSelecting = MutableStateFlow(sp.getString(K_NAV_SELECTING, null))
+    val navWhileSelecting: StateFlow<String?> = _navWhileSelecting.asStateFlow()
+
+    /**
      * Storage cards the user has hidden, by VPath.
      *
      * Per card, not the whole section - a correction. The first version hid the entire
@@ -318,6 +325,11 @@ class Prefs(context: Context) {
         sp.edit().putString(K_SELECTION_BAR, v).apply()
     }
 
+    fun setNavWhileSelecting(v: String) {
+        _navWhileSelecting.value = v
+        sp.edit().putString(K_NAV_SELECTING, v).apply()
+    }
+
     fun setNotesFraction(v: Float) { _notesFraction.value = v; sp.edit().putFloat(K_NOTES_FRACTION, v).apply() }
 
     /**
@@ -407,6 +419,7 @@ class Prefs(context: Context) {
         // list of action ids, and a stored MENU read as a list normalises to the default -
         // correct, but only by accident, and it leaves a value that means nothing behind.
         const val K_SELECTION_BAR = "browse.selectionBar"
+        const val K_NAV_SELECTING = "browse.navWhileSelecting"
         const val K_NOTES_FRACTION = "update.notesFraction"
         const val K_UPD_UNTIL = "update.silencedUntil"
         const val K_E_SUB = "entry.subtitle"

@@ -102,10 +102,21 @@ private fun BoxScope.Cue(visible: Boolean, ground: Color, atStart: Boolean) {
     if (alpha <= 0.01f) return
 
     val transparent = ground.copy(alpha = 0f)
-    val brush = Brush.horizontalGradient(
-        if (atStart) listOf(ground, ground.copy(alpha = 0.86f), transparent)
-        else listOf(transparent, ground.copy(alpha = 0.86f), ground)
-    )
+    // The gradient reaches FULL opacity before the chevron, not at the edge behind it.
+    //
+    // It used to be 86% under the arrow, which is fine over bare panel and wrong over anything
+    // lighter: the selection bar's action pills are drawn in `high`, so a pill slid under the
+    // cue stayed legible through it and the chevron landed on top of the word - "Mov->". A cue
+    // that collides with a label reads as a drawing bug, not as an affordance.
+    //
+    // So the 38dp splits into two jobs: the outer ~21dp dissolves the content, and the inner
+    // ~17dp is solid ground for the chevron to sit on.
+    val stops = if (atStart) {
+        arrayOf(0.00f to ground, 0.45f to ground, 1.00f to transparent)
+    } else {
+        arrayOf(0.00f to transparent, 0.55f to ground, 1.00f to ground)
+    }
+    val brush = Brush.horizontalGradient(*stops)
     // TWO boxes, and the outer one is the whole point.
     //
     // `matchParentSize` measures against the parent's RESOLVED size and contributes nothing to
@@ -127,7 +138,10 @@ private fun BoxScope.Cue(visible: Boolean, ground: Color, atStart: Boolean) {
                 .width(CUE_WIDTH)
                 .alpha(alpha)
                 .background(brush),
-            contentAlignment = Alignment.Center,
+            // Against the OUTER edge, which is the half of the band that is solid ground.
+            // Centred, the chevron straddled the fade and picked up whatever was sliding
+            // underneath it.
+            contentAlignment = if (atStart) Alignment.CenterStart else Alignment.CenterEnd,
         ) {
             // fg2, not fg3. The fault was that the cue was barely visible, and one drawn in the
             // same grey as disabled text is a cue somebody has to look for.
@@ -135,7 +149,9 @@ private fun BoxScope.Cue(visible: Boolean, ground: Color, atStart: Boolean) {
                 imageVector = if (atStart) FiletIcons.Back else FiletIcons.Forward,
                 contentDescription = if (atStart) "More to the left" else "More to the right",
                 tint = Filet.colors.fg2,
-                modifier = Modifier.size(17.dp).padding(start = if (atStart) 0.dp else 5.dp),
+                modifier = Modifier
+                    .padding(start = if (atStart) 4.dp else 0.dp, end = if (atStart) 0.dp else 4.dp)
+                    .size(17.dp),
             )
         }
     }

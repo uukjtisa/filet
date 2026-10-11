@@ -288,8 +288,24 @@ class HomeFeed(
     /** Each tracked folder's own mtime: an upper bound on when anything arrived inside it. */
     private var folderMtimes: Map<VPath, Long> = emptyMap()
 
-    /** Tracked folders this pass has not read yet. Only these can still displace a row. */
-    private var unreadFolders: MutableSet<VPath> = mutableSetOf()
+    /**
+     * Tracked folders this pass has not read yet. Only these can still displace a row.
+     *
+     * A CONCURRENT set, and that is the whole of a crash report: tapping Home while a
+     * selection was running threw `ConcurrentModificationException` out of
+     * `LinkedHashMap$LinkedKeyIterator.next`. This was `mutableSetOf()`, which is a
+     * LinkedHashSet, and the refresh pass runs its folders in parallel - each coroutine
+     * removes its own folder from this set and then calls `publish`, which iterates it. One
+     * worker removing while another iterates is the exception, and it needs two folders
+     * finishing close enough together to interleave, which is why it only showed up on a
+     * busy pass rather than every time.
+     *
+     * `newKeySet` iterates weakly-consistently instead of throwing. A publish that sees a
+     * folder a microsecond after it was read is harmless - it makes the partial-publish test
+     * slightly more conservative for one frame, and the COMPLETE publish at the end of the
+     * pass is the authoritative one.
+     */
+    private var unreadFolders: MutableSet<VPath> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     /** The last time a change arrived, and the first one of the current burst. */
     private var burstStartedAt = 0L
@@ -415,7 +431,8 @@ class HomeFeed(
             // MAX_VALUE for a folder that cannot be statted, deliberately: an unknown bound must
             // never read as "older than everything", which would let a partial claim to be final
             // on the strength of a folder it knows nothing about.
-            unreadFolders = folders.map { it.path }.toMutableSet()
+            unreadFolders = java.util.concurrent.ConcurrentHashMap.newKeySet<VPath>()
+                .apply { addAll(folders.map { it.path }) }
 
             coroutineScope {
                 for (batch in folders.chunked(FEED_PARALLELISM)) {

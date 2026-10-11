@@ -108,6 +108,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val verboseLogs by prefs.verboseLogs.collectAsState()
     val updatesOn by vm.updateNotificationsOn.collectAsState()
     val selectionBar by prefs.selectionBar.collectAsState()
+    val navWhileSelecting by prefs.navWhileSelecting.collectAsState()
     val drag by prefs.drag.collectAsState()
     val hideTermux by prefs.hideTermux.collectAsState()
     val tabSize by prefs.tabSize.collectAsState()
@@ -246,6 +247,29 @@ fun SettingsPage(vm: BrowserViewModel) {
                 "${bar.size} of ${dev.niccc2007.filet.browser.SelectionBarConfig.MAX_ON_BAR} " +
                     "on the bar. Everything else is behind More.",
             )
+        }
+        item {
+            // Above the list of which actions go on the bar, not below it. That list is long
+            // enough to bury anything after it, and this is a question about the same moment.
+            val mode = dev.niccc2007.filet.browser.NavDuringSelection.of(navWhileSelecting)
+            Column {
+                SegmentRow(
+                    "The nav bar while selecting",
+                    dev.niccc2007.filet.browser.NavDuringSelection.entries.map { it.label },
+                    dev.niccc2007.filet.browser.NavDuringSelection.entries.indexOf(mode),
+                ) {
+                    prefs.setNavWhileSelecting(
+                        dev.niccc2007.filet.browser.NavDuringSelection.entries[it].id,
+                    )
+                }
+                Text(
+                    dev.niccc2007.filet.browser.NavDuringSelection.summary(mode),
+                    fontSize = 10.5.sp,
+                    color = Filet.colors.fg3,
+                    lineHeight = 14.sp,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
+                )
+            }
         }
         items(dev.niccc2007.filet.browser.SelectionBarConfig.CHOOSABLE.size) { i ->
             val (id, label) = dev.niccc2007.filet.browser.SelectionBarConfig.CHOOSABLE[i]
