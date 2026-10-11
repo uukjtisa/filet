@@ -15,9 +15,24 @@
  *
  * Prints "HOME NAMES OK" only after every assertion passes.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 
 const SRC = "app/src/main/java/dev/niccc2007/filet/home/HomeSections.kt";
+
+/**
+ * The NAVIGATION label for the opened-files pane, which is a second place the same confusion
+ * lives.
+ *
+ * The home headings were fixed once and the nav entry was not, so the app still had a
+ * destination called plainly "Recent" that showed only files opened IN Filet. A report arrived
+ * saying recently-added files could not be found anywhere - from somebody who had looked under
+ * "Recent", found the wrong thing, and reasonably concluded the feature was missing. The bare
+ * word belongs to neither meaning, so it is refused here as well.
+ */
+const NAV = [
+  "app/src/main/java/dev/niccc2007/filet/browser/SpecialPanes.kt",
+  "app/src/main/java/dev/niccc2007/filet/browser/BottomBarConfig.kt",
+];
 
 /** Bare labels that say nothing about why a file is in the list. */
 const AMBIGUOUS = ["recent", "recents", "files", "new files", "new", "history", "latest"];
@@ -29,6 +44,18 @@ const OPENED_WORDS = ["open", "viewed", "visited", "used"];
 function labels(src) {
   const out = {};
   for (const m of src.matchAll(/const val (ARRIVED|OPENED)\s*=\s*"([^"]+)"/g)) out[m[1]] = m[2];
+  return out;
+}
+
+function navProblems(sources) {
+  const out = [];
+  for (const [file, text] of Object.entries(sources)) {
+    // The bare word, as a user-facing string. `PaneKind.RECENT` and the stored key "recent"
+    // are identifiers and stay - renaming those would migrate nobody's bottom bar for free.
+    if (/"Recent"/.test(text)) {
+      out.push(`${file} still labels a destination "Recent"; the word claims both meanings`);
+    }
+  }
   return out;
 }
 
@@ -77,11 +104,17 @@ if (process.argv.includes("--selftest")) {
   process.exit(0);
 }
 
-const found = problems(readFileSync(SRC, "utf8"));
+const navSources = Object.fromEntries(
+  NAV.filter((f) => existsSync(f)).map((f) => [f, readFileSync(f, "utf8")]),
+);
+const found = problems(readFileSync(SRC, "utf8")).concat(navProblems(navSources));
 if (found.length) {
-  console.error("The home feed headings cannot be told apart:\n");
+  console.error("The names for arrived-files and opened-files cannot be told apart:\n");
   for (const p of found) console.error("  " + p);
   process.exit(1);
 }
 const { ARRIVED, OPENED } = labels(readFileSync(SRC, "utf8"));
-console.log(`HOME NAMES OK  ("${ARRIVED}" and "${OPENED}", each naming its own cause)`);
+console.log(
+  `HOME NAMES OK  ("${ARRIVED}" and "${OPENED}", each naming its own cause; ` +
+  `${Object.keys(navSources).length} nav source(s) free of the bare word)`,
+);

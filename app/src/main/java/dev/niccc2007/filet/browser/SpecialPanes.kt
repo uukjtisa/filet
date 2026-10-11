@@ -49,7 +49,7 @@ object SpecialPanes {
      * completeness.
      */
     val DESTINATIONS: List<Destination> = listOf(
-        Destination(PaneKind.RECENT, "Recent", FiletIcons.Clock),
+        Destination(PaneKind.RECENT, "Opened", FiletIcons.Clock),
         Destination(PaneKind.BOOKMARKS, "Bookmarks", FiletIcons.Star),
         Destination(PaneKind.NEARBY, "Nearby", FiletIcons.Wifi),
         Destination(PaneKind.REMOTES, "Remotes", FiletIcons.Device),

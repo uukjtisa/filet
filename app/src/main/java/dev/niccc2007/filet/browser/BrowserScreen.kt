@@ -931,7 +931,7 @@ private fun Rail(vm: BrowserViewModel, app: AppState) {
         }
 
         if (recent.isNotEmpty()) {
-            SectionLabel("Recent")
+            SectionLabel("Opened")
             recent.forEach { r ->
                 RailItem(FiletIcons.Clock, r.label, current = here == r.path) {
                     vm.focusedPane()?.navigateTo(r.path)
@@ -1063,7 +1063,7 @@ private fun runBarItem(item: BarItem, vm: BrowserViewModel, active: PaneControll
         BarItem.ACTIVITY -> vm.openActivity(true)
         BarItem.BOOKMARKS -> active?.openSpecial(PaneKind.BOOKMARKS, "Bookmarks")
         BarItem.HOME -> active?.openHome()
-        BarItem.RECENT -> active?.openSpecial(PaneKind.RECENT, "Recent")
+        BarItem.RECENT -> active?.openSpecial(PaneKind.RECENT, "Opened")
         BarItem.SHARING -> active?.openSpecial(PaneKind.NEARBY, "Share")
         BarItem.SCRIPTS -> active?.openSpecial(PaneKind.SCRIPTS, "Scripts")
         BarItem.SHORTCUTS -> active?.openSpecial(PaneKind.SHORTCUTS, "Shortcuts")

@@ -49,7 +49,7 @@ enum class AppAction(val label: String, val description: String) {
     STOP_SHARING("Stop sharing", "Turn the LAN share off without opening the tab"),
     SEARCH("Search", "Open Filet with the search box focused"),
     BOOKMARKS("Bookmarks", "Open the starred list"),
-    RECENT("Recent", "Open the recent files list"),
+    RECENT("Opened", "Files you opened in Filet"),
     ;
 
     companion object {

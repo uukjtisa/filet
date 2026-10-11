@@ -4054,7 +4054,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             dev.niccc2007.filet.shortcuts.AppAction.BOOKMARKS ->
                 pane.openSpecial(PaneKind.BOOKMARKS, "Bookmarks")
             dev.niccc2007.filet.shortcuts.AppAction.RECENT ->
-                pane.openSpecial(PaneKind.RECENT, "Recent")
+                pane.openSpecial(PaneKind.RECENT, "Opened")
             null -> toast("That shortcut points at something Filet no longer has.")
         }
     }

@@ -20,7 +20,7 @@ enum class BarItem(val id: String, val label: String) {
     ACTIVITY("activity", "Activity"),
     BOOKMARKS("bookmarks", "Bookmarks"),
     HOME("home", "Home"),
-    RECENT("recent", "Recent"),
+    RECENT("recent", "Opened"),
     SHARING("sharing", "Share"),
     SCRIPTS("scripts", "Scripts"),
     SHORTCUTS("shortcuts", "Shortcuts"),

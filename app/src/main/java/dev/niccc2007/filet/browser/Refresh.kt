@@ -89,7 +89,7 @@ fun refreshPlan(kind: PaneKind): RefreshPlan = when (kind) {
     // to re-enter that read rather than to invalidate anything.
     PaneKind.APPS -> RefreshPlan(setOf(RefreshTarget.INSTALLED_APPS), "Apps")
     PaneKind.BOOKMARKS -> RefreshPlan(setOf(RefreshTarget.BOOKMARKS), "Bookmarks")
-    PaneKind.RECENT -> RefreshPlan(setOf(RefreshTarget.RECENTS), "Recent")
+    PaneKind.RECENT -> RefreshPlan(setOf(RefreshTarget.RECENTS), "Opened")
 
     // The expanded new-files history is the same feed the home card shows, so refreshing it
     // re-runs the same pass rather than a second one of its own.
