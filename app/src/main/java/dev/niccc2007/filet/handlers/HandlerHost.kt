@@ -232,15 +232,34 @@ fun ViewerBar(
 }
 
 @Composable
-fun ViewerAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean = true, onClick: () -> Unit) {
+fun ViewerAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    enabled: Boolean = true,
+    /**
+     * A MODE that is currently on, drawn lit on a tinted ground.
+     *
+     * A viewer bar holds two kinds of thing: actions, which happen and are over, and modes,
+     * which are either on or off right now. An action never needs a state and a mode is
+     * useless without one - a switch you have to toggle to find out where it was is not a
+     * switch, it is a guess.
+     */
+    active: Boolean = false,
+    onClick: () -> Unit,
+) {
     val colors = Filet.colors
     Icon(
         icon, label,
         // Brighter than the old fg2: these sit over a photograph now, not over a panel.
-        tint = if (enabled) MaterialTheme.colorScheme.onSurface else colors.fg3.copy(alpha = 0.4f),
+        tint = when {
+            !enabled -> colors.fg3.copy(alpha = 0.4f)
+            active -> colors.accent
+            else -> MaterialTheme.colorScheme.onSurface
+        },
         modifier = Modifier
             .size(34.dp)
             .clip(RoundedCornerShape(10.dp))
+            .background(if (active) colors.accent.copy(alpha = 0.16f) else Color.Transparent)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(7.dp),
     )

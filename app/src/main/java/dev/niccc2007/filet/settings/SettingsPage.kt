@@ -111,6 +111,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val navWhileSelecting by prefs.navWhileSelecting.collectAsState()
     val uninterrupted by prefs.uninterrupted.collectAsState()
     val videoKeepsPlaying by prefs.videoKeepsPlaying.collectAsState()
+    val playerFace by prefs.playerFace.collectAsState()
     val drag by prefs.drag.collectAsState()
     val hideTermux by prefs.hideTermux.collectAsState()
     val tabSize by prefs.tabSize.collectAsState()
@@ -318,11 +319,33 @@ fun SettingsPage(vm: BrowserViewModel) {
         // which can run to a dozen rows, and "where is that?" was the result.
         defaultOpenersSection(vm) { pickingOpenerFor = it }
 
+        // ── the built-in viewers, each with its own look and behaviour ──
+        //
+        // One home for them. The playback switches were under a heading of their own and the
+        // player's appearance had nowhere to live at all, so a question like "how does Filet
+        // open this kind of file" was answered in two places and a third that did not exist.
         item {
             SettingsSection(
-                "Playing media",
-                "How the player behaves against the rest of the phone.",
+                "Filet's own viewers",
+                "How the built-in music player, video player and viewers look and behave.",
             )
+        }
+        item {
+            val face = dev.niccc2007.filet.playback.PlayerFace.of(playerFace)
+            Column {
+                SegmentRow(
+                    "Music player",
+                    dev.niccc2007.filet.playback.PlayerFace.entries.map { it.label },
+                    dev.niccc2007.filet.playback.PlayerFace.entries.indexOf(face),
+                ) { prefs.setPlayerFace(dev.niccc2007.filet.playback.PlayerFace.entries[it].id) }
+                Text(
+                    face.about,
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                    color = Filet.colors.fg3,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
+                )
+            }
         }
         item {
             ToggleRow(

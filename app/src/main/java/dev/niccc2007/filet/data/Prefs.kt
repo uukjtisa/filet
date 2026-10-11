@@ -296,6 +296,15 @@ class Prefs(context: Context) {
         sp.edit().putBoolean(K_UNINTERRUPTED, on).apply()
     }
 
+    /** Which face the full music player draws. See `PlayerFace`. */
+    private val _playerFace = MutableStateFlow(sp.getString(K_PLAYER_FACE, null))
+    val playerFace: StateFlow<String?> = _playerFace.asStateFlow()
+
+    fun setPlayerFace(v: String) {
+        _playerFace.value = v
+        sp.edit().putString(K_PLAYER_FACE, v).apply()
+    }
+
     fun setSort(s: SortSpec) {
         _sort.value = s
         sp.edit().putString(K_SORT, s.key.name).putBoolean(K_SORT_DESC, s.descending)
@@ -487,6 +496,7 @@ class Prefs(context: Context) {
         const val K_UPD_OFF = "update.notificationsOff"
         const val K_VIDEO_BG = "video.keepsPlaying"
         const val K_UNINTERRUPTED = "play.uninterrupted"
+        const val K_PLAYER_FACE = "play.face"
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
 }

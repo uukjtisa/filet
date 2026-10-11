@@ -172,20 +172,39 @@ fun TransportButton(
     enabled: Boolean = true,
     active: Boolean = false,
     size: androidx.compose.ui.unit.Dp = 44.dp,
+    /**
+     * The colour for the filled and active states, when the caller has one to offer.
+     *
+     * The music player hands it the colour it took off the artwork, so the play button
+     * belongs to the track rather than to the theme. Null keeps the theme accent, which is
+     * what every other transport in the app wants and what the player falls back to when
+     * the artwork has no colour worth taking.
+     */
+    fill: Color? = null,
+    onFill: Color? = null,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
+    val ground = fill ?: colors.accent
     val tint = when {
         !enabled -> colors.fg3.copy(alpha = 0.35f)
-        filled -> androidx.compose.material3.MaterialTheme.colorScheme.onPrimary
-        active -> colors.accent
+        filled -> onFill ?: androidx.compose.material3.MaterialTheme.colorScheme.onPrimary
+        active -> ground
         else -> androidx.compose.material3.MaterialTheme.colorScheme.onSurface
     }
     Box(
         modifier
             .size(size)
             .clip(CircleShape)
-            .background(if (filled) colors.accent else Color.Transparent)
+            .background(
+                when {
+                    filled -> ground
+                    // A lit mode gets a wash of its own colour rather than only a tint, so
+                    // shuffle and repeat read as on at a glance instead of on inspection.
+                    active -> ground.copy(alpha = 0.15f)
+                    else -> Color.Transparent
+                },
+            )
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

@@ -1,6 +1,12 @@
 package dev.niccc2007.filet.handlers
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
+import dev.niccc2007.filet.playback.marqueeFade
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -103,13 +109,57 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     // Only collected for a video, but a composable cannot be conditional about that; the flow
     // is null the rest of the time and the peek is not drawn, so it costs nothing.
     val source by playback.source.collectAsStateWithLifecycle()
+    val face = dev.niccc2007.filet.playback.PlayerFace.of(
+        vm.prefs.playerFace.collectAsStateWithLifecycle().value,
+    )
+    val uninterrupted by vm.prefs.uninterrupted.collectAsStateWithLifecycle()
+    val classic = face == dev.niccc2007.filet.playback.PlayerFace.CLASSIC
 
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    /**
+     * The colour borrowed from the artwork, and the one to draw on top of it.
+     *
+     * The theme accent whenever the artwork has no colour worth taking - see `ArtPalette`
+     * for why a sampled colour has a contrast floor forced onto it before it gets here.
+     * Classic keeps the theme accent on purpose: a face whose whole point is that it does
+     * not react to the artwork should not have reacting controls.
+     */
+    val (tint, onTint) = dev.niccc2007.filet.playback.rememberArtPalette(
+        art = if (classic) null else art,
+        fallback = colors.accent,
+        onFallback = MaterialTheme.colorScheme.onPrimary,
+    )
+
+    /** How much of the title does not fit, measured, so the marquee travels the right way. */
+    var titleOverflow by remember(track?.id) { mutableStateOf(0f) }
+    val marquee = dev.niccc2007.filet.playback.rememberMarquee(titleOverflow)
+
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        // The light, under everything. Absent on Classic, which is what makes it classic.
+        if (!classic) {
+            dev.niccc2007.filet.playback.AmbientBackdrop(art)
+            dev.niccc2007.filet.playback.AmbientVeil(MaterialTheme.colorScheme.background)
+        }
+        Column(Modifier.fillMaxSize()) {
         ViewerBar(
             title = track?.title ?: node.name,
-            subtitle = if (state.canStep) "${state.position} of ${state.size}" else "",
+            subtitle = listOfNotNull(
+                "Uninterrupted".takeIf { uninterrupted },
+                "${state.position} of ${state.size}".takeIf { state.canStep },
+            ).joinToString("  ·  "),
             onClose = { vm.closeHandler() },
         ) {
+            // Uninterrupted lives in the BAR, not in a row of chips with speed and a
+            // sleep timer. It is a mode, and a mode belongs in the chrome where its state
+            // can be read without anything being opened - and it is not trivia: it is the
+            // switch that decides whether a phone call can take the sound away.
+            //
+            // The same preference Settings and the video player write, so turning it on
+            // here is on there.
+            ViewerAction(
+                FiletIcons.Shield,
+                if (uninterrupted) "Uninterrupted - nothing will pause this" else "Uninterrupted playback",
+                active = uninterrupted,
+            ) { vm.prefs.setUninterrupted(!uninterrupted) }
             ViewerAction(FiletIcons.Rows, "Queue", enabled = state.canStep) {
                 showQueue = !showQueue
             }
@@ -156,12 +206,33 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
                 }
             }
 
+            // Shrinks when paused, and the shadow goes with it.
+            //
+            // The only feedback a player screen can give about its own state without words:
+            // playing is bigger. It is also why the shadow is animated rather than fixed -
+            // a card that changes size under a constant shadow reads as a scaling bitmap
+            // rather than as an object lifting.
+            val lift by animateFloatAsState(
+                if (state.playing) 1f else 0.9f,
+                animationSpec = tween(380),
+                label = "art lift",
+            )
             Box(
                 Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false)
                     .aspectRatio(1f)
-                    .clip(RoundedCornerShape(14.dp))
+                    .then(
+                        if (classic) Modifier
+                        else Modifier
+                            .graphicsLayer { scaleX = lift; scaleY = lift }
+                            .shadow(
+                                elevation = (34 * lift * lift).dp,
+                                shape = RoundedCornerShape(20.dp),
+                                clip = false,
+                            ),
+                    )
+                    .clip(RoundedCornerShape(if (classic) 14.dp else 20.dp))
                     .background(colors.raised),
                 contentAlignment = Alignment.Center,
             ) {
@@ -209,15 +280,49 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
 
             Spacer(Modifier.height(22.dp))
 
-            Text(
-                track?.title ?: node.name,
-                fontSize = 19.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                textAlign = TextAlign.Center,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+            // A filename is not a song title: it is long, it has no spaces and it cannot
+            // wrap, so ellipsis always lost the end of it - which on a name like
+            // "VID_20261009_120104" is the only part that differs from its neighbours.
+            //
+            // So it scrolls, out and back, with a hold at each end: a marquee that turns
+            // round the instant it arrives is unreadable at exactly the moment the end is
+            // finally visible. Measured rather than guessed, and still rather than moving
+            // whenever the name fits.
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clipToBounds()
+                    .then(
+                        if (classic) Modifier else Modifier.marqueeFade(titleOverflow > 2f),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    track?.title ?: node.name,
+                    fontSize = if (classic) 19.sp else 21.sp,
+                    fontWeight = if (classic) FontWeight.SemiBold else FontWeight.Bold,
+                    letterSpacing = if (classic) 0.sp else (-0.4).sp,
+                    maxLines = if (classic) 2 else 1,
+                    softWrap = classic,
+                    textAlign = TextAlign.Center,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.graphicsLayer {
+                        translationX = if (classic) 0f else marquee
+                    },
+                    onTextLayout = { layout ->
+                        // The only number the marquee needs, and it depends on the font, the
+                        // width and the name - so it is read off the laid-out text rather
+                        // than estimated from a character count.
+                        if (!classic) {
+                            titleOverflow = maxOf(
+                                0f,
+                                layout.multiParagraph.maxIntrinsicWidth - layout.size.width,
+                            )
+                        }
+                    },
+                )
+            }
             Spacer(Modifier.height(4.dp))
             Text(
                 listOfNotNull(track?.artist, track?.album).joinToString("  ·  ").ifEmpty {
@@ -269,6 +374,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
                 TransportButton(
                     FiletIcons.Shuffle, "Shuffle", size = 38.dp,
                     active = state.shuffle, enabled = state.size > 2,
+                    fill = tint, onFill = onTint,
                 ) { playback.setShuffle(!state.shuffle) }
 
                 // Restart-then-jump is the player's rule, not the screen's. It used to be a
@@ -282,6 +388,10 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
                     filled = true,
                     size = 64.dp,
                     enabled = track != null,
+                    // See ArtPalette: borrowed from the artwork, with a contrast floor
+                    // forced onto it, so a dark track cannot produce an invisible button.
+                    fill = tint,
+                    onFill = onTint,
                 ) { playback.toggle() }
 
                 TransportButton(FiletIcons.Next, "Next", size = 46.dp) { playback.next() }
@@ -295,6 +405,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
                     },
                     size = 38.dp,
                     active = state.repeat != Repeat.OFF,
+                    fill = tint, onFill = onTint,
                 ) {
                     // The cycle lives on the player, because the notification's repeat
                     // button runs the same one. Two copies of off-all-one-off is two places
@@ -303,7 +414,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
                 }
             }
             if (state.repeat == Repeat.ONE) {
-                Text("Repeating this track", fontSize = 9.5.sp, color = colors.accent)
+                Text("Repeating this track", fontSize = 9.5.sp, color = tint)
             }
             Spacer(Modifier.height(14.dp))
         }
@@ -314,6 +425,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
                 index = state.index,
                 onPick = { i -> playback.play(state.queue, i) },
             )
+        }
         }
     }
 }
