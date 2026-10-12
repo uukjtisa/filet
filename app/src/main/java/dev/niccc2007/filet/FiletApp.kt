@@ -72,6 +72,8 @@ class FiletGraph(context: Context) {
     val files = dev.niccc2007.filet.data.AppFiles(app)
     val bookmarks = Bookmarks(prefs)
     val playlists = dev.niccc2007.filet.playback.Playlists(prefs)
+    /** Tags for list rows. Lazy: a phone that never opens a playlist never builds it. */
+    val trackCards by lazy { dev.niccc2007.filet.playback.TrackCards(app, vfs) }
     val recents = Recents(prefs)
     val tracked = TrackedFolders(prefs, scope)
     val ledger = JobLedger()

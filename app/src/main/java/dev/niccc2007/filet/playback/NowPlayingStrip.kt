@@ -96,6 +96,8 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
         onFallback = MaterialTheme.colorScheme.onPrimary,
     )
 
+    val glow by vm.prefs.livingGlow.collectAsStateWithLifecycle()
+
     Column(
         Modifier
             .fillMaxWidth()
@@ -108,6 +110,15 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
                     0.65f to tint.copy(alpha = 0.04f),
                     1f to Color.Transparent,
                 ),
+            )
+            // And the same drifting lights the full player has, over that wash, so the strip
+            // is the player it minimises into rather than a different widget. Weaker here:
+            // this is a 56dp band under a file list, and the lights are nearly the whole
+            // surface of it. See `LivingGlow`.
+            .livingGlow(
+                base = tint,
+                running = glow && state.playing,
+                strength = GLOW_OVER_STRIP,
             ),
     ) {
         HorizontalDivider(color = colors.lineSoft)

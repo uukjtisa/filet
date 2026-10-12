@@ -98,6 +98,50 @@ class ArtPaletteTest {
         assertEquals(best, deep.onColour)
     }
 
+    // ── the living glow's share of this: a card colour that drifts between posts ──
+
+    @Test
+    fun `drift swings the hue either side and returns through the middle`() {
+        val ground = ArtPalette.ground(ArtPalette.of(grid(0x2F6FD0)))
+        val middle = hueOf(ArtPalette.drift(ground, 0.0))
+        val out = hueOf(ArtPalette.drift(ground, 0.25))
+        val back = hueOf(ArtPalette.drift(ground, 0.75))
+        // A quarter in is one end of the swing, three quarters is the other, and half way
+        // round is back through the middle - which is what makes it weather rather than a
+        // jump at the loop point.
+        assertTrue("the hue never moved", out != middle)
+        assertEquals(middle, hueOf(ArtPalette.drift(ground, 0.5)), 1.0)
+        assertTrue("the swing only went one way", (out - middle) * (back - middle) < 0)
+    }
+
+    @Test
+    fun `drift keeps a grey grey`() {
+        // There is no hue to rotate in a colour with no saturation, so the only thing that
+        // can move is the lightness - and it must not tint on the way.
+        val grey = ArtPalette.drift(0x404040, 0.3)
+        val r = grey shr 16 and 0xFF
+        assertEquals(r, grey shr 8 and 0xFF)
+        assertEquals(r, grey and 0xFF)
+    }
+
+    @Test
+    fun `drift stays dark enough for white text on every hue`() {
+        // The whole reason the swing is bounded: the platform picks the text colour from how
+        // dark the card is, and a card whose text flipped mid-track would be the bug.
+        for (hue in 0 until 360 step 15) {
+            val base = ArtPalette.ground(
+                ArtPalette.of(grid(java.awt.Color.getHSBColor(hue / 360f, 0.8f, 0.7f).rgb and 0xFFFFFF)),
+            )
+            for (step in 0 until 16) {
+                val rgb = ArtPalette.drift(base, step / 16.0)
+                assertTrue(
+                    "hue $hue step $step came out too light",
+                    ArtPalette.luminance(rgb) < 0.5,
+                )
+            }
+        }
+    }
+
     @Test
     fun `saturation is clamped so a control never looks like a warning`() {
         val screaming = ArtPalette.of(grid(0xFF0000))

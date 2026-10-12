@@ -141,6 +141,39 @@ object ArtPalette {
      */
     const val GROUND_L = 0.19
 
+    /**
+     * The same colour, a little further round the wheel.
+     *
+     * The living glow on screen is three lights drifting over each other, which a
+     * notification cannot do - the shade draws a flat card from one colour. So the card's
+     * colour itself is what moves: the hue swings [DRIFT_DEG] either side of the sampled one
+     * and the lightness breathes, and the service re-posts the card every few seconds at the
+     * next phase. Slow enough that nobody watching sees it change, obvious enough that a
+     * glance five minutes apart is a different colour.
+     *
+     * The lightness swing is on a different period from the hue - an irrational ratio, so the
+     * two never arrive together. Both at once reads as a pulse, which is a notification
+     * demanding attention rather than a colour that is alive.
+     *
+     * Bounded on purpose. [GROUND_L] is dark enough that the platform picks white text over
+     * every hue, and a drift that could lift it past 0.5 would flip the text colour mid-track.
+     *
+     * @param phase 0 to 1 is one full out-and-back.
+     */
+    fun drift(rgb: Int, phase: Double): Int {
+        val (h, s, l) = hsl(rgb shr 16 and 0xFF, rgb shr 8 and 0xFF, rgb and 0xFF)
+        val t = phase * 2.0 * Math.PI
+        val hue = ((h + DRIFT_DEG * sin(t)) % 360.0 + 360.0) % 360.0
+        val light = (l * (1.0 + DRIFT_L * sin(t * 1.618))).coerceIn(0.06, 0.44)
+        return fromHsl(hue, s, light)
+    }
+
+    /** How far the drifting card's hue travels either side of the artwork's own. */
+    const val DRIFT_DEG = 16.0
+
+    /** How far its lightness breathes, as a fraction of itself. */
+    const val DRIFT_L = 0.12
+
     fun panel(): Int = (PANEL_R shl 16) or (PANEL_G shl 8) or PANEL_B
 
     /** WCAG relative luminance. */

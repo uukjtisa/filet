@@ -390,6 +390,16 @@ fun BoxScope.VideoBadge(onWatch: () -> Unit, inset: Dp = 10.dp) {
  * button.
  *
  * `.meta{padding:24px 28px 0}`, `.ttl{font-size:22px;font-weight:750;letter-spacing:-.5px}`.
+ *
+ * ## There is no Watch here any more
+ *
+ * There used to be, and it meant Ambient, Editorial and Aurora each carried TWO - a badge on
+ * the artwork and a chip beside the artist - which is what got reported. The badge is the one
+ * that stays: it is on the thing it acts on, so pressing the picture to get the picture moving
+ * is the obvious gesture, and it also marks the artwork as a still frame rather than a cover.
+ * [WatchChip] exists for Immersive alone, where the artwork is the whole screen and has no
+ * corner to put a badge in, and Classic keeps its own "playing as audio - Watch" line because
+ * that face explains itself in words. One per face, and this block does one job.
  */
 @Composable
 fun PlayerTitleBlock(
@@ -401,7 +411,6 @@ fun PlayerTitleBlock(
     bookmarked: Boolean,
     tint: Color,
     onHeart: () -> Unit,
-    onWatch: (() -> Unit)? = null,
 ) {
     val colors = Filet.colors
     Row(
@@ -436,19 +445,6 @@ fun PlayerTitleBlock(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                if (isVideo && onWatch != null) {
-                    Spacer(Modifier.width(9.dp))
-                    Text(
-                        "Watch",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = tint,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(7.dp))
-                            .clickable(onClick = onWatch)
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                    )
-                }
             }
         }
         // Bookmarks, not a second list of favourites. Filet already has one place that means

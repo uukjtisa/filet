@@ -71,7 +71,8 @@ object SpecialPanes {
     val OPENED_ELSEWHERE: Map<PaneKind, String> = mapOf(
         PaneKind.FOLDER to "the ordinary case; opened by navigating",
         PaneKind.HOME to "the home button, and the start pane",
-        PaneKind.HISTORY to "opened from the Home overview's New files heading",
+        PaneKind.HISTORY to
+            "the Home overview's New files heading, and a bottom-bar entry of its own",
         PaneKind.ACTIVITY to "pinned to the end of both surfaces, not a destination row",
         PaneKind.SETTINGS to "pinned to the end of both surfaces",
         PaneKind.ABOUT to "pinned to the end of both surfaces",

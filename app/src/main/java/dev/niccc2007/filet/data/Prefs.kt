@@ -296,6 +296,25 @@ class Prefs(context: Context) {
         sp.edit().putBoolean(K_UNINTERRUPTED, on).apply()
     }
 
+    /**
+     * Whether the background glow drifts while something is playing.
+     *
+     * On by default, and on every surface at once - the full player whichever face it is
+     * wearing, the minimised strip, and the notification card. Asked for in those terms:
+     * the glow behind the player should be alive rather than a still photograph.
+     *
+     * It is a switch rather than a per-face setting because it is one idea. It also stops
+     * when nothing is playing, and when the system says animations are off - see
+     * `LivingGlow`.
+     */
+    private val _livingGlow = MutableStateFlow(sp.getBoolean(K_GLOW, true))
+    val livingGlow: StateFlow<Boolean> = _livingGlow.asStateFlow()
+
+    fun setLivingGlow(on: Boolean) {
+        _livingGlow.value = on
+        sp.edit().putBoolean(K_GLOW, on).apply()
+    }
+
     /** Which face the full music player draws. See `PlayerFace`. */
     /**
      * Whether a slowed track keeps its pitch or drops with the speed.
@@ -512,6 +531,7 @@ class Prefs(context: Context) {
         const val K_UNINTERRUPTED = "play.uninterrupted"
         const val K_PITCH_MODE = "play.pitch"
         const val K_PLAYER_FACE = "play.face"
+        const val K_GLOW = "play.glow"
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
 }

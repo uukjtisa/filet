@@ -25,6 +25,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -61,7 +62,19 @@ class PlaybackService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var watch: Job? = null
+    private var drift: Job? = null
     private var session: MediaSession? = null
+
+    /**
+     * The last card's contents, so the drift can re-post it without the flows firing.
+     *
+     * The shade draws a flat card from one colour and cannot animate it, so the only way for
+     * the notification to take part in the living glow is for its colour to be different the
+     * next time it is posted. That needs the state and the artwork at a moment when nothing
+     * about the track has changed, which is exactly what a flow does not give you.
+     */
+    private var lastState: NowPlaying? = null
+    private var lastArt: android.graphics.Bitmap? = null
 
     /** Tap counting for a one-button wired remote. See [MediaButtons] for why it is needed. */
     private val tapHandler = Handler(Looper.getMainLooper())
@@ -122,10 +135,15 @@ class PlaybackService : Service() {
                         leave()
                         return@collectLatest
                     }
+                    lastState = state
+                    lastArt = art
                     runCatching { post(state, art) }
                     runCatching { publish(state, art) }
                 }
         }
+
+        drift?.cancel()
+        drift = scope.launch { driftColour() }
 
         // NOT sticky. A restart with a null intent would re-post a notification for a player
         // that no longer holds anything, and the queue does not survive the process anyway.
@@ -134,6 +152,7 @@ class PlaybackService : Service() {
 
     override fun onDestroy() {
         watch?.cancel()
+        drift?.cancel()
         scope.coroutineContext[Job]?.cancel()
         pendingTap?.let { tapHandler.removeCallbacks(it) }
         runCatching { session?.release() }
@@ -263,6 +282,32 @@ class PlaybackService : Service() {
 
     // ── the notification ──
 
+    /**
+     * The card's colour, moving.
+     *
+     * One re-post every [GLOW_TICK_MS] while something is playing and the switch is on. The
+     * notification is already built from scratch on every track change and already carries
+     * `setOnlyAlertOnce`, so a re-post is silent and costs one builder - but it is a wakeup
+     * every few seconds for a visual flourish, which is why the cadence is slow and why it
+     * stops dead the moment playback pauses.
+     *
+     * It also posts once more when the switch is turned OFF, so the card settles back onto
+     * the artwork's own colour instead of staying wherever the drift had left it.
+     */
+    private suspend fun driftColour() {
+        var wasOn = false
+        while (true) {
+            val prefs = runCatching { FiletApp.graphOf(applicationContext).prefs }.getOrNull()
+            val on = prefs?.livingGlow?.value == true
+            val playing = lastState?.playing == true
+            if ((on && playing) || (wasOn && !on)) {
+                runCatching { post(lastState, lastArt) }
+            }
+            wasOn = on && playing
+            delay(GLOW_TICK_MS)
+        }
+    }
+
     private fun post(state: NowPlaying?, art: android.graphics.Bitmap? = null) {
         val manager = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -351,7 +396,15 @@ class PlaybackService : Service() {
             // The GROUND, not the control colour. `ArtPalette.of` lightens until it clears
             // 4.5:1 against a dark panel, which is right for a 68dp play button and is a slab
             // of neon across a whole card - reported as "too bright". See ArtPalette.ground.
-            builder.setColor(0xFF000000.toInt() or ArtPalette.ground(tint))
+            val ground = ArtPalette.ground(tint)
+            // And the living glow's share of it: the hue a little further round the wheel on
+            // each re-post, from the clock rather than from a counter, so the phase is right
+            // whichever post this is. See ArtPalette.drift and driftColour.
+            val glowing = runCatching {
+                FiletApp.graphOf(applicationContext).prefs.livingGlow.value
+            }.getOrDefault(true) && state?.playing == true
+            val shade = if (glowing) ArtPalette.drift(ground, glowPhase()) else ground
+            builder.setColor(0xFF000000.toInt() or shade)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 // Only honoured on a foreground-service notification, and silently ignored
                 // otherwise - so this is not a promise, it is an ask the system may refuse.
@@ -396,6 +449,10 @@ class PlaybackService : Service() {
      * not as the verb - so "Repeat off" has to mean repeat is currently off, the opposite
      * convention to the rest of the buttons here, which say what they will do.
      */
+    /** Where in the drift the card is, from the clock. One full out-and-back per cycle. */
+    private fun glowPhase(): Double =
+        (SystemClock.elapsedRealtime() % GLOW_CYCLE_MS).toDouble() / GLOW_CYCLE_MS
+
     private fun repeatLabel(repeat: Repeat): String = when (repeat) {
         Repeat.OFF -> "Repeat off"
         Repeat.ALL -> "Repeating the queue"
@@ -424,6 +481,18 @@ class PlaybackService : Service() {
 
     companion object {
         private const val CHANNEL = "filet.playback"
+
+        /**
+         * How often the card is re-posted for the glow.
+         *
+         * Five seconds. A notification update is a wakeup, and the shade is not something
+         * anybody watches for seconds at a time - the point is that a glance five minutes
+         * later is a different colour, not that the change can be seen happening.
+         */
+        private const val GLOW_TICK_MS = 5_000L
+
+        /** One full out-and-back of the hue. Long, for the same reason. */
+        private const val GLOW_CYCLE_MS = 240_000L
 
         const val ACTION_TOGGLE = "dev.niccc2007.filet.playback.TOGGLE"
         const val ACTION_NEXT = "dev.niccc2007.filet.playback.NEXT"

@@ -110,6 +110,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
 
     val face = PlayerFace.of(vm.prefs.playerFace.collectAsStateWithLifecycle().value)
     val uninterrupted by vm.prefs.uninterrupted.collectAsStateWithLifecycle()
+    val glow by vm.prefs.livingGlow.collectAsStateWithLifecycle()
     val speed by playback.speed.collectAsStateWithLifecycle()
     val sleepAt by playback.sleepAt.collectAsStateWithLifecycle()
     val pitch = dev.niccc2007.filet.playback.PitchMode.of(
@@ -182,6 +183,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         tint = tint,
         onTint = onTint,
         uninterrupted = uninterrupted,
+        glow = glow,
         speed = speed,
         sleepLeft = sleepLeft,
         maxSpeed = maxSpeed,
@@ -206,6 +208,14 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     ImmersiveViewer(active = face.ambient, statusOnly = true)
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        if (face == PlayerFace.CLASSIC) {
+            dev.niccc2007.filet.playback.LivingGlow(
+                base = colors.accent,
+                running = glow && state.playing,
+                strength = dev.niccc2007.filet.playback.GLOW_OVER_ART,
+            )
+        }
+
         when (face) {
             PlayerFace.CLASSIC -> ClassicFace(ctx)
             PlayerFace.AMBIENT -> AmbientFace(ctx)
@@ -283,6 +293,7 @@ private class PlayerCtx(
     val tint: androidx.compose.ui.graphics.Color,
     val onTint: androidx.compose.ui.graphics.Color,
     val uninterrupted: Boolean,
+    val glow: Boolean,
     val speed: Float,
     val sleepLeft: Int,
     val maxSpeed: Float,
@@ -463,6 +474,13 @@ private fun ClassicFace(c: PlayerCtx) {
 @Composable
 private fun BoxScope.AmbientFace(c: PlayerCtx) {
     dev.niccc2007.filet.playback.AmbientBackdrop(c.art)
+    // Over the blurred artwork and under the veil: the lights have to be on top of the colour
+    // they are moving, and under the ground that the text sits on.
+    dev.niccc2007.filet.playback.LivingGlow(
+        base = c.tint,
+        running = c.glow && c.state.playing,
+        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART,
+    )
     dev.niccc2007.filet.playback.AmbientVeil(MaterialTheme.colorScheme.background)
     Column(Modifier.fillMaxSize()) {
         FaceTopBar(c)
@@ -496,7 +514,6 @@ private fun BoxScope.AmbientFace(c: PlayerCtx) {
                 bookmarked = c.bookmarked,
                 tint = c.tint,
                 onHeart = { c.vm.toggleFavourite(c.node.path) },
-                onWatch = c.onWatch,
             )
             FaceError(c)
             Spacer(Modifier.height(PlayerMetrics.SCRUB_TOP))
@@ -526,6 +543,13 @@ private fun BoxScope.AmbientFace(c: PlayerCtx) {
 private fun BoxScope.EditorialFace(c: PlayerCtx) {
     val colors = Filet.colors
     dev.niccc2007.filet.playback.AmbientBackdrop(c.art)
+    // Over the blurred artwork and under the veil: the lights have to be on top of the colour
+    // they are moving, and under the ground that the text sits on.
+    dev.niccc2007.filet.playback.LivingGlow(
+        base = c.tint,
+        running = c.glow && c.state.playing,
+        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART,
+    )
     dev.niccc2007.filet.playback.AmbientVeil(MaterialTheme.colorScheme.background)
     Column(Modifier.fillMaxSize()) {
         FaceTopBar(c)
@@ -566,7 +590,6 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
                     bookmarked = c.bookmarked,
                     tint = c.tint,
                     onHeart = { c.vm.toggleFavourite(c.node.path) },
-                    onWatch = c.onWatch,
                 )
             }
         }
@@ -608,6 +631,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
     dev.niccc2007.filet.playback.AuroraBackdrop(
         base = c.tint,
         ground = MaterialTheme.colorScheme.background,
+        running = c.glow && c.state.playing,
     )
     // The turn. A full revolution every 24 seconds - a 33rpm record is 1.8, which at this
     // size is a blur and makes the artwork unreadable. This is slow enough to look still
@@ -685,7 +709,6 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                 bookmarked = c.bookmarked,
                 tint = c.tint,
                 onHeart = { c.vm.toggleFavourite(c.node.path) },
-                onWatch = c.onWatch,
             )
             FaceError(c)
             Spacer(Modifier.height(PlayerMetrics.SCRUB_TOP))
@@ -719,6 +742,11 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
 private fun BoxScope.ImmersiveFace(c: PlayerCtx) {
     var chrome by remember { mutableStateOf(true) }
     ImmersiveBackdrop(c.art, c.isVideo, c.state.playing, c.source)
+    dev.niccc2007.filet.playback.LivingGlow(
+        base = c.tint,
+        running = c.glow && c.state.playing,
+        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART,
+    )
     ImmersiveVeil()
     Box(
         Modifier.fillMaxSize().pointerInput(Unit) {

@@ -1064,6 +1064,7 @@ private fun barIcon(item: BarItem) = when (item) {
     BarItem.PLAYLISTS -> FiletIcons.Audio
     BarItem.HOME -> FiletIcons.Home
     BarItem.RECENT -> FiletIcons.Clock
+    BarItem.NEW_FILES -> FiletIcons.Download
     BarItem.SHARING -> FiletIcons.Wifi
     BarItem.SCRIPTS -> FiletIcons.Script
     BarItem.SHORTCUTS -> FiletIcons.Pin
@@ -1088,6 +1089,10 @@ private fun runBarItem(item: BarItem, vm: BrowserViewModel, active: PaneControll
         BarItem.PLAYLISTS -> active?.openSpecial(PaneKind.PLAYLISTS, "Playlists")
         BarItem.HOME -> active?.openHome()
         BarItem.RECENT -> active?.openSpecial(PaneKind.RECENT, "Opened")
+        BarItem.NEW_FILES -> active?.openSpecial(
+            PaneKind.HISTORY,
+            dev.niccc2007.filet.home.HomeSections.ARRIVED_TAB,
+        )
         BarItem.SHARING -> active?.openSpecial(PaneKind.NEARBY, "Share")
         BarItem.SCRIPTS -> active?.openSpecial(PaneKind.SCRIPTS, "Scripts")
         BarItem.SHORTCUTS -> active?.openSpecial(PaneKind.SHORTCUTS, "Shortcuts")

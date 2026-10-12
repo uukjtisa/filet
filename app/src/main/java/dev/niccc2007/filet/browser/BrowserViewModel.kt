@@ -668,7 +668,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             // target fires, which is the only source there is.
             RefreshTarget.INSTALLED_APPS -> Unit
             RefreshTarget.BOOKMARKS -> graph.bookmarks.reload()
-            RefreshTarget.PLAYLISTS -> graph.playlists.reload()
+            RefreshTarget.PLAYLISTS -> {
+                graph.playlists.reload()
+                // A file that was re-tagged outside Filet should show its new name.
+                graph.trackCards.clear()
+            }
             RefreshTarget.RECENTS -> graph.recents.reload()
 
             // Bug identified: these three shared one branch and one comment claiming
@@ -4383,6 +4387,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     // store - the rules live there, where they can be tested.
 
     val playlists get() = graph.playlists
+    val trackCards get() = graph.trackCards
 
     /** The file picker the "Add to playlist" dialogue is open for, or null. */
     private val _playlistFor = MutableStateFlow<List<VNode>>(emptyList())

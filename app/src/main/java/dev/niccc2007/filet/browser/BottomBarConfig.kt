@@ -22,6 +22,18 @@ enum class BarItem(val id: String, val label: String) {
     PLAYLISTS("playlists", "Playlists"),
     HOME("home", "Home"),
     RECENT("recent", "Opened"),
+
+    /**
+     * Everything that has ARRIVED in a tracked folder, newest first.
+     *
+     * Not the same thing as [RECENT], which is what you opened. Asked for by name:
+     * *"recently added files are my mostly used feature in a file manager - I don't
+     * have to worry about going to the location of an app folder, no matter what app
+     * or what location the newly created file is"*. It was already a screen; it was
+     * only reachable from a heading on the Home overview, which is exactly the trip
+     * the feature exists to save.
+     */
+    NEW_FILES("newfiles", "New files"),
     SHARING("sharing", "Share"),
     SCRIPTS("scripts", "Scripts"),
     SHORTCUTS("shortcuts", "Shortcuts"),

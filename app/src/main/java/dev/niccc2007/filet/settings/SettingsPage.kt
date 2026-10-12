@@ -113,6 +113,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val uninterrupted by prefs.uninterrupted.collectAsState()
     val playerFace by prefs.playerFace.collectAsState()
     val pitchMode by prefs.pitchMode.collectAsState()
+    val livingGlow by prefs.livingGlow.collectAsState()
     val drag by prefs.drag.collectAsState()
     val hideTermux by prefs.hideTermux.collectAsState()
     val tabSize by prefs.tabSize.collectAsState()
@@ -382,6 +383,20 @@ fun SettingsPage(vm: BrowserViewModel) {
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
                 )
             }
+        }
+        item {
+            ToggleRow(
+                "Living background",
+                if (livingGlow) {
+                    "The glow behind whatever is playing drifts in the track's own colours - " +
+                        "on every look, on the strip at the bottom, and on the notification " +
+                        "card, which changes colour between posts since a notification " +
+                        "cannot animate. It holds still when playback is paused."
+                } else {
+                    "The glow is a still gradient. Aurora keeps its look and stops moving."
+                },
+                livingGlow,
+            ) { prefs.setLivingGlow(it) }
         }
         item {
             ToggleRow(
