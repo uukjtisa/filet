@@ -115,6 +115,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val pitchMode by prefs.pitchMode.collectAsState()
     val livingGlow by prefs.livingGlow.collectAsState()
     val glowLevel by prefs.glowLevel.collectAsState()
+    val glowSpill by prefs.glowSpill.collectAsState()
     val drag by prefs.drag.collectAsState()
     val hideTermux by prefs.hideTermux.collectAsState()
     val tabSize by prefs.tabSize.collectAsState()
@@ -421,6 +422,17 @@ fun SettingsPage(vm: BrowserViewModel) {
                         modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
                     )
                 }
+            }
+            item {
+                ToggleRow(
+                    "Glow spills past the strip",
+                    if (glowSpill) {
+                        "The minimised player's light reaches up into the list above it."
+                    } else {
+                        "The light stops at the edge of the minimised player."
+                    },
+                    glowSpill,
+                ) { prefs.setGlowSpill(it) }
             }
         }
         item {

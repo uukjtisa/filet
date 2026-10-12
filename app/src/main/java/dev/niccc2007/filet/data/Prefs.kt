@@ -334,6 +334,22 @@ class Prefs(context: Context) {
         sp.edit().putString(K_GLOW_LEVEL, v).apply()
     }
 
+    /**
+     * Whether the strip's glow is allowed past the strip, up into the file list.
+     *
+     * It began as a fault - the lights are drawn behind the strip and nothing was bounding
+     * them - and the look was liked enough to keep. Off by default all the same: it tints the
+     * names of files somebody is reading, which is a cost nobody else asked to pay. It gets
+     * fainter and stronger with the rest of the glow rather than having a strength of its own.
+     */
+    private val _glowSpill = MutableStateFlow(sp.getBoolean(K_GLOW_SPILL, false))
+    val glowSpill: StateFlow<Boolean> = _glowSpill.asStateFlow()
+
+    fun setGlowSpill(on: Boolean) {
+        _glowSpill.value = on
+        sp.edit().putBoolean(K_GLOW_SPILL, on).apply()
+    }
+
     /** Which face the full music player draws. See `PlayerFace`. */
     /**
      * Whether a slowed track keeps its pitch or drops with the speed.
@@ -552,6 +568,7 @@ class Prefs(context: Context) {
         const val K_PLAYER_FACE = "play.face"
         const val K_GLOW = "play.glow"
         const val K_GLOW_LEVEL = "play.glowLevel"
+        const val K_GLOW_SPILL = "play.glowSpill"
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
 }

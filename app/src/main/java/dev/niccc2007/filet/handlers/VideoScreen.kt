@@ -236,9 +236,29 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
      */
     var handingOver by remember(node.path) { mutableStateOf(false) }
 
+    /**
+     * And the moment the sound is actually running, which is NOT the moment it was asked for.
+     *
+     * This is the bug the first version had, and it is a timing one. The fade ran on a fixed
+     * clock started by the button, while the audio started whenever `prepare()` finished - a
+     * header read, off the main thread, on a video container. Those are two different lengths
+     * of time, so what you got depended on which won:
+     *
+     *  - prepare slower than the fade: the video was already silent and veiled, and the music
+     *    had not started. A gap, and a video screen sitting there doing nothing - which is
+     *    exactly how it was reported, "it keeps the video player open" and "the chop".
+     *  - prepare faster: both played at once for the rest of the fade.
+     *
+     * Now nothing moves until the sound is up. `handOffFromVideo` calls back once the decoder
+     * is running, the volume ramp and the veil start from there, and they run inside the
+     * `MediaScreen` dissolve that the same instant begins. The picture and the sound cross
+     * over together because they are now started by the same event.
+     */
+    var handedOver by remember(node.path) { mutableStateOf(false) }
+
     /** 0 while watching, 1 once the veil is fully up. Drives the dissolve and the volume. */
     val handOff by animateFloatAsState(
-        if (handingOver) 1f else 0f,
+        if (handedOver) 1f else 0f,
         animationSpec = tween(HANDOFF_FADE_MS),
         label = "hand-off",
     )
@@ -247,11 +267,22 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     // cheap call on an already-running MediaPlayer - far cheaper than the alternative, which
     // is cutting the sound dead and hoping the next player is quick.
     LaunchedEffect(handOff) {
-        if (handingOver) {
+        if (handedOver) {
             runCatching {
                 val v = (1f - handOff).coerceIn(0f, 1f)
                 handle.player?.setVolume(v, v)
             }
+        }
+    }
+
+    // Once the ramp has finished there is nothing left for this decoder to do, and it is
+    // still decoding a video at volume zero while the music plays. It is paused rather than
+    // released: the composition is a few hundred milliseconds from being disposed anyway,
+    // and releasing out from under a VideoView that is still on screen is how that crashes.
+    LaunchedEffect(handedOver) {
+        if (handedOver) {
+            kotlinx.coroutines.delay(HANDOFF_FADE_MS.toLong())
+            runCatching { handle.player?.pause() }
         }
     }
 
@@ -1119,6 +1150,9 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                                             handle.player?.currentPosition?.toLong()
                                         }.getOrNull() ?: position
                                     },
+                                    // The cue to let go, and the start of everything that
+                                    // looks like a hand-off.
+                                    whenPlaying = { handedOver = true },
                                 )
                             }
                         }

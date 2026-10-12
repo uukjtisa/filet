@@ -78,6 +78,7 @@ fun LivingGlow(
  *
  * @param spread how big the lights are against the surface. 1 suits something the size of a
  *   screen; a short wide band needs far less - see [GLOW_SPREAD_STRIP].
+ * @param clip false lets the light reach past the surface it is drawn on. See below.
  */
 @Composable
 fun Modifier.livingGlow(
@@ -85,6 +86,7 @@ fun Modifier.livingGlow(
     running: Boolean,
     strength: Float = 1f,
     spread: Float = 1f,
+    clip: Boolean = true,
 ): Modifier {
     val phases = rememberGlowPhases(running)
     val tints = remember(base, strength) { glowTints(base, strength) }
@@ -92,16 +94,19 @@ fun Modifier.livingGlow(
     val b = phases[1]
     val c = phases[2]
     return drawBehind {
-        // CLIPPED, and this is not optional. `drawBehind` is not bounded by the node it is
-        // on, and a radial brush whose radius is most of the screen does not politely stop at
-        // the edge of a 56dp strip - the first build of this painted the bottom third of the
-        // file list above it. Nothing about that is visible in the source; it had to be seen.
-        clipRect {
-            glowBlob(tints[0], a, 0.30f, 0.26f, size.maxDimension * 0.80f * spread)
-            glowBlob(tints[1], b, 0.74f, 0.44f, size.maxDimension * 0.95f * spread)
-            glowBlob(tints[2], c, 0.52f, 0.72f, size.maxDimension * 0.65f * spread)
-        }
+        // `drawBehind` is not bounded by the node it is on, so a radial brush wider than a
+        // 56dp strip reaches up into whatever is above it. That arrived as a bug - the first
+        // build painted the bottom third of the file list - and was then liked, so it is a
+        // setting rather than a fault. Clipped by default, because it tints the names of
+        // files somebody is trying to read.
+        if (clip) clipRect { lights(tints, a, b, c, spread) } else lights(tints, a, b, c, spread)
     }
+}
+
+private fun DrawScope.lights(tints: List<Color>, a: Float, b: Float, c: Float, spread: Float) {
+    glowBlob(tints[0], a, 0.30f, 0.26f, size.maxDimension * 0.80f * spread)
+    glowBlob(tints[1], b, 0.74f, 0.44f, size.maxDimension * 0.95f * spread)
+    glowBlob(tints[2], c, 0.52f, 0.72f, size.maxDimension * 0.65f * spread)
 }
 
 /**

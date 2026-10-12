@@ -18,12 +18,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -98,6 +103,7 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
 
     val glow by vm.prefs.livingGlow.collectAsStateWithLifecycle()
     val level = GlowLevel.of(vm.prefs.glowLevel.collectAsStateWithLifecycle().value)
+    val spill by vm.prefs.glowSpill.collectAsStateWithLifecycle()
 
     Column(
         Modifier
@@ -121,6 +127,7 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
                 running = glow && state.playing,
                 strength = GLOW_OVER_STRIP * level.scale,
                 spread = GLOW_SPREAD_STRIP,
+                clip = !spill,
             ),
     ) {
         HorizontalDivider(color = colors.lineSoft)
@@ -178,19 +185,13 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
                 }
 
                 // Here rather than only in Settings, because this is where the glow is
-                // noticed and the thing it changes is an inch from the finger. It cycles
-                // rather than opening a menu: there are three steps, each press shows the
-                // next one on the strip behind it, and a menu over a 56dp band would cover
-                // the very thing being judged. Hidden when the glow is off everywhere - a
-                // control that can do nothing is worse than one that is not there.
+                // noticed and the thing it changes is an inch from the finger. It opens a
+                // menu rather than cycling: four states read off one unlabelled button is a
+                // guessing game, and the menu opens ABOVE the strip so the strip itself stays
+                // visible while it is being judged. Hidden when the glow is off everywhere -
+                // a control that can do nothing is worse than one that is not there.
                 if (glow) {
-                    StripButton(
-                        FiletIcons.Brightness,
-                        "Background glow: ${level.label} - tap for the next step",
-                        ink = tint.copy(alpha = 0.35f + 0.3f * GlowLevel.entries.indexOf(level)),
-                        size = 32.dp,
-                        glyph = 15.dp,
-                    ) { vm.prefs.setGlowLevel(GlowLevel.after(level).id) }
+                    GlowMenu(vm, level, spill, tint)
                 }
 
                 if (roomForPrev && state.canStep) {
@@ -263,6 +264,61 @@ private fun StripArt(
                     modifier = Modifier.size(18.dp),
                 )
             }
+        }
+    }
+}
+
+/**
+ * The glow's own little menu, on the strip it is changing.
+ *
+ * Three strengths and the spill, which is the one that began life as a bug: the lights are
+ * drawn behind the strip and nothing bounded them, so they washed up into the file list. It
+ * was liked, so it stayed - as something you turn on.
+ */
+@Composable
+private fun GlowMenu(
+    vm: BrowserViewModel,
+    level: GlowLevel,
+    spill: Boolean,
+    tint: Color,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        StripButton(
+            FiletIcons.Brightness,
+            "Background glow: ${level.label}",
+            ink = tint.copy(alpha = 0.4f + 0.3f * GlowLevel.entries.indexOf(level)),
+            size = 32.dp,
+            glyph = 15.dp,
+        ) { open = true }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            for (step in GlowLevel.entries) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            step.label,
+                            fontSize = 13.sp,
+                            color = if (step == level) tint else Filet.colors.fg2,
+                        )
+                    },
+                    onClick = { open = false; vm.prefs.setGlowLevel(step.id) },
+                )
+            }
+            HorizontalDivider(color = Filet.colors.lineSoft)
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        "Spill past the strip",
+                        fontSize = 13.sp,
+                        color = if (spill) tint else Filet.colors.fg2,
+                    )
+                },
+                onClick = { open = false; vm.prefs.setGlowSpill(!spill) },
+            )
+            DropdownMenuItem(
+                text = { Text("Turn the glow off", fontSize = 13.sp, color = Filet.colors.fg2) },
+                onClick = { open = false; vm.prefs.setLivingGlow(false) },
+            )
         }
     }
 }
