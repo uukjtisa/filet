@@ -54,23 +54,28 @@ import kotlin.math.sin
  *
  * ## When it does not run
  *
- * - The switch is off.
  * - Nothing is playing. A paused player is a still picture on purpose; movement with no
  *   sound reads as the app being busy with something.
  * - The system says animations are off. See [rememberSystemAnimations].
  *
- * In all three cases the lights are drawn at their starting positions rather than removed, so
+ * In both of those the lights are drawn at their starting positions rather than removed, so
  * the surface keeps its colour and only loses its motion.
+ *
+ * The switch being OFF is a different thing and it is `on`, not `running`. The two were one
+ * parameter to begin with, which meant turning the glow off froze it instead of removing it -
+ * a static wash nobody had asked for, and no way to tell it from a paused one.
  */
 @Composable
 fun LivingGlow(
     base: Color,
+    on: Boolean,
     running: Boolean,
     strength: Float = 1f,
     spread: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier.fillMaxSize().livingGlow(base, running, strength, spread))
+    if (!on) return
+    Box(modifier.fillMaxSize().livingGlow(base, on, running, strength, spread))
 }
 
 /**
@@ -78,16 +83,20 @@ fun LivingGlow(
  *
  * @param spread how big the lights are against the surface. 1 suits something the size of a
  *   screen; a short wide band needs far less - see [GLOW_SPREAD_STRIP].
+ * @param on false paints nothing at all - the switch, as opposed to [running], which only
+ *   decides whether what is painted moves.
  * @param clip false lets the light reach past the surface it is drawn on. See below.
  */
 @Composable
 fun Modifier.livingGlow(
     base: Color,
+    on: Boolean,
     running: Boolean,
     strength: Float = 1f,
     spread: Float = 1f,
     clip: Boolean = true,
 ): Modifier {
+    if (!on) return this
     val phases = rememberGlowPhases(running)
     val tints = remember(base, strength) { glowTints(base, strength) }
     val a = phases[0]

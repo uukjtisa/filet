@@ -5,7 +5,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -16,10 +18,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -32,16 +33,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
@@ -124,7 +134,8 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
             // surface of it. See `LivingGlow`.
             .livingGlow(
                 base = tint,
-                running = glow && state.playing,
+                on = glow,
+                running = state.playing,
                 strength = GLOW_OVER_STRIP * level.scale,
                 spread = GLOW_SPREAD_STRIP,
                 clip = !spill,
@@ -187,12 +198,9 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
                 // Here rather than only in Settings, because this is where the glow is
                 // noticed and the thing it changes is an inch from the finger. It opens a
                 // menu rather than cycling: four states read off one unlabelled button is a
-                // guessing game, and the menu opens ABOVE the strip so the strip itself stays
-                // visible while it is being judged. Hidden when the glow is off everywhere -
-                // a control that can do nothing is worse than one that is not there.
-                if (glow) {
-                    GlowMenu(vm, level, spill, tint)
-                }
+                // guessing game, and the menu stays beside the strip so the strip itself is
+                // visible while it is being judged.
+                GlowMenu(vm, glow, level, spill, tint)
 
                 if (roomForPrev && state.canStep) {
                     StripButton(FiletIcons.Prev, "Previous") { playback.previous() }
@@ -269,57 +277,201 @@ private fun StripArt(
 }
 
 /**
- * The glow's own little menu, on the strip it is changing.
+ * The glow's own panel, on the strip it is changing.
  *
- * Three strengths and the spill, which is the one that began life as a bug: the lights are
- * drawn behind the strip and nothing bounded them, so they washed up into the file list. It
- * was liked, so it stayed - as something you turn on.
+ * ## Why this is not a DropdownMenu
+ *
+ * It was one, and it looked like a context menu out of a desktop file manager sitting under a
+ * player that is trying to look like a music app - square corners, full-bleed rows, a divider
+ * drawn edge to edge. The strip above it is rounded artwork, a filled circular transport and a
+ * hairline progress bar.
+ *
+ * A menu is also the wrong object for "how much of this do you want". These are settings with
+ * state, and a list of commands cannot show state without a tick in a column. So: a panel. The
+ * three strengths are a segmented pill - one control, three positions, the current one filled
+ * in the track's own colour, which answers "which am I on" without reading anything. The spill
+ * is a switch, because it is on or off.
+ *
+ * Positioned by hand rather than by an alignment: above the button and right-aligned to it, so
+ * it never covers the strip it is describing. Being able to watch the thing change is the
+ * whole reason the control is down here instead of in Settings.
  */
 @Composable
 private fun GlowMenu(
     vm: BrowserViewModel,
+    glow: Boolean,
     level: GlowLevel,
     spill: Boolean,
     tint: Color,
 ) {
     var open by remember { mutableStateOf(false) }
+    val colors = Filet.colors
+    val gap = with(LocalDensity.current) { 10.dp.roundToPx() }
     Box {
         StripButton(
             FiletIcons.Brightness,
-            "Background glow: ${level.label}",
-            ink = tint.copy(alpha = 0.4f + 0.3f * GlowLevel.entries.indexOf(level)),
+            if (glow) "Background glow: ${level.label}" else "Background glow: off",
+            // Dimmed when the glow is off rather than removed. The first version hid this
+            // button whenever the glow was off - so the one item in its own panel that turns
+            // the glow off also took away the only way back, leaving the switch three taps
+            // deep in Settings and no sign of where it had gone.
+            ink = if (glow) {
+                tint.copy(alpha = 0.45f + 0.275f * GlowLevel.entries.indexOf(level))
+            } else {
+                colors.fg3.copy(alpha = 0.6f)
+            },
             size = 32.dp,
             glyph = 15.dp,
         ) { open = true }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            for (step in GlowLevel.entries) {
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            step.label,
-                            fontSize = 13.sp,
-                            color = if (step == level) tint else Filet.colors.fg2,
-                        )
-                    },
-                    onClick = { open = false; vm.prefs.setGlowLevel(step.id) },
+
+        if (open) {
+            Popup(
+                popupPositionProvider = AbovePositionProvider(gap),
+                onDismissRequest = { open = false },
+                properties = PopupProperties(focusable = true),
+            ) {
+                Column(
+                    Modifier
+                        .width(238.dp)
+                        .shadow(22.dp, RoundedCornerShape(22.dp))
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(colors.raised)
+                        .border(1.dp, colors.lineSoft, RoundedCornerShape(22.dp))
+                        .padding(vertical = 14.dp),
+                ) {
+                    Text(
+                        "BACKGROUND GLOW",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.3.sp,
+                        color = colors.fg3,
+                        modifier = Modifier.padding(start = 17.dp, bottom = 11.dp),
+                    )
+                    if (glow) {
+                        LevelPill(level, tint) { vm.prefs.setGlowLevel(it.id) }
+                        PanelRule()
+                        PanelRow("Spill past the strip", tint, on = spill) {
+                            vm.prefs.setGlowSpill(!spill)
+                        }
+                        PanelRule()
+                        PanelRow("Turn it off", tint, on = null) {
+                            open = false
+                            vm.prefs.setLivingGlow(false)
+                        }
+                    } else {
+                        PanelRow("Turn it on", tint, on = null) {
+                            open = false
+                            vm.prefs.setLivingGlow(true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Above the button and right-aligned to it, so the strip underneath stays visible. */
+private class AbovePositionProvider(private val gap: Int) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val room = (windowSize.width - popupContentSize.width).coerceAtLeast(0)
+        val x = (anchorBounds.right - popupContentSize.width).coerceIn(0, room)
+        val y = (anchorBounds.top - popupContentSize.height - gap).coerceAtLeast(0)
+        return IntOffset(x, y)
+    }
+}
+
+/** Three strengths as one control, the current one filled. */
+@Composable
+private fun LevelPill(level: GlowLevel, tint: Color, onPick: (GlowLevel) -> Unit) {
+    val colors = Filet.colors
+    Row(
+        Modifier
+            .padding(horizontal = 14.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(50))
+            .background(colors.sunken)
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        for (step in GlowLevel.entries) {
+            val picked = step == level
+            Box(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(50))
+                    .background(if (picked) tint.copy(alpha = 0.22f) else Color.Transparent)
+                    .clickable { onPick(step) }
+                    .padding(vertical = 7.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    step.label,
+                    fontSize = 11.5.sp,
+                    fontWeight = if (picked) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (picked) tint else colors.fg2,
                 )
             }
-            HorizontalDivider(color = Filet.colors.lineSoft)
-            DropdownMenuItem(
-                text = {
-                    Text(
-                        "Spill past the strip",
-                        fontSize = 13.sp,
-                        color = if (spill) tint else Filet.colors.fg2,
-                    )
-                },
-                onClick = { open = false; vm.prefs.setGlowSpill(!spill) },
-            )
-            DropdownMenuItem(
-                text = { Text("Turn the glow off", fontSize = 13.sp, color = Filet.colors.fg2) },
-                onClick = { open = false; vm.prefs.setLivingGlow(false) },
-            )
         }
+    }
+}
+
+/** A hairline that stops short of the panel's edge, so the corners stay round. */
+@Composable
+private fun PanelRule() {
+    Box(
+        Modifier
+            .padding(horizontal = 17.dp, vertical = 10.dp)
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(Filet.colors.lineSoft),
+    )
+}
+
+/** One row. [on] null makes it an action rather than a switch. */
+@Composable
+private fun PanelRow(label: String, tint: Color, on: Boolean?, onClick: () -> Unit) {
+    val colors = Filet.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 17.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            fontSize = 12.5.sp,
+            color = if (on == true) tint else colors.fg2,
+            modifier = Modifier.weight(1f),
+        )
+        if (on != null) MiniSwitch(on, tint)
+    }
+}
+
+/** The smallest honest switch: a track, and a knob at one end of it. */
+@Composable
+private fun MiniSwitch(on: Boolean, tint: Color) {
+    val colors = Filet.colors
+    val slide by animateDpAsState(if (on) 17.dp else 2.dp, label = "knob")
+    Box(
+        Modifier
+            .size(width = 34.dp, height = 19.dp)
+            .clip(RoundedCornerShape(50))
+            .background(if (on) tint.copy(alpha = 0.3f) else colors.sunken),
+    ) {
+        Box(
+            Modifier
+                .padding(start = slide)
+                .align(Alignment.CenterStart)
+                .size(15.dp)
+                .clip(CircleShape)
+                .background(if (on) tint else colors.fg3),
+        )
     }
 }
 

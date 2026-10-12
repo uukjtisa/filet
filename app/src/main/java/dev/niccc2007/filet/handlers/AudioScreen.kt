@@ -215,7 +215,8 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         if (face == PlayerFace.CLASSIC) {
             dev.niccc2007.filet.playback.LivingGlow(
                 base = colors.accent,
-                running = glow && state.playing,
+                on = glow,
+                running = state.playing,
                 strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * glowLevel.scale,
             )
         }
@@ -483,7 +484,8 @@ private fun BoxScope.AmbientFace(c: PlayerCtx) {
     // they are moving, and under the ground that the text sits on.
     dev.niccc2007.filet.playback.LivingGlow(
         base = c.tint,
-        running = c.glow && c.state.playing,
+        on = c.glow,
+        running = c.state.playing,
         strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowLevel.scale,
     )
     dev.niccc2007.filet.playback.AmbientVeil(MaterialTheme.colorScheme.background)
@@ -552,7 +554,8 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
     // they are moving, and under the ground that the text sits on.
     dev.niccc2007.filet.playback.LivingGlow(
         base = c.tint,
-        running = c.glow && c.state.playing,
+        on = c.glow,
+        running = c.state.playing,
         strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowLevel.scale,
     )
     dev.niccc2007.filet.playback.AmbientVeil(MaterialTheme.colorScheme.background)
@@ -749,7 +752,8 @@ private fun BoxScope.ImmersiveFace(c: PlayerCtx) {
     ImmersiveBackdrop(c.art, c.isVideo, c.state.playing, c.source)
     dev.niccc2007.filet.playback.LivingGlow(
         base = c.tint,
-        running = c.glow && c.state.playing,
+        on = c.glow,
+        running = c.state.playing,
         strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowLevel.scale,
     )
     ImmersiveVeil()
