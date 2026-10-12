@@ -34,6 +34,9 @@ enum class PaneKind {
     HOME, FOLDER, ABOUT, BOOKMARKS, RECENT, SETTINGS, ACTIVITY, SCRIPTS, NEARBY, REMOTES,
     SHORTCUTS, HISTORY,
 
+    /** Kept queues, and the Favourites the heart writes into. */
+    PLAYLISTS,
+
     /** Installed apps, and extracting their APK back out. */
     APPS,
 }

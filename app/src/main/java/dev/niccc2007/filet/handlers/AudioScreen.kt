@@ -50,6 +50,7 @@ import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.playback.Medium
 import dev.niccc2007.filet.playback.PlayerFace
+import dev.niccc2007.filet.playback.Playlists
 import dev.niccc2007.filet.playback.Repeat
 import dev.niccc2007.filet.playback.tracksOf
 import dev.niccc2007.filet.ui.theme.Filet
@@ -104,7 +105,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         if (playback.isCurrent(node.path.toString())) return@LaunchedEffect
         val siblings = vm.siblingsOf(node)
         val q = audioQueue(siblings, node, vm.currentSort)
-        playback.play(tracksOf(q.items), q.index)
+        playback.play(tracksOf(q.items), q.index, from = folderContext(node.path))
     }
 
     val face = PlayerFace.of(vm.prefs.playerFace.collectAsStateWithLifecycle().value)
@@ -115,7 +116,10 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         vm.prefs.pitchMode.collectAsStateWithLifecycle().value,
     )
     val maxSpeed by playback.maxSpeedFlow.collectAsStateWithLifecycle()
-    val bookmarks by vm.bookmarks.items.collectAsStateWithLifecycle()
+    // The heart's list. It used to be Bookmarks, which is a list of PLACES shown beside
+    // folders and shortcuts - so hearting a song put a file somewhere you cannot press
+    // play. Favourites is a playlist, which is the thing a heart is for.
+    val lists by vm.playlists.items.collectAsStateWithLifecycle()
 
     val track = state.current
     val isVideo = track?.medium == Medium.VIDEO
@@ -123,6 +127,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     /** Where the handle is while it is being dragged, or null when it is not. */
     var scrubTo by remember { mutableStateOf<Long?>(null) }
     var showQueue by remember { mutableStateOf(false) }
+    var saveQueue by remember { mutableStateOf(false) }
     val shownPosition = scrubTo ?: state.positionMs
 
     /**
@@ -181,7 +186,8 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         sleepLeft = sleepLeft,
         maxSpeed = maxSpeed,
         pitch = pitch,
-        bookmarked = bookmarks.any { it.path == node.path },
+        bookmarked = lists.firstOrNull { it.id == Playlists.FAVOURITES }
+            ?.contains(node.path) == true,
         title = title,
         sub = sub,
         folderLine = folderLine,
@@ -190,6 +196,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         onScrubEnd = { target -> scrubTo = null; playback.seekTo(target) },
         onQueue = { showQueue = !showQueue },
         onWatch = { vm.openVideoOfTrack(track) },
+        onSaveQueue = { saveQueue = true },
     )
 
     // The status bar goes, the navigation bar stays. A player is a screen you leave from, so
@@ -211,6 +218,15 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         // rearranging: the old panel pushed the artwork and the transport up by 190dp every
         // time it opened, which moved the Play button out from under the thumb about to press
         // it.
+        if (saveQueue) {
+            // Named from the folder the queue came from, which is almost always the name
+            // somebody was going to type anyway.
+            SaveQueueDialog(
+                suggested = folderLine.substringAfterLast(" / "),
+                onDismiss = { saveQueue = false },
+            ) { name -> saveQueue = false; vm.saveQueueAsPlaylist(name) }
+        }
+
         QueueSheet(
             tracks = state.queue,
             index = state.index,
@@ -280,6 +296,7 @@ private class PlayerCtx(
     val onScrubEnd: (Long) -> Unit,
     val onQueue: () -> Unit,
     val onWatch: () -> Unit,
+    val onSaveQueue: () -> Unit,
 )
 
 /** The bar the three ambient faces share, wired to this screen's actions. */
@@ -288,7 +305,7 @@ private fun FaceTopBar(c: PlayerCtx) {
     PlayerTopBar(
         eyebrow = if (c.uninterrupted) "UNINTERRUPTED  ·  PLAYING FROM" else "PLAYING FROM",
         eyebrowLit = c.uninterrupted,
-        context = c.folderLine,
+        context = c.state.from.ifBlank { c.folderLine },
         uninterrupted = c.uninterrupted,
         onClose = { c.vm.closeHandler() },
         onUninterrupted = { c.vm.prefs.setUninterrupted(!c.uninterrupted) },
@@ -300,6 +317,8 @@ private fun FaceTopBar(c: PlayerCtx) {
             onExternal = { c.vm.openTrackExternally(c.state.current, c.node) },
             onShare = { c.vm.shareTrack(c.state.current, c.node) },
             onProperties = { c.vm.propertiesOfTrack(c.state.current, c.node) },
+            onAddToPlaylist = { c.vm.askAddToPlaylist(listOf(c.node)) },
+            onSaveQueue = c.onSaveQueue.takeIf { c.state.canStep },
         )
     }
 }
@@ -357,6 +376,8 @@ private fun ClassicFace(c: PlayerCtx) {
                 onExternal = { c.vm.openTrackExternally(c.state.current, c.node) },
                 onShare = { c.vm.shareTrack(c.state.current, c.node) },
                 onProperties = { c.vm.propertiesOfTrack(c.state.current, c.node) },
+                onAddToPlaylist = { c.vm.askAddToPlaylist(listOf(c.node)) },
+                onSaveQueue = c.onSaveQueue.takeIf { c.state.canStep },
             )
         }
         Column(
@@ -474,7 +495,7 @@ private fun BoxScope.AmbientFace(c: PlayerCtx) {
                 centred = false,
                 bookmarked = c.bookmarked,
                 tint = c.tint,
-                onHeart = { c.vm.bookmarks.toggle(c.node.path, isDir = false) },
+                onHeart = { c.vm.toggleFavourite(c.node.path) },
                 onWatch = c.onWatch,
             )
             FaceError(c)
@@ -544,7 +565,7 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
                     titleSize = 18.sp,
                     bookmarked = c.bookmarked,
                     tint = c.tint,
-                    onHeart = { c.vm.bookmarks.toggle(c.node.path, isDir = false) },
+                    onHeart = { c.vm.toggleFavourite(c.node.path) },
                     onWatch = c.onWatch,
                 )
             }
@@ -663,7 +684,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                 centred = true,
                 bookmarked = c.bookmarked,
                 tint = c.tint,
-                onHeart = { c.vm.bookmarks.toggle(c.node.path, isDir = false) },
+                onHeart = { c.vm.toggleFavourite(c.node.path) },
                 onWatch = c.onWatch,
             )
             FaceError(c)

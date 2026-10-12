@@ -204,13 +204,29 @@ class Playback(
      * second half of the report: the screen is now a view, and a view that reloads the player
      * when it opens would have reproduced the bug through a different door.
      */
-    fun play(tracks: List<Track>, index: Int, startAtMs: Long = 0L, asAudio: Boolean = false) {
+    fun play(
+        tracks: List<Track>,
+        index: Int,
+        startAtMs: Long = 0L,
+        asAudio: Boolean = false,
+        /**
+         * Where this queue came from, or null to keep what is already recorded.
+         *
+         * Null rather than an empty default, because the commonest caller is the queue sheet
+         * jumping to a row in the queue it is already playing - and an empty default there
+         * would wipe the source every time somebody picked a track out of the list.
+         */
+        from: String? = null,
+    ) {
         if (tracks.isEmpty()) return
         _asAudio.value = asAudio
         val safe = index.coerceIn(0, tracks.lastIndex)
         val now = _state.value
         val sameTrack = now.active && now.current?.id == tracks[safe].id
-        _state.value = now.copy(queue = tracks, index = safe, active = true, error = null)
+        _state.value = now.copy(
+            queue = tracks, index = safe, active = true, error = null,
+            from = from ?: now.from,
+        )
         if (sameTrack && player != null && startAtMs <= 0L) {
             onServiceWanted(PlaybackNotice.shouldKeepService(_state.value))
             return
@@ -252,6 +268,37 @@ class Playback(
                 whenPlaying()
             },
         )
+    }
+
+    /**
+     * Put tracks at the end of what is playing, or immediately after it.
+     *
+     * The queue was always the folder and nothing else, which made a queue of tracks from two
+     * places impossible - the one thing a file manager's player is otherwise well placed to
+     * do, since it is already looking at both folders.
+     *
+     * With nothing playing this is just [play]: "add to queue" on a silent player meaning
+     * nothing would be a dead control, and starting is the only reading of it that is not.
+     *
+     * @param next true to insert after the current track rather than at the end.
+     */
+    fun enqueue(tracks: List<Track>, next: Boolean = false) {
+        if (tracks.isEmpty()) return
+        val now = _state.value
+        if (!now.active || now.current == null) {
+            play(tracks, 0)
+            return
+        }
+        // A track already in the queue is not added twice. Pressing Add on a folder you
+        // already queued should not give you every song two deep, and the copy that is
+        // already there keeps its position rather than moving under you.
+        val have = now.queue.map { it.id }.toSet()
+        val fresh = tracks.filterNot { it.id in have }
+        if (fresh.isEmpty()) return
+        val at = if (next) (now.index + 1).coerceAtMost(now.queue.size) else now.queue.size
+        val merged = now.queue.toMutableList().apply { addAll(at, fresh) }
+        _state.value = now.copy(queue = merged)
+        onServiceWanted(PlaybackNotice.shouldKeepService(_state.value))
     }
 
     /** Whether [id] is the track the player is on, so a screen can tell. */

@@ -347,4 +347,45 @@ class SpeedAndNoticeTest {
             ),
         )
     }
+
+    // ── where it is playing from ──────────────────────────────────────────────
+
+    @Test
+    fun `the shade says which list the arrows are walking`() {
+        // The queue raises exactly one question - where does Next take me - and the card
+        // was not answering it.
+        val s = NowPlaying(
+            queue = List(8) { track(id = "local:///m/$it.mp3") },
+            index = 1,
+            active = true,
+            from = "Favourites",
+        )
+        val line = PlaybackNotice.line3(s)
+        assertTrue(line, line.startsWith("Favourites"))
+        assertTrue(line, line.contains("2 of 8"))
+    }
+
+    @Test
+    fun `the strip prefers the source over the artist`() {
+        // The strip is the surface somebody presses Next from, and a 56dp row has one line:
+        // which list those arrows walk beats who recorded the track that happens to be on.
+        val s = NowPlaying(
+            queue = List(8) { track(id = "local:///m/$it.mp3", artist = "Beach House") },
+            index = 1,
+            active = true,
+            from = "Favourites",
+        )
+        assertTrue(PlaybackNotice.strip(s).startsWith("Favourites"))
+    }
+
+    @Test
+    fun `with no source the strip falls back to what it always said`() {
+        val s = NowPlaying(queue = listOf(track(artist = "Beach House")), active = true)
+        assertEquals("Beach House", PlaybackNotice.strip(s))
+    }
+
+    @Test
+    fun `nothing playing gives an empty strip line rather than a stray source`() {
+        assertEquals("", PlaybackNotice.strip(NowPlaying(from = "Favourites")))
+    }
 }

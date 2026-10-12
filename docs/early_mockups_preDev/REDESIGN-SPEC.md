@@ -24,14 +24,14 @@ that surface which is easiest to lose on the way across.
 | **Remotes tab** | `app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt:80` | `TABS3.remotes` | N59 | An unreachable remote is shown as unreachable and never waited for. |
 | **Activity tab** | `app/src/main/java/dev/niccc2007/filet/jobs/ActivitySheet.kt:48` | `TABS3.activity` | N59 | Running above finished. The index job names the folder it is reading. |
 | **About tab** | `app/src/main/java/dev/niccc2007/filet/about/AboutPage.kt:90` | `aboutHTML` | N58 | Four words from the repo, in one line. Watermark is the app mark, not the author seal. |
-| **Settings tab** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:98` | `setHTML` | N56 | Sub-tabs. The List pane carries a live view rendered by the same code as the real list. |
+| **Settings tab** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:99` | `setHTML` | N56 | Sub-tabs. The List pane carries a live view rendered by the same code as the real list. |
 | **File row** | `app/src/main/java/dev/niccc2007/filet/browser/ClipTraySheet.kt:416` | `rowsHTML3` | N55 | No date column. Files show bytes, folders show item count. Tabular figures, not a code font. |
 | **Search result row** | `app/src/main/java/dev/niccc2007/filet/browser/RowViews.kt:253` | `SearchResultRow` | N79 | Carries Available or Confirming while a pass runs, and nothing between passes. |
 | **Scope chips** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:466` | `.scopes` | N71 | Native search is dimmed and unpressable where the index never answers the scope anyway. |
-| **Bottom bar** | `app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt:1144` | `.foot` | N46 | One bar plus a More button. The setting that chose between bar and menu is deleted. |
+| **Bottom bar** | `app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt:1147` | `.foot` | N46 | One bar plus a More button. The setting that chose between bar and menu is deleted. |
 | **Context menu** | `app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt:58` | `DIALOGS.context` | N67 | Keeps the icon button row across the top. The app already splits these - see splitForContextMenu - and the first redesign dropped the row, then put back the wrong five. Delete lives in the row, so it is NOT repeated as a list entry. |
 | **Context menu quick row** | `app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt:176` | `.ctxbar` | N67 | Which actions get an icon button and which go in the list. Already a pure function - QUICK_IDS is copy, move, rename, send, delete. RELABEL ONLY: move is shown as Cut with scissors. The id stays move; do not add a second action. |
-| **Actions popup** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:1024` | `actionsHTML` | N54 | Same icon row, then grouped entries, destructive last and separated. |
+| **Actions popup** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:1025` | `actionsHTML` | N54 | Same icon row, then grouped entries, destructive last and separated. |
 | **Open with** | `app/src/main/java/dev/niccc2007/filet/handlers/OpenWith.kt:70` | `openWithHTML` | N81 | One dialogue. Filet viewers above, apps below, remember control in the footer beside Open. |
 | **New folder** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:339` | `DIALOGS.newfolder` | N59 | Warns that a dot-prefixed name is never indexed by Android. |
 | **Rename** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:339` | `DIALOGS.rename` | N59 | Selection stops at the dot, so typing replaces the name and keeps the extension. |
@@ -49,7 +49,7 @@ that surface which is easiest to lose on the way across.
 | **Crash** | `app/src/main/java/dev/niccc2007/filet/crash/CrashActivity.kt:125` | `DIALOGS.crash` | N65 | Taller, names the file it wrote, and offers to open it. |
 | **Storage tool** | _new, nothing to replace_ | `storHTML` | N57 | New screen. Tree, largest, by type, clean up, and the tray. See STORAGE-TOOL.md. |
 | **Appoint tray** | _new, nothing to replace_ | `.tray` | N80 | Tap to appoint as well as drag. Side panel in landscape, collapsed when empty. |
-| **Theme picker** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:98` | `appearanceHTML` | N84 | Twelve palettes plus a custom setter. Names describe the palette, never its source. |
+| **Theme picker** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:99` | `appearanceHTML` | N84 | Twelve palettes plus a custom setter. Names describe the palette, never its source. |
 | **App icon picker** | _new, nothing to replace_ | `APP_ICONS` | N84 | Launcher aliases. Switching one drops home-screen shortcuts to the old alias. |
 | **App intro** | _new, nothing to replace_ | `IntroPolicy` | N42 | Off by default. A hard failsafe finishes it whatever the animation is doing. |
 

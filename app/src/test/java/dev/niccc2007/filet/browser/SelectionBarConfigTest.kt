@@ -108,6 +108,7 @@ class SelectionBarConfigTest {
             readOnly = null,
             icons = SelectionIcons(
                 icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon,
+                icon, icon,
             ),
             on = SelectionCallbacks(
                 copy = {}, move = {}, send = {}, delete = {}, compress = {}, rename = {},

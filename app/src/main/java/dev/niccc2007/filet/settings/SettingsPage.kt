@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -198,20 +199,55 @@ fun SettingsPage(vm: BrowserViewModel) {
                     "${bar.size} on the bar. Add as many as you like — past ${dev.niccc2007.filet.browser.BottomBarConfig.SCROLLS_PAST} it scrolls sideways. Only shown on a phone-width screen.",
             )
         }
-        items(dev.niccc2007.filet.browser.BarItem.entries.size) { i ->
-            val item = dev.niccc2007.filet.browser.BarItem.entries[i]
+        // Two lists, in the bar's OWN order, rather than one list of switches in the order
+        // the enum happens to declare.
+        //
+        // The order used to be whatever order things were ticked in, which is an order
+        // nobody chose: adding one put it at the end whatever it was for, and moving it
+        // meant unticking everything after it and ticking them back. A row of toggles also
+        // could not show the order at all - it said "position 3" in a sentence, under a list
+        // sorted some other way, which is the longest possible way to describe a sequence.
+        item {
             val bar = dev.niccc2007.filet.browser.BottomBarConfig.normalise(storedBar)
-            val on = item in bar
-            ToggleRow(
-                item.label,
-                if (on) "On the bar, position ${bar.indexOf(item) + 1}" else "Not on the bar",
-                on,
-            ) {
-                prefs.setBottomBar(
-                    dev.niccc2007.filet.browser.BottomBarConfig.encode(
-                        dev.niccc2007.filet.browser.BottomBarConfig.toggled(bar, item),
-                    ),
-                )
+            fun write(items: List<dev.niccc2007.filet.browser.BarItem>) =
+                prefs.setBottomBar(dev.niccc2007.filet.browser.BottomBarConfig.encode(items))
+            Column {
+                for ((i, item) in bar.withIndex()) {
+                    BarRow(
+                        label = item.label,
+                        detail = "Position ${i + 1}",
+                        onUp = if (i > 0) ({
+                            write(dev.niccc2007.filet.browser.BottomBarConfig.moved(bar, i, i - 1))
+                        }) else null,
+                        onDown = if (i < bar.size - 1) ({
+                            write(dev.niccc2007.filet.browser.BottomBarConfig.moved(bar, i, i + 1))
+                        }) else null,
+                        // The last one cannot be taken off. An empty bar is not a
+                        // configuration, it is a screen with no way back to this one.
+                        onRemove = if (bar.size > 1) ({
+                            write(dev.niccc2007.filet.browser.BottomBarConfig.toggled(bar, item))
+                        }) else null,
+                    )
+                }
+                val off = dev.niccc2007.filet.browser.BarItem.entries.filterNot { it in bar }
+                if (off.isNotEmpty()) {
+                    Text(
+                        "NOT ON THE BAR",
+                        fontSize = 9.sp,
+                        letterSpacing = 1.3.sp,
+                        color = Filet.colors.fg3,
+                        modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 4.dp),
+                    )
+                    for (item in off) {
+                        BarRow(
+                            label = item.label,
+                            detail = "Tap to add it to the end",
+                            onAdd = {
+                                write(dev.niccc2007.filet.browser.BottomBarConfig.toggled(bar, item))
+                            },
+                        )
+                    }
+                }
             }
         }
         item {
@@ -739,4 +775,65 @@ fun SmallButton(text: String, onClick: () -> Unit) {
             .clickable(onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 6.dp),
     )
+}
+
+/**
+ * One entry in the bottom-bar editor.
+ *
+ * Arrows rather than a drag. A drag inside a `LazyColumn` that is itself scrolling needs a
+ * nested-scroll dance to tell "move this row" from "scroll the page", and it is the gesture
+ * that most often fights a scroll on a phone; two buttons are unambiguous, reachable with a
+ * thumb, and work with a screen reader - which a drag does not without a second,
+ * accessibility-only path that would then be the thing nobody tests.
+ */
+@Composable
+private fun BarRow(
+    label: String,
+    detail: String,
+    onUp: (() -> Unit)? = null,
+    onDown: (() -> Unit)? = null,
+    onRemove: (() -> Unit)? = null,
+    onAdd: (() -> Unit)? = null,
+) {
+    val colors = Filet.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (onAdd != null) Modifier.clickable(onClick = onAdd) else Modifier)
+            .padding(start = 16.dp, end = 6.dp, top = 9.dp, bottom = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text(detail, fontSize = 10.sp, color = colors.fg3)
+        }
+        if (onAdd != null) {
+            Icon(
+                FiletIcons.Plus, "Add $label to the bar",
+                tint = colors.accent,
+                modifier = Modifier.size(32.dp).padding(8.dp),
+            )
+        }
+        onUp?.let {
+            Icon(
+                FiletIcons.Up, "Move $label up",
+                tint = colors.fg2,
+                modifier = Modifier.size(32.dp).clip(CircleShape).clickable(onClick = it).padding(8.dp),
+            )
+        }
+        onDown?.let {
+            Icon(
+                FiletIcons.Down, "Move $label down",
+                tint = colors.fg2,
+                modifier = Modifier.size(32.dp).clip(CircleShape).clickable(onClick = it).padding(8.dp),
+            )
+        }
+        onRemove?.let {
+            Icon(
+                FiletIcons.Close, "Take $label off the bar",
+                tint = colors.fg3,
+                modifier = Modifier.size(32.dp).clip(CircleShape).clickable(onClick = it).padding(9.dp),
+            )
+        }
+    }
 }

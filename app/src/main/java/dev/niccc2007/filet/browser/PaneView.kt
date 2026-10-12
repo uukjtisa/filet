@@ -856,6 +856,7 @@ private fun SpecialBody(pane: PaneController, vm: BrowserViewModel, s: PaneState
         PaneKind.ABOUT -> AboutPage(vm)
         PaneKind.SETTINGS -> SettingsPage(vm)
         PaneKind.BOOKMARKS -> BookmarksBody(vm, pane)
+        PaneKind.PLAYLISTS -> dev.niccc2007.filet.playback.PlaylistsScreen(vm, pane)
         PaneKind.RECENT -> RecentBody(vm, pane)
         PaneKind.HISTORY -> dev.niccc2007.filet.home.FileHistoryScreen(vm, pane)
         PaneKind.SCRIPTS -> dev.niccc2007.filet.script.ScriptsScreen(vm)
@@ -1041,6 +1042,7 @@ private fun PaneContextMenu(
             open = FiletIcons.Open, info = FiletIcons.Info, star = FiletIcons.Star,
             wifi = FiletIcons.Wifi, home = FiletIcons.Home,
             apk = FiletIcons.Apk, cog = FiletIcons.Cog,
+            audio = FiletIcons.Audio, rows = FiletIcons.Rows,
         ),
         on = SelectionCallbacks(
             copy = { vm.copySelection() },
@@ -1059,12 +1061,15 @@ private fun PaneContextMenu(
             extractHere = { vm.extractSelection() },
             extractTo = { vm.extractSelectionToPicked() },
             extractToOtherPane = { vm.extractSelectionToOtherPane() },
+            addToPlaylist = { vm.addToPlaylistSelection() },
+            enqueue = { vm.enqueueSelection() },
         ),
         archive = vm.selectionIsArchive(),
         otherPane = vm.isSplit(),
         picking = vm.picking,
         installable = vm.selectionIsInstallable(),
         hasMetadata = vm.selectionHasMetadata(),
+        playable = vm.selectionIsPlayable(),
     )
 
     // "Select" is gone, and it had to go for two reasons rather than one. It was asked to be

@@ -464,6 +464,7 @@ private fun tabIcon(s: PaneState) = when (s.kind) {
     PaneKind.ABOUT -> FiletIcons.Info
     PaneKind.SETTINGS -> FiletIcons.Cog
     PaneKind.BOOKMARKS -> FiletIcons.Star
+    PaneKind.PLAYLISTS -> FiletIcons.Audio
     PaneKind.RECENT -> FiletIcons.Clock
     PaneKind.HISTORY -> FiletIcons.Clock
     PaneKind.SHORTCUTS -> FiletIcons.Home
@@ -1060,6 +1061,7 @@ private fun barIcon(item: BarItem) = when (item) {
     BarItem.SEARCH -> FiletIcons.Search
     BarItem.ACTIVITY -> FiletIcons.Jobs
     BarItem.BOOKMARKS -> FiletIcons.Star
+    BarItem.PLAYLISTS -> FiletIcons.Audio
     BarItem.HOME -> FiletIcons.Home
     BarItem.RECENT -> FiletIcons.Clock
     BarItem.SHARING -> FiletIcons.Wifi
@@ -1083,6 +1085,7 @@ private fun runBarItem(item: BarItem, vm: BrowserViewModel, active: PaneControll
         BarItem.SEARCH -> active?.let { if (searchOffered(it.state.value.kind)) it.openSearch(true) }
         BarItem.ACTIVITY -> vm.openActivity(true)
         BarItem.BOOKMARKS -> active?.openSpecial(PaneKind.BOOKMARKS, "Bookmarks")
+        BarItem.PLAYLISTS -> active?.openSpecial(PaneKind.PLAYLISTS, "Playlists")
         BarItem.HOME -> active?.openHome()
         BarItem.RECENT -> active?.openSpecial(PaneKind.RECENT, "Opened")
         BarItem.SHARING -> active?.openSpecial(PaneKind.NEARBY, "Share")
@@ -1156,6 +1159,7 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
             open = FiletIcons.Open, info = FiletIcons.Info, star = FiletIcons.Star,
             wifi = FiletIcons.Wifi, home = FiletIcons.Home,
             apk = FiletIcons.Apk, cog = FiletIcons.Cog,
+            audio = FiletIcons.Audio, rows = FiletIcons.Rows,
         ),
         on = SelectionCallbacks(
             copy = { vm.copySelection() },
@@ -1175,12 +1179,15 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
             extractHere = { vm.extractSelection() },
             extractTo = { vm.extractSelectionToPicked() },
             extractToOtherPane = { vm.extractSelectionToOtherPane() },
+            addToPlaylist = { vm.addToPlaylistSelection() },
+            enqueue = { vm.enqueueSelection() },
         ),
         archive = vm.selectionIsArchive(),
         otherPane = vm.isSplit(),
         picking = vm.picking,
         installable = vm.selectionIsInstallable(),
         hasMetadata = vm.selectionHasMetadata(),
+        playable = vm.selectionIsPlayable(),
         announceable = vm.selectionIsOnThisDevice(),
     )
 

@@ -41,6 +41,19 @@ const DROPPED = {
   Move: "relabelled Cut with a scissors glyph; the action id stays move, so nothing is removed",
 };
 
+/**
+ * Actions the app grew AFTER the mock was drawn.
+ *
+ * Not the same thing as a drop, and the distinction is the whole point of this checker: a
+ * label in the app and not in the mock is either something the redesign lost or something
+ * that did not exist when the redesign was drawn, and only the first is a fault. The mock is
+ * a record of one round, not a specification the app may never move past.
+ */
+const SINCE_THE_MOCK = {
+  "Add to playlist": "playlists are later work; the mock predates them",
+  "Add to queue": "the queue could not be added to when the mock was drawn",
+};
+
 /** Things the redesign adds that the app has no action for yet. Not failures; new work. */
 const ADDED = ["Copy path", "Edit metadata"];
 
@@ -83,7 +96,7 @@ export function problems({ actionsSrc, ctxSrc, html }) {
   const text = mockText(html);
 
   for (const { id, label } of labels) {
-    if (DROPPED[label]) continue;
+    if (DROPPED[label] || SINCE_THE_MOCK[label]) continue;
     if (!text.includes(label)) {
       found.push(
         `the app offers "${label}" (id ${id}) and the mock never shows it` +
@@ -107,7 +120,7 @@ export function problems({ actionsSrc, ctxSrc, html }) {
   const ctxBlock = /context: \(\) =>[\s\S]*?`,\n/.exec(html)?.[0] ?? "";
   for (const id of quick) {
     const label = labels.find((l) => l.id === id)?.label;
-    if (!label || DROPPED[label]) continue;
+    if (!label || DROPPED[label] || SINCE_THE_MOCK[label]) continue;
     const inList = new RegExp(`class="t">${label}<`).test(ctxBlock);
     if (inList) found.push(`"${label}" is in the icon row and repeated as a list entry`);
   }
@@ -195,5 +208,6 @@ if (found.length) {
 const n = appLabels(actionsSrc).length;
 console.log(
   `DIALOGUES OK  (${n} actions in the app, every one shown or listed as dropped; ` +
-    `${ADDED.length} added by the redesign)`,
+    `${ADDED.length} added by the redesign, ` +
+      `${Object.keys(SINCE_THE_MOCK).length} added since it)`,
 );

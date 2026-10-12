@@ -39,6 +39,9 @@ enum class RefreshTarget {
     /** Bookmarks, which another pane or a widget may have changed. */
     BOOKMARKS,
 
+    /** Kept queues, which the heart on the player screen writes into. */
+    PLAYLISTS,
+
     /** The recently-opened list. */
     RECENTS,
 
@@ -89,6 +92,7 @@ fun refreshPlan(kind: PaneKind): RefreshPlan = when (kind) {
     // to re-enter that read rather than to invalidate anything.
     PaneKind.APPS -> RefreshPlan(setOf(RefreshTarget.INSTALLED_APPS), "Apps")
     PaneKind.BOOKMARKS -> RefreshPlan(setOf(RefreshTarget.BOOKMARKS), "Bookmarks")
+    PaneKind.PLAYLISTS -> RefreshPlan(setOf(RefreshTarget.PLAYLISTS), "Playlists")
     PaneKind.RECENT -> RefreshPlan(setOf(RefreshTarget.RECENTS), "Opened")
 
     // The expanded new-files history is the same feed the home card shows, so refreshing it

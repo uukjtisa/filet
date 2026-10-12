@@ -38,6 +38,7 @@ fun searchPlan(kind: PaneKind): SearchMode = when (kind) {
     PaneKind.SETTINGS -> SearchMode.FILTER
     PaneKind.SCRIPTS -> SearchMode.FILTER
     PaneKind.BOOKMARKS -> SearchMode.FILTER
+    PaneKind.PLAYLISTS -> SearchMode.FILTER
     PaneKind.RECENT -> SearchMode.FILTER
     PaneKind.HISTORY -> SearchMode.FILTER
     PaneKind.SHORTCUTS -> SearchMode.FILTER

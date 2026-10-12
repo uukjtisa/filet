@@ -65,6 +65,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.playback.Medium
+import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgField
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgSpacer
 import dev.niccc2007.filet.playback.NowPlaying
 import dev.niccc2007.filet.playback.Repeat
 import dev.niccc2007.filet.playback.Track
@@ -198,6 +206,8 @@ fun PlayerOverflow(
     onExternal: () -> Unit,
     onShare: () -> Unit,
     onProperties: () -> Unit,
+    onAddToPlaylist: (() -> Unit)? = null,
+    onSaveQueue: (() -> Unit)? = null,
 ) {
     var open by remember { mutableStateOf(false) }
     var faces by remember { mutableStateOf(false) }
@@ -211,6 +221,21 @@ fun PlayerOverflow(
                 text = { Text("Look: ${face.label}", fontSize = 13.sp) },
                 onClick = { faces = true },
             )
+            if (onAddToPlaylist != null) {
+                DropdownMenuItem(
+                    text = { Text("Add to a playlist", fontSize = 13.sp) },
+                    onClick = { open = false; onAddToPlaylist() },
+                )
+            }
+            if (onSaveQueue != null) {
+                // "Save the queue" rather than "new playlist": the queue is already a list
+                // somebody has arranged by playing it, and this keeps THAT rather than
+                // opening an empty one to fill in again.
+                DropdownMenuItem(
+                    text = { Text("Save the queue as a playlist", fontSize = 13.sp) },
+                    onClick = { open = false; onSaveQueue() },
+                )
+            }
             DropdownMenuItem(
                 text = { Text("Open in another app", fontSize = 13.sp) },
                 onClick = { open = false; onExternal() },
@@ -437,8 +462,8 @@ fun PlayerTitleBlock(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                if (bookmarked) FiletIcons.StarFilled else FiletIcons.Heart,
-                if (bookmarked) "Bookmarked" else "Bookmark this",
+                if (bookmarked) FiletIcons.HeartFilled else FiletIcons.Heart,
+                if (bookmarked) "In Favourites \u2014 tap to remove" else "Add to Favourites",
                 tint = if (bookmarked) tint else colors.fg3,
                 modifier = Modifier.size(21.dp),
             )
@@ -1115,4 +1140,44 @@ object PlayerMetrics {
     val CHIPS_TOP = 16.dp
     val TRANSPORT_TOP = 18.dp
     val SCRUB_TOP = 22.dp
+}
+
+/**
+ * Name the queue you are keeping.
+ *
+ * Its own small dialogue rather than the playlist picker, because the question is different:
+ * the picker asks which existing list a track joins, and this one makes a list out of what is
+ * already arranged. Offering the picker here would mean choosing "New playlist" every time,
+ * which is a step that only ever has one answer.
+ */
+@Composable
+fun SaveQueueDialog(
+    suggested: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(suggested) }
+    Dlg(onDismiss = onDismiss, dismissOnScrim = false) {
+        DlgHeader(
+            icon = FiletIcons.Rows,
+            title = "Save the queue",
+            sub = "Everything playing, in this order",
+            onClose = onDismiss,
+        )
+        DlgBody {
+            DlgField(
+                label = "Name",
+                value = text,
+                onValue = { text = it },
+            )
+        }
+        DlgFooter {
+            DlgBtn("Cancel", onClick = onDismiss)
+            DlgSpacer()
+            DlgBtn(
+                "Save",
+                kind = BtnKind.PRIMARY,
+            ) { onSave(text) }
+        }
+    }
 }

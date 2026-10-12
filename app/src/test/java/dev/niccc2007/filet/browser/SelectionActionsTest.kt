@@ -21,7 +21,9 @@ import org.junit.Test
 class SelectionActionsTest {
 
     private val icon = ImageVector.Builder("x", 1.dp, 1.dp, 1f, 1f).build()
-    private val icons = SelectionIcons(icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon)
+    private val icons = SelectionIcons(
+        icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon,
+    )
 
     private var ran = ""
     private val callbacks = SelectionCallbacks(
@@ -39,6 +41,8 @@ class SelectionActionsTest {
         extractHere = { ran = "extractHere" },
         extractTo = { ran = "extractTo" },
         extractToOtherPane = { ran = "extractToOtherPane" },
+        addToPlaylist = { ran = "addToPlaylist" },
+        enqueue = { ran = "enqueue" },
     )
 
     private fun actions(
@@ -47,7 +51,10 @@ class SelectionActionsTest {
         archive: Boolean = false,
         otherPane: Boolean = false,
         picking: Boolean = false,
-    ) = selectionActions(count, readOnly, icons, callbacks, archive, otherPane, picking)
+    ) = selectionActions(
+        count, readOnly, icons, callbacks, archive, otherPane, picking,
+        playable = true,
+    )
 
     private val extractIds = listOf("extracthere", "extractto", "extractother")
 

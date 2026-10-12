@@ -150,7 +150,7 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
                         centred = false,
                         size = 13.sp,
                     )
-                    val subtitle = PlaybackNotice.subtitle(state)
+                    val subtitle = PlaybackNotice.strip(state)
                     if (subtitle.isNotEmpty()) {
                         Text(
                             subtitle,

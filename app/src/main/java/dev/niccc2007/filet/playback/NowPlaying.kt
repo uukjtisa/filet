@@ -44,6 +44,16 @@ data class NowPlaying(
      * you are listening to, and a strip that vanishes on pause takes the Play button with it.
      */
     val active: Boolean = false,
+    /**
+     * Where this queue came from, in words: a playlist's name, or the folder.
+     *
+     * On the state rather than derived from the current track's path, because those are
+     * different answers and only one of them is true. A queue made from Favourites holds
+     * tracks out of six folders, and naming the folder of whichever one is playing would
+     * make the line change under you every time it advanced - while never once saying the
+     * thing somebody wants to know, which is what Next is going to take them through.
+     */
+    val from: String = "",
 ) {
     val current: Track? get() = queue.getOrNull(index)
 
@@ -127,6 +137,9 @@ object PlaybackNotice {
      * and neither was anywhere on the card before.
      */
     fun line3(state: NowPlaying): String = listOfNotNull(
+        // Where Next is going to take you, which is the question a queue raises and the
+        // only one the shade was not answering.
+        state.from.takeIf { it.isNotBlank() },
         "${state.position} of ${state.size}".takeIf { state.canStep },
         when (state.repeat) {
             Repeat.ONE -> "Repeating this track"
@@ -139,6 +152,22 @@ object PlaybackNotice {
     /** The folder a track's id points into, or empty. The id is a path, so this is free. */
     private fun folderOf(track: Track): String =
         track.id.substringBeforeLast('/', "").substringAfterLast('/', "")
+
+    /**
+     * The strip's second line: where this is playing from, and how far through.
+     *
+     * Apart from [subtitle], which is the artist. The strip is the one surface that is on
+     * screen while somebody is NAVIGATING - it is what the Next arrow is pressed from - and
+     * the useful fact there is which list those arrows are walking, not who recorded the
+     * track that happens to be on. The full player has room for both; a 56dp row does not.
+     */
+    fun strip(state: NowPlaying): String {
+        if (state.current == null) return ""
+        return listOfNotNull(
+            state.from.takeIf { it.isNotBlank() },
+            "${state.position} of ${state.size}".takeIf { state.canStep },
+        ).joinToString("  ·  ").ifEmpty { subtitle(state) }
+    }
 
     /** What the play/pause control does next, as a label for a content description. */
     fun toggleLabel(state: NowPlaying): String = if (state.playing) "Pause" else "Play"

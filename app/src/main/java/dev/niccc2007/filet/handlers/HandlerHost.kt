@@ -130,6 +130,10 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
             AppPickerDialog(vm, pick)
         }
 
+        // Hosted here rather than in the pane, because it is raised from the selection bar,
+        // from the player's overflow and from a Home row - three surfaces, one dialogue.
+        dev.niccc2007.filet.playback.AddToPlaylistDialog(vm)
+
         AnimatedVisibility(
             visible = update != null,
             enter = fadeIn() + slideInVertically { it / 3 },

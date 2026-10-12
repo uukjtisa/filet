@@ -668,6 +668,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             // target fires, which is the only source there is.
             RefreshTarget.INSTALLED_APPS -> Unit
             RefreshTarget.BOOKMARKS -> graph.bookmarks.reload()
+            RefreshTarget.PLAYLISTS -> graph.playlists.reload()
             RefreshTarget.RECENTS -> graph.recents.reload()
 
             // Bug identified: these three shared one branch and one comment claiming
@@ -4372,6 +4373,140 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             // scrolled at all, so the file was selected somewhere off screen. The listing now
             // carries the request and acts when it actually has rows.
             pane.revealOnly(node)
+        }
+    }
+
+    // ── playlists ──
+    //
+    // A playlist is a kept queue and Favourites is one of them; see `Playlists` for why there
+    // is one concept here rather than a music tab. Everything below is a thin call onto that
+    // store - the rules live there, where they can be tested.
+
+    val playlists get() = graph.playlists
+
+    /** The file picker the "Add to playlist" dialogue is open for, or null. */
+    private val _playlistFor = MutableStateFlow<List<VNode>>(emptyList())
+    val playlistFor: StateFlow<List<VNode>> = _playlistFor.asStateFlow()
+
+    fun dismissPlaylistPicker() { _playlistFor.value = emptyList() }
+
+    /**
+     * Offer to put these in a playlist.
+     *
+     * Only the playable ones. Asked for explicitly to cover video as well as audio, which it
+     * does by construction - a playlist holds paths and the player already knows a video
+     * from a song - but a PDF in a playlist is a row that can never do anything, so the
+     * filter happens here rather than being discovered at play time.
+     */
+    fun askAddToPlaylist(nodes: List<VNode>) {
+        val playable = nodes.filter {
+            val kind = FileKind.of(it)
+            kind == FileKind.AUDIO || kind == FileKind.VIDEO
+        }
+        if (playable.isEmpty()) {
+            toast("Nothing here is a track Filet can play.")
+            return
+        }
+        _playlistFor.value = playable
+    }
+
+    fun addToPlaylistSelection() {
+        val items = focusedPane()?.selectedNodes().orEmpty()
+        if (items.isEmpty()) return
+        focusedPane()?.clearSelection()
+        askAddToPlaylist(items)
+    }
+
+    fun addToPlaylist(id: String, nodes: List<VNode>) {
+        val list = graph.playlists.get(id) ?: return
+        val before = list.size
+        graph.playlists.add(id, nodes.map { it.path })
+        val added = (graph.playlists.get(id)?.size ?: before) - before
+        _playlistFor.value = emptyList()
+        toast(
+            when {
+                added == 0 -> "Already in ${list.name}"
+                added == nodes.size -> "Added to ${list.name}"
+                else -> "$added added to ${list.name}"
+            },
+        )
+    }
+
+    fun newPlaylistWith(name: String, nodes: List<VNode>) {
+        val id = graph.playlists.create(name, nodes.map { it.path })
+        _playlistFor.value = emptyList()
+        toast("${graph.playlists.get(id)?.name ?: name} created")
+    }
+
+    /** The heart. One press, and the toast says which way it went. */
+    fun toggleFavourite(path: dev.niccc2007.filet.vfs.VPath) {
+        val on = graph.playlists.toggleFavourite(path)
+        toast(if (on) "Added to Favourites" else "Removed from Favourites")
+    }
+
+    /**
+     * Play a kept list, from [from].
+     *
+     * The paths are turned into nodes first so a track that has been deleted or moved is
+     * skipped rather than failing one at a time as the queue reaches it. What is gone is
+     * still SHOWN in the playlist - a list that quietly shrinks is how somebody loses one
+     * they spent an hour on - it just is not handed to the decoder.
+     */
+    fun playPlaylist(id: String, from: Int = 0, shuffle: Boolean = false) {
+        val list = graph.playlists.get(id) ?: return
+        viewModelScope.launch {
+            val nodes = list.tracks.mapNotNull { p ->
+                runCatching { withContext(Dispatchers.IO) { graph.vfs.stat(p) } }.getOrNull()
+            }
+            if (nodes.isEmpty()) {
+                toast("Nothing in ${list.name} is still there.")
+                return@launch
+            }
+            val tracks = dev.niccc2007.filet.playback.tracksOf(nodes)
+            val at = from.coerceIn(0, tracks.lastIndex)
+            // asAudio: a playlist is a music context. A video in one is there because
+            // somebody chose to put it there, and throwing the video player at track four
+            // of a queue of songs is the opposite of what the list is for. Watch is still
+            // one tap away on the player, which is where it belongs here.
+            graph.playback.play(tracks, at, asAudio = true, from = list.name)
+            graph.playback.setShuffle(shuffle)
+            maximisePlayer()
+        }
+    }
+
+    /** Add a whole folder's worth, or a selection, to what is already playing. */
+    fun enqueueSelection(next: Boolean = false) {
+        val items = focusedPane()?.selectedNodes().orEmpty().filter {
+            val kind = FileKind.of(it)
+            kind == FileKind.AUDIO || kind == FileKind.VIDEO
+        }
+        if (items.isEmpty()) {
+            toast("Nothing here is a track Filet can play.")
+            return
+        }
+        focusedPane()?.clearSelection()
+        graph.playback.enqueue(dev.niccc2007.filet.playback.tracksOf(items), next = next)
+        toast(if (next) "Playing next" else "Added to the queue")
+    }
+
+    /** What is playing, kept. The player's overflow. */
+    fun saveQueueAsPlaylist(name: String) {
+        val queue = graph.playback.state.value.queue
+        if (queue.isEmpty()) {
+            toast("Nothing is playing.")
+            return
+        }
+        val paths = queue.mapNotNull { runCatching { VPath.parse(it.id) }.getOrNull() }
+        val id = graph.playlists.create(name, paths)
+        toast("${graph.playlists.get(id)?.name ?: name} saved \u2014 ${paths.size} tracks")
+    }
+
+    /** Everything selected is something the player can open. Empty is not playable. */
+    fun selectionIsPlayable(): Boolean {
+        val items = focusedPane()?.selectedNodes().orEmpty()
+        return items.isNotEmpty() && items.all {
+            val kind = FileKind.of(it)
+            kind == FileKind.AUDIO || kind == FileKind.VIDEO
         }
     }
 

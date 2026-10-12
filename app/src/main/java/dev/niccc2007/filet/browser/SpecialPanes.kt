@@ -51,6 +51,7 @@ object SpecialPanes {
     val DESTINATIONS: List<Destination> = listOf(
         Destination(PaneKind.RECENT, "Opened", FiletIcons.Clock),
         Destination(PaneKind.BOOKMARKS, "Bookmarks", FiletIcons.Star),
+        Destination(PaneKind.PLAYLISTS, "Playlists", FiletIcons.Audio),
         Destination(PaneKind.NEARBY, "Nearby", FiletIcons.Wifi),
         Destination(PaneKind.REMOTES, "Remotes", FiletIcons.Device),
         Destination(PaneKind.SHORTCUTS, "Shortcuts", FiletIcons.Pin),

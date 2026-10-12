@@ -97,4 +97,52 @@ class BottomBarConfigTest {
         assertEquals(ids.size, ids.distinct().size)
         assertTrue("ids must be stable and simple", ids.all { it.isNotEmpty() && it.none { c -> c == ',' } })
     }
+
+    // ── reordering ────────────────────────────────────────────────────────────
+
+    @Test
+    fun `an entry can be moved up and down`() {
+        // The order used to be whatever order things were ticked in, which is an order
+        // nobody chose.
+        val bar = listOf(BarItem.FILES, BarItem.SEARCH, BarItem.ACTIVITY)
+        assertEquals(
+            listOf(BarItem.SEARCH, BarItem.FILES, BarItem.ACTIVITY),
+            BottomBarConfig.moved(bar, 0, 1),
+        )
+        assertEquals(
+            listOf(BarItem.FILES, BarItem.ACTIVITY, BarItem.SEARCH),
+            BottomBarConfig.moved(bar, 1, 2),
+        )
+    }
+
+    @Test
+    fun `moving past the ends does nothing rather than swapping something else`() {
+        // The buttons at the ends are absent, but a stale recomposition can still call this
+        // with the old index - and a clamp would silently swap the first two instead.
+        val bar = listOf(BarItem.FILES, BarItem.SEARCH)
+        assertEquals(bar, BottomBarConfig.moved(bar, 0, -1))
+        assertEquals(bar, BottomBarConfig.moved(bar, 1, 2))
+        assertEquals(bar, BottomBarConfig.moved(bar, 0, 0))
+        assertEquals(bar, BottomBarConfig.moved(bar, 9, 0))
+    }
+
+    @Test
+    fun `a move keeps every entry exactly once`() {
+        val bar = listOf(BarItem.FILES, BarItem.SEARCH, BarItem.ACTIVITY, BarItem.HOME)
+        for (from in bar.indices) {
+            for (to in bar.indices) {
+                val out = BottomBarConfig.moved(bar, from, to)
+                assertEquals("$from->$to", bar.size, out.size)
+                assertEquals("$from->$to", bar.toSet(), out.toSet())
+            }
+        }
+    }
+
+    @Test
+    fun `playlists is offered, because every destination has to be`() {
+        // A tab that cannot be put on the bar is one a phone can only reach through the
+        // switcher, which is the reachability trap SpecialPanes exists for.
+        assertTrue(BarItem.entries.any { it.id == "playlists" })
+        assertEquals(BarItem.PLAYLISTS, BarItem.byId("playlists"))
+    }
 }

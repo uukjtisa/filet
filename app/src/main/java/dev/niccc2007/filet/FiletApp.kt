@@ -71,6 +71,7 @@ class FiletGraph(context: Context) {
     /** The app layer's single, documented `java.io.File` bridge. See R3 in PLAN.md. */
     val files = dev.niccc2007.filet.data.AppFiles(app)
     val bookmarks = Bookmarks(prefs)
+    val playlists = dev.niccc2007.filet.playback.Playlists(prefs)
     val recents = Recents(prefs)
     val tracked = TrackedFolders(prefs, scope)
     val ledger = JobLedger()

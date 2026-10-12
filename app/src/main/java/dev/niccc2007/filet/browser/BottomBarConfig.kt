@@ -19,6 +19,7 @@ enum class BarItem(val id: String, val label: String) {
     SEARCH("search", "Search"),
     ACTIVITY("activity", "Activity"),
     BOOKMARKS("bookmarks", "Bookmarks"),
+    PLAYLISTS("playlists", "Playlists"),
     HOME("home", "Home"),
     RECENT("recent", "Opened"),
     SHARING("sharing", "Share"),
@@ -82,5 +83,23 @@ object BottomBarConfig {
         item !in items -> items + item
         items.size <= 1 -> items
         else -> items - item
+    }
+
+    /**
+     * Move one entry, for the up and down buttons in Settings.
+     *
+     * The bar's order used to be the order things were ticked in, which is an order nobody
+     * chose - adding Playlists put it at the end whatever it was for, and the only way to
+     * move it was to untick everything after it and tick them again.
+     *
+     * Out-of-range is a no-op rather than a clamp. A clamp would make the button at the top
+     * of the list silently swap the first two, and a dead button is a clearer answer than a
+     * button that does something else.
+     */
+    fun moved(items: List<BarItem>, from: Int, to: Int): List<BarItem> {
+        if (from !in items.indices || to !in items.indices || from == to) return items
+        val list = items.toMutableList()
+        list.add(to, list.removeAt(from))
+        return list
     }
 }

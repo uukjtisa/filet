@@ -61,6 +61,14 @@ fun selectionActions(
     hasMetadata: Boolean = false,
     /** The selection is on this device's own storage, so the media index can hold it. */
     announceable: Boolean = false,
+    /**
+     * Everything selected is something the player can open.
+     *
+     * A playlist of PDFs is a list of rows that can never do anything, so the two playback
+     * actions are BLOCKED with a reason rather than hidden: hidden, somebody who selected
+     * eleven songs and one screenshot would wonder why the app had changed its mind.
+     */
+    playable: Boolean = false,
 ): List<SelectionAction> {
     val single = count == 1
     // Written out rather than inlined three times: these two sentences are the whole of what a
@@ -68,6 +76,7 @@ fun selectionActions(
     val needsOne = if (single) null else "Pick one file — this works on a single file"
     val needsOneName = if (single) null else "Pick one file — rename takes one name at a time"
     val needsOneInfo = if (single) null else "Pick one file — details describe one file"
+    val notPlayable = if (playable) null else "Only music and video can go in a playlist"
 
     return buildList {
         add(SelectionAction("copy", "Copy", icons.copy, run = on.copy))
@@ -151,6 +160,20 @@ fun selectionActions(
         )
         add(
             SelectionAction(
+                "playlist", "Add to playlist", icons.audio,
+                blocked = notPlayable,
+                group = SelectionAction.Group.EDIT, run = on.addToPlaylist,
+            ),
+        )
+        add(
+            SelectionAction(
+                "queue", "Add to queue", icons.rows,
+                blocked = notPlayable,
+                group = SelectionAction.Group.EDIT, run = on.enqueue,
+            ),
+        )
+        add(
+            SelectionAction(
                 "details", "Details", icons.info,
                 blocked = needsOneInfo, group = SelectionAction.Group.EDIT, run = on.details,
             ),
@@ -202,6 +225,8 @@ data class SelectionIcons(
     val home: ImageVector,
     val apk: ImageVector,
     val cog: ImageVector,
+    val audio: ImageVector,
+    val rows: ImageVector,
 )
 
 /** What each action does. Separate from the list so the list can be built in a test. */
@@ -223,4 +248,6 @@ data class SelectionCallbacks(
     val install: () -> Unit = {},
     val metadata: () -> Unit = {},
     val announce: () -> Unit = {},
+    val addToPlaylist: () -> Unit = {},
+    val enqueue: () -> Unit = {},
 )

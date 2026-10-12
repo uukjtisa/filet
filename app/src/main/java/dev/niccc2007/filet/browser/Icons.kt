@@ -166,6 +166,19 @@ object FiletIcons {
         "heart",
         "M12 20s-7.5-4.6-7.5-9.4A4.1 4.1 0 0 1 12 8a4.1 4.1 0 0 1 7.5 2.6c0 4.8-7.5 9.4-7.5 9.4z",
     )
+    /**
+     * The heart, filled, for a track that is in Favourites.
+     *
+     * The outlined one above is deliberately not filled because it is an invitation. Once
+     * the invitation has been taken up the same shape, solid, is the only honest drawing of
+     * it - swapping to a star for the on state, which is what this did at first, reads as
+     * two different buttons that happen to share a slot.
+     */
+    val HeartFilled = filled(
+        "heartfilled",
+        "M12 20.3s-7.5-4.6-7.5-9.4A4.1 4.1 0 0 1 12 8a4.1 4.1 0 0 1 7.5 2.6c0 4.8-7.5 9.7-7.5 9.7z",
+    )
+
     val Lock = stroke("lock", "M5 11h14v9H5z", "M8 11V8a4 4 0 0 1 8 0v3")
     val Key = stroke("key", "M14.5 12a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0", "M13.5 10.5H21v3M18 10.5v3")
     val Sign = stroke("sign", "M12 3 4 6v6c0 4.4 3.4 7.9 8 9 4.6-1.1 8-4.6 8-9V6z", "m9 12 2 2 4-4")
