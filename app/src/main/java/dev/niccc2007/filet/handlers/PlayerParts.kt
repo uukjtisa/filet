@@ -384,6 +384,11 @@ fun PlayerTitleBlock(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        // A centred title with a 38dp button only on its right is not centred: the text sits
+        // half a button to the left of the middle, which is just enough to read as a mistake
+        // rather than as a choice. An empty one of the same size on the other side fixes it
+        // with no control nobody asked for.
+        if (centred) Spacer(Modifier.size(38.dp))
         Column(
             Modifier.weight(1f),
             horizontalAlignment = if (centred) Alignment.CenterHorizontally else Alignment.Start,
@@ -847,6 +852,34 @@ private fun QueueRows(tracks: List<Track>, index: Int, tint: Color, onPick: (Int
 }
 
 // ── the immersive face's retractable controls ────────────────────────────────
+
+/**
+ * "Watch", for a face whose artwork has no corner to put a badge in.
+ *
+ * Same words and same job as [VideoBadge], drawn as a standalone chip: the immersive face's
+ * picture fills the screen, so a badge on it would be a label floating in the middle of a
+ * photograph rather than attached to a card.
+ */
+@Composable
+fun WatchChip(onWatch: () -> Unit) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color.Black.copy(alpha = 0.5f))
+            .clickable(onClick = onWatch)
+            .padding(horizontal = 11.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(FiletIcons.Video, null, tint = Color.White, modifier = Modifier.size(13.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "Watch",
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White,
+        )
+    }
+}
 
 /**
  * The floating pill: title, transport, repeat, queue.

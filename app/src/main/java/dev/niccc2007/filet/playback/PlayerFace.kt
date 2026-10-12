@@ -61,6 +61,20 @@ enum class PlayerFace(val id: String, val label: String, val about: String) {
     IMMERSIVE(
         "immersive", "Immersive",
         "Full-bleed artwork. Small controls that tap away.",
+    ),
+
+    /**
+     * A drifting gradient in the track's colours, and the artwork as a turning disc.
+     *
+     * The only face whose background is not the artwork. Three soft lights taken from the
+     * sampled hue move on their own slow ellipses at periods that do not divide into each
+     * other, so the pattern never visibly repeats - see `AuroraBackdrop`. The disc turns
+     * while the track plays and coasts to a stop when it is paused, which is the same thing
+     * the other faces say by resizing their artwork, said the way a record player says it.
+     */
+    AURORA(
+        "aurora", "Aurora",
+        "A slow gradient in the track's colours, and the artwork as a turning disc.",
     );
 
     /** Everything but Classic takes its colour from the artwork and lights the background. */

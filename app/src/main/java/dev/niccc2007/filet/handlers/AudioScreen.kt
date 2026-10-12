@@ -1,6 +1,13 @@
 package dev.niccc2007.filet.handlers
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -197,6 +204,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
             PlayerFace.AMBIENT -> AmbientFace(ctx)
             PlayerFace.EDITORIAL -> EditorialFace(ctx)
             PlayerFace.IMMERSIVE -> ImmersiveFace(ctx)
+            PlayerFace.AURORA -> AuroraFace(ctx)
         }
 
         // One sheet for all four, drawn last so it is over everything. It covers rather than
@@ -561,6 +569,118 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
     }
 }
 
+// ── E: aurora ─────────────────────────────────────────────────────────────────
+
+/**
+ * A drifting gradient, and the artwork as a disc that turns while it plays.
+ *
+ * The one face whose background is NOT the artwork, which is the point of it: the other three
+ * ambient looks all resolve to "that picture, softened", and on a track with no embedded art
+ * they resolve to nothing at all. This one is built from the sampled colour rather than from
+ * the pixels, so a tagless recording still gets a face instead of a dark rectangle.
+ *
+ * Centred rather than left-aligned, because a disc is a circle and a circle with its text
+ * ranged left looks like it slipped.
+ */
+@Composable
+private fun BoxScope.AuroraFace(c: PlayerCtx) {
+    dev.niccc2007.filet.playback.AuroraBackdrop(
+        base = c.tint,
+        ground = MaterialTheme.colorScheme.background,
+    )
+    // The turn. A full revolution every 24 seconds - a 33rpm record is 1.8, which at this
+    // size is a blur and makes the artwork unreadable. This is slow enough to look still
+    // until you watch it.
+    val spin = rememberInfiniteTransition(label = "disc")
+    val angle by spin.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(24_000, easing = androidx.compose.animation.core.LinearEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Restart,
+        ),
+        label = "angle",
+    )
+    // Coasts rather than stopping dead. A disc that halts the instant the sound does reads as
+    // a dropped frame; one that eases out reads as a platter.
+    val turning by animateFloatAsState(
+        if (c.state.playing) 1f else 0f,
+        animationSpec = tween(1400),
+        label = "coast",
+    )
+    var held by remember { mutableStateOf(0f) }
+    if (c.state.playing) held = angle
+
+    Column(Modifier.fillMaxSize()) {
+        FaceTopBar(c)
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 40.dp, vertical = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .graphicsLayer { rotationZ = if (c.state.playing) angle else held },
+            ) {
+                PlayerArt(
+                    art = c.art,
+                    isVideo = c.isVideo,
+                    playing = c.state.playing,
+                    source = c.source,
+                    plain = false,
+                    radius = 1000.dp,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // The spindle. Without it a round crop is just a round crop; with it the
+                // thing is obviously a disc and the rotation has something to be about.
+                Box(
+                    Modifier
+                        .align(Alignment.Center)
+                        .size(54.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.92f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier
+                            .size(13.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(c.tint.copy(alpha = 0.55f + 0.45f * turning)),
+                    )
+                }
+            }
+            if (c.isVideo) VideoBadge(onWatch = c.onWatch, inset = 0.dp)
+        }
+        Column(Modifier.padding(horizontal = PlayerMetrics.GUTTER)) {
+            PlayerTitleBlock(
+                title = c.title,
+                sub = c.sub,
+                isVideo = c.isVideo,
+                centred = true,
+                bookmarked = c.bookmarked,
+                tint = c.tint,
+                onHeart = { c.vm.bookmarks.toggle(c.node.path, isDir = false) },
+                onWatch = c.onWatch,
+            )
+            FaceError(c)
+            Spacer(Modifier.height(PlayerMetrics.SCRUB_TOP))
+            PlayerScrub(c.shownPosition, c.state, c.tint, c.onScrub, c.onScrubEnd)
+            Spacer(Modifier.height(PlayerMetrics.TRANSPORT_TOP))
+            PlayerTransport(c.state, c.tint, c.onTint, playback = c.playback)
+            Spacer(Modifier.height(PlayerMetrics.CHIPS_TOP))
+            PlayerChips(
+                c.speed, c.maxSpeed, c.sleepLeft, c.pitch, c.tint, c.onTint, c.playback,
+            ) { c.vm.prefs.setPitchMode(it.id) }
+        }
+        Spacer(Modifier.height(16.dp))
+        if (c.state.canStep) QueueHandle(c.state, c.onQueue) else Spacer(Modifier.height(16.dp))
+    }
+}
+
 // ── D: immersive ──────────────────────────────────────────────────────────────
 
 /**
@@ -599,6 +719,17 @@ private fun BoxScope.ImmersiveFace(c: PlayerCtx) {
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                     )
+                }
+                if (c.isVideo) {
+                    // The one thing this face could not do. Every other face puts a WATCH
+                    // badge on its artwork; here the artwork IS the screen, so the way back
+                    // to the picture goes in the chrome with everything else.
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 20.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        WatchChip(onWatch = c.onWatch)
+                    }
                 }
                 MiniControls(
                     state = c.state,

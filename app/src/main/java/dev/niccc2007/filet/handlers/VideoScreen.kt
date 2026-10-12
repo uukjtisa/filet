@@ -397,11 +397,28 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
      */
     var resumeAt by remember(node.path) { mutableLongStateOf(0L) }
 
+    /**
+     * True while the background player still owns the sound and this screen is taking it.
+     *
+     * The mirror of `handingOver`. Both directions now overlap instead of following each
+     * other: whichever player is leaving keeps going until the one arriving is ready, and
+     * the position crosses at that moment rather than being captured before the wait.
+     */
+    var takingOver by remember(node.path) { mutableStateOf(false) }
+
     LaunchedEffect(node.path) {
-        if (vm.playback.isCurrent(node.path.toString())) {
-            resumeAt = vm.playback.state.value.positionMs
-            vm.playback.stop()
-        }
+        // The sound is NOT stopped here.
+        //
+        // It used to be: the shared player was stopped the instant this screen mounted and
+        // its position written into `resumeAt`, so the audio died, several hundred
+        // milliseconds of header-reading went by, and the video started at a position that
+        // was by then stale. Silence, then a small jump backwards - the same cut as the
+        // other direction, just reversed.
+        //
+        // Instead the music keeps playing while this screen opens its own decoder, and the
+        // swap happens in `onPrepared`, at the last instant, off the LIVE position. See
+        // `takingOver`.
+        takingOver = vm.playback.isCurrent(node.path.toString())
         val u = runCatching { vm.localUriFor(node) }.getOrNull()
         if (u == null) {
             error = "This file has to be copied to local storage before it can play. " +
@@ -607,8 +624,18 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                             mp.isLooping = repeating
                             duration = mp.duration.toLong().coerceAtLeast(0L)
                             ready = true
-                            // Taken back off the background player, so the video picks up where
-                            // the sound got to rather than restarting it.
+                            // The swap, at the last possible instant.
+                            //
+                            // The position is read off the still-playing background player
+                            // HERE rather than when this screen mounted, so the two meet at
+                            // the same moment of the file; the sound is stopped on the line
+                            // before the picture starts, so the gap is a seek rather than a
+                            // prepare.
+                            if (takingOver) {
+                                resumeAt = vm.playback.state.value.positionMs
+                                vm.playback.stop()
+                                takingOver = false
+                            }
                             if (resumeAt > 0L) {
                                 handle.seekExactly(resumeAt)
                                 position = resumeAt
@@ -1119,19 +1146,13 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
             )
         }
 
-        // The dissolve.
+        // No veil here any more.
         //
-        // Last in the Box so it is over everything, including the chrome - during a hand-off
-        // the controls are going away with the picture and a transport floating on a fading
-        // frame reads as the app half-closing. It never swallows a press: at rest it is
-        // fully transparent and it is only drawn while the hand-off is running.
-        if (handOff > 0.001f) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = handOff)),
-            )
-        }
+        // It faded this screen to black, and the music face then appeared out of the black -
+        // which is two maskings over one swap, and reads as the app closing and reopening.
+        // `MediaScreen` now dissolves the two screens into each other, so the only thing
+        // left for the hand-off to do is take the sound down gently, which the volume ramp
+        // above does. `handOff` still drives that ramp.
     }
 }
 

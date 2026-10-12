@@ -56,12 +56,36 @@ fun MediaScreen(vm: BrowserViewModel, node: VNode) {
     // music face swaps this composition to the video screen without reopening anything.
     val asAudio by vm.playback.asAudio.collectAsStateWithLifecycle()
     val heldAsAudio = asAudio && vm.playback.isCurrent(node.path.toString())
-    if (FileKind.of(node) == FileKind.VIDEO && !heldAsAudio) {
-        VideoScreen(vm, node)
-    } else {
-        AudioScreen(vm, node)
+    val video = FileKind.of(node) == FileKind.VIDEO && !heldAsAudio
+
+    // The two faces dissolve into each other rather than being swapped.
+    //
+    // This is the whole of "switching from watch to listen cuts". Each side had already been
+    // made to overlap in SOUND - the leaving player keeps going until the arriving one is
+    // ready, and the position crosses at that instant - but the picture still changed in one
+    // frame, and a hard cut between two full screens reads as the app closing and reopening
+    // even when the audio is continuous.
+    //
+    // `Crossfade` keeps both compositions alive for the length of the fade, which is exactly
+    // what the hand-off needs: the video is still decoding while the music face comes up over
+    // it, and the music is still playing while the video screen behind it prepares.
+    androidx.compose.animation.Crossfade(
+        targetState = video,
+        animationSpec = androidx.compose.animation.core.tween(SWAP_MS),
+        label = "watch-listen",
+    ) { showVideo ->
+        if (showVideo) VideoScreen(vm, node) else AudioScreen(vm, node)
     }
 }
+
+/**
+ * How long watch and listen take to trade places.
+ *
+ * Long enough to read as a dissolve rather than a cut, and comfortably longer than a local
+ * file's `prepare()` - so the sound has usually already crossed over by the time the picture
+ * has. Short enough that it never feels like waiting for something.
+ */
+private const val SWAP_MS = 380
 
 /**
  * A hex viewer that never loads the whole file.

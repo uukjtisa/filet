@@ -8,8 +8,13 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The pure decisions behind the four player faces and the clipboard tray's copy. */
+/** The pure decisions behind the five player faces and the clipboard tray's copy. */
 class PlayerFaceTest {
+
+    @Test
+    fun `there are five faces, and nothing else claims to be one`() {
+        assertEquals(5, PlayerFace.entries.size)
+    }
 
     @Test
     fun `an unknown stored id falls back rather than crashing`() {
