@@ -111,6 +111,9 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     val face = PlayerFace.of(vm.prefs.playerFace.collectAsStateWithLifecycle().value)
     val uninterrupted by vm.prefs.uninterrupted.collectAsStateWithLifecycle()
     val glow by vm.prefs.livingGlow.collectAsStateWithLifecycle()
+    val glowLevel = dev.niccc2007.filet.playback.GlowLevel.of(
+        vm.prefs.glowLevel.collectAsStateWithLifecycle().value,
+    )
     val speed by playback.speed.collectAsStateWithLifecycle()
     val sleepAt by playback.sleepAt.collectAsStateWithLifecycle()
     val pitch = dev.niccc2007.filet.playback.PitchMode.of(
@@ -184,6 +187,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         onTint = onTint,
         uninterrupted = uninterrupted,
         glow = glow,
+        glowLevel = glowLevel,
         speed = speed,
         sleepLeft = sleepLeft,
         maxSpeed = maxSpeed,
@@ -212,7 +216,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
             dev.niccc2007.filet.playback.LivingGlow(
                 base = colors.accent,
                 running = glow && state.playing,
-                strength = dev.niccc2007.filet.playback.GLOW_OVER_ART,
+                strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * glowLevel.scale,
             )
         }
 
@@ -294,6 +298,7 @@ private class PlayerCtx(
     val onTint: androidx.compose.ui.graphics.Color,
     val uninterrupted: Boolean,
     val glow: Boolean,
+    val glowLevel: dev.niccc2007.filet.playback.GlowLevel,
     val speed: Float,
     val sleepLeft: Int,
     val maxSpeed: Float,
@@ -479,7 +484,7 @@ private fun BoxScope.AmbientFace(c: PlayerCtx) {
     dev.niccc2007.filet.playback.LivingGlow(
         base = c.tint,
         running = c.glow && c.state.playing,
-        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART,
+        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowLevel.scale,
     )
     dev.niccc2007.filet.playback.AmbientVeil(MaterialTheme.colorScheme.background)
     Column(Modifier.fillMaxSize()) {
@@ -548,7 +553,7 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
     dev.niccc2007.filet.playback.LivingGlow(
         base = c.tint,
         running = c.glow && c.state.playing,
-        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART,
+        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowLevel.scale,
     )
     dev.niccc2007.filet.playback.AmbientVeil(MaterialTheme.colorScheme.background)
     Column(Modifier.fillMaxSize()) {
@@ -745,7 +750,7 @@ private fun BoxScope.ImmersiveFace(c: PlayerCtx) {
     dev.niccc2007.filet.playback.LivingGlow(
         base = c.tint,
         running = c.glow && c.state.playing,
-        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART,
+        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowLevel.scale,
     )
     ImmersiveVeil()
     Box(

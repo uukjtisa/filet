@@ -315,6 +315,25 @@ class Prefs(context: Context) {
         sp.edit().putBoolean(K_GLOW, on).apply()
     }
 
+    /**
+     * How strong the living glow is painted. See `GlowLevel`.
+     *
+     * Separate from [livingGlow] because they are different questions: that one is whether
+     * the background moves at all, this one is how much of it there is. One strength cannot
+     * suit every cover - the lights are the artwork's own colour, and a deep one lands far
+     * heavier than a dusty one at the same alpha.
+     *
+     * Cycled from the minimised strip as well as set in Settings, because the strip is where
+     * it is noticed and a control six inches from the thing it changes beats three taps.
+     */
+    private val _glowLevel = MutableStateFlow(sp.getString(K_GLOW_LEVEL, null))
+    val glowLevel: StateFlow<String?> = _glowLevel.asStateFlow()
+
+    fun setGlowLevel(v: String) {
+        _glowLevel.value = v
+        sp.edit().putString(K_GLOW_LEVEL, v).apply()
+    }
+
     /** Which face the full music player draws. See `PlayerFace`. */
     /**
      * Whether a slowed track keeps its pitch or drops with the speed.
@@ -532,6 +551,7 @@ class Prefs(context: Context) {
         const val K_PITCH_MODE = "play.pitch"
         const val K_PLAYER_FACE = "play.face"
         const val K_GLOW = "play.glow"
+        const val K_GLOW_LEVEL = "play.glowLevel"
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
 }

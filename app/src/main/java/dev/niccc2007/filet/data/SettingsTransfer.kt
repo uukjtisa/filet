@@ -93,7 +93,7 @@ object SettingsTransfer {
                 "sort.key", "sort.desc", "sort.foldersFirst", "browse.hidden",
                 "drag.behaviour", "index.enabled",
                 "video.keepsPlaying", "play.uninterrupted", "play.face", "play.pitch",
-                "play.glow",
+                "play.glow", "play.glowLevel",
                 "home.hideStorage", "home.hideTermux", "home.folder",
                 "update.notificationsOff", "update.notesFraction",
             ),

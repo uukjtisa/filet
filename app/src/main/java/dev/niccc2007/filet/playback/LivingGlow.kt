@@ -17,6 +17,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalContext
 import kotlin.math.cos
 import kotlin.math.sin
@@ -66,23 +67,64 @@ fun LivingGlow(
     base: Color,
     running: Boolean,
     strength: Float = 1f,
+    spread: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier.fillMaxSize().livingGlow(base, running, strength))
+    Box(modifier.fillMaxSize().livingGlow(base, running, strength, spread))
 }
 
-/** The glow as a background on something that is already laid out. */
+/**
+ * The glow as a background on something that is already laid out.
+ *
+ * @param spread how big the lights are against the surface. 1 suits something the size of a
+ *   screen; a short wide band needs far less - see [GLOW_SPREAD_STRIP].
+ */
 @Composable
-fun Modifier.livingGlow(base: Color, running: Boolean, strength: Float = 1f): Modifier {
+fun Modifier.livingGlow(
+    base: Color,
+    running: Boolean,
+    strength: Float = 1f,
+    spread: Float = 1f,
+): Modifier {
     val phases = rememberGlowPhases(running)
     val tints = remember(base, strength) { glowTints(base, strength) }
     val a = phases[0]
     val b = phases[1]
     val c = phases[2]
     return drawBehind {
-        glowBlob(tints[0], a, 0.30f, 0.26f, size.maxDimension * 0.80f)
-        glowBlob(tints[1], b, 0.74f, 0.44f, size.maxDimension * 0.95f)
-        glowBlob(tints[2], c, 0.52f, 0.72f, size.maxDimension * 0.65f)
+        // CLIPPED, and this is not optional. `drawBehind` is not bounded by the node it is
+        // on, and a radial brush whose radius is most of the screen does not politely stop at
+        // the edge of a 56dp strip - the first build of this painted the bottom third of the
+        // file list above it. Nothing about that is visible in the source; it had to be seen.
+        clipRect {
+            glowBlob(tints[0], a, 0.30f, 0.26f, size.maxDimension * 0.80f * spread)
+            glowBlob(tints[1], b, 0.74f, 0.44f, size.maxDimension * 0.95f * spread)
+            glowBlob(tints[2], c, 0.52f, 0.72f, size.maxDimension * 0.65f * spread)
+        }
+    }
+}
+
+/**
+ * How much of the glow is painted, as a thing somebody picks.
+ *
+ * One strength cannot be right for every cover. The lights are the artwork's own colour, so a
+ * cover that samples to a deep violet lands far heavier at the same alpha than one that
+ * samples to a dusty orange - the setting that is weather on one album is a coloured panel on
+ * the next. Reported in those terms, about the strip, where it shows first.
+ *
+ * Faint by default: the glow should be noticed on the second look, not the first.
+ */
+enum class GlowLevel(val id: String, val label: String, val scale: Float) {
+    FAINT("faint", "Faint", 0.55f),
+    SOFT("soft", "Soft", 1.0f),
+    STRONG("strong", "Strong", 1.7f);
+
+    companion object {
+        fun of(id: String?): GlowLevel = entries.firstOrNull { it.id == id } ?: FAINT
+
+        /** The next one round, for a control that cycles rather than opening a menu. */
+        fun after(level: GlowLevel): GlowLevel =
+            entries[(entries.indexOf(level) + 1) % entries.size]
     }
 }
 
@@ -193,5 +235,19 @@ fun glowTints(base: Color, strength: Float): List<Color> =
 /** How strong the glow is over a surface that already has a background of its own. */
 const val GLOW_OVER_ART = 0.42f
 
-/** Over a 56dp band, where the lights are nearly the whole surface. */
-const val GLOW_OVER_STRIP = 0.34f
+/**
+ * Over a 56dp band, where the lights are nearly the whole surface.
+ *
+ * Half what it was, measured on the phone rather than guessed: at 0.34 the strip read as a
+ * coloured panel instead of a glow.
+ */
+const val GLOW_OVER_STRIP = 0.17f
+
+/**
+ * And the lights are shrunk to match.
+ *
+ * The radii are a fraction of the surface's LONGEST side, which on a 1080x168 strip is its
+ * width - so each light was six times taller than the band holding it and all that reached
+ * the screen was its flat middle. At this spread three separate lights fit across the strip.
+ */
+const val GLOW_SPREAD_STRIP = 0.38f

@@ -114,6 +114,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val playerFace by prefs.playerFace.collectAsState()
     val pitchMode by prefs.pitchMode.collectAsState()
     val livingGlow by prefs.livingGlow.collectAsState()
+    val glowLevel by prefs.glowLevel.collectAsState()
     val drag by prefs.drag.collectAsState()
     val hideTermux by prefs.hideTermux.collectAsState()
     val tabSize by prefs.tabSize.collectAsState()
@@ -397,6 +398,30 @@ fun SettingsPage(vm: BrowserViewModel) {
                 },
                 livingGlow,
             ) { prefs.setLivingGlow(it) }
+        }
+        if (livingGlow) {
+            item {
+                val level = dev.niccc2007.filet.playback.GlowLevel.of(glowLevel)
+                Column {
+                    SegmentRow(
+                        "How much glow",
+                        dev.niccc2007.filet.playback.GlowLevel.entries.map { it.label },
+                        dev.niccc2007.filet.playback.GlowLevel.entries.indexOf(level),
+                    ) {
+                        prefs.setGlowLevel(
+                            dev.niccc2007.filet.playback.GlowLevel.entries[it].id,
+                        )
+                    }
+                    Text(
+                        "A deep cover throws more colour than a pale one. " +
+                            "The minimised player cycles the same three.",
+                        fontSize = 10.5.sp,
+                        lineHeight = 14.sp,
+                        color = Filet.colors.fg3,
+                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
+                    )
+                }
+            }
         }
         item {
             ToggleRow(

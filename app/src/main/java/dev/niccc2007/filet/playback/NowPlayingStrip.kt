@@ -97,6 +97,7 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
     )
 
     val glow by vm.prefs.livingGlow.collectAsStateWithLifecycle()
+    val level = GlowLevel.of(vm.prefs.glowLevel.collectAsStateWithLifecycle().value)
 
     Column(
         Modifier
@@ -118,7 +119,8 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
             .livingGlow(
                 base = tint,
                 running = glow && state.playing,
-                strength = GLOW_OVER_STRIP,
+                strength = GLOW_OVER_STRIP * level.scale,
+                spread = GLOW_SPREAD_STRIP,
             ),
     ) {
         HorizontalDivider(color = colors.lineSoft)
@@ -136,9 +138,11 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
         }
 
         BoxWithConstraints {
-            // 360dp is the narrow-phone line: below it the title has under 120dp once four
-            // controls and a thumbnail are placed, which is a word and a half.
-            val roomForPrev = maxWidth >= 360.dp
+            // 400dp is the narrow-phone line: below it the title has under 120dp once the
+            // glow switch, four controls and a thumbnail are placed, which is a word and a
+            // half. Previous is what gives way, because it is the one control here that the
+            // full player and the notification both also carry.
+            val roomForPrev = maxWidth >= 400.dp
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -171,6 +175,22 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
                             color = colors.fg3,
                         )
                     }
+                }
+
+                // Here rather than only in Settings, because this is where the glow is
+                // noticed and the thing it changes is an inch from the finger. It cycles
+                // rather than opening a menu: there are three steps, each press shows the
+                // next one on the strip behind it, and a menu over a 56dp band would cover
+                // the very thing being judged. Hidden when the glow is off everywhere - a
+                // control that can do nothing is worse than one that is not there.
+                if (glow) {
+                    StripButton(
+                        FiletIcons.Brightness,
+                        "Background glow: ${level.label} - tap for the next step",
+                        ink = tint.copy(alpha = 0.35f + 0.3f * GlowLevel.entries.indexOf(level)),
+                        size = 32.dp,
+                        glyph = 15.dp,
+                    ) { vm.prefs.setGlowLevel(GlowLevel.after(level).id) }
                 }
 
                 if (roomForPrev && state.canStep) {
