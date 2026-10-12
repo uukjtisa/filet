@@ -176,10 +176,10 @@ fun PaneView(
                         FolderBody(pane, vm, s, app, metrics, side, registry, onGhost)
                     else -> SpecialBody(pane, vm, s)
                 }
-                // Floating, and in EVERY pane rather than only the focused one. Put plainly:
-                // the per-pane part is what makes split view unambiguous,
-                // because "Paste" then means THIS side and there is nothing to work out.
-                PastePill(pane, vm, s, app, Modifier.align(Alignment.BottomEnd))
+                // Floating, and in EVERY pane rather than only the focused one. The
+                // per-pane part is what makes split view unambiguous: "Paste" then means
+                // THIS side and there is nothing to work out.
+                Dock(pane, vm, s, app)
                 // Only when there are two panes: alone on screen there is nowhere to drag
                 // between, so a drop target for "this pane's own folder" is a control with
                 // nothing to do.
@@ -709,8 +709,11 @@ private fun FolderBody(
     // bar drawn on top of it are each correct alone and together they hide the last row -
     // scrolling does not help, because at maximum scroll the last row's bottom edge IS the
     // viewport's bottom edge, which is where the floating thing is.
-    val floatingPill = app.clipboard != null && s.kind == PaneKind.FOLDER && s.cwd != null
-    val padBottom = PaneInsets.bottom(floatingPill).dp
+    // The dock is always there on a folder pane, and it grows a paste pill above itself
+    // once something is on the clipboard - so the room to keep clear has two sizes, not two
+    // states of one thing. See PaneInsets.
+    val dock = s.kind == PaneKind.FOLDER && s.cwd != null && !s.selecting
+    val padBottom = PaneInsets.bottom(dock, loaded = app.clips.totalItems > 0).dp
     // Zero: the band overlays rather than reserving. See PaneInsets.end for why both of the
     // alternatives were worse.
     val padEnd = PaneInsets.end(app.split != SplitMode.OFF).dp
@@ -1097,69 +1100,3 @@ private fun PaneContextMenu(
     )
 }
 
-/**
- * Where a copy or a move finishes.
- *
-. He is right, and the failure
- * is worse than one of discoverability: after Copy, the app holds state that nothing on screen
- * mentions. A clipboard you cannot see is a clipboard you forget you filled.
- *
- * So the moment something is copied or cut, every pane grows a pill that says how many and
- * offers to put them here. Compact rather than a full-width bar, because it sits over a file
- * list somebody is still reading; per-pane rather than focused-pane, because "here" has to be
- * a place and not a guess.
- *
- * It refuses with a reason on a read-only volume rather than disappearing - a control that
- * vanishes leaves you wondering whether the copy survived.
- */
-@Composable
-private fun PastePill(
-    pane: PaneController,
-    vm: BrowserViewModel,
-    s: PaneState,
-    app: AppState,
-    modifier: Modifier = Modifier,
-) {
-    val clip = app.clipboard ?: return
-    if (s.kind != PaneKind.FOLDER || s.cwd == null) return
-    val colors = Filet.colors
-    val readOnly = vm.writeBlockReason(s.cwd)
-    val verb = if (clip.op == dev.niccc2007.filet.ops.PendingOp.MOVE) "Move" else "Paste"
-    val count = clip.items.size
-
-    Row(
-        modifier
-            .padding(end = 12.dp, bottom = 12.dp)
-            .clip(RoundedCornerShape(50))
-            .background(if (readOnly == null) colors.accent else colors.high)
-            .clickable {
-                if (readOnly != null) vm.toast(readOnly) else vm.pasteInto(pane)
-            }
-            .padding(start = 14.dp, end = 6.dp, top = 9.dp, bottom = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            // Names the folder, so in split view there is no question which side it lands in.
-            "$verb $count here",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            color = if (readOnly == null) MaterialTheme.colorScheme.onPrimary else colors.fg3,
-        )
-        Spacer(Modifier.width(4.dp))
-        // Cancelling has to be as reachable as pasting, or the pill is something you have to
-        // obey rather than something you can dismiss.
-        Box(
-            Modifier
-                .size(24.dp)
-                .clip(RoundedCornerShape(50))
-                .clickable { vm.clearClipboard() },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                "×",
-                fontSize = 14.sp,
-                color = if (readOnly == null) MaterialTheme.colorScheme.onPrimary else colors.fg3,
-            )
-        }
-    }
-}

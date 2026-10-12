@@ -25,9 +25,6 @@ enum class PendingOp { COPY, MOVE }
 /** What to do when a destination name is already taken. */
 enum class Conflict { RENAME, OVERWRITE, SKIP }
 
-data class Clipboard(val items: List<VPath>, val op: PendingOp) {
-    val size: Int get() = items.size
-}
 
 /**
  * The outcome of a batch: partial success is the common case and must be reportable.

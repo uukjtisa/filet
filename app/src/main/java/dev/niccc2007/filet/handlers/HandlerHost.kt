@@ -118,18 +118,16 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
             shareFor?.let { ask -> ShareChoiceSheet(vm, ask) }
         }
 
-        // The second sheet: not "what can Filet do with this" but "which installed app".
-        // Two sheets rather than one list, because the questions are different and mixing
-        // Filet's own viewers with thirty third-party apps makes both harder to scan.
-        AnimatedVisibility(
-            visible = appPick != null,
-            enter = fadeIn() + slideInVertically { it / 3 },
-            exit = fadeOut() + slideOutVertically { it / 3 },
-        ) {
-            appPick?.let { pick ->
-                BackHandler(enabled = true) { vm.dismissAppPicker() }
-                AppPickerSheet(vm, pick)
-            }
+        // The second dialogue: not "what can Filet do with this" but "which installed app".
+        // Two questions rather than one list, because mixing Filet's own viewers with thirty
+        // third-party apps makes both harder to scan - but ONE shape, drawn by the dialogue
+        // kit like everything else. See AppPicker.kt for the sheet it replaced.
+        //
+        // No AnimatedVisibility round it: Dlg is its own window and animates itself, and
+        // wrapping a Dialog in one only animates a zero-size placeholder in this layout.
+        appPick?.let { pick ->
+            BackHandler(enabled = true) { vm.dismissAppPicker() }
+            AppPickerDialog(vm, pick)
         }
 
         AnimatedVisibility(

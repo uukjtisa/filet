@@ -215,16 +215,25 @@ fun Modifier.marqueeFade(running: Boolean): Modifier =
             )
         }
 
-private const val SATURATION = 3.4f
-private const val WIDE_ALPHA = 0.52f
-private const val HOT_ALPHA = 0.34f
-private const val WIDE_SCALE = 1.9f
-private const val HOT_SCALE = 1.5f
-private val WIDE_BLUR = 110.dp
-private val HOT_BLUR = 80.dp
+/*
+ * Spread, not intensity - and the numbers that worked in the browser were wrong here.
+ *
+ * The mock's values were tuned against a CSS blur over an HTML background. Compose's blur is
+ * a render effect on a layer and `ContentScale.Crop` under a 1.9x scale magnifies the frame,
+ * so the same alpha lands far hotter: on the phone it read as a wall of colour where the mock
+ * read as a lit room. Saturation and both alphas come down, the blur radii and the scales go
+ * up. The brief has not changed - the colour should reach the edges and stay faint.
+ */
+private const val SATURATION = 2.2f
+private const val WIDE_ALPHA = 0.34f
+private const val HOT_ALPHA = 0.17f
+private const val WIDE_SCALE = 2.4f
+private const val HOT_SCALE = 1.8f
+private val WIDE_BLUR = 150.dp
+private val HOT_BLUR = 110.dp
 
 /** The colour is allowed to travel this far down before the veil begins. */
-private const val VEIL_START = 0.54f
+private const val VEIL_START = 0.46f
 
 /** One full out-and-back. Slow enough to read, quick enough not to feel stuck. */
 private const val CYCLE_MS = 14_000

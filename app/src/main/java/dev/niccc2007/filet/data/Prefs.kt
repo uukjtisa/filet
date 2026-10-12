@@ -297,6 +297,20 @@ class Prefs(context: Context) {
     }
 
     /** Which face the full music player draws. See `PlayerFace`. */
+    /**
+     * Whether a slowed track keeps its pitch or drops with the speed.
+     *
+     * Off means the framework time-stretches to hold the pitch, which is what warbles below
+     * about 0.75x. On is plain resampling: smooth, and deeper. See `Playback.applySpeed`.
+     */
+    private val _pitchMode = MutableStateFlow(sp.getString(K_PITCH_MODE, null))
+    val pitchMode: StateFlow<String?> = _pitchMode.asStateFlow()
+
+    fun setPitchMode(v: String) {
+        _pitchMode.value = v
+        sp.edit().putString(K_PITCH_MODE, v).apply()
+    }
+
     private val _playerFace = MutableStateFlow(sp.getString(K_PLAYER_FACE, null))
     val playerFace: StateFlow<String?> = _playerFace.asStateFlow()
 
@@ -496,6 +510,7 @@ class Prefs(context: Context) {
         const val K_UPD_OFF = "update.notificationsOff"
         const val K_VIDEO_BG = "video.keepsPlaying"
         const val K_UNINTERRUPTED = "play.uninterrupted"
+        const val K_PITCH_MODE = "play.pitch"
         const val K_PLAYER_FACE = "play.face"
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }

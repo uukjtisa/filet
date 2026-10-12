@@ -10,14 +10,31 @@ class PaneInsetsTest {
     fun `the last row is never flush, even with nothing floating`() {
         // The reported symptom: the last entry sitting against the selection bar reads as
         // clipped. Zero here is what produced it.
-        assertTrue(PaneInsets.bottom(pastePill = false) > 0)
+        assertTrue(PaneInsets.bottom(dock = false) > 0)
     }
 
     @Test
-    fun `the paste pill reserves exactly its own height`() {
-        val without = PaneInsets.bottom(pastePill = false)
-        val with = PaneInsets.bottom(pastePill = true)
-        assertEquals(PaneInsets.PASTE_PILL, with - without)
+    fun `the dock reserves exactly its own height`() {
+        val without = PaneInsets.bottom(dock = false)
+        val with = PaneInsets.bottom(dock = true)
+        assertEquals(PaneInsets.DOCK, with - without)
+    }
+
+    @Test
+    fun `a loaded clipboard reserves the pill on top of the dock`() {
+        val bare = PaneInsets.bottom(dock = true)
+        val loaded = PaneInsets.bottom(dock = true, loaded = true)
+        assertEquals(PaneInsets.PASTE_PILL, loaded - bare)
+    }
+
+    @Test
+    fun `a loaded clipboard reserves nothing where there is no dock to put it above`() {
+        // The pill is drawn in the dock's own stack, so a pane without a dock has no pill -
+        // reserving for one would leave a hole under the last row on every special pane.
+        assertEquals(
+            PaneInsets.bottom(dock = false),
+            PaneInsets.bottom(dock = false, loaded = true),
+        )
     }
 
     @Test
@@ -47,12 +64,19 @@ class PaneInsetsTest {
     fun `a resting overlay reserves at least as much as it draws`() {
         // The invariant that matters for anything PERMANENT: reserving less than the overlay's
         // size still hides part of a row, and that is harder to spot than hiding all of it.
-        assertTrue(PaneInsets.bottom(pastePill = true) >= PaneInsets.PASTE_PILL)
+        assertTrue(PaneInsets.bottom(dock = true) >= PaneInsets.DOCK)
+        assertTrue(
+            PaneInsets.bottom(dock = true, loaded = true) >= PaneInsets.DOCK + PaneInsets.PASTE_PILL,
+        )
     }
 
     @Test
     fun `reserved space is never negative`() {
-        for (pill in listOf(true, false)) assertTrue(PaneInsets.bottom(pill) >= 0)
+        for (dock in listOf(true, false)) {
+            for (loaded in listOf(true, false)) {
+                assertTrue(PaneInsets.bottom(dock, loaded) >= 0)
+            }
+        }
         for (split in listOf(true, false)) assertTrue(PaneInsets.end(split) >= 0)
     }
 }

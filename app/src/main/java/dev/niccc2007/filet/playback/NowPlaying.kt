@@ -101,6 +101,45 @@ object PlaybackNotice {
         return if (state.canStep) "${state.position} of ${state.size}" else ""
     }
 
+    /**
+     * The notification's second line: who made it, or what it is.
+     *
+     * Apart from [subtitle] because the two surfaces have different room. The strip has one
+     * narrow line and has to fold the queue position into it; a notification has a third
+     * line of its own, so putting "4 of 37" in the second one there wastes the space the
+     * artist should be in and then says the position twice.
+     */
+    fun line2(state: NowPlaying): String {
+        val t = state.current ?: return ""
+        t.artist?.takeIf { it.isNotBlank() }?.let { artist ->
+            return listOfNotNull(artist, t.album?.takeIf { it.isNotBlank() })
+                .joinToString("  ·  ")
+        }
+        // No tags is the common case on a phone full of downloads, and the folder is the
+        // honest answer: it is where the thing came from and it is usually the playlist.
+        return state.current?.let { folderOf(it) } ?: ""
+    }
+
+    /**
+     * The third line, which only a notification has: where you are, and what is on.
+     *
+     * A lock screen is looked at to answer "how far through am I" and "is this on repeat",
+     * and neither was anywhere on the card before.
+     */
+    fun line3(state: NowPlaying): String = listOfNotNull(
+        "${state.position} of ${state.size}".takeIf { state.canStep },
+        when (state.repeat) {
+            Repeat.ONE -> "Repeating this track"
+            Repeat.ALL -> "Repeating the queue"
+            Repeat.OFF -> null
+        },
+        "Shuffled".takeIf { state.shuffle },
+    ).joinToString("  ·  ")
+
+    /** The folder a track's id points into, or empty. The id is a path, so this is free. */
+    private fun folderOf(track: Track): String =
+        track.id.substringBeforeLast('/', "").substringAfterLast('/', "")
+
     /** What the play/pause control does next, as a label for a content description. */
     fun toggleLabel(state: NowPlaying): String = if (state.playing) "Pause" else "Play"
 

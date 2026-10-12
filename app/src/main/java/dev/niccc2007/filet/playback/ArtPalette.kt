@@ -103,6 +103,44 @@ object ArtPalette {
         return Result(rgb, on, usable = true)
     }
 
+    /**
+     * The same hue, as a GROUND rather than as a control.
+     *
+     * [of] lightens until the colour clears 4.5:1 against a dark panel, because what it
+     * produces fills a 68dp play button that has to be findable. Painting a whole
+     * notification card with that is a slab of neon - reported in exactly those words - and
+     * the reason is that the two jobs want opposite lightnesses: a small shape on a dark
+     * screen has to be brighter than its ground, and a large area that text sits ON has to
+     * be darker than the text.
+     *
+     * So this takes the hue and the saturation the sampler found and re-renders them at
+     * [GROUND_L], which is dim enough that the system's own "is this background dark"
+     * test picks white text over it, and saturated enough that the card is still obviously
+     * the colour of the track rather than grey.
+     *
+     * Returns 0 for an unusable sample, so a caller can leave the card alone.
+     */
+    fun ground(result: Result): Int {
+        if (!result.usable) return 0
+        val (h, s, _) = hsl(
+            result.colour shr 16 and 0xFF,
+            result.colour shr 8 and 0xFF,
+            result.colour and 0xFF,
+        )
+        // Saturation is pulled DOWN as well as the lightness. A deep colour at the
+        // control's 0.82 saturation reads as an alert; big areas want less of it.
+        return fromHsl(h, (s * 0.72).coerceIn(0.22, 0.60), GROUND_L)
+    }
+
+    /**
+     * How dark a card's ground is.
+     *
+     * 0.19 puts every hue's luminance well under the 0.5 the platform splits light and dark
+     * text on, so white text is chosen on a yellow track as surely as on a blue one - and a
+     * notification whose text colour flips between tracks is the thing this avoids.
+     */
+    const val GROUND_L = 0.19
+
     fun panel(): Int = (PANEL_R shl 16) or (PANEL_G shl 8) or PANEL_B
 
     /** WCAG relative luminance. */
@@ -157,5 +195,26 @@ object ArtPalette {
         }
         fun byte(v: Double) = ((v + m) * 255).toInt().coerceIn(0, 255)
         return (byte(r) shl 16) or (byte(g) shl 8) or byte(b)
+    }
+
+    /**
+     * The same answer, taken straight off a bitmap.
+     *
+     * Here rather than in the composable so the notification can reach it: the shade is built
+     * in a Service with no composition, and the one thing worse than an uncoloured card is a
+     * card coloured by a second implementation that drifts from the screen's.
+     *
+     * A 24x24 downscale and a pass over 576 pixels - this is looking for the dominant hue,
+     * not for detail. It is NOT safe to call on a hot path and is not meant to be: the one
+     * caller rebuilds the notification when the track changes.
+     */
+    fun ofBitmap(bitmap: android.graphics.Bitmap): Result {
+        val small = runCatching {
+            android.graphics.Bitmap.createScaledBitmap(bitmap, 24, 24, true)
+        }.getOrNull() ?: return NONE
+        val px = IntArray(24 * 24)
+        runCatching { small.getPixels(px, 0, 24, 0, 0, 24, 24) }.onFailure { return NONE }
+        if (small !== bitmap) small.recycle()
+        return of(IntArray(px.size) { px[it] and 0xFFFFFF })
     }
 }

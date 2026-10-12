@@ -218,6 +218,42 @@ class Playback(
         load(restart = true, startAtMs = startAtMs)
     }
 
+    /**
+     * Take a video's sound over WITHOUT a gap, from the screen that is still playing it.
+     *
+     * The ordinary [play] path seeks to a position captured when the button was pressed, and
+     * by the time `prepare()` has read the header that position is a few hundred milliseconds
+     * stale - so the music started by replaying the bit you had just heard. Reported as the
+     * switch "cutting".
+     *
+     * [positionNow] is read AFTER the decoder is prepared and immediately before it starts,
+     * so it is asked of the still-running video at the last possible moment. The two players
+     * therefore meet at the same instant of the file instead of at two instants a prepare
+     * apart.
+     *
+     * `asAudio` is also deferred: it is what routes the media host from the video screen to
+     * the music face, so flipping it at the START of the hand-off would unmount the video -
+     * and the video is the thing [positionNow] is reading. It is set once the sound is
+     * actually running, and [whenPlaying] is the screen's cue to let go.
+     */
+    fun handOffFromVideo(
+        track: Track,
+        positionNow: () -> Long,
+        whenPlaying: () -> Unit = {},
+    ) {
+        _state.value = _state.value.copy(
+            queue = listOf(track), index = 0, active = true, error = null,
+        )
+        load(
+            restart = true,
+            startAt = positionNow,
+            then = {
+                _asAudio.value = true
+                whenPlaying()
+            },
+        )
+    }
+
     /** Whether [id] is the track the player is on, so a screen can tell. */
     fun isCurrent(id: String): Boolean = _state.value.current?.id == id
 
@@ -241,7 +277,14 @@ class Playback(
         _asAudio.value = false
     }
 
-    private fun load(restart: Boolean, startAtMs: Long = 0L) {
+    private fun load(
+        restart: Boolean,
+        startAtMs: Long = 0L,
+        /** Read just before the decoder starts, for a gapless hand-off. See [handOffFromVideo]. */
+        startAt: (() -> Long)? = null,
+        /** Run once the track is actually playing, on the main scope. */
+        then: (() -> Unit)? = null,
+    ) {
         loadJob?.cancel()
         releasePlayer()
         val track = _state.value.current ?: run {
@@ -291,8 +334,11 @@ class Playback(
             )
             // Sought BEFORE starting, so a hand-off from the video screen resumes where that
             // screen was rather than playing a moment from the beginning first.
-            if (startAtMs > 0L) seekTo(startAtMs)
+            val at = startAt?.invoke() ?: startAtMs
+            if (at > 0L) seekTo(at)
+            applySpeed(prepared)
             if (restart) resume()
+            then?.invoke()
 
             val tags = runCatching { readTags(track.id, uri) }.getOrNull()
             if (tags != null) {
@@ -386,6 +432,130 @@ class Playback(
         _state.value = _state.value.copy(positionMs = to)
     }
 
+    /**
+     * Playback speed, 0.5x to 2x.
+     *
+     * On the player rather than on the screen, for the same reason repeat is: the chip in the
+     * music face, the one in the video chrome and anything the session grows later have to
+     * agree, and a speed held in a composition is lost the moment the screen is left.
+     *
+     * `playbackParams` restarts a paused `MediaPlayer` on some devices - a documented quirk,
+     * not a rumour - so it is applied and then the play state is put back the way it was.
+     */
+    fun setSpeed(rate: Float) {
+        val clamped = rate.coerceIn(MIN_SPEED, maxSpeed)
+        _speed.value = clamped
+        player?.let { applySpeed(it) }
+    }
+
+    /**
+     * The fastest this DEVICE will actually play, discovered rather than assumed.
+     *
+     * Asked for a slider that goes to 100x. It cannot, and the reason is not a policy: at
+     * 100x a 48 kHz track is 4.8 MHz of samples a second going into a sink that runs at 48,
+     * so `AudioTrack` refuses the rate and `setPlaybackParams` throws
+     * `IllegalArgumentException`. Android's own resampler tops out far below that.
+     *
+     * Rather than pick a number and hope, the player starts optimistic at [MAX_SPEED] and
+     * walks DOWN the first time a device says no, remembering what it accepted. So a phone
+     * that manages 4x gets 4x and a phone that manages 2x gets 2x, and neither gets a slider
+     * position that silently does nothing.
+     */
+    private val _maxSpeed = MutableStateFlow(MAX_SPEED)
+    val maxSpeedFlow: StateFlow<Float> = _maxSpeed.asStateFlow()
+    private val maxSpeed: Float get() = _maxSpeed.value
+
+    private fun applySpeed(p: MediaPlayer) {
+        val rate = _speed.value
+        val pitch = _pitch.value.pitchFor(rate)
+        // 1.0 at the default pitch is what a fresh player already does; touching
+        // `playbackParams` costs a reconfigure, so a player nobody has slowed is left alone.
+        if (rate == 1f && pitch == 1f && !speedTouched) return
+        speedTouched = true
+        val wasPlaying = _state.value.playing
+        val ok = runCatching {
+            p.playbackParams = p.playbackParams
+                .setSpeed(rate)
+                // The whole of the smoothness question, and it is one number.
+                //
+                // At pitch 1.0 the framework runs a TIME-STRETCHER: it keeps the pitch by
+                // cutting the audio into grains and overlapping them, and at 0.75x and below
+                // that is what warbles - a metallic flutter on sustained notes and a stutter
+                // on speech. It is not Filet dropping frames, which is what it sounds like.
+                //
+                // Pitch tied to speed is plain resampling - the tape effect - and resampling
+                // has no artefacts at all, because there is nothing to invent. It is the
+                // smooth option, and the cost is that a slowed voice goes deep.
+                //
+                // Which of the two it gets is [PitchMode]'s decision, and the default
+                // holds the pitch only while the stretcher is good at it. See PitchMode.
+                .setPitch(pitch)
+        }.isSuccess
+        if (!ok) {
+            // The device refused this rate. Remember the fastest it DID take and fall back
+            // to it, rather than leaving the slider somewhere that plays nothing.
+            if (rate > 1f) {
+                _maxSpeed.value = maxOf(1f, (rate - SPEED_BACKOFF))
+                _speed.value = _maxSpeed.value
+                runCatching { p.playbackParams = p.playbackParams.setSpeed(_speed.value).setPitch(1f) }
+            }
+            return
+        }
+        // Documented quirk: on some devices writing `playbackParams` STARTS a paused player.
+        if (!wasPlaying) runCatching { p.pause() }
+    }
+
+    /**
+     * What happens to the pitch when the speed changes.
+     *
+     * Held here and not only in Prefs because the decoder has to be told, and because the
+     * sheet, Settings and the video player read one value. Set from Prefs at startup, the
+     * same way [uninterrupted] is.
+     */
+    private val _pitch = MutableStateFlow(PitchMode.DEFAULT)
+    val pitch: StateFlow<PitchMode> = _pitch.asStateFlow()
+
+    fun setPitchMode(mode: PitchMode) {
+        if (_pitch.value == mode) return
+        _pitch.value = mode
+        player?.let { applySpeed(it) }
+    }
+
+    private val _speed = MutableStateFlow(1f)
+    val speed: StateFlow<Float> = _speed.asStateFlow()
+    private var speedTouched = false
+
+    /**
+     * The sleep timer: stop playing at a wall-clock moment, or never.
+     *
+     * The deadline is published rather than the remaining minutes, so every surface counts
+     * down off one number instead of each keeping its own ticker - and a surface that was not
+     * on screen while it ran shows the right thing the moment it appears.
+     *
+     * It PAUSES rather than stopping. Falling asleep to a folder of music and finding the
+     * queue gone in the morning is a worse outcome than finding it paused, and pause is the
+     * state the notification can undo with one press.
+     */
+    private val _sleepAt = MutableStateFlow(0L)
+    val sleepAt: StateFlow<Long> = _sleepAt.asStateFlow()
+    private var sleepJob: Job? = null
+
+    /** @param minutes 0 to cancel. */
+    fun setSleepTimer(minutes: Int) {
+        sleepJob?.cancel()
+        if (minutes <= 0) {
+            _sleepAt.value = 0L
+            return
+        }
+        val ms = minutes * 60_000L
+        _sleepAt.value = android.os.SystemClock.elapsedRealtime() + ms
+        sleepJob = scope.launch {
+            delay(ms)
+            _sleepAt.value = 0L
+            if (_state.value.playing) pause()
+        }
+    }
+
     fun setRepeat(repeat: Repeat) {
         _state.value = _state.value.copy(repeat = repeat)
         // Applied to the running player, not only to the next one. Switching to Repeat one
@@ -421,6 +591,8 @@ class Playback(
     /** Finished with. Clears the queue, so the strip and the notification both go away. */
     fun stop() {
         loadJob?.cancel()
+        sleepJob?.cancel()
+        _sleepAt.value = 0L
         releasePlayer()
         abandonFocus()
         _art.value = null

@@ -92,7 +92,7 @@ object SettingsTransfer {
             listOf(
                 "sort.key", "sort.desc", "sort.foldersFirst", "browse.hidden",
                 "drag.behaviour", "index.enabled",
-                "video.keepsPlaying", "play.uninterrupted", "play.face",
+                "video.keepsPlaying", "play.uninterrupted", "play.face", "play.pitch",
                 "home.hideStorage", "home.hideTermux", "home.folder",
                 "update.notificationsOff", "update.notesFraction",
             ),

@@ -204,7 +204,61 @@ object FiletIcons {
     val Next = filled("next", "M15.6 5H18v14h-2.4z", "M4 5v14l10-7z")
     val Shuffle = stroke("shuffle", "M16 4h4v4", "M4 20 20 4", "M16 20h4v-4", "m4 4 6 6", "m15 15 5 5")
     val Repeat = stroke("repeat", "M4 11V9a3 3 0 0 1 3-3h10", "m14 3 3 3-3 3", "M20 13v2a3 3 0 0 1-3 3H7", "m10 21-3-3 3-3")
+
+    /**
+     * Repeat, with a 1 inside it.
+     *
+     * The three repeat states used to be one glyph and a tint, which says "on" and not WHICH
+     * on - a lit repeat-queue and a lit repeat-one looked the same. The first fix put a line
+     * of text under the transport saying which; asked for again, and better: *"make the icon
+     * for repeat this track be a sub one on the icon instead of a separate label."* Right -
+     * every player does it this way, the numeral is read without being looked at, and a
+     * sentence under the play button is a caption on a control that should not need one.
+     */
+    val RepeatOne = stroke(
+        "repeatone",
+        "M4 11V9a3 3 0 0 1 3-3h10", "m14 3 3 3-3 3",
+        "M20 13v2a3 3 0 0 1-3 3H7", "m10 21-3-3 3-3",
+        // The numeral, drawn rather than set in type: a 7sp Text inside a 19dp icon does not
+        // survive the icon being drawn at 16dp in a compact transport.
+        "M10.9 10.9 12.4 10v4.4", "M11.2 14.4h2.4",
+        width = 1.7f,
+    )
     val Expand = stroke("expand", "M4 9V4h5", "M20 9V4h-5", "M4 15v5h5", "M20 15v5h-5")
+
+    /**
+     * A plain chevron pointing down.
+     *
+     * The set had [Up], [Back] and [Forward] but no down, so every "collapse this" and every
+     * "minimise the player" borrowed one of the three and read as the wrong gesture. Drawn to
+     * match [Up]'s weight rather than rotated, for the same reason [Forward] is drawn rather
+     * than mirrored: a rotated glyph has its optical centre in the wrong place.
+     */
+    val Down = stroke("down", "m5.5 9.5 6.5 6.5 6.5-6.5", width = 1.9f)
+
+    /** Playback speed: a dial with a hand. Not a rabbit, not a stack of chevrons. */
+    val Speed = stroke("speed", "M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0", "M12 12l4-3")
+
+    /** The sleep timer. A stopwatch, because a crescent moon reads as a dark theme toggle. */
+    val Timer = stroke(
+        "timer",
+        "M20.5 13a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0",
+        "M9.5 3h5M12 8.5V13",
+    )
+
+    /**
+     * A move, as the clipboard tray draws it.
+     *
+     * Four arrows out of a cross: the one glyph that means "take this somewhere" without
+     * naming a direction. [Cut]'s scissors are the ACTION; this is the batch sitting on the
+     * clipboard waiting, and the two want to be told apart at a glance.
+     */
+    val Move = stroke(
+        "move",
+        "M12 4v16M4 12h16",
+        "m9 7 3-3 3 3M9 17l3 3 3-3",
+        "m7 9-3 3 3 3M17 9l3 3-3 3",
+    )
 
     /**
      * Uninterrupted playback.

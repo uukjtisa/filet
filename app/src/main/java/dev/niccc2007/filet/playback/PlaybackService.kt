@@ -291,6 +291,31 @@ class PlaybackService : Service() {
         }
     }
 
+    /**
+     * The shade card.
+     *
+     * ## What the overhaul changed, and why each piece
+     *
+     * It was correct and anonymous: the launcher icon, a filename, a bare second line, and
+     * five grey buttons on whatever grey the system picked. Asked for directly - colour it
+     * from the artwork, make the title better, and sort the buttons out.
+     *
+     *  - **It is coloured by the track.** [Notification.Builder.setColorized] paints the whole
+     *    card, and it is honoured only for a FOREGROUND-SERVICE notification, which this is -
+     *    that is the one reason this can look like a music app's card rather than a grey row.
+     *    The colour comes from the same [ArtPalette] the player screen uses, so the shade and
+     *    the screen are the same hue on the same track rather than two guesses.
+     *  - **The title is the title, not the filename.** `PlaybackNotice.title` already reads
+     *    the tags; what was missing is the THIRD line. A card has room for a sub-text and the
+     *    useful thing to put in it is where this is playing from and where you are in it -
+     *    which is what a lock screen is being looked at for.
+     *  - **The buttons mean something.** Repeat shows which of its three states it is in with
+     *    its own glyph and says so in words, and Stop is last and separate because it is the
+     *    one press here that cannot be undone by pressing it again.
+     *
+     * @param art the embedded cover, or a frame of the video being played as sound - the same
+     *   moment the player screen loops, so the two show the same file the same way.
+     */
     private fun build(state: NowPlaying?, art: android.graphics.Bitmap?): Notification {
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL)
@@ -302,18 +327,37 @@ class PlaybackService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         builder
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(FiletIconRes.NOTE)
             .setContentTitle(state?.let { PlaybackNotice.title(it) } ?: "Playing")
-            .setContentText(state?.let { PlaybackNotice.subtitle(it) }.orEmpty())
+            .setContentText(state?.let { PlaybackNotice.line2(it) }.orEmpty())
             .setContentIntent(open)
             .setOngoing(state?.playing == true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
-        // The picture. For a song this is its embedded cover; for a video played as audio it
-        // is a frame taken where the player screen's loop starts, so the shade and the screen
-        // show the same moment of the same file.
+        state?.let { s ->
+            val sub = PlaybackNotice.line3(s)
+            if (sub.isNotEmpty()) builder.setSubText(sub)
+        }
         art?.let { builder.setLargeIcon(it) }
+
+        // The colour, sampled off the artwork on this thread.
+        //
+        // It is a 24x24 downscale and a pass over 576 pixels, and `post` is already called
+        // from a flow collector rather than from a hot path - so this is cheaper than the
+        // bitmap scale the shade is about to do with the large icon anyway.
+        val tint = art?.let { ArtPalette.ofBitmap(it) }?.takeIf { it.usable }
+        if (tint != null) {
+            // The GROUND, not the control colour. `ArtPalette.of` lightens until it clears
+            // 4.5:1 against a dark panel, which is right for a 68dp play button and is a slab
+            // of neon across a whole card - reported as "too bright". See ArtPalette.ground.
+            builder.setColor(0xFF000000.toInt() or ArtPalette.ground(tint))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // Only honoured on a foreground-service notification, and silently ignored
+                // otherwise - so this is not a promise, it is an ask the system may refuse.
+                builder.setColorized(true)
+            }
+        }
 
         val stepping = state?.canStep == true
         // Order is the compact row's order, and the compact row is three. Previous, play/pause
@@ -418,6 +462,14 @@ class PlaybackService : Service() {
  * is one compile error in one place.
  */
 private object FiletIconRes {
+    /**
+     * The status bar's icon, and it may only be a silhouette.
+     *
+     * Android renders a small icon from its ALPHA channel, so the launcher mipmap this used
+     * to be arrived as a white square. A quaver is both correct and legible at 18dp.
+     */
+    val NOTE = R.drawable.ic_media_note
+
     val PLAY = R.drawable.ic_media_play
     val PAUSE = R.drawable.ic_media_pause
     val NEXT = R.drawable.ic_media_next

@@ -7,15 +7,19 @@ import android.net.Uri
 import android.view.Surface
 import android.view.TextureView
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
@@ -62,13 +66,25 @@ fun VideoPeekView(
     /** Whether the real player is playing. The picture follows the sound. */
     playing: Boolean,
     modifier: Modifier = Modifier,
+    /**
+     * Letterbox instead of filling.
+     *
+     * The artwork square wants the frame CROPPED to it - that is what makes a 9:16 clip read
+     * as cover art. The immersive face wants it contained, because there the picture is the
+     * screen and cropping it to a band is the thing that face exists not to do. The surface
+     * stretches to its box either way, so the box has to be the right shape.
+     */
+    fit: Boolean = false,
     /** Drawn until there are frames: the poster, or the placeholder glyph. */
     placeholder: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     var ready by remember(source) { mutableStateOf(false) }
+    /** Width over height, once the decoder knows. 0 until then. */
+    var ratio by remember(source) { mutableFloatStateOf(0f) }
     val holder = remember { PeekHolder(context.applicationContext) }
+    holder.onRatio = { ratio = it }
 
     // Torn down on the way out, and on the way to the background.
     //
@@ -110,7 +126,7 @@ fun VideoPeekView(
         }
     }
 
-    Box(modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
         if (!ready) placeholder()
         AndroidView(
             factory = { ctx ->
@@ -141,7 +157,11 @@ fun VideoPeekView(
                     }
                 }
             },
-            modifier = Modifier.fillMaxSize(),
+            modifier = if (fit && ratio > 0f) {
+                Modifier.fillMaxSize().wrapContentSize().aspectRatio(ratio)
+            } else {
+                Modifier.fillMaxSize()
+            },
         )
     }
 }
@@ -163,6 +183,9 @@ private class PeekHolder(private val app: Context) {
     private var window: LongRange = LongRange.EMPTY
     private var wantPlaying = true
     private var onFirstFrame: (() -> Unit)? = null
+
+    /** Told once the decoder knows the frame's shape, so a contained view can be shaped. */
+    var onRatio: ((Float) -> Unit)? = null
 
     fun attach(target: Surface, onReady: () -> Unit) {
         surface = target
@@ -188,6 +211,10 @@ private class PeekHolder(private val app: Context) {
                 // Silent, always. The real player owns the sound.
                 setVolume(0f, 0f)
                 setOnPreparedListener { prepared ->
+                    // The frame's shape, for a view that contains rather than crops.
+                    val w = prepared.videoWidth
+                    val h = prepared.videoHeight
+                    if (w > 0 && h > 0) onRatio?.invoke(w.toFloat() / h.toFloat())
                     window = VideoPeek.windowOf(prepared.duration.toLong())
                     runCatching { prepared.seekTo(VideoPeek.loopStart(window).toInt()) }
                     // Looping inside the decoder when the WHOLE file is the loop. A short clip

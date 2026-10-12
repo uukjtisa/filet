@@ -3,6 +3,8 @@ package dev.niccc2007.filet.handlers
 import android.net.Uri
 import android.widget.VideoView
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
@@ -210,17 +212,99 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     var repeating by remember(node.path) { mutableStateOf(true) }
 
     /**
-     * Set by Play as audio, read by the hand-off on the way out.
+     * True from the moment Play as audio is pressed until this screen goes away.
      *
-     * A flag rather than doing the hand-off in the button, because the hand-off needs the
-     * position and the player teardown to happen in the right order and `onDispose` is
-     * already the one place that gets that right. The button says what it wants; the exit
-     * path does it.
+     * It used to be a flag read by `onDispose`: the button closed the screen and the teardown
+     * started the music. That is what made the switch "cut" - the screen vanished instantly,
+     * the file list appeared behind it for a beat, and the audio arrived a prepare later at a
+     * position captured before any of it, so the first thing you heard was a few hundred
+     * milliseconds you had already heard.
+     *
+     * Now the button runs the hand-off and the screen waits for it. Three things overlap
+     * instead of following each other:
+     *
+     *  - the video keeps DECODING while the audio player prepares, so its position is live
+     *    and `handOffFromVideo` can read it at the last instant before the sound starts;
+     *  - its volume ramps to nothing across [HANDOFF_FADE_MS], so there is no double audio
+     *    and no hard stop either;
+     *  - a veil fades up over the picture, so the swap to the music face is a dissolve.
+     *
+     * The screen is not closed at all. `MediaScreen` routes on `Playback.asAudio`, which
+     * `handOffFromVideo` sets once the sound is actually running - so the composition swaps
+     * itself to the music face in place, and "watch" to "listen" stays on one screen instead
+     * of going out to the file list and back.
      */
-    var handOffNow by remember(node.path) { mutableStateOf(false) }
+    var handingOver by remember(node.path) { mutableStateOf(false) }
+
+    /** 0 while watching, 1 once the veil is fully up. Drives the dissolve and the volume. */
+    val handOff by animateFloatAsState(
+        if (handingOver) 1f else 0f,
+        animationSpec = tween(HANDOFF_FADE_MS),
+        label = "hand-off",
+    )
+
+    // The ramp, applied every frame the animation produces. A `setVolume` per frame is a
+    // cheap call on an already-running MediaPlayer - far cheaper than the alternative, which
+    // is cutting the sound dead and hoping the next player is quick.
+    LaunchedEffect(handOff) {
+        if (handingOver) {
+            runCatching {
+                val v = (1f - handOff).coerceIn(0f, 1f)
+                handle.player?.setVolume(v, v)
+            }
+        }
+    }
 
     /** The overflow menu, which now holds everything that is neither a mode nor frequent. */
     var overflow by remember(node.path) { mutableStateOf(false) }
+
+    /**
+     * Playback speed, and the sheet that sets it.
+     *
+     * The same control the music player grew, because a speed is a speed and having it on
+     * one of the two players is the kind of gap that reads as an oversight.
+     *
+     * The sheet is the same composable; only the player it drives is different - this screen
+     * owns its own `MediaPlayer` inside a `VideoView`, which is also why the speed is local
+     * here and lives on the shared player there.
+     *
+     * The PITCH mode is not local. It is the same preference the music player and Settings
+     * read, because "what happens to a voice when I slow it down" is one answer, not one per
+     * screen - the same rule Uninterrupted follows.
+     */
+    var speed by remember(node.path) { mutableFloatStateOf(1f) }
+    var speedOpen by remember(node.path) { mutableStateOf(false) }
+    var speedCeiling by remember(node.path) { mutableFloatStateOf(dev.niccc2007.filet.playback.MAX_SPEED) }
+    val pitchMode = dev.niccc2007.filet.playback.PitchMode.of(
+        vm.prefs.pitchMode.collectAsStateWithLifecycle().value,
+    )
+
+    // Applied to the running decoder, and the refusal is handled rather than thrown away.
+    //
+    // A rate Android will not resample throws from `setPlaybackParams`; left uncaught that is
+    // a crash in the middle of a drag. Caught, it is the device telling us where its ceiling
+    // is, so the rail shortens to what this phone can actually do instead of keeping a
+    // position that plays nothing.
+    LaunchedEffect(speed, pitchMode, ready) {
+        val mp = handle.player ?: return@LaunchedEffect
+        val wasPlaying = playing
+        val ok = runCatching {
+            mp.playbackParams = mp.playbackParams
+                .setSpeed(speed)
+                .setPitch(pitchMode.pitchFor(speed))
+        }.isSuccess
+        if (!ok) {
+            if (speed > 1f) {
+                speedCeiling = maxOf(1f, speed - dev.niccc2007.filet.playback.SPEED_BACKOFF)
+                speed = speedCeiling
+            } else {
+                speed = 1f
+            }
+            return@LaunchedEffect
+        }
+        // Documented quirk: on some devices writing `playbackParams` STARTS a paused player.
+        if (!wasPlaying) runCatching { mp.pause() }
+    }
 
     /**
      * The SAME preference the music player and Settings read.
@@ -455,42 +539,22 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
         onDispose {
             activity?.requestedOrientation =
                 android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            // A rotation is not leaving.
+            // Teardown, and ONLY teardown.
             //
-            // A configuration change destroys and rebuilds the composition, so `onDispose`
-            // fires for it exactly as it does for a real exit - and the hand-off marks the
-            // track as held for its sound, which on the way back in routes the file to the
-            // music face. Turning the phone sideways turned the video into a music player.
-            // The hand-off itself still has to happen, because it is what carries the
-            // position across the rebuild; it is the AS-AUDIO part that must not.
-            val rotating = activity?.isChangingConfigurations == true
-            // ONLY the explicit button hands over.
+            // Nothing is handed over here any more. Closing a video used to start the music
+            // player whenever the keeps-playing preference was on, which made Close and Play
+            // as audio do the same thing - the button looked pointless and the back arrow
+            // looked broken. Reported as exactly that: closing the video player "does exactly
+            // what clicking play as music feels like".
             //
-            // Closing a video used to start the music player whenever the keeps-playing
-            // preference was on, which made Close and Play as audio do the same thing - so
-            // the button looked pointless and the back arrow looked broken. Reported as
-            // exactly that: closing the video player "does exactly what clicking play as
-            // music feels like".
-            //
-            // Close means close. Play as audio means keep the sound. The preference now
-            // decides nothing about leaving, which is why it is gone from Settings.
-            val handOver = position > 0L && handOffNow
-            val at = position
+            // Close means close. Play as audio means keep the sound, and it is the button
+            // that does it, while this screen is still running - see `handingOver`. A
+            // rotation therefore needs no special case at all: it disposes, rebuilds, and
+            // reopens the video, which is what turning a phone sideways should do.
             runCatching {
                 handle.view?.stopPlayback()
                 handle.view = null
                 handle.player = null
-            }
-            if (handOver) {
-                runCatching {
-                    vm.playback.play(
-                        dev.niccc2007.filet.playback.tracksOf(listOf(node)), 0, startAtMs = at,
-                        // Marked as held for its sound, which is what routes the player strip
-                        // back to the music face instead of to this screen. Reopening the
-                        // screen you just left is not what "show me what is playing" means.
-                        asAudio = !rotating,
-                    )
-                }
             }
         }
     }
@@ -973,6 +1037,24 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                             active = repeating,
                         ) { repeating = !repeating; wake() }
                         OverlayAction(
+                            FiletIcons.Speed,
+                            "Playback speed",
+                            active = speed != 1f,
+                        ) { speedOpen = true; wake() }
+                        // Said in words whenever it is not 1x, for the same reason the shield
+                        // is: a lit glyph is a state somebody has to learn, and a speed is a
+                        // number you want to be able to read rather than infer.
+                        if (speed != 1f) {
+                            Text(
+                                speedLabel(speed),
+                                color = Filet.colors.accent,
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.6.sp,
+                                modifier = Modifier.padding(start = 2.dp, end = 4.dp),
+                            )
+                        }
+                        OverlayAction(
                             FiletIcons.Shield,
                             if (uninterrupted) {
                                 "Uninterrupted - nothing will pause this"
@@ -996,8 +1078,22 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                         }
                         Spacer(Modifier.weight(1f))
                         OverlayAction(FiletIcons.Audio, "Play as audio") {
-                            handOffNow = true
-                            vm.closeHandler()
+                            if (!handingOver) {
+                                handingOver = true
+                                // The position is NOT captured here. It is read back out of
+                                // this still-running player immediately before the audio
+                                // decoder starts, so the two meet at the same instant of the
+                                // file rather than a prepare apart. See handOffFromVideo.
+                                vm.playback.handOffFromVideo(
+                                    track = dev.niccc2007.filet.playback.tracksOf(listOf(node))
+                                        .first(),
+                                    positionNow = {
+                                        runCatching {
+                                            handle.player?.currentPosition?.toLong()
+                                        }.getOrNull() ?: position
+                                    },
+                                )
+                            }
                         }
                         OverlayAction(FiletIcons.Expand, orientationLabel(lockedOrientation)) {
                             lockedOrientation = nextOrientation(lockedOrientation)
@@ -1008,8 +1104,45 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
             }
         }
 
+        if (speedOpen) {
+            SpeedSheet(
+                speed = speed,
+                maxSpeed = speedCeiling,
+                pitch = pitchMode,
+                // The theme accent, not an artwork palette: this screen is a black slab with
+                // a picture on it and has no ground to take a colour from.
+                tint = Filet.colors.accent,
+                onTint = MaterialTheme.colorScheme.onPrimary,
+                onSpeed = { speed = it; wake() },
+                onPitch = { vm.prefs.setPitchMode(it.id) },
+                onDismiss = { speedOpen = false; wake() },
+            )
+        }
+
+        // The dissolve.
+        //
+        // Last in the Box so it is over everything, including the chrome - during a hand-off
+        // the controls are going away with the picture and a transport floating on a fading
+        // frame reads as the app half-closing. It never swallows a press: at rest it is
+        // fully transparent and it is only drawn while the hand-off is running.
+        if (handOff > 0.001f) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = handOff)),
+            )
+        }
     }
 }
+
+/**
+ * How long the picture and the sound take to leave on a hand-off.
+ *
+ * Long enough to read as a dissolve rather than a cut, and comfortably longer than a local
+ * file's `prepare()` - so the music is usually already running by the time the frame has
+ * gone. Short enough that it never feels like waiting for something.
+ */
+private const val HANDOFF_FADE_MS = 320
 
 /**
  * Back ten, play or pause, forward ten.

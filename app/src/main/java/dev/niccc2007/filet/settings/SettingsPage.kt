@@ -111,6 +111,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val navWhileSelecting by prefs.navWhileSelecting.collectAsState()
     val uninterrupted by prefs.uninterrupted.collectAsState()
     val playerFace by prefs.playerFace.collectAsState()
+    val pitchMode by prefs.pitchMode.collectAsState()
     val drag by prefs.drag.collectAsState()
     val hideTermux by prefs.hideTermux.collectAsState()
     val tabSize by prefs.tabSize.collectAsState()
@@ -359,6 +360,25 @@ fun SettingsPage(vm: BrowserViewModel) {
                 },
                 uninterrupted,
             ) { prefs.setUninterrupted(it) }
+        }
+        item {
+            val mode = dev.niccc2007.filet.playback.PitchMode.of(pitchMode)
+            Column {
+                SegmentRow(
+                    "Pitch when slowed",
+                    dev.niccc2007.filet.playback.PitchMode.entries.map { it.label },
+                    dev.niccc2007.filet.playback.PitchMode.entries.indexOf(mode),
+                ) {
+                    prefs.setPitchMode(dev.niccc2007.filet.playback.PitchMode.entries[it].id)
+                }
+                Text(
+                    mode.about,
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                    color = Filet.colors.fg3,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
+                )
+            }
         }
 
         item { SettingsSection("Search index", "The database that makes whole-device search answer instantly.") }

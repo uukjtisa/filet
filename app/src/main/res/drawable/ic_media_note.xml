@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The status-bar icon for the playback notification.
+
+  It was `R.mipmap.ic_launcher`, which is the one thing a small icon must not be: Android
+  renders a small icon from its ALPHA channel only, so a full-colour launcher mipmap arrives
+  in the status bar as a white blob the shape of its outer square. The app's own mark was
+  unrecognisable and the bar looked broken.
+
+  A solid quaver instead - a silhouette, which is what the API actually asks for, and the one
+  shape that says "something is playing" at the 18dp the status bar draws.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,3.5L12,14.6A3.2,3.2 0 1,0 14,17.6L14,8.1L19.5,6.4L19.5,3.5L12,3.5Z" />
+</vector>

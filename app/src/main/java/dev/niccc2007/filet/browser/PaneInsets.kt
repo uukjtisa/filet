@@ -23,16 +23,24 @@ object PaneInsets {
     /** Kept clear under the last row at all times, so it never sits flush against a bar. */
     const val ROW_BREATH = 10
 
-    /** The floating paste pill: its own height plus the margin it is drawn with. */
+    /** The dock's round button: 50dp plus the 12dp margin it is drawn with. */
+    const val DOCK = 62
+
+    /** The paste pill that appears above it once something is on the clipboard. */
     const val PASTE_PILL = 52
 
     /** The gutter down the right edge of a pane, and the drop band that sits in it. */
     const val DROP_BAND = 44
 
     /**
-     * @param pastePill whether the clipboard pill is drawn over this pane right now.
+     * @param dock whether the round dock button is drawn over this pane right now. It is, on
+     *   every folder pane that is not in a selection - which is why this is not optional in
+     *   the way the pill was.
+     * @param loaded whether the clipboard has anything in it, which adds the paste pill above
+     *   the dock and makes the stack that much taller.
      */
-    fun bottom(pastePill: Boolean): Int = ROW_BREATH + if (pastePill) PASTE_PILL else 0
+    fun bottom(dock: Boolean, loaded: Boolean = false): Int =
+        ROW_BREATH + (if (dock) DOCK else 0) + (if (dock && loaded) PASTE_PILL else 0)
 
     /**
      * The drop band takes no width. It floats.
