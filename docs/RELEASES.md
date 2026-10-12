@@ -58,7 +58,13 @@ is being built, fixes still have to reach a phone. They go onto a staging number
 and installed but never released; when the large one ships it carries them. If a fix in there
 cannot wait, the staging version publishes on its own and the staging line moves on.
 
-**STAGING: 0.1.14** — fixes made while 0.2.0 is being drawn. Built and installed, not published.
+**STAGING: 0.1.15** — fixes made while 0.2.0 is being drawn. Built and installed, not published.
+
+0.1.14 published on its own, which is the case this rule already allows and now the fourth
+time it has happened. It carried four player looks, a dock and a clipboard that holds more
+than one thing — new screens, which the bump table calls MINOR — and went out on the staging
+number for the same reason 0.1.11 did: 0.2.0 is the redesign release and spending it early
+would leave the redesign arriving as 0.3.0 with nothing to explain the gap.
 
 0.1.9, 0.1.11 and 0.1.12 were all staging versions and published anyway, which is the case this
 rule already allows. 0.1.11 is the clearer example: it carried a metadata writer, an image editor and
