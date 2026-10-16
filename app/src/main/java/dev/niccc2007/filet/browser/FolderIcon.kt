@@ -212,5 +212,12 @@ private fun lighten(c: Color, by: Float) = Color(
 /** How far apart the sheets fan, in degrees. */
 private const val FAN = 9f
 
-/** Below this a preview is a few pixels and says nothing; the plain folder is better. */
-private val PREVIEW_FROM = 26.dp
+/**
+ * Below this a preview is a few pixels and says nothing; the plain folder is better.
+ *
+ * Eighteen, not twenty-six. The list steps give the icon slot 16 to 21dp - the file
+ * thumbnails beside it live in the same slot - so a threshold above that turned previews off
+ * in every view anybody actually uses, which is why a folder of three hundred photographs
+ * showed none of them.
+ */
+private val PREVIEW_FROM = 18.dp

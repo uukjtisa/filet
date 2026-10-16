@@ -66,6 +66,7 @@ class FolderPeek(private val vfs: Vfs) {
             }
         }
         cache[k] = found
+        dev.niccc2007.filet.data.Diag.log("peek", "$path -> ${found.size}")
         return found
     }
 

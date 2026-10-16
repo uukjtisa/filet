@@ -70,7 +70,14 @@ fun FileThumb(
     if (node.isDir) {
         FolderIcon(
             node = node,
-            size = glyph,
+            // The SLOT, not the glyph.
+            //
+            // `glyphSize` exists because a 30dp tinted square holding a 15dp glyph needs two
+            // numbers, and a folder is not a glyph - it is an object that fills its slot the
+            // way a thumbnail does. Drawn at the glyph size it came out half the size of
+            // every picture beside it AND under the threshold where previews are worth
+            // drawing, so a folder of three hundred photographs showed none of them.
+            size = size,
             tint = fallbackTint,
             modifier = modifier,
             previews = enabled,
