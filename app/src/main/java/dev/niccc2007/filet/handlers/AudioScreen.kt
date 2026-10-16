@@ -6,13 +6,12 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.layout.size
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -20,20 +19,22 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -679,6 +681,15 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
     var held by remember { mutableStateOf(0f) }
     if (c.state.playing) held = angle
 
+    /**
+     * How far the finger has turned the record, on top of whatever the platter was doing.
+     *
+     * Kept as its own number rather than folded into [held] so letting go does not snap: the
+     * disc keeps the turn it was given and carries on spinning from there.
+     */
+    var scratched by remember(c.node.path) { mutableFloatStateOf(0f) }
+    var scratching by remember(c.node.path) { mutableStateOf(false) }
+
     Column(Modifier.fillMaxSize()) {
         FaceTopBar(c)
         Box(
@@ -692,7 +703,50 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                 Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
-                    .graphicsLayer { rotationZ = if (c.state.playing) angle else held },
+                    .graphicsLayer {
+                        rotationZ = (if (c.state.playing) angle else held) + scratched
+                    }
+                    // Turn the record to move through the track.
+                    //
+                    // It PLAYS while it moves, which is the whole point and the thing the
+                    // scrub bar cannot do: the handle moves and the sound arrives when you
+                    // let go. Here you hear where you are going, so you stop when you hear
+                    // the place rather than guessing at a bar. See `Scratch` for the
+                    // geometry and for why the decoder is told twelve times a second rather
+                    // than sixty.
+                    .pointerInput(c.node.path) {
+                        val centre = androidx.compose.ui.geometry.Offset(
+                            size.width / 2f,
+                            size.height / 2f,
+                        )
+                        var at = 0L
+                        var told = 0L
+                        detectDragGestures(
+                            onDragStart = {
+                                scratching = true
+                                at = c.state.positionMs
+                                told = 0L
+                            },
+                            onDragEnd = { scratching = false },
+                            onDragCancel = { scratching = false },
+                        ) { change, _ ->
+                            change.consume()
+                            val turned = dev.niccc2007.filet.playback.Scratch.turn(
+                                change.previousPosition.x, change.previousPosition.y,
+                                change.position.x, change.position.y,
+                                centre.x, centre.y,
+                            )
+                            scratched += turned
+                            at = dev.niccc2007.filet.playback.Scratch.seekTo(
+                                at, turned, c.state.durationMs,
+                            )
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            if (now - told >= dev.niccc2007.filet.playback.Scratch.SEEK_EVERY_MS) {
+                                told = now
+                                c.playback.seekTo(at)
+                            }
+                        }
+                    },
             ) {
                 PlayerArt(
                     art = c.art,
@@ -715,7 +769,9 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                 dev.niccc2007.filet.playback.BeatRing(
                     tint = c.tint,
                     playback = c.playback,
-                    turning = turning,
+                    // Lit while a finger is on it, whether or not the sound is running, so
+                    // the record answers the hand immediately.
+                    turning = if (scratching) 1f else turning,
                     modifier = Modifier.fillMaxSize(),
                 )
                 // The spindle. Small and dim: enough that the turn has a centre to be about,

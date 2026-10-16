@@ -434,8 +434,17 @@ private fun ZoomableImage(
             // Last in the chain so it wins the Main pass over the tap detector above, the same
             // ordering the row drag-and-drop needed in round 3.
             .pointerInput(bitmap) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    emit.value(live.value.pinched(zoom, pan.x, pan.y, box.width, box.height))
+                detectTransformGestures { centroid, pan, zoom, _ ->
+                    // The centroid is the whole fix for "zooming at a corner goes weird" -
+                    // it was being discarded, so every pinch scaled about the middle of the
+                    // viewport and the picture slid out from under the fingers.
+                    emit.value(
+                        live.value.pinched(
+                            zoom, pan.x, pan.y,
+                            centroid.x, centroid.y,
+                            box.width, box.height,
+                        ),
+                    )
                 }
             },
         contentAlignment = Alignment.Center,

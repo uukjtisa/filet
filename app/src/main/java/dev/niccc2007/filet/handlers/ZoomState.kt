@@ -30,20 +30,59 @@ data class ZoomView(
     val zoomed: Boolean get() = scale > FLAT
 
     /**
-     * Apply one frame of a pinch.
+     * Apply one frame of a pinch, about the point the fingers are on.
+     *
+     * ## Why the focus matters, and what it looked like without one
+     *
+     * Reported as the viewer zooming "weird" when pinching near a corner. It was: the scale
+     * was applied about the CENTRE of the viewport whatever the fingers were doing, so the
+     * picture slid out from under them - the further from the middle you pinched, the more it
+     * ran away, and pinching out at a corner threw the part you were looking at off the
+     * screen. Every map and every gallery anchors on the fingers, which is why this reads as
+     * broken rather than as a choice.
+     *
+     * The offset was also never scaled. Zooming an already-panned view kept the old offset
+     * unchanged, so an image panned to its edge drifted back towards the middle as it grew.
+     *
+     * The arithmetic, in the order the graphics layer applies it. A point `p` on the picture
+     * lands at `screen = centre + (p - centre) * scale + offset`. Keeping whatever is under
+     * the focus still across a scale change of `z` means
+     *
+     *     offset' = focus + pan - centre - (focus - centre - offset) * z
+     *
+     * and `z` is `next / scale` rather than the raw `zoom`, so a pinch that has run into
+     * [MIN] or [MAX] stops dead instead of sliding while the scale refuses to move.
      *
      * @param zoom the **ratio for this frame**, not the total. `detectTransformGestures` reports
      *   roughly 1.0 every frame and the total is the product of them, which is exactly why this
      *   must multiply the current scale rather than a captured one.
+     * @param focusX where the fingers are, in viewport coordinates.
      */
-    fun pinched(zoom: Float, panX: Float, panY: Float, boxW: Float, boxH: Float): ZoomView {
+    fun pinched(
+        zoom: Float,
+        panX: Float,
+        panY: Float,
+        focusX: Float,
+        focusY: Float,
+        boxW: Float,
+        boxH: Float,
+    ): ZoomView {
         val next = (scale * zoom).coerceIn(MIN, MAX)
+        val z = if (scale <= 0f) 1f else next / scale
+        val cx = boxW / 2f
+        val cy = boxH / 2f
         return ZoomView(
             scale = next,
-            offsetX = clampPan(offsetX + panX, next, boxW),
-            offsetY = clampPan(offsetY + panY, next, boxH),
+            offsetX = clampPan(focusX + panX - cx - (focusX - cx - offsetX) * z, next, boxW),
+            offsetY = clampPan(focusY + panY - cy - (focusY - cy - offsetY) * z, next, boxH),
         )
     }
+
+    /** A pinch with no focus given: about the middle, which is what a two-finger gesture
+     * on the centre of the screen does anyway. Kept so a caller that has no centroid - a
+     * test, a keyboard shortcut - does not have to invent one. */
+    fun pinched(zoom: Float, panX: Float, panY: Float, boxW: Float, boxH: Float): ZoomView =
+        pinched(zoom, panX, panY, boxW / 2f, boxH / 2f, boxW, boxH)
 
     /** Pan with no zoom change - dragging an already-zoomed image around. */
     fun panned(panX: Float, panY: Float, boxW: Float, boxH: Float): ZoomView = ZoomView(

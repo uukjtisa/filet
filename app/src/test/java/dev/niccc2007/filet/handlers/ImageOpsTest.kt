@@ -304,4 +304,53 @@ class ImageOpsTest {
         const val E = 0xFF0E0E0E.toInt()
         const val F = 0xFF0F0F0F.toInt()
     }
+
+    // ── the pinch anchors on the fingers ──
+
+    @Test
+    fun `pinching at a corner keeps that corner under the fingers`() {
+        val box = 1000f
+        // A finger near the top-left, pinching in by a quarter.
+        val at = 150f
+        val before = ZoomView()
+        val after = before.pinched(1.25f, 0f, 0f, at, at, box, box)
+        // Whatever was under the finger before is still under it after, which is the whole
+        // promise of an anchored pinch - and the thing that was wrong when the centroid was
+        // thrown away.
+        val wasUnder = before.unprojectX(at, box)
+        val nowUnder = after.unprojectX(at, box)
+        assertEquals(wasUnder, nowUnder, 0.5f)
+    }
+
+    @Test
+    fun `an anchored pinch out does not drag the picture to the middle`() {
+        val box = 1000f
+        val zoomedIn = ZoomView().pinched(4f, 0f, 0f, 200f, 200f, box, box)
+        val out = zoomedIn.pinched(0.5f, 0f, 0f, 200f, 200f, box, box)
+        assertEquals(
+            zoomedIn.unprojectY(200f, box),
+            out.unprojectY(200f, box),
+            0.5f,
+        )
+    }
+
+    @Test
+    fun `a pinch that has hit the ceiling stops moving`() {
+        val box = 1000f
+        val maxed = ZoomView(scale = ZoomView.MAX)
+        val after = maxed.pinched(1.4f, 0f, 0f, 120f, 900f, box, box)
+        // The scale cannot go further, so neither may the anchor: `z` is next/scale, not the
+        // raw ratio, or the image slides while the zoom refuses to.
+        assertEquals(maxed.scale, after.scale, 0.0001f)
+        assertEquals(maxed.offsetX, after.offsetX, 0.5f)
+        assertEquals(maxed.offsetY, after.offsetY, 0.5f)
+    }
+
+    @Test
+    fun `pinching at the centre is unchanged`() {
+        val box = 1000f
+        val centred = ZoomView().pinched(2f, 0f, 0f, box, box)
+        assertEquals(2f, centred.scale, 0.0001f)
+        assertEquals(0f, centred.offsetX, 0.5f)
+    }
 }
