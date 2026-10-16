@@ -57,6 +57,7 @@ import dev.niccc2007.filet.playback.Medium
 import dev.niccc2007.filet.playback.PlayerFace
 import dev.niccc2007.filet.playback.Playlists
 import dev.niccc2007.filet.playback.Repeat
+import dev.niccc2007.filet.playback.BeatMap
 import dev.niccc2007.filet.playback.ScratchEngine
 import dev.niccc2007.filet.playback.tracksOf
 import dev.niccc2007.filet.ui.theme.Filet
@@ -118,6 +119,8 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     val face = PlayerFace.of(vm.prefs.playerFace.collectAsStateWithLifecycle().value)
     val uninterrupted by vm.prefs.uninterrupted.collectAsStateWithLifecycle()
     val glow by vm.prefs.livingGlow.collectAsStateWithLifecycle()
+    val scratchAudio by vm.prefs.scratchAudio.collectAsStateWithLifecycle()
+    val beatPulse by vm.prefs.beatPulse.collectAsStateWithLifecycle()
     val glowLevel = dev.niccc2007.filet.playback.GlowLevel.of(
         vm.prefs.glowLevel.collectAsStateWithLifecycle().value,
     )
@@ -209,6 +212,8 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         uninterrupted = uninterrupted,
         glow = glow,
         glowLevel = glowLevel,
+        scratch = scratchAudio,
+        pulse = beatPulse,
         speed = speed,
         sleepLeft = sleepLeft,
         maxSpeed = maxSpeed,
@@ -322,6 +327,9 @@ private class PlayerCtx(
     val uninterrupted: Boolean,
     val glow: Boolean,
     val glowLevel: dev.niccc2007.filet.playback.GlowLevel,
+    /** Aurora's two switches, read here so the overflow does not reach for the prefs. */
+    val scratch: Boolean,
+    val pulse: Boolean,
     val speed: Float,
     val sleepLeft: Int,
     val maxSpeed: Float,
@@ -417,6 +425,12 @@ private fun ClassicFace(c: PlayerCtx) {
                 onProperties = { c.vm.propertiesOfTrack(c.state.current, c.node) },
                 onAddToPlaylist = { c.vm.askAddToPlaylistPath(c.livePath) },
                 onSaveQueue = c.onSaveQueue.takeIf { c.state.canStep },
+                scratch = c.scratch.takeIf { c.face == PlayerFace.AURORA },
+                onScratch = { c.vm.prefs.setScratchAudio(!c.scratch) }
+                    .takeIf { c.face == PlayerFace.AURORA },
+                pulse = c.pulse.takeIf { c.face == PlayerFace.AURORA },
+                onPulse = { c.vm.prefs.setBeatPulse(!c.pulse) }
+                    .takeIf { c.face == PlayerFace.AURORA },
             )
         }
         Column(
@@ -702,9 +716,20 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
      * while a finger is still on the disc - an `AudioTrack` and a thread outliving their
      * composition is the kind of leak that is only noticed as a phone getting warm.
      */
-    val dj by c.vm.prefs.scratchAudio.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val dj by c.vm.prefs.scratchAudio.collectAsStateWithLifecycle()
+    val pulse by c.vm.prefs.beatPulse.collectAsStateWithLifecycle()
+    // Read once per track, and only while this face is on screen with the pulse switched on.
+    // Keyed on the source rather than the node so a hand-off from the video screen does not
+    // read the same file twice. See `BeatMap` for what it costs and why it is a switch.
+    var beats by remember(c.source) { mutableStateOf<BeatMap?>(null) }
+    LaunchedEffect(c.source, pulse) {
+        beats = null
+        val source = c.source
+        if (!pulse || source == null) return@LaunchedEffect
+        beats = BeatMap.build(context, source)
+    }
+    val scope = rememberCoroutineScope()
     val engine = remember(c.node.path) { mutableStateOf<ScratchEngine?>(null) }
     DisposableEffect(c.node.path) {
         onDispose {
@@ -800,11 +825,22 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                                 change.position.x, change.position.y,
                                 centre.x, centre.y,
                             )
-                            scratched += turned
                             val now = android.os.SystemClock.elapsedRealtime()
+                            val duration = c.playback.state.value.durationMs
+                            val was = at
                             at = dev.niccc2007.filet.playback.Scratch.seekTo(
-                                at, turned, c.playback.state.value.durationMs, perTurn,
+                                at, turned, duration, perTurn,
                             )
+                            // The disc stops when the track does.
+                            //
+                            // It used to keep turning under the finger after the position had
+                            // run into 0 or the end, which reads as the gesture having come
+                            // loose - a record that spins while the needle is at the label is
+                            // a record that is not attached to anything. The picture only
+                            // turns by as much as the TRACK actually moved, so at either end
+                            // it simply stops and waits for the hand to come back.
+                            val moved = at != was || (duration <= 0L)
+                            if (moved) scratched += turned
                             val live = engine.value
                             if (live != null) {
                                 // The engine owns the position while it is running: it is the
@@ -846,6 +882,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                 dev.niccc2007.filet.playback.BeatRing(
                     tint = c.tint,
                     playback = c.playback,
+                    beats = beats,
                     // Lit while a finger is on it, whether or not the sound is running, so
                     // the record answers the hand immediately.
                     turning = if (scratching) 1f else turning,

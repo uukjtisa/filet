@@ -217,6 +217,11 @@ fun PlayerOverflow(
     onProperties: () -> Unit,
     onAddToPlaylist: (() -> Unit)? = null,
     onSaveQueue: (() -> Unit)? = null,
+    /** Aurora's own two switches. Null on every other face, where they do nothing. */
+    scratch: Boolean? = null,
+    onScratch: (() -> Unit)? = null,
+    pulse: Boolean? = null,
+    onPulse: (() -> Unit)? = null,
 ) {
     var open by remember { mutableStateOf(false) }
     var faces by remember { mutableStateOf(false) }
@@ -268,6 +273,17 @@ fun PlayerOverflow(
                                 open = false
                                 onSaveQueue()
                             }
+                        }
+                        // Only where they mean something. Both belong to the record, and
+                        // a switch on a face with no record on it is a control that does
+                        // nothing visible - which is worse than one that is not offered.
+                        if (scratch != null && onScratch != null) {
+                            PanelRule()
+                            PanelSwitch("Scratch the record", scratch, onScratch)
+                        }
+                        if (pulse != null && onPulse != null) {
+                            if (scratch == null) PanelRule()
+                            PanelSwitch("Pulse on the beat", pulse, onPulse)
                         }
                         PanelRule()
                         PanelAction("Open in another app", FiletIcons.Open) {
@@ -343,6 +359,41 @@ private fun PanelAction(
             Icon(
                 FiletIcons.Forward, null,
                 tint = colors.fg3, modifier = Modifier.size(11.dp),
+            )
+        }
+    }
+}
+
+/** A row that is on or off, in the same panel as the actions. */
+@Composable
+private fun PanelSwitch(label: String, on: Boolean, onClick: () -> Unit) {
+    val colors = Filet.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 17.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            fontSize = 12.5.sp,
+            color = if (on) colors.accent else colors.fg2,
+            modifier = Modifier.weight(1f),
+        )
+        Box(
+            Modifier
+                .size(width = 34.dp, height = 19.dp)
+                .clip(RoundedCornerShape(50))
+                .background(if (on) colors.accent.copy(alpha = 0.3f) else colors.sunken),
+        ) {
+            Box(
+                Modifier
+                    .padding(start = if (on) 17.dp else 2.dp)
+                    .align(Alignment.CenterStart)
+                    .size(15.dp)
+                    .clip(CircleShape)
+                    .background(if (on) colors.accent else colors.fg3),
             )
         }
     }

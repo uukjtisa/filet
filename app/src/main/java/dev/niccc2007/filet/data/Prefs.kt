@@ -463,6 +463,22 @@ class Prefs(context: Context) {
         sp.edit().putBoolean(K_SCRATCH, on).apply()
     }
 
+    /**
+     * The ring around Aurora's disc pulses on the music's own beats. See `BeatMap`.
+     *
+     * Off by default and for the same reason as the scratch: finding the beats means reading
+     * the track once, which is a second or two of work nobody asked for. With it off the ring
+     * still moves - a travelling highlight on its own clock, which is what it has always been
+     * and is honest about being.
+     */
+    private val _beatPulse = MutableStateFlow(sp.getBoolean(K_BEAT_PULSE, false))
+    val beatPulse: StateFlow<Boolean> = _beatPulse.asStateFlow()
+
+    fun setBeatPulse(on: Boolean) {
+        _beatPulse.value = on
+        sp.edit().putBoolean(K_BEAT_PULSE, on).apply()
+    }
+
     /** Which face the full music player draws. See `PlayerFace`. */
     /**
      * Whether a slowed track keeps its pitch or drops with the speed.
@@ -690,6 +706,7 @@ class Prefs(context: Context) {
         const val K_HOME_FOLDS = "home.folds"
         const val K_TREE_VIEW = "view.tree"
         const val K_SCRATCH = "play.scratch"
+        const val K_BEAT_PULSE = "play.pulse"
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
 }

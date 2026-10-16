@@ -2,6 +2,7 @@ package dev.niccc2007.filet.playback
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -24,7 +25,13 @@ import kotlin.math.sin
  * the size it was, the spindle stays small and dim, and what makes it read as a record is a
  * ring that turns with it.
  *
- * ## It is not listening to the music, and that is deliberate
+ * ## With a beat map it IS following the music
+ *
+ * When the pulse is switched on, [BeatMap] has read the track and knows where its onsets are,
+ * and the ring punches on them instead of sweeping on a clock. Without one it falls back to
+ * the travelling highlight described below, which is honest about being a clock.
+ *
+ * ## Without one, it is not listening to the music, and that is deliberate
  *
  * A ring that genuinely followed the beat would need the audio samples, and on Android the
  * only way to those is `android.media.audiofx.Visualizer`, which requires the RECORD_AUDIO
@@ -49,12 +56,20 @@ fun BeatRing(
     tint: Color,
     playback: Playback,
     turning: Float,
+    beats: BeatMap? = null,
     modifier: Modifier = Modifier,
 ) {
     val state = playback.state.collectAsStateWithLifecycle()
     val running = state.value.playing
     val sweep = rememberPhase(SWEEP_MS, running)
     val breath = rememberPhase(BREATH_MS, running)
+    // A clock for the beat, fast enough to catch one. The position in the player's state is
+    // five readings a second, which steps straight over an attack, so the position is
+    // EXTRAPOLATED between them - the player is playing at a known rate, and a few hundred
+    // milliseconds of dead reckoning is more accurate here than the sample it is between.
+    val tick = rememberPhase(TICK_MS, running && beats != null, fps = 60L)
+    val fromState = state.value.positionMs
+    val stamped = remember(fromState) { android.os.SystemClock.elapsedRealtime() }
 
     Canvas(modifier) {
         // Read in the draw lambda. See `livingGlow` for what reading it above costs.
@@ -63,10 +78,17 @@ fun BeatRing(
         val r = size.minDimension / 2f
         val centre = Offset(size.width / 2f, size.height / 2f)
         val swell = sin(b * 2f * PI.toFloat())
-        val lit = 0.25f + 0.75f * turning
+        // Read so the draw invalidates on it; the value itself is only a clock.
+        @Suppress("UNUSED_VARIABLE") val beatTick = tick.value
+        val hit = if (beats == null || !running) {
+            0f
+        } else {
+            beats.strengthAt(fromState + (android.os.SystemClock.elapsedRealtime() - stamped))
+        }
+        val lit = (0.25f + 0.75f * turning) * (1f + hit * PUNCH)
 
         // The ring the artwork sits inside, just off its edge so the picture is not touched.
-        val ring = r * (1.012f + 0.010f * swell)
+        val ring = r * (1.012f + 0.010f * swell + 0.022f * hit)
         drawCircle(
             color = tint.copy(alpha = (0.16f + 0.08f * swell) * lit),
             radius = ring,
@@ -113,6 +135,12 @@ fun BeatRing(
         }
     }
 }
+
+/** How hard a beat lifts the ring, on top of whatever it was already doing. */
+private const val PUNCH = 1.1f
+
+/** The clock the beat is sampled on. Short, because an attack is shorter. */
+private const val TICK_MS = 1_000
 
 /** How long the highlight takes to go round. Inside the range most music sits in. */
 private const val SWEEP_MS = 2_400
