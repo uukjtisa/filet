@@ -608,11 +608,17 @@ private fun SectionHeaderWithAction(
                     .graphicsLayer { rotationZ = turn },
             )
         }
-        Box(Modifier.weight(if (busy) 0f else 1f, fill = false)) { SectionLabel(label) }
+        // NOT `weight(if (busy) 0f else 1f)`. A zero weight throws - "invalid weight; must be
+        // greater than zero" - and it threw on the Home screen, which is the first thing the
+        // app draws, so the app would not open at all. The label simply takes no weight when
+        // the dots are beside it, and the spacer after them does the pushing instead.
         if (busy) {
+            SectionLabel(label)
             Spacer(Modifier.width(8.dp))
             ScanningDots()
             Spacer(Modifier.weight(1f))
+        } else {
+            Box(Modifier.weight(1f)) { SectionLabel(label) }
         }
         // A heading whose verb is unavailable draws no verb at all, rather than a greyed one.
         // Greying says "this exists and you may not have it", which is a different claim.
