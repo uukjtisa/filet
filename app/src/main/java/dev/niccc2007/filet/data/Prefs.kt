@@ -447,6 +447,22 @@ class Prefs(context: Context) {
         sp.edit().putBoolean(K_TREE_VIEW, on).apply()
     }
 
+    /**
+     * Turning the record makes the sound follow the hand. See `ScratchEngine`.
+     *
+     * OFF by default, deliberately: it decodes a window of the track the moment a finger
+     * lands on the disc, and that is a cost somebody should agree to before they meet it
+     * rather than discover. With it off the disc still works and still moves through the
+     * track - silently, by seeking, which is what it did before this existed.
+     */
+    private val _scratchAudio = MutableStateFlow(sp.getBoolean(K_SCRATCH, false))
+    val scratchAudio: StateFlow<Boolean> = _scratchAudio.asStateFlow()
+
+    fun setScratchAudio(on: Boolean) {
+        _scratchAudio.value = on
+        sp.edit().putBoolean(K_SCRATCH, on).apply()
+    }
+
     /** Which face the full music player draws. See `PlayerFace`. */
     /**
      * Whether a slowed track keeps its pitch or drops with the speed.
@@ -673,6 +689,7 @@ class Prefs(context: Context) {
         const val K_DRAWER_PLACES = "drawer.places"
         const val K_HOME_FOLDS = "home.folds"
         const val K_TREE_VIEW = "view.tree"
+        const val K_SCRATCH = "play.scratch"
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
 }

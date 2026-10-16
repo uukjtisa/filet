@@ -54,13 +54,50 @@ object Scratch {
     fun msFor(degrees: Float): Long = (degrees / 360f * MS_PER_TURN).toLong()
 
     /** Where a scratch lands, kept inside the track. */
-    fun seekTo(fromMs: Long, degrees: Float, durationMs: Long): Long {
+    fun seekTo(fromMs: Long, degrees: Float, durationMs: Long): Long =
+        seekTo(fromMs, degrees, durationMs, MS_PER_TURN)
+
+    /** As above, with the turn length given. */
+    fun seekTo(fromMs: Long, degrees: Float, durationMs: Long, perTurnMs: Float): Long {
         if (durationMs <= 0L) return 0L
-        return (fromMs + msFor(degrees)).coerceIn(0L, durationMs)
+        return (fromMs + msFor(degrees, perTurnMs)).coerceIn(0L, durationMs)
     }
 
-    /** A full revolution of the disc is this much of the track. */
+    /** As above, with the turn length given. */
+    fun msFor(degrees: Float, perTurnMs: Float): Long = (degrees / 360f * perTurnMs).toLong()
+
+    /**
+     * How fast to play, and which way, for a finger moving at [degPerSec].
+     *
+     * It is the same number the position is moving at, expressed as a multiple of the track's
+     * own speed: travel one turn's worth of track in one turn's worth of time and that is 1x,
+     * by construction. Negative is backwards, which the engine plays as readily as forwards.
+     *
+     * This is why the disc turns at two speeds. See [MS_PER_TURN_DJ].
+     */
+    fun speedFor(degPerSec: Float, perTurnMs: Float): Float =
+        degPerSec * perTurnMs / 360_000f
+
+    /** How long a turn is worth, given whether the sound is following the hand. */
+    fun perTurnMs(dj: Boolean): Float = if (dj) MS_PER_TURN_DJ else MS_PER_TURN
+
+    /** A full revolution of the disc is this much of the track, when seeking silently. */
     const val MS_PER_TURN = 20_000f
+
+    /**
+     * And this much when the sound is following the hand.
+     *
+     * Far shorter, and it has to be. Twenty seconds a revolution is right for FINDING a place
+     * - a three-minute song is nine turns - but an ordinary drag covers a couple of hundred
+     * degrees a second, which against twenty seconds a turn is eleven times speed and a
+     * chirp rather than a sound. At two and a half seconds a turn the same hand movement
+     * lands near 1x, which is what a record does and what makes the effect recognisable.
+     *
+     * The honest cost, stated here because it is a real one: a turn now covers two and a half
+     * seconds of track instead of twenty, so crossing a whole song takes many turns. That is
+     * also what a record does.
+     */
+    const val MS_PER_TURN_DJ = 2_500f
 
     /**
      * How often the decoder is actually told, while a finger is moving.

@@ -45,4 +45,41 @@ class ScratchTest {
         assertEquals(10f, Scratch.normalise(-350f), 0.01f)
         assertEquals(180f, Scratch.normalise(180f), 0.01f)
     }
+
+    // ── the sound following the hand ──
+
+    @Test
+    fun `a hand moving at a record's pace plays at about normal speed`() {
+        // Roughly what an ordinary drag across a phone-sized disc measures.
+        val speed = Scratch.speedFor(200f, Scratch.MS_PER_TURN_DJ)
+        assertTrue("got ${speed}x, which is not a sound", speed > 0.7f && speed < 2.5f)
+    }
+
+    @Test
+    fun `the silent setting would have been a chirp`() {
+        // The reason the disc turns at two speeds: the same hand against twenty seconds a
+        // revolution is eleven times speed.
+        val speed = Scratch.speedFor(200f, Scratch.MS_PER_TURN)
+        assertTrue("expected an unusable rate, got ${speed}x", speed > 8f)
+    }
+
+    @Test
+    fun `backwards is just a negative speed`() {
+        val back = Scratch.speedFor(-200f, Scratch.MS_PER_TURN_DJ)
+        val forward = Scratch.speedFor(200f, Scratch.MS_PER_TURN_DJ)
+        assertEquals(-forward, back, 0.0001f)
+    }
+
+    @Test
+    fun `a still hand is a stopped record`() {
+        assertEquals(0f, Scratch.speedFor(0f, Scratch.MS_PER_TURN_DJ), 0.0001f)
+    }
+
+    @Test
+    fun `a turn covers less of the track when the sound is following`() {
+        assertTrue(
+            Scratch.msFor(360f, Scratch.MS_PER_TURN_DJ) <
+                Scratch.msFor(360f, Scratch.MS_PER_TURN),
+        )
+    }
 }

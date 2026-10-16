@@ -117,6 +117,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val glowLevel by prefs.glowLevel.collectAsState()
     val glowSpill by prefs.glowSpill.collectAsState()
     val treeView by prefs.treeView.collectAsState()
+    val scratchAudio by prefs.scratchAudio.collectAsState()
     val paneSwipe by prefs.paneSwipe.collectAsState()
     val paneSwipeAt by prefs.paneSwipeAt.collectAsState()
     val drag by prefs.drag.collectAsState()
@@ -482,6 +483,18 @@ fun SettingsPage(vm: BrowserViewModel) {
                     glowSpill,
                 ) { prefs.setGlowSpill(it) }
             }
+        }
+        item {
+            ToggleRow(
+                "Scratch the record",
+                if (scratchAudio) {
+                    "Turning Aurora's disc plays the track at the speed of your hand, " +
+                        "backwards too. It decodes a few seconds while you hold it."
+                } else {
+                    "Turning the disc moves through the track without sound."
+                },
+                scratchAudio,
+            ) { prefs.setScratchAudio(it) }
         }
         item {
             ToggleRow(

@@ -10,8 +10,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -32,18 +32,21 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,10 +57,12 @@ import dev.niccc2007.filet.playback.Medium
 import dev.niccc2007.filet.playback.PlayerFace
 import dev.niccc2007.filet.playback.Playlists
 import dev.niccc2007.filet.playback.Repeat
+import dev.niccc2007.filet.playback.ScratchEngine
 import dev.niccc2007.filet.playback.tracksOf
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * The music player, in four faces.
@@ -690,6 +695,24 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
     var scratched by remember(c.node.path) { mutableFloatStateOf(0f) }
     var scratching by remember(c.node.path) { mutableStateOf(false) }
 
+    /**
+     * The sound following the hand, when that is switched on.
+     *
+     * Held here rather than inside the gesture so it can be torn down if the screen goes
+     * while a finger is still on the disc - an `AudioTrack` and a thread outliving their
+     * composition is the kind of leak that is only noticed as a phone getting warm.
+     */
+    val dj by c.vm.prefs.scratchAudio.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val engine = remember(c.node.path) { mutableStateOf<ScratchEngine?>(null) }
+    DisposableEffect(c.node.path) {
+        onDispose {
+            engine.value?.close()
+            engine.value = null
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         FaceTopBar(c)
         Box(
@@ -721,6 +744,8 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                         )
                         var at = 0L
                         var told = 0L
+                        var lastMoveAt = 0L
+                        val perTurn = dev.niccc2007.filet.playback.Scratch.perTurnMs(dj)
                         detectDragGestures(
                             onDragStart = {
                                 scratching = true
@@ -737,9 +762,37 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                                 // StateFlow is live by construction.
                                 at = c.playback.state.value.positionMs
                                 told = 0L
+                                lastMoveAt = 0L
+                                if (!dj) return@detectDragGestures
+                                // Everything the engine costs starts HERE, on touch, and ends
+                                // on release. Nothing is decoded or allocated while a track is
+                                // simply playing - which was the condition this was built
+                                // under. See `ScratchEngine`.
+                                val source = c.source ?: return@detectDragGestures
+                                val wasPlaying = c.playback.state.value.playing
+                                scope.launch {
+                                    val made = ScratchEngine(context, source)
+                                    if (!made.open(at)) return@launch
+                                    c.playback.pause()
+                                    if (!made.start()) {
+                                        made.close()
+                                        // Falls back to silent seeking rather than taking the
+                                        // sound away. An effect that cannot work must not
+                                        // leave the player worse than it found it.
+                                        if (wasPlaying) c.playback.resume()
+                                        return@launch
+                                    }
+                                    engine.value = made
+                                }
                             },
-                            onDragEnd = { scratching = false },
-                            onDragCancel = { scratching = false },
+                            onDragEnd = {
+                                scratching = false
+                                endScratch(c, engine, scope)
+                            },
+                            onDragCancel = {
+                                scratching = false
+                                endScratch(c, engine, scope)
+                            },
                         ) { change, _ ->
                             change.consume()
                             val turned = dev.niccc2007.filet.playback.Scratch.turn(
@@ -748,14 +801,27 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                                 centre.x, centre.y,
                             )
                             scratched += turned
-                            at = dev.niccc2007.filet.playback.Scratch.seekTo(
-                                at, turned, c.playback.state.value.durationMs,
-                            )
                             val now = android.os.SystemClock.elapsedRealtime()
-                            if (now - told >= dev.niccc2007.filet.playback.Scratch.SEEK_EVERY_MS) {
+                            at = dev.niccc2007.filet.playback.Scratch.seekTo(
+                                at, turned, c.playback.state.value.durationMs, perTurn,
+                            )
+                            val live = engine.value
+                            if (live != null) {
+                                // The engine owns the position while it is running: it is the
+                                // thing actually making the sound, and two clocks for one
+                                // record is how the picture and the audio drift apart.
+                                val since = (now - lastMoveAt).coerceIn(1L, 80L)
+                                live.setSpeed(
+                                    dev.niccc2007.filet.playback.Scratch.speedFor(
+                                        turned * 1000f / since, perTurn,
+                                    ),
+                                )
+                                if (live.needsMore()) scope.launch { live.recentre() }
+                            } else if (now - told >= dev.niccc2007.filet.playback.Scratch.SEEK_EVERY_MS) {
                                 told = now
                                 c.playback.seekTo(at)
                             }
+                            lastMoveAt = now
                         }
                     },
             ) {
@@ -900,5 +966,28 @@ private fun BoxScope.ImmersiveFace(c: PlayerCtx) {
                 )
             }
         }
+    }
+}
+
+/**
+ * Put the record down: stop the engine, hand the position back, carry on.
+ *
+ * The player is seeked to where the scratch left it rather than to where it was paused, or
+ * letting go would undo the whole gesture - and it resumes only if it was playing when the
+ * finger landed, because scratching a paused track should leave it paused.
+ */
+private fun endScratch(
+    c: PlayerCtx,
+    engine: androidx.compose.runtime.MutableState<ScratchEngine?>,
+    scope: kotlinx.coroutines.CoroutineScope,
+) {
+    val live = engine.value ?: return
+    engine.value = null
+    val landed = live.positionMs
+    live.setSpeed(0f)
+    scope.launch {
+        live.close()
+        c.playback.seekTo(landed)
+        c.playback.resume()
     }
 }
