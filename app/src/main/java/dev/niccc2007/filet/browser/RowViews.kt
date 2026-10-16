@@ -1,8 +1,10 @@
 package dev.niccc2007.filet.browser
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -79,6 +82,11 @@ fun FileRow(
     display: EntryDisplay = EntryDisplay(),
     /** Entries inside, for a folder. Null until read, and the column then shows nothing. */
     count: Int? = null,
+    /** How deep in the tree view this row sits. 0 everywhere else. */
+    depth: Int = 0,
+    /** Null for a row that cannot open: a file, or the tree view being off. */
+    openInPlace: Boolean? = null,
+    onOpenInPlace: (() -> Unit)? = null,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDoubleClick: () -> Unit = {},
@@ -118,8 +126,39 @@ fun FileRow(
                 onDoubleClick = onDoubleClick,
             )
             .then(modifier)
-            .padding(horizontal = 10.dp, vertical = if (step.twoLine) 6.dp else 3.dp),
+            .padding(
+                start = 10.dp + (depth * TREE_INDENT).dp,
+                end = 10.dp,
+                top = if (step.twoLine) 6.dp else 3.dp,
+                bottom = if (step.twoLine) 6.dp else 3.dp,
+            ),
     ) {
+        // The chevron, and only where it can do something.
+        //
+        // Its own target, separate from the row: tapping a folder's NAME still navigates
+        // into it, which is what keeps the path bar at the top meaning what it has always
+        // meant. A tree where the only way in is a chevron is a tree that has quietly
+        // replaced the browser instead of sitting inside it.
+        if (openInPlace != null && onOpenInPlace != null) {
+            val turn by animateFloatAsState(
+                if (openInPlace) 0f else -90f,
+                animationSpec = Motion.fast(),
+                label = "branch",
+            )
+            Icon(
+                FiletIcons.Down, if (openInPlace) "Close" else "Open here",
+                tint = colors.fg3,
+                modifier = Modifier
+                    .size(26.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(onClick = onOpenInPlace)
+                    .padding(7.dp)
+                    .graphicsLayer { rotationZ = turn },
+            )
+        } else if (depth > 0) {
+            // Children line up under their siblings' names rather than under the chevron.
+            Spacer(Modifier.width(26.dp))
+        }
         FileThumb(
             node = node,
             size = step.icon.dp,
@@ -346,3 +385,11 @@ fun EmptyNote(text: String, modifier: Modifier = Modifier) {
         Text(text, fontSize = 13.sp, color = Filet.colors.fg3, textAlign = TextAlign.Center)
     }
 }
+
+/**
+ * How far one level of the tree indents, in dp.
+ *
+ * Fourteen. Enough that the step is unmistakable at a glance down the left edge, small
+ * enough that a folder four deep has not eaten the name column on a phone.
+ */
+private const val TREE_INDENT = 14

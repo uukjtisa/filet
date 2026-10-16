@@ -116,6 +116,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val livingGlow by prefs.livingGlow.collectAsState()
     val glowLevel by prefs.glowLevel.collectAsState()
     val glowSpill by prefs.glowSpill.collectAsState()
+    val treeView by prefs.treeView.collectAsState()
     val paneSwipe by prefs.paneSwipe.collectAsState()
     val paneSwipeAt by prefs.paneSwipeAt.collectAsState()
     val drag by prefs.drag.collectAsState()
@@ -365,6 +366,17 @@ fun SettingsPage(vm: BrowserViewModel) {
         // One home for them. The playback switches were under a heading of their own and the
         // player's appearance had nowhere to live at all, so a question like "how does Filet
         // open this kind of file" was answered in two places and a third that did not exist.
+        item {
+            ToggleRow(
+                "Tree view",
+                if (treeView) {
+                    "A folder opens underneath itself. Its name still goes into it."
+                } else {
+                    "A folder replaces the list, the usual way."
+                },
+                treeView,
+            ) { prefs.setTreeView(it) }
+        }
         item {
             ToggleRow(
                 "Swipe to change pane",

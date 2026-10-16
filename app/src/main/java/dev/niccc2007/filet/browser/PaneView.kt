@@ -617,6 +617,14 @@ private fun FolderBody(
     }
 
     val rows = s.visible
+    // The tree is the same list with the opened folders spliced into it, and only when the
+    // view is on and nothing is being searched - a search result's row already says where it
+    // is, and indenting hits under folders they are not in would be a lie. See `TreeRows`.
+    val treeOn by vm.prefs.treeView.collectAsState()
+    val tree = treeOn && !s.search.active
+    val treeRows = remember(rows, s.open, s.branches, tree) {
+        if (tree) TreeRows.flatten(rows, s.open, s.branches) else emptyList()
+    }
     if (rows.isEmpty()) {
         EmptyNote(
             if (s.search.active) emptySearchNote(s.search.scope, vm.indexStatus.collectAsState().value)
@@ -777,8 +785,24 @@ private fun FolderBody(
             state = listState,
             contentPadding = PaddingValues(end = padEnd, bottom = padBottom),
         ) {
-            items(rows, key = { it.path.toString() }) { node ->
-                if (s.search.active) {
+            items(
+                count = if (tree) treeRows.size else rows.size,
+                // A tree repeats a path only as a "still reading" placeholder under the
+                // folder it belongs to, so the depth goes in the key as well.
+                key = { i ->
+                    if (tree) {
+                        val r = treeRows[i]
+                        "${r.node.path}@${r.depth}${if (r.loading) "?" else ""}"
+                    } else {
+                        rows[i].path.toString()
+                    }
+                },
+            ) { i ->
+                val row = if (tree) treeRows[i] else null
+                val node = row?.node ?: rows[i]
+                if (row?.loading == true) {
+                    BranchLoading(row.depth)
+                } else if (s.search.active) {
                     SearchResultRow(
                         node = node,
                         where = s.search.hits.firstOrNull { it.node.path == node.path }?.where ?: "",
@@ -813,6 +837,13 @@ private fun FolderBody(
                             mtime = node.mtime,
                             enabled = node.isDir && display.measure && metrics.showSize,
                         ),
+                        depth = row?.depth ?: 0,
+                        openInPlace = if (tree && node.isDir) node.path in s.open else null,
+                        onOpenInPlace = if (tree && node.isDir) {
+                            ({ pane.toggleBranch(node.path) })
+                        } else {
+                            null
+                        },
                         onClick = { rowClick(pane, vm, side, node) },
                         // See the tile above: the drag detector owns the long press.
                         onLongClick = {},
@@ -1105,3 +1136,16 @@ private fun PaneContextMenu(
     )
 }
 
+/** A branch that has been opened and is still being read. */
+@Composable
+private fun BranchLoading(depth: Int) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = (10 + depth * 14).dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Spacer(Modifier.width(26.dp))
+        Text("Reading\u2026", fontSize = 11.sp, color = Filet.colors.fg3)
+    }
+}

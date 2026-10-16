@@ -96,6 +96,7 @@ object SettingsTransfer {
                 "play.glow", "play.glowLevel", "play.glowSpill",
                 "panes.swipe", "panes.swipeAt",
                 "home.folds", "drawer.storage", "drawer.recent", "drawer.places",
+                "view.tree",
                 "home.hideStorage", "home.hideTermux", "home.folder",
                 "update.notificationsOff", "update.notesFraction",
             ),

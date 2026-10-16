@@ -96,6 +96,10 @@ data class PaneState(
      * guessed 160ms and then never scrolled at all.
      */
     val revealTarget: VPath? = null,
+    /** Folders showing their contents in place. Empty unless the tree view is on. */
+    val open: Set<VPath> = emptySet(),
+    /** What is inside each of those, absent while it is still being read. */
+    val branches: Map<VPath, List<VNode>> = emptyMap(),
 ) {
     val selecting: Boolean get() = selected.isNotEmpty()
     /** Rows actually rendered: search results replace the listing while a search is live. */
@@ -361,7 +365,55 @@ class PaneController(
      */
     fun refresh() {
         freshTail = FreshTail()
+        // Opened branches are dropped rather than re-read. A refresh is somebody saying "this
+        // is not what is there", and silently keeping a listing from before it is the one
+        // answer that cannot be right. The folds stay, so the tree comes back as it was.
+        _state.value = _state.value.copy(branches = emptyMap())
         relist()
+    }
+
+    /**
+     * Open or close a folder inside the listing, for the tree view.
+     *
+     * Children are read once and kept until the pane is refreshed or the branch is closed -
+     * a tree that re-read every folder on every recomposition would hammer the card, and one
+     * that never re-read would go stale with no way back.
+     */
+    fun toggleBranch(path: VPath) {
+        val now = _state.value
+        val next = TreeRows.toggle(now.open, path)
+        val opening = path in next
+        _state.value = now.copy(
+            open = next,
+            // Closing drops what was under it, which is also what frees a large branch.
+            branches = if (opening) now.branches else now.branches.filterKeys { it in next },
+        )
+        if (!opening || now.branches.containsKey(path)) return
+        scope.launch {
+            // Streamed, like every other listing here. A branch can be a camera folder too,
+            // and reading five thousand files before the first row appears is the stall the
+            // whole listing pipeline exists to avoid - see `relist`.
+            val acc = ArrayList<VNode>()
+            runCatching {
+                vfs.list(path) { chunk ->
+                    acc += chunk
+                    // A fold closed mid-read must not reopen itself, and must stop costing.
+                    if (path !in _state.value.open) return@list
+                    _state.value = _state.value.copy(
+                        branches = _state.value.branches + (
+                            path to acc
+                                .filter { prefs.showHidden.value || !it.name.startsWith('.') }
+                                .sortedBy(prefs.sort.value)
+                            ),
+                    )
+                }
+            }
+        }
+    }
+
+    /** Fold everything away, for the toolbar's collapse-all. */
+    fun collapseTree() {
+        _state.value = _state.value.copy(open = emptySet(), branches = emptyMap())
     }
 
     /**

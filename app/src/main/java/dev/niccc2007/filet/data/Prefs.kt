@@ -430,6 +430,23 @@ class Prefs(context: Context) {
         sp.edit().putString(K_HOME_FOLDS, next.joinToString("|")).apply()
     }
 
+    /**
+     * Folder listings open in place instead of replacing the screen. See `TreeRows`.
+     *
+     * OFF by default, on request and on merit: a tree is a way of working that suits people
+     * who already know the shape of what they are looking at, and it is the wrong first
+     * impression of a file manager for everyone else. It changes how a row is drawn and
+     * nothing else - the path bar, the drag, the selection and the menus are all unaware of
+     * it.
+     */
+    private val _treeView = MutableStateFlow(sp.getBoolean(K_TREE_VIEW, false))
+    val treeView: StateFlow<Boolean> = _treeView.asStateFlow()
+
+    fun setTreeView(on: Boolean) {
+        _treeView.value = on
+        sp.edit().putBoolean(K_TREE_VIEW, on).apply()
+    }
+
     /** Which face the full music player draws. See `PlayerFace`. */
     /**
      * Whether a slowed track keeps its pitch or drops with the speed.
@@ -655,6 +672,7 @@ class Prefs(context: Context) {
         const val K_DRAWER_RECENT = "drawer.recent"
         const val K_DRAWER_PLACES = "drawer.places"
         const val K_HOME_FOLDS = "home.folds"
+        const val K_TREE_VIEW = "view.tree"
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
 }
