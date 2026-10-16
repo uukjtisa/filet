@@ -37,11 +37,57 @@ class BeatMapTest {
     }
 
     @Test
-    fun `a beat carries into the next bucket so a frame cannot step over it`() {
+    fun `a beat is picked up just BEFORE it lands, not after`() {
         val map = BeatMap(floatArrayOf(0f, 1f, 0f, 0f))
         assertEquals(1f, map.strengthAt(BeatMap.BUCKET_MS), 0.001f)
-        // The bucket after the hit still shows some of it.
-        assertTrue(map.strengthAt(BeatMap.BUCKET_MS * 2) > 0.3f)
+        // The bucket BEFORE the hit already shows some of it, so the light has started
+        // moving by the time the sound arrives. The window used to point the other way,
+        // which put every pulse up to forty milliseconds behind the music.
+        assertTrue(map.strengthAt(0L) > 0.3f)
+        // And the bucket after is clean: a beat that has been heard is over.
+        assertEquals(0f, map.strengthAt(BeatMap.BUCKET_MS * 2), 0.001f)
+    }
+
+    @Test
+    fun `a weak hit survives as a weak number instead of being thrown away`() {
+        // Two-way, and the reason the floor came down: the soft hits have to reach the
+        // light at all before anything downstream can decide how much of them to show.
+        val bed = MutableList(240) { 0.10f }
+        for (i in 20 until 240 step 10) bed[i] = 0.30f
+        bed[85] = 0.13f
+        val onsets = BeatMap.onsetsOf(bed)
+        assertTrue("the soft hit was gated out", onsets[85] > 0f)
+        assertTrue("it is not as loud as a real one", onsets[85] < onsets[80])
+    }
+
+    @Test
+    fun `the sensitivity slider maps onto a gain and back`() {
+        assertEquals(PULSE_SENSE_MIN, senseFor(0f), 0.001f)
+        assertEquals(PULSE_SENSE_MAX, senseFor(1f), 0.001f)
+        // Geometric, so the middle of the travel is the geometric mean rather than the
+        // arithmetic one - which is what keeps unity gain off the far left of the track.
+        assertEquals(
+            kotlin.math.sqrt(PULSE_SENSE_MIN * PULSE_SENSE_MAX),
+            senseFor(0.5f),
+            0.01f,
+        )
+        for (p in listOf(0f, 0.2f, 0.5f, 0.77f, 1f)) {
+            assertEquals(p, sensePosition(senseFor(p)), 0.001f)
+        }
+    }
+
+    @Test
+    fun `the glow swings both ways about its resting level`() {
+        // Below rest between beats, above it on one. A pulse that only ever adds is half a
+        // pulse and spends most of its time indistinguishable from the pulse being off.
+        assertTrue("silence did not dip", glowSwing(0f, 1f) < 0f)
+        assertTrue("a beat did not rise", glowSwing(1f, 1f) > 0f)
+        // The dip is the gentler half, or a quiet passage just goes dark and stays there.
+        assertTrue(kotlin.math.abs(glowSwing(0f, 1f)) < glowSwing(1f, 1f))
+        // And depth scales both halves together.
+        assertEquals(0f, glowSwing(0f, 0f), 0.001f)
+        assertEquals(0f, glowSwing(1f, 0f), 0.001f)
+        assertEquals(glowSwing(1f, 1f) / 2f, glowSwing(1f, 0.5f), 0.001f)
     }
 
     @Test
@@ -77,6 +123,30 @@ class BeatMapTest {
     fun `a rise out of true silence is a beat`() {
         val onsets = BeatMap.onsetsOf(List(20) { 0f } + listOf(0.4f) + List(10) { 0f })
         assertEquals(1f, onsets[20], 0.001f)
+    }
+
+    @Test
+    fun `the opening of a track is not blank`() {
+        // The pulse starting late had two causes and this is the small one: waiting for a
+        // full sixteen-bucket window before anything counted blanked the first third of a
+        // second of every track - which on a song that opens on a hit is the beat somebody
+        // is actually listening for.
+        val onsets = BeatMap.onsetsOf(List(6) { 0.05f } + listOf(0.8f) + List(20) { 0.05f })
+        assertTrue("the opening hit was swallowed by the warm-up", onsets[6] > 0f)
+        assertEquals("the very first bucket fired on nothing", 0f, onsets[0], 0.001f)
+    }
+
+    @Test
+    fun `a partial read already gives a usable map`() {
+        // What makes streaming the decode work: the first second of a track, measured on
+        // its own, grades its beats the same way the whole track would.
+        val whole = MutableList(400) { 0.10f }
+        for (i in 20 until 400 step 10) whole[i] = 0.30f
+        val early = BeatMap.onsetsOf(whole.take(60))
+        val full = BeatMap.onsetsOf(whole)
+        for (i in listOf(30, 40, 50)) {
+            assertEquals("bucket $i graded differently", full[i], early[i], 0.15f)
+        }
     }
 
     @Test

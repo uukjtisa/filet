@@ -479,6 +479,44 @@ class Prefs(context: Context) {
         sp.edit().putBoolean(K_BEAT_PULSE, on).apply()
     }
 
+    /**
+     * How readily a rise in the music counts as a beat.
+     *
+     * A multiplier on the onset before it is clamped, so it is a GAIN rather than a
+     * threshold: turning it up does not invent beats that are not there, it brings the soft
+     * ones up the scale until they are visible. Which is the right knob - what counts as a
+     * beat differs per track far more than per person, and a threshold would have to be
+     * reset for every song.
+     */
+    private val _pulseSense = MutableStateFlow(sp.getFloat(K_PULSE_SENSE, 1f))
+    val pulseSense: StateFlow<Float> = _pulseSense.asStateFlow()
+
+    fun setPulseSense(v: Float) {
+        val c = v.coerceIn(
+            dev.niccc2007.filet.playback.PULSE_SENSE_MIN,
+            dev.niccc2007.filet.playback.PULSE_SENSE_MAX,
+        )
+        _pulseSense.value = c
+        sp.edit().putFloat(K_PULSE_SENSE, c).apply()
+    }
+
+    /**
+     * How far a beat may swing the glow, from its quietest to its hardest.
+     *
+     * One number for both ends, because they are one question. The swing is measured about
+     * a resting level (see `glowSwing`), so turning this up takes the dark half DOWN and the
+     * bright half UP together - two sliders for that would let somebody set a maximum below
+     * their minimum, and there is nothing a split pair buys that is worth that.
+     */
+    private val _pulseDepth = MutableStateFlow(sp.getFloat(K_PULSE_DEPTH, 0.7f))
+    val pulseDepth: StateFlow<Float> = _pulseDepth.asStateFlow()
+
+    fun setPulseDepth(v: Float) {
+        val c = v.coerceIn(0f, 1f)
+        _pulseDepth.value = c
+        sp.edit().putFloat(K_PULSE_DEPTH, c).apply()
+    }
+
     /** Which face the full music player draws. See `PlayerFace`. */
     /**
      * Whether a slowed track keeps its pitch or drops with the speed.
@@ -707,6 +745,9 @@ class Prefs(context: Context) {
         const val K_TREE_VIEW = "view.tree"
         const val K_SCRATCH = "play.scratch"
         const val K_BEAT_PULSE = "play.pulse"
+        const val K_PULSE_SENSE = "play.pulseSense"
+        const val K_PULSE_DEPTH = "play.pulseDepth"
+
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
 }

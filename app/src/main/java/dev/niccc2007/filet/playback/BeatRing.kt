@@ -61,6 +61,8 @@ fun BeatRing(
     turning: Float,
     /** The shared envelope. Null when the pulse is off, and the ring then sweeps on a clock. */
     pulse: androidx.compose.runtime.State<Float>? = null,
+    /** How far a beat may move it. See `Prefs.pulseDepth`. */
+    pulseDepth: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
     val state = playback.state.collectAsStateWithLifecycle()
@@ -78,7 +80,12 @@ fun BeatRing(
         val centre = Offset(size.width / 2f, size.height / 2f)
         val swell = sin(b * 2f * PI.toFloat())
         val onBeat = pulse != null
-        val hit = if (!running) 0f else pulse?.value ?: 0f
+        // The ring takes the positive half of the swing only. It is a hairline on the edge
+        // of the artwork; dimming it further in the gaps would simply remove it, where the
+        // backdrop has the area to lose brightness and still be seen losing it.
+        val hit =
+            if (!running || pulse == null) 0f
+            else glowSwing(pulse.value, pulseDepth).coerceAtLeast(0f) * 1.5f
         val lit = (0.25f + 0.75f * turning) * (1f + hit * PUNCH)
 
         // The ring the artwork sits inside, just off its edge so the picture is not touched.
@@ -149,8 +156,16 @@ private const val PUNCH = 2.8f
 /** How far the ring jumps outward on a hit, as a fraction of the artwork's radius. */
 private const val RING_KICK = 0.075f
 
-/** How much of the travelling highlight is left once the beats are driving the ring. */
-private const val SWEEP_UNDER_BEAT = 0.22f
+/**
+ * How much of the travelling highlight is left once the beats are driving the ring.
+ *
+ * None. It was damped to a fifth and left running, and a bright arc going round on its own
+ * 2.4-second clock next to a light answering the drums is a second rhythm in the picture -
+ * reported as something starting before the beat does, which is precisely what it was. The
+ * sweep is the FALLBACK for a track with no map; with a map it has nothing to add and one
+ * clear thing to get in the way of.
+ */
+private const val SWEEP_UNDER_BEAT = 0f
 
 /** How long the highlight takes to go round. Inside the range most music sits in. */
 private const val SWEEP_MS = 2_400

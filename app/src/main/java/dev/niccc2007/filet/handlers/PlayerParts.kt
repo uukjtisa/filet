@@ -38,6 +38,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Slider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -226,6 +228,12 @@ fun PlayerOverflow(
     /** The glow answering the music. Null when the glow is off - it is its sub-switch. */
     pulse: Boolean? = null,
     onPulse: (() -> Unit)? = null,
+    /** What counts as a beat, 0 to 1 across the allowed gain. Null when the pulse is off. */
+    sense: Float? = null,
+    onSense: ((Float) -> Unit)? = null,
+    /** How far a beat swings the glow, 0 to 1. Null when the pulse is off. */
+    depth: Float? = null,
+    onDepth: ((Float) -> Unit)? = null,
 ) {
     var open by remember { mutableStateOf(false) }
     var faces by remember { mutableStateOf(false) }
@@ -294,6 +302,16 @@ fun PlayerOverflow(
                             // just a second switch.
                             if (pulse != null && onPulse != null) {
                                 PanelSwitch("Pulse on the beat", pulse, onPulse, sub = true)
+                                // The two knobs, and only while the thing they tune is
+                                // running. A slider that does nothing is worse here than
+                                // in Settings: this panel is open over the very thing it
+                                // is supposed to be changing.
+                                if (pulse && sense != null && onSense != null) {
+                                    PanelSlider("Sensitivity", sense, onSense)
+                                }
+                                if (pulse && depth != null && onDepth != null) {
+                                    PanelSlider("Intensity", depth, onDepth)
+                                }
                             }
                         }
                         PanelRule()
@@ -331,6 +349,30 @@ private fun PanelHead(text: String) {
         color = Filet.colors.fg3,
         modifier = Modifier.padding(start = 17.dp, bottom = 9.dp),
     )
+}
+
+/**
+ * A labelled slider, sized for the panel rather than for a settings page.
+ *
+ * Indented to the sub-switch's margin, because that is what it belongs to, and drawn with
+ * the thumb small: at 254dp wide a Material slider's default furniture is most of the row.
+ */
+@Composable
+private fun PanelSlider(label: String, value: Float, onChange: (Float) -> Unit) {
+    val colors = Filet.colors
+    Column(Modifier.padding(start = 31.dp, end = 17.dp, top = 2.dp, bottom = 4.dp)) {
+        Text(label, fontSize = 10.5.sp, color = colors.fg3)
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            modifier = Modifier.height(22.dp),
+            colors = SliderDefaults.colors(
+                thumbColor = colors.accent,
+                activeTrackColor = colors.accent,
+                inactiveTrackColor = colors.sunken,
+            ),
+        )
+    }
 }
 
 /** A hairline that stops short of the edge, so the panel's corners stay round. */

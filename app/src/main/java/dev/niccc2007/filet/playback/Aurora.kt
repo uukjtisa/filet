@@ -50,6 +50,8 @@ fun AuroraBackdrop(
     ground: Color,
     running: Boolean,
     pulse: androidx.compose.runtime.State<Float>? = null,
+    /** How far a beat may swing it. See `Prefs.pulseDepth`. */
+    pulseDepth: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
     val phases = rememberGlowPhases(running)
@@ -63,10 +65,12 @@ fun AuroraBackdrop(
                 // reading the frame up there recomposes all of it sixty times a second. See
                 // the note in `livingGlow`.
                 val p = phases.value
-                val hit = pulse?.value ?: 0f
+                // Signed: below the resting glow between beats, above it on one. See
+                // `glowSwing` for why a light that only ever grows is half a pulse.
+                val swing = if (pulse == null) 0f else glowSwing(pulse.value, pulseDepth)
                 drawRect(ground)
-                val grow = 1f + hit * BLOOM
-                val lift = 1f + hit * FLARE
+                val grow = (1f + swing * BLOOM).coerceAtLeast(0.3f)
+                val lift = (1f + swing * FLARE).coerceAtLeast(0.2f)
                 glowBlob(tints[0].brighter(lift), p[0], 0.62f, 0.34f, size.minDimension * 1.25f * grow)
                 glowBlob(tints[1].brighter(lift), p[1], 0.38f, 0.66f, size.minDimension * 1.45f * grow)
                 glowBlob(tints[2].brighter(lift), p[2], 0.72f, 0.78f, size.minDimension * 1.1f * grow)
@@ -75,19 +79,19 @@ fun AuroraBackdrop(
 }
 
 /**
- * How much bigger the lights get on a hard beat.
+ * How much bigger the lights get between the quietest moment and the hardest beat.
  *
- * A fifth. Size is the half of this that is actually seen - a light that only brightens reads
- * as a flicker, a light that swells reads as the room answering the drum.
+ * Size is the half of this that is actually seen - a light that only brightens reads as a
+ * flicker, a light that swells reads as the room answering the drum.
  */
-private const val BLOOM = 0.20f
+private const val BLOOM = 0.30f
 
 /** And how much brighter, on top of the swell. */
-private const val FLARE = 1.0f
+private const val FLARE = 1.5f
 
-/** More alpha, same hue. A second colour would stop the light being the track's own. */
+/** Alpha up or down, same hue. A second colour would stop the light being the track's own. */
 internal fun Color.brighter(by: Float): Color =
-    if (by <= 1f) this else copy(alpha = (alpha * by).coerceAtMost(1f))
+    copy(alpha = (alpha * by).coerceIn(0f, 1f))
 
 /**
  * Three lights from one sampled colour.

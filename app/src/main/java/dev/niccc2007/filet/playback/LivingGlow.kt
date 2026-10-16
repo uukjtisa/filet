@@ -71,10 +71,16 @@ fun LivingGlow(
     spread: Float = 1f,
     /** The beat envelope, where there is one. See [rememberBeatPulse]. */
     pulse: State<Float>? = null,
+    /** How far the beat may swing the glow. See `Prefs.pulseDepth`. */
+    pulseDepth: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
     if (!on) return
-    Box(modifier.fillMaxSize().livingGlow(base, on, running, strength, spread, pulse = pulse))
+    Box(
+        modifier
+            .fillMaxSize()
+            .livingGlow(base, on, running, strength, spread, pulse = pulse, pulseDepth = pulseDepth),
+    )
 }
 
 /**
@@ -96,6 +102,8 @@ fun Modifier.livingGlow(
     clip: Boolean = true,
     /** The beat envelope, where there is one. See [rememberBeatPulse]. */
     pulse: State<Float>? = null,
+    /** How far the beat may swing the glow. See `Prefs.pulseDepth`. */
+    pulseDepth: Float = 1f,
 ): Modifier {
     if (!on) return this
     val phases = rememberGlowPhases(running)
@@ -123,11 +131,11 @@ fun Modifier.livingGlow(
         // files somebody is trying to read.
         // The beat, read here for the same reason and with the same effect: the draw
         // invalidates on every onset and nothing above it recomposes at all.
-        val hit = pulse?.value ?: 0f
+        val swing = if (pulse == null) 0f else glowSwing(pulse.value, pulseDepth)
         if (clip) {
-            clipRect { lights(tints, a, b, c, spread, hit) }
+            clipRect { lights(tints, a, b, c, spread, swing) }
         } else {
-            lights(tints, a, b, c, spread, hit)
+            lights(tints, a, b, c, spread, swing)
         }
     }
 }
@@ -138,19 +146,52 @@ private fun DrawScope.lights(
     b: Float,
     c: Float,
     spread: Float,
-    hit: Float,
+    swing: Float,
 ) {
     // Swell AND brighten. See `AuroraBackdrop`: on its own, a change of alpha is a flicker.
-    val grow = spread * (1f + hit * BEAT_BLOOM)
-    val lift = 1f + hit * BEAT_FLARE
+    val grow = spread * (1f + swing * BEAT_BLOOM).coerceAtLeast(0.25f)
+    val lift = (1f + swing * BEAT_FLARE).coerceAtLeast(0.15f)
     glowBlob(tints[0].brighter(lift), a, 0.30f, 0.26f, size.maxDimension * 0.80f * grow)
     glowBlob(tints[1].brighter(lift), b, 0.74f, 0.44f, size.maxDimension * 0.95f * grow)
     glowBlob(tints[2].brighter(lift), c, 0.52f, 0.72f, size.maxDimension * 0.65f * grow)
 }
 
+/**
+ * The beat as a SIGNED swing about the resting glow.
+ *
+ * ## Two ways, not one
+ *
+ * The first version only ever added: the glow sat at its normal brightness and bloomed on a
+ * beat. That is half a pulse. A light that only grows has to grow a long way before anything
+ * is visible, and between beats it sits exactly where it sits with the pulse switched off -
+ * so most of the time there is no evidence it is doing anything at all.
+ *
+ * Measuring the beat against [REST] instead means the glow falls BELOW its resting level in
+ * the gaps and rises above it on the hit. The same total movement, seen twice as often, and
+ * the dark half is what makes the bright half read as a punch rather than as a fade-up.
+ *
+ * ## The dip is gentler than the rise
+ *
+ * [DIP] damps the negative half. Symmetrical, a quiet passage simply goes dark and stays
+ * there, which reads as the artwork being dimmed rather than as the music being quiet.
+ *
+ * @param hit the envelope, 0 to 1.
+ * @param depth how far it may swing at all. See `Prefs.pulseDepth`.
+ */
+fun glowSwing(hit: Float, depth: Float): Float {
+    val raw = hit - REST
+    return (if (raw < 0f) raw * DIP else raw) * depth
+}
+
+/** Where "no beat right now" sits on the 0-to-1 envelope. */
+private const val REST = 0.34f
+
+/** How much of the below-rest half is kept. */
+private const val DIP = 0.65f
+
 /** How much the lights swell on a hard beat, and how much brighter they get with it. */
-private const val BEAT_BLOOM = 0.20f
-private const val BEAT_FLARE = 1.0f
+private const val BEAT_BLOOM = 0.30f
+private const val BEAT_FLARE = 1.5f
 
 /**
  * How much of the glow is painted, as a thing somebody picks.

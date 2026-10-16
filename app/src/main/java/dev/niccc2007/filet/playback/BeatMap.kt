@@ -45,22 +45,27 @@ import kotlin.math.min
 class BeatMap(private val onsets: FloatArray) {
 
     /**
-     * How hard the music hit at [ms], from 0 to 1.
+     * How hard the music hits at [ms], from 0 to 1.
      *
-     * Reads the bucket under the position and the two before it, each faded, so a pulse
-     * cannot fall between two frames - at [BUCKET_MS] the whole attack lives inside one
-     * bucket, and a light sampled even at forty-five frames a second steps over some of
-     * them. Two back rather than one because the clock and the player's reported position
-     * disagree by more than a bucket often enough to matter, and a beat that is found late
-     * still looks like a beat where a beat that is missed looks like a bug.
+     * ## It reads FORWARD, which is why it stopped feeling late
+     *
+     * The first version read the bucket under the position and the two BEFORE it, so a hit
+     * lit the light up to forty milliseconds after it had been heard - and that was on top
+     * of the sampling interval, the frame, and whatever the device adds between the decoder
+     * and the speaker. Every one of those is lateness, and they add up to something plainly
+     * behind the music.
+     *
+     * So it reads the bucket under the position and the one AFTER it. A beat about to land
+     * starts the light now; the envelope's own attack then peaks about where the sound
+     * arrives. Looking ahead is also what makes a pulse impossible to step over at any
+     * frame rate, which is what the backward window was there for in the first place.
      */
     fun strengthAt(ms: Long): Float {
         if (onsets.isEmpty()) return 0f
         val i = (ms / BUCKET_MS).toInt()
         if (i < 0 || i >= onsets.size) return 0f
         var best = onsets[i]
-        if (i > 0) best = max(best, onsets[i - 1] * FADE)
-        if (i > 1) best = max(best, onsets[i - 2] * FADE * FADE)
+        if (i + 1 < onsets.size) best = max(best, onsets[i + 1] * FADE)
         return best
     }
 
@@ -81,14 +86,20 @@ class BeatMap(private val onsets: FloatArray) {
         /** How many buckets the running average looks back over. About a third of a second. */
         private const val MEMORY = 16
 
+        /** And the least history a bucket needs before it may be called a beat at all. */
+        private const val WARM_UP = 4
+
         /**
-         * Below this a rise is noise rather than a hit.
+         * Below this a rise is dither rather than music.
          *
-         * A FRACTION of the recent average now, not an absolute level - see [onsetsOf]. Six
-         * percent: loud enough that a tape hiss or a vibrato does not register, quiet enough
-         * that a hi-hat under a vocal does.
+         * A FRACTION of the recent average, not an absolute level - see [onsetsOf]. Two
+         * percent, which is a noise gate and nothing more. It used to be six, as a
+         * judgement about what counted as a beat, and that judgement does not belong here:
+         * it threw away every soft hit before anything downstream could decide what to do
+         * with it, so the light could only ever answer the loud ones. Weak beats now
+         * survive as small numbers and pulse weakly, and how weak is a setting.
          */
-        private const val FLOOR = 0.06f
+        private const val FLOOR = 0.02f
 
         /**
          * Which onset counts as "as hard as this track hits".
@@ -106,8 +117,28 @@ class BeatMap(private val onsets: FloatArray) {
          *
          * Suspending and on IO. It reads and decodes a whole file, which is never a
          * main-thread job however fast the phone is.
+         *
+         * ## It hands back partial maps as it goes, and that is not an optimisation
+         *
+         * Reported as the pulse starting late, and it was - by a second or two, every time
+         * a track opened. Nothing was wrong with the beat detection; there was simply no
+         * map yet. The whole file was decoded before anything was returned, so the opening
+         * of every song played with the pulse switched on and doing nothing.
+         *
+         * Decoding runs at something like a hundred times real time, so after a few tens
+         * of milliseconds the reader is already further into the track than the player is.
+         * [onPartial] therefore gets a usable map almost at once and a better one every
+         * [EMIT_EVERY] buckets after that, each covering more than playback has reached.
+         *
+         * The scale shifts slightly as more of the track is seen - the normalisation is
+         * against what has been read so far - which is a far smaller fault than a pulse
+         * that is not there.
          */
-        suspend fun build(context: Context, uri: Uri): BeatMap? = withContext(Dispatchers.IO) {
+        suspend fun build(
+            context: Context,
+            uri: Uri,
+            onPartial: ((BeatMap) -> Unit)? = null,
+        ): BeatMap? = withContext(Dispatchers.IO) {
             val extractor = MediaExtractor()
             var codec: MediaCodec? = null
             try {
@@ -134,6 +165,7 @@ class BeatMap(private val onsets: FloatArray) {
 
                 val perBucket = (rate * BUCKET_MS / 1000).toInt().coerceAtLeast(1) * channels
                 val energy = ArrayList<Float>(4096)
+                var emitAt = EMIT_FIRST
                 var sum = 0.0
                 var count = 0
                 val info = MediaCodec.BufferInfo()
@@ -175,6 +207,10 @@ class BeatMap(private val onsets: FloatArray) {
                                     energy.add((sum / count).toFloat())
                                     sum = 0.0
                                     count = 0
+                                    if (onPartial != null && energy.size >= emitAt) {
+                                        emitAt = energy.size + EMIT_EVERY
+                                        onPartial(BeatMap(onsetsOf(energy)))
+                                    }
                                 }
                             }
                         }
@@ -184,7 +220,7 @@ class BeatMap(private val onsets: FloatArray) {
                         break
                     }
                 }
-                if (energy.size < MEMORY * 2) {
+                if (energy.size < WARM_UP * 2) {
                     dev.niccc2007.filet.data.Diag.log("beat", "too short: ${energy.size} buckets")
                     return@withContext null
                 }
@@ -226,7 +262,12 @@ class BeatMap(private val onsets: FloatArray) {
                 // of any track was a rise above nothing and fired - every track pulsed once
                 // at its start, and a flat loud recording pulsed at the start and nowhere
                 // else, which is the exact opposite of what this measures.
-                if (n < MEMORY) {
+                //
+                // WARM_UP buckets, not MEMORY. Waiting for the full window blanked the first
+                // third of a second of every track, which with a song that opens on a hit is
+                // exactly the beat somebody is listening for. Four buckets is enough history
+                // for the comparison to mean something, and the window grows from there.
+                if (n < WARM_UP) {
                     out[i] = 0f
                     continue
                 }
@@ -256,6 +297,59 @@ class BeatMap(private val onsets: FloatArray) {
             return out
         }
 
+        /**
+         * How much audio is read before the first usable map is handed over.
+         *
+         * Sixty buckets is 1.2 seconds of the track, which the decoder reaches in a few
+         * tens of milliseconds - so the pulse is running before anybody has noticed the
+         * track started, rather than a second or two into it.
+         */
+        private const val EMIT_FIRST = 60
+
+        /** And how much more between each better map after that. Three seconds of audio. */
+        private const val EMIT_EVERY = 150
+
         private const val TIMEOUT_US = 5_000L
+
+        /**
+         * The last few tracks' maps, so switching the pulse off and on again is instant.
+         *
+         * Reported as the pulse barely starting after a toggle, and that is exactly what it
+         * was: turning it off dropped the map, turning it back on decoded the whole file
+         * again, and for the second or two that took the face did nothing. The reading is
+         * the expensive part and its answer does not change, so it is kept.
+         *
+         * Four, by path and modification time. One is not enough - stepping to the next
+         * track and back is the other way this happens - and the cost is a few tens of
+         * kilobytes each, not megabytes: one float per twenty milliseconds of audio.
+         */
+        private val cache = object : LinkedHashMap<String, BeatMap>(8, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BeatMap>) =
+                size > KEEP
+
+            // LinkedHashMap is not thread-safe and this is read from the main thread and
+            // written from IO. Every access goes through the two synchronized helpers.
+        }
+
+        private const val KEEP = 4
+
+        /**
+         * The map for [uri], from memory if it has been read before.
+         *
+         * A cache hit returns the finished map and never calls [onPartial]: there is
+         * nothing partial about it, and a caller that drew the partial states on the way
+         * past would flicker through them for no reason.
+         */
+        suspend fun of(
+            context: Context,
+            uri: Uri,
+            onPartial: ((BeatMap) -> Unit)? = null,
+        ): BeatMap? {
+            val key = uri.toString()
+            synchronized(cache) { cache[key] }?.let { return it }
+            val built = build(context, uri, onPartial) ?: return null
+            synchronized(cache) { cache[key] = built }
+            return built
+        }
     }
 }

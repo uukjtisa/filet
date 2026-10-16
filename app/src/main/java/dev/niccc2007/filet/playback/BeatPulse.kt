@@ -38,12 +38,24 @@ import kotlinx.coroutines.delay
  * hundred milliseconds of dead reckoning is far closer than the reading it sits between.
  */
 @Composable
-fun rememberBeatPulse(beats: BeatMap?, playback: Playback, on: Boolean): State<Float> {
+fun rememberBeatPulse(
+    beats: BeatMap?,
+    playback: Playback,
+    on: Boolean,
+    /** How readily a rise counts as a beat. See `Prefs.pulseSense`. */
+    sensitivity: Float = 1f,
+): State<Float> {
     val level = remember { mutableFloatStateOf(0f) }
+    // Kept across restarts of the loop below. A better map arrives every few hundred
+    // milliseconds while a track is being read (see `BeatMap.build`), and a local would be
+    // zeroed by each one - so the glow would drop out briefly, repeatedly, during exactly
+    // the part of the track this was built to fix.
+    val held = remember { floatArrayOf(0f) }
     val animated = rememberSystemAnimations()
     val live = on && animated && beats != null && !beats.empty
-    LaunchedEffect(live, beats) {
+    LaunchedEffect(live, beats, sensitivity) {
         if (!live) {
+            held[0] = 0f
             level.floatValue = 0f
             return@LaunchedEffect
         }
@@ -51,7 +63,7 @@ fun rememberBeatPulse(beats: BeatMap?, playback: Playback, on: Boolean): State<F
         var reported = -1L
         var stampedAt = android.os.SystemClock.elapsedRealtime()
         var at = stampedAt
-        var value = 0f
+        var value = held[0]
         while (true) {
             val state = playback.state.value
             val now = android.os.SystemClock.elapsedRealtime()
@@ -64,8 +76,16 @@ fun rememberBeatPulse(beats: BeatMap?, playback: Playback, on: Boolean): State<F
             // keeps the arithmetic away from the edges.
             val gap = (now - at).coerceIn(0L, 250L).toFloat()
             at = now
-            val raw = if (!state.playing) 0f else map.strengthAt(reported + (now - stampedAt))
+            // LEAD_MS ahead of where the player says it is. Everything between the
+            // decoder and the ear is latency the player does not report - the mixer, the
+            // device's own buffer, a speaker DSP - and all of it makes a light driven by
+            // the reported position land behind the sound.
+            val at = reported + (now - stampedAt) + LEAD_MS
+            val raw =
+                if (!state.playing) 0f
+                else (map.strengthAt(at) * sensitivity).coerceIn(0f, 1f)
             value = max(value * exp(-gap / DECAY_MS), raw)
+            held[0] = value
             level.floatValue = value
             delay(1000L / PULSE_FPS)
         }
@@ -91,3 +111,45 @@ const val DECAY_MS = 220f
  * frames, the beat does, and only this state ticks at this rate.
  */
 const val PULSE_FPS = 45L
+
+/**
+ * How far ahead of the reported position the beat map is read.
+ *
+ * Sixty milliseconds. Android reports where the DECODER is, and what reaches the speaker is
+ * behind that by the mixer's buffer plus whatever the device adds - commonly forty to a
+ * hundred and twenty milliseconds, and more over Bluetooth. A light that fires on the
+ * reported position is therefore early by none of that and late by all of it, which is
+ * exactly what a pulse running behind the music looks like.
+ *
+ * It is deliberately a touch short of a typical device latency rather than a touch long:
+ * a pulse a hair early reads as anticipation, and one a hair late reads as broken.
+ */
+const val LEAD_MS = 60L
+
+/** The gain the sensitivity slider runs between. Below 1, only the hardest hits show. */
+const val PULSE_SENSE_MIN = 0.4f
+const val PULSE_SENSE_MAX = 3f
+
+/**
+ * The slider's 0-to-1 position as a gain, and back.
+ *
+ * Geometric, not linear. The useful range is 0.4 to 3, and on a linear track the default of
+ * 1 would sit a fifth of the way along with four fifths of the travel spent on gains nobody
+ * wants - a slider whose interesting part is a thumb's width is not a control. On a
+ * geometric one, halving and doubling are the same distance in either direction, which is
+ * how a gain is actually heard.
+ */
+fun senseFor(position: Float): Float {
+    val p = position.coerceIn(0f, 1f)
+    val lo = kotlin.math.ln(PULSE_SENSE_MIN)
+    val hi = kotlin.math.ln(PULSE_SENSE_MAX)
+    return kotlin.math.exp(lo + (hi - lo) * p)
+}
+
+/** The inverse of [senseFor], for drawing the thumb where the stored gain is. */
+fun sensePosition(gain: Float): Float {
+    val lo = kotlin.math.ln(PULSE_SENSE_MIN)
+    val hi = kotlin.math.ln(PULSE_SENSE_MAX)
+    val g = gain.coerceIn(PULSE_SENSE_MIN, PULSE_SENSE_MAX)
+    return ((kotlin.math.ln(g) - lo) / (hi - lo)).coerceIn(0f, 1f)
+}

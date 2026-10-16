@@ -220,6 +220,8 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         glowLevel = glowLevel,
         scratch = scratchAudio,
         pulse = beatPulse,
+        pulseSense = dev.niccc2007.filet.playback.sensePosition(vm.prefs.pulseSense.collectAsStateWithLifecycle().value),
+        pulseDepth = vm.prefs.pulseDepth.collectAsStateWithLifecycle().value,
         speed = speed,
         sleepLeft = sleepLeft,
         maxSpeed = maxSpeed,
@@ -336,6 +338,9 @@ private class PlayerCtx(
     /** Aurora's two switches, read here so the overflow does not reach for the prefs. */
     val scratch: Boolean,
     val pulse: Boolean,
+    /** The pulse's two knobs, both as 0-to-1 slider positions. */
+    val pulseSense: Float,
+    val pulseDepth: Float,
     val speed: Float,
     val sleepLeft: Int,
     val maxSpeed: Float,
@@ -385,6 +390,14 @@ private fun FaceTopBar(c: PlayerCtx) {
             onGlow = { c.vm.prefs.setLivingGlow(!c.glow) },
             pulse = c.pulse.takeIf { c.glow },
             onPulse = { c.vm.prefs.setBeatPulse(!c.pulse) }.takeIf { c.glow },
+            // Both sliders run 0 to 1 in the UI and are mapped to their real range here,
+            // so the control does not have to know what a gain of 0.4 means.
+            sense = c.pulseSense.takeIf { c.glow },
+            onSense = if (!c.glow) null else { v: Float ->
+                c.vm.prefs.setPulseSense(dev.niccc2007.filet.playback.senseFor(v))
+            },
+            depth = c.pulseDepth.takeIf { c.glow },
+            onDepth = if (!c.glow) null else { v: Float -> c.vm.prefs.setPulseDepth(v) },
         )
     }
 }
@@ -696,14 +709,27 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
     // which is a few percent of the face and is why the pulse looked like it was not working.
     var beats by remember(c.source) { mutableStateOf<BeatMap?>(null) }
     LaunchedEffect(c.source, pulse) {
-        beats = null
         val source = c.source
-        if (!pulse || source == null) return@LaunchedEffect
-        beats = BeatMap.build(context, source)
+        if (!pulse || source == null) {
+            beats = null
+            return@LaunchedEffect
+        }
+        // `of`, not `build`: switching the pulse off and on again, or stepping to the next
+        // track and back, must not re-read the whole file. See `BeatMap.cache`.
+        //
+        // And the partial maps are taken as they come, so the pulse is running within a
+        // frame or two of the track opening instead of after the whole file has been read.
+        // The old `beats = null` that stood here went too: it threw away a perfectly good
+        // map for the length of the next read, which is the same blank spell by a
+        // different route.
+        beats = BeatMap.of(context, source) { partial -> beats = partial }
     }
+    val sense by c.vm.prefs.pulseSense.collectAsStateWithLifecycle()
+    val depth by c.vm.prefs.pulseDepth.collectAsStateWithLifecycle()
     // ONE envelope for the whole face, so the backdrop and the ring beat together rather
     // than each keeping its own clock a frame apart. See `rememberBeatPulse`.
-    val envelope = dev.niccc2007.filet.playback.rememberBeatPulse(beats, c.playback, pulse)
+    val envelope =
+        dev.niccc2007.filet.playback.rememberBeatPulse(beats, c.playback, pulse, sense)
     val beating = if (pulse && beats != null) envelope else null
 
     dev.niccc2007.filet.playback.AuroraBackdrop(
@@ -711,6 +737,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
         ground = MaterialTheme.colorScheme.background,
         running = c.glow && c.state.playing,
         pulse = beating,
+        pulseDepth = depth,
     )
     // The turn. A full revolution every 24 seconds - a 33rpm record is 1.8, which at this
     // size is a blur and makes the artwork unreadable. This is slow enough to look still
@@ -920,6 +947,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                     tint = c.tint,
                     playback = c.playback,
                     pulse = beating,
+                    pulseDepth = depth,
                     turning = turning,
                     modifier = Modifier.fillMaxSize(),
                 )

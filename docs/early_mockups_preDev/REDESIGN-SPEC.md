@@ -24,7 +24,7 @@ that surface which is easiest to lose on the way across.
 | **Remotes tab** | `app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt:80` | `TABS3.remotes` | N59 | An unreachable remote is shown as unreachable and never waited for. |
 | **Activity tab** | `app/src/main/java/dev/niccc2007/filet/jobs/ActivitySheet.kt:48` | `TABS3.activity` | N59 | Running above finished. The index job names the folder it is reading. |
 | **About tab** | `app/src/main/java/dev/niccc2007/filet/about/AboutPage.kt:90` | `aboutHTML` | N58 | Four words from the repo, in one line. Watermark is the app mark, not the author seal. |
-| **Settings tab** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:101` | `setHTML` | N56 | Sub-tabs. The List pane carries a live view rendered by the same code as the real list. |
+| **Settings tab** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:102` | `setHTML` | N56 | Sub-tabs. The List pane carries a live view rendered by the same code as the real list. |
 | **File row** | `app/src/main/java/dev/niccc2007/filet/browser/ClipTraySheet.kt:416` | `rowsHTML3` | N55 | No date column. Files show bytes, folders show item count. Tabular figures, not a code font. |
 | **Search result row** | `app/src/main/java/dev/niccc2007/filet/browser/RowViews.kt:338` | `SearchResultRow` | N79 | Carries Available or Confirming while a pass runs, and nothing between passes. |
 | **Scope chips** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:477` | `.scopes` | N71 | Native search is dimmed and unpressable where the index never answers the scope anyway. |
@@ -49,7 +49,7 @@ that surface which is easiest to lose on the way across.
 | **Crash** | `app/src/main/java/dev/niccc2007/filet/crash/CrashActivity.kt:125` | `DIALOGS.crash` | N65 | Taller, names the file it wrote, and offers to open it. |
 | **Storage tool** | _new, nothing to replace_ | `storHTML` | N57 | New screen. Tree, largest, by type, clean up, and the tray. See STORAGE-TOOL.md. |
 | **Appoint tray** | _new, nothing to replace_ | `.tray` | N80 | Tap to appoint as well as drag. Side panel in landscape, collapsed when empty. |
-| **Theme picker** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:101` | `appearanceHTML` | N84 | Twelve palettes plus a custom setter. Names describe the palette, never its source. |
+| **Theme picker** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:102` | `appearanceHTML` | N84 | Twelve palettes plus a custom setter. Names describe the palette, never its source. |
 | **App icon picker** | _new, nothing to replace_ | `APP_ICONS` | N84 | Launcher aliases. Switching one drops home-screen shortcuts to the old alias. |
 | **App intro** | _new, nothing to replace_ | `IntroPolicy` | N42 | Off by default. A hard failsafe finishes it whatever the animation is doing. |
 

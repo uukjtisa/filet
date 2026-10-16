@@ -26,6 +26,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -117,6 +118,8 @@ fun SettingsPage(vm: BrowserViewModel) {
     val pitchMode by prefs.pitchMode.collectAsState()
     val livingGlow by prefs.livingGlow.collectAsState()
     val beatPulse by prefs.beatPulse.collectAsState()
+    val pulseSense by prefs.pulseSense.collectAsState()
+    val pulseDepth by prefs.pulseDepth.collectAsState()
     val glowLevel by prefs.glowLevel.collectAsState()
     val glowSpill by prefs.glowSpill.collectAsState()
     val treeView by prefs.treeView.collectAsState()
@@ -471,6 +474,26 @@ fun SettingsPage(vm: BrowserViewModel) {
                     beatPulse,
                 ) { prefs.setBeatPulse(it) }
             }
+            if (beatPulse) {
+                item {
+                    SliderRow(
+                        "Sensitivity",
+                        "How much of a rise counts. Turn it up and the soft hits pulse too, " +
+                            "weakly - it lifts the quiet beats up the scale rather than " +
+                            "inventing beats that are not there.",
+                        dev.niccc2007.filet.playback.sensePosition(pulseSense),
+                    ) { prefs.setPulseSense(dev.niccc2007.filet.playback.senseFor(it)) }
+                }
+                item {
+                    SliderRow(
+                        "Intensity",
+                        "How far a beat swings the glow. The swing goes both ways - down " +
+                            "between beats, up on them - so this moves the quietest and the " +
+                            "brightest together.",
+                        pulseDepth,
+                    ) { prefs.setPulseDepth(it) }
+                }
+            }
             item {
                 val level = dev.niccc2007.filet.playback.GlowLevel.of(glowLevel)
                 Column {
@@ -737,6 +760,25 @@ private fun LogFileRow(vm: BrowserViewModel) {
         )
         Spacer(Modifier.height(7.dp))
         SmallButton("Open the logs folder") { vm.openLogsFolder() }
+    }
+}
+
+/** A labelled slider with the sentence that says what moving it does. */
+@Composable
+fun SliderRow(title: String, subtitle: String, value: Float, onChange: (Float) -> Unit) {
+    val colors = Filet.colors
+    Column(Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) {
+        Text(title, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+        Text(subtitle, fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp)
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            colors = SliderDefaults.colors(
+                thumbColor = colors.accent,
+                activeTrackColor = colors.accent,
+                inactiveTrackColor = colors.sunken,
+            ),
+        )
     }
 }
 
