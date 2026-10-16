@@ -127,9 +127,11 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     // offered. It is therefore a sub-setting rather than a sibling, here and in the panel
     // and in Settings.
     val beatPulse = vm.prefs.beatPulse.collectAsStateWithLifecycle().value && glow
-    val glowLevel = dev.niccc2007.filet.playback.GlowLevel.of(
-        vm.prefs.glowLevel.collectAsStateWithLifecycle().value,
-    )
+    // ONE number for how bright the glow is. The three named steps are stops on it -
+    // see `glowScale` for why this is not the same question as how hard a beat swings it.
+    val glowStrength by vm.prefs.glowStrength.collectAsStateWithLifecycle()
+    val glowScale = dev.niccc2007.filet.playback.glowScale(glowStrength)
+    val discTurn by vm.prefs.discTurnMs.collectAsStateWithLifecycle()
     val speed by playback.speed.collectAsStateWithLifecycle()
     val sleepAt by playback.sleepAt.collectAsStateWithLifecycle()
     val pitch = dev.niccc2007.filet.playback.PitchMode.of(
@@ -217,7 +219,9 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         onTint = onTint,
         uninterrupted = uninterrupted,
         glow = glow,
-        glowLevel = glowLevel,
+        glowScale = glowScale,
+        glowStrength = glowStrength,
+        discTurn = discTurn,
         scratch = scratchAudio,
         pulse = beatPulse,
         pulseSense = dev.niccc2007.filet.playback.sensePosition(vm.prefs.pulseSense.collectAsStateWithLifecycle().value),
@@ -254,7 +258,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
                 base = colors.accent,
                 on = glow,
                 running = state.playing,
-                strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * glowLevel.scale,
+                strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * glowScale,
             )
         }
 
@@ -337,7 +341,11 @@ private class PlayerCtx(
     val onTint: androidx.compose.ui.graphics.Color,
     val uninterrupted: Boolean,
     val glow: Boolean,
-    val glowLevel: dev.niccc2007.filet.playback.GlowLevel,
+    /** The glow's own brightness as a multiplier, and as the 0-to-1 control position. */
+    val glowScale: Float,
+    val glowStrength: Float,
+    /** How much of the track one turn of the disc is worth, in milliseconds. */
+    val discTurn: Float,
     /** Aurora's two switches, read here so the overflow does not reach for the prefs. */
     val scratch: Boolean,
     val pulse: Boolean,
@@ -388,10 +396,21 @@ private fun FaceTopBar(c: PlayerCtx) {
             scratch = c.scratch.takeIf { c.face == PlayerFace.AURORA },
             onScratch = { c.vm.prefs.setScratchAudio(!c.scratch) }
                 .takeIf { c.face == PlayerFace.AURORA },
+            travel = dev.niccc2007.filet.playback.Scratch.turnPosition(c.discTurn)
+                .takeIf { c.face == PlayerFace.AURORA },
+            travelLabel = dev.niccc2007.filet.playback.Scratch.travelLabel(c.discTurn)
+                .takeIf { c.face == PlayerFace.AURORA },
+            onTravel = if (c.face != PlayerFace.AURORA) null else { v: Float ->
+                c.vm.prefs.setDiscTurnMs(dev.niccc2007.filet.playback.Scratch.turnMsFor(v))
+            },
             // The glow, and the pulse underneath it. Both on every face: the glow is
             // not Aurora's, it is behind all of them and on the strip as well.
             glow = c.glow,
             onGlow = { c.vm.prefs.setLivingGlow(!c.glow) },
+            glowStrength = c.glowStrength.takeIf { c.glow },
+            onGlowStrength = if (!c.glow) null else { v: Float ->
+                c.vm.prefs.setGlowStrength(v)
+            },
             pulse = c.pulse.takeIf { c.glow },
             onPulse = { c.vm.prefs.setBeatPulse(!c.pulse) }.takeIf { c.glow },
             // Both sliders run 0 to 1 in the UI and are mapped to their real range here,
@@ -556,7 +575,7 @@ private fun BoxScope.AmbientFace(c: PlayerCtx) {
         base = c.tint,
         on = c.glow,
         running = c.state.playing,
-        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowLevel.scale,
+        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowScale,
     )
     dev.niccc2007.filet.playback.AmbientVeil(MaterialTheme.colorScheme.background)
     Column(Modifier.fillMaxSize()) {
@@ -626,7 +645,7 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
         base = c.tint,
         on = c.glow,
         running = c.state.playing,
-        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowLevel.scale,
+        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowScale,
     )
     dev.niccc2007.filet.playback.AmbientVeil(MaterialTheme.colorScheme.background)
     Column(Modifier.fillMaxSize()) {
@@ -748,6 +767,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
         running = c.glow && c.state.playing,
         pulse = beating,
         pulseDepth = depth,
+        strength = c.glowScale,
     )
     // The turn. A full revolution every 24 seconds - a 33rpm record is 1.8, which at this
     // size is a blur and makes the artwork unreadable. This is slow enough to look still
@@ -831,7 +851,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                     // not reach this code until the next song - so the gesture ran with one
                     // setting while the engine ran with the other. See `Scratch.MS_PER_TURN`
                     // for what that did.
-                    .pointerInput(c.node.path, dj) {
+                    .pointerInput(c.node.path, dj, c.discTurn) {
                         val centre = androidx.compose.ui.geometry.Offset(
                             size.width / 2f,
                             size.height / 2f,
@@ -909,7 +929,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                             val duration = c.playback.state.value.durationMs
                             val was = at
                             at = dev.niccc2007.filet.playback.Scratch.seekTo(
-                                at, turned, duration,
+                                at, turned, duration, c.discTurn,
                             )
                             // The disc stops when the track does.
                             //
@@ -1028,7 +1048,7 @@ private fun BoxScope.ImmersiveFace(c: PlayerCtx) {
         base = c.tint,
         on = c.glow,
         running = c.state.playing,
-        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowLevel.scale,
+        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowScale,
     )
     ImmersiveVeil()
     Box(

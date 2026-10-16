@@ -105,6 +105,44 @@ object Scratch {
      */
     const val MS_PER_TURN = 2_500f
 
+    /** The range the disc-travel control runs between, in milliseconds per full turn. */
+    const val TURN_MIN_MS = 900f
+    const val TURN_MAX_MS = 30_000f
+
+    /**
+     * The control's 0-to-1 position as a turn length, and back.
+     *
+     * Geometric. The useful range spans a factor of thirty, and on a linear track everything
+     * under five seconds - which is the whole of the record-like half of it - would live in
+     * the first sixth of the travel.
+     */
+    fun turnMsFor(position: Float): Float {
+        val p = position.coerceIn(0f, 1f)
+        val lo = kotlin.math.ln(TURN_MIN_MS)
+        val hi = kotlin.math.ln(TURN_MAX_MS)
+        return kotlin.math.exp(lo + (hi - lo) * p)
+    }
+
+    /** The inverse of [turnMsFor]. */
+    fun turnPosition(ms: Float): Float {
+        val lo = kotlin.math.ln(TURN_MIN_MS)
+        val hi = kotlin.math.ln(TURN_MAX_MS)
+        return ((kotlin.math.ln(ms.coerceIn(TURN_MIN_MS, TURN_MAX_MS)) - lo) / (hi - lo))
+            .coerceIn(0f, 1f)
+    }
+
+    /**
+     * What a thirty-degree move is worth, as words.
+     *
+     * Thirty degrees because that is about the smallest deliberate nudge a thumb makes on a
+     * disc this size, so it is the unit the control is actually being set in.
+     */
+    fun travelLabel(perTurnMs: Float): String {
+        val ms = (perTurnMs / 12f).toLong()
+        return if (ms < 1000) "30° ≈ ${ms}ms"
+        else "30° ≈ " + String.format("%.1f", ms / 1000f) + "s"
+    }
+
     /**
      * How often the PLAYER is told, while a finger is moving and the sound is not following.
      *

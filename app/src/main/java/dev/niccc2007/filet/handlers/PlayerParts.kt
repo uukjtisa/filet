@@ -222,9 +222,16 @@ fun PlayerOverflow(
     /** Aurora's own switch. Null on every other face, where it does nothing. */
     scratch: Boolean? = null,
     onScratch: (() -> Unit)? = null,
+    /** How much track a turn of the disc is worth, 0 to 1, with its own readout. */
+    travel: Float? = null,
+    travelLabel: String? = null,
+    onTravel: ((Float) -> Unit)? = null,
     /** The background glow, which every face has. */
     glow: Boolean? = null,
     onGlow: (() -> Unit)? = null,
+    /** How bright the glow is at all, 0 to 1. Null when the glow is off. */
+    glowStrength: Float? = null,
+    onGlowStrength: ((Float) -> Unit)? = null,
     /** The glow answering the music. Null when the glow is off - it is its sub-switch. */
     pulse: Boolean? = null,
     onPulse: (() -> Unit)? = null,
@@ -292,13 +299,31 @@ fun PlayerOverflow(
                         // Only where they mean something. The record's switch belongs to
                         // the record, and a switch on a face with no record on it is a
                         // control that does nothing visible - worse than one not offered.
-                        if (scratch != null && onScratch != null) {
+                        if (travel != null && onTravel != null) {
                             PanelRule()
-                            PanelSwitch("Hear it while you drag", scratch, onScratch)
+                            // ABOVE the sound switch, and not indented under it.
+                            //
+                            // How far a turn moves the track is true whether or not anything
+                            // is audible - the disc scrubs either way. Sitting it under the
+                            // sound switch said it was part of that effect, which is both
+                            // wrong and the reason it was not findable.
+                            PanelSlider(
+                                "Disc travel", travel, travelLabel, sub = false, onTravel,
+                            )
+                        }
+                        if (scratch != null && onScratch != null) {
+                            PanelSwitch("Sound follows the disc", scratch, onScratch)
                         }
                         if (glow != null && onGlow != null) {
                             PanelRule()
                             PanelSwitch("Living glow", glow, onGlow)
+                            // The glow's OWN brightness, not the beat's swing. These were
+                            // one control and that was the fault: turning up something
+                            // called Intensity under "Living glow" changed only how hard a
+                            // beat moved it, so with the pulse off it did nothing at all.
+                            if (glow && glowStrength != null && onGlowStrength != null) {
+                                PanelSlider("Glow strength", glowStrength, onChange = onGlowStrength)
+                            }
                             // The pulse is the glow answering the music, so it appears
                             // UNDER the glow and only while the glow is on. Indented,
                             // because a sub-switch at the same margin as its parent is
@@ -310,10 +335,10 @@ fun PlayerOverflow(
                                 // in Settings: this panel is open over the very thing it
                                 // is supposed to be changing.
                                 if (pulse && sense != null && onSense != null) {
-                                    PanelSlider("Sensitivity", sense, onSense)
+                                    PanelSlider("Sensitivity", sense, onChange = onSense)
                                 }
                                 if (pulse && depth != null && onDepth != null) {
-                                    PanelSlider("Intensity", depth, onDepth)
+                                    PanelSlider("Beat intensity", depth, onChange = onDepth)
                                 }
                                 // The one that cannot be got right in code. What a phone
                                 // does between its decoder and its speaker is not
@@ -321,7 +346,7 @@ fun PlayerOverflow(
                                 // the listener's to set - and it is here, over the track,
                                 // because that is the only place it can be judged.
                                 if (pulse && lead != null && onLead != null) {
-                                    PanelSlider("Timing", lead, onLead)
+                                    PanelSlider("Timing", lead, onChange = onLead)
                                 }
                             }
                         }
@@ -369,10 +394,23 @@ private fun PanelHead(text: String) {
  * the thumb small: at 254dp wide a Material slider's default furniture is most of the row.
  */
 @Composable
-private fun PanelSlider(label: String, value: Float, onChange: (Float) -> Unit) {
+private fun PanelSlider(
+    label: String,
+    value: Float,
+    /** What the current value actually means, where that is not obvious from the name. */
+    detail: String? = null,
+    /** False for a control that is not a sub-setting of the switch above it. */
+    sub: Boolean = true,
+    onChange: (Float) -> Unit,
+) {
     val colors = Filet.colors
-    Column(Modifier.padding(start = 31.dp, end = 17.dp, top = 2.dp, bottom = 4.dp)) {
-        Text(label, fontSize = 10.5.sp, color = colors.fg3)
+    Column(
+        Modifier.padding(start = if (sub) 31.dp else 17.dp, end = 17.dp, top = 2.dp, bottom = 4.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, fontSize = 10.5.sp, color = colors.fg3, modifier = Modifier.weight(1f))
+            if (detail != null) Text(detail, fontSize = 10.5.sp, color = colors.accent)
+        }
         Slider(
             value = value,
             onValueChange = onChange,

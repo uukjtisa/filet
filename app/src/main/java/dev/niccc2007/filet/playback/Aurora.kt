@@ -52,10 +52,23 @@ fun AuroraBackdrop(
     pulse: androidx.compose.runtime.State<Float>? = null,
     /** How far a beat may swing it. See `Prefs.pulseDepth`. */
     pulseDepth: Float = 1f,
+    /**
+     * How bright the lights are to begin with. See `glowScale`.
+     *
+     * This face used to ignore it, which is the other half of why a glow-strength control
+     * appeared to do nothing: on every other surface the glow is painted over something and
+     * scaled, and here - the one face made entirely OF the glow - it was always full. So the
+     * setting worked everywhere except the screen somebody was looking at while changing it.
+     *
+     * Clamped tighter than elsewhere. At the top of the range three lights at full alpha
+     * over their own ground stop being lights and become a flat colour, and at the bottom
+     * the face has no background at all.
+     */
+    strength: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
     val phases = rememberGlowPhases(running)
-    val tints = remember(base) { auroraTints(base) }
+    val tints = remember(base, strength) { glowTints(base, strength.coerceIn(0.3f, 1.5f)) }
 
     Box(
         modifier

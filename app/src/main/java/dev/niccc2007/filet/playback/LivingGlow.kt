@@ -208,14 +208,45 @@ enum class GlowLevel(val id: String, val label: String, val scale: Float) {
     SOFT("soft", "Soft", 1.0f),
     STRONG("strong", "Strong", 1.7f);
 
+    /** Where this step sits on the continuous control. See [glowScale]. */
+    val position: Float get() = ((scale - GLOW_MIN) / (GLOW_MAX - GLOW_MIN)).coerceIn(0f, 1f)
+
     companion object {
         fun of(id: String?): GlowLevel = entries.firstOrNull { it.id == id } ?: FAINT
 
         /** The next one round, for a control that cycles rather than opening a menu. */
         fun after(level: GlowLevel): GlowLevel =
             entries[(entries.indexOf(level) + 1) % entries.size]
+
+        /** Which step a continuous strength is nearest, for the strip's three-stop pill. */
+        fun nearest(position: Float): GlowLevel =
+            entries.minByOrNull { kotlin.math.abs(it.position - position) } ?: FAINT
     }
 }
+
+/**
+ * How much glow is painted, from a 0-to-1 control.
+ *
+ * ## Why this is separate from the pulse's own Intensity
+ *
+ * Because they are different questions and conflating them is what made one of them look
+ * broken: turning up a control that sat under "Living glow" changed only how hard the BEAT
+ * swung it, so the glow itself did not move and the control appeared to do nothing.
+ *
+ * This one sets how bright the glow is at all - with the pulse off it is the whole of the
+ * answer. `Prefs.pulseDepth` sets how far a beat moves it from there. The first is a level,
+ * the second is a range about that level, and a player needs both.
+ *
+ * The three named steps are still there as stops on the same scale (see [GlowLevel]), so
+ * the strip's quick pill and this slider are two views of one number rather than two
+ * settings that can disagree.
+ */
+fun glowScale(position: Float): Float =
+    GLOW_MIN + (GLOW_MAX - GLOW_MIN) * position.coerceIn(0f, 1f)
+
+/** Just visible, to a wash. */
+const val GLOW_MIN = 0.20f
+const val GLOW_MAX = 2.20f
 
 /**
  * Three clocks that never line up again.

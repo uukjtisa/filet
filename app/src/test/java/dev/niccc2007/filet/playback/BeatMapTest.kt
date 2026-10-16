@@ -150,6 +150,33 @@ class BeatMapTest {
     }
 
     @Test
+    fun `glow strength and beat intensity are different scales`() {
+        // They were one control, and that is why turning it up under "Living glow" with the
+        // pulse off did nothing: it only set how far a BEAT moved the glow. Strength is the
+        // level; intensity is the range about that level.
+        assertEquals(GLOW_MIN, glowScale(0f), 0.001f)
+        assertEquals(GLOW_MAX, glowScale(1f), 0.001f)
+        assertTrue("strength must move without any beat", glowScale(0.9f) > glowScale(0.1f))
+        // And the named steps are stops on that same scale, not a parallel setting.
+        for (step in GlowLevel.entries) {
+            assertEquals(step.scale, glowScale(step.position), 0.001f)
+            assertEquals(step, GlowLevel.nearest(step.position))
+        }
+    }
+
+    @Test
+    fun `the disc travel control spans record speed to a whole song`() {
+        assertEquals(Scratch.TURN_MIN_MS, Scratch.turnMsFor(0f), 1f)
+        assertEquals(Scratch.TURN_MAX_MS, Scratch.turnMsFor(1f), 1f)
+        for (p in listOf(0f, 0.3f, 0.5f, 1f)) {
+            assertEquals(p, Scratch.turnPosition(Scratch.turnMsFor(p)), 0.001f)
+        }
+        // And it says what it means in the unit a thumb works in.
+        assertTrue(Scratch.travelLabel(2_400f).contains("200ms"))
+        assertTrue(Scratch.travelLabel(24_000f).contains("2.0s"))
+    }
+
+    @Test
     fun `an empty map says so`() {
         assertTrue(BeatMap(FloatArray(0)).empty)
         assertEquals(0f, BeatMap(FloatArray(0)).strengthAt(100L), 0.001f)

@@ -329,7 +329,29 @@ class Prefs(context: Context) {
     private val _glowLevel = MutableStateFlow(sp.getString(K_GLOW_LEVEL, null))
     val glowLevel: StateFlow<String?> = _glowLevel.asStateFlow()
 
+    /**
+     * How strong the living glow is, continuously, 0 to 1.
+     *
+     * The authority. [glowLevel] remains as the three stops the strip's pill cycles
+     * through, and picking one writes this - so the pill and the slider are two views of one
+     * number. See `glowScale`.
+     */
+    private val _glowStrength = MutableStateFlow(
+        sp.getFloat(
+            K_GLOW_STRENGTH,
+            dev.niccc2007.filet.playback.GlowLevel.of(sp.getString(K_GLOW_LEVEL, null)).position,
+        ),
+    )
+    val glowStrength: StateFlow<Float> = _glowStrength.asStateFlow()
+
+    fun setGlowStrength(v: Float) {
+        val c = v.coerceIn(0f, 1f)
+        _glowStrength.value = c
+        sp.edit().putFloat(K_GLOW_STRENGTH, c).apply()
+    }
+
     fun setGlowLevel(v: String) {
+        setGlowStrength(dev.niccc2007.filet.playback.GlowLevel.of(v).position)
         _glowLevel.value = v
         sp.edit().putString(K_GLOW_LEVEL, v).apply()
     }
@@ -455,6 +477,29 @@ class Prefs(context: Context) {
      * rather than discover. With it off the disc still works and still moves through the
      * track - silently, by seeking, which is what it did before this existed.
      */
+    /**
+     * How much of the track one full turn of Aurora's disc is worth, in milliseconds.
+     *
+     * Its own setting, and NOT a sub-setting of whether the sound follows the hand: the disc
+     * moves through the track either way, so how far it moves per degree is a question that
+     * exists whether or not anything is audible. It sat under the sound switch, which made
+     * it look like part of an effect rather than the one number that says what turning the
+     * record does.
+     */
+    private val _discTurnMs = MutableStateFlow(
+        sp.getFloat(K_DISC_TURN, dev.niccc2007.filet.playback.Scratch.MS_PER_TURN),
+    )
+    val discTurnMs: StateFlow<Float> = _discTurnMs.asStateFlow()
+
+    fun setDiscTurnMs(v: Float) {
+        val c = v.coerceIn(
+            dev.niccc2007.filet.playback.Scratch.TURN_MIN_MS,
+            dev.niccc2007.filet.playback.Scratch.TURN_MAX_MS,
+        )
+        _discTurnMs.value = c
+        sp.edit().putFloat(K_DISC_TURN, c).apply()
+    }
+
     private val _scratchAudio = MutableStateFlow(sp.getBoolean(K_SCRATCH, false))
     val scratchAudio: StateFlow<Boolean> = _scratchAudio.asStateFlow()
 
@@ -756,6 +801,8 @@ class Prefs(context: Context) {
         const val K_PLAYER_FACE = "play.face"
         const val K_GLOW = "play.glow"
         const val K_GLOW_LEVEL = "play.glowLevel"
+        const val K_GLOW_STRENGTH = "play.glowStrength"
+        const val K_DISC_TURN = "play.discTurnMs"
         const val K_GLOW_SPILL = "play.glowSpill"
         const val K_PANE_SWIPE = "panes.swipe"
         const val K_PANE_SWIPE_AT = "panes.swipeAt"

@@ -121,10 +121,11 @@ fun SettingsPage(vm: BrowserViewModel) {
     val pulseSense by prefs.pulseSense.collectAsState()
     val pulseDepth by prefs.pulseDepth.collectAsState()
     val pulseLead by prefs.pulseLead.collectAsState()
-    val glowLevel by prefs.glowLevel.collectAsState()
     val glowSpill by prefs.glowSpill.collectAsState()
     val treeView by prefs.treeView.collectAsState()
     val scratchAudio by prefs.scratchAudio.collectAsState()
+    val discTurn by prefs.discTurnMs.collectAsState()
+    val glowStrength by prefs.glowStrength.collectAsState()
     val paneSwipe by prefs.paneSwipe.collectAsState()
     val paneSwipeAt by prefs.paneSwipeAt.collectAsState()
     val drag by prefs.drag.collectAsState()
@@ -487,10 +488,10 @@ fun SettingsPage(vm: BrowserViewModel) {
                 }
                 item {
                     SliderRow(
-                        "Intensity",
-                        "How far a beat swings the glow. The swing goes both ways - down " +
-                            "between beats, up on them - so this moves the quietest and the " +
-                            "brightest together.",
+                        "Beat intensity",
+                        "How far a beat swings the glow AROUND the strength set above - down " +
+                            "between beats, up on them. Strength is the level; this is the " +
+                            "range about it, which is why there are two of them.",
                         pulseDepth,
                     ) { prefs.setPulseDepth(it) }
                 }
@@ -506,26 +507,13 @@ fun SettingsPage(vm: BrowserViewModel) {
                 }
             }
             item {
-                val level = dev.niccc2007.filet.playback.GlowLevel.of(glowLevel)
-                Column {
-                    SegmentRow(
-                        "How much glow",
-                        dev.niccc2007.filet.playback.GlowLevel.entries.map { it.label },
-                        dev.niccc2007.filet.playback.GlowLevel.entries.indexOf(level),
-                    ) {
-                        prefs.setGlowLevel(
-                            dev.niccc2007.filet.playback.GlowLevel.entries[it].id,
-                        )
-                    }
-                    Text(
-                        "A deep cover throws more colour than a pale one. " +
-                            "The minimised player cycles the same three.",
-                        fontSize = 10.5.sp,
-                        lineHeight = 14.sp,
-                        color = Filet.colors.fg3,
-                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
-                    )
-                }
+                SliderRow(
+                    "Glow strength",
+                    "How bright the glow is at all. A deep cover throws more colour than a " +
+                        "pale one, so this is a per-eye setting rather than a per-track one. " +
+                        "The minimised player cycles three stops on this same scale.",
+                    glowStrength,
+                ) { prefs.setGlowStrength(it) }
             }
             item {
                 ToggleRow(
@@ -541,7 +529,7 @@ fun SettingsPage(vm: BrowserViewModel) {
         }
         item {
             ToggleRow(
-                "Hear it while you drag",
+                "Sound follows the disc",
                 if (scratchAudio) {
                     "Turning Aurora's disc plays the track at the speed of your hand, " +
                         "backwards too, instead of moving through it in silence."
@@ -550,6 +538,17 @@ fun SettingsPage(vm: BrowserViewModel) {
                 },
                 scratchAudio,
             ) { prefs.setScratchAudio(it) }
+        }
+        item {
+            // Not under the switch above. The disc moves through the track whether or not
+            // anything is audible, so how far a turn goes is its own question.
+            SliderRow(
+                "Disc travel",
+                "How much of the track one full turn of Aurora's disc covers - " +
+                    dev.niccc2007.filet.playback.Scratch.travelLabel(discTurn) +
+                    ". Short is a record you can hear; long is a way across a whole song.",
+                dev.niccc2007.filet.playback.Scratch.turnPosition(discTurn),
+            ) { prefs.setDiscTurnMs(dev.niccc2007.filet.playback.Scratch.turnMsFor(it)) }
         }
         item {
             ToggleRow(

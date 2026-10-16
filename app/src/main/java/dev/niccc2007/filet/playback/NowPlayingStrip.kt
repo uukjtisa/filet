@@ -112,7 +112,8 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
     )
 
     val glow by vm.prefs.livingGlow.collectAsStateWithLifecycle()
-    val level = GlowLevel.of(vm.prefs.glowLevel.collectAsStateWithLifecycle().value)
+    val strength by vm.prefs.glowStrength.collectAsStateWithLifecycle()
+    val level = GlowLevel.nearest(strength)
     val spill by vm.prefs.glowSpill.collectAsStateWithLifecycle()
 
     Column(
