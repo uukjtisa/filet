@@ -48,6 +48,7 @@ fun ViewPopover(vm: BrowserViewModel, onDismiss: () -> Unit) {
     val step by vm.prefs.viewStep.collectAsState()
     val sort by vm.prefs.sort.collectAsState()
     val hidden by vm.prefs.showHidden.collectAsState()
+    val tree by vm.prefs.treeView.collectAsState()
 
     DropdownMenu(expanded = true, onDismissRequest = onDismiss) {
         Column(Modifier.width(248.dp).padding(horizontal = 12.dp, vertical = 6.dp)) {
@@ -114,6 +115,23 @@ fun ViewPopover(vm: BrowserViewModel, onDismiss: () -> Unit) {
                 Icon(if (hidden) FiletIcons.Check else FiletIcons.Eye, null, tint = colors.fg2, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Show hidden files", fontSize = 12.sp)
+            }
+            // Here rather than in Settings. It is a way of looking at a folder, which is what
+            // every other control in this panel is, and it is the kind of thing somebody
+            // turns on for one folder and off again - three taps away in Settings is the
+            // wrong distance for that.
+            Row(
+                Modifier.fillMaxWidth().clickable {
+                    vm.prefs.setTreeView(!tree)
+                }.padding(vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    if (tree) FiletIcons.Check else FiletIcons.Rows, null,
+                    tint = colors.fg2, modifier = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Tree view", fontSize = 12.sp)
             }
         }
     }

@@ -14,14 +14,18 @@ import kotlin.math.abs
 import kotlin.math.floor
 
 /**
- * Playing a track the way a hand moves a record: at any speed, in either direction.
+ * Playing a track at the speed a hand is moving it, forwards or backwards, smoothly.
  *
  * ## Why this exists at all
  *
- * Turning Aurora's disc already moved through the track, by seeking. Seeking is not what a
- * record does - a record PLAYS while it moves, which is where the sound everybody recognises
- * comes from - and `MediaPlayer` cannot produce it. It seeks, and it plays between 0.1x and
- * 4x forwards. There is no API on it for backwards at all.
+ * Turning Aurora's disc moved through the track by seeking, which is silent and lands in
+ * jumps. What was wanted is the other thing: the sound playing CONTINUOUSLY at whatever speed
+ * the finger is going, including backwards, so you hear your way to a place instead of
+ * guessing at a bar. Scratching is a thing this makes possible; it is not the point, and
+ * nothing here tries to produce it.
+ *
+ * `MediaPlayer` cannot do it. It seeks, and it plays between 0.1x and 4x forwards. There is
+ * no API on it for backwards at all.
  *
  * So the samples have to be ours: decode a window of the track to PCM, and feed an
  * `AudioTrack` from it at a fractional read index that the finger drives. A negative step is
@@ -80,6 +84,17 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
      */
     @Volatile private var spokeAt = 0L
     @Volatile private var recentring = false
+
+    /**
+     * The speed actually being played, as opposed to the one last asked for.
+     *
+     * A finger reports a position every frame or two and the speed derived from two samples
+     * a few milliseconds apart is noisy - it jumps around its own average by a long way, and
+     * playing each of those values for a chunk is heard as a stutter even though the finger
+     * moved smoothly. So the played speed CHASES the asked-for one rather than snapping to
+     * it. The audio is then as smooth as the hand rather than as smooth as the sampling.
+     */
+    @Volatile private var playing = 0f
     @Volatile private var running = false
     @Volatile private var atMs = 0.0
     private var track: AudioTrack? = null
@@ -183,7 +198,7 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
             // Position is in milliseconds, so the audio thread reads the new window on its
             // next frame and carries on from the same instant. No index to translate.
             window = fresh
-            android.util.Log.i(TAG, "recentred at ${positionMs}ms")
+            dev.niccc2007.filet.data.Diag.log(TAG, "recentred at ${positionMs}ms")
         } finally {
             recentring = false
         }
@@ -201,12 +216,16 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
             // A speed nobody has confirmed lately is a finger that has stopped.
             val stale = android.os.SystemClock.elapsedRealtime() - spokeAt > QUIET_MS
             if (stale && speed != 0f) speed = 0f
-            val step = speed
+            val target = speed
             var pos = atMs
             val perFrameMs = 1000.0 / w.rate
             for (f in 0 until CHUNK_FRAMES) {
+                // Per frame, not per chunk: a speed that changes in steps of 512 frames is
+                // twelve steps a second, which is audible as a chop on a long drag.
+                playing += (target - playing) * CHASE
+                val step = playing
                 val offset = (pos - w.startMs) * w.rate / 1000.0
-                if (step == 0f || offset < 1.0 || offset > w.frames - 2.0) {
+                if (abs(step) < CREEP || offset < 1.0 || offset > w.frames - 2.0) {
                     // Off the edge of the window, or a record somebody is holding still.
                     chunk[f * 2] = 0
                     chunk[f * 2 + 1] = 0
@@ -340,7 +359,7 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
                 channels = channels,
             )
         } catch (e: Throwable) {
-            android.util.Log.i(TAG, "decode failed: $e")
+            dev.niccc2007.filet.data.Diag.log(TAG, "decode failed: $e")
             return null
         } finally {
             runCatching { codec?.stop() }
@@ -372,6 +391,18 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
 
         /** Faster than this is not a sound, it is a chirp. */
         const val MAX_SPEED = 6f
+
+        /**
+         * How quickly the played speed catches the asked-for one, per frame.
+         *
+         * At 44.1kHz this reaches a new speed in about five milliseconds - fast enough that
+         * the sound answers the hand immediately, slow enough that the jitter between two
+         * finger samples is averaged away instead of being played.
+         */
+        const val CHASE = 0.004f
+
+        /** Below this there is no sound to make, and resampling it only produces a hum. */
+        const val CREEP = 0.02f
 
         const val TIMEOUT_US = 5_000L
     }

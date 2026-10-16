@@ -777,6 +777,10 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                         var told = 0L
                         var lastMoveAt = 0L
                         val perTurn = dev.niccc2007.filet.playback.Scratch.perTurnMs(dj)
+                        // `awaitEachGesture` would be the wrong tool here: this must
+                        // consume everything from the first move onwards, or a fast
+                        // back-and-forth leaks into whatever is behind the disc and the
+                        // player reacts to a gesture that was meant for the record.
                         detectDragGestures(
                             onDragStart = {
                                 scratching = true
@@ -805,12 +809,12 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                                 scope.launch {
                                     val made = ScratchEngine(context, source)
                                     if (!made.open(at)) {
-                                        android.util.Log.i("FiletScratch", "open failed at $at")
+                                        dev.niccc2007.filet.data.Diag.log("scratch", "open failed at $at")
                                         return@launch
                                     }
                                     c.playback.pause()
                                     if (!made.start()) {
-                                        android.util.Log.i("FiletScratch", "start failed")
+                                        dev.niccc2007.filet.data.Diag.log("scratch", "start failed")
                                         made.close()
                                         // Falls back to silent seeking rather than taking the
                                         // sound away. An effect that cannot work must not
@@ -897,9 +901,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                     tint = c.tint,
                     playback = c.playback,
                     beats = beats,
-                    // Lit while a finger is on it, whether or not the sound is running, so
-                    // the record answers the hand immediately.
-                    turning = if (scratching) 1f else turning,
+                    turning = turning,
                     modifier = Modifier.fillMaxSize(),
                 )
                 // The spindle. Small and dim: enough that the turn has a centre to be about,

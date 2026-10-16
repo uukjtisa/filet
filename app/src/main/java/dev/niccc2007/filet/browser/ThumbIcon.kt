@@ -64,6 +64,20 @@ fun FileThumb(
     val previewable = enabled && !node.isDir && Thumbnails.canPreview(node.extension)
     val glyph = glyphSize ?: size
 
+    // A folder is drawn rather than lettered, and it carries what is inside it. Here rather
+    // than at the call sites so every list, tile, feed row and picker gets it at once - there
+    // are nine of them and a tenth would have been forgotten.
+    if (node.isDir) {
+        FolderIcon(
+            node = node,
+            size = glyph,
+            tint = fallbackTint,
+            modifier = modifier,
+            previews = enabled,
+        )
+        return
+    }
+
     if (!previewable) {
         Fallback(node, kind, glyph, fallbackTint, modifier)
         return

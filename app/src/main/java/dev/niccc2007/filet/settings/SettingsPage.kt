@@ -486,12 +486,12 @@ fun SettingsPage(vm: BrowserViewModel) {
         }
         item {
             ToggleRow(
-                "Scratch the record",
+                "Hear it while you drag",
                 if (scratchAudio) {
                     "Turning Aurora's disc plays the track at the speed of your hand, " +
-                        "backwards too. It decodes a few seconds while you hold it."
+                        "backwards too, instead of moving through it in silence."
                 } else {
-                    "Turning the disc moves through the track without sound."
+                    "Turning the disc moves through the track in silence."
                 },
                 scratchAudio,
             ) { prefs.setScratchAudio(it) }

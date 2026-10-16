@@ -163,7 +163,7 @@ class BeatMap(private val onsets: FloatArray) {
                     }
                 }
                 if (energy.size < MEMORY * 2) {
-                    android.util.Log.i("FiletBeat", "too short: ${energy.size} buckets")
+                    dev.niccc2007.filet.data.Diag.log("beat", "too short: ${energy.size} buckets")
                     return@withContext null
                 }
                 val onsets = onsetsOf(energy)
@@ -174,7 +174,7 @@ class BeatMap(private val onsets: FloatArray) {
                 )
                 return@withContext BeatMap(onsets)
             } catch (e: Throwable) {
-                android.util.Log.i("FiletBeat", "failed: $e")
+                dev.niccc2007.filet.data.Diag.log("beat", "failed: $e")
                 return@withContext null
             } finally {
                 runCatching { codec?.stop() }

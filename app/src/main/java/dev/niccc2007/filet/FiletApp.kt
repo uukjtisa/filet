@@ -74,6 +74,7 @@ class FiletGraph(context: Context) {
     val playlists = dev.niccc2007.filet.playback.Playlists(prefs)
     /** Tags for list rows. Lazy: a phone that never opens a playlist never builds it. */
     val trackCards by lazy { dev.niccc2007.filet.playback.TrackCards(app, vfs) }
+    val folderPeek by lazy { dev.niccc2007.filet.browser.FolderPeek(vfs) }
     val recents = Recents(prefs)
     val tracked = TrackedFolders(prefs, scope)
     val ledger = JobLedger()
@@ -166,6 +167,8 @@ class FiletGraph(context: Context) {
     val nearby: dev.niccc2007.filet.nearby.NearbyManager by lazy {
         dev.niccc2007.filet.nearby.NearbyManager(app, vfs, prefs, scope)
     }
+    init { dev.niccc2007.filet.data.Diag.start(app) }
+
     val home = HomeFeed(vfs, tracked, scope, dev.niccc2007.filet.home.FeedCache(prefs))
 
     /**

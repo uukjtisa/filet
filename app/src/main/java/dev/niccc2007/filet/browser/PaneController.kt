@@ -388,6 +388,9 @@ class PaneController(
             // Closing drops what was under it, which is also what frees a large branch.
             branches = if (opening) now.branches else now.branches.filterKeys { it in next },
         )
+        dev.niccc2007.filet.data.Diag.log(
+            "tree", "toggle $path opening=$opening open=${next.size}",
+        )
         if (!opening || now.branches.containsKey(path)) return
         scope.launch {
             // Streamed, like every other listing here. A branch can be a camera folder too,
@@ -399,6 +402,9 @@ class PaneController(
                     acc += chunk
                     // A fold closed mid-read must not reopen itself, and must stop costing.
                     if (path !in _state.value.open) return@list
+                    dev.niccc2007.filet.data.Diag.log(
+                        "tree", "chunk ${chunk.size} total ${acc.size} for $path",
+                    )
                     _state.value = _state.value.copy(
                         branches = _state.value.branches + (
                             path to acc

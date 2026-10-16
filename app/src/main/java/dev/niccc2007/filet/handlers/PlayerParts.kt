@@ -279,7 +279,7 @@ fun PlayerOverflow(
                         // nothing visible - which is worse than one that is not offered.
                         if (scratch != null && onScratch != null) {
                             PanelRule()
-                            PanelSwitch("Scratch the record", scratch, onScratch)
+                            PanelSwitch("Hear it while you drag", scratch, onScratch)
                         }
                         if (pulse != null && onPulse != null) {
                             if (scratch == null) PanelRule()

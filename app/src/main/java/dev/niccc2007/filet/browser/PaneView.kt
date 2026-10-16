@@ -96,6 +96,7 @@ fun PaneView(
     val s by pane.state.collectAsState()
     val app by vm.state.collectAsState()
     val viewStep by vm.prefs.viewStep.collectAsState()
+    val treeWanted by vm.prefs.treeView.collectAsState()
     val colors = Filet.colors
     val paneKey = "pane-${pane.id}"
 
@@ -108,7 +109,16 @@ fun PaneView(
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         val widthDp = maxWidth.value.toInt()
-        val metrics = PaneMetrics.forWidth(widthDp, ViewStep.of(viewStep))
+        // A tree is a LIST, whatever the view slider says.
+        //
+        // The grid steps draw tiles, which have nowhere to put an indent or a guide line, and
+        // the big list steps give a row most of the screen - which at four levels deep leaves
+        // no room for the name. So the tree clamps to the three list steps and keeps whichever
+        // of them is nearest to what was asked for. The slider still works; it just cannot
+        // take the tree somewhere a tree cannot go.
+        val asked = ViewStep.of(viewStep)
+        val step = if (treeWanted) ViewStep.entries[asked.ordinal.coerceAtMost(TREE_MAX_STEP)] else asked
+        val metrics = PaneMetrics.forWidth(widthDp, step)
 
         Column(
             Modifier
@@ -844,7 +854,19 @@ private fun FolderBody(
                         } else {
                             null
                         },
-                        onClick = { rowClick(pane, vm, side, node) },
+                        // In a tree, tapping a folder OPENS IT WHERE IT IS.
+                        //
+                        // It used to navigate into it, with the chevron doing the expanding,
+                        // on the reasoning that this kept the path bar meaning what it
+                        // always meant. That reasoning was wrong in the way that matters:
+                        // a list where tapping a folder replaces the screen is the ordinary
+                        // list with decorations on it, which is exactly how it was reported.
+                        // Going INTO a folder is still there - the breadcrumb, the chevron's
+                        // own row, and the long-press menu - but the tap belongs to the tree.
+                        onClick = {
+                            if (tree && node.isDir) pane.toggleBranch(node.path)
+                            else rowClick(pane, vm, side, node)
+                        },
                         // See the tile above: the drag detector owns the long press.
                         onLongClick = {},
                         onDoubleClick = { vm.openChooser(node) },
@@ -1149,3 +1171,12 @@ private fun BranchLoading(depth: Int) {
         Text("Reading\u2026", fontSize = 11.sp, color = Filet.colors.fg3)
     }
 }
+
+/**
+ * The deepest view step a tree will use: COMFORTABLE.
+ *
+ * Past it are the grids, which have no gutter for an indent and no line to draw a guide
+ * along - a tree in a tile layout is just tiles. It is an ordinal rather than the enum itself
+ * so adding a step between the lists cannot silently move the ceiling into a grid.
+ */
+private const val TREE_MAX_STEP = 2

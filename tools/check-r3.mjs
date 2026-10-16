@@ -45,6 +45,12 @@ const ALLOWED = [
   // The app layer's single documented bridge: app-private working storage, and the
   // FileProvider hand-off that Android requires for anything leaving the process.
   "app/src/main/java/dev/niccc2007/filet/data/AppFiles.kt",
+  // Debug-only diagnostics. Huawei and Honor phones drop application logging unless it is
+  // enabled through a hidden dialer menu, so `adb logcat` returns nothing at all from this
+  // app on one - which left a real bug on a real device with no way to see what the code
+  // was doing. One file, in the app's own files directory, written only in a debug build,
+  // never a user path and never read by the app.
+  "app/src/main/java/dev/niccc2007/filet/data/Diag.kt",
   // The package installer takes a FileProvider URI over a real file and accepts nothing
   // else, so an update has to land on disk before it can be installed. App-private
   // external storage, one filename, never a user path - and the handle stops here rather

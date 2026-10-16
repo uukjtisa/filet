@@ -27,7 +27,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -92,6 +95,7 @@ fun FileRow(
     onDoubleClick: () -> Unit = {},
 ) {
     val colors = Filet.colors
+    val accent = colors.accent
     val kind = FileKind.of(node)
     val bg by animateColorAsState(
         targetValue = when {
@@ -126,6 +130,7 @@ fun FileRow(
                 onDoubleClick = onDoubleClick,
             )
             .then(modifier)
+            .drawBehind { if (depth > 0) treeGuides(depth, accent) }
             .padding(
                 start = 10.dp + (depth * TREE_INDENT).dp,
                 end = 10.dp,
@@ -393,3 +398,75 @@ fun EmptyNote(text: String, modifier: Modifier = Modifier) {
  * enough that a folder four deep has not eaten the name column on a phone.
  */
 private const val TREE_INDENT = 14
+
+/**
+ * The lines that say which folder a row is inside.
+ *
+ * ## Why indentation alone was not enough
+ *
+ * Reported as confusing, and it is: four rows at the same indent could be children of four
+ * different folders, and nothing on screen says which parent each one belongs to once its
+ * header has scrolled away. A line running down from a folder to its own children answers
+ * that without reading anything, which is what every tree in every file manager does.
+ *
+ * ## The colours are assigned by DEPTH, not by folder
+ *
+ * One hue per level, stepped by [HUE_STEP] round the wheel from the theme's own accent. Per
+ * folder would be better in principle and worse in practice - it needs a stable mapping from
+ * path to colour that survives scrolling, and two sibling folders would get colours as
+ * different as a parent and its child, which is the one distinction these lines exist to
+ * make. Per level, every line at the same indent matches, and the nesting reads as layers.
+ *
+ * 47 degrees is deliberate: it does not divide into 360, so six levels down the colours have
+ * not come back round to where they started.
+ */
+private fun DrawScope.treeGuides(depth: Int, accent: Color) {
+    val indent = TREE_INDENT.dp.toPx()
+    val start = 10.dp.toPx()
+    val baseHue = hueOf(accent)
+    for (level in 0 until depth) {
+        val x = start + level * indent + indent * 0.42f
+        val colour = Color.hsv(
+            hue = ((baseHue + level * HUE_STEP) % 360f + 360f) % 360f,
+            saturation = 0.42f,
+            value = 0.78f,
+        ).copy(alpha = GUIDE_ALPHA)
+        val last = level == depth - 1
+        // The run down the side of the row, and - on the row's own level - an elbow into it,
+        // so a child is visibly attached to its parent rather than merely beneath it.
+        drawLine(
+            color = colour,
+            start = Offset(x, 0f),
+            end = Offset(x, if (last) size.height * 0.5f else size.height),
+            strokeWidth = 1.5.dp.toPx(),
+        )
+        if (last) {
+            drawLine(
+                color = colour,
+                start = Offset(x, size.height * 0.5f),
+                end = Offset(x + indent * 0.46f, size.height * 0.5f),
+                strokeWidth = 1.5.dp.toPx(),
+            )
+        }
+    }
+}
+
+/** The accent's own hue, so the ladder starts from the theme rather than from red. */
+private fun hueOf(c: Color): Float {
+    val max = maxOf(c.red, c.green, c.blue)
+    val min = minOf(c.red, c.green, c.blue)
+    val d = max - min
+    if (d <= 0f) return 0f
+    val h = when (max) {
+        c.red -> ((c.green - c.blue) / d) % 6f
+        c.green -> (c.blue - c.red) / d + 2f
+        else -> (c.red - c.green) / d + 4f
+    } * 60f
+    return if (h < 0f) h + 360f else h
+}
+
+/** How far round the wheel each level steps. Not a divisor of 360, so levels stay distinct. */
+private const val HUE_STEP = 47f
+
+/** Faint. These are scaffolding for the eye, not content. */
+private const val GUIDE_ALPHA = 0.5f
