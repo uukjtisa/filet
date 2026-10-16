@@ -58,7 +58,19 @@ is being built, fixes still have to reach a phone. They go onto a staging number
 and installed but never released; when the large one ships it carries them. If a fix in there
 cannot wait, the staging version publishes on its own and the staging line moves on.
 
-**STAGING: 0.1.19** — fixes made while 0.2.0 is being drawn. Built and installed, not published.
+**STAGING: 0.1.20** — fixes made while 0.2.0 is being drawn. Built and installed, not published.
+
+0.1.19 published on the staging number too, and it is the largest case this rule has covered:
+a tree view, a rebuilt Aurora player and a Home screen that folds are all MINOR by the bump
+table above. It went out on 0.1.19 for the reason 0.1.11 and 0.1.15 did - 0.2.0 is the
+redesign release and spending it early leaves the redesign arriving as 0.3.0 with nothing to
+explain the gap.
+
+It is also the first release to ship something labelled **BETA**, and the label is on the
+SETTING rather than only in the notes. Notes are read once, by whoever happens to read them;
+a setting is read at the moment the thing it governs misbehaves, which is the only moment the
+difference between "this app is broken" and "that part is new" is worth anything. A feature
+that is not finished says so where somebody will be standing when they find out.
 
 0.1.14 and 0.1.15 both published on their own, which is the case this rule already allows and
 now the fourth and fifth time it has happened. 0.1.15 carried playlists - a new tab, which the
