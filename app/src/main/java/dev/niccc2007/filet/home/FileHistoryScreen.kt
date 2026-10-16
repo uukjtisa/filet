@@ -87,6 +87,7 @@ import java.util.TimeZone
 fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
     val colors = Filet.colors
     val all by vm.home.all.collectAsState()
+    val scanning by vm.home.loading.collectAsState()
     // Recording and pruning read the SETTLED list, never the one being drawn.
     //
     // `prune` drops every path it is not given, and its own documentation forbids calling it
@@ -199,7 +200,12 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
         // other: two of them were an exclusive pair, one was a momentary button that opened a
         // dialog, and one was a switch that flipped its own label - all drawn identically, so
         // the screen never said which press would change what.
-        TabHeader(HomeSections.ARRIVED_TAB) {
+        // The same "still looking" mark the Home card carries. This tab draws the last
+        // answer immediately now, so without it there is no way to tell a finished list from
+        // one about to be corrected.
+        TabHeader(
+            if (scanning) HomeSections.ARRIVED_TAB + "  ·  looking" else HomeSections.ARRIVED_TAB,
+        ) {
             SortPair(
                 listOf(FIRST_SEEN_LABEL, LAST_CHANGED_LABEL),
                 if (sort == HistorySort.FIRST_SEEN) FIRST_SEEN_LABEL else LAST_CHANGED_LABEL,

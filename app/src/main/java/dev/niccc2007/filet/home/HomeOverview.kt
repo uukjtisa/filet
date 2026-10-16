@@ -2,7 +2,14 @@
 
 package dev.niccc2007.filet.home
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -81,6 +88,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     val recents by vm.recents.items.collectAsState()
     val tracked by vm.tracked.folders.collectAsState()
     val folds by vm.prefs.homeFolds.collectAsState()
+    val scanning by vm.home.loading.collectAsState()
     val hideStorage by vm.prefs.hideStorage.collectAsState()
     val hiddenCards by vm.prefs.hiddenCards.collectAsState()
     val hideTermux by vm.prefs.hideTermux.collectAsState()
@@ -265,6 +273,11 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                 SectionHeaderWithAction(
                     label = HomeSections.ARRIVED,
                     action = "Expand",
+                    // Shown rather than left to be inferred from rows changing under you.
+                    // The feed draws its last answer immediately now, so without this there
+                    // is no way to tell a finished list from one about to be corrected -
+                    // which is worse than the wait it replaced, not better.
+                    busy = scanning,
                     folded = HomeFolds.ARRIVED in folds,
                     onFold = { vm.prefs.toggleHomeFold(HomeFolds.ARRIVED) },
                     onAction = { pane.openSpecial(PaneKind.HISTORY, HomeSections.ARRIVED_TAB) },
@@ -569,6 +582,7 @@ private fun TrackedRow(
 private fun SectionHeaderWithAction(
     label: String,
     action: String?,
+    busy: Boolean = false,
     folded: Boolean? = null,
     onFold: (() -> Unit)? = null,
     onAction: () -> Unit,
@@ -594,7 +608,12 @@ private fun SectionHeaderWithAction(
                     .graphicsLayer { rotationZ = turn },
             )
         }
-        Box(Modifier.weight(1f)) { SectionLabel(label) }
+        Box(Modifier.weight(if (busy) 0f else 1f, fill = false)) { SectionLabel(label) }
+        if (busy) {
+            Spacer(Modifier.width(8.dp))
+            ScanningDots()
+            Spacer(Modifier.weight(1f))
+        }
         // A heading whose verb is unavailable draws no verb at all, rather than a greyed one.
         // Greying says "this exists and you may not have it", which is a different claim.
         if (action != null) {
@@ -606,6 +625,45 @@ private fun SectionHeaderWithAction(
                     .clip(RoundedCornerShape(6.dp))
                     .clickable(onClick = onAction)
                     .padding(horizontal = 9.dp, vertical = 4.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Three dots, travelling, while the tracked folders are being read.
+ *
+ * A spinner was the obvious choice and is the wrong one: a spinner over a list that already
+ * has rows in it says "this is not ready", and it is - those rows are real, they are simply
+ * the previous answer. Dots beside the heading say "still looking" without contradicting
+ * what is underneath them.
+ */
+@Composable
+private fun ScanningDots() {
+    val clock = rememberInfiniteTransition(label = "scan")
+    val t = clock.animateFloat(
+        initialValue = 0f,
+        targetValue = 3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1_200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "dots",
+    )
+    val colour = Filet.colors.accent
+    Canvas(Modifier.size(width = 22.dp, height = 8.dp)) {
+        // Read in the draw lambda: a value read in composition would rebuild the whole
+        // heading every frame. See LivingGlow for the version of this that cost real heat.
+        val at = t.value
+        for (i in 0 until 3) {
+            val near = 1f - kotlin.math.min(kotlin.math.abs(at - i), 1f)
+            drawCircle(
+                color = colour.copy(alpha = 0.25f + 0.6f * near),
+                radius = size.height * (0.22f + 0.1f * near),
+                center = androidx.compose.ui.geometry.Offset(
+                    size.width * (0.18f + 0.32f * i),
+                    size.height / 2f,
+                ),
             )
         }
     }

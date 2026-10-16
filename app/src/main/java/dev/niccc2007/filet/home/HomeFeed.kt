@@ -247,8 +247,25 @@ class HomeFeed(
     private val vfs: Vfs,
     private val tracked: TrackedFolders,
     private val scope: CoroutineScope,
+    /** Where the last published feed is kept. Null in a test, which then has no cache. */
+    private val cache: FeedCache? = null,
 ) {
-    private val _downloads = MutableStateFlow<List<FeedItem>>(emptyList())
+    /**
+     * What was on screen last time, drawn before anything is read.
+     *
+     * Reported on a full 256GB phone: opening New files showed YESTERDAY's files for two to
+     * five seconds and then corrected itself. Both halves of that are worth separating. The
+     * correcting is unavoidable - the only way to know what is in a folder is to read it, and
+     * on a phone with a quarter of a terabyte on it that takes as long as it takes. The two
+     * to five seconds of blankness before it is not: the answer from the last pass is already
+     * known and was being thrown away at every process start.
+     *
+     * So the cached feed is the first frame, and the scan replaces it when it has something
+     * better. The list is the same list, so nothing jumps - rows that are still there stay
+     * where they are. What the cache must never do is pretend to be fresh, which is what
+     * `loading` is for and why the headers now show it.
+     */
+    private val _downloads = MutableStateFlow(cache?.load().orEmpty())
     val downloads: StateFlow<List<FeedItem>> = _downloads.asStateFlow()
 
     /**
@@ -527,6 +544,10 @@ class HomeFeed(
         if (kind == PublishKind.COMPLETE) _settled.value = everything
         val top = everything.take(SHOWN)
         _downloads.value = top
+        // Only a COMPLETE pass is written down. A partial one is an answer from some of the
+        // folders, and keeping it would mean the next cold start opens on a feed that was
+        // already known to be half an answer.
+        if (kind == PublishKind.COMPLETE) cache?.save(top)
         val lookup = originLookup ?: return
         // Off the critical path: the rows are already on screen, and the Source chip fills in
         // a moment later rather than holding everything up.

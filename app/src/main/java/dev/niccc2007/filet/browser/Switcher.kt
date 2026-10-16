@@ -138,17 +138,6 @@ fun Switcher(vm: BrowserViewModel, tabs: List<PaneController>) {
             }
         }
 
-        SwitcherRow(FiletIcons.Home, "Home", i++, reduced) {
-            vm.focusedPane()?.openHome(); vm.openSwitcher(false)
-        }
-        SwitcherRow(FiletIcons.Download, "New files", i++, reduced) {
-            vm.focusedPane()?.openSpecial(
-                PaneKind.HISTORY,
-                dev.niccc2007.filet.home.HomeSections.ARRIVED_TAB,
-            )
-            vm.openSwitcher(false)
-        }
-
         // The recent files themselves, not a row that leads to them. This is the one list in
         // the app somebody opens the drawer FOR - asked for by name - and a link to it is one
         // more tap than the thing it links to is worth.
@@ -215,6 +204,19 @@ fun Switcher(vm: BrowserViewModel, tabs: List<PaneController>) {
         }
 
         Spacer(Modifier.height(4.dp))
+        // Down here with Activity, Settings and About rather than at the top. These are the
+        // two somebody reaches for without reading, so they belong where the thumb already
+        // is on a phone - which is the bottom of a drawer, not the top of it.
+        SwitcherRow(FiletIcons.Home, "Home", i++, reduced) {
+            vm.focusedPane()?.openHome(); vm.openSwitcher(false)
+        }
+        SwitcherRow(FiletIcons.Download, "New files", i++, reduced) {
+            vm.focusedPane()?.openSpecial(
+                PaneKind.HISTORY,
+                dev.niccc2007.filet.home.HomeSections.ARRIVED_TAB,
+            )
+            vm.openSwitcher(false)
+        }
         SwitcherRow(
             FiletIcons.Jobs, "Activity", i++, reduced,
             count = jobs.count { it.running }.takeIf { it > 0 }?.toString(),

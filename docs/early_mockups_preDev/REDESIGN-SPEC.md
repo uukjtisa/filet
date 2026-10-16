@@ -14,7 +14,7 @@ that surface which is easiest to lose on the way across.
 | Surface | In the app today | In the mock | Gate | The thing not to lose |
 |---|---|---|---|---|
 | **Tab strip** | `app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt:275` | `[data-r=3] .tab` | N54 | A raised capsule on a recessed track, one accent hairline that moves. Not a border per tab. |
-| **Home tab** | `app/src/main/java/dev/niccc2007/filet/home/HomeOverview.kt:78` | `TABS3.home` | N59 | Storage tiles first, then arrivals, then recents, then places. The long heading stays here. |
+| **Home tab** | `app/src/main/java/dev/niccc2007/filet/home/HomeOverview.kt:85` | `TABS3.home` | N59 | Storage tiles first, then arrivals, then recents, then places. The long heading stays here. |
 | **New files tab** | `app/src/main/java/dev/niccc2007/filet/home/FileHistoryScreen.kt:87` | `TABS3.tracked` | N53 | Tab label and path read New files; the heading on Home reads the long name. |
 | **Nearby tab** | `app/src/main/java/dev/niccc2007/filet/nearby/NearbyScreen.kt:104` | `TABS3.nearby` | N59 | The QR, the URL and the code are one card. Running state is a dot, not a word. |
 | **Scripts tab** | `app/src/main/java/dev/niccc2007/filet/script/ScriptsScreen.kt:66` | `TABS3.scripts` | N59 | Each script shows a snippet. A name alone says nothing about what a script does. |

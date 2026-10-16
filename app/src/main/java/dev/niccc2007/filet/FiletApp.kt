@@ -166,7 +166,7 @@ class FiletGraph(context: Context) {
     val nearby: dev.niccc2007.filet.nearby.NearbyManager by lazy {
         dev.niccc2007.filet.nearby.NearbyManager(app, vfs, prefs, scope)
     }
-    val home = HomeFeed(vfs, tracked, scope)
+    val home = HomeFeed(vfs, tracked, scope, dev.niccc2007.filet.home.FeedCache(prefs))
 
     /**
      * Hosting this phone over WebDAV, so it appears in Windows Explorer.

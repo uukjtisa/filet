@@ -724,7 +724,18 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                         detectDragGestures(
                             onDragStart = {
                                 scratching = true
-                                at = c.state.positionMs
+                                // Read from the PLAYER, not from `c`.
+                                //
+                                // This is why the record was confusing rather than simply
+                                // wrong. `pointerInput` launches its block once and keeps the
+                                // `c` it was handed, so `c.state` was a snapshot from whenever
+                                // the gesture modifier was last keyed - usually the moment the
+                                // track opened, hence "it starts from the start" - and after a
+                                // recomposition that did re-key it, from some other arbitrary
+                                // moment. Same stale-capture family as the tab drag, which
+                                // `tools/check-deadswitch.mjs` exists for. The player's own
+                                // StateFlow is live by construction.
+                                at = c.playback.state.value.positionMs
                                 told = 0L
                             },
                             onDragEnd = { scratching = false },
@@ -738,7 +749,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                             )
                             scratched += turned
                             at = dev.niccc2007.filet.playback.Scratch.seekTo(
-                                at, turned, c.state.durationMs,
+                                at, turned, c.playback.state.value.durationMs,
                             )
                             val now = android.os.SystemClock.elapsedRealtime()
                             if (now - told >= dev.niccc2007.filet.playback.Scratch.SEEK_EVERY_MS) {
