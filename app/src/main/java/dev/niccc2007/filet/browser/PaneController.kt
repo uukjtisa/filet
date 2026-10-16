@@ -100,8 +100,31 @@ data class PaneState(
     val open: Set<VPath> = emptySet(),
     /** What is inside each of those, absent while it is still being read. */
     val branches: Map<VPath, List<VNode>> = emptyMap(),
+    /**
+     * The folder the pane is WORKING IN, when that is not [cwd].
+     *
+     * A tree breaks the thing a path bar quietly promised: you can be four levels down an
+     * open branch while the bar at the top still names the root. Everything that creates -
+     * New folder, New file, Paste - was asking the bar, so it answered the root, and a
+     * folder made while looking at a branch appeared somewhere off screen.
+     *
+     * So the last branch opened becomes the working folder, it is drawn as such (see
+     * `FileRow`'s `active`), and the create actions ask [target] rather than `cwd`. Null
+     * whenever the tree is folded away or the pane has navigated, which is what keeps this
+     * from quietly outliving the thing it points at.
+     */
+    val active: VPath? = null,
 ) {
     val selecting: Boolean get() = selected.isNotEmpty()
+
+    /**
+     * Where something new goes.
+     *
+     * The open branch if there is one, otherwise the folder in the path bar. One accessor,
+     * because "which folder does this act on" is a question six call sites used to answer
+     * for themselves - and five of them were right only because the tree did not exist yet.
+     */
+    val target: VPath? get() = active ?: cwd
     /** Rows actually rendered: search results replace the listing while a search is live. */
     val visible: List<VNode>
         get() = if (search.active) search.hits.map { it.node } else entries
@@ -219,6 +242,9 @@ class PaneController(
         _state.value = prev.copy(
             kind = PaneKind.FOLDER,
             cwd = path,
+            // Moving the pane ends whatever branch was being worked in. The working folder
+            // only means something relative to the listing it was opened from.
+            active = if (moved) null else prev.active,
             title = friendlyTitle(path),
             loading = true,
             error = null,
@@ -387,6 +413,17 @@ class PaneController(
             open = next,
             // Closing drops what was under it, which is also what frees a large branch.
             branches = if (opening) now.branches else now.branches.filterKeys { it in next },
+            // Opening a branch is also standing in it. Closing one you were standing in
+            // puts you back in the pane's own folder rather than leaving the working
+            // folder pointing at something that is no longer on screen - a create action
+            // aimed at a folder nobody can see is the fault this whole field exists for.
+            active = when {
+                opening -> path
+                now.active == null -> null
+                now.active == path -> null
+                now.active!!.path.startsWith(path.path + "/") -> null
+                else -> now.active
+            },
         )
         dev.niccc2007.filet.data.Diag.log(
             "tree", "toggle $path opening=$opening open=${next.size}",
@@ -419,7 +456,7 @@ class PaneController(
 
     /** Fold everything away, for the toolbar's collapse-all. */
     fun collapseTree() {
-        _state.value = _state.value.copy(open = emptySet(), branches = emptyMap())
+        _state.value = _state.value.copy(open = emptySet(), branches = emptyMap(), active = null)
     }
 
     /**

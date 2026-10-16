@@ -179,7 +179,10 @@ fun FiletDialogs(vm: BrowserViewModel) {
     val dialog by vm.dialog.collectAsState()
     when (val d = dialog) {
         null -> Unit
-        is Dialog.NewFolder -> NameDialog("New folder", "", "Create", vm::dismissDialog) { vm.createFolder(it) }
+        is Dialog.NewFolder -> NameDialog(
+            vm.createTargetName()?.let { "New folder in $it" } ?: "New folder",
+            "", "Create", vm::dismissDialog,
+        ) { vm.createFolder(it) }
         is Dialog.NewFile -> NameDialog("New file", "", "Create", vm::dismissDialog) { vm.createFile(it) }
         is Dialog.Rename -> NameDialog("Rename", d.node.name, "Rename", vm::dismissDialog, selectStem = true) {
             vm.rename(d.node.path, it)

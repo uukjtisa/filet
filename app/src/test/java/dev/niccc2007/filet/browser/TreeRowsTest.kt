@@ -96,4 +96,30 @@ class TreeRowsTest {
         val after = TreeRows.toggle(emptySet(), VPath.of("local", "/a"))
         assertEquals(setOf(VPath.of("local", "/a")), after)
     }
+    @Test
+    fun `spines say whether each ANCESTOR has siblings left, which is one level out from the column that uses it`() {
+        // The contract that was read wrong, and the reason a line hung in mid-air.
+        //
+        // A row's guide in column L is the line coming down from the ancestor at depth L,
+        // and it continues past the row only while that ancestor still has children below -
+        // which is `spines[L + 1]`, the ancestor one level further in. `spines[L]` is a
+        // different question: whether the OUTER folder has siblings somewhere further down
+        // the screen, which is true long after its own sub-list has finished.
+        //
+        // a is not last; its only child b is. So a row under b must draw nothing in
+        // column 0, even though spines[0] is true.
+        val a = dir("/a")
+        val b = dir("/a/b")
+        val c = dir("/a/b/c")
+        val z = dir("/z")
+        val rows = TreeRows.flatten(
+            roots = listOf(a, z),
+            open = setOf(a.path, b.path),
+            branches = mapOf(a.path to listOf(b), b.path to listOf(c)),
+        )
+        val deep = rows.first { it.node.path == c.path }
+        assertEquals(2, deep.depth)
+        assertEquals(listOf(true, false), deep.spines)
+    }
+
 }

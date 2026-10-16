@@ -136,14 +136,14 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                 it.label.startsWith("Termux")
         }
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                SectionLabel("Storage", Modifier.weight(1f))
-                // Bringing back what was hidden, one card or the section. Without this the
-                // per-card X is a one-way door, which is not a control, it is a trap.
+            // Bringing back what was hidden, one card or the section. Without these the
+            // per-card X is a one-way door, which is not a control, it is a trap.
+            val links: @Composable () -> Unit = {
                 if (hiddenCount > 0) {
                     Text(
                         "$hiddenCount hidden - show",
                         fontSize = 10.sp,
+                        maxLines = 1,
                         color = colors.accent,
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
@@ -154,12 +154,31 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                 Text(
                     if (hideStorage) "Show all" else "Hide all",
                     fontSize = 10.sp,
+                    maxLines = 1,
                     color = colors.accent,
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .clickable { vm.prefs.setHideStorage(!hideStorage) }
                         .padding(start = 8.dp, end = 15.dp, top = 4.dp, bottom = 4.dp),
                 )
+            }
+            // Two links beside a heading need about 150dp, which a split pane does not have
+            // - so there the heading keeps the line and the links take the next one. Side by
+            // side the heading was squeezed to sixty dp and broke in half.
+            if (dev.niccc2007.filet.ui.narrowPane()) {
+                Column(Modifier.fillMaxWidth()) {
+                    SectionLabel("Storage")
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) { links() }
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    SectionLabel("Storage", Modifier.weight(1f))
+                    links()
+                }
             }
         }
         if (!hideStorage) {

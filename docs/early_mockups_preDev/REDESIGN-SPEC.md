@@ -24,22 +24,22 @@ that surface which is easiest to lose on the way across.
 | **Remotes tab** | `app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt:80` | `TABS3.remotes` | N59 | An unreachable remote is shown as unreachable and never waited for. |
 | **Activity tab** | `app/src/main/java/dev/niccc2007/filet/jobs/ActivitySheet.kt:48` | `TABS3.activity` | N59 | Running above finished. The index job names the folder it is reading. |
 | **About tab** | `app/src/main/java/dev/niccc2007/filet/about/AboutPage.kt:90` | `aboutHTML` | N58 | Four words from the repo, in one line. Watermark is the app mark, not the author seal. |
-| **Settings tab** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:99` | `setHTML` | N56 | Sub-tabs. The List pane carries a live view rendered by the same code as the real list. |
+| **Settings tab** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:101` | `setHTML` | N56 | Sub-tabs. The List pane carries a live view rendered by the same code as the real list. |
 | **File row** | `app/src/main/java/dev/niccc2007/filet/browser/ClipTraySheet.kt:416` | `rowsHTML3` | N55 | No date column. Files show bytes, folders show item count. Tabular figures, not a code font. |
-| **Search result row** | `app/src/main/java/dev/niccc2007/filet/browser/RowViews.kt:307` | `SearchResultRow` | N79 | Carries Available or Confirming while a pass runs, and nothing between passes. |
-| **Scope chips** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:476` | `.scopes` | N71 | Native search is dimmed and unpressable where the index never answers the scope anyway. |
-| **Bottom bar** | `app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt:1276` | `.foot` | N46 | One bar plus a More button. The setting that chose between bar and menu is deleted. |
+| **Search result row** | `app/src/main/java/dev/niccc2007/filet/browser/RowViews.kt:338` | `SearchResultRow` | N79 | Carries Available or Confirming while a pass runs, and nothing between passes. |
+| **Scope chips** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:477` | `.scopes` | N71 | Native search is dimmed and unpressable where the index never answers the scope anyway. |
+| **Bottom bar** | `app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt:1366` | `.foot` | N46 | One bar plus a More button. The setting that chose between bar and menu is deleted. |
 | **Context menu** | `app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt:58` | `DIALOGS.context` | N67 | Keeps the icon button row across the top. The app already splits these - see splitForContextMenu - and the first redesign dropped the row, then put back the wrong five. Delete lives in the row, so it is NOT repeated as a list entry. |
 | **Context menu quick row** | `app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt:176` | `.ctxbar` | N67 | Which actions get an icon button and which go in the list. Already a pure function - QUICK_IDS is copy, move, rename, send, delete. RELABEL ONLY: move is shown as Cut with scissors. The id stays move; do not add a second action. |
-| **Actions popup** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:1095` | `actionsHTML` | N54 | Same icon row, then grouped entries, destructive last and separated. |
+| **Actions popup** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:1153` | `actionsHTML` | N54 | Same icon row, then grouped entries, destructive last and separated. |
 | **Open with** | `app/src/main/java/dev/niccc2007/filet/handlers/OpenWith.kt:70` | `openWithHTML` | N81 | One dialogue. Filet viewers above, apps below, remember control in the footer beside Open. |
-| **New folder** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:339` | `DIALOGS.newfolder` | N59 | Warns that a dot-prefixed name is never indexed by Android. |
-| **Rename** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:339` | `DIALOGS.rename` | N59 | Selection stops at the dot, so typing replaces the name and keeps the extension. |
-| **Delete** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:409` | `DIALOGS.delete` | N59 | Says there is no bin, and offers the holding folder instead. |
-| **Properties** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:440` | `DIALOGS.properties` | N59 | Says creation time is not recorded rather than showing the modification time twice. |
-| **Create archive** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:537` | `DIALOGS.archive` | N59 | Says zip leaves names readable and 7z does not. |
+| **New folder** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:342` | `DIALOGS.newfolder` | N59 | Warns that a dot-prefixed name is never indexed by Android. |
+| **Rename** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:342` | `DIALOGS.rename` | N59 | Selection stops at the dot, so typing replaces the name and keeps the extension. |
+| **Delete** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:412` | `DIALOGS.delete` | N59 | Says there is no bin, and offers the holding folder instead. |
+| **Properties** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:443` | `DIALOGS.properties` | N59 | Says creation time is not recorded rather than showing the modification time twice. |
+| **Create archive** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:540` | `DIALOGS.archive` | N59 | Says zip leaves names readable and 7z does not. |
 | **Extract** | `app/src/main/java/dev/niccc2007/filet/browser/ExtractSheet.kt:60` | `DIALOGS.extract` | N59 | Shows the plan before writing anything, so a clash is a question not a surprise. |
-| **Archive save** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:409` | `DIALOGS.archsave` | N59 | Names the backup and the re-sign as steps, because both happen and neither is obvious. |
+| **Archive save** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:412` | `DIALOGS.archsave` | N59 | Names the backup and the re-sign as steps, because both happen and neither is obvious. |
 | **Folder picker** | `app/src/main/java/dev/niccc2007/filet/browser/FolderPicker.kt:52` | `DIALOGS.folder` | N59 | Can create a folder from inside itself. |
 | **APK inspector** | `app/src/main/java/dev/niccc2007/filet/apk/ApkInspectorScreen.kt:60` | `DIALOGS.apk` | N64 | Needs a full-screen form as well as the sheet: it is a tool, not a question. |
 | **XAPK inspector** | _new, nothing to replace_ | `DIALOGS.xapk` | N64 | New. Says plainly it is not an archive, which is why it could not be installed before. |
@@ -49,7 +49,7 @@ that surface which is easiest to lose on the way across.
 | **Crash** | `app/src/main/java/dev/niccc2007/filet/crash/CrashActivity.kt:125` | `DIALOGS.crash` | N65 | Taller, names the file it wrote, and offers to open it. |
 | **Storage tool** | _new, nothing to replace_ | `storHTML` | N57 | New screen. Tree, largest, by type, clean up, and the tray. See STORAGE-TOOL.md. |
 | **Appoint tray** | _new, nothing to replace_ | `.tray` | N80 | Tap to appoint as well as drag. Side panel in landscape, collapsed when empty. |
-| **Theme picker** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:99` | `appearanceHTML` | N84 | Twelve palettes plus a custom setter. Names describe the palette, never its source. |
+| **Theme picker** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:101` | `appearanceHTML` | N84 | Twelve palettes plus a custom setter. Names describe the palette, never its source. |
 | **App icon picker** | _new, nothing to replace_ | `APP_ICONS` | N84 | Launcher aliases. Switching one drops home-screen shortcuts to the old alias. |
 | **App intro** | _new, nothing to replace_ | `IntroPolicy` | N42 | Off by default. A hard failsafe finishes it whatever the animation is doing. |
 

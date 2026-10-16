@@ -752,6 +752,36 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun focusSide(side: Side) = _state.update { it.copy(focused = side) }
 
     /**
+     * Move ONE side along the tab strip.
+     *
+     * Per side, and that is the whole point of it: in a split, the pane you swiped changes
+     * tab and the other pane stays exactly where it was. [focusTab] cannot do this - it
+     * picks its side from whichever one currently has focus, which is right for a tap on a
+     * chip and wrong for a gesture that has already told you which pane it means.
+     *
+     * The side that moved takes focus, because the finger was in it. Returns false when
+     * there is no tab that way, so the caller can say so rather than looking broken.
+     */
+    fun stepTab(side: Side, step: Int): Boolean {
+        val s = _state.value
+        val onSide = if (s.split == SplitMode.OFF) Side.A else side
+        val current = if (onSide == Side.A) s.activeA else s.activeB
+        val next = PaneSwipe.nextTab(current, step, _tabs.value.size) ?: return false
+        _state.update {
+            if (onSide == Side.A) it.copy(activeA = next, focused = Side.A)
+            else it.copy(activeB = next, focused = Side.B)
+        }
+        persistTabs()
+        // Same reason as focusTab: a tab that was off screen while a file moved is behind
+        // the world until something asks it to catch up.
+        freshenVisiblePanes()
+        return true
+    }
+
+    /** What the tab a swipe would land on is called, for the hint while you are pushing. */
+    fun tabTitleAt(index: Int): String? = _tabs.value.getOrNull(index)?.state?.value?.title
+
+    /**
      * The pane a side is showing.
      *
      * Clamped rather than nullable-on-overflow. Every path that changes the tab list is meant
@@ -995,7 +1025,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * would buy nothing to pay for that.
      */
     private fun pasteBatches(pane: PaneController, ids: List<String>) {
-        val dest = pane.state.value.cwd ?: return
+        val dest = pane.state.value.target ?: return
         sideOf(pane)?.let { focusSide(it) }
         val blocked = writeBlockReason(dest)
         if (blocked != null) {
@@ -1096,7 +1126,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     fun createFolder(name: String, side: Side = _state.value.focused) {
-        val dest = paneFor(side)?.state?.value?.cwd ?: return
+        // `target`, not `cwd`. In a tree the highlighted folder is the one being worked in
+        // and it is usually not the one in the path bar - see `PaneState.active`. A
+        // highlight that did not also decide where things land would be decoration, and
+        // worse than no highlight at all.
+        val dest = paneFor(side)?.state?.value?.target ?: return
         if (name.isBlank()) return
         viewModelScope.launch {
             val made = dest.child(name.trim())
@@ -1109,7 +1143,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     fun createFile(name: String, side: Side = _state.value.focused) {
-        val dest = paneFor(side)?.state?.value?.cwd ?: return
+        val dest = paneFor(side)?.state?.value?.target ?: return
         if (name.isBlank()) return
         viewModelScope.launch {
             val made = dest.child(name.trim())
@@ -1918,6 +1952,19 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun dismissDialog() = _dialog.update { null }
     fun askNewFolder() = _dialog.update { Dialog.NewFolder }
+
+    /**
+     * Where a new folder or file would land, named, for the dialog to show.
+     *
+     * Only when it is NOT the folder in the path bar. Repeating the path bar back at
+     * somebody is noise; saying "in thumb" when the bar reads /storage/emulated/0 is the
+     * one case where the answer is not already on screen.
+     */
+    fun createTargetName(): String? {
+        val pane = focusedPane()?.state?.value ?: return null
+        val active = pane.active ?: return null
+        return active.name.ifBlank { active.toString() }
+    }
     fun askNewFile() = _dialog.update { Dialog.NewFile }
     fun askRename(node: VNode) = _dialog.update { Dialog.Rename(node) }
     fun askCompress() = _dialog.update { Dialog.Compress }

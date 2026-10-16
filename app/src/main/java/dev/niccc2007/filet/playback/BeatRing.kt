@@ -2,7 +2,6 @@ package dev.niccc2007.filet.playback
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -31,6 +30,10 @@ import kotlin.math.sin
  * and the ring punches on them instead of sweeping on a clock. Without one it falls back to
  * the travelling highlight described below, which is honest about being a clock.
  *
+ * The envelope is not computed here any more - see [rememberBeatPulse]. It was, and that made
+ * the ring the only thing on the face that could see the beat, which is why the glow behind
+ * it appeared not to react at all.
+ *
  * ## Without one, it is not listening to the music, and that is deliberate
  *
  * A ring that genuinely followed the beat would need the audio samples, and on Android the
@@ -56,66 +59,43 @@ fun BeatRing(
     tint: Color,
     playback: Playback,
     turning: Float,
-    beats: BeatMap? = null,
+    /** The shared envelope. Null when the pulse is off, and the ring then sweeps on a clock. */
+    pulse: androidx.compose.runtime.State<Float>? = null,
     modifier: Modifier = Modifier,
 ) {
     val state = playback.state.collectAsStateWithLifecycle()
     val running = state.value.playing
     val sweep = rememberPhase(SWEEP_MS, running)
     val breath = rememberPhase(BREATH_MS, running)
-    // A clock for the beat, fast enough to catch one. The position in the player's state is
-    // five readings a second, which steps straight over an attack, so the position is
-    // EXTRAPOLATED between them - the player is playing at a known rate, and a few hundred
-    // milliseconds of dead reckoning is more accurate here than the sample it is between.
-    val tick = rememberPhase(TICK_MS, running && beats != null, fps = 60L)
-    val fromState = state.value.positionMs
-    val stamped = remember(fromState) { android.os.SystemClock.elapsedRealtime() }
-    // The envelope: a hit is 20ms of audio and would be one frame of light, which is not a
-    // pulse, it is a flicker. The peak is held and then decays, so a beat reads as a punch
-    // with a tail. Plain arrays rather than state - this is read and written inside the draw
-    // and must not invalidate anything.
-    val envelope = remember { floatArrayOf(0f) }
-    // The clock is a Long on purpose: elapsedRealtime is hundreds of millions of
-    // milliseconds on a phone that has been up a few days, and a Float holds about seven
-    // digits - the difference between two frames would round away to zero and the beat would
-    // never decay.
-    val envelopeAt = remember { longArrayOf(0L) }
 
     Canvas(modifier) {
-        // Read in the draw lambda. See `livingGlow` for what reading it above costs.
+        // Read in the draw lambda. See `livingGlow` for what reading it above costs. The
+        // pulse goes the same way, and reading it here is also what invalidates the draw on
+        // every beat without recomposing anything.
         val s = sweep.value
         val b = breath.value
         val r = size.minDimension / 2f
         val centre = Offset(size.width / 2f, size.height / 2f)
         val swell = sin(b * 2f * PI.toFloat())
-        // Read so the draw invalidates on it; the value itself is only a clock.
-        @Suppress("UNUSED_VARIABLE") val beatTick = tick.value
-        val onBeat = beats != null && !beats.empty
-        val clockNow = android.os.SystemClock.elapsedRealtime()
-        val raw = if (!onBeat || !running) {
-            0f
-        } else {
-            beats!!.strengthAt(fromState + (clockNow - stamped))
-        }
-        val gap = (clockNow - envelopeAt[0]).coerceIn(0L, 200L).toFloat()
-        envelopeAt[0] = clockNow
-        val decayed = envelope[0] * kotlin.math.exp(-gap / DECAY_MS)
-        val hit = kotlin.math.max(decayed, raw)
-        envelope[0] = hit
+        val onBeat = pulse != null
+        val hit = if (!running) 0f else pulse?.value ?: 0f
         val lit = (0.25f + 0.75f * turning) * (1f + hit * PUNCH)
 
         // The ring the artwork sits inside, just off its edge so the picture is not touched.
-        val ring = r * (1.012f + 0.010f * swell + 0.022f * hit)
+        val ring = r * (1.012f + 0.010f * swell + RING_KICK * hit)
         drawCircle(
             color = tint.copy(alpha = (0.16f + 0.08f * swell) * lit),
             radius = ring,
             center = centre,
-            style = Stroke(width = r * (0.018f + 0.006f * swell)),
+            style = Stroke(width = r * (0.018f + 0.006f * swell + 0.020f * hit)),
         )
 
         // The glow it throws outward. A radial that starts AT the ring, so the artwork keeps
         // its own edge and the light only ever goes away from it.
-        val reach = r * 1.34f
+        // And it reaches further on a beat, so the light moves outward rather than only
+        // getting brighter - a change of size is seen from across a room, a change of alpha
+        // is not.
+        val reach = r * (1.34f + 0.16f * hit)
         drawCircle(
             brush = Brush.radialGradient(
                 0f to Color.Transparent,
@@ -157,17 +137,20 @@ fun BeatRing(
     }
 }
 
-/** How hard a beat lifts the ring, on top of whatever it was already doing. */
-private const val PUNCH = 1.6f
+/**
+ * How hard a beat lifts the ring, on top of whatever it was already doing.
+ *
+ * Was 1.6, which on a ring already at a sixth of an alpha was a change nobody saw across the
+ * room. The complaint was that the face barely moved, and most of the answer is here and in
+ * [RING_KICK]: brightness alone is not noticed, SIZE is.
+ */
+private const val PUNCH = 2.8f
 
-/** How quickly a beat fades, in milliseconds. Short, or two beats become one swell. */
-private const val DECAY_MS = 150f
+/** How far the ring jumps outward on a hit, as a fraction of the artwork's radius. */
+private const val RING_KICK = 0.075f
 
 /** How much of the travelling highlight is left once the beats are driving the ring. */
 private const val SWEEP_UNDER_BEAT = 0.22f
-
-/** The clock the beat is sampled on. Short, because an attack is shorter. */
-private const val TICK_MS = 1_000
 
 /** How long the highlight takes to go round. Inside the range most music sits in. */
 private const val SWEEP_MS = 2_400

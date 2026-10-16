@@ -170,7 +170,13 @@ private fun PlaceRow(
     }
 }
 
-/** A section heading used by the Home overview and the rail. */
+/**
+ * A section heading used by the Home overview and the rail.
+ *
+ * Two lines at most, and cut rather than wrapped past that. Unbounded, a heading squeezed by
+ * the links beside it broke mid-word - the Home screen in a split read "STORA / GE" - and a
+ * heading hyphenated by accident looks like damage rather than like a heading.
+ */
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(
@@ -178,6 +184,8 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
         fontSize = 9.5.sp,
         letterSpacing = 0.9.sp,
         fontWeight = FontWeight.Medium,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
         color = Filet.colors.fg3,
         modifier = modifier.padding(horizontal = 12.dp, vertical = 7.dp),
     )

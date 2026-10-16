@@ -120,7 +120,13 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     val uninterrupted by vm.prefs.uninterrupted.collectAsStateWithLifecycle()
     val glow by vm.prefs.livingGlow.collectAsStateWithLifecycle()
     val scratchAudio by vm.prefs.scratchAudio.collectAsStateWithLifecycle()
-    val beatPulse by vm.prefs.beatPulse.collectAsStateWithLifecycle()
+    // The pulse belongs to the glow and is read through it.
+    //
+    // The pulse IS the glow answering the music, so with the glow off there is nothing for a
+    // beat to move - and a switch left on while doing nothing is worse than one that is not
+    // offered. It is therefore a sub-setting rather than a sibling, here and in the panel
+    // and in Settings.
+    val beatPulse = vm.prefs.beatPulse.collectAsStateWithLifecycle().value && glow
     val glowLevel = dev.niccc2007.filet.playback.GlowLevel.of(
         vm.prefs.glowLevel.collectAsStateWithLifecycle().value,
     )
@@ -373,9 +379,12 @@ private fun FaceTopBar(c: PlayerCtx) {
             scratch = c.scratch.takeIf { c.face == PlayerFace.AURORA },
             onScratch = { c.vm.prefs.setScratchAudio(!c.scratch) }
                 .takeIf { c.face == PlayerFace.AURORA },
-            pulse = c.pulse.takeIf { c.face == PlayerFace.AURORA },
-            onPulse = { c.vm.prefs.setBeatPulse(!c.pulse) }
-                .takeIf { c.face == PlayerFace.AURORA },
+            // The glow, and the pulse underneath it. Both on every face: the glow is
+            // not Aurora's, it is behind all of them and on the strip as well.
+            glow = c.glow,
+            onGlow = { c.vm.prefs.setLivingGlow(!c.glow) },
+            pulse = c.pulse.takeIf { c.glow },
+            onPulse = { c.vm.prefs.setBeatPulse(!c.pulse) }.takeIf { c.glow },
         )
     }
 }
@@ -676,10 +685,32 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
  */
 @Composable
 private fun BoxScope.AuroraFace(c: PlayerCtx) {
+    val context = LocalContext.current
+    val pulse = c.pulse
+    // Read once per track, and only while this face is on screen with the pulse switched on.
+    // Keyed on the source rather than the node so a hand-off from the video screen does not
+    // read the same file twice. See `BeatMap` for what it costs and why it is a switch.
+    //
+    // Declared up here rather than beside the disc because the BACKDROP is the first thing
+    // drawn and is now the main thing the beat moves - the ring was all it reached before,
+    // which is a few percent of the face and is why the pulse looked like it was not working.
+    var beats by remember(c.source) { mutableStateOf<BeatMap?>(null) }
+    LaunchedEffect(c.source, pulse) {
+        beats = null
+        val source = c.source
+        if (!pulse || source == null) return@LaunchedEffect
+        beats = BeatMap.build(context, source)
+    }
+    // ONE envelope for the whole face, so the backdrop and the ring beat together rather
+    // than each keeping its own clock a frame apart. See `rememberBeatPulse`.
+    val envelope = dev.niccc2007.filet.playback.rememberBeatPulse(beats, c.playback, pulse)
+    val beating = if (pulse && beats != null) envelope else null
+
     dev.niccc2007.filet.playback.AuroraBackdrop(
         base = c.tint,
         ground = MaterialTheme.colorScheme.background,
         running = c.glow && c.state.playing,
+        pulse = beating,
     )
     // The turn. A full revolution every 24 seconds - a 33rpm record is 1.8, which at this
     // size is a blur and makes the artwork unreadable. This is slow enough to look still
@@ -720,19 +751,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
      * while a finger is still on the disc - an `AudioTrack` and a thread outliving their
      * composition is the kind of leak that is only noticed as a phone getting warm.
      */
-    val context = LocalContext.current
     val dj by c.vm.prefs.scratchAudio.collectAsStateWithLifecycle()
-    val pulse by c.vm.prefs.beatPulse.collectAsStateWithLifecycle()
-    // Read once per track, and only while this face is on screen with the pulse switched on.
-    // Keyed on the source rather than the node so a hand-off from the video screen does not
-    // read the same file twice. See `BeatMap` for what it costs and why it is a switch.
-    var beats by remember(c.source) { mutableStateOf<BeatMap?>(null) }
-    LaunchedEffect(c.source, pulse) {
-        beats = null
-        val source = c.source
-        if (!pulse || source == null) return@LaunchedEffect
-        beats = BeatMap.build(context, source)
-    }
     val scope = rememberCoroutineScope()
     val engine = remember(c.node.path) { mutableStateOf<ScratchEngine?>(null) }
     /** Whether the track was playing when the finger landed. See [endScratch]. */
@@ -900,7 +919,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                 dev.niccc2007.filet.playback.BeatRing(
                     tint = c.tint,
                     playback = c.playback,
-                    beats = beats,
+                    pulse = beating,
                     turning = turning,
                     modifier = Modifier.fillMaxSize(),
                 )

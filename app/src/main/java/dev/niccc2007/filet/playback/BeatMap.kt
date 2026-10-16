@@ -47,16 +47,21 @@ class BeatMap(private val onsets: FloatArray) {
     /**
      * How hard the music hit at [ms], from 0 to 1.
      *
-     * Reads the bucket under the position and the one before it, so a pulse is not missed
-     * between two frames - at [BUCKET_MS] the whole attack can live in one bucket, and a
-     * light that samples at sixty frames a second would step straight over it.
+     * Reads the bucket under the position and the two before it, each faded, so a pulse
+     * cannot fall between two frames - at [BUCKET_MS] the whole attack lives inside one
+     * bucket, and a light sampled even at forty-five frames a second steps over some of
+     * them. Two back rather than one because the clock and the player's reported position
+     * disagree by more than a bucket often enough to matter, and a beat that is found late
+     * still looks like a beat where a beat that is missed looks like a bug.
      */
     fun strengthAt(ms: Long): Float {
         if (onsets.isEmpty()) return 0f
         val i = (ms / BUCKET_MS).toInt()
         if (i < 0 || i >= onsets.size) return 0f
-        val previous = if (i > 0) onsets[i - 1] * FADE else 0f
-        return max(onsets[i], previous)
+        var best = onsets[i]
+        if (i > 0) best = max(best, onsets[i - 1] * FADE)
+        if (i > 1) best = max(best, onsets[i - 2] * FADE * FADE)
+        return best
     }
 
     val empty: Boolean get() = onsets.isEmpty()
@@ -71,13 +76,30 @@ class BeatMap(private val onsets: FloatArray) {
         const val BUCKET_MS = 20L
 
         /** How much of a bucket's hit the next one inherits, so a pulse has a tail. */
-        const val FADE = 0.55f
+        const val FADE = 0.62f
 
         /** How many buckets the running average looks back over. About a third of a second. */
         private const val MEMORY = 16
 
-        /** Below this a rise is noise rather than a hit. */
-        private const val FLOOR = 0.04f
+        /**
+         * Below this a rise is noise rather than a hit.
+         *
+         * A FRACTION of the recent average now, not an absolute level - see [onsetsOf]. Six
+         * percent: loud enough that a tape hiss or a vibrato does not register, quiet enough
+         * that a hi-hat under a vocal does.
+         */
+        private const val FLOOR = 0.06f
+
+        /**
+         * Which onset counts as "as hard as this track hits".
+         *
+         * Everything is scaled so that this one reaches 1. Not the maximum, which was the
+         * fault: one cymbal crash in a three-minute song set the scale, and every drum in it
+         * then measured a fifth of that and moved the light by almost nothing. At the ninth
+         * decile a tenth of the hits saturate and an ordinary beat lands near the top of the
+         * range, which is what makes the face answer the music rather than acknowledge it.
+         */
+        private const val REFERENCE = 0.90f
 
         /**
          * Read a track and find its onsets. Null when it cannot be decoded.
@@ -191,7 +213,6 @@ class BeatMap(private val onsets: FloatArray) {
          */
         fun onsetsOf(energy: List<Float>): FloatArray {
             val out = FloatArray(energy.size)
-            var peak = 0f
             for (i in energy.indices) {
                 var recent = 0f
                 var n = 0
@@ -210,16 +231,28 @@ class BeatMap(private val onsets: FloatArray) {
                     continue
                 }
                 val average = recent / n
-                // Only RISES count. A long loud note is not a beat; the moment it starts is.
-                val rise = energy[i] - average
-                val value = if (rise <= FLOOR) 0f else rise
-                out[i] = value
-                peak = max(peak, value)
+                if (average <= 1e-5f) {
+                    // A rise out of true silence. There is no ratio to take, and it is
+                    // certainly an onset, so it is given the top of the scale directly.
+                    out[i] = if (energy[i] > 1e-5f) 1f else 0f
+                    continue
+                }
+                // RELATIVE rise, not absolute. A rise of 0.04 is a slam in a quiet passage
+                // and inaudible in a loud one, and the absolute version measured the first
+                // as nothing and the second as a beat. Dividing by what the music has been
+                // doing lately is what makes this follow the track instead of its mastering.
+                //
+                // And only rises. A long loud note is not a beat; the moment it starts is.
+                val rel = (energy[i] - average) / average
+                out[i] = if (rel <= FLOOR) 0f else rel
             }
-            if (peak <= 0f) return FloatArray(energy.size)
-            // Normalised against the track's own biggest hit, so a quietly mastered song
-            // pulses as visibly as a loud one rather than not at all.
-            for (i in out.indices) out[i] = min(1f, out[i] / peak)
+            val hits = out.filter { it > 0f }.sorted()
+            if (hits.isEmpty()) return FloatArray(energy.size)
+            // Scaled so an ORDINARY hard beat reaches the top, not so the single loudest
+            // moment of the track does. See [REFERENCE].
+            val reference = hits[((hits.size - 1) * REFERENCE).toInt()]
+            if (reference <= 0f) return FloatArray(energy.size)
+            for (i in out.indices) out[i] = min(1f, out[i] / reference)
             return out
         }
 

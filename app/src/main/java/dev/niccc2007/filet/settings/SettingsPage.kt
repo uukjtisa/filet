@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -114,6 +116,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val playerFace by prefs.playerFace.collectAsState()
     val pitchMode by prefs.pitchMode.collectAsState()
     val livingGlow by prefs.livingGlow.collectAsState()
+    val beatPulse by prefs.beatPulse.collectAsState()
     val glowLevel by prefs.glowLevel.collectAsState()
     val glowSpill by prefs.glowSpill.collectAsState()
     val treeView by prefs.treeView.collectAsState()
@@ -380,11 +383,12 @@ fun SettingsPage(vm: BrowserViewModel) {
         }
         item {
             ToggleRow(
-                "Swipe to change pane",
+                "Swipe to change tab",
                 if (paneSwipe) {
-                    "In dual pane, a quick sideways swipe moves you to the other one."
+                    "A sideways swipe moves to the next tab. In dual pane it only moves the " +
+                        "pane you swiped in."
                 } else {
-                    "Tap a pane to move to it."
+                    "Tap a tab at the top to move to it."
                 },
                 paneSwipe,
             ) { prefs.setPaneSwipe(it) }
@@ -444,12 +448,29 @@ fun SettingsPage(vm: BrowserViewModel) {
                         "card, which changes colour between posts since a notification " +
                         "cannot animate. It holds still when playback is paused."
                 } else {
-                    "The glow is a still gradient. Aurora keeps its look and stops moving."
+                    "Off. No glow behind the player, on the strip, or on the notification " +
+                        "card, and Aurora's background holds still."
                 },
                 livingGlow,
             ) { prefs.setLivingGlow(it) }
         }
         if (livingGlow) {
+            item {
+                // Under the glow, because it IS the glow answering the music. Asked for in
+                // those terms, and it is also the honest arrangement: with the glow off
+                // there is nothing for a beat to move.
+                ToggleRow(
+                    "Pulse on the beat",
+                    if (beatPulse) {
+                        "The glow swells on every drum. The track is read once when it " +
+                            "opens on the Aurora look - a second of work, then nothing " +
+                            "while it plays."
+                    } else {
+                        "The glow drifts on its own time."
+                    },
+                    beatPulse,
+                ) { prefs.setBeatPulse(it) }
+            }
             item {
                 val level = dev.niccc2007.filet.playback.GlowLevel.of(glowLevel)
                 Column {
@@ -735,13 +756,32 @@ fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChange: (Bool
     }
 }
 
+/**
+ * A row of mutually exclusive choices.
+ *
+ * ## It wraps, and that is the whole fix
+ *
+ * A plain [Row] lays its children out side by side whether or not there is room, so in a
+ * split pane the fourth palette came out as "I / n / k" standing outside the control's own
+ * border, and the selected "Large" chip grew into a two-line block that pushed the row to
+ * twice its height. Neither was a styling problem; the control was being asked for a width
+ * it did not have and had no way to say so.
+ *
+ * [FlowRow] moves what does not fit onto a second line. At full width nothing moves - it
+ * measures identically to the Row it replaced, border still hugging the chips - so this
+ * costs nothing on a phone held in one hand and is the whole of the repair in a split.
+ *
+ * The chips themselves never wrap internally (`softWrap = false`): a chip is one word for
+ * one choice, and a choice broken across two lines is unreadable at this size.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SegmentRow(label: String, options: List<String>, selected: Int, onPick: (Int) -> Unit) {
     val colors = Filet.colors
     Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
         Text(label, fontSize = 12.sp, color = colors.fg2)
         Spacer(Modifier.height(5.dp))
-        Row(
+        FlowRow(
             Modifier
                 .clip(RoundedCornerShape(8.dp))
                 .border(1.dp, colors.lineSoft, RoundedCornerShape(8.dp)),
@@ -751,6 +791,9 @@ fun SegmentRow(label: String, options: List<String>, selected: Int, onPick: (Int
                 Text(
                     opt,
                     fontSize = 11.5.sp,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
                     color = if (on) MaterialTheme.colorScheme.onPrimary else colors.fg2,
                     modifier = Modifier
                         .background(if (on) colors.accent else Color.Transparent)

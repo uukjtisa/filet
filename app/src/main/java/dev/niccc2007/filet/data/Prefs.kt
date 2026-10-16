@@ -351,7 +351,7 @@ class Prefs(context: Context) {
     }
 
     /**
-     * Swipe sideways to change which pane you are in. See `PaneSwipe`.
+     * Swipe sideways to change tab in the pane under your finger. See `PaneSwipe`.
      *
      * On by default, and it only does anything in dual pane - which is both what it is for
      * and what keeps it away from the file list's drag.

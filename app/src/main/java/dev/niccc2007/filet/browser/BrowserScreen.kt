@@ -860,15 +860,39 @@ private fun Body(
         EmptyNote("Loading…", Modifier.fillMaxSize())
         return
     }
-    if (app.split == SplitMode.OFF || paneB == null) {
-        PaneView(paneA, vm, Side.A, true, registry, onGhost, Modifier.fillMaxSize())
-        return
-    }
 
     val swipeOn by vm.prefs.paneSwipe.collectAsState()
     val swipeAt = PaneSwipe.Sensitivity.of(vm.prefs.paneSwipeAt.collectAsState().value)
     // 0 while nothing is happening, 1 when a lift would switch. Drives the label.
     var swipeHint by remember { mutableFloatStateOf(0f) }
+    // What the label says: the tab a lift would land on, or null when there is none that
+    // way. Null is worth showing - running out of strip is the one reason the gesture can
+    // do nothing while working perfectly, and in silence that is indistinguishable from
+    // being broken.
+    var swipeTo by remember { mutableStateOf<String?>(null) }
+
+    // Single pane gets the gesture too.
+    //
+    // It was dual-pane-only when it switched panes, which made sense then: with one pane
+    // there was nothing to switch to. Switching TABS has somewhere to go in either layout,
+    // and one pane is how the app is used most of the time, so withholding it there would
+    // have left the gesture in the mode that needs it least.
+    if (app.split == SplitMode.OFF || paneB == null) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(
+                    tabSwipe(vm, app, swipeOn, swipeAt, splitAt = null) { at, to ->
+                        swipeHint = at
+                        swipeTo = to
+                    },
+                ),
+        ) {
+            PaneView(paneA, vm, Side.A, true, registry, onGhost, Modifier.fillMaxSize())
+            SwipeHint(swipeHint, swipeTo)
+        }
+        return
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Always side by side now - see SplitMode. The flag stays because the divider's
@@ -922,51 +946,9 @@ private fun Body(
             detectTapGestures(onDoubleTap = { live = 0.5f; vm.prefs.setSplitRatio(0.5f) })
         }
 
-        // The swipe that changes pane.
-        //
-        // Observed on the INITIAL pass and never consumed until it has decided, so the file
-        // list keeps every gesture this one turns down - a scroll stays a scroll, and a long
-        // press still picks a file up. It can only fire inside the grace window, which ends
-        // well before the press that starts a drag would have: see `PaneSwipe` for why all
-        // three guards are needed and what each of them is holding off.
-        val paneSwipe = if (!swipeOn) {
-            Modifier
-        } else {
-            Modifier.pointerInput(swipeAt) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                    val at = System.currentTimeMillis()
-                    val from = down.position
-                    var travel = Offset.Zero
-                    var last = Offset.Zero
-                    var lastAt = at
-                    var speed = 0f
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (change.changedToUp()) break
-                        travel = change.position - from
-                        val now = System.currentTimeMillis()
-                        if (now > lastAt) {
-                            val movedDp = with(density) { (change.position.x - last.x).toDp().value }
-                            speed = movedDp * 1000f / (now - lastAt)
-                        }
-                        last = change.position
-                        lastAt = now
-                        swipeHint = PaneSwipe.progress(
-                            with(density) { travel.x.toDp().value },
-                            with(density) { travel.y.toDp().value },
-                            swipeAt,
-                        )
-                    }
-                    val dx = with(density) { travel.x.toDp().value }
-                    val dy = with(density) { travel.y.toDp().value }
-                    swipeHint = 0f
-                    if (PaneSwipe.fires(dx, dy, speed, lastAt - at, swipeAt)) {
-                        vm.focusSide(if (dx < 0) Side.B else Side.A)
-                    }
-                }
-            }
+        val paneSwipe = tabSwipe(vm, app, swipeOn, swipeAt, splitAt = f) { at, to ->
+            swipeHint = at
+            swipeTo = to
         }
 
         Row(Modifier.fillMaxSize().then(paneSwipe)) {
@@ -975,34 +957,142 @@ private fun Body(
             PaneView(paneB, vm, Side.B, app.focused == Side.B, registry, onGhost, Modifier.weight(1f - f))
         }
 
-        // The label. A gesture nobody is told about is a gesture nobody finds, and this is
-        // the part of X-plore's version that makes it work - it appears while you are still
-        // pushing, so the first accidental half-swipe teaches it.
-        if (swipeHint > 0f) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Row(
-                    Modifier
-                        .graphicsLayer { alpha = swipeHint }
-                        .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.92f))
-                        .border(1.dp, colors.lineSoft, RoundedCornerShape(50))
-                        .padding(horizontal = 16.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        FiletIcons.SplitH, null,
-                        tint = if (swipeHint >= 1f) colors.accent else colors.fg3,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.width(9.dp))
-                    Text(
-                        "Switch pane",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (swipeHint >= 1f) colors.accent else colors.fg2,
-                    )
-                }
+        SwipeHint(swipeHint, swipeTo)
+    }
+}
+
+/**
+ * The sideways swipe that moves one pane along the tab strip.
+ *
+ * Observed on the INITIAL pass and never consumed, so the file list keeps every gesture this
+ * one turns down - a scroll stays a scroll, and a long press still picks a file up. See
+ * [PaneSwipe] for what each guard is holding off.
+ *
+ * @param splitAt where the divider is, as a fraction of the width, or null in single pane.
+ *   It is what decides WHICH pane the gesture belongs to: the one the finger came down in.
+ */
+@Composable
+private fun tabSwipe(
+    vm: BrowserViewModel,
+    app: AppState,
+    enabled: Boolean,
+    at: PaneSwipe.Sensitivity,
+    splitAt: Float?,
+    onHint: (Float, String?) -> Unit,
+): Modifier {
+    val density = LocalDensity.current
+    // Read through holders rather than captured directly: `pointerInput` keys on the
+    // sensitivity alone, so a gesture loop started an hour ago is still the live one and a
+    // plain capture of the split ratio or the active tabs would be whatever they were then.
+    val split = rememberUpdatedState(splitAt)
+    val state = rememberUpdatedState(app)
+    val hint = rememberUpdatedState(onHint)
+    if (!enabled) return Modifier
+    return Modifier.pointerInput(at) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            val downAt = System.currentTimeMillis()
+            val from = down.position
+            // Which pane this gesture is in, fixed at touch-down. Taking it at lift instead
+            // would hand a swipe that crossed the divider to the pane it arrived in, which
+            // is the opposite of what the gesture means.
+            val frac = split.value
+            val side = when {
+                frac == null || size.width <= 0 -> Side.A
+                from.x < size.width * frac -> Side.A
+                else -> Side.B
             }
+            val slop = with(density) { 6.dp.toPx() }
+            var travel = Offset.Zero
+            // When it first moved for real, which is what the grace window is about. The
+            // old code passed the time of the LAST move event instead - the length of the
+            // whole gesture - so every swipe slower than 220ms in total was thrown away
+            // before any of the other tests ran. That is why it never once fired.
+            var movedAt = 0L
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                if (change.changedToUp()) break
+                travel = change.position - from
+                if (movedAt == 0L && travel.getDistance() > slop) {
+                    movedAt = System.currentTimeMillis()
+                }
+                val dxNow = with(density) { travel.x.toDp().value }
+                val progress = PaneSwipe.progress(
+                    dxNow,
+                    with(density) { travel.y.toDp().value },
+                    at,
+                )
+                hint.value(
+                    progress,
+                    if (progress <= 0f) {
+                        null
+                    } else {
+                        val s = state.value
+                        val onSide = if (s.split == SplitMode.OFF) Side.A else side
+                        val current = if (onSide == Side.A) s.activeA else s.activeB
+                        PaneSwipe.nextTab(current, PaneSwipe.stepFor(dxNow), s.tabIds.size)
+                            ?.let { vm.tabTitleAt(it) }
+                    },
+                )
+            }
+            val upAt = System.currentTimeMillis()
+            val dx = with(density) { travel.x.toDp().value }
+            val dy = with(density) { travel.y.toDp().value }
+            hint.value(0f, null)
+            // AVERAGE speed over the movement, not the speed of the last event. A flick's
+            // final sample is often one pixel over one millisecond, which reads either as
+            // standing still or as infinity depending on which way it rounds.
+            val began = if (movedAt == 0L) downAt else movedAt
+            val speed = dx * 1000f / (upAt - began).coerceAtLeast(1L)
+            if (PaneSwipe.fires(dx, dy, speed, began - downAt, at)) {
+                vm.stepTab(side, PaneSwipe.stepFor(dx))
+            }
+        }
+    }
+}
+
+/**
+ * The label that appears while you are still pushing.
+ *
+ * A gesture nobody is told about is a gesture nobody finds, and this is the part that makes
+ * it work: the first accidental half-swipe teaches it. It names the tab it would land on,
+ * so the swipe is a choice rather than a guess - and says when there is none that way,
+ * because an ignored swipe and a swipe that has run out of strip look identical otherwise.
+ */
+@Composable
+private fun SwipeHint(progress: Float, to: String?) {
+    if (progress <= 0f) return
+    val colors = Filet.colors
+    val ready = progress >= 1f && to != null
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Row(
+            Modifier
+                .graphicsLayer { alpha = progress }
+                .clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.background.copy(alpha = 0.92f))
+                .border(
+                    1.dp,
+                    if (ready) colors.accent.copy(alpha = 0.5f) else colors.lineSoft,
+                    RoundedCornerShape(50),
+                )
+                .padding(horizontal = 16.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                if (to == null) FiletIcons.Close else FiletIcons.Folder, null,
+                tint = if (ready) colors.accent else colors.fg3,
+                modifier = Modifier.size(14.dp),
+            )
+            Spacer(Modifier.width(9.dp))
+            Text(
+                to ?: "No tab that way",
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = FontWeight.SemiBold,
+                color = if (ready) colors.accent else colors.fg2,
+            )
         }
     }
 }

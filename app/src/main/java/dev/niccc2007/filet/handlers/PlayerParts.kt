@@ -217,9 +217,13 @@ fun PlayerOverflow(
     onProperties: () -> Unit,
     onAddToPlaylist: (() -> Unit)? = null,
     onSaveQueue: (() -> Unit)? = null,
-    /** Aurora's own two switches. Null on every other face, where they do nothing. */
+    /** Aurora's own switch. Null on every other face, where it does nothing. */
     scratch: Boolean? = null,
     onScratch: (() -> Unit)? = null,
+    /** The background glow, which every face has. */
+    glow: Boolean? = null,
+    onGlow: (() -> Unit)? = null,
+    /** The glow answering the music. Null when the glow is off - it is its sub-switch. */
     pulse: Boolean? = null,
     onPulse: (() -> Unit)? = null,
 ) {
@@ -274,16 +278,23 @@ fun PlayerOverflow(
                                 onSaveQueue()
                             }
                         }
-                        // Only where they mean something. Both belong to the record, and
-                        // a switch on a face with no record on it is a control that does
-                        // nothing visible - which is worse than one that is not offered.
+                        // Only where they mean something. The record's switch belongs to
+                        // the record, and a switch on a face with no record on it is a
+                        // control that does nothing visible - worse than one not offered.
                         if (scratch != null && onScratch != null) {
                             PanelRule()
                             PanelSwitch("Hear it while you drag", scratch, onScratch)
                         }
-                        if (pulse != null && onPulse != null) {
-                            if (scratch == null) PanelRule()
-                            PanelSwitch("Pulse on the beat", pulse, onPulse)
+                        if (glow != null && onGlow != null) {
+                            PanelRule()
+                            PanelSwitch("Living glow", glow, onGlow)
+                            // The pulse is the glow answering the music, so it appears
+                            // UNDER the glow and only while the glow is on. Indented,
+                            // because a sub-switch at the same margin as its parent is
+                            // just a second switch.
+                            if (pulse != null && onPulse != null) {
+                                PanelSwitch("Pulse on the beat", pulse, onPulse, sub = true)
+                            }
                         }
                         PanelRule()
                         PanelAction("Open in another app", FiletIcons.Open) {
@@ -366,18 +377,25 @@ private fun PanelAction(
 
 /** A row that is on or off, in the same panel as the actions. */
 @Composable
-private fun PanelSwitch(label: String, on: Boolean, onClick: () -> Unit) {
+private fun PanelSwitch(
+    label: String,
+    on: Boolean,
+    onClick: () -> Unit,
+    /** A switch that belongs to the one above it: indented, and a shade quieter. */
+    sub: Boolean = false,
+) {
     val colors = Filet.colors
     Row(
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 17.dp, vertical = 6.dp),
+            .padding(start = if (sub) 31.dp else 17.dp, end = 17.dp)
+            .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             label,
-            fontSize = 12.5.sp,
+            fontSize = if (sub) 11.5.sp else 12.5.sp,
             color = if (on) colors.accent else colors.fg2,
             modifier = Modifier.weight(1f),
         )

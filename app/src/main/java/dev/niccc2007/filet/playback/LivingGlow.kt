@@ -69,10 +69,12 @@ fun LivingGlow(
     running: Boolean,
     strength: Float = 1f,
     spread: Float = 1f,
+    /** The beat envelope, where there is one. See [rememberBeatPulse]. */
+    pulse: State<Float>? = null,
     modifier: Modifier = Modifier,
 ) {
     if (!on) return
-    Box(modifier.fillMaxSize().livingGlow(base, on, running, strength, spread))
+    Box(modifier.fillMaxSize().livingGlow(base, on, running, strength, spread, pulse = pulse))
 }
 
 /**
@@ -92,6 +94,8 @@ fun Modifier.livingGlow(
     strength: Float = 1f,
     spread: Float = 1f,
     clip: Boolean = true,
+    /** The beat envelope, where there is one. See [rememberBeatPulse]. */
+    pulse: State<Float>? = null,
 ): Modifier {
     if (!on) return this
     val phases = rememberGlowPhases(running)
@@ -117,15 +121,36 @@ fun Modifier.livingGlow(
         // build painted the bottom third of the file list - and was then liked, so it is a
         // setting rather than a fault. Clipped by default, because it tints the names of
         // files somebody is trying to read.
-        if (clip) clipRect { lights(tints, a, b, c, spread) } else lights(tints, a, b, c, spread)
+        // The beat, read here for the same reason and with the same effect: the draw
+        // invalidates on every onset and nothing above it recomposes at all.
+        val hit = pulse?.value ?: 0f
+        if (clip) {
+            clipRect { lights(tints, a, b, c, spread, hit) }
+        } else {
+            lights(tints, a, b, c, spread, hit)
+        }
     }
 }
 
-private fun DrawScope.lights(tints: List<Color>, a: Float, b: Float, c: Float, spread: Float) {
-    glowBlob(tints[0], a, 0.30f, 0.26f, size.maxDimension * 0.80f * spread)
-    glowBlob(tints[1], b, 0.74f, 0.44f, size.maxDimension * 0.95f * spread)
-    glowBlob(tints[2], c, 0.52f, 0.72f, size.maxDimension * 0.65f * spread)
+private fun DrawScope.lights(
+    tints: List<Color>,
+    a: Float,
+    b: Float,
+    c: Float,
+    spread: Float,
+    hit: Float,
+) {
+    // Swell AND brighten. See `AuroraBackdrop`: on its own, a change of alpha is a flicker.
+    val grow = spread * (1f + hit * BEAT_BLOOM)
+    val lift = 1f + hit * BEAT_FLARE
+    glowBlob(tints[0].brighter(lift), a, 0.30f, 0.26f, size.maxDimension * 0.80f * grow)
+    glowBlob(tints[1].brighter(lift), b, 0.74f, 0.44f, size.maxDimension * 0.95f * grow)
+    glowBlob(tints[2].brighter(lift), c, 0.52f, 0.72f, size.maxDimension * 0.65f * grow)
 }
+
+/** How much the lights swell on a hard beat, and how much brighter they get with it. */
+private const val BEAT_BLOOM = 0.20f
+private const val BEAT_FLARE = 1.0f
 
 /**
  * How much of the glow is painted, as a thing somebody picks.

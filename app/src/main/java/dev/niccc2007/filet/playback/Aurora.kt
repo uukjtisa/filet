@@ -33,13 +33,23 @@ import androidx.compose.ui.graphics.Color
  * still gradient rather than disappearing - the face still looks like itself. The OS
  * animations-off setting does the same thing for the same reason. See [rememberGlowPhases].
  *
+ * ## And it answers the beat
+ *
+ * When the pulse is on, the three lights BLOOM on every onset - they swell outward and
+ * brighten together, and the whole screen moves with the track. That is where the pulse
+ * belongs. It reached only the ring around the artwork to begin with, which is a hairline on
+ * a face made of this gradient, and the glow was reported as barely pulsing at all.
+ * See [rememberBeatPulse].
+ *
  * @param running false freezes the lights where they started.
+ * @param pulse the beat envelope, or null when the pulse is off.
  */
 @Composable
 fun AuroraBackdrop(
     base: Color,
     ground: Color,
     running: Boolean,
+    pulse: androidx.compose.runtime.State<Float>? = null,
     modifier: Modifier = Modifier,
 ) {
     val phases = rememberGlowPhases(running)
@@ -53,13 +63,31 @@ fun AuroraBackdrop(
                 // reading the frame up there recomposes all of it sixty times a second. See
                 // the note in `livingGlow`.
                 val p = phases.value
+                val hit = pulse?.value ?: 0f
                 drawRect(ground)
-                glowBlob(tints[0], p[0], 0.62f, 0.34f, size.minDimension * 1.25f)
-                glowBlob(tints[1], p[1], 0.38f, 0.66f, size.minDimension * 1.45f)
-                glowBlob(tints[2], p[2], 0.72f, 0.78f, size.minDimension * 1.1f)
+                val grow = 1f + hit * BLOOM
+                val lift = 1f + hit * FLARE
+                glowBlob(tints[0].brighter(lift), p[0], 0.62f, 0.34f, size.minDimension * 1.25f * grow)
+                glowBlob(tints[1].brighter(lift), p[1], 0.38f, 0.66f, size.minDimension * 1.45f * grow)
+                glowBlob(tints[2].brighter(lift), p[2], 0.72f, 0.78f, size.minDimension * 1.1f * grow)
             },
     )
 }
+
+/**
+ * How much bigger the lights get on a hard beat.
+ *
+ * A fifth. Size is the half of this that is actually seen - a light that only brightens reads
+ * as a flicker, a light that swells reads as the room answering the drum.
+ */
+private const val BLOOM = 0.20f
+
+/** And how much brighter, on top of the swell. */
+private const val FLARE = 1.0f
+
+/** More alpha, same hue. A second colour would stop the light being the track's own. */
+internal fun Color.brighter(by: Float): Color =
+    if (by <= 1f) this else copy(alpha = (alpha * by).coerceAtMost(1f))
 
 /**
  * Three lights from one sampled colour.

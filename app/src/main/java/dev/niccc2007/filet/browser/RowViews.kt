@@ -59,15 +59,32 @@ import java.util.Locale
  *   [EntryDisplay.dateColumn], and both have to agree - width is a constraint, the setting is a
  *   choice, and collapsing them into one flag is how a preference became unreachable on a phone.
  */
-data class PaneMetrics(val step: ViewStep, val showDate: Boolean, val showSize: Boolean, val showChips: Boolean) {
+/**
+ * @param oneLineName whether a name that does not fit should be cut rather than wrapped. The
+ *   two-line steps allow a second line for the rare long name, which is right at full width
+ *   and wrong in a split: at half a phone almost EVERY name needed the second line, so a
+ *   folder list came out as ".archivete / mp", ".DataStor / age" - a ragged column of broken
+ *   words. One line and an ellipsis says the same thing and stays a list.
+ */
+data class PaneMetrics(
+    val step: ViewStep,
+    val showDate: Boolean,
+    val showSize: Boolean,
+    val showChips: Boolean,
+    val oneLineName: Boolean = false,
+    /** Carried so the things that size themselves against the pane can ask. See [TreeScale]. */
+    val widthDp: Int = 0,
+) {
     companion object {
         fun forWidth(widthDp: Int, requested: ViewStep) = PaneMetrics(
+            widthDp = widthDp,
             step = if (widthDp < 270 && requested.isGrid) ViewStep.LIST
             else if (widthDp < 200) ViewStep.COMPACT_LIST
             else requested,
             showDate = widthDp >= 330,
             showSize = widthDp >= 180,
             showChips = widthDp >= 180,
+            oneLineName = widthDp < 300,
         )
     }
 }
@@ -94,6 +111,17 @@ fun FileRow(
     lastOfSiblings: Boolean = false,
     /** True for any row in a tree, so rows with no chevron still line up with those that have one. */
     treeRow: Boolean = false,
+    /**
+     * Which part of the working folder's outline this row draws, if any. See [ActiveEdge].
+     */
+    edge: ActiveEdge? = null,
+    /**
+     * How far in this tree steps per level, and where level zero starts. See [TreeScale].
+     *
+     * It reaches both the padding below AND the guide lines, from this one value, which is
+     * what makes "the lines are still connected" true by construction rather than by care.
+     */
+    steps: TreeScale.Steps = FLAT,
     /** Null for a row that cannot open: a file, or the tree view being off. */
     openInPlace: Boolean? = null,
     onOpenInPlace: (() -> Unit)? = null,
@@ -137,9 +165,12 @@ fun FileRow(
                 onDoubleClick = onDoubleClick,
             )
             .then(modifier)
-            .drawBehind { if (depth > 0) treeGuides(depth, spines, lastOfSiblings, accent) }
+            .drawBehind {
+                if (treeRow) treeGuides(depth, spines, lastOfSiblings, openInPlace, steps, accent)
+                if (edge != null) activeFrame(edge, accent)
+            }
             .padding(
-                start = 10.dp + (depth * TREE_INDENT).dp,
+                start = (steps.startDp + depth * steps.indentDp).dp,
                 end = 10.dp,
                 top = if (step.twoLine) 6.dp else 3.dp,
                 bottom = if (step.twoLine) 6.dp else 3.dp,
@@ -186,7 +217,7 @@ fun FileRow(
                 text = node.name,
                 fontSize = step.nameSize.sp,
                 lineHeight = (step.nameSize + 4).sp,
-                maxLines = if (step.twoLine) 2 else 1,
+                maxLines = if (step.twoLine && !metrics.oneLineName) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
                 fontWeight = if (node.isDir) FontWeight.Medium else FontWeight.Normal,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -410,9 +441,83 @@ fun EmptyNote(text: String, modifier: Modifier = Modifier) {
  * the levels overlap their own guides.
  */
 
+/**
+ * Which part of the outline round the working folder a row is responsible for.
+ *
+ * A lazy list cannot draw one box across several of its items - there is no "several of its
+ * items" to hang a modifier on, and an overlay computed from item offsets is a frame wrong
+ * every time anything scrolls, resizes or is inserted. So the box is drawn in pieces: every
+ * row in the block draws its own two sides, the first adds the top and its corners, the
+ * last adds the bottom and its corners, and because the rows are adjacent the pieces meet.
+ * It then scrolls, recycles and clips for free, and a block whose top has scrolled off
+ * shows an open-topped box - which is the right picture rather than a bug.
+ */
+enum class ActiveEdge { TOP, MIDDLE, BOTTOM, ONLY }
+
+/**
+ * The outline round the folder being worked in, and everything inside it.
+ *
+ * A border, not a wash. A filled tint was built first and it reads as a SELECTION, which is
+ * a different and already-taken meaning in this list. A box says "this is the area you are
+ * in", which is the thing being said - and is what X-plore draws for the same reason.
+ *
+ * Three strokes, widest and faintest first, so the edge carries a glow instead of being a
+ * hairline rectangle sitting on top of the list. At that alpha the outer pass is barely a
+ * colour; it is the whole difference between a drawn border and a stuck-on one.
+ */
+private fun DrawScope.activeFrame(edge: ActiveEdge, accent: Color) {
+    val inset = 3.dp.toPx()
+    val r = 12.dp.toPx()
+    val left = inset
+    val right = size.width - inset
+    val capTop = edge == ActiveEdge.TOP || edge == ActiveEdge.ONLY
+    val capBottom = edge == ActiveEdge.BOTTOM || edge == ActiveEdge.ONLY
+    val top = if (capTop) inset else 0f
+    val bottom = if (capBottom) size.height - inset else size.height
+    // The sides stop short of whichever end turns a corner, and run to the row's own edge
+    // at the other - that butt join with the next row's side is what makes the pieces read
+    // as one continuous line.
+    val sideTop = if (capTop) top + r else top
+    val sideBottom = if (capBottom) bottom - r else bottom
+    val box = androidx.compose.ui.geometry.Size(r * 2f, r * 2f)
+
+    for ((width, alpha) in FRAME_PASSES) {
+        val colour = accent.copy(alpha = alpha)
+        val w = width.dp.toPx()
+        val stroke = Stroke(width = w)
+        drawLine(colour, Offset(left, sideTop), Offset(left, sideBottom), w)
+        drawLine(colour, Offset(right, sideTop), Offset(right, sideBottom), w)
+        if (capTop) {
+            drawLine(colour, Offset(left + r, top), Offset(right - r, top), w)
+            drawArc(colour, 180f, 90f, false, Offset(left, top), box, style = stroke)
+            drawArc(colour, 270f, 90f, false, Offset(right - r * 2f, top), box, style = stroke)
+        }
+        if (capBottom) {
+            drawLine(colour, Offset(left + r, bottom), Offset(right - r, bottom), w)
+            drawArc(colour, 0f, 90f, false, Offset(right - r * 2f, bottom - r * 2f), box, style = stroke)
+            drawArc(colour, 90f, 90f, false, Offset(left, bottom - r * 2f), box, style = stroke)
+        }
+    }
+}
+
+/** Stroke widths and alphas, outside in. The first two are the glow; the last is the line. */
+private val FRAME_PASSES = listOf(6f to 0.07f, 3f to 0.16f, 1.4f to 0.72f)
+
 /** Half the chevron's 26dp box, which is where its spine hangs from. */
 private const val CHEVRON_HALF = 13
-private const val TREE_INDENT = 26
+
+/** A list that is not a tree: the full step, and nothing drawn. */
+private val FLAT = TreeScale.Steps(TreeScale.START, TreeScale.INDENT)
+
+/**
+ * How far into its 26dp box the arrow glyph actually starts.
+ *
+ * The chevron is a 26dp target with 7dp of padding, so the drawn arrow is the middle 12dp of
+ * it. A guide that stops at the box stops seven dp short of anything visible, which is the
+ * gap that made the elbow look like it pointed at nothing - the line was correct and the
+ * drawing was not.
+ */
+private const val ARROW_INSET = 7
 
 /**
  * The lines that say which folder a row is inside.
@@ -439,14 +544,49 @@ private fun DrawScope.treeGuides(
     depth: Int,
     spines: List<Boolean>,
     lastOfSiblings: Boolean,
+    openInPlace: Boolean?,
+    steps: TreeScale.Steps,
     accent: Color,
 ) {
-    val indent = TREE_INDENT.dp.toPx()
-    val start = 10.dp.toPx()
-    val baseHue = hueOf(accent)
+    val indent = steps.indentDp.dp.toPx()
+    val start = steps.startDp.dp.toPx()
     val middle = size.height * 0.5f
-    val width = 1.5.dp.toPx()
-    val radius = indent * 0.30f
+    val width = 1.2.dp.toPx()
+    // A generous corner, but not so generous that it eats the whole run. At 0.46 the arc
+    // used twelve of the thirteen dp available and the elbow read as a hook with no line on
+    // the end of it; the straight section after the turn is what makes it point somewhere.
+    val radius = indent * 0.34f
+
+    // Where the elbow has to ARRIVE.
+    //
+    // At the thing it is pointing at, which is arrow to arrow, and file to file. A row that
+    // has an arrow is joined at the arrow; a row that has none - a file, or a folder with
+    // nothing in it - is joined at its icon, running across the blank arrow slot it still
+    // reserves. It used to stop at the row's text margin, which is seven dp short of the
+    // arrow and twenty short of the icon, so it ended in empty space either way and the
+    // tree read as a set of hooks pointing at nothing.
+    val arrives = if (openInPlace != null) {
+        indent - (CHEVRON_HALF - ARROW_INSET).dp.toPx()
+    } else {
+        indent + (ICON_SLOT - CHEVRON_HALF).dp.toPx()
+    }
+
+    // The stub that joins a parent to its own children.
+    //
+    // This is what made the lines look detached: an expanded folder drew nothing, so the
+    // spine under it began at the TOP of the next row - half a row below the arrow it was
+    // supposed to be hanging from, with a gap in between. A parent now draws from its own
+    // middle down to its bottom edge, in its children's column, and the two meet.
+    if (openInPlace == true) {
+        val childX = start + depth * indent + CHEVRON_HALF.dp.toPx()
+        drawLine(
+            color = levelColour(accent, depth),
+            start = Offset(childX, middle),
+            end = Offset(childX, size.height),
+            strokeWidth = width,
+        )
+    }
+    if (depth == 0) return
 
     for (level in 0 until depth) {
         // The spine hangs off the PARENT'S ARROW, not from an arbitrary fraction of the
@@ -455,20 +595,28 @@ private fun DrawScope.treeGuides(
         // beside the icon at the bottom. A guide that does not start at the thing it is
         // guiding from is worse than no guide.
         val x = start + level * indent + CHEVRON_HALF.dp.toPx()
-        val colour = Color.hsv(
-            hue = ((baseHue + level * HUE_STEP) % 360f + 360f) % 360f,
-            saturation = 0.42f,
-            value = 0.78f,
-        ).copy(alpha = GUIDE_ALPHA)
+        val colour = levelColour(accent, level)
 
         if (level < depth - 1) {
-            // An ancestor's spine. It passes straight through this row, and only while that
-            // ancestor still has children below - otherwise the line ran on under the last
-            // child of every folder and joined nothing to nothing.
+            // An ancestor's spine, passing straight through this row.
+            //
+            // LEVEL + 1, and that off-by-one is the whole of "the line is still broken".
+            //
+            // `spines[k]` says whether the ancestor at depth k has siblings after it. The
+            // line in column `level` comes down from the ancestor at that depth, and the
+            // question it answers is not whether THAT ancestor continues - it is whether
+            // that ancestor still has CHILDREN below this row. Which is the same as asking
+            // whether the ancestor one level further in, the one this row's branch hangs
+            // off, has siblings after it: `spines[level + 1]`.
+            //
+            // Reading `spines[level]` drew a spine whenever the outer folder had a sibling
+            // somewhere further down the screen, even though its own sub-list had finished
+            // two rows ago. On screen that is a line starting in mid-air with a gap above
+            // it, attached to nothing at either end.
+            //
             // Absent means NO line. It used to default to drawing one, which invented a
-            // spine for an ancestor that had nothing left below it - a blue line down the
-            // side of rows whose parent's parent had already finished.
-            if (spines.getOrElse(level) { false }) {
+            // spine for an ancestor that had nothing left below it at all.
+            if (spines.getOrElse(level + 1) { false }) {
                 drawLine(colour, Offset(x, 0f), Offset(x, size.height), width)
             }
             continue
@@ -496,16 +644,28 @@ private fun DrawScope.treeGuides(
                 style = Stroke(width = width),
             )
         }
-        // And it ends under the CHILD's own arrow, so arrow joins to arrow and the run of
-        // them down a level reads as one connected thing.
+        // And it arrives AT the child - see `arrives`.
         drawLine(
             color = colour,
             start = Offset(if (lastOfSiblings) x + radius else x, middle),
-            end = Offset(x + indent, middle),
+            end = Offset(x + arrives, middle),
             strokeWidth = width,
         )
     }
 }
+
+/**
+ * One level's colour.
+ *
+ * Soft, and softer the deeper it goes. The first version used one alpha for every level,
+ * which put a hard ladder of colour down the left of the screen competing with the file
+ * names - these are scaffolding for the eye and should be read without being looked at.
+ */
+private fun levelColour(accent: Color, level: Int): Color = Color.hsv(
+    hue = ((hueOf(accent) + level * HUE_STEP) % 360f + 360f) % 360f,
+    saturation = 0.34f,
+    value = 0.82f,
+).copy(alpha = (GUIDE_ALPHA - level * FADE_PER_LEVEL).coerceAtLeast(0.18f))
 
 /** The accent's own hue, so the ladder starts from the theme rather than from red. */
 private fun hueOf(c: Color): Float {
@@ -521,8 +681,14 @@ private fun hueOf(c: Color): Float {
     return if (h < 0f) h + 360f else h
 }
 
+/** The icon column, which is where a row with no arrow gets joined instead. */
+private const val ICON_SLOT = 26
+
 /** How far round the wheel each level steps. Not a divisor of 360, so levels stay distinct. */
 private const val HUE_STEP = 47f
 
 /** Faint. These are scaffolding for the eye, not content. */
-private const val GUIDE_ALPHA = 0.5f
+private const val GUIDE_ALPHA = 0.42f
+
+/** And fainter with depth, so the outer levels recede instead of stacking up. */
+private const val FADE_PER_LEVEL = 0.05f

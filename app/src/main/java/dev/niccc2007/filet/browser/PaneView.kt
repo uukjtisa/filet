@@ -36,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.foundation.gestures.scrollBy
@@ -184,7 +185,7 @@ fun PaneView(
                     // no cwd and needs no special case.
                     s.kind == PaneKind.FOLDER || SearchReach.showsResults(s.kind, s.search.active) ->
                         FolderBody(pane, vm, s, app, metrics, side, registry, onGhost)
-                    else -> SpecialBody(pane, vm, s)
+                    else -> SpecialBody(pane, vm, s, widthDp)
                 }
                 // Floating, and in EVERY pane rather than only the focused one. The
                 // per-pane part is what makes split view unambiguous: "Paste" then means
@@ -635,6 +636,37 @@ private fun FolderBody(
     val treeRows = remember(rows, s.open, s.branches, tree) {
         if (tree) TreeRows.flatten(rows, s.open, s.branches) else emptyList()
     }
+    // The run of rows the working folder's outline goes round: the folder itself, then
+    // everything under it, which in a flattened tree is always one contiguous block.
+    //
+    // A `loading` placeholder carries its PARENT's node, so its path equals the active
+    // folder's rather than sitting under it - without allowing for that the box would stop
+    // at the row saying "Reading…" and leave the branch being read outside the frame.
+    val frame = remember(treeRows, s.active) {
+        val at = s.active
+        val first = if (at == null) -1 else treeRows.indexOfFirst {
+            it.node.path == at && !it.loading
+        }
+        if (first < 0 || at == null) {
+            null
+        } else {
+            var last = first
+            var i = first + 1
+            while (i < treeRows.size) {
+                val row = treeRows[i]
+                if (!row.loading && !row.node.path.path.startsWith(at.path + "/")) break
+                last = i
+                i++
+            }
+            first..last
+        }
+    }
+    // How far this tree may step in, given how wide the pane is and how deep it is open
+    // RIGHT NOW. One value for every row - see `TreeScale` for why it cannot be per row,
+    // and why the guides read it rather than a constant of their own.
+    val steps = remember(metrics.widthDp, treeRows) {
+        TreeScale.of(metrics.widthDp, treeRows.maxOfOrNull { it.depth } ?: 0)
+    }
     if (rows.isEmpty()) {
         EmptyNote(
             if (s.search.active) emptySearchNote(s.search.scope, vm.indexStatus.collectAsState().value)
@@ -815,7 +847,7 @@ private fun FolderBody(
                 val emptyFolder = tree && node.isDir &&
                     rememberFolderPeek(vm.folderPeek, node.path, node.mtime, true).value.empty
                 if (row?.loading == true) {
-                    BranchLoading(row.depth)
+                    BranchLoading(row.depth, steps)
                 } else if (s.search.active) {
                     SearchResultRow(
                         node = node,
@@ -852,6 +884,16 @@ private fun FolderBody(
                             enabled = node.isDir && display.measure && metrics.showSize,
                         ),
                         treeRow = tree,
+                        steps = steps,
+                        edge = frame?.let {
+                            when {
+                                i !in it -> null
+                                it.first == it.last -> ActiveEdge.ONLY
+                                i == it.first -> ActiveEdge.TOP
+                                i == it.last -> ActiveEdge.BOTTOM
+                                else -> ActiveEdge.MIDDLE
+                            }
+                        },
                         depth = row?.depth ?: 0,
                         spines = row?.spines.orEmpty(),
                         lastOfSiblings = row?.last == true,
@@ -910,8 +952,24 @@ private fun FolderBody(
     }
 }
 
+/**
+ * Everything a pane can show that is not a folder listing.
+ *
+ * It takes the pane's own width and publishes it, because these pages were all written as
+ * full-screen screens and in a split they are not: see `LocalPaneWidth` for what that was
+ * doing to Settings and Home. The folder listing does not need it - `PaneMetrics` has
+ * measured against the pane's width since the beginning - which is exactly why this was the
+ * half of the app that stayed broken.
+ */
 @Composable
-private fun SpecialBody(pane: PaneController, vm: BrowserViewModel, s: PaneState) {
+private fun SpecialBody(pane: PaneController, vm: BrowserViewModel, s: PaneState, widthDp: Int) {
+    CompositionLocalProvider(dev.niccc2007.filet.ui.LocalPaneWidth provides widthDp) {
+        SpecialBodyContent(pane, vm, s)
+    }
+}
+
+@Composable
+private fun SpecialBodyContent(pane: PaneController, vm: BrowserViewModel, s: PaneState) {
     when (s.kind) {
         // Home is the overview unless a folder was set as Home and still exists. Resolved on
         // every composition rather than once at launch, because the card can be removed or the
@@ -1177,11 +1235,15 @@ private fun PaneContextMenu(
 
 /** A branch that has been opened and is still being read. */
 @Composable
-private fun BranchLoading(depth: Int) {
+private fun BranchLoading(depth: Int, steps: TreeScale.Steps) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(start = (10 + depth * 14).dp, top = 6.dp, bottom = 6.dp),
+            .padding(
+                start = (steps.startDp + depth * steps.indentDp).dp,
+                top = 6.dp,
+                bottom = 6.dp,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Spacer(Modifier.width(26.dp))

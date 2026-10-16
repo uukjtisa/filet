@@ -2,6 +2,7 @@ package dev.niccc2007.filet.browser
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -10,7 +11,7 @@ class PaneSwipeTest {
     private val normal = PaneSwipe.Sensitivity.NORMAL
 
     @Test
-    fun `a brisk sideways swipe switches pane`() {
+    fun `a brisk sideways swipe changes tab`() {
         assertTrue(PaneSwipe.fires(dx = -90f, dy = 10f, speedDpPerSec = 800f, sinceDownMs = 120L, sensitivity = normal))
     }
 
@@ -22,14 +23,22 @@ class PaneSwipeTest {
     }
 
     @Test
-    fun `a scroll at a slight angle never switches pane`() {
+    fun `a scroll at a slight angle never changes tab`() {
         // Plenty of horizontal travel, but more vertical - that is a list being flicked.
         assertFalse(PaneSwipe.fires(-90f, 120f, 900f, 100L, normal))
     }
 
     @Test
-    fun `a slow push is not a swipe`() {
-        assertFalse(PaneSwipe.fires(-120f, 4f, 100f, 100L, normal))
+    fun `a long push fires however slowly it got there`() {
+        // The fault that made the gesture dead on arrival: this and the short flick below
+        // are the two movements people actually make, and requiring distance AND speed
+        // rejected both of them. Far enough is enough.
+        assertTrue(PaneSwipe.fires(-120f, 4f, 100f, 100L, normal))
+    }
+
+    @Test
+    fun `a short slow drift is not a swipe`() {
+        assertFalse(PaneSwipe.fires(-45f, 4f, 90f, 100L, normal))
     }
 
     @Test
@@ -61,5 +70,32 @@ class PaneSwipeTest {
     fun `an unknown sensitivity falls back to normal`() {
         assertEquals(PaneSwipe.Sensitivity.NORMAL, PaneSwipe.Sensitivity.of("nonsense"))
         assertEquals(PaneSwipe.Sensitivity.NORMAL, PaneSwipe.Sensitivity.of(null))
+    }
+
+    @Test
+    fun `left goes on through the strip and right goes back`() {
+        assertEquals(1, PaneSwipe.stepFor(-80f))
+        assertEquals(-1, PaneSwipe.stepFor(80f))
+    }
+
+    @Test
+    fun `the tab next door`() {
+        assertEquals(2, PaneSwipe.nextTab(current = 1, step = 1, count = 4))
+        assertEquals(0, PaneSwipe.nextTab(current = 1, step = -1, count = 4))
+    }
+
+    @Test
+    fun `the ends of the strip do not wrap`() {
+        // Running out is information, not a failure - the hint says so rather than throwing
+        // the reader to the other end of the strip on a stray flick.
+        assertNull(PaneSwipe.nextTab(current = 3, step = 1, count = 4))
+        assertNull(PaneSwipe.nextTab(current = 0, step = -1, count = 4))
+    }
+
+    @Test
+    fun `one tab has nowhere to go in either direction`() {
+        assertNull(PaneSwipe.nextTab(0, 1, 1))
+        assertNull(PaneSwipe.nextTab(0, -1, 1))
+        assertNull(PaneSwipe.nextTab(0, 1, 0))
     }
 }
