@@ -387,6 +387,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                     "A folder replaces the list, the usual way."
                 },
                 treeView,
+                beta = true,
             ) { prefs.setTreeView(it) }
         }
         item {
@@ -399,6 +400,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                     "Tap a tab at the top to move to it."
                 },
                 paneSwipe,
+                beta = true,
             ) { prefs.setPaneSwipe(it) }
         }
         if (paneSwipe) {
@@ -477,6 +479,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                         "The glow drifts on its own time."
                     },
                     beatPulse,
+                    beta = true,
                 ) { prefs.setBeatPulse(it) }
             }
             if (beatPulse) {
@@ -487,6 +490,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                             "weakly - it lifts the quiet beats up the scale rather than " +
                             "inventing beats that are not there.",
                         dev.niccc2007.filet.playback.sensePosition(pulseSense),
+                        beta = true,
                     ) { prefs.setPulseSense(dev.niccc2007.filet.playback.senseFor(it)) }
                 }
                 item {
@@ -496,6 +500,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                             "between beats, up on them. Strength is the level; this is the " +
                             "range about it, which is why there are two of them.",
                         pulseDepth,
+                        beta = true,
                     ) { prefs.setPulseDepth(it) }
                 }
                 item {
@@ -504,6 +509,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                         "How much the wave moves when nothing is happening. All the way " +
                             "down and it is a flat circle until a drum arrives.",
                         waveRest,
+                        beta = true,
                     ) { prefs.setWaveRest(it) }
                 }
                 item {
@@ -513,6 +519,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                             "between this and the resting size rather than all hitting the " +
                             "same, so the wave has the track's dynamics in it.",
                         waveSize,
+                        beta = true,
                     ) { prefs.setWaveSize(it) }
                 }
                 item {
@@ -520,6 +527,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                         "Wave distance",
                         "How far off the artwork it sits.",
                         waveGap,
+                        beta = true,
                     ) { prefs.setWaveGap(it) }
                 }
                 item {
@@ -530,6 +538,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                             "differs per device and over Bluetooth - so this is the one " +
                             "that has to be set by ear. Right is later.",
                         dev.niccc2007.filet.playback.leadPosition(pulseLead),
+                        beta = true,
                     ) { prefs.setPulseLead(dev.niccc2007.filet.playback.leadFor(it)) }
                 }
             }
@@ -540,6 +549,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                         "pale one, so this is a per-eye setting rather than a per-track one. " +
                         "The minimised player cycles three stops on this same scale.",
                     glowStrength,
+                    beta = true,
                 ) { prefs.setGlowStrength(it) }
             }
             item {
@@ -564,6 +574,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                     "Turning the disc moves through the track in silence."
                 },
                 scratchAudio,
+                beta = true,
             ) { prefs.setScratchAudio(it) }
         }
         item {
@@ -575,6 +586,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                     dev.niccc2007.filet.playback.Scratch.travelLabel(discTurn) +
                     ". Short is a record you can hear; long is a way across a whole song.",
                 dev.niccc2007.filet.playback.Scratch.turnPosition(discTurn),
+                beta = true,
             ) { prefs.setDiscTurnMs(dev.niccc2007.filet.playback.Scratch.turnMsFor(it)) }
         }
         item {
@@ -800,12 +812,45 @@ private fun LogFileRow(vm: BrowserViewModel) {
     }
 }
 
+/**
+ * Says that a setting governs something still being worked out.
+ *
+ * On the setting rather than only in the release notes: notes are read once, by whoever
+ * happens to read them, and this is the screen somebody is on when the thing misbehaves.
+ * It is the difference between "the app is broken" and "that part is new".
+ */
+@Composable
+fun BetaTag() {
+    val colors = Filet.colors
+    Text(
+        "BETA",
+        fontSize = 8.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.8.sp,
+        color = colors.accent,
+        modifier = Modifier
+            .padding(start = 7.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(colors.accent.copy(alpha = 0.15f))
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    )
+}
+
 /** A labelled slider with the sentence that says what moving it does. */
 @Composable
-fun SliderRow(title: String, subtitle: String, value: Float, onChange: (Float) -> Unit) {
+fun SliderRow(
+    title: String,
+    subtitle: String,
+    value: Float,
+    beta: Boolean = false,
+    onChange: (Float) -> Unit,
+) {
     val colors = Filet.colors
     Column(Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) {
-        Text(title, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+            if (beta) BetaTag()
+        }
         Text(subtitle, fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp)
         Slider(
             value = value,
@@ -820,14 +865,23 @@ fun SliderRow(title: String, subtitle: String, value: Float, onChange: (Float) -
 }
 
 @Composable
-fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+fun ToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    beta: Boolean = false,
+    onChange: (Boolean) -> Unit,
+) {
     val colors = Filet.colors
     Row(
         Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                if (beta) BetaTag()
+            }
             Text(subtitle, fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp)
         }
         Spacer(Modifier.width(10.dp))
