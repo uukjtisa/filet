@@ -350,6 +350,29 @@ class Prefs(context: Context) {
         sp.edit().putBoolean(K_GLOW_SPILL, on).apply()
     }
 
+    /**
+     * Swipe sideways to change which pane you are in. See `PaneSwipe`.
+     *
+     * On by default, and it only does anything in dual pane - which is both what it is for
+     * and what keeps it away from the file list's drag.
+     */
+    private val _paneSwipe = MutableStateFlow(sp.getBoolean(K_PANE_SWIPE, true))
+    val paneSwipe: StateFlow<Boolean> = _paneSwipe.asStateFlow()
+
+    fun setPaneSwipe(on: Boolean) {
+        _paneSwipe.value = on
+        sp.edit().putBoolean(K_PANE_SWIPE, on).apply()
+    }
+
+    /** How hard that swipe has to be. See `PaneSwipe.Sensitivity`. */
+    private val _paneSwipeAt = MutableStateFlow(sp.getString(K_PANE_SWIPE_AT, null))
+    val paneSwipeAt: StateFlow<String?> = _paneSwipeAt.asStateFlow()
+
+    fun setPaneSwipeAt(v: String) {
+        _paneSwipeAt.value = v
+        sp.edit().putString(K_PANE_SWIPE_AT, v).apply()
+    }
+
     /** Which face the full music player draws. See `PlayerFace`. */
     /**
      * Whether a slowed track keeps its pitch or drops with the speed.
@@ -569,6 +592,8 @@ class Prefs(context: Context) {
         const val K_GLOW = "play.glow"
         const val K_GLOW_LEVEL = "play.glowLevel"
         const val K_GLOW_SPILL = "play.glowSpill"
+        const val K_PANE_SWIPE = "panes.swipe"
+        const val K_PANE_SWIPE_AT = "panes.swipeAt"
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
 }

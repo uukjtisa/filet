@@ -53,7 +53,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** Side-by-side is the default because it is the MT Manager layout the mock settled on. */
-enum class SplitMode { OFF, SIDE, STACK }
+/**
+ * Dual pane, or not.
+ *
+ * There used to be a third: STACK, the panes one above the other. It is gone on request, and
+ * the reasoning holds up - two panes exist to move things BETWEEN them, that gesture is
+ * sideways, and the swipe that changes which one you are in is sideways too. A stacked split
+ * made both of those read against the layout, and it halved the thing a file list has least
+ * of on a phone, which is height.
+ */
+enum class SplitMode { OFF, SIDE }
 
 enum class Side { A, B }
 
@@ -768,8 +777,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     private fun cycleSplitState() = _state.update {
         val next = when (it.split) {
             SplitMode.OFF -> SplitMode.SIDE
-            SplitMode.SIDE -> SplitMode.STACK
-            SplitMode.STACK -> SplitMode.OFF
+            SplitMode.SIDE -> SplitMode.OFF
         }
         // Opening the split for the first time must not show the same folder twice - that
         // reads as a rendering bug. Point B at the next tab, creating one if needed.

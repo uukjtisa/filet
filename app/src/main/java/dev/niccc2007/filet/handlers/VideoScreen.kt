@@ -275,6 +275,25 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
         }
     }
 
+    /**
+     * The hand-off has a deadline.
+     *
+     * Even with the failure path wired, a `prepare()` that neither returns nor throws leaves
+     * this screen waiting for a callback that is never coming - and what somebody sees is a
+     * video player that ignored the button. So: if the sound is not running by
+     * [HANDOFF_GIVE_UP_MS], the request is abandoned, the picture comes back, and the player
+     * is told rather than left guessing. A wrong answer beats no answer.
+     */
+    LaunchedEffect(handingOver) {
+        if (!handingOver) return@LaunchedEffect
+        kotlinx.coroutines.delay(HANDOFF_GIVE_UP_MS)
+        if (!handedOver) {
+            handingOver = false
+            runCatching { handle.player?.setVolume(1f, 1f) }
+            vm.toast("Could not switch this to audio. Still playing as video.")
+        }
+    }
+
     // Once the ramp has finished there is nothing left for this decoder to do, and it is
     // still decoding a video at volume zero while the music plays. It is paused rather than
     // released: the composition is a few hundred milliseconds from being disposed anyway,
@@ -1153,6 +1172,7 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                                     // The cue to let go, and the start of everything that
                                     // looks like a hand-off.
                                     whenPlaying = { handedOver = true },
+                                    whenFailed = { handingOver = false },
                                 )
                             }
                         }
@@ -1198,6 +1218,15 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
  * gone. Short enough that it never feels like waiting for something.
  */
 private const val HANDOFF_FADE_MS = 320
+
+/**
+ * How long the hand-off may take before the screen gives up on it.
+ *
+ * Four seconds. A local file prepares in tens of milliseconds and a staged one in a second or
+ * so, so this is far past any honest case and well inside the time somebody decides the app
+ * is broken.
+ */
+private const val HANDOFF_GIVE_UP_MS = 4_000L
 
 /**
  * Back ten, play or pause, forward ten.

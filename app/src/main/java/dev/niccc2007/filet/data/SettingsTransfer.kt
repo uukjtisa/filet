@@ -94,6 +94,7 @@ object SettingsTransfer {
                 "drag.behaviour", "index.enabled",
                 "video.keepsPlaying", "play.uninterrupted", "play.face", "play.pitch",
                 "play.glow", "play.glowLevel", "play.glowSpill",
+                "panes.swipe", "panes.swipeAt",
                 "home.hideStorage", "home.hideTermux", "home.folder",
                 "update.notificationsOff", "update.notesFraction",
             ),

@@ -116,6 +116,8 @@ fun SettingsPage(vm: BrowserViewModel) {
     val livingGlow by prefs.livingGlow.collectAsState()
     val glowLevel by prefs.glowLevel.collectAsState()
     val glowSpill by prefs.glowSpill.collectAsState()
+    val paneSwipe by prefs.paneSwipe.collectAsState()
+    val paneSwipeAt by prefs.paneSwipeAt.collectAsState()
     val drag by prefs.drag.collectAsState()
     val hideTermux by prefs.hideTermux.collectAsState()
     val tabSize by prefs.tabSize.collectAsState()
@@ -363,6 +365,40 @@ fun SettingsPage(vm: BrowserViewModel) {
         // One home for them. The playback switches were under a heading of their own and the
         // player's appearance had nowhere to live at all, so a question like "how does Filet
         // open this kind of file" was answered in two places and a third that did not exist.
+        item {
+            ToggleRow(
+                "Swipe to change pane",
+                if (paneSwipe) {
+                    "In dual pane, a quick sideways swipe moves you to the other one."
+                } else {
+                    "Tap a pane to move to it."
+                },
+                paneSwipe,
+            ) { prefs.setPaneSwipe(it) }
+        }
+        if (paneSwipe) {
+            item {
+                val at = dev.niccc2007.filet.browser.PaneSwipe.Sensitivity.of(paneSwipeAt)
+                Column {
+                    SegmentRow(
+                        "How hard",
+                        dev.niccc2007.filet.browser.PaneSwipe.Sensitivity.entries.map { it.label },
+                        dev.niccc2007.filet.browser.PaneSwipe.Sensitivity.entries.indexOf(at),
+                    ) {
+                        prefs.setPaneSwipeAt(
+                            dev.niccc2007.filet.browser.PaneSwipe.Sensitivity.entries[it].id,
+                        )
+                    }
+                    Text(
+                        "Firmer if you keep catching it while scrolling.",
+                        fontSize = 10.5.sp,
+                        lineHeight = 14.sp,
+                        color = Filet.colors.fg3,
+                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
+                    )
+                }
+            }
+        }
         item {
             SettingsSection(
                 "Filet's own viewers",

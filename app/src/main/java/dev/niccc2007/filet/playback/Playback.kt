@@ -256,6 +256,7 @@ class Playback(
         track: Track,
         positionNow: () -> Long,
         whenPlaying: () -> Unit = {},
+        whenFailed: () -> Unit = {},
     ) {
         _state.value = _state.value.copy(
             queue = listOf(track), index = 0, active = true, error = null,
@@ -267,6 +268,13 @@ class Playback(
                 _asAudio.value = true
                 whenPlaying()
             },
+            // Reported as "sometimes the video viewer doesn't disappear". `load` gives up
+            // through `fail` - a file the shared decoder cannot open as audio, a URI that has
+            // gone, a device that will not hand the same file to a second MediaPlayer while
+            // the VideoView still holds it - and when it did, `then` never ran, so `asAudio`
+            // never flipped and the screen it was supposed to leave simply stayed. Silent,
+            // intermittent, and indistinguishable from the app ignoring the button.
+            orFailed = whenFailed,
         )
     }
 
@@ -331,6 +339,8 @@ class Playback(
         startAt: (() -> Long)? = null,
         /** Run once the track is actually playing, on the main scope. */
         then: (() -> Unit)? = null,
+        /** Run instead of [then] when this never got as far as playing. */
+        orFailed: (() -> Unit)? = null,
     ) {
         loadJob?.cancel()
         releasePlayer()
@@ -347,6 +357,7 @@ class Playback(
             val uri = runCatching { resolve(track.id) }.getOrNull()
             if (uri == null) {
                 fail("This track has to be copied to local storage before it can play.")
+                orFailed?.invoke()
                 return@launch
             }
             // Built and prepared off the main thread. `prepare()` reads and decodes a header,
@@ -363,6 +374,7 @@ class Playback(
             }
             if (prepared == null) {
                 fail("Android cannot decode ${track.name}.")
+                orFailed?.invoke()
                 return@launch
             }
             player = prepared

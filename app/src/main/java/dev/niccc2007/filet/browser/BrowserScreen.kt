@@ -69,6 +69,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -547,7 +548,6 @@ private fun TopBar(vm: BrowserViewModel, app: AppState, active: PaneController?,
         BarButton(
             when (app.split) {
                 SplitMode.OFF, SplitMode.SIDE -> FiletIcons.SplitH
-                SplitMode.STACK -> FiletIcons.SplitV
             },
             "Split panes",
             tint = if (app.split != SplitMode.OFF) colors.accent else colors.fg2,
@@ -865,8 +865,16 @@ private fun Body(
         return
     }
 
+    val swipeOn by vm.prefs.paneSwipe.collectAsState()
+    val swipeAt = PaneSwipe.Sensitivity.of(vm.prefs.paneSwipeAt.collectAsState().value)
+    // 0 while nothing is happening, 1 when a lift would switch. Drives the label.
+    var swipeHint by remember { mutableFloatStateOf(0f) }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val horizontal = app.split == SplitMode.SIDE
+        // Always side by side now - see SplitMode. The flag stays because the divider's
+        // drag maths reads it, and a layout that hard-codes an axis is a layout that cannot
+        // be given one back.
+        val horizontal = true
         val totalDp = if (horizontal) maxWidth.value else maxHeight.value
         val minFrac = (MIN_PANE_DP / totalDp).coerceIn(0.05f, 0.45f)
         val f = live.coerceIn(minFrac, 1f - minFrac)
@@ -914,17 +922,86 @@ private fun Body(
             detectTapGestures(onDoubleTap = { live = 0.5f; vm.prefs.setSplitRatio(0.5f) })
         }
 
-        if (horizontal) {
-            Row(Modifier.fillMaxSize()) {
-                PaneView(paneA, vm, Side.A, app.focused == Side.A, registry, onGhost, Modifier.weight(f))
-                Divider(vertical = true, modifier = dividerDrag)
-                PaneView(paneB, vm, Side.B, app.focused == Side.B, registry, onGhost, Modifier.weight(1f - f))
-            }
+        // The swipe that changes pane.
+        //
+        // Observed on the INITIAL pass and never consumed until it has decided, so the file
+        // list keeps every gesture this one turns down - a scroll stays a scroll, and a long
+        // press still picks a file up. It can only fire inside the grace window, which ends
+        // well before the press that starts a drag would have: see `PaneSwipe` for why all
+        // three guards are needed and what each of them is holding off.
+        val paneSwipe = if (!swipeOn) {
+            Modifier
         } else {
-            Column(Modifier.fillMaxSize()) {
-                PaneView(paneA, vm, Side.A, app.focused == Side.A, registry, onGhost, Modifier.weight(f))
-                Divider(vertical = false, modifier = dividerDrag)
-                PaneView(paneB, vm, Side.B, app.focused == Side.B, registry, onGhost, Modifier.weight(1f - f))
+            Modifier.pointerInput(swipeAt) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val at = System.currentTimeMillis()
+                    val from = down.position
+                    var travel = Offset.Zero
+                    var last = Offset.Zero
+                    var lastAt = at
+                    var speed = 0f
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (change.changedToUp()) break
+                        travel = change.position - from
+                        val now = System.currentTimeMillis()
+                        if (now > lastAt) {
+                            val movedDp = with(density) { (change.position.x - last.x).toDp().value }
+                            speed = movedDp * 1000f / (now - lastAt)
+                        }
+                        last = change.position
+                        lastAt = now
+                        swipeHint = PaneSwipe.progress(
+                            with(density) { travel.x.toDp().value },
+                            with(density) { travel.y.toDp().value },
+                            swipeAt,
+                        )
+                    }
+                    val dx = with(density) { travel.x.toDp().value }
+                    val dy = with(density) { travel.y.toDp().value }
+                    swipeHint = 0f
+                    if (PaneSwipe.fires(dx, dy, speed, lastAt - at, swipeAt)) {
+                        vm.focusSide(if (dx < 0) Side.B else Side.A)
+                    }
+                }
+            }
+        }
+
+        Row(Modifier.fillMaxSize().then(paneSwipe)) {
+            PaneView(paneA, vm, Side.A, app.focused == Side.A, registry, onGhost, Modifier.weight(f))
+            Divider(vertical = true, modifier = dividerDrag)
+            PaneView(paneB, vm, Side.B, app.focused == Side.B, registry, onGhost, Modifier.weight(1f - f))
+        }
+
+        // The label. A gesture nobody is told about is a gesture nobody finds, and this is
+        // the part of X-plore's version that makes it work - it appears while you are still
+        // pushing, so the first accidental half-swipe teaches it.
+        if (swipeHint > 0f) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Row(
+                    Modifier
+                        .graphicsLayer { alpha = swipeHint }
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.92f))
+                        .border(1.dp, colors.lineSoft, RoundedCornerShape(50))
+                        .padding(horizontal = 16.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        FiletIcons.SplitH, null,
+                        tint = if (swipeHint >= 1f) colors.accent else colors.fg3,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(9.dp))
+                    Text(
+                        "Switch pane",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (swipeHint >= 1f) colors.accent else colors.fg2,
+                    )
+                }
             }
         }
     }
