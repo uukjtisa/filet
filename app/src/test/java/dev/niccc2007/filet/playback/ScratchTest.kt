@@ -92,4 +92,22 @@ class ScratchTest {
         )
     }
 
+    @Test
+    fun `an ordinary drag plays at record speed`() {
+        // The number is not a matter of taste: a 33rpm record turns at two hundred degrees
+        // a second, and an ordinary drag across a disc this size is about that. At the old
+        // two and a half seconds a turn the same hand was 1.4x, and a brisk one three or
+        // four times speed - which is the sound being unintelligible rather than fast.
+        assertEquals(1f, Scratch.speedFor(200f, Scratch.MS_PER_TURN), 0.02f)
+        assertEquals(Scratch.RECORD_MS, Scratch.MS_PER_TURN, 0.01f)
+    }
+
+    @Test
+    fun `the travel readout says what it will sound like`() {
+        // A number of milliseconds per thirty degrees is not something anybody can set by
+        // ear. The multiple of normal speed is.
+        assertTrue(Scratch.travelLabel(Scratch.RECORD_MS).contains("1.0"))
+        assertTrue(Scratch.travelLabel(Scratch.RECORD_MS * 2f).contains("2.0"))
+    }
+
 }

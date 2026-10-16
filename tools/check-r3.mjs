@@ -45,6 +45,12 @@ const ALLOWED = [
   // The app layer's single documented bridge: app-private working storage, and the
   // FileProvider hand-off that Android requires for anything leaving the process.
   "app/src/main/java/dev/niccc2007/filet/data/AppFiles.kt",
+  // The decoded-audio cache. A four-minute track is a second of decoding and another of
+  // spectrum, and both answers are identical every time - so they are written down. It is
+  // cacheDir, hashed filenames derived from a URI, size-capped and evicted here; it never
+  // builds a user path and never reads one. What goes in came out of MediaCodec, which was
+  // handed a Uri, not a File.
+  "app/src/main/java/dev/niccc2007/filet/playback/AudioCache.kt",
   // Debug-only diagnostics. Huawei and Honor phones drop application logging unless it is
   // enabled through a hidden dialer menu, so `adb logcat` returns nothing at all from this
   // app on one - which left a real bug on a real device with no way to see what the code

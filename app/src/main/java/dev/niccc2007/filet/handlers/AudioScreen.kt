@@ -772,8 +772,11 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
         val pcm = dev.niccc2007.filet.playback.TrackPcm.of(context, source) { early ->
             if (beats == null) beats = BeatMap.from(early)
         } ?: return@LaunchedEffect
+        val stamp = withContext(kotlinx.coroutines.Dispatchers.IO) {
+            dev.niccc2007.filet.playback.AudioCache.keyFor(context, source)
+        }
         beats = withContext(kotlinx.coroutines.Dispatchers.Default) {
-            BeatMap.of(key, pcm) { partial -> beats = partial }
+            BeatMap.of(context, stamp, key, pcm) { partial -> beats = partial }
         }
     }
     val sense by c.vm.prefs.pulseSense.collectAsStateWithLifecycle()

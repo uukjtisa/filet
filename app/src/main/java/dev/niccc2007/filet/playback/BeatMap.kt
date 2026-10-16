@@ -88,6 +88,10 @@ class BeatMap(private val onsets: FloatArray, private val levels: FloatArray = F
 
     val empty: Boolean get() = onsets.isEmpty()
 
+    /** For writing it down. See `AudioCache`. */
+    internal val onsetArray: FloatArray get() = onsets
+    internal val levelArray: FloatArray get() = levels
+
     companion object {
         /**
          * How finely the track is measured.
@@ -314,6 +318,34 @@ class BeatMap(private val onsets: FloatArray, private val levels: FloatArray = F
             synchronized(cache) { cache[key] }?.let { return it }
             val built = from(pcm, onPartial)
             synchronized(cache) { cache[key] = built }
+            return built
+        }
+
+        /**
+         * As [of], but looking on disk first and writing the answer back.
+         *
+         * Measuring a four-minute track is a second or two of spectrum, and the answer is
+         * the same every time it is asked. Seventy kilobytes to never ask again.
+         */
+        fun of(
+            context: android.content.Context,
+            stamp: String?,
+            key: String,
+            pcm: TrackPcm,
+            onPartial: ((BeatMap) -> Unit)? = null,
+        ): BeatMap {
+            synchronized(cache) { cache[key] }?.let { return it }
+            if (stamp != null) {
+                AudioCache.readBeats(context, stamp)?.let {
+                    synchronized(cache) { cache[key] = it }
+                    return it
+                }
+            }
+            val built = from(pcm, onPartial)
+            synchronized(cache) { cache[key] = built }
+            if (stamp != null) {
+                AudioCache.writeBeats(context, stamp, built.onsetArray, built.levelArray)
+            }
             return built
         }
     }

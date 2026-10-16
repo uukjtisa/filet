@@ -173,9 +173,27 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
                     chunk[f * 2] = 0
                     chunk[f * 2 + 1] = 0
                 } else {
-                    val v = p.at(pos * p.rate / 1000.0).toInt().coerceIn(-32768, 32767).toShort()
-                    chunk[f * 2] = v
-                    chunk[f * 2 + 1] = v
+                    // ANTI-ALIASED above 1x.
+                    //
+                    // Reading every second sample to play at twice the speed folds
+                    // everything above the new Nyquist back down into the audible range,
+                    // and the result is harsh and unintelligible in a way that is easy to
+                    // mistake for the pitch simply being high. Averaging the samples that
+                    // are being skipped over is a box filter - the cheapest correct answer
+                    // - and it costs a few adds only when the hand is actually moving fast.
+                    val idx = pos * p.rate / 1000.0
+                    val span = abs(step)
+                    val v = if (span <= 1.1f) {
+                        p.at(idx)
+                    } else {
+                        val taps = span.toInt().coerceIn(2, MAX_TAPS)
+                        var sum = 0f
+                        for (k in 0 until taps) sum += p.at(idx + (k - (taps - 1) / 2.0))
+                        sum / taps
+                    }
+                    val out16 = v.toInt().coerceIn(-32768, 32767).toShort()
+                    chunk[f * 2] = out16
+                    chunk[f * 2 + 1] = out16
                 }
                 pos += step * perFrameMs
                 if (pos < 0.0) pos = 0.0
@@ -194,8 +212,17 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
         /** Frames written per pass. About 23ms at 22kHz, so the finger's speed arrives promptly. */
         const val CHUNK_FRAMES = 512
 
-        /** Faster than this is not a sound, it is a chirp. */
-        const val MAX_SPEED = 6f
+        /**
+         * Faster than this is not a sound, it is a chirp.
+         *
+         * Four, down from six. Past about four times speed there is nothing left to hear
+         * whatever is done to it, and clamping sooner means a hard flick reads as fast
+         * rather than as broken.
+         */
+        const val MAX_SPEED = 4f
+
+        /** How many samples the anti-aliasing filter may average. */
+        const val MAX_TAPS = 8
 
         /**
          * How long the sound takes to arrive where the finger is, in milliseconds.

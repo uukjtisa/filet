@@ -219,8 +219,10 @@ private const val FAN = 5f
 /**
  * Below this a preview is a few pixels and says nothing; the plain folder is better.
  *
- * Eighteen, not twenty-six. The list steps give the icon slot 16 to 21dp - the file
- * thumbnails beside it live in that same slot - so a floor above that turned previews off in
- * every view anybody actually uses, and a folder of three hundred photographs showed none.
+ * Twenty-two. The list steps give the icon slot 18 to 34dp - the file thumbnails beside it
+ * live in that same slot - so a floor above that turns previews off in views people actually
+ * use, and a folder of three hundred photographs would show none. It was eighteen, which let
+ * them through at the compact step where three pictures inside a folder are nine pixels each
+ * and read as dirt on the glyph.
  */
-private val PREVIEW_FROM = 18.dp
+private val PREVIEW_FROM = 22.dp

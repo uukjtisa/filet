@@ -147,6 +147,16 @@ class TrackPcm(
         ): TrackPcm? {
             val key = uri.toString()
             synchronized(cache) { cache[key] }?.let { return it }
+            // Then disk, which is a hundred milliseconds against a second or two of
+            // decoding. See `AudioCache`.
+            val stamp = withContext(Dispatchers.IO) { AudioCache.keyFor(context, uri) }
+            if (stamp != null) {
+                val saved = withContext(Dispatchers.IO) { AudioCache.readPcm(context, stamp) }
+                if (saved != null) {
+                    synchronized(cache) { cache[key] = saved }
+                    return saved
+                }
+            }
             val job = synchronized(inFlight) {
                 inFlight[key] ?: kotlinx.coroutines.CoroutineScope(Dispatchers.IO).async {
                     decode(context, uri, onEarly)
@@ -161,6 +171,9 @@ class TrackPcm(
                     val oldest = cache.keys.firstOrNull() ?: break
                     cache.remove(oldest)
                 }
+            }
+            if (stamp != null) {
+                withContext(Dispatchers.IO) { AudioCache.writePcm(context, stamp, made) }
             }
             return made
         }

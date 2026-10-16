@@ -882,9 +882,20 @@ enum class ViewStep(
     val tile: Int? = null,
     val twoLine: Boolean = false,
 ) {
-    COMPACT_LIST("Compact list", 14, 12, 10, 9, 28),
-    LIST("List", 16, 13, 11, 10, 36),
-    COMFORTABLE("Comfortable", 21, 14, 11, 11, 50, twoLine = true),
+    // THE LIST ICONS ARE BIGGER THAN THEY WERE - 14/16/21 became 18/24/34.
+    //
+    // They were sized when a folder was a flat glyph, where twenty-one dp is plenty: a
+    // folder outline reads at any size because it is one shape. A folder now has its own
+    // contents standing in it, and a file has a thumbnail of what it is, and at twenty-one
+    // dp those are a few pixels each - so the whole point of the redesign was invisible at
+    // the setting most people leave it on. Reported as not being able to see the features
+    // even at Comfortable.
+    //
+    // The row heights move with them. An icon that grows inside a row that does not is a
+    // cramped icon, and these steps have always scaled every dimension together.
+    COMPACT_LIST("Compact list", 18, 12, 10, 9, 32),
+    LIST("List", 24, 13, 11, 10, 42),
+    COMFORTABLE("Comfortable", 34, 14, 11, 11, 60, twoLine = true),
     SMALL_GRID("Small grid", 30, 12, 10, 10, 0, tile = 92),
     MEDIUM_GRID("Medium grid", 42, 13, 11, 11, 0, tile = 130),
     LARGE_GRID("Large grid", 56, 15, 12, 12, 0, tile = 174);

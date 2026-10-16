@@ -95,15 +95,20 @@ object Scratch {
      *     every drag computed a speed eight times too high, and that is clamped to six times
      *     and heard as a chirp. That is "the mixer still doesn't properly play the audio".
      *
-     * Two and a half seconds a turn, always. A hand covering a couple of hundred degrees a
-     * second then lands near 1x, which is what a record does and what makes the effect
-     * recognisable at all.
+     * ONE POINT EIGHT seconds a turn, always, because that is what a 33rpm record is. A
+     * hand covering two hundred degrees a second - which is what an ordinary drag across a
+     * disc this size measures - then plays at exactly 1x, by construction.
+     *
+     * It was two and a half, and before that twenty. At 2.5 the same drag is 1.4x and a
+     * brisk one is three or four times speed, which is a chipmunk: reported as the sound
+     * being so high pitched it was unintelligible. The number was not a matter of taste
+     * after all - there is a right answer and it is the speed of the thing being imitated.
      *
      * The honest cost: a turn covers two and a half seconds of track, so crossing a whole
      * song takes many turns. That is also what a record does, and the scrub bar is directly
      * underneath for when crossing a whole song is what you want.
      */
-    const val MS_PER_TURN = 2_500f
+    const val MS_PER_TURN = 1_800f
 
     /** The range the disc-travel control runs between, in milliseconds per full turn. */
     const val TURN_MIN_MS = 900f
@@ -139,9 +144,24 @@ object Scratch {
      */
     fun travelLabel(perTurnMs: Float): String {
         val ms = (perTurnMs / 12f).toLong()
-        return if (ms < 1000) "30° ≈ ${ms}ms"
-        else "30° ≈ " + String.format("%.1f", ms / 1000f) + "s"
+        val much = if (ms < 1000) "${ms}ms" else String.format("%.1f", ms / 1000f) + "s"
+        // And what that sounds like, which is the part somebody is actually setting.
+        //
+        // A 33rpm record turns at two hundred degrees a second, so an ordinary drag across
+        // a disc this size plays at exactly 1x when a turn is RECORD_MS. Anything above
+        // that is the pitch going up, and saying so is the difference between a number and
+        // a control: "so high pitched it was unintelligible" is 2x and over.
+        val rate = perTurnMs / RECORD_MS
+        return "30° ≈ $much · " + String.format("%.1f", rate) + "×"
     }
+
+    /**
+     * A 33rpm record: 1.8 seconds a turn.
+     *
+     * The reference the speed readout is against, and the default for [MS_PER_TURN], because
+     * imitating a record is the whole idea and a record has a speed.
+     */
+    const val RECORD_MS = 1_800f
 
     /**
      * How often the PLAYER is told, while a finger is moving and the sound is not following.
