@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -87,6 +88,12 @@ fun FileRow(
     count: Int? = null,
     /** How deep in the tree view this row sits. 0 everywhere else. */
     depth: Int = 0,
+    /** Which ancestor spines continue past this row. See `TreeRow`. */
+    spines: List<Boolean> = emptyList(),
+    /** Whether this row is the last of its siblings, so its own spine stops here. */
+    lastOfSiblings: Boolean = false,
+    /** True for any row in a tree, so rows with no chevron still line up with those that have one. */
+    treeRow: Boolean = false,
     /** Null for a row that cannot open: a file, or the tree view being off. */
     openInPlace: Boolean? = null,
     onOpenInPlace: (() -> Unit)? = null,
@@ -130,7 +137,7 @@ fun FileRow(
                 onDoubleClick = onDoubleClick,
             )
             .then(modifier)
-            .drawBehind { if (depth > 0) treeGuides(depth, accent) }
+            .drawBehind { if (depth > 0) treeGuides(depth, spines, lastOfSiblings, accent) }
             .padding(
                 start = 10.dp + (depth * TREE_INDENT).dp,
                 end = 10.dp,
@@ -160,8 +167,11 @@ fun FileRow(
                     .padding(7.dp)
                     .graphicsLayer { rotationZ = turn },
             )
-        } else if (depth > 0) {
-            // Children line up under their siblings' names rather than under the chevron.
+        } else if (treeRow || depth > 0) {
+            // The chevron's width is reserved whether or not there is one. Without this a
+            // file, or a folder with nothing in it, sat a chevron to the left of everything
+            // around it - which reads as the list being broken rather than as that row being
+            // different.
             Spacer(Modifier.width(26.dp))
         }
         FileThumb(
@@ -420,10 +430,19 @@ private const val TREE_INDENT = 14
  * 47 degrees is deliberate: it does not divide into 360, so six levels down the colours have
  * not come back round to where they started.
  */
-private fun DrawScope.treeGuides(depth: Int, accent: Color) {
+private fun DrawScope.treeGuides(
+    depth: Int,
+    spines: List<Boolean>,
+    lastOfSiblings: Boolean,
+    accent: Color,
+) {
     val indent = TREE_INDENT.dp.toPx()
     val start = 10.dp.toPx()
     val baseHue = hueOf(accent)
+    val middle = size.height * 0.5f
+    val width = 1.5.dp.toPx()
+    val radius = indent * 0.34f
+
     for (level in 0 until depth) {
         val x = start + level * indent + indent * 0.42f
         val colour = Color.hsv(
@@ -431,23 +450,45 @@ private fun DrawScope.treeGuides(depth: Int, accent: Color) {
             saturation = 0.42f,
             value = 0.78f,
         ).copy(alpha = GUIDE_ALPHA)
-        val last = level == depth - 1
-        // The run down the side of the row, and - on the row's own level - an elbow into it,
-        // so a child is visibly attached to its parent rather than merely beneath it.
+
+        if (level < depth - 1) {
+            // An ancestor's spine. It passes straight through this row, and only while that
+            // ancestor still has children below - otherwise the line ran on under the last
+            // child of every folder and joined nothing to nothing.
+            if (spines.getOrElse(level) { true }) {
+                drawLine(colour, Offset(x, 0f), Offset(x, size.height), width)
+            }
+            continue
+        }
+
+        // This row's own level: down from the parent, then a rounded corner into the row.
+        // The vertical stops at the middle for a last child and carries on for the rest,
+        // which is the difference between a tree and a set of unconnected ticks.
         drawLine(
             color = colour,
             start = Offset(x, 0f),
-            end = Offset(x, if (last) size.height * 0.5f else size.height),
-            strokeWidth = 1.5.dp.toPx(),
+            end = Offset(x, if (lastOfSiblings) middle - radius else size.height),
+            strokeWidth = width,
         )
-        if (last) {
-            drawLine(
+        if (lastOfSiblings) {
+            // A quarter circle, so the corner reads as one stroke turning rather than two
+            // lines meeting at a notch.
+            drawArc(
                 color = colour,
-                start = Offset(x, size.height * 0.5f),
-                end = Offset(x + indent * 0.46f, size.height * 0.5f),
-                strokeWidth = 1.5.dp.toPx(),
+                startAngle = 180f,
+                sweepAngle = -90f,
+                useCenter = false,
+                topLeft = Offset(x, middle - radius * 2f),
+                size = androidx.compose.ui.geometry.Size(radius * 2f, radius * 2f),
+                style = Stroke(width = width),
             )
         }
+        drawLine(
+            color = colour,
+            start = Offset(if (lastOfSiblings) x + radius else x, middle),
+            end = Offset(x + indent * 0.52f, middle),
+            strokeWidth = width,
+        )
     }
 }
 

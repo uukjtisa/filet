@@ -8,7 +8,20 @@ import dev.niccc2007.filet.vfs.VPath
  *
  * @param loading true for a folder that has been opened and whose children have not arrived.
  */
-data class TreeRow(val node: VNode, val depth: Int, val loading: Boolean = false)
+/**
+ * @param spines for each ancestor level, whether that ancestor has more siblings BELOW this
+ *   row. It is what decides whether a guide line continues past the row or stops at it, and
+ *   without it the lines run on under the last child of every folder - which is what made
+ *   them look broken rather than like a tree.
+ * @param last whether this row is the last of its own siblings.
+ */
+data class TreeRow(
+    val node: VNode,
+    val depth: Int,
+    val loading: Boolean = false,
+    val spines: List<Boolean> = emptyList(),
+    val last: Boolean = false,
+)
 
 /**
  * The folder list, with opened folders showing their contents in place.
@@ -52,14 +65,20 @@ object TreeRows {
         depth: Int = MAX_DEPTH,
     ): List<TreeRow> {
         val out = ArrayList<TreeRow>(roots.size + open.size * 8)
+        val spines = ArrayList<Boolean>()
         fun walk(nodes: List<VNode>, at: Int) {
-            for (node in nodes) {
-                out.add(TreeRow(node, at))
+            for ((i, node) in nodes.withIndex()) {
+                val last = i == nodes.lastIndex
+                out.add(TreeRow(node, at, spines = spines.toList(), last = last))
                 if (!node.isDir || node.path !in open) continue
                 val kids = branches[node.path]
+                // A level's spine continues only while its folder has siblings left below.
+                spines.add(!last)
                 when {
                     // Opened, nothing read back yet.
-                    kids == null -> out.add(TreeRow(node, at + 1, loading = true))
+                    kids == null -> out.add(
+                        TreeRow(node, at + 1, loading = true, spines = spines.toList(), last = true),
+                    )
                     // Opened and genuinely empty. Nothing is emitted: a row saying "empty"
                     // under every empty folder in a tree is noise, and the chevron already
                     // turned, which is the acknowledgement.
@@ -67,6 +86,7 @@ object TreeRows {
                     at + 1 >= depth -> Unit
                     else -> walk(kids, at + 1)
                 }
+                spines.removeAt(spines.lastIndex)
             }
         }
         walk(roots, 0)

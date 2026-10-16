@@ -810,6 +810,10 @@ private fun FolderBody(
             ) { i ->
                 val row = if (tree) treeRows[i] else null
                 val node = row?.node ?: rows[i]
+                // Only asked in a tree, and only of folders: everywhere else the answer is
+                // not used and the read would be waste.
+                val emptyFolder = tree && node.isDir &&
+                    rememberFolderPeek(vm.folderPeek, node.path, node.mtime, true).value.empty
                 if (row?.loading == true) {
                     BranchLoading(row.depth)
                 } else if (s.search.active) {
@@ -847,9 +851,22 @@ private fun FolderBody(
                             mtime = node.mtime,
                             enabled = node.isDir && display.measure && metrics.showSize,
                         ),
+                        treeRow = tree,
                         depth = row?.depth ?: 0,
-                        openInPlace = if (tree && node.isDir) node.path in s.open else null,
-                        onOpenInPlace = if (tree && node.isDir) {
+                        spines = row?.spines.orEmpty(),
+                        lastOfSiblings = row?.last == true,
+                        // No arrow on a folder with nothing in it.
+                        //
+                        // The listing has already been read for the icon's own preview, so
+                        // this costs nothing extra - and an arrow that cannot do anything is
+                        // worse here than usual: you tap it, nothing moves, and you cannot
+                        // tell whether the folder is empty or the app is broken.
+                        openInPlace = if (tree && node.isDir && !emptyFolder) {
+                            node.path in s.open
+                        } else {
+                            null
+                        },
+                        onOpenInPlace = if (tree && node.isDir && !emptyFolder) {
                             ({ pane.toggleBranch(node.path) })
                         } else {
                             null

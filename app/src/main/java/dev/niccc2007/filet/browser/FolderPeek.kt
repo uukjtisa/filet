@@ -40,12 +40,22 @@ import kotlinx.coroutines.withContext
  */
 class FolderPeek(private val vfs: Vfs) {
 
-    private val cache = ConcurrentHashMap<String, List<VNode>>()
+    /**
+     * What a glance found: what to draw, and whether there is anything in there at all.
+     *
+     * The second is free - the folder has just been listed - and it is what lets a tree stop
+     * putting an expand arrow on a folder that cannot expand. An arrow that does nothing is
+     * the thing R1 forbids, and in a tree it is worse than usual: you tap it, nothing moves,
+     * and you cannot tell whether the folder is empty or the app is broken.
+     */
+    data class Peek(val previews: List<VNode>, val empty: Boolean)
+
+    private val cache = ConcurrentHashMap<String, Peek>()
     private val gate = Semaphore(AT_ONCE)
 
-    fun cached(path: VPath, mtime: Long): List<VNode>? = cache[key(path, mtime)]
+    fun cached(path: VPath, mtime: Long): Peek? = cache[key(path, mtime)]
 
-    suspend fun of(path: VPath, mtime: Long): List<VNode> {
+    suspend fun of(path: VPath, mtime: Long): Peek {
         val k = key(path, mtime)
         cache[k]?.let { return it }
         val found = gate.withPermit {
@@ -61,12 +71,13 @@ class FolderPeek(private val vfs: Vfs) {
                         out.add(child)
                         if (out.size >= SHOW) break
                     }
-                    out as List<VNode>
-                }.getOrDefault(emptyList())
+                    // `seen` counts everything, not only the previewable - a folder of
+                    // documents is not empty just because none of them has a picture.
+                    Peek(out, empty = seen == 0)
+                }.getOrDefault(Peek(emptyList(), empty = false))
             }
         }
         cache[k] = found
-        dev.niccc2007.filet.data.Diag.log("peek", "$path -> ${found.size}")
         return found
     }
 
@@ -88,8 +99,13 @@ class FolderPeek(private val vfs: Vfs) {
 
 /** This folder's first few previewable children, read off the main thread and remembered. */
 @Composable
-fun rememberFolderPeek(peek: FolderPeek, path: VPath, mtime: Long, enabled: Boolean): State<List<VNode>> =
-    produceState(peek.cached(path, mtime) ?: emptyList(), path, mtime, enabled) {
+fun rememberFolderPeek(
+    peek: FolderPeek,
+    path: VPath,
+    mtime: Long,
+    enabled: Boolean,
+): State<FolderPeek.Peek> =
+    produceState(peek.cached(path, mtime) ?: FolderPeek.Peek(emptyList(), empty = false), path, mtime, enabled) {
         if (!enabled) return@produceState
         value = peek.of(path, mtime)
     }

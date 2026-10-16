@@ -256,6 +256,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     val vfs get() = graph.vfs
     val bookmarks get() = graph.bookmarks
     val recents get() = graph.recents
+    val folderPeek get() = graph.folderPeek
     val ledger get() = graph.ledger
 
     private var nextId = 1
