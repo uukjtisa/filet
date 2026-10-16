@@ -366,6 +366,16 @@ private fun FaceTopBar(c: PlayerCtx) {
             onProperties = { c.vm.propertiesOfTrack(c.state.current, c.node) },
             onAddToPlaylist = { c.vm.askAddToPlaylistPath(c.livePath) },
             onSaveQueue = c.onSaveQueue.takeIf { c.state.canStep },
+            // Aurora's own two, and only Aurora's. This bar is shared by the ambient faces,
+            // so the gate is on the face rather than on which bar it is - and it has to be
+            // here rather than on Classic's copy of the overflow, which is where they were
+            // first wired and therefore where they were never seen.
+            scratch = c.scratch.takeIf { c.face == PlayerFace.AURORA },
+            onScratch = { c.vm.prefs.setScratchAudio(!c.scratch) }
+                .takeIf { c.face == PlayerFace.AURORA },
+            pulse = c.pulse.takeIf { c.face == PlayerFace.AURORA },
+            onPulse = { c.vm.prefs.setBeatPulse(!c.pulse) }
+                .takeIf { c.face == PlayerFace.AURORA },
         )
     }
 }
@@ -425,12 +435,6 @@ private fun ClassicFace(c: PlayerCtx) {
                 onProperties = { c.vm.propertiesOfTrack(c.state.current, c.node) },
                 onAddToPlaylist = { c.vm.askAddToPlaylistPath(c.livePath) },
                 onSaveQueue = c.onSaveQueue.takeIf { c.state.canStep },
-                scratch = c.scratch.takeIf { c.face == PlayerFace.AURORA },
-                onScratch = { c.vm.prefs.setScratchAudio(!c.scratch) }
-                    .takeIf { c.face == PlayerFace.AURORA },
-                pulse = c.pulse.takeIf { c.face == PlayerFace.AURORA },
-                onPulse = { c.vm.prefs.setBeatPulse(!c.pulse) }
-                    .takeIf { c.face == PlayerFace.AURORA },
             )
         }
         Column(
