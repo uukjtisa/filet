@@ -404,10 +404,15 @@ fun EmptyNote(text: String, modifier: Modifier = Modifier) {
 /**
  * How far one level of the tree indents, in dp.
  *
- * Fourteen. Enough that the step is unmistakable at a glance down the left edge, small
- * enough that a folder four deep has not eaten the name column on a phone.
+ * Twenty-six: exactly the width of the chevron. One level in, the child's arrow sits
+ * directly under the right-hand edge of its parent's, which is what lets the elbow run from
+ * one arrow to the next instead of crossing the column at an angle. A narrower indent made
+ * the levels overlap their own guides.
  */
-private const val TREE_INDENT = 14
+
+/** Half the chevron's 26dp box, which is where its spine hangs from. */
+private const val CHEVRON_HALF = 13
+private const val TREE_INDENT = 26
 
 /**
  * The lines that say which folder a row is inside.
@@ -441,10 +446,15 @@ private fun DrawScope.treeGuides(
     val baseHue = hueOf(accent)
     val middle = size.height * 0.5f
     val width = 1.5.dp.toPx()
-    val radius = indent * 0.34f
+    val radius = indent * 0.30f
 
     for (level in 0 until depth) {
-        val x = start + level * indent + indent * 0.42f
+        // The spine hangs off the PARENT'S ARROW, not from an arbitrary fraction of the
+        // indent. That was the whole fault: the line ran down a column seven dp to the left
+        // of the chevron it belonged to, so it pointed at nothing at the top and arrived
+        // beside the icon at the bottom. A guide that does not start at the thing it is
+        // guiding from is worse than no guide.
+        val x = start + level * indent + CHEVRON_HALF.dp.toPx()
         val colour = Color.hsv(
             hue = ((baseHue + level * HUE_STEP) % 360f + 360f) % 360f,
             saturation = 0.42f,
@@ -455,7 +465,10 @@ private fun DrawScope.treeGuides(
             // An ancestor's spine. It passes straight through this row, and only while that
             // ancestor still has children below - otherwise the line ran on under the last
             // child of every folder and joined nothing to nothing.
-            if (spines.getOrElse(level) { true }) {
+            // Absent means NO line. It used to default to drawing one, which invented a
+            // spine for an ancestor that had nothing left below it - a blue line down the
+            // side of rows whose parent's parent had already finished.
+            if (spines.getOrElse(level) { false }) {
                 drawLine(colour, Offset(x, 0f), Offset(x, size.height), width)
             }
             continue
@@ -483,10 +496,12 @@ private fun DrawScope.treeGuides(
                 style = Stroke(width = width),
             )
         }
+        // And it ends under the CHILD's own arrow, so arrow joins to arrow and the run of
+        // them down a level reads as one connected thing.
         drawLine(
             color = colour,
             start = Offset(if (lastOfSiblings) x + radius else x, middle),
-            end = Offset(x + indent * 0.52f, middle),
+            end = Offset(x + indent, middle),
             strokeWidth = width,
         )
     }
