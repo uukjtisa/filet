@@ -99,6 +99,7 @@ object SettingsTransfer {
                 "home.folds", "drawer.storage", "drawer.recent", "drawer.places",
                 "view.tree", "play.scratch", "play.pulse",
                 "play.pulseSense", "play.pulseDepth", "play.pulseLead",
+                "play.waveGap", "play.waveSize",
                 "home.hideStorage", "home.hideTermux", "home.folder",
                 "update.notificationsOff", "update.notesFraction",
             ),

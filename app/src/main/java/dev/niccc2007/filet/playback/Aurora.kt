@@ -26,12 +26,16 @@ import androidx.compose.ui.graphics.Color
  * moved with `offset` - is three more layers, three more allocations per frame, and a blur
  * render-effect each, for a picture nobody is looking at directly.
  *
- * ## It stops when the glow is off, or when the system says animations are off
+ * ## It GOES when the glow is off; it only stops when the system says animations are off
  *
- * This face's drift IS the living glow, at full strength and with a ground of its own, so the
- * one switch that governs the glow everywhere else governs it here. Off, it freezes into a
- * still gradient rather than disappearing - the face still looks like itself. The OS
- * animations-off setting does the same thing for the same reason. See [rememberGlowPhases].
+ * This face's drift IS the living glow, so the one switch that governs the glow everywhere
+ * else governs it here - and it used to govern it only halfway. The lights froze but kept
+ * painting, so turning the glow off removed the wash from every other surface and left this
+ * one still glowing. Reported as a second glow answering to nothing, which is what it was.
+ * Off is off: the face falls back to its own ground with the artwork on it.
+ *
+ * The OS animations-off setting is a different question - movement, not colour - so there
+ * the lights hold still rather than going. See [rememberGlowPhases].
  *
  * ## And it answers the beat
  *
@@ -52,6 +56,8 @@ fun AuroraBackdrop(
     pulse: androidx.compose.runtime.State<Float>? = null,
     /** How far a beat may swing it. See `Prefs.pulseDepth`. */
     pulseDepth: Float = 1f,
+    /** False paints the ground and nothing else. See the note above. */
+    on: Boolean = true,
     /**
      * How bright the lights are to begin with. See `glowScale`.
      *
@@ -82,6 +88,18 @@ fun AuroraBackdrop(
                 // `glowSwing` for why a light that only ever grows is half a pulse.
                 val swing = if (pulse == null) 0f else glowSwing(pulse.value, pulseDepth)
                 drawRect(ground)
+                if (!on) {
+                    // The COLOUR stays; the lights go.
+                    //
+                    // Returning on the ground alone was too far the other way: the face lost
+                    // the track's colour entirely and came back as a plain dark rectangle.
+                    // What the switch is about is the glow - three moving lights and a halo -
+                    // not whether the player is tinted by what is playing. So off leaves one
+                    // flat, still wash in the track's own colour, which is a background
+                    // rather than a glow.
+                    drawRect(base.copy(alpha = (FLAT * strength).coerceIn(0f, 0.5f)))
+                    return@drawBehind
+                }
                 val grow = (1f + swing * BLOOM).coerceAtLeast(0.3f)
                 val lift = (1f + swing * FLARE).coerceAtLeast(0.2f)
                 glowBlob(tints[0].brighter(lift), p[0], 0.62f, 0.34f, size.minDimension * 1.25f * grow)
@@ -101,6 +119,14 @@ private const val BLOOM = 0.30f
 
 /** And how much brighter, on top of the swell. */
 private const val FLARE = 1.5f
+
+/**
+ * How much of the track's colour is left on the face with the glow switched off.
+ *
+ * Flat and still: enough that the player is plainly coloured by what is playing, far too
+ * little and far too even to read as a light.
+ */
+private const val FLAT = 0.16f
 
 /** Alpha up or down, same hue. A second colour would stop the light being the track's own. */
 internal fun Color.brighter(by: Float): Color =

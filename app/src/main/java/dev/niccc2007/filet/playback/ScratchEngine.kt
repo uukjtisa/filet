@@ -102,6 +102,7 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
      */
     @Volatile private var spokeAt = 0L
     @Volatile private var recentring = false
+    @Volatile private var recentredAt = 0L
 
     @Volatile private var running = false
     @Volatile private var atMs = 0.0
@@ -222,6 +223,15 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
      */
     suspend fun recentre() {
         if (recentring) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - recentredAt < MIN_GAP_MS) return
+        // A window that already has the finger well inside it is the right window. Asking
+        // for another one is a decode nobody hears and a swap that can only hurt.
+        window?.let { w ->
+            val centre = (w.startMs + w.endMs) / 2.0
+            if (kotlin.math.abs(targetMs - centre) < MIN_MOVE_MS) return
+        }
+        recentredAt = now
         recentring = true
         try {
             // Around the FINGER, and biased in the direction it is going. Centring on the
@@ -234,7 +244,10 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
             // Position is in milliseconds, so the audio thread reads the new window on its
             // next frame and carries on from the same instant. No index to translate.
             window = fresh
-            dev.niccc2007.filet.data.Diag.log(TAG, "recentred at ${positionMs}ms")
+            dev.niccc2007.filet.data.Diag.log(
+                TAG,
+                "recentred at ${positionMs}ms, window ${fresh.startMs}..${fresh.endMs}",
+            )
         } finally {
             recentring = false
         }
@@ -260,12 +273,20 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
             // loaded and waits there, still playing the moment the next window lands. A
             // record that briefly stops catching up is a record; one that goes silent is a
             // bug.
+            val lo = (w.startMs + EDGE_GUARD_MS).toDouble()
+            val hi = (w.endMs - EDGE_GUARD_MS).toDouble()
             val asked = if (stale) atMs else targetMs
-            val target = asked.coerceIn(
-                (w.startMs + EDGE_GUARD_MS).toDouble(),
-                (w.endMs - EDGE_GUARD_MS).toDouble(),
-            )
-            var pos = atMs
+            val target = asked.coerceIn(lo, hi)
+            // AND THE SOUND ITSELF, which is the one that was causing the silence.
+            //
+            // A fresh window lands centred on where the FINGER is, and the sound is behind
+            // the finger - so after a swap the read index could be outside the new window
+            // entirely, and a read index outside the window writes zeros. That is the
+            // record cutting out mid-spin: nothing had failed, the audio was simply reading
+            // somewhere that was no longer decoded. Snapping it to the nearest decoded
+            // instant is a jump of a few tens of milliseconds, which is a click at worst
+            // and is not silence.
+            var pos = atMs.coerceIn(lo, hi)
             val perFrameMs = 1000.0 / w.rate
             for (f in 0 until CHUNK_FRAMES) {
                 // Per frame, not per chunk: the gap is re-read as the audio closes it, so
@@ -448,13 +469,25 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
          * At six times speed this is a second and a half of warning, which is about what a
          * decode of this size takes.
          */
-        const val EDGE_MS = 9_000L
+        const val EDGE_MS = 4_000L
 
         /** How far outside the decoded window the sound may be asked to go. Not at all. */
         const val EDGE_GUARD_MS = 120L
 
         /** How far ahead of the hand a fresh window is centred, per unit of speed. */
         const val LOOK_AHEAD_MS = 3_000f
+
+        /**
+         * The least time between two decodes, and the least the hand must have moved.
+         *
+         * The diagnostics showed three decodes in under four hundred milliseconds with the
+         * finger barely moving, and then a window landing centred ahead of where the sound
+         * was. At the old margin - nine seconds of a twenty-four second window - the usable
+         * middle was six seconds wide, so almost any movement asked for another window, and
+         * the engine spent the gesture decoding instead of playing.
+         */
+        const val MIN_GAP_MS = 400L
+        const val MIN_MOVE_MS = 3_000.0
 
         /** The first window, decoded on touch-down, sized to be quick rather than large. */
         const val OPEN_MS = 8_000L

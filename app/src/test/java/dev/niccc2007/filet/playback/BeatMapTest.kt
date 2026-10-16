@@ -177,6 +177,29 @@ class BeatMapTest {
     }
 
     @Test
+    fun `the loudness envelope is continuous where the onsets are spikes`() {
+        // Why the wave is drawn from one and the pulse from the other. A ring drawn from a
+        // derivative is a circle with occasional dents; the envelope has the track's shape
+        // in it at every angle.
+        val energy = List(60) { 0.1f + 0.3f * kotlin.math.sin(it / 4f).let { v -> v * v } }
+        val levels = BeatMap.levelsOf(energy)
+        assertEquals(energy.size, levels.size)
+        assertTrue("the envelope is flat", levels.max() - levels.min() > 0.2f)
+        assertTrue("nothing may leave the range", levels.all { it in 0f..1f })
+        // The onsets over the same material are mostly nothing, which is correct for them.
+        val onsets = BeatMap.onsetsOf(energy)
+        assertTrue(onsets.count { it == 0f } > levels.count { it == 0f })
+    }
+
+    @Test
+    fun `a quiet track still has a wave`() {
+        // Normalised against the track rather than against full scale, or a quietly
+        // mastered song would draw a flat line.
+        val quiet = BeatMap.levelsOf(List(60) { 0.004f + 0.003f * (it % 5) })
+        assertTrue("a quiet track flattened to nothing", quiet.max() > 0.9f)
+    }
+
+    @Test
     fun `an empty map says so`() {
         assertTrue(BeatMap(FloatArray(0)).empty)
         assertEquals(0f, BeatMap(FloatArray(0)).strengthAt(100L), 0.001f)

@@ -229,6 +229,8 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         pulseLead = dev.niccc2007.filet.playback.leadPosition(
             vm.prefs.pulseLead.collectAsStateWithLifecycle().value,
         ),
+        waveGap = vm.prefs.waveGap.collectAsStateWithLifecycle().value,
+        waveSize = vm.prefs.waveSize.collectAsStateWithLifecycle().value,
         speed = speed,
         sleepLeft = sleepLeft,
         maxSpeed = maxSpeed,
@@ -353,6 +355,8 @@ private class PlayerCtx(
     val pulseSense: Float,
     val pulseDepth: Float,
     val pulseLead: Float,
+    val waveGap: Float,
+    val waveSize: Float,
     val speed: Float,
     val sleepLeft: Int,
     val maxSpeed: Float,
@@ -425,6 +429,10 @@ private fun FaceTopBar(c: PlayerCtx) {
             onLead = if (!c.glow) null else { v: Float ->
                 c.vm.prefs.setPulseLead(dev.niccc2007.filet.playback.leadFor(v))
             },
+            waveGap = c.waveGap.takeIf { c.glow },
+            onWaveGap = if (!c.glow) null else { v: Float -> c.vm.prefs.setWaveGap(v) },
+            waveSize = c.waveSize.takeIf { c.glow },
+            onWaveSize = if (!c.glow) null else { v: Float -> c.vm.prefs.setWaveSize(v) },
         )
     }
 }
@@ -764,6 +772,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
     dev.niccc2007.filet.playback.AuroraBackdrop(
         base = c.tint,
         ground = MaterialTheme.colorScheme.background,
+        on = c.glow,
         running = c.glow && c.state.playing,
         pulse = beating,
         pulseDepth = depth,
@@ -979,6 +988,11 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                     playback = c.playback,
                     pulse = beating,
                     pulseDepth = depth,
+                    glow = c.glow,
+                    beats = if (pulse) beats else null,
+                    leadMs = lead,
+                    waveGap = c.waveGap,
+                    waveSize = c.waveSize,
                     turning = turning,
                     modifier = Modifier.fillMaxSize(),
                 )

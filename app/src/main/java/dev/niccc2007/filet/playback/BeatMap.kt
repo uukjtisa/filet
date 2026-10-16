@@ -42,7 +42,27 @@ import kotlin.math.min
  * light, it is cheap, and it degrades gracefully - on music with no percussion the ring
  * simply breathes instead of punching, which is the right answer for that music anyway.
  */
-class BeatMap(private val onsets: FloatArray) {
+class BeatMap(private val onsets: FloatArray, private val levels: FloatArray = FloatArray(0)) {
+
+    /**
+     * How LOUD the music is at [ms], 0 to 1 - which is a different question from how hard
+     * it hit.
+     *
+     * The onsets are a derivative: almost every bucket is zero and a few are spikes, which
+     * is exactly right for deciding when to pulse and exactly wrong for drawing a shape.
+     * A ring drawn from them is a circle with occasional dents in it. The loudness envelope
+     * is continuous, so a ring drawn from it is a waveform - it has the track's shape in it
+     * at every angle rather than only where a drum was.
+     *
+     * Both are kept because the face wants both: this for the figure, the onsets for the
+     * punch on top of it.
+     */
+    fun levelAt(ms: Long): Float {
+        if (levels.isEmpty()) return 0f
+        val i = (ms / BUCKET_MS).toInt()
+        if (i < 0 || i >= levels.size) return 0f
+        return levels[i]
+    }
 
     /**
      * How hard the music hits at [ms], from 0 to 1.
@@ -209,7 +229,7 @@ class BeatMap(private val onsets: FloatArray) {
                                     count = 0
                                     if (onPartial != null && energy.size >= emitAt) {
                                         emitAt = energy.size + EMIT_EVERY
-                                        onPartial(BeatMap(onsetsOf(energy)))
+                                        onPartial(BeatMap(onsetsOf(energy), levelsOf(energy)))
                                     }
                                 }
                             }
@@ -225,12 +245,13 @@ class BeatMap(private val onsets: FloatArray) {
                     return@withContext null
                 }
                 val onsets = onsetsOf(energy)
+                val levels = levelsOf(energy)
                 android.util.Log.i(
                     "FiletBeat",
                     "${onsets.size} buckets, ${onsets.count { it > 0.3f }} beats, " +
                         "peak=${onsets.maxOrNull()} meanEnergy=${energy.average()}",
                 )
-                return@withContext BeatMap(onsets)
+                return@withContext BeatMap(onsets, levels)
             } catch (e: Throwable) {
                 dev.niccc2007.filet.data.Diag.log("beat", "failed: $e")
                 return@withContext null
@@ -308,6 +329,25 @@ class BeatMap(private val onsets: FloatArray) {
 
         /** And how much more between each better map after that. Three seconds of audio. */
         private const val EMIT_EVERY = 150
+
+        /**
+         * The loudness envelope, normalised and gently compressed.
+         *
+         * Against a high percentile rather than the maximum, for the same reason the onsets
+         * are: one loud moment otherwise flattens the rest of the track to nothing. The
+         * square root is a crude compressor - it lifts the quiet half of the range, which
+         * is where most music actually lives, so the figure has shape in a verse and not
+         * only in a chorus.
+         */
+        fun levelsOf(energy: List<Float>): FloatArray {
+            if (energy.isEmpty()) return FloatArray(0)
+            val sorted = energy.sorted()
+            val reference = sorted[((sorted.size - 1) * 0.95f).toInt()]
+            if (reference <= 1e-6f) return FloatArray(energy.size)
+            return FloatArray(energy.size) {
+                kotlin.math.sqrt((energy[it] / reference).coerceIn(0f, 1f))
+            }
+        }
 
         private const val TIMEOUT_US = 5_000L
 

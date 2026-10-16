@@ -121,6 +121,8 @@ fun SettingsPage(vm: BrowserViewModel) {
     val pulseSense by prefs.pulseSense.collectAsState()
     val pulseDepth by prefs.pulseDepth.collectAsState()
     val pulseLead by prefs.pulseLead.collectAsState()
+    val waveGap by prefs.waveGap.collectAsState()
+    val waveSize by prefs.waveSize.collectAsState()
     val glowSpill by prefs.glowSpill.collectAsState()
     val treeView by prefs.treeView.collectAsState()
     val scratchAudio by prefs.scratchAudio.collectAsState()
@@ -494,6 +496,21 @@ fun SettingsPage(vm: BrowserViewModel) {
                             "range about it, which is why there are two of them.",
                         pulseDepth,
                     ) { prefs.setPulseDepth(it) }
+                }
+                item {
+                    SliderRow(
+                        "Wave size",
+                        "How tall the beat wave's peaks are around the Aurora disc. All the " +
+                            "way down draws no wave at all.",
+                        waveSize,
+                    ) { prefs.setWaveSize(it) }
+                }
+                item {
+                    SliderRow(
+                        "Wave distance",
+                        "How far off the artwork it sits.",
+                        waveGap,
+                    ) { prefs.setWaveGap(it) }
                 }
                 item {
                     SliderRow(

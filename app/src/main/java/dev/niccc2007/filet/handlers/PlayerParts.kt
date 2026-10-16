@@ -244,6 +244,11 @@ fun PlayerOverflow(
     /** How far ahead of the player the beats are read, 0 to 1. Null when the pulse is off. */
     lead: Float? = null,
     onLead: ((Float) -> Unit)? = null,
+    /** How far the beat wave sits off the artwork, and how tall its peaks are. */
+    waveGap: Float? = null,
+    onWaveGap: ((Float) -> Unit)? = null,
+    waveSize: Float? = null,
+    onWaveSize: ((Float) -> Unit)? = null,
 ) {
     var open by remember { mutableStateOf(false) }
     var faces by remember { mutableStateOf(false) }
@@ -347,6 +352,12 @@ fun PlayerOverflow(
                                 // because that is the only place it can be judged.
                                 if (pulse && lead != null && onLead != null) {
                                     PanelSlider("Timing", lead, onChange = onLead)
+                                }
+                                if (pulse && waveSize != null && onWaveSize != null) {
+                                    PanelSlider("Wave size", waveSize, onChange = onWaveSize)
+                                }
+                                if (pulse && waveGap != null && onWaveGap != null) {
+                                    PanelSlider("Wave distance", waveGap, onChange = onWaveGap)
                                 }
                             }
                         }

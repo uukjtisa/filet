@@ -563,6 +563,31 @@ class Prefs(context: Context) {
     }
 
     /**
+     * How far off the artwork the beat wave sits, 0 to 1.
+     *
+     * Its own setting because the artwork is the subject of this face and how much air to
+     * leave round it is a matter of taste, not a thing to be guessed once.
+     */
+    private val _waveGap = MutableStateFlow(sp.getFloat(K_WAVE_GAP, 0.35f))
+    val waveGap: StateFlow<Float> = _waveGap.asStateFlow()
+
+    fun setWaveGap(v: Float) {
+        val c = v.coerceIn(0f, 1f)
+        _waveGap.value = c
+        sp.edit().putFloat(K_WAVE_GAP, c).apply()
+    }
+
+    /** How tall the wave's peaks are, 0 to 1. Zero draws no wave. */
+    private val _waveSize = MutableStateFlow(sp.getFloat(K_WAVE_SIZE, 0.5f))
+    val waveSize: StateFlow<Float> = _waveSize.asStateFlow()
+
+    fun setWaveSize(v: Float) {
+        val c = v.coerceIn(0f, 1f)
+        _waveSize.value = c
+        sp.edit().putFloat(K_WAVE_SIZE, c).apply()
+    }
+
+    /**
      * How far ahead of the reported position the beat map is read, in milliseconds.
      *
      * A setting because the thing it compensates for - the delay between a decoder and a
@@ -816,6 +841,8 @@ class Prefs(context: Context) {
         const val K_PULSE_SENSE = "play.pulseSense"
         const val K_PULSE_DEPTH = "play.pulseDepth"
         const val K_PULSE_LEAD = "play.pulseLead"
+        const val K_WAVE_GAP = "play.waveGap"
+        const val K_WAVE_SIZE = "play.waveSize"
 
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
