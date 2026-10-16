@@ -9,11 +9,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,7 +37,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import kotlinx.coroutines.launch
 import dev.niccc2007.filet.browser.BrowserScreen
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletDialogs
@@ -48,11 +47,12 @@ import dev.niccc2007.filet.shortcuts.shortcutRoute
 import dev.niccc2007.filet.signet.OnboardingScreen
 import dev.niccc2007.filet.signet.markOnboardingComplete
 import dev.niccc2007.filet.signet.onboardingComplete
-import dev.niccc2007.filet.update.UpdateNotifier
 import dev.niccc2007.filet.ui.theme.FiletTheme
+import dev.niccc2007.filet.update.UpdateNotifier
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.provider.StorageAccess
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -114,6 +114,17 @@ class MainActivity : ComponentActivity() {
                                 // A tab restored before access was granted has nothing in it.
                                 // Re-read those, and only those.
                                 browserRef?.refreshStalePanes()
+                                // And ask about updates HERE rather than once per Activity.
+                                //
+                                // Filet's process outlives its screen - a foreground service
+                                // while music plays, tracked folders being watched - so
+                                // coming back from recents resumes this same Activity and a
+                                // one-shot effect below never runs again. That is why a new
+                                // version could sit on GitHub for days without the app ever
+                                // mentioning it. The throttle lives in `shouldCheck`, where
+                                // it can be reasoned about, rather than in how often this
+                                // happens to be called.
+                                browserRef?.checkForUpdatesQuietly()
                             }
                         }
                         owner.lifecycle.addObserver(obs)
@@ -143,12 +154,12 @@ class MainActivity : ComponentActivity() {
                     DisposableEffect(Unit) {
                         graph.onFirstScreen()
                         handleIncoming(intent, browser)
-                        // Throttled to twice a day and silent about failure - see
-                        // UpdatePrompt.kt. Fires after handleIncoming so that a tap on the
-                        // update notification is not racing a fresh check for the same thing.
+                        // The first resume has already happened by the time the observer
+                        // above has a ViewModel to call, so the first visit asks here.
                         browser.checkForUpdatesQuietly()
                         onDispose { }
                     }
+
                 }
             }
         }

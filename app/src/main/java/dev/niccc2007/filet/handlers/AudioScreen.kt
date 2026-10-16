@@ -703,31 +703,34 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                     radius = 1000.dp,
                     modifier = Modifier.fillMaxSize(),
                 )
-                // The record it is pretending to be: a dark rim, grooves, and a label.
+                // The vinyl rim was tried here and reverted. It was a faithful record -
+                // label, grooves, lead-in - and it cost the artwork more than half its
+                // radius, which on the one face whose whole subject is the artwork is the
+                // wrong trade. The picture stays big; the disc is said with a ring of light
+                // instead of with a rim of black.
                 //
-                // The first version was a round crop with a 54dp hole punched in the middle
-                // of it, and a hole is not what makes a record read as one - the rim is. A
-                // vinyl is black for most of its radius and the picture only ever lives on
-                // the label, so the artwork keeps the middle and the outside goes to black
-                // with the grooves catching the light as it turns.
-                dev.niccc2007.filet.playback.RecordSurface(
+                // The ring ANSWERS the sound: it brightens and widens with the level coming
+                // out of the decoder, so it beats rather than pulses on a timer. See
+                // `BeatRing`.
+                dev.niccc2007.filet.playback.BeatRing(
                     tint = c.tint,
+                    playback = c.playback,
                     turning = turning,
                     modifier = Modifier.fillMaxSize(),
                 )
-                // The spindle. Small, because a real one is - the old 54dp disc read as a
-                // doughnut hole rather than as the pin a record sits on.
+                // The spindle. Small and dim: enough that the turn has a centre to be about,
+                // not so much that there is a hole in the middle of the picture.
                 Box(
                     Modifier
                         .align(Alignment.Center)
-                        .size(26.dp)
+                        .size(30.dp)
                         .clip(androidx.compose.foundation.shape.CircleShape)
-                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.95f)),
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.55f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Box(
                         Modifier
-                            .size(9.dp)
+                            .size(10.dp)
                             .clip(androidx.compose.foundation.shape.CircleShape)
                             .background(c.tint.copy(alpha = 0.55f + 0.45f * turning)),
                     )

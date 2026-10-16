@@ -190,15 +190,19 @@ class PlaybackService : Service() {
     }
 
     /**
-     * Playback stopped by the system taking the task away - a swipe off the recents list.
+     * The task is taken away - the app swiped off the recents list - and the music plays on.
      *
-     * Stopped rather than left running. A player with no app behind it is a notification
-     * somebody has to go and find the Stop button for, and swiping the app away is a clear
-     * enough statement of intent.
+     * It used to stop, on the reasoning that swiping the app away is a clear statement of
+     * intent. It is not, and the report put it plainly: a music player keeps playing when its
+     * entry is swiped out of the background, and stops when you force-stop it or press stop
+     * on the notification. That is the behaviour of every player anybody compares this to,
+     * and the Stop button it would be asking somebody to go and find is already in the shade,
+     * on the card that is still there.
+     *
+     * The service stays in the foreground, so the platform keeps the process. Nothing is
+     * cleaned up here on purpose: `onDestroy` does that if the system does take it away.
      */
     override fun onTaskRemoved(rootIntent: Intent?) {
-        runCatching { FiletApp.graphOf(applicationContext).playback.stop() }
-        leave()
         super.onTaskRemoved(rootIntent)
     }
 

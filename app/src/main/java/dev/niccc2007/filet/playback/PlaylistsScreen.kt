@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -190,7 +191,7 @@ private fun PlaylistList(
                     .padding(horizontal = 14.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Mosaic(vm, list, 54.dp, radius = 13.dp)
+                PlaylistCover(vm.trackCards, list, 54.dp, radius = 13.dp)
                 Spacer(Modifier.width(13.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -250,18 +251,7 @@ private fun PlaylistList(
                 Text("New playlist", fontSize = 13.5.sp, color = colors.accent)
             }
         }
-        item {
-            // Said once, at the foot, rather than as an empty state that only appears when
-            // there is nothing - this is the thing somebody needs to read on their FIRST
-            // visit, which is also the visit where Favourites already exists and so the
-            // empty state would never have shown.
-            DlgCaption(
-                "Add tracks from a file list: select them and choose Add to playlist. " +
-                    "The heart on the player puts a track in Favourites. Videos can go in a " +
-                    "playlist too, if you put them there.",
-            )
-            Spacer(Modifier.height(16.dp))
-        }
+        item { Spacer(Modifier.height(16.dp)) }
     }
 }
 
@@ -273,12 +263,12 @@ private fun PlaylistList(
  * first tracks, so a list whose opening song is untagged is not represented by a blank tile.
  */
 @Composable
-private fun Mosaic(vm: BrowserViewModel, list: Playlist, side: Dp, radius: Dp) {
+fun PlaylistCover(cards: TrackCards, list: Playlist, side: Dp, radius: Dp) {
     val colors = Filet.colors
     // Only the first handful are consulted. A two-hundred-track list must not read two
     // hundred files to draw a 54dp square.
     val heads = remember(list.tracks) { list.tracks.take(6) }
-    val arts = heads.mapNotNull { rememberTrackCard(vm.trackCards, it).value.art }
+    val arts = heads.mapNotNull { rememberTrackCard(cards, it).value.art }
 
     Box(
         Modifier
@@ -452,20 +442,24 @@ private fun PlaylistHeader(
             }
             Spacer(Modifier.height(2.dp))
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Mosaic(vm, list, 136.dp, radius = 18.dp)
+                Box(Modifier.shadow(26.dp, RoundedCornerShape(10.dp))) {
+                    PlaylistCover(vm.trackCards, list, 168.dp, radius = 10.dp)
+                }
             }
-            Spacer(Modifier.height(15.dp))
+            // Left-aligned from here down, which is the shape every music app settled on:
+            // the cover is the centred object and the words hang off the left margin under
+            // it, so the name, the count and the buttons all start on one line of their own.
+            Spacer(Modifier.height(18.dp))
             Text(
                 list.name,
-                fontSize = 22.sp,
+                fontSize = 23.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.5).sp,
-                textAlign = TextAlign.Center,
+                letterSpacing = (-0.6).sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
             )
-            Spacer(Modifier.height(5.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
                 listOfNotNull(
                     if (list.size == 0) "Empty" else plural(list.size, "track", "tracks"),
@@ -473,60 +467,53 @@ private fun PlaylistHeader(
                 ).joinToString("  ·  "),
                 fontSize = 11.5.sp,
                 color = colors.fg3,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.padding(horizontal = 18.dp),
             )
             if (list.size > 0) {
-                Spacer(Modifier.height(15.dp))
+                Spacer(Modifier.height(14.dp))
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    Modifier.fillMaxWidth().padding(start = 18.dp, end = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    HeaderButton("Play all", FiletIcons.PlaySolid, tint, onTint, fill = true) {
-                        vm.playPlaylist(list.id)
-                    }
-                    HeaderButton("Shuffle", FiletIcons.Shuffle, tint, onTint, fill = false) {
-                        vm.playPlaylist(list.id, shuffle = true)
+                    ShufflePill(tint) { vm.playPlaylist(list.id, shuffle = true) }
+                    Spacer(Modifier.weight(1f))
+                    // The one big round filled button, on the right, where a thumb is.
+                    Box(
+                        Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(tint)
+                            .clickable { vm.playPlaylist(list.id) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            FiletIcons.PlaySolid, "Play ${list.name}",
+                            tint = onTint,
+                            modifier = Modifier.size(22.dp),
+                        )
                     }
                 }
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(10.dp))
         }
     }
 }
 
+/** The quieter of the two: an outline pill, beside the filled circle. */
 @Composable
-private fun RowScope.HeaderButton(
-    label: String,
-    icon: ImageVector,
-    tint: Color,
-    onTint: Color,
-    fill: Boolean,
-    onClick: () -> Unit,
-) {
+private fun ShufflePill(tint: Color, onClick: () -> Unit) {
     val colors = Filet.colors
     Row(
         Modifier
-            .weight(1f)
             .clip(RoundedCornerShape(50))
-            .background(if (fill) tint else colors.high)
+            .background(colors.high)
             .clickable(onClick = onClick)
-            .padding(vertical = 11.dp),
-        horizontalArrangement = Arrangement.Center,
+            .padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            icon, null,
-            tint = if (fill) onTint else colors.fg2,
-            modifier = Modifier.size(14.dp),
-        )
+        Icon(FiletIcons.Shuffle, null, tint = tint, modifier = Modifier.size(14.dp))
         Spacer(Modifier.width(8.dp))
-        Text(
-            label,
-            fontSize = 12.5.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = if (fill) onTint else colors.fg2,
-        )
+        Text("Shuffle", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = colors.fg2)
     }
 }
 

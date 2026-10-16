@@ -4,25 +4,24 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -39,11 +39,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -54,15 +53,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.layout.positionInParent
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -72,7 +69,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -81,11 +82,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import dev.niccc2007.filet.data.TabSize
 import dev.niccc2007.filet.data.ViewStep
 import dev.niccc2007.filet.jobs.ActivitySheet
-import dev.niccc2007.filet.ui.Motion
 import dev.niccc2007.filet.ui.HScroll
+import dev.niccc2007.filet.ui.Motion
 import dev.niccc2007.filet.ui.dialogs.BtnKind
 import dev.niccc2007.filet.ui.dialogs.Dlg
 import dev.niccc2007.filet.ui.dialogs.DlgAction
@@ -314,6 +316,7 @@ private fun TabStripContent(vm: BrowserViewModel, tabs: List<PaneController>, ap
     // Where each chip sits, filled in as they lay out. A drag needs the resting centres and
     // Compose is the only thing that knows them.
     val centres = remember(tabs.size) { mutableStateMapOf<Int, Float>() }
+    val widths = remember(tabs.size) { mutableStateMapOf<Int, Float>() }
     var dragging by remember { mutableStateOf(-1) }
     var dragX by remember { mutableFloatStateOf(0f) }
     val target = if (dragging < 0) -1 else dragTarget(dragging, dragX, (0 until tabs.size).map { centres[it] ?: 0f })
@@ -336,9 +339,26 @@ private fun TabStripContent(vm: BrowserViewModel, tabs: List<PaneController>, ap
                 size = size,
                 dragging = i == dragging,
                 insertHere = target == i && dragging >= 0 && dragging != i,
+                // How far this chip is from where it lives. The one being dragged follows
+                // the finger; the ones it is passing step aside to open the gap it will land
+                // in, so the order is settled on screen before anybody lifts their thumb.
+                //
+                // It all worked before this and none of it was visible: the chip stayed put,
+                // changed colour, and the tabs reordered on lift. Reported as "dragging a tab
+                // should change its ordering" by somebody who could not tell that it already
+                // did.
+                offsetX = when {
+                    dragging < 0 -> 0f
+                    i == dragging -> dragX - (centres[i] ?: dragX)
+                    target < 0 -> 0f
+                    dragging < target && i > dragging && i <= target -> -(widths[dragging] ?: 0f)
+                    dragging > target && i >= target && i < dragging -> widths[dragging] ?: 0f
+                    else -> 0f
+                },
+                settle = i != dragging,
                 onClick = { vm.focusTab(i) },
                 onClose = { vm.closeTab(i) },
-                onCentre = { centres[i] = it },
+                onCentre = { c, w -> centres[i] = c; widths[i] = w },
                 onDragStart = { dragging = i; dragX = centres[i] ?: 0f },
                 onDrag = { dx -> dragX += dx },
                 onDragEnd = {
@@ -370,9 +390,11 @@ private fun TabChip(
     size: TabSize,
     dragging: Boolean = false,
     insertHere: Boolean = false,
+    offsetX: Float = 0f,
+    settle: Boolean = true,
     onClick: () -> Unit,
     onClose: () -> Unit,
-    onCentre: (Float) -> Unit = {},
+    onCentre: (Float, Float) -> Unit = { _, _ -> },
     onDragStart: () -> Unit = {},
     onDrag: (Float) -> Unit = {},
     onDragEnd: () -> Unit = {},
@@ -382,12 +404,37 @@ private fun TabChip(
     val liveDragStart = rememberUpdatedState(onDragStart)
     val liveDrag = rememberUpdatedState(onDrag)
     val liveDragEnd = rememberUpdatedState(onDragEnd)
+    // The chip being dragged tracks the finger exactly - an animation there is a chip that
+    // lags behind the thumb holding it. The ones stepping aside DO animate, because a gap
+    // that appears in one frame reads as the row twitching rather than as making room.
+    val shift by animateFloatAsState(
+        offsetX,
+        animationSpec = tween(if (settle) 160 else 0),
+        label = "tab-shift",
+    )
+    val travel = if (settle) shift else offsetX
     Row(
         Modifier
             .padding(horizontal = 2.dp, vertical = 3.dp)
             .onGloballyPositioned {
-                onCentre(it.positionInParent().x + it.size.width / 2f)
+                onCentre(
+                    it.positionInParent().x + it.size.width / 2f,
+                    it.size.width.toFloat(),
+                )
             }
+            .graphicsLayer {
+                translationX = travel
+                // Lifted off the strip while it is held: a little bigger, and over the top of
+                // its neighbours rather than sliding under them.
+                if (dragging) {
+                    scaleX = 1.06f
+                    scaleY = 1.06f
+                    shadowElevation = 14f
+                    shape = RoundedCornerShape(7.dp)
+                    clip = false
+                }
+            }
+            .zIndex(if (dragging) 1f else 0f)
             .clip(RoundedCornerShape(7.dp))
             .background(
                 when {

@@ -29,6 +29,7 @@ import dev.niccc2007.filet.update.Updater
 import dev.niccc2007.filet.update.applyChoice
 import dev.niccc2007.filet.update.label
 import dev.niccc2007.filet.update.reenable
+import dev.niccc2007.filet.update.RETRY_AFTER_FAILURE_MS
 import dev.niccc2007.filet.update.shouldCheck
 import dev.niccc2007.filet.update.shouldPrompt
 import dev.niccc2007.filet.vfs.VNode
@@ -3132,28 +3133,57 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     /**
-     * The check that nobody asked for, on app start.
+     * The check that nobody asked for, when the app comes to the front.
      *
      * Everything about whether to run it and whether to say anything is in `UpdatePrompt.kt`;
      * this is the wiring. Failures are silent by design - a background check that could not
      * reach GitHub is not news, and a toast about it would be the app interrupting to report
      * that nothing happened.
+     *
+     * ## Three faults, reported as "the update popup never appears"
+     *
+     * 1. **It only ever posted a notification.** There was no popup. The sheet existed and
+     *    the only way to it was tapping that notification, so on a phone where Filet's
+     *    notifications are off or buried, a new version was never mentioned at all. It now
+     *    opens the sheet as well - which is what "tell me when there is an update" means.
+     * 2. **It only ran when the Activity was CREATED.** Filet holds a foreground service
+     *    while music plays and keeps scanning tracked folders, so its process survives; going
+     *    back to it from recents resumes the same Activity and the one-shot `DisposableEffect`
+     *    never fired again. It is called on every resume now, with the interval doing the
+     *    throttling it was always meant to do.
+     * 3. **A failed check burned the whole twelve-hour window.** `lastCheckedAt` was stored
+     *    whether or not GitHub answered, so one minute without a connection meant no check
+     *    until the next day. Only a check that actually reached GitHub is persisted; a failed
+     *    one is remembered for this session only, so it retries on the next resume without
+     *    hammering anything.
      */
     fun checkForUpdatesQuietly() {
         if (!dev.niccc2007.filet.BuildConfig.UPDATER_ENABLED) return
         val now = System.currentTimeMillis()
         if (!shouldCheck(reminderState(), now)) return
+        if (now - lastUpdateAttempt < RETRY_AFTER_FAILURE_MS) return
+        lastUpdateAttempt = now
         viewModelScope.launch {
-            val release = Updater.latest().getOrNull()
-            // Recorded whether or not anything was found, so an unreachable GitHub does not
-            // mean a check on every single launch.
+            val release = Updater.latest().getOrNull() ?: return@launch
             storeReminder(reminderState().copy(lastCheckedAt = System.currentTimeMillis()))
-            if (release == null) return@launch
-            if (!shouldPrompt(release.version, Updater.installed, reminderState(), now, LAUNCH_ID)) return@launch
+            if (!shouldPrompt(release.version, Updater.installed, reminderState(), now, LAUNCH_ID)) {
+                return@launch
+            }
             pendingRelease = release
             UpdateNotifier.notify(graph.app, release)
+            // And say it where they are. Only over an idle updater, so this can never
+            // interrupt a download or replace a sheet somebody opened themselves.
+            if (_update.value == null) _update.value = UpdateState.Available(release)
         }
     }
+
+    /**
+     * When GitHub was last ASKED, as opposed to when it last answered.
+     *
+     * In memory rather than in the preferences on purpose: it exists to stop a retry loop
+     * inside one session, not to postpone tomorrow's check because today's failed.
+     */
+    private var lastUpdateAttempt = 0L
 
     /**
      * Open the sheet for the release a notification was about.

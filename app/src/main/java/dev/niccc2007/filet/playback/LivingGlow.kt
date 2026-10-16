@@ -198,6 +198,28 @@ fun rememberGlowPhases(running: Boolean): State<FloatArray> {
     return phases
 }
 
+/**
+ * One phase, from the wall clock, at a rate somebody picks.
+ *
+ * The same discipline as [rememberGlowPhases] and for the same reason: a `State` to be read
+ * inside a draw lambda, stepped on a slow loop rather than produced every frame. A caller
+ * that reads this in composition undoes all of it - see the note in [livingGlow].
+ */
+@Composable
+fun rememberPhase(periodMs: Int, running: Boolean, fps: Long = 20L): State<Float> {
+    val animated = rememberSystemAnimations()
+    val move = running && animated
+    val phase = remember { mutableStateOf(0f) }
+    LaunchedEffect(move, periodMs) {
+        if (!move) return@LaunchedEffect
+        while (true) {
+            phase.value = (android.os.SystemClock.elapsedRealtime() % periodMs).toFloat() / periodMs
+            delay(1000L / fps)
+        }
+    }
+    return phase
+}
+
 /** Where each light sits before anything moves, spread so they never start together. */
 private val START = floatArrayOf(0f, 0.37f, 0.71f)
 

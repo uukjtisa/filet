@@ -82,6 +82,7 @@ fun AddToPlaylistDialog(vm: BrowserViewModel) {
                     val have = paths.count { list.contains(it) }
                     val all = have == paths.size
                     PlaylistRow(
+                        cards = vm.trackCards,
                         list = list,
                         detail = when {
                             all && paths.size == 1 -> "Already in this playlist"
@@ -127,6 +128,7 @@ fun AddToPlaylistDialog(vm: BrowserViewModel) {
 
 @Composable
 private fun PlaylistRow(
+    cards: TrackCards,
     list: Playlist,
     detail: String,
     dim: Boolean,
@@ -141,26 +143,16 @@ private fun PlaylistRow(
             .padding(horizontal = 11.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .size(30.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(if (list.builtIn) colors.accent.copy(alpha = 0.18f) else colors.sunken),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                if (list.builtIn) FiletIcons.Heart else FiletIcons.Rows,
-                null,
-                tint = if (list.builtIn) colors.accent else colors.fg2,
-                modifier = Modifier.size(16.dp),
-            )
-        }
-        Spacer(Modifier.width(11.dp))
+        // The list's own cover, the same four-up the tab draws. A column of identical
+        // grey squares is a list of names with an ornament in front of each; a column of
+        // covers is a list somebody recognises without reading it.
+        PlaylistCover(cards, list, 44.dp, radius = 10.dp)
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 list.name,
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.Medium,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = if (dim) colors.fg3 else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

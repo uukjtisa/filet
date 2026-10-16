@@ -53,6 +53,14 @@ const val DAY_MS = 24L * 60L * 60L * 1000L
 const val CHECK_INTERVAL_MS = 12L * 60L * 60L * 1000L
 
 /**
+ * How long to wait before asking again after a check that did not reach GitHub.
+ *
+ * Short, because a failed check is not an answer. It used to consume the whole twelve hours,
+ * so one resume without a connection meant nothing was said until the next day.
+ */
+const val RETRY_AFTER_FAILURE_MS = 2L * 60L * 1000L
+
+/**
  * Everything persisted about the nagging. One object so a test can state a whole situation.
  *
  * @param silencedUntil epoch millis before which nothing is shown. 0 means nothing is pending.
