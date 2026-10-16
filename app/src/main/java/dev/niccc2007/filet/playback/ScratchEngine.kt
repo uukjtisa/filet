@@ -262,7 +262,25 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
                 if (outIndex >= 0) {
                     val buffer = codec.getOutputBuffer(outIndex)
                     if (buffer != null && info.size > 0) {
-                        val shorts = buffer.asShortBuffer()
+                        // TWO things, and without either of them this is noise.
+                        //
+                        // A decoder's output buffer is a window into a larger one: the audio
+                        // for this frame starts at `info.offset` and runs for `info.size`,
+                        // and everything else in it is whatever was there before. Reading the
+                        // whole capacity reads stale bytes as audio.
+                        //
+                        // And a ByteBuffer is BIG-endian until told otherwise, while PCM16
+                        // out of MediaCodec is in the machine's own order, which on every
+                        // Android device is little. Taking shorts out of it without saying so
+                        // swaps the two bytes of every sample - a quiet passage becomes full
+                        // scale, a waveform becomes white noise, and an onset detector reading
+                        // it finds beats everywhere and nowhere.
+                        //
+                        // This is why the record made no sound worth hearing and the ring
+                        // pulsed on nothing.
+                        buffer.position(info.offset)
+                        buffer.limit(info.offset + info.size)
+                        val shorts = buffer.order(java.nio.ByteOrder.nativeOrder()).asShortBuffer()
                         val take = minOf(shorts.remaining(), wanted - written)
                         shorts.get(out, written, take)
                         written += take

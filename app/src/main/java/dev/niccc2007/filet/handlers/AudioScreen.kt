@@ -735,6 +735,8 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
     }
     val scope = rememberCoroutineScope()
     val engine = remember(c.node.path) { mutableStateOf<ScratchEngine?>(null) }
+    /** Whether the track was playing when the finger landed. See [endScratch]. */
+    val resumeAfter = remember(c.node.path) { mutableStateOf(false) }
     DisposableEffect(c.node.path) {
         onDispose {
             engine.value?.close()
@@ -799,6 +801,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                                 // under. See `ScratchEngine`.
                                 val source = c.source ?: return@detectDragGestures
                                 val wasPlaying = c.playback.state.value.playing
+                                resumeAfter.value = wasPlaying
                                 scope.launch {
                                     val made = ScratchEngine(context, source)
                                     if (!made.open(at)) return@launch
@@ -816,11 +819,11 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                             },
                             onDragEnd = {
                                 scratching = false
-                                endScratch(c, engine, scope)
+                                endScratch(c, engine, resumeAfter, scope)
                             },
                             onDragCancel = {
                                 scratching = false
-                                endScratch(c, engine, scope)
+                                endScratch(c, engine, resumeAfter, scope)
                             },
                         ) { change, _ ->
                             change.consume()
@@ -1020,6 +1023,7 @@ private fun BoxScope.ImmersiveFace(c: PlayerCtx) {
 private fun endScratch(
     c: PlayerCtx,
     engine: androidx.compose.runtime.MutableState<ScratchEngine?>,
+    resumeAfter: androidx.compose.runtime.MutableState<Boolean>,
     scope: kotlinx.coroutines.CoroutineScope,
 ) {
     val live = engine.value ?: return
@@ -1029,6 +1033,8 @@ private fun endScratch(
     scope.launch {
         live.close()
         c.playback.seekTo(landed)
-        c.playback.resume()
+        // Only if it was playing when the finger landed. Scratching a paused track and
+        // having it start is the player deciding something nobody asked it to.
+        if (resumeAfter.value) c.playback.resume()
     }
 }

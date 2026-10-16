@@ -138,7 +138,14 @@ class BeatMap(private val onsets: FloatArray) {
                     if (outIndex >= 0) {
                         val buffer = codec.getOutputBuffer(outIndex)
                         if (buffer != null && info.size > 0) {
-                            val shorts = buffer.asShortBuffer()
+                            // See the note in `ScratchEngine.decode`: the frame is the slice
+                            // at info.offset, and the samples are in the machine's own byte
+                            // order rather than a ByteBuffer's default. Without both, this
+                            // measures noise and the ring pulses on nothing.
+                            buffer.position(info.offset)
+                            buffer.limit(info.offset + info.size)
+                            val shorts =
+                                buffer.order(java.nio.ByteOrder.nativeOrder()).asShortBuffer()
                             while (shorts.hasRemaining()) {
                                 sum += abs(shorts.get().toInt()) / 32768.0
                                 count++
