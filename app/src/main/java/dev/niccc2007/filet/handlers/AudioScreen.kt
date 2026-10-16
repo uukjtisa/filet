@@ -804,9 +804,13 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                                 resumeAfter.value = wasPlaying
                                 scope.launch {
                                     val made = ScratchEngine(context, source)
-                                    if (!made.open(at)) return@launch
+                                    if (!made.open(at)) {
+                                        android.util.Log.i("FiletScratch", "open failed at $at")
+                                        return@launch
+                                    }
                                     c.playback.pause()
                                     if (!made.start()) {
+                                        android.util.Log.i("FiletScratch", "start failed")
                                         made.close()
                                         // Falls back to silent seeking rather than taking the
                                         // sound away. An effect that cannot work must not
@@ -854,10 +858,13 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                                 // thing actually making the sound, and two clocks for one
                                 // record is how the picture and the audio drift apart.
                                 val since = (now - lastMoveAt).coerceIn(1L, 80L)
-                                live.setSpeed(
-                                    dev.niccc2007.filet.playback.Scratch.speedFor(
-                                        turned * 1000f / since, perTurn,
-                                    ),
+                                val rate = dev.niccc2007.filet.playback.Scratch.speedFor(
+                                    turned * 1000f / since, perTurn,
+                                )
+                                live.setSpeed(rate)
+                                android.util.Log.i(
+                                    "FiletScratch",
+                                    "turn=$turned dt=$since rate=$rate at=${live.positionMs}",
                                 )
                                 if (live.needsMore()) scope.launch { live.recentre() }
                             } else if (now - told >= dev.niccc2007.filet.playback.Scratch.SEEK_EVERY_MS) {

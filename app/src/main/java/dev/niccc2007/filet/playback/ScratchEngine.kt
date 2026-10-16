@@ -69,6 +69,17 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
 
     @Volatile private var window: Window? = null
     @Volatile private var speed = 0f
+
+    /**
+     * When the speed was last set, and whether a decode is already in flight.
+     *
+     * The first is why the record used to run away: `setSpeed` is called from drag events,
+     * and a finger that stops moving sends none - so the last speed stood for ever and the
+     * track carried on at whatever rate the hand happened to be going when it stopped. A real
+     * record stops when the hand does, so an update that does not arrive is itself a reading.
+     */
+    @Volatile private var spokeAt = 0L
+    @Volatile private var recentring = false
     @Volatile private var running = false
     @Volatile private var atMs = 0.0
     private var track: AudioTrack? = null
@@ -135,6 +146,7 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
      */
     fun setSpeed(value: Float) {
         speed = value.coerceIn(-MAX_SPEED, MAX_SPEED)
+        spokeAt = android.os.SystemClock.elapsedRealtime()
     }
 
     /** Stop, free the window, and leave nothing running. */
@@ -156,12 +168,25 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
         return at - w.startMs < EDGE_MS || w.endMs - at < EDGE_MS
     }
 
-    /** Decode a fresh window around where the sound is now, and swap it in. */
+    /**
+     * Decode a fresh window around where the sound is now, and swap it in.
+     *
+     * Guarded, because this is called from drag events: without it a finger near the edge
+     * starts a decode on every frame, and a dozen overlapping reads of the same file is both
+     * the stutter and the silence - they finish out of order and the last one to land wins.
+     */
     suspend fun recentre() {
-        val fresh = withContext(Dispatchers.IO) { decode(positionMs) } ?: return
-        // Position is in milliseconds, so the audio thread reads the new window on its next
-        // frame and carries on from the same instant of the track. No index to translate.
-        window = fresh
+        if (recentring) return
+        recentring = true
+        try {
+            val fresh = withContext(Dispatchers.IO) { decode(positionMs) } ?: return
+            // Position is in milliseconds, so the audio thread reads the new window on its
+            // next frame and carries on from the same instant. No index to translate.
+            window = fresh
+            android.util.Log.i(TAG, "recentred at ${positionMs}ms")
+        } finally {
+            recentring = false
+        }
     }
 
     private fun pumpLoop(out: AudioTrack) {
@@ -173,6 +198,9 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
                 runCatching { out.write(chunk, 0, chunk.size) }
                 continue
             }
+            // A speed nobody has confirmed lately is a finger that has stopped.
+            val stale = android.os.SystemClock.elapsedRealtime() - spokeAt > QUIET_MS
+            if (stale && speed != 0f) speed = 0f
             val step = speed
             var pos = atMs
             val perFrameMs = 1000.0 / w.rate
@@ -226,7 +254,10 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
 
             val startMs = (aroundMs - WINDOW_MS / 2).coerceAtLeast(0L)
             extractor.seekTo(startMs * 1000L, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            // Where the decoder ACTUALLY starts, which is the sync point before the request
+            // and can be seconds earlier.
             val actualStartUs = extractor.sampleTime.coerceAtLeast(0L)
+            val lead = ((startMs * 1000L - actualStartUs) / 1000L).coerceAtLeast(0L)
 
             val mime = fmt.getString(MediaFormat.KEY_MIME) ?: return null
             codec = MediaCodec.createDecoderByType(mime)
@@ -235,7 +266,12 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
 
             val rate = fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val channels = fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)
-            val wanted = (WINDOW_MS * rate / 1000).toInt() * channels
+            // Enough to cover the lead-in AND the window, or the position the finger is
+            // on can sit outside what was decoded - which is silence, intermittently,
+            // depending entirely on where the nearest sync point happened to be. That was
+            // most of "sometimes it is just silent".
+            val span = WINDOW_MS + lead
+            val wanted = (span * rate / 1000).toInt() * channels
             val out = ShortArray(wanted)
             var written = 0
             val info = MediaCodec.BufferInfo()
@@ -292,13 +328,19 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
                 }
             }
             if (written < channels * 2) return null
+            android.util.Log.i(
+                TAG,
+                "window ${actualStartUs / 1000}ms +${written / channels * 1000L / rate}ms " +
+                    "rate=$rate ch=$channels asked=${aroundMs}ms lead=${lead}ms",
+            )
             return Window(
                 pcm = if (written == out.size) out else out.copyOf(written),
                 startMs = actualStartUs / 1000L,
                 rate = rate,
                 channels = channels,
             )
-        } catch (_: Throwable) {
+        } catch (e: Throwable) {
+            android.util.Log.i(TAG, "decode failed: $e")
             return null
         } finally {
             runCatching { codec?.stop() }
@@ -308,6 +350,11 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
     }
 
     private companion object {
+        const val TAG = "FiletScratch"
+
+        /** No word from the hand for this long means the hand has stopped. */
+        const val QUIET_MS = 90L
+
         /**
          * How much of the track is held as PCM at once.
          *

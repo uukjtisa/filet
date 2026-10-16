@@ -162,9 +162,19 @@ class BeatMap(private val onsets: FloatArray) {
                         break
                     }
                 }
-                if (energy.size < MEMORY * 2) return@withContext null
-                return@withContext BeatMap(onsetsOf(energy))
-            } catch (_: Throwable) {
+                if (energy.size < MEMORY * 2) {
+                    android.util.Log.i("FiletBeat", "too short: ${energy.size} buckets")
+                    return@withContext null
+                }
+                val onsets = onsetsOf(energy)
+                android.util.Log.i(
+                    "FiletBeat",
+                    "${onsets.size} buckets, ${onsets.count { it > 0.3f }} beats, " +
+                        "peak=${onsets.maxOrNull()} meanEnergy=${energy.average()}",
+                )
+                return@withContext BeatMap(onsets)
+            } catch (e: Throwable) {
+                android.util.Log.i("FiletBeat", "failed: $e")
                 return@withContext null
             } finally {
                 runCatching { codec?.stop() }
