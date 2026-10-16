@@ -150,11 +150,14 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
         val chunk = ShortArray(CHUNK_FRAMES * 2)
         val perFrameMs = 1000.0 / p.rate
         val lastMs = (p.samples.size - 3).toDouble() * 1000.0 / p.rate
+        // Both of these live across chunks, because a filter that restarts every 512 frames
+        // is a discontinuity every 23 milliseconds.
+        var filtered = 0f
+        var gain = 0f
         while (running) {
             // A gesture that ended without saying so. The ordinary stop needs no help: a
             // target that is not moving is reached, and a reached target is silence.
             val stale = android.os.SystemClock.elapsedRealtime() - spokeAt > QUIET_MS
-            val target = (if (stale) atMs else targetMs).coerceIn(0.0, lastMs)
             var pos = atMs.coerceIn(0.0, lastMs)
             for (f in 0 until CHUNK_FRAMES) {
                 // Per frame, not per chunk: the gap is re-read as the audio closes it, so
@@ -165,36 +168,46 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
                 // to the hand's. A hand that stops is caught and the sound stops with it. A
                 // hand that reverses makes the gap negative and the step negative, which is
                 // the reverse play - falling out of this line rather than being a mode.
+                // READ PER FRAME, not per chunk.
+                //
+                // Read once a chunk, the target jumps by however far the hand moved in 23
+                // milliseconds and the playback rate jumps with it - a sawtooth in pitch at
+                // forty-three hertz, which is the other half of the laser noise. It is one
+                // volatile read, and the convergence below is what smooths the finger's own
+                // sampling rate out of it.
+                val target = (if (stale) atMs else targetMs).coerceIn(0.0, lastMs)
                 val step = ((target - pos) / CATCH_MS)
                     .coerceIn(-MAX_SPEED.toDouble(), MAX_SPEED.toDouble())
                     .toFloat()
-                if (abs(step) < CREEP) {
-                    // A record somebody is holding still makes no sound.
-                    chunk[f * 2] = 0
-                    chunk[f * 2 + 1] = 0
-                } else {
-                    // ANTI-ALIASED above 1x.
-                    //
-                    // Reading every second sample to play at twice the speed folds
-                    // everything above the new Nyquist back down into the audible range,
-                    // and the result is harsh and unintelligible in a way that is easy to
-                    // mistake for the pitch simply being high. Averaging the samples that
-                    // are being skipped over is a box filter - the cheapest correct answer
-                    // - and it costs a few adds only when the hand is actually moving fast.
-                    val idx = pos * p.rate / 1000.0
-                    val span = abs(step)
-                    val v = if (span <= 1.1f) {
-                        p.at(idx)
-                    } else {
-                        val taps = span.toInt().coerceIn(2, MAX_TAPS)
-                        var sum = 0f
-                        for (k in 0 until taps) sum += p.at(idx + (k - (taps - 1) / 2.0))
-                        sum / taps
-                    }
-                    val out16 = v.toInt().coerceIn(-32768, 32767).toShort()
-                    chunk[f * 2] = out16
-                    chunk[f * 2 + 1] = out16
-                }
+                // ── everything below here changes SMOOTHLY with the speed ──
+                //
+                // The chirping over a steady drag was two switches, both of them flipping
+                // many times a second as a hand wobbles:
+                //
+                //  1. A box filter that came on above 1.1x with a whole number of taps, so
+                //     a hand hovering near a boundary turned a low-pass on and off and
+                //     stepped its width - heard as a warble.
+                //  2. A hard mute below CREEP, which cuts the waveform at whatever point it
+                //     had reached. A mute at a non-zero sample is a click, and a train of
+                //     them at the rate a finger wobbles is the "choo choo".
+                //
+                // Neither needed to be a switch. A one-pole whose coefficient is a
+                // continuous function of the speed has no boundary to cross, and a gain
+                // that slews to silence has no edge to click on.
+                val speed = abs(step)
+                val raw = p.at(pos * p.rate / 1000.0)
+                // Cutoff at half the new Nyquist, as a one-pole. Above 1x this is the
+                // anti-aliasing; at or below it the coefficient clamps to 1 and the filter
+                // is not in circuit at all.
+                val k = (PI_F / speed.coerceAtLeast(0.001f)).coerceIn(0.10f, 1f)
+                filtered += (raw - filtered) * k
+                // And a record being held still makes no sound - arrived at rather than
+                // jumped to.
+                val wanted = ((speed - CREEP) / CREEP_FADE).coerceIn(0f, 1f)
+                gain += (wanted - gain) * GAIN_SLEW
+                val out16 = (filtered * gain).toInt().coerceIn(-32768, 32767).toShort()
+                chunk[f * 2] = out16
+                chunk[f * 2 + 1] = out16
                 pos += step * perFrameMs
                 if (pos < 0.0) pos = 0.0
                 if (pos > lastMs) pos = lastMs
@@ -221,8 +234,19 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
          */
         const val MAX_SPEED = 4f
 
-        /** How many samples the anti-aliasing filter may average. */
-        const val MAX_TAPS = 8
+        /** Pi, as a float, for the filter coefficient. */
+        const val PI_F = 3.1415927f
+
+        /**
+         * How quickly the output reaches full once the record starts moving.
+         *
+         * About five milliseconds at this rate, which is below the ear's resolution for a
+         * level change and far above the one sample a hard switch takes.
+         */
+        const val GAIN_SLEW = 0.01f
+
+        /** The speed over which it fades in, starting at [CREEP]. */
+        const val CREEP_FADE = 0.06f
 
         /**
          * How long the sound takes to arrive where the finger is, in milliseconds.
