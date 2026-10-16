@@ -4415,6 +4415,31 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         _playlistFor.value = playable
     }
 
+    /**
+     * Add the track that is PLAYING, rather than the file the player was opened on.
+     *
+     * Reported: add a song to a playlist, press next, add the new one - and it says it is
+     * already there. It was. The player screen is opened with a `VNode`, and the overflow
+     * was still handing that same node over three tracks later, so the second add was the
+     * first song again and the dialog correctly refused it.
+     *
+     * The queue is the authority on what is playing, and it holds paths. So this resolves
+     * one, which also means a track that has been deleted under the player says so instead
+     * of being added as a row pointing at nothing.
+     */
+    fun askAddToPlaylistPath(path: dev.niccc2007.filet.vfs.VPath) {
+        viewModelScope.launch {
+            val node = runCatching {
+                withContext(Dispatchers.IO) { graph.vfs.stat(path) }
+            }.getOrNull()
+            if (node == null) {
+                toast("That track is not there any more.")
+                return@launch
+            }
+            askAddToPlaylist(listOf(node))
+        }
+    }
+
     fun addToPlaylistSelection() {
         val items = focusedPane()?.selectedNodes().orEmpty()
         if (items.isEmpty()) return

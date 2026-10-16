@@ -5,9 +5,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState as SessionState
@@ -76,6 +79,30 @@ class PlaybackService : Service() {
     private var lastState: NowPlaying? = null
     private var lastArt: android.graphics.Bitmap? = null
 
+    /** The last artwork sampled, and what it sampled to. See [sampled]. */
+    private var lastSample: Pair<android.graphics.Bitmap, ArtPalette.Result>? = null
+
+    /**
+     * Pause when the sound is about to come out of the phone's own speaker.
+     *
+     * Reported: unplugging a wireless neckband left the music playing, out loud, on the
+     * phone. Android broadcasts `ACTION_AUDIO_BECOMING_NOISY` exactly then - headphones out,
+     * Bluetooth gone, dock lost - and an app that does not listen for it carries on.
+     *
+     * It is separate from audio focus and from the uninterrupted setting. Focus is about
+     * which app owns the sound; this is about where the sound is coming OUT of, and nobody
+     * who takes their earphones off wants the room to hear the rest of the track. It is
+     * registered here rather than in the manifest because implicit broadcasts have not been
+     * delivered to manifest receivers since Android 8.
+     */
+    private val becomingNoisy = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY) return
+            runCatching { FiletApp.graphOf(applicationContext).playback.pause() }
+        }
+    }
+    private var noisyRegistered = false
+
     /** Tap counting for a one-button wired remote. See [MediaButtons] for why it is needed. */
     private val tapHandler = Handler(Looper.getMainLooper())
     private var taps = 0
@@ -117,6 +144,7 @@ class PlaybackService : Service() {
         }
 
         if (session == null) session = openSession(playback)
+        registerNoisy()
 
         // One collector, replacing itself rather than stacking. A second delivery of the same
         // intent must not leave two collectors posting the same notification twice.
@@ -153,6 +181,7 @@ class PlaybackService : Service() {
     override fun onDestroy() {
         watch?.cancel()
         drift?.cancel()
+        unregisterNoisy()
         scope.coroutineContext[Job]?.cancel()
         pendingTap?.let { tapHandler.removeCallbacks(it) }
         runCatching { session?.release() }
@@ -280,6 +309,26 @@ class PlaybackService : Service() {
         )
     }
 
+    private fun registerNoisy() {
+        if (noisyRegistered) return
+        val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                // A protected system broadcast, so nothing outside the platform can send it -
+                // but from 33 the flag is required whether or not that is true.
+                registerReceiver(becomingNoisy, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(becomingNoisy, filter)
+            }
+        }.onSuccess { noisyRegistered = true }
+    }
+
+    private fun unregisterNoisy() {
+        if (!noisyRegistered) return
+        runCatching { unregisterReceiver(becomingNoisy) }
+        noisyRegistered = false
+    }
+
     // ── the notification ──
 
     /**
@@ -391,7 +440,7 @@ class PlaybackService : Service() {
         // It is a 24x24 downscale and a pass over 576 pixels, and `post` is already called
         // from a flow collector rather than from a hot path - so this is cheaper than the
         // bitmap scale the shade is about to do with the large icon anyway.
-        val tint = art?.let { ArtPalette.ofBitmap(it) }?.takeIf { it.usable }
+        val tint = art?.let { sampled(it) }?.takeIf { it.usable }
         if (tint != null) {
             // The GROUND, not the control colour. `ArtPalette.of` lightens until it clears
             // 4.5:1 against a dark panel, which is right for a 68dp play button and is a slab
@@ -449,6 +498,20 @@ class PlaybackService : Service() {
      * not as the verb - so "Repeat off" has to mean repeat is currently off, the opposite
      * convention to the rest of the buttons here, which say what they will do.
      */
+    /**
+     * The artwork's colour, sampled once per bitmap.
+     *
+     * `ofBitmap` scales the artwork to 24x24 and walks 576 pixels. That was fine when the
+     * card was built once per track; with the glow re-posting it, the same answer was being
+     * recomputed for the same picture over and over.
+     */
+    private fun sampled(art: android.graphics.Bitmap): ArtPalette.Result {
+        lastSample?.let { (bitmap, result) -> if (bitmap === art) return result }
+        val result = ArtPalette.ofBitmap(art)
+        lastSample = art to result
+        return result
+    }
+
     /** Where in the drift the card is, from the clock. One full out-and-back per cycle. */
     private fun glowPhase(): Double =
         (SystemClock.elapsedRealtime() % GLOW_CYCLE_MS).toDouble() / GLOW_CYCLE_MS
@@ -485,11 +548,13 @@ class PlaybackService : Service() {
         /**
          * How often the card is re-posted for the glow.
          *
-         * Five seconds. A notification update is a wakeup, and the shade is not something
-         * anybody watches for seconds at a time - the point is that a glance five minutes
-         * later is a different colour, not that the change can be seen happening.
+         * Twenty seconds, up from five. A re-post is a wakeup AND it hands the system a
+         * full-size bitmap to rescale for the large icon, which is not nothing on a phone
+         * that is already decoding audio - it was part of a report of heat and lag. Nobody
+         * watches a notification for twenty seconds, and the point was only ever that a
+         * glance five minutes later is a different colour.
          */
-        private const val GLOW_TICK_MS = 5_000L
+        private const val GLOW_TICK_MS = 20_000L
 
         /** One full out-and-back of the hue. Long, for the same reason. */
         private const val GLOW_CYCLE_MS = 240_000L

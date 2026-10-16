@@ -11,19 +11,23 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -160,10 +164,10 @@ fun rememberArtPalette(art: Bitmap?, fallback: Color, onFallback: Color): Pair<C
  * the first letter of a name that was never in trouble.
  */
 @Composable
-fun rememberMarquee(overflowPx: Float): Float {
-    if (overflowPx <= 2f) return 0f
+fun rememberMarquee(overflowPx: Float): State<Float> {
+    if (overflowPx <= 2f) return remember { mutableFloatStateOf(0f) }
     val clock = rememberInfiniteTransition(label = "marquee")
-    val t by clock.animateFloat(
+    val t = clock.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -182,7 +186,9 @@ fun rememberMarquee(overflowPx: Float): Float {
         ),
         label = "marquee",
     )
-    return -overflowPx * t
+    // Derived rather than computed here, so the frame value is read by whoever draws with it
+    // instead of by whoever composed it. See the note on `MarqueeTitle`'s graphicsLayer.
+    return remember(overflowPx, t) { derivedStateOf { -overflowPx * t.value } }
 }
 
 /**

@@ -42,17 +42,21 @@ fun AuroraBackdrop(
     running: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val (a, b, c) = rememberGlowPhases(running)
+    val phases = rememberGlowPhases(running)
     val tints = remember(base) { auroraTints(base) }
 
     Box(
         modifier
             .fillMaxSize()
             .drawBehind {
+                // Read in the draw lambda, never in the body: this face fills the screen, and
+                // reading the frame up there recomposes all of it sixty times a second. See
+                // the note in `livingGlow`.
+                val p = phases.value
                 drawRect(ground)
-                glowBlob(tints[0], a, 0.62f, 0.34f, size.minDimension * 1.25f)
-                glowBlob(tints[1], b, 0.38f, 0.66f, size.minDimension * 1.45f)
-                glowBlob(tints[2], c, 0.72f, 0.78f, size.minDimension * 1.1f)
+                glowBlob(tints[0], p[0], 0.62f, 0.34f, size.minDimension * 1.25f)
+                glowBlob(tints[1], p[1], 0.38f, 0.66f, size.minDimension * 1.45f)
+                glowBlob(tints[2], p[2], 0.72f, 0.78f, size.minDimension * 1.1f)
             },
     )
 }

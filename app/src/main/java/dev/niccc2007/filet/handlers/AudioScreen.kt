@@ -128,6 +128,19 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     val track = state.current
     val isVideo = track?.medium == Medium.VIDEO
 
+    /**
+     * The path of what is playing NOW, which after one press of next is not [node].
+     *
+     * Everything on this screen that acts on "this track" - the heart, add to a playlist -
+     * has to read this and not the node the screen was opened with. A track id IS its path;
+     * see `tracksOf`.
+     */
+    val livePath = remember(track?.id, node.path) {
+        track?.id?.let { id ->
+            runCatching { dev.niccc2007.filet.vfs.VPath.parse(id) }.getOrNull()
+        } ?: node.path
+    }
+
     /** Where the handle is while it is being dragged, or null when it is not. */
     var scrubTo by remember { mutableStateOf<Long?>(null) }
     var showQueue by remember { mutableStateOf(false) }
@@ -182,6 +195,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         art = art,
         source = source,
         isVideo = isVideo,
+        livePath = livePath,
         face = face,
         tint = tint,
         onTint = onTint,
@@ -193,7 +207,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         maxSpeed = maxSpeed,
         pitch = pitch,
         bookmarked = lists.firstOrNull { it.id == Playlists.FAVOURITES }
-            ?.contains(node.path) == true,
+            ?.contains(livePath) == true,
         title = title,
         sub = sub,
         folderLine = folderLine,
@@ -294,6 +308,7 @@ private class PlayerCtx(
     val art: android.graphics.Bitmap?,
     val source: android.net.Uri?,
     val isVideo: Boolean,
+    val livePath: dev.niccc2007.filet.vfs.VPath,
     val face: PlayerFace,
     val tint: androidx.compose.ui.graphics.Color,
     val onTint: androidx.compose.ui.graphics.Color,
@@ -334,7 +349,7 @@ private fun FaceTopBar(c: PlayerCtx) {
             onExternal = { c.vm.openTrackExternally(c.state.current, c.node) },
             onShare = { c.vm.shareTrack(c.state.current, c.node) },
             onProperties = { c.vm.propertiesOfTrack(c.state.current, c.node) },
-            onAddToPlaylist = { c.vm.askAddToPlaylist(listOf(c.node)) },
+            onAddToPlaylist = { c.vm.askAddToPlaylistPath(c.livePath) },
             onSaveQueue = c.onSaveQueue.takeIf { c.state.canStep },
         )
     }
@@ -393,7 +408,7 @@ private fun ClassicFace(c: PlayerCtx) {
                 onExternal = { c.vm.openTrackExternally(c.state.current, c.node) },
                 onShare = { c.vm.shareTrack(c.state.current, c.node) },
                 onProperties = { c.vm.propertiesOfTrack(c.state.current, c.node) },
-                onAddToPlaylist = { c.vm.askAddToPlaylist(listOf(c.node)) },
+                onAddToPlaylist = { c.vm.askAddToPlaylistPath(c.livePath) },
                 onSaveQueue = c.onSaveQueue.takeIf { c.state.canStep },
             )
         }
@@ -520,7 +535,7 @@ private fun BoxScope.AmbientFace(c: PlayerCtx) {
                 centred = false,
                 bookmarked = c.bookmarked,
                 tint = c.tint,
-                onHeart = { c.vm.toggleFavourite(c.node.path) },
+                onHeart = { c.vm.toggleFavourite(c.livePath) },
             )
             FaceError(c)
             Spacer(Modifier.height(PlayerMetrics.SCRUB_TOP))
@@ -597,7 +612,7 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
                     titleSize = 18.sp,
                     bookmarked = c.bookmarked,
                     tint = c.tint,
-                    onHeart = { c.vm.toggleFavourite(c.node.path) },
+                    onHeart = { c.vm.toggleFavourite(c.livePath) },
                 )
             }
         }
@@ -688,19 +703,31 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                     radius = 1000.dp,
                     modifier = Modifier.fillMaxSize(),
                 )
-                // The spindle. Without it a round crop is just a round crop; with it the
-                // thing is obviously a disc and the rotation has something to be about.
+                // The record it is pretending to be: a dark rim, grooves, and a label.
+                //
+                // The first version was a round crop with a 54dp hole punched in the middle
+                // of it, and a hole is not what makes a record read as one - the rim is. A
+                // vinyl is black for most of its radius and the picture only ever lives on
+                // the label, so the artwork keeps the middle and the outside goes to black
+                // with the grooves catching the light as it turns.
+                dev.niccc2007.filet.playback.RecordSurface(
+                    tint = c.tint,
+                    turning = turning,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // The spindle. Small, because a real one is - the old 54dp disc read as a
+                // doughnut hole rather than as the pin a record sits on.
                 Box(
                     Modifier
                         .align(Alignment.Center)
-                        .size(54.dp)
+                        .size(26.dp)
                         .clip(androidx.compose.foundation.shape.CircleShape)
-                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.92f)),
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.95f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Box(
                         Modifier
-                            .size(13.dp)
+                            .size(9.dp)
                             .clip(androidx.compose.foundation.shape.CircleShape)
                             .background(c.tint.copy(alpha = 0.55f + 0.45f * turning)),
                     )
@@ -716,7 +743,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                 centred = true,
                 bookmarked = c.bookmarked,
                 tint = c.tint,
-                onHeart = { c.vm.toggleFavourite(c.node.path) },
+                onHeart = { c.vm.toggleFavourite(c.livePath) },
             )
             FaceError(c)
             Spacer(Modifier.height(PlayerMetrics.SCRUB_TOP))

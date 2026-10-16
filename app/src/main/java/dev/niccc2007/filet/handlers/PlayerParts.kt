@@ -8,10 +8,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,25 +47,38 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.playback.Medium
+import dev.niccc2007.filet.playback.NowPlaying
+import dev.niccc2007.filet.playback.Repeat
+import dev.niccc2007.filet.playback.Track
+import dev.niccc2007.filet.playback.marqueeFade
+import dev.niccc2007.filet.playback.rememberMarquee
 import dev.niccc2007.filet.ui.dialogs.BtnKind
 import dev.niccc2007.filet.ui.dialogs.Dlg
 import dev.niccc2007.filet.ui.dialogs.DlgBody
@@ -73,11 +87,6 @@ import dev.niccc2007.filet.ui.dialogs.DlgField
 import dev.niccc2007.filet.ui.dialogs.DlgFooter
 import dev.niccc2007.filet.ui.dialogs.DlgHeader
 import dev.niccc2007.filet.ui.dialogs.DlgSpacer
-import dev.niccc2007.filet.playback.NowPlaying
-import dev.niccc2007.filet.playback.Repeat
-import dev.niccc2007.filet.playback.Track
-import dev.niccc2007.filet.playback.marqueeFade
-import dev.niccc2007.filet.playback.rememberMarquee
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
@@ -211,62 +220,185 @@ fun PlayerOverflow(
 ) {
     var open by remember { mutableStateOf(false) }
     var faces by remember { mutableStateOf(false) }
+    val colors = Filet.colors
+    val gap = with(LocalDensity.current) { 8.dp.roundToPx() }
     Box {
-        BarIcon(FiletIcons.More, "More") { open = true }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            // The face switcher is here rather than only in Settings. Four looks are worth
-            // nothing if changing them means leaving the thing you are looking at - this is
-            // the one screen where the difference between them is visible.
-            DropdownMenuItem(
-                text = { Text("Look: ${face.label}", fontSize = 13.sp) },
-                onClick = { faces = true },
-            )
-            if (onAddToPlaylist != null) {
-                DropdownMenuItem(
-                    text = { Text("Add to a playlist", fontSize = 13.sp) },
-                    onClick = { open = false; onAddToPlaylist() },
-                )
-            }
-            if (onSaveQueue != null) {
-                // "Save the queue" rather than "new playlist": the queue is already a list
-                // somebody has arranged by playing it, and this keeps THAT rather than
-                // opening an empty one to fill in again.
-                DropdownMenuItem(
-                    text = { Text("Save the queue as a playlist", fontSize = 13.sp) },
-                    onClick = { open = false; onSaveQueue() },
-                )
-            }
-            DropdownMenuItem(
-                text = { Text("Open in another app", fontSize = 13.sp) },
-                onClick = { open = false; onExternal() },
-            )
-            DropdownMenuItem(
-                text = { Text("Share", fontSize = 13.sp) },
-                onClick = { open = false; onShare() },
-            )
-            DropdownMenuItem(
-                text = { Text("Properties", fontSize = 13.sp) },
-                onClick = { open = false; onProperties() },
-            )
-        }
-        DropdownMenu(expanded = faces, onDismissRequest = { faces = false; open = false }) {
-            for (f in dev.niccc2007.filet.playback.PlayerFace.entries) {
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text(
-                                f.label,
-                                fontSize = 13.sp,
-                                color = if (f == face) Filet.colors.accent
-                                else MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(f.about, fontSize = 10.sp, color = Filet.colors.fg3)
+        BarIcon(FiletIcons.More, "More") { open = true; faces = false }
+        if (open) {
+            Popup(
+                popupPositionProvider = BelowPositionProvider(gap),
+                onDismissRequest = { open = false; faces = false },
+                properties = PopupProperties(focusable = true),
+            ) {
+                Column(
+                    Modifier
+                        .width(254.dp)
+                        .shadow(24.dp, RoundedCornerShape(22.dp))
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(colors.raised)
+                        .border(1.dp, colors.lineSoft, RoundedCornerShape(22.dp))
+                        .padding(vertical = 14.dp),
+                ) {
+                    if (faces) {
+                        PanelHead("THE LOOK")
+                        for (f in dev.niccc2007.filet.playback.PlayerFace.entries) {
+                            FaceRow(f, f == face) { open = false; faces = false; onFace(f) }
                         }
-                    },
-                    onClick = { faces = false; open = false; onFace(f) },
-                )
+                    } else {
+                        PanelHead("NOW PLAYING")
+                        // The face switcher is here rather than only in Settings. Five looks
+                        // are worth nothing if changing them means leaving the thing you are
+                        // looking at - this is the one screen where the difference shows.
+                        PanelAction(
+                            "Look",
+                            FiletIcons.Eye,
+                            trailing = face.label,
+                        ) { faces = true }
+                        if (onAddToPlaylist != null) {
+                            PanelAction("Add to a playlist", FiletIcons.Rows) {
+                                open = false
+                                onAddToPlaylist()
+                            }
+                        }
+                        if (onSaveQueue != null) {
+                            // "Save the queue" rather than "new playlist": the queue is
+                            // already a list somebody arranged by playing it, and this keeps
+                            // THAT rather than opening an empty one to fill in again.
+                            PanelAction("Save the queue", FiletIcons.Save) {
+                                open = false
+                                onSaveQueue()
+                            }
+                        }
+                        PanelRule()
+                        PanelAction("Open in another app", FiletIcons.Open) {
+                            open = false
+                            onExternal()
+                        }
+                        PanelAction("Share", FiletIcons.Share) { open = false; onShare() }
+                        PanelAction("Properties", FiletIcons.Info) {
+                            open = false
+                            onProperties()
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+/**
+ * The player's panel, and the strip's, are the same object.
+ *
+ * It was a `DropdownMenu` - square corners, full-bleed rows, a divider drawn edge to edge -
+ * hanging off a player whose every other surface is rounded. Asked for directly: make it look
+ * like the one on the minimised player. So it is the same shape, the same 22dp radius, the
+ * same hairline border and the same eyebrow, and the two now read as one app.
+ */
+@Composable
+private fun PanelHead(text: String) {
+    Text(
+        text,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.3.sp,
+        color = Filet.colors.fg3,
+        modifier = Modifier.padding(start = 17.dp, bottom = 9.dp),
+    )
+}
+
+/** A hairline that stops short of the edge, so the panel's corners stay round. */
+@Composable
+private fun PanelRule() {
+    Box(
+        Modifier
+            .padding(horizontal = 17.dp, vertical = 8.dp)
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(Filet.colors.lineSoft),
+    )
+}
+
+/** One action: a glyph, a name, and - where it has one - the state it is in. */
+@Composable
+private fun PanelAction(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    trailing: String? = null,
+    onClick: () -> Unit,
+) {
+    val colors = Filet.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 17.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = colors.fg3, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(label, fontSize = 12.5.sp, color = colors.fg2, modifier = Modifier.weight(1f))
+        if (trailing != null) {
+            Text(trailing, fontSize = 11.sp, color = colors.accent)
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                FiletIcons.Forward, null,
+                tint = colors.fg3, modifier = Modifier.size(11.dp),
+            )
+        }
+    }
+}
+
+/** One look, with the sentence that says what it is. */
+@Composable
+private fun FaceRow(
+    f: dev.niccc2007.filet.playback.PlayerFace,
+    picked: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = Filet.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 17.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                f.label,
+                fontSize = 12.5.sp,
+                fontWeight = if (picked) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (picked) colors.accent else colors.fg2,
+            )
+            Text(f.about, fontSize = 9.5.sp, lineHeight = 12.sp, color = colors.fg3)
+        }
+        if (picked) {
+            Spacer(Modifier.width(10.dp))
+            Icon(
+                FiletIcons.Check, null,
+                tint = colors.accent, modifier = Modifier.size(14.dp),
+            )
+        }
+    }
+}
+
+/** Under the button and right-aligned to it: this one hangs off the top bar. */
+private class BelowPositionProvider(private val gap: Int) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val room = (windowSize.width - popupContentSize.width).coerceAtLeast(0)
+        val x = (anchorBounds.right - popupContentSize.width).coerceIn(0, room)
+        val below = anchorBounds.bottom + gap
+        val y = if (below + popupContentSize.height <= windowSize.height) {
+            below
+        } else {
+            (anchorBounds.top - popupContentSize.height - gap).coerceAtLeast(0)
+        }
+        return IntOffset(x, y)
     }
 }
 
@@ -500,7 +632,11 @@ fun MarqueeTitle(
             softWrap = false,
             overflow = TextOverflow.Ellipsis,
             color = colour,
-            modifier = Modifier.graphicsLayer { translationX = travel },
+            // Read INSIDE the graphicsLayer block, so a moving title invalidates the draw
+            // phase rather than recomposing this text on every frame. Same fault as the glow
+            // had, and it has been here longer - a title that does not fit is the common
+            // case, not the rare one. See `rememberMarquee`.
+            modifier = Modifier.graphicsLayer { translationX = travel.value },
             onTextLayout = { layout ->
                 overflow = maxOf(
                     0f,

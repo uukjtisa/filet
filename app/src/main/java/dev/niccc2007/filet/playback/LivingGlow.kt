@@ -1,15 +1,11 @@
 package dev.niccc2007.filet.playback
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -21,6 +17,7 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalContext
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlinx.coroutines.delay
 
 /**
  * The living glow: the background colour, drifting, while something is playing.
@@ -99,10 +96,22 @@ fun Modifier.livingGlow(
     if (!on) return this
     val phases = rememberGlowPhases(running)
     val tints = remember(base, strength) { glowTints(base, strength) }
-    val a = phases[0]
-    val b = phases[1]
-    val c = phases[2]
     return drawBehind {
+        // READ HERE, not above.
+        //
+        // This is the difference between a background that drifts and a phone that gets hot,
+        // and it does not show up on a fast one. `Modifier.livingGlow` is a composable
+        // function that returns a value, so it has no restart scope of its own - a state read
+        // in its body belongs to whoever called it. The caller is `NowPlayingStrip`, which is
+        // on screen in every folder. Reading the phase up there meant the whole strip - its
+        // artwork, its marquee, its five buttons, its BoxWithConstraints subcomposition -
+        // recomposed on every animation frame for as long as anything was playing.
+        //
+        // Read inside the draw lambda, the frame invalidates the draw phase and nothing else.
+        val p = phases.value
+        val a = p[0]
+        val b = p[1]
+        val c = p[2]
         // `drawBehind` is not bounded by the node it is on, so a radial brush wider than a
         // 56dp strip reaches up into whatever is above it. That arrived as a bug - the first
         // build painted the bottom third of the file list - and was then liked, so it is a
@@ -149,34 +158,60 @@ enum class GlowLevel(val id: String, val label: String, val scale: Float) {
  * can spot is a loop you start waiting for, which is the difference between an animated
  * background and a looping one.
  *
+ * ## Why this is a coroutine and not an infinite transition
+ *
+ * Reported as a phone getting hot and laggy whenever music played, on a mid-range Samsung,
+ * and the ticket was right. Two separate costs, and this is both of them:
+ *
+ *  - an `animateFloat` produces a value every frame, and its value is read in composition.
+ *    See the note in [livingGlow] for what that did to the strip.
+ *  - a value every frame means a redraw every frame - three radial gradients and their
+ *    shaders - for a gradient whose slowest light takes forty-one seconds to go round.
+ *    Sixty frames a second of that is about fifty-five more than anyone can see.
+ *
+ * So the phase is sampled off the wall clock on a slow loop instead. The movement is
+ * identical to the eye and the draw happens [GLOW_FPS] times a second. Off the clock rather
+ * than counted, so the drift keeps its place across a pause, a screen-off, or anything else
+ * that stops the loop for a while.
+ *
  * Returns the starting phases unchanged when nothing should be moving, so a caller draws a
- * still gradient rather than nothing at all.
+ * still gradient rather than nothing at all, and the loop does not run at all.
  */
 @Composable
-fun rememberGlowPhases(running: Boolean): List<Float> {
+fun rememberGlowPhases(running: Boolean): State<FloatArray> {
     val animated = rememberSystemAnimations()
     val move = running && animated
-    val clock = rememberInfiniteTransition(label = "glow")
-
-    @Composable
-    fun phase(seconds: Int, from: Float): Float =
+    val phases = remember { mutableStateOf(START) }
+    LaunchedEffect(move) {
         if (!move) {
-            from
-        } else {
-            val t by clock.animateFloat(
-                initialValue = from,
-                targetValue = from + 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(seconds * 1000, easing = LinearEasing),
-                    repeatMode = RepeatMode.Restart,
-                ),
-                label = "drift$seconds",
-            )
-            t
+            phases.value = START
+            return@LaunchedEffect
         }
-
-    return listOf(phase(23, 0f), phase(31, 0.37f), phase(41, 0.71f))
+        while (true) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            phases.value = FloatArray(3) { i ->
+                START[i] + (now % PERIODS_MS[i]).toFloat() / PERIODS_MS[i]
+            }
+            delay(1000L / GLOW_FPS)
+        }
+    }
+    return phases
 }
+
+/** Where each light sits before anything moves, spread so they never start together. */
+private val START = floatArrayOf(0f, 0.37f, 0.71f)
+
+/** How long each light takes to go round. Co-prime-ish, in milliseconds. */
+private val PERIODS_MS = intArrayOf(23_000, 31_000, 41_000)
+
+/**
+ * How often the glow is redrawn.
+ *
+ * Fifteen. The fastest light moves a fifth of a degree of its circle in that time, so the
+ * difference between this and sixty is not visible on a blurred gradient - and it is four
+ * times less drawing, continuously, for as long as music is playing.
+ */
+private const val GLOW_FPS = 15L
 
 /**
  * Whether the system wants anything to move.
