@@ -70,8 +70,10 @@ fun BeatRing(
     leadMs: Long = LEAD_MS,
     /** How far the wave sits off the artwork, 0 to 1. See `Prefs.waveGap`. */
     waveGap: Float = 0.35f,
-    /** How tall the wave's peaks are, 0 to 1. Zero draws no wave at all. */
+    /** How deep the lobes get on a full-strength beat, 0 to 1. Zero draws no wave. */
     waveSize: Float = 0.5f,
+    /** And how deep they are with nothing happening. Zero is a flat circle at rest. */
+    waveRest: Float = 0.12f,
     /** How far a beat may move it. See `Prefs.pulseDepth`. */
     pulseDepth: Float = 1f,
     /**
@@ -148,10 +150,23 @@ fun BeatRing(
             val nowMs = (playback.positionNow() ?: state.value.positionMs) + leadMs
             val seconds = android.os.SystemClock.elapsedRealtime() / 1000.0
             val base = ring * (1f + WAVE_OFF_MIN + waveGap * WAVE_OFF_SPAN)
-            val amp = r * (WAVE_AMP_MIN + waveSize * WAVE_AMP_SPAN)
-            // Always some motion, more when the track is loud, and a hard kick on a beat.
+            // BETWEEN two settings rather than scaled by one.
+            //
+            // There was a single size with an idle built into it, so the wave rippled away
+            // whatever the music did - and a wave that is always waving is not reacting to
+            // anything. Rest is where it sits with nothing happening, size is where a
+            // full-strength beat takes it, and the music moves it between them. At rest
+            // zero it is a plain circle until a drum arrives.
+            //
+            // The motion is GRADED, too: the onset envelope runs 0 to 1 by strength, so a
+            // ghost note lifts the wave a little where a downbeat takes it all the way,
+            // rather than every beat being the same beat.
             val loud = beats.levelAt(nowMs)
-            val drive = (WAVE_IDLE + loud * WAVE_LOUD + hit * WAVE_KICK).coerceIn(0f, 1.6f)
+            val energy = (hit * WAVE_KICK + loud * WAVE_LOUD).coerceIn(0f, 1f)
+            val rest = waveRest.coerceIn(0f, 1f)
+            val amp = r * WAVE_AMP_SPAN *
+                (rest + (waveSize - rest).coerceAtLeast(0f) * energy)
+            val drive = 1f
             val path = Path()
             for (i in 0..WAVE_POINTS) {
                 val th = i.toFloat() / WAVE_POINTS * 2f * PI.toFloat()
@@ -286,10 +301,9 @@ private val LOBES = arrayOf(
  */
 private val LOBE_PEAK = LOBES.sumOf { it.weight.toDouble() }.toFloat() * 0.55f
 
-/** How much the wave moves with nothing happening, with the music, and on a beat. */
-private const val WAVE_IDLE = 0.34f
-private const val WAVE_LOUD = 0.40f
-private const val WAVE_KICK = 0.95f
+/** How much a beat and the music's loudness each count toward driving the wave. */
+private const val WAVE_KICK = 0.90f
+private const val WAVE_LOUD = 0.30f
 
 /**
  * Where the wave sits, as a fraction of the ring, at the two ends of its control.
@@ -300,9 +314,8 @@ private const val WAVE_KICK = 0.95f
 private const val WAVE_OFF_MIN = 0.06f
 private const val WAVE_OFF_SPAN = 0.26f
 
-/** And how deep its lobes get, as a fraction of the artwork's radius. */
-private const val WAVE_AMP_MIN = 0.04f
-private const val WAVE_AMP_SPAN = 0.40f
+/** How deep the lobes get at the very top of the size control. */
+private const val WAVE_AMP_SPAN = 0.44f
 
 /** How long the highlight takes to go round. Inside the range most music sits in. */
 private const val SWEEP_MS = 2_400

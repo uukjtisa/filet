@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -231,6 +232,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         ),
         waveGap = vm.prefs.waveGap.collectAsStateWithLifecycle().value,
         waveSize = vm.prefs.waveSize.collectAsStateWithLifecycle().value,
+        waveRest = vm.prefs.waveRest.collectAsStateWithLifecycle().value,
         speed = speed,
         sleepLeft = sleepLeft,
         maxSpeed = maxSpeed,
@@ -357,6 +359,7 @@ private class PlayerCtx(
     val pulseLead: Float,
     val waveGap: Float,
     val waveSize: Float,
+    val waveRest: Float,
     val speed: Float,
     val sleepLeft: Int,
     val maxSpeed: Float,
@@ -433,6 +436,8 @@ private fun FaceTopBar(c: PlayerCtx) {
             onWaveGap = if (!c.glow) null else { v: Float -> c.vm.prefs.setWaveGap(v) },
             waveSize = c.waveSize.takeIf { c.glow },
             onWaveSize = if (!c.glow) null else { v: Float -> c.vm.prefs.setWaveSize(v) },
+            waveRest = c.waveRest.takeIf { c.glow },
+            onWaveRest = if (!c.glow) null else { v: Float -> c.vm.prefs.setWaveRest(v) },
         )
     }
 }
@@ -749,15 +754,27 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
             beats = null
             return@LaunchedEffect
         }
-        // `of`, not `build`: switching the pulse off and on again, or stepping to the next
-        // track and back, must not re-read the whole file. See `BeatMap.cache`.
+        // ONE read of the file, shared with the record. `TrackPcm` decodes it (or hands
+        // back what it already decoded) and the map is arithmetic over those samples - so
+        // arming the pulse and the disc at the same time no longer puts two MediaCodec
+        // instances on the same file, which is what made the pulse come back slowly on a
+        // reopen and sometimes not at all.
         //
-        // And the partial maps are taken as they come, so the pulse is running within a
-        // frame or two of the track opening instead of after the whole file has been read.
-        // The old `beats = null` that stood here went too: it threw away a perfectly good
-        // map for the length of the next read, which is the same blank spell by a
-        // different route.
-        beats = BeatMap.of(context, source) { partial -> beats = partial }
+        // Partial maps are taken as they come, so the pulse is running within a frame or
+        // two of the samples arriving rather than after the whole track is measured. The
+        // old `beats = null` that stood here went with it: it threw away a perfectly good
+        // map for the length of the next read.
+        val key = source.toString()
+        // The opening of the track is measured as soon as it exists, so there is a wave
+        // within a moment of the face appearing rather than after the whole file has been
+        // read AND the whole file has been analysed - two waits in series, which is why it
+        // used to take so long to show up.
+        val pcm = dev.niccc2007.filet.playback.TrackPcm.of(context, source) { early ->
+            if (beats == null) beats = BeatMap.from(early)
+        } ?: return@LaunchedEffect
+        beats = withContext(kotlinx.coroutines.Dispatchers.Default) {
+            BeatMap.of(key, pcm) { partial -> beats = partial }
+        }
     }
     val sense by c.vm.prefs.pulseSense.collectAsStateWithLifecycle()
     val depth by c.vm.prefs.pulseDepth.collectAsStateWithLifecycle()
@@ -827,13 +844,22 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
         val source = c.source
         if (dj && source != null) dev.niccc2007.filet.playback.TrackPcm.of(context, source)
     }
-    DisposableEffect(Unit) {
-        onDispose { dev.niccc2007.filet.playback.TrackPcm.forget() }
-    }
     val scope = rememberCoroutineScope()
     val engine = remember(c.node.path) { mutableStateOf<ScratchEngine?>(null) }
     /** Whether the track was playing when the finger landed. See [endScratch]. */
     val resumeAfter = remember(c.node.path) { mutableStateOf(false) }
+
+    /**
+     * Whether a finger is on the record RIGHT NOW.
+     *
+     * The engine is built in a coroutine, and until the track was already decoded that took
+     * longer than a short spin - so the gesture ended, `endScratch` found no engine and
+     * returned, and the thing arrived afterwards with nobody to use it and nobody to close
+     * it. Meanwhile every move had gone down the silent seeking path, which is exactly the
+     * report: the record makes no sound but the pulse follows the drag, because the pulse
+     * follows the PLAYER and the player was the thing being seeked.
+     */
+    val armed = remember(c.node.path) { mutableStateOf(false) }
     DisposableEffect(c.node.path) {
         onDispose {
             engine.value?.close()
@@ -886,6 +912,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                         detectDragGestures(
                             onDragStart = {
                                 scratching = true
+                                armed.value = true
                                 // Read from the PLAYER, not from `c`.
                                 //
                                 // This is why the record was confusing rather than simply
@@ -918,6 +945,12 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                                         dev.niccc2007.filet.data.Diag.log("scratch", "open failed at $at")
                                         return@launch
                                     }
+                                    // The finger may already be gone. Nothing is started,
+                                    // the player is left alone, and what was built is freed.
+                                    if (!armed.value) {
+                                        made.close()
+                                        return@launch
+                                    }
                                     c.playback.pause()
                                     if (!made.start()) {
                                         dev.niccc2007.filet.data.Diag.log("scratch", "start failed")
@@ -928,15 +961,25 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                                         if (wasPlaying) c.playback.resume()
                                         return@launch
                                     }
+                                    if (!armed.value) {
+                                        made.close()
+                                        if (wasPlaying) c.playback.resume()
+                                        return@launch
+                                    }
+                                    // Where the finger is NOW, not where it was when this
+                                    // began: a spin does not wait for a decoder.
+                                    made.seekToward(at)
                                     engine.value = made
                                 }
                             },
                             onDragEnd = {
                                 scratching = false
+                                armed.value = false
                                 endScratch(c, engine, resumeAfter, scope, at)
                             },
                             onDragCancel = {
                                 scratching = false
+                                armed.value = false
                                 endScratch(c, engine, resumeAfter, scope, at)
                             },
                         ) { change, _ ->
@@ -1007,6 +1050,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                     leadMs = lead,
                     waveGap = c.waveGap,
                     waveSize = c.waveSize,
+                    waveRest = c.waveRest,
                     turning = turning,
                     modifier = Modifier.fillMaxSize(),
                 )

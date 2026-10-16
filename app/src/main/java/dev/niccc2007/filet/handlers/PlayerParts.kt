@@ -249,6 +249,8 @@ fun PlayerOverflow(
     onWaveGap: ((Float) -> Unit)? = null,
     waveSize: Float? = null,
     onWaveSize: ((Float) -> Unit)? = null,
+    waveRest: Float? = null,
+    onWaveRest: ((Float) -> Unit)? = null,
 ) {
     var open by remember { mutableStateOf(false) }
     var faces by remember { mutableStateOf(false) }
@@ -353,8 +355,11 @@ fun PlayerOverflow(
                                 if (pulse && lead != null && onLead != null) {
                                     PanelSlider("Timing", lead, onChange = onLead)
                                 }
+                                if (pulse && waveRest != null && onWaveRest != null) {
+                                    PanelSlider("Wave at rest", waveRest, onChange = onWaveRest)
+                                }
                                 if (pulse && waveSize != null && onWaveSize != null) {
-                                    PanelSlider("Wave size", waveSize, onChange = onWaveSize)
+                                    PanelSlider("Wave on a beat", waveSize, onChange = onWaveSize)
                                 }
                                 if (pulse && waveGap != null && onWaveGap != null) {
                                     PanelSlider("Wave distance", waveGap, onChange = onWaveGap)

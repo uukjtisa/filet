@@ -200,6 +200,57 @@ class BeatMapTest {
     }
 
     @Test
+    fun `the transform inverts a known signal`() {
+        // The FFT underneath the onset detector, checked against something with an answer:
+        // a pure tone at bin 8 must put all of its energy in bin 8 and nowhere else.
+        val n = 64
+        val re = FloatArray(n) { kotlin.math.sin(2.0 * Math.PI * 8 * it / n).toFloat() }
+        val im = FloatArray(n)
+        Fft.transform(re, im)
+        val mags = FloatArray(n / 2) { kotlin.math.hypot(re[it], im[it]) }
+        val peak = mags.indices.maxByOrNull { mags[it] }
+        assertEquals(8, peak)
+        for (k in 0 until n / 2) {
+            if (k != 8) assertTrue("bin $k leaked ${mags[k]}", mags[k] < mags[8] * 0.05f)
+        }
+    }
+
+    @Test
+    fun `a window sums to something and is symmetric`() {
+        val w = Fft.hann(64)
+        assertEquals(0f, w.first(), 0.001f)
+        assertEquals(0f, w.last(), 0.001f)
+        assertEquals(1f, w.max(), 0.001f)
+        for (i in w.indices) assertEquals(w[i], w[w.size - 1 - i], 0.001f)
+    }
+
+    @Test
+    fun `spectral flux finds a change that broadband energy cannot`() {
+        // The reason for the FFT, as a case where the two measurements have to disagree.
+        //
+        // A steady tone, and for a fifth of a second it is replaced by a tone an octave and
+        // a half up at the SAME amplitude. The total energy is unchanged throughout - the
+        // detector that measured energy could not have seen this at all, which is why a
+        // snare under a sustained pad was missed - but the spectrum moves completely, so
+        // the flux spikes where the change is.
+        val rate = TrackPcm.TARGET_RATE
+        val n = rate * 3
+        val samples = ShortArray(n) {
+            val hz = if (it in rate until rate + rate / 5) 3_000.0 else 220.0
+            (kotlin.math.sin(2.0 * Math.PI * hz * it / rate) * 9000).toInt().toShort()
+        }
+        val map = BeatMap.from(TrackPcm(samples, rate))
+        val atChange = (0..3).maxOf { map.strengthAt(1_000L + it * BeatMap.BUCKET_MS) }
+        val duringSteady = map.strengthAt(600L)
+        // A third of the range on a synthetic signal whose only other "onsets" are
+        // windowing artefacts - the scale is set by the ninth decile of everything found,
+        // and here almost everything found is noise, so the bar is where a real detection
+        // lands rather than where it would on music.
+        assertTrue("the change did not register ($atChange)", atChange > 0.3f)
+        assertTrue("the steady tone fired ($duringSteady)", duringSteady < atChange * 0.5f)
+    }
+
+    @Test
     fun `an empty map says so`() {
         assertTrue(BeatMap(FloatArray(0)).empty)
         assertEquals(0f, BeatMap(FloatArray(0)).strengthAt(100L), 0.001f)

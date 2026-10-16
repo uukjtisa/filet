@@ -1,13 +1,5 @@
 package dev.niccc2007.filet.playback
 
-import android.content.Context
-import android.media.MediaCodec
-import android.media.MediaExtractor
-import android.media.MediaFormat
-import android.net.Uri
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -24,11 +16,10 @@ import kotlin.math.min
  *
  * ## What it actually costs
  *
- * One pass over the track, once, when the pulse is switched on and Aurora is on screen.
- * Decoding three minutes of audio is a second or two of CPU on a modern phone and nothing
- * afterwards: what is kept is one float per [BUCKET_MS], which for a three-minute song is
- * about nine thousand of them - thirty-six kilobytes, and no further reading, no thread, and
- * nothing running while the track plays.
+ * One pass over the samples [TrackPcm] has already decoded, once, when the pulse is switched
+ * on and Aurora is on screen. What is KEPT is two floats per [BUCKET_MS], which for a
+ * three-minute song is seventy kilobytes - and then no thread, no reading and nothing
+ * running while the track plays.
  *
  * It is behind a switch for that reason, and the switch is off. A second of work nobody asked
  * for, on a phone that may be doing something else, is not a thing to do by default.
@@ -36,11 +27,17 @@ import kotlin.math.min
  * ## How a beat is found
  *
  * Not by detecting tempo. Tempo detection is a research problem and a wrong answer is worse
- * than none - a light pulsing confidently on the off-beat reads as broken. What is measured
- * is **onset strength**: energy per bucket, and then how much each bucket RISES above the
- * recent average. A drum hit is a sharp rise; a sustained note is not. That is enough for a
- * light, it is cheap, and it degrades gracefully - on music with no percussion the ring
- * simply breathes instead of punching, which is the right answer for that music anyway.
+ * than none - a light pulsing confidently on the off-beat reads as broken.
+ *
+ * What is measured is **spectral flux**, which is what aubio, librosa and Essentia all use
+ * for this: the spectrum every [BUCKET_MS], and the sum of how much each bin went UP since
+ * the last one. The first version of this measured broadband energy instead, and that is
+ * wrong in a way you can hear - a snare under a sustained pad barely moves the total energy
+ * and was missed, while the pad swelling moved it a lot and fired. A snare is energy
+ * arriving across many bins at once, which flux sees and loudness does not.
+ *
+ * It degrades gracefully: on music with no percussion the ring breathes instead of punching,
+ * which is the right answer for that music anyway.
  */
 class BeatMap(private val onsets: FloatArray, private val levels: FloatArray = FloatArray(0)) {
 
@@ -133,134 +130,83 @@ class BeatMap(private val onsets: FloatArray, private val levels: FloatArray = F
         private const val REFERENCE = 0.90f
 
         /**
-         * Read a track and find its onsets. Null when it cannot be decoded.
+         * The map for a track that has already been decoded.
          *
-         * Suspending and on IO. It reads and decodes a whole file, which is never a
-         * main-thread job however fast the phone is.
+         * ## One decode, two views
          *
-         * ## It hands back partial maps as it goes, and that is not an optimisation
+         * This used to read and decode the file itself, which meant that playing a track
+         * with the pulse on and the record armed ran two `MediaCodec` instances over the
+         * same file at once. They competed, the slower one finished late, and on a device
+         * that will not hand out a second decoder it did not finish at all - which is the
+         * pulse sometimes never coming back. [TrackPcm] is now the single reader and this
+         * is arithmetic over what it produced.
          *
-         * Reported as the pulse starting late, and it was - by a second or two, every time
-         * a track opened. Nothing was wrong with the beat detection; there was simply no
-         * map yet. The whole file was decoded before anything was returned, so the opening
-         * of every song played with the pulse switched on and doing nothing.
-         *
-         * Decoding runs at something like a hundred times real time, so after a few tens
-         * of milliseconds the reader is already further into the track than the player is.
-         * [onPartial] therefore gets a usable map almost at once and a better one every
-         * [EMIT_EVERY] buckets after that, each covering more than playback has reached.
-         *
-         * The scale shifts slightly as more of the track is seen - the normalisation is
-         * against what has been read so far - which is a far smaller fault than a pulse
-         * that is not there.
+         * Pure and synchronous. A four-minute track is a couple of seconds of maths, which
+         * is why [onPartial] exists: the caller gets a usable map almost at once and a
+         * better one as more of the track is measured.
          */
-        suspend fun build(
-            context: Context,
-            uri: Uri,
-            onPartial: ((BeatMap) -> Unit)? = null,
-        ): BeatMap? = withContext(Dispatchers.IO) {
-            val extractor = MediaExtractor()
-            var codec: MediaCodec? = null
-            try {
-                extractor.setDataSource(context, uri, null)
-                var index = -1
-                var format: MediaFormat? = null
-                for (i in 0 until extractor.trackCount) {
-                    val f = extractor.getTrackFormat(i)
-                    if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
-                        index = i
-                        format = f
-                        break
-                    }
-                }
-                val fmt = format ?: return@withContext null
-                if (index < 0) return@withContext null
-                extractor.selectTrack(index)
-                val mime = fmt.getString(MediaFormat.KEY_MIME) ?: return@withContext null
-                val rate = fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-                val channels = fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)
-                codec = MediaCodec.createDecoderByType(mime)
-                codec.configure(fmt, null, null, 0)
-                codec.start()
+        fun from(pcm: TrackPcm, onPartial: ((BeatMap) -> Unit)? = null): BeatMap {
+            val hop = (pcm.rate * BUCKET_MS / 1000).toInt().coerceAtLeast(1)
+            val frames = (pcm.samples.size - WINDOW) / hop
+            if (frames < WARM_UP * 2) return BeatMap(FloatArray(0), FloatArray(0))
 
-                val perBucket = (rate * BUCKET_MS / 1000).toInt().coerceAtLeast(1) * channels
-                val energy = ArrayList<Float>(4096)
-                var emitAt = EMIT_FIRST
+            val window = Fft.hann(WINDOW)
+            val re = FloatArray(WINDOW)
+            val im = FloatArray(WINDOW)
+            val bins = WINDOW / 2
+            var previous = FloatArray(bins)
+            val flux = ArrayList<Float>(frames)
+            val energy = ArrayList<Float>(frames)
+            var emitAt = EMIT_FIRST
+
+            for (f in 0 until frames) {
+                val at = f * hop
                 var sum = 0.0
-                var count = 0
-                val info = MediaCodec.BufferInfo()
-                var fed = false
+                for (i in 0 until WINDOW) {
+                    val v = pcm.samples[at + i] / 32768f
+                    sum += kotlin.math.abs(v).toDouble()
+                    re[i] = v * window[i]
+                    im[i] = 0f
+                }
+                energy.add((sum / WINDOW).toFloat())
+                Fft.transform(re, im)
+                // SPECTRAL FLUX: how much each bin went UP since the last frame, summed.
+                //
+                // Only the rises, which is the half-wave rectification every published
+                // version of this does - a bin going quiet is the end of a note, not the
+                // start of one, and counting it makes every offset look like an onset.
+                var rise = 0.0
+                for (k in 0 until bins) {
+                    val mag = kotlin.math.hypot(re[k], im[k])
+                    val d = mag - previous[k]
+                    if (d > 0f) rise += d.toDouble()
+                    previous[k] = mag
+                }
+                flux.add(rise.toFloat())
 
-                while (true) {
-                    if (!fed) {
-                        val inIndex = codec.dequeueInputBuffer(TIMEOUT_US)
-                        if (inIndex >= 0) {
-                            val buffer = codec.getInputBuffer(inIndex)
-                            val read = if (buffer == null) -1 else extractor.readSampleData(buffer, 0)
-                            if (read < 0) {
-                                codec.queueInputBuffer(
-                                    inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM,
-                                )
-                                fed = true
-                            } else {
-                                codec.queueInputBuffer(inIndex, 0, read, extractor.sampleTime, 0)
-                                extractor.advance()
-                            }
-                        }
-                    }
-                    val outIndex = codec.dequeueOutputBuffer(info, TIMEOUT_US)
-                    if (outIndex >= 0) {
-                        val buffer = codec.getOutputBuffer(outIndex)
-                        if (buffer != null && info.size > 0) {
-                            // See the note in `ScratchEngine.decode`: the frame is the slice
-                            // at info.offset, and the samples are in the machine's own byte
-                            // order rather than a ByteBuffer's default. Without both, this
-                            // measures noise and the ring pulses on nothing.
-                            buffer.position(info.offset)
-                            buffer.limit(info.offset + info.size)
-                            val shorts =
-                                buffer.order(java.nio.ByteOrder.nativeOrder()).asShortBuffer()
-                            while (shorts.hasRemaining()) {
-                                sum += abs(shorts.get().toInt()) / 32768.0
-                                count++
-                                if (count >= perBucket) {
-                                    energy.add((sum / count).toFloat())
-                                    sum = 0.0
-                                    count = 0
-                                    if (onPartial != null && energy.size >= emitAt) {
-                                        emitAt = energy.size + EMIT_EVERY
-                                        onPartial(BeatMap(onsetsOf(energy), levelsOf(energy)))
-                                    }
-                                }
-                            }
-                        }
-                        codec.releaseOutputBuffer(outIndex, false)
-                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
-                    } else if (outIndex == MediaCodec.INFO_TRY_AGAIN_LATER && fed) {
-                        break
-                    }
+                if (onPartial != null && f >= emitAt) {
+                    emitAt = f + EMIT_EVERY
+                    onPartial(BeatMap(onsetsOf(flux), levelsOf(energy)))
                 }
-                if (energy.size < WARM_UP * 2) {
-                    dev.niccc2007.filet.data.Diag.log("beat", "too short: ${energy.size} buckets")
-                    return@withContext null
-                }
-                val onsets = onsetsOf(energy)
-                val levels = levelsOf(energy)
-                android.util.Log.i(
-                    "FiletBeat",
-                    "${onsets.size} buckets, ${onsets.count { it > 0.3f }} beats, " +
-                        "peak=${onsets.maxOrNull()} meanEnergy=${energy.average()}",
-                )
-                return@withContext BeatMap(onsets, levels)
-            } catch (e: Throwable) {
-                dev.niccc2007.filet.data.Diag.log("beat", "failed: $e")
-                return@withContext null
-            } finally {
-                runCatching { codec?.stop() }
-                runCatching { codec?.release() }
-                runCatching { extractor.release() }
             }
+            return BeatMap(onsetsOf(flux), levelsOf(energy))
         }
+
+        /**
+         * The analysis window.
+         *
+         * 1024 samples, which at `TrackPcm.TARGET_RATE` is 46 milliseconds - long enough to
+         * resolve a bass note's pitch and short enough that a snare does not smear across
+         * several frames. The hop is [BUCKET_MS], so consecutive windows overlap by more
+         * than half and no attack can fall between two of them.
+         */
+        private const val WINDOW = 1024
+
+        /** How far in the first usable map is handed over, in frames. Half a second. */
+        private const val EMIT_FIRST = 25
+
+        /** And how much more between each better one. */
+        private const val EMIT_EVERY = 150
 
         /**
          * Energy per bucket becomes "how much louder than it has been lately".
@@ -319,18 +265,6 @@ class BeatMap(private val onsets: FloatArray, private val levels: FloatArray = F
         }
 
         /**
-         * How much audio is read before the first usable map is handed over.
-         *
-         * Sixty buckets is 1.2 seconds of the track, which the decoder reaches in a few
-         * tens of milliseconds - so the pulse is running before anybody has noticed the
-         * track started, rather than a second or two into it.
-         */
-        private const val EMIT_FIRST = 60
-
-        /** And how much more between each better map after that. Three seconds of audio. */
-        private const val EMIT_EVERY = 150
-
-        /**
          * The loudness envelope, normalised and gently compressed.
          *
          * Against a high percentile rather than the maximum, for the same reason the onsets
@@ -352,42 +286,33 @@ class BeatMap(private val onsets: FloatArray, private val levels: FloatArray = F
         private const val TIMEOUT_US = 5_000L
 
         /**
-         * The last few tracks' maps, so switching the pulse off and on again is instant.
+         * The maps already measured, by track.
          *
-         * Reported as the pulse barely starting after a toggle, and that is exactly what it
-         * was: turning it off dropped the map, turning it back on decoded the whole file
-         * again, and for the second or two that took the face did nothing. The reading is
-         * the expensive part and its answer does not change, so it is kept.
-         *
-         * Four, by path and modification time. One is not enough - stepping to the next
-         * track and back is the other way this happens - and the cost is a few tens of
-         * kilobytes each, not megabytes: one float per twenty milliseconds of audio.
+         * Switching the pulse off and on used to drop the map and read the file again, and
+         * for the second or two that took the face did nothing. The measuring is the
+         * expensive part and its answer does not change, so it is kept. Four of them, at a
+         * few tens of kilobytes each - two floats per twenty milliseconds of audio.
          */
         private val cache = object : LinkedHashMap<String, BeatMap>(8, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BeatMap>) =
                 size > KEEP
 
             // LinkedHashMap is not thread-safe and this is read from the main thread and
-            // written from IO. Every access goes through the two synchronized helpers.
+            // written from a worker. Every access goes through a synchronized block.
         }
 
         private const val KEEP = 4
 
         /**
-         * The map for [uri], from memory if it has been read before.
+         * The map for [key], measuring it from [pcm] if it has not been measured yet.
          *
-         * A cache hit returns the finished map and never calls [onPartial]: there is
-         * nothing partial about it, and a caller that drew the partial states on the way
-         * past would flicker through them for no reason.
+         * A cache hit never calls [onPartial]: there is nothing partial about a finished
+         * map, and a caller that drew the partial states on the way past would flicker
+         * through them for no reason.
          */
-        suspend fun of(
-            context: Context,
-            uri: Uri,
-            onPartial: ((BeatMap) -> Unit)? = null,
-        ): BeatMap? {
-            val key = uri.toString()
+        fun of(key: String, pcm: TrackPcm, onPartial: ((BeatMap) -> Unit)? = null): BeatMap {
             synchronized(cache) { cache[key] }?.let { return it }
-            val built = build(context, uri, onPartial) ?: return null
+            val built = from(pcm, onPartial)
             synchronized(cache) { cache[key] = built }
             return built
         }

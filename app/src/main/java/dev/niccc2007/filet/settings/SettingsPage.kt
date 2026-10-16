@@ -123,6 +123,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val pulseLead by prefs.pulseLead.collectAsState()
     val waveGap by prefs.waveGap.collectAsState()
     val waveSize by prefs.waveSize.collectAsState()
+    val waveRest by prefs.waveRest.collectAsState()
     val glowSpill by prefs.glowSpill.collectAsState()
     val treeView by prefs.treeView.collectAsState()
     val scratchAudio by prefs.scratchAudio.collectAsState()
@@ -499,10 +500,18 @@ fun SettingsPage(vm: BrowserViewModel) {
                 }
                 item {
                     SliderRow(
-                        "Wave size",
-                        "How hard the beat drives the wave around the Aurora disc - it " +
-                            "ripples rather than inflating, so this is how deep the lobes " +
-                            "get, not how big the ring is. All the way down draws no wave.",
+                        "Wave at rest",
+                        "How much the wave moves when nothing is happening. All the way " +
+                            "down and it is a flat circle until a drum arrives.",
+                        waveRest,
+                    ) { prefs.setWaveRest(it) }
+                }
+                item {
+                    SliderRow(
+                        "Wave on a beat",
+                        "Where a full-strength beat takes it. Softer beats land " +
+                            "between this and the resting size rather than all hitting the " +
+                            "same, so the wave has the track's dynamics in it.",
                         waveSize,
                     ) { prefs.setWaveSize(it) }
                 }

@@ -577,7 +577,17 @@ class Prefs(context: Context) {
         sp.edit().putFloat(K_WAVE_GAP, c).apply()
     }
 
-    /** How tall the wave's peaks are, 0 to 1. Zero draws no wave. */
+    /** How deep the wave's lobes are with nothing happening. Zero is flat at rest. */
+    private val _waveRest = MutableStateFlow(sp.getFloat(K_WAVE_REST, 0.10f))
+    val waveRest: StateFlow<Float> = _waveRest.asStateFlow()
+
+    fun setWaveRest(v: Float) {
+        val c = v.coerceIn(0f, 1f)
+        _waveRest.value = c
+        sp.edit().putFloat(K_WAVE_REST, c).apply()
+    }
+
+    /** And how deep they get on a full-strength beat. Zero draws no wave. */
     private val _waveSize = MutableStateFlow(sp.getFloat(K_WAVE_SIZE, 0.5f))
     val waveSize: StateFlow<Float> = _waveSize.asStateFlow()
 
@@ -843,6 +853,7 @@ class Prefs(context: Context) {
         const val K_PULSE_LEAD = "play.pulseLead"
         const val K_WAVE_GAP = "play.waveGap"
         const val K_WAVE_SIZE = "play.waveSize"
+        const val K_WAVE_REST = "play.waveRest"
 
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }

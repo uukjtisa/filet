@@ -6,6 +6,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 
 /**
@@ -95,7 +96,29 @@ class TrackPcm(
 
         private val cache = LinkedHashMap<String, TrackPcm>(4, 0.75f, true)
 
-        /** Drop everything held. Called when nothing on screen can scratch any more. */
+        /**
+         * Decodes already running, by URI.
+         *
+         * Three decodes of the same four-minute track inside four seconds, from the
+         * diagnostics - the preload, the beat map and the finger landing on the disc all
+         * missed an empty cache at the same moment and all started reading. Each then
+         * competed with the others for the codec, so the one that mattered finished last
+         * and the gesture was over before the engine existed. Callers now share whichever
+         * read got there first.
+         */
+        private val inFlight = HashMap<String, kotlinx.coroutines.Deferred<TrackPcm?>>()
+
+        /** What has already been read, without reading anything. */
+        fun cached(uri: Uri): TrackPcm? = synchronized(cache) { cache[uri.toString()] }
+
+        /**
+         * Drop everything held.
+         *
+         * NOT called when the player is minimised, which is what it used to be: reopening
+         * then re-read the whole track, and until that finished there was no pulse and no
+         * scratch. Reported as the pulse taking an age to come back and sometimes not
+         * coming back at all. One track is kept, which is the one being played.
+         */
         fun forget() {
             synchronized(cache) { cache.clear() }
         }
@@ -106,10 +129,32 @@ class TrackPcm(
          * Suspending and on IO. It reads and decodes a whole file, which on a modern phone
          * is a fraction of a second and is never a main-thread job whatever it is.
          */
-        suspend fun of(context: Context, uri: Uri): TrackPcm? {
+        suspend fun of(
+            context: Context,
+            uri: Uri,
+            /**
+             * The first few seconds, handed over as soon as they exist.
+             *
+             * Reading a four-minute track takes a second or two, and anything that measures
+             * it - the beat map - could not start until that finished. Two serial waits is
+             * why the wave took so long to appear. This one is a copy of the opening, which
+             * is enough to analyse and draw something from while the rest arrives.
+             *
+             * Only the caller that STARTS the read is told; anyone who joins one already
+             * running just waits for the whole thing.
+             */
+            onEarly: ((TrackPcm) -> Unit)? = null,
+        ): TrackPcm? {
             val key = uri.toString()
             synchronized(cache) { cache[key] }?.let { return it }
-            val made = withContext(Dispatchers.IO) { decode(context, uri) } ?: return null
+            val job = synchronized(inFlight) {
+                inFlight[key] ?: kotlinx.coroutines.CoroutineScope(Dispatchers.IO).async {
+                    decode(context, uri, onEarly)
+                }.also { inFlight[key] = it }
+            }
+            val made = runCatching { job.await() }.getOrNull()
+            synchronized(inFlight) { inFlight.remove(key) }
+            if (made == null) return null
             synchronized(cache) {
                 cache[key] = made
                 while (cache.size > KEEP) {
@@ -120,9 +165,14 @@ class TrackPcm(
             return made
         }
 
-        private const val KEEP = 2
+        /** One track, which is eleven megabytes at most. The one being played. */
+        private const val KEEP = 1
 
-        private fun decode(context: Context, uri: Uri): TrackPcm? {
+        private fun decode(
+            context: Context,
+            uri: Uri,
+            onEarly: ((TrackPcm) -> Unit)? = null,
+        ): TrackPcm? {
             val extractor = MediaExtractor()
             var codec: MediaCodec? = null
             try {
@@ -161,6 +211,7 @@ class TrackPcm(
                 var sum = 0.0
                 var n = 0
                 var sinceEmit = 0.0
+                var earlyAt = rate * EARLY_SECONDS
                 val info = MediaCodec.BufferInfo()
                 var fed = false
 
@@ -204,6 +255,10 @@ class TrackPcm(
                                     out.add((sum / n).toInt().coerceIn(-32768, 32767).toShort())
                                     sum = 0.0
                                     n = 0
+                                    if (onEarly != null && out.size >= earlyAt) {
+                                        earlyAt = Int.MAX_VALUE
+                                        onEarly(TrackPcm(out.toArray(), rate))
+                                    }
                                 }
                             }
                         }
@@ -232,6 +287,15 @@ class TrackPcm(
                 runCatching { extractor.release() }
             }
         }
+
+        /**
+         * How much of the opening is handed over early.
+         *
+         * Four seconds, which the decoder reaches in a few tens of milliseconds and which
+         * is two hundred analysis frames - enough for the wave to have a shape and for the
+         * first beats of the track to be in it.
+         */
+        private const val EARLY_SECONDS = 4
 
         private const val TIMEOUT_US = 5_000L
     }

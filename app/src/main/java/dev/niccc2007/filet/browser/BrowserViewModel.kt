@@ -4539,6 +4539,26 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * one, which also means a track that has been deleted under the player says so instead
      * of being added as a row pointing at nothing.
      */
+    /**
+     * Open the folder a track lives in, from its path.
+     *
+     * A playlist row holds a path and not a node - a playlist is a list of places, and
+     * statting every one of them to draw a list would be a directory read per row. So the
+     * stat happens here, once, when somebody asks to be taken there.
+     */
+    fun revealPathInFolder(path: dev.niccc2007.filet.vfs.VPath) {
+        viewModelScope.launch {
+            val node = runCatching {
+                withContext(Dispatchers.IO) { graph.vfs.stat(path) }
+            }.getOrNull()
+            if (node == null) {
+                toast("That track is not there any more.")
+                return@launch
+            }
+            revealInFolder(node)
+        }
+    }
+
     fun askAddToPlaylistPath(path: dev.niccc2007.filet.vfs.VPath) {
         viewModelScope.launch {
             val node = runCatching {

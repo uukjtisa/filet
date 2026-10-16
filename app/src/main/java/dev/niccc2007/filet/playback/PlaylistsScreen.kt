@@ -10,7 +10,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -126,6 +128,9 @@ fun PlaylistsScreen(vm: BrowserViewModel, pane: PaneController) {
             lists = lists,
             onOpen = { open = it },
             onPlay = { vm.playPlaylist(it) },
+            onShuffle = { vm.playPlaylist(it, shuffle = true) },
+            onRename = { renaming = it },
+            onDelete = { deleting = it },
             onNew = { making = true },
         )
     }
@@ -179,18 +184,59 @@ private fun PlaylistList(
     lists: List<Playlist>,
     onOpen: (String) -> Unit,
     onPlay: (String) -> Unit,
+    onShuffle: (String) -> Unit,
+    onRename: (Playlist) -> Unit,
+    onDelete: (Playlist) -> Unit,
     onNew: () -> Unit,
 ) {
     val colors = Filet.colors
     LazyColumn(Modifier.fillMaxSize()) {
         items(lists, key = { it.id }) { list ->
+            // A long press on a playlist, which is where a long press goes everywhere else
+            // in this app. Without it the only way to rename or delete one was to open it
+            // first and find the buttons in its header - two steps to reach something the
+            // row itself plainly refers to.
+            var menu by remember(list.id) { mutableStateOf(false) }
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clickable { onOpen(list.id) }
+                    .combinedClickable(
+                        onClick = { onOpen(list.id) },
+                        onLongClick = { menu = true },
+                    )
                     .padding(horizontal = 14.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Box {
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Open", fontSize = 13.sp) },
+                            onClick = { menu = false; onOpen(list.id) },
+                        )
+                        if (list.size > 0) {
+                            DropdownMenuItem(
+                                text = { Text("Play", fontSize = 13.sp) },
+                                onClick = { menu = false; onPlay(list.id) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Shuffle", fontSize = 13.sp) },
+                                onClick = { menu = false; onShuffle(list.id) },
+                            )
+                        }
+                        // The two a built-in list does not have: Favourites is not a
+                        // playlist somebody made and cannot be renamed out of existence.
+                        if (!list.builtIn) {
+                            DropdownMenuItem(
+                                text = { Text("Rename", fontSize = 13.sp) },
+                                onClick = { menu = false; onRename(list) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete", fontSize = 13.sp) },
+                                onClick = { menu = false; onDelete(list) },
+                            )
+                        }
+                    }
+                }
                 PlaylistCover(vm.trackCards, list, 54.dp, radius = 13.dp)
                 Spacer(Modifier.width(13.dp))
                 Column(Modifier.weight(1f)) {
@@ -359,6 +405,8 @@ private fun PlaylistDetail(
                     null
                 },
                 onRemove = { vm.playlists.remove(list.id, path) },
+                onAddTo = { vm.askAddToPlaylistPath(path) },
+                onReveal = { vm.revealPathInFolder(path) },
             )
         }
         if (list.size == 0) {
@@ -549,6 +597,8 @@ private fun TrackRow(
     onUp: (() -> Unit)?,
     onDown: (() -> Unit)?,
     onRemove: () -> Unit,
+    onAddTo: () -> Unit,
+    onReveal: () -> Unit,
 ) {
     val colors = Filet.colors
     var menu by remember { mutableStateOf(false) }
@@ -556,7 +606,10 @@ private fun TrackRow(
         Modifier
             .fillMaxWidth()
             .background(if (playing) tint.copy(alpha = 0.10f) else Color.Transparent)
-            .clickable(onClick = onPlay)
+            // The dots are still there; this is the same menu reached the way a list row is
+            // normally asked a question in this app. A control that exists only as a 34dp
+            // target at the end of a row is a control half the people using it never find.
+            .combinedClickable(onClick = onPlay, onLongClick = { menu = true })
             .padding(start = 14.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -648,6 +701,14 @@ private fun TrackRow(
                         onClick = { menu = false; it() },
                     )
                 }
+                DropdownMenuItem(
+                    text = { Text("Add to another playlist", fontSize = 13.sp) },
+                    onClick = { menu = false; onAddTo() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Open containing folder", fontSize = 13.sp) },
+                    onClick = { menu = false; onReveal() },
+                )
                 DropdownMenuItem(
                     text = { Text("Take out of this playlist", fontSize = 13.sp) },
                     onClick = { menu = false; onRemove() },
