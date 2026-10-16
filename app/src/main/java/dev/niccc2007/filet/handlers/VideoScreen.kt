@@ -256,6 +256,20 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
      */
     var handedOver by remember(node.path) { mutableStateOf(false) }
 
+    /**
+     * Sound off, picture on.
+     *
+     * Per video rather than remembered, which is the quieter of the two wrong answers: a mute
+     * that persists means somebody opens a clip tomorrow, hears nothing, and has no idea why.
+     * The state of a thing that makes no sound is hard to notice, so the button is lit while
+     * it is on rather than only changing its glyph.
+     */
+    var muted by remember(node.path) { mutableStateOf(false) }
+    LaunchedEffect(muted, handedOver) {
+        if (handedOver) return@LaunchedEffect
+        runCatching { handle.player?.setVolume(if (muted) 0f else 1f, if (muted) 0f else 1f) }
+    }
+
     /** 0 while watching, 1 once the veil is fully up. Drives the dissolve and the volume. */
     val handOff by animateFloatAsState(
         if (handedOver) 1f else 0f,
@@ -269,7 +283,9 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     LaunchedEffect(handOff) {
         if (handedOver) {
             runCatching {
-                val v = (1f - handOff).coerceIn(0f, 1f)
+                // A muted video is already at zero; the ramp must not turn it back up on its
+                // way out.
+                val v = if (muted) 0f else (1f - handOff).coerceIn(0f, 1f)
                 handle.player?.setVolume(v, v)
             }
         }
@@ -289,7 +305,10 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
         kotlinx.coroutines.delay(HANDOFF_GIVE_UP_MS)
         if (!handedOver) {
             handingOver = false
-            runCatching { handle.player?.setVolume(1f, 1f) }
+            runCatching {
+                val back = if (muted) 0f else 1f
+                handle.player?.setVolume(back, back)
+            }
             vm.toast("Could not switch this to audio. Still playing as video.")
         }
     }
@@ -1175,6 +1194,14 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                                     whenFailed = { handingOver = false },
                                 )
                             }
+                        }
+                        OverlayAction(
+                            if (muted) FiletIcons.VolumeOff else FiletIcons.Volume,
+                            if (muted) "Sound off - tap for sound" else "Mute",
+                            active = muted,
+                        ) {
+                            muted = !muted
+                            wake()
                         }
                         OverlayAction(FiletIcons.Expand, orientationLabel(lockedOrientation)) {
                             lockedOrientation = nextOrientation(lockedOrientation)

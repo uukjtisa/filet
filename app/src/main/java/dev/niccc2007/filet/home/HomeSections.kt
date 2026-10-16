@@ -39,3 +39,24 @@ object HomeSections {
     /** Both, for anything that needs to render or check the pair. */
     val ALL = listOf(ARRIVED, OPENED)
 }
+
+/**
+ * The ids of the Home sections that can be folded away.
+ *
+ * Ids, not labels. A section's heading is copy and has been rewritten several times - see
+ * the note on ARRIVED - and a fold keyed on the words would forget itself every time somebody
+ * improved them.
+ */
+object HomeFolds {
+    const val ARRIVED = "arrived"
+    const val TRACKED = "tracked"
+    const val OPENED = "opened"
+
+    /**
+     * Folded until somebody opens them.
+     *
+     * The tracked-folder list only: it is a settings screen that was left lying in the middle
+     * of a feed, and on a phone watching nine folders it was most of the first screen.
+     */
+    val SHUT = setOf(TRACKED)
+}

@@ -2,21 +2,17 @@
 
 package dev.niccc2007.filet.home
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,34 +21,36 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
-import dev.niccc2007.filet.browser.PaneKind
 import dev.niccc2007.filet.browser.CapacityBar
 import dev.niccc2007.filet.browser.FileKind
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.browser.PaneController
+import dev.niccc2007.filet.browser.PaneKind
 import dev.niccc2007.filet.browser.SectionLabel
 import dev.niccc2007.filet.browser.ago
 import dev.niccc2007.filet.browser.humanSize
-import dev.niccc2007.filet.ui.tabs.EmptyTab
-import dev.niccc2007.filet.ui.tabs.HomeSearchBar
-import dev.niccc2007.filet.ui.tabs.StorageTile
-import dev.niccc2007.filet.ui.tabs.Tiles
 import dev.niccc2007.filet.ui.dialogs.Dlg
 import dev.niccc2007.filet.ui.dialogs.DlgAction
 import dev.niccc2007.filet.ui.dialogs.DlgBody
@@ -60,6 +58,10 @@ import dev.niccc2007.filet.ui.dialogs.DlgBtn
 import dev.niccc2007.filet.ui.dialogs.DlgCtxHead
 import dev.niccc2007.filet.ui.dialogs.DlgFooter
 import dev.niccc2007.filet.ui.dialogs.DlgSpacer
+import dev.niccc2007.filet.ui.tabs.EmptyTab
+import dev.niccc2007.filet.ui.tabs.HomeSearchBar
+import dev.niccc2007.filet.ui.tabs.StorageTile
+import dev.niccc2007.filet.ui.tabs.Tiles
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 
@@ -78,6 +80,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     val downloads by vm.home.downloads.collectAsState()
     val recents by vm.recents.items.collectAsState()
     val tracked by vm.tracked.folders.collectAsState()
+    val folds by vm.prefs.homeFolds.collectAsState()
     val hideStorage by vm.prefs.hideStorage.collectAsState()
     val hiddenCards by vm.prefs.hiddenCards.collectAsState()
     val hideTermux by vm.prefs.hideTermux.collectAsState()
@@ -262,10 +265,12 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                 SectionHeaderWithAction(
                     label = HomeSections.ARRIVED,
                     action = "Expand",
+                    folded = HomeFolds.ARRIVED in folds,
+                    onFold = { vm.prefs.toggleHomeFold(HomeFolds.ARRIVED) },
                     onAction = { pane.openSpecial(PaneKind.HISTORY, HomeSections.ARRIVED_TAB) },
                 )
             }
-            items(downloads.size) { i ->
+            items(if (HomeFolds.ARRIVED in folds) 0 else downloads.size) { i ->
                 val d = downloads[i]
                 FeedRow(
                     node = d.node,
@@ -293,6 +298,8 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                 SectionHeaderWithAction(
                     label = "Tracked folders (${tracked.size})",
                     action = if (startAt != null) "Add a folder" else null,
+                    folded = HomeFolds.TRACKED in folds,
+                    onFold = { vm.prefs.toggleHomeFold(HomeFolds.TRACKED) },
                     onAction = {
                         startAt ?: return@SectionHeaderWithAction
                         vm.pickFolder("Track a folder", "Track this folder", startAt) { dest ->
@@ -301,7 +308,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                     },
                 )
             }
-            items(tracked.size) { i ->
+            items(if (HomeFolds.TRACKED in folds) 0 else tracked.size) { i ->
                 val t = tracked[i]
                 TrackedRow(
                     folder = t,
@@ -317,10 +324,12 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                 SectionHeaderWithAction(
                     label = HomeSections.OPENED,
                     action = "Expand",
+                    folded = HomeFolds.OPENED in folds,
+                    onFold = { vm.prefs.toggleHomeFold(HomeFolds.OPENED) },
                     onAction = { pane.openSpecial(PaneKind.RECENT, HomeSections.OPENED) },
                 )
             }
-            items(minOf(recents.size, 8)) { i ->
+            items(if (HomeFolds.OPENED in folds) 0 else minOf(recents.size, 8)) { i ->
                 val r = recents[i]
                 val node = VNode(r.path, r.isDir, -1, r.at)
                 FeedRow(
@@ -557,12 +566,34 @@ private fun TrackedRow(
  * action has to name itself: an unlabelled affordance on a heading reads as decoration.
  */
 @Composable
-private fun SectionHeaderWithAction(label: String, action: String?, onAction: () -> Unit) {
+private fun SectionHeaderWithAction(
+    label: String,
+    action: String?,
+    folded: Boolean? = null,
+    onFold: (() -> Unit)? = null,
+    onAction: () -> Unit,
+) {
     val colors = Filet.colors
+    val turn by animateFloatAsState(if (folded == true) -90f else 0f, label = "fold")
     Row(
-        Modifier.fillMaxWidth().padding(end = 8.dp),
+        Modifier
+            .fillMaxWidth()
+            .then(if (onFold != null) Modifier.clickable(onClick = onFold) else Modifier)
+            .padding(end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // The whole heading folds the section, not a chevron beside it. Two targets for one
+        // action means the small one is the one that works.
+        if (folded != null) {
+            Icon(
+                FiletIcons.Down, null,
+                tint = colors.fg3,
+                modifier = Modifier
+                    .padding(start = 14.dp)
+                    .size(13.dp)
+                    .graphicsLayer { rotationZ = turn },
+            )
+        }
         Box(Modifier.weight(1f)) { SectionLabel(label) }
         // A heading whose verb is unavailable draws no verb at all, rather than a greyed one.
         // Greying says "this exists and you may not have it", which is a different claim.

@@ -204,6 +204,19 @@ object FiletIcons {
         "M17 7a7 7 0 0 1 0 10",
     )
 
+    /**
+     * The same speaker with the arcs struck through.
+     *
+     * The arcs go rather than being crossed as well - at 18dp a speaker, two arcs and a slash
+     * is a smudge, and what reads as "off" is the slash arriving where the sound used to be.
+     */
+    val VolumeOff = stroke(
+        "volumeoff",
+        "M4 9.5h3L11 6v12L7 14.5H4z",
+        "m14.5 9.5 5 5",
+        "m19.5 9.5-5 5",
+    )
+
     val Archive = stroke("archive", "M4 6h16v4H4z", "M5.5 10h13v9h-13z", "M10 13.5h4")
     val Trawl = stroke("trawl", "M4 12s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5", "M15 12h.01", "m20 8 1.5 4-1.5 4")
 

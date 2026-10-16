@@ -3087,6 +3087,26 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         )
     }
 
+    /**
+     * Open something from a recent-files list, folder or file.
+     *
+     * Here rather than at the two call sites, because the drawer and the Home feed must not
+     * disagree about what tapping the same row does.
+     */
+    fun openRecent(entry: dev.niccc2007.filet.data.RecentEntry) {
+        if (entry.isDir) {
+            focusedPane()?.navigateTo(entry.path)
+        } else {
+            openHomeEntry(VNode(entry.path, false, -1, entry.at))
+        }
+    }
+
+    /** Whether Trawl is on the phone. A row that opens a store page is an advertisement. */
+    fun trawlInstalled(): Boolean {
+        val pm = graph.app.packageManager
+        return TRAWL_PACKAGES.any { runCatching { pm.getLaunchIntentForPackage(it) }.getOrNull() != null }
+    }
+
     /** Opens Trawl if it is installed, or its release page if it is not. */
     fun openTrawl() {
         val pm = graph.app.packageManager

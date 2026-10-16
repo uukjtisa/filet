@@ -373,6 +373,63 @@ class Prefs(context: Context) {
         sp.edit().putString(K_PANE_SWIPE_AT, v).apply()
     }
 
+    /**
+     * Which groups of the navigation drawer are open.
+     *
+     * Persisted, because the group somebody leaves open is the one holding what they use,
+     * and that is a thing only they know. Storage and Recent start open - between them they
+     * answer "where am I going" for most visits - and the long list of places starts folded.
+     */
+    private val _drawerStorage = MutableStateFlow(sp.getBoolean(K_DRAWER_STORAGE, true))
+    val drawerStorage: StateFlow<Boolean> = _drawerStorage.asStateFlow()
+
+    fun setDrawerStorage(on: Boolean) {
+        _drawerStorage.value = on
+        sp.edit().putBoolean(K_DRAWER_STORAGE, on).apply()
+    }
+
+    private val _drawerRecent = MutableStateFlow(sp.getBoolean(K_DRAWER_RECENT, true))
+    val drawerRecent: StateFlow<Boolean> = _drawerRecent.asStateFlow()
+
+    fun setDrawerRecent(on: Boolean) {
+        _drawerRecent.value = on
+        sp.edit().putBoolean(K_DRAWER_RECENT, on).apply()
+    }
+
+    private val _drawerPlaces = MutableStateFlow(sp.getBoolean(K_DRAWER_PLACES, false))
+    val drawerPlaces: StateFlow<Boolean> = _drawerPlaces.asStateFlow()
+
+    fun setDrawerPlaces(on: Boolean) {
+        _drawerPlaces.value = on
+        sp.edit().putBoolean(K_DRAWER_PLACES, on).apply()
+    }
+
+    /**
+     * Which sections of the Home overview are folded shut.
+     *
+     * A set of ids rather than a flag each, so a new section does not need a new preference,
+     * a new key and a new accessor to be foldable - it needs an id.
+     *
+     * Everything is open unless it is in here, EXCEPT the ones named in `HomeFolds.SHUT`:
+     * the list of tracked folders is a settings screen that had been left lying in the
+     * middle of a feed, and on a phone watching nine folders it was most of the first
+     * screen. Which is what was reported.
+     */
+    private val _homeFolds = MutableStateFlow(
+        sp.getString(K_HOME_FOLDS, null)?.split('|')?.filter { it.isNotBlank() }?.toSet()
+            ?: dev.niccc2007.filet.home.HomeFolds.SHUT,
+    )
+    val homeFolds: StateFlow<Set<String>> = _homeFolds.asStateFlow()
+
+    fun toggleHomeFold(id: String) {
+        val next = _homeFolds.value.let { if (id in it) it - id else it + id }
+        _homeFolds.value = next
+        // Joined rather than a StringSet: a set preference has no order and this one is
+        // read back as a whole, so a delimiter nobody can type into a section id is simpler
+        // and survives an export as one string.
+        sp.edit().putString(K_HOME_FOLDS, next.joinToString("|")).apply()
+    }
+
     /** Which face the full music player draws. See `PlayerFace`. */
     /**
      * Whether a slowed track keeps its pitch or drops with the speed.
@@ -594,6 +651,10 @@ class Prefs(context: Context) {
         const val K_GLOW_SPILL = "play.glowSpill"
         const val K_PANE_SWIPE = "panes.swipe"
         const val K_PANE_SWIPE_AT = "panes.swipeAt"
+        const val K_DRAWER_STORAGE = "drawer.storage"
+        const val K_DRAWER_RECENT = "drawer.recent"
+        const val K_DRAWER_PLACES = "drawer.places"
+        const val K_HOME_FOLDS = "home.folds"
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
 }
