@@ -517,6 +517,27 @@ class Prefs(context: Context) {
         sp.edit().putFloat(K_PULSE_DEPTH, c).apply()
     }
 
+    /**
+     * How far ahead of the reported position the beat map is read, in milliseconds.
+     *
+     * A setting because the thing it compensates for - the delay between a decoder and a
+     * speaker - is not reportable on Android and differs by device, by output and by
+     * whether anything is paired over Bluetooth. See `LEAD_MS`.
+     */
+    private val _pulseLead = MutableStateFlow(
+        sp.getLong(K_PULSE_LEAD, dev.niccc2007.filet.playback.LEAD_MS),
+    )
+    val pulseLead: StateFlow<Long> = _pulseLead.asStateFlow()
+
+    fun setPulseLead(ms: Long) {
+        val c = ms.coerceIn(
+            dev.niccc2007.filet.playback.LEAD_MIN,
+            dev.niccc2007.filet.playback.LEAD_MAX,
+        )
+        _pulseLead.value = c
+        sp.edit().putLong(K_PULSE_LEAD, c).apply()
+    }
+
     /** Which face the full music player draws. See `PlayerFace`. */
     /**
      * Whether a slowed track keeps its pitch or drops with the speed.
@@ -747,6 +768,7 @@ class Prefs(context: Context) {
         const val K_BEAT_PULSE = "play.pulse"
         const val K_PULSE_SENSE = "play.pulseSense"
         const val K_PULSE_DEPTH = "play.pulseDepth"
+        const val K_PULSE_LEAD = "play.pulseLead"
 
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }

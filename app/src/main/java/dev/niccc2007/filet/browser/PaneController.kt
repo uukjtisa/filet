@@ -434,25 +434,49 @@ class PaneController(
             // and reading five thousand files before the first row appears is the stall the
             // whole listing pipeline exists to avoid - see `relist`.
             val acc = ArrayList<VNode>()
+            var lastPush = 0L
+            fun publish() {
+                _state.value = _state.value.copy(
+                    branches = _state.value.branches + (
+                        path to acc
+                            .filter { prefs.showHidden.value || !it.name.startsWith('.') }
+                            .sortedBy(prefs.sort.value)
+                        ),
+                )
+            }
             runCatching {
                 vfs.list(path) { chunk ->
                     acc += chunk
                     // A fold closed mid-read must not reopen itself, and must stop costing.
                     if (path !in _state.value.open) return@list
-                    dev.niccc2007.filet.data.Diag.log(
-                        "tree", "chunk ${chunk.size} total ${acc.size} for $path",
-                    )
-                    _state.value = _state.value.copy(
-                        branches = _state.value.branches + (
-                            path to acc
-                                .filter { prefs.showHidden.value || !it.name.startsWith('.') }
-                                .sortedBy(prefs.sort.value)
-                            ),
-                    )
+                    // The FIRST chunk goes up immediately and the rest are paced.
+                    //
+                    // Publishing every chunk sorts the whole accumulation each time, which
+                    // on a folder of a few thousand is most of the work and all of the wait
+                    // - the rows crawled in rather than arriving. The first chunk is what
+                    // makes the branch look open, so it is never delayed; after that a
+                    // frame's worth of pacing turns dozens of full sorts into a handful.
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    val first = _state.value.branches[path] == null
+                    if (!first && now - lastPush < PUSH_EVERY_MS) return@list
+                    lastPush = now
+                    publish()
                 }
+                // And the last word, always: the final chunk usually falls inside the
+                // pacing window, and a branch that is missing its tail until something
+                // else happens to redraw it is worse than one that was slow.
+                if (path in _state.value.open) publish()
             }
         }
     }
+
+    /**
+     * How often a branch being read publishes what it has.
+     *
+     * One frame. Fast enough that rows appear to stream in, slow enough that a folder of
+     * thousands is not re-sorted sixty times on the way.
+     */
+    private val PUSH_EVERY_MS = 16L
 
     /** Fold everything away, for the toolbar's collapse-all. */
     fun collapseTree() {

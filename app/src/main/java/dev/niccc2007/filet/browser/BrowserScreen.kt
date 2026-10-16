@@ -1031,7 +1031,7 @@ private fun tabSwipe(
                         val s = state.value
                         val onSide = if (s.split == SplitMode.OFF) Side.A else side
                         val current = if (onSide == Side.A) s.activeA else s.activeB
-                        PaneSwipe.nextTab(current, PaneSwipe.stepFor(dxNow), s.tabIds.size)
+                        PaneSwipe.nextTab(current, PaneSwipe.stepFor(dxNow), vm.tabCount())
                             ?.let { vm.tabTitleAt(it) }
                     },
                 )

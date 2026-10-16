@@ -923,7 +923,16 @@ private fun FolderBody(
                         // Going INTO a folder is still there - the breadcrumb, the chevron's
                         // own row, and the long-press menu - but the tap belongs to the tree.
                         onClick = {
-                            if (tree && node.isDir) pane.toggleBranch(node.path)
+                            // NOT while something is selected.
+                            //
+                            // The tree took the tap for itself unconditionally, so once a
+                            // long press had selected a folder there was no way to unselect
+                            // it: tapping it expanded it instead, and tapping another one
+                            // expanded that. Selection outranks the tree for the same reason
+                            // it outranks opening a file everywhere else in the list - while
+                            // a selection is live, a tap is about the selection. The chevron
+                            // is its own target and still expands, so nothing is lost.
+                            if (tree && node.isDir && !s.selecting) pane.toggleBranch(node.path)
                             else rowClick(pane, vm, side, node)
                         },
                         // See the tile above: the drag detector owns the long press.

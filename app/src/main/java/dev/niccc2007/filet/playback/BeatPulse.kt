@@ -44,6 +44,8 @@ fun rememberBeatPulse(
     on: Boolean,
     /** How readily a rise counts as a beat. See `Prefs.pulseSense`. */
     sensitivity: Float = 1f,
+    /** How far ahead of the player the map is read, in milliseconds. See `Prefs.pulseLead`. */
+    leadMs: Long = LEAD_MS,
 ): State<Float> {
     val level = remember { mutableFloatStateOf(0f) }
     // Kept across restarts of the loop below. A better map arrives every few hundred
@@ -53,7 +55,7 @@ fun rememberBeatPulse(
     val held = remember { floatArrayOf(0f) }
     val animated = rememberSystemAnimations()
     val live = on && animated && beats != null && !beats.empty
-    LaunchedEffect(live, beats, sensitivity) {
+    LaunchedEffect(live, beats, sensitivity, leadMs) {
         if (!live) {
             held[0] = 0f
             level.floatValue = 0f
@@ -67,7 +69,17 @@ fun rememberBeatPulse(
         while (true) {
             val state = playback.state.value
             val now = android.os.SystemClock.elapsedRealtime()
-            if (state.positionMs != reported) {
+            // ASK THE PLAYER, and only fall back to the state flow when there is no answer.
+            //
+            // The flow is written five times a second, so reading it and extrapolating adds
+            // up to two hundred milliseconds of the last tick's age to every reading. That
+            // was never the whole of the lateness, but it was the part with no reason to
+            // exist: the player knows where it is and answering costs one call.
+            val livePos = playback.positionNow()
+            if (livePos != null) {
+                reported = livePos
+                stampedAt = now
+            } else if (state.positionMs != reported) {
                 reported = state.positionMs
                 stampedAt = now
             }
@@ -80,7 +92,7 @@ fun rememberBeatPulse(
             // decoder and the ear is latency the player does not report - the mixer, the
             // device's own buffer, a speaker DSP - and all of it makes a light driven by
             // the reported position land behind the sound.
-            val at = reported + (now - stampedAt) + LEAD_MS
+            val at = reported + (now - stampedAt) + leadMs
             val raw =
                 if (!state.playing) 0f
                 else (map.strengthAt(at) * sensitivity).coerceIn(0f, 1f)
@@ -110,21 +122,36 @@ const val DECAY_MS = 220f
  * glow's own 15fps on purpose: the drift is a forty-second ellipse and does not need the
  * frames, the beat does, and only this state ticks at this rate.
  */
-const val PULSE_FPS = 45L
+const val PULSE_FPS = 60L
 
 /**
  * How far ahead of the reported position the beat map is read.
  *
- * Sixty milliseconds. Android reports where the DECODER is, and what reaches the speaker is
- * behind that by the mixer's buffer plus whatever the device adds - commonly forty to a
- * hundred and twenty milliseconds, and more over Bluetooth. A light that fires on the
- * reported position is therefore early by none of that and late by all of it, which is
- * exactly what a pulse running behind the music looks like.
+ * The DEFAULT, and the reason there is a slider for it.
  *
- * It is deliberately a touch short of a typical device latency rather than a touch long:
- * a pulse a hair early reads as anticipation, and one a hair late reads as broken.
+ * Android reports where the decoder is. What reaches the speaker is behind that by the
+ * mixer's buffer plus whatever the device adds on top - its own effects, a speaker DSP, a
+ * Bluetooth hop - and none of that is reportable. It is commonly forty to a hundred and
+ * fifty milliseconds and it is different on every phone, so no constant compiled in here can
+ * be right for all of them, and sixty was plainly not right for this one.
+ *
+ * A hundred and forty as the default, and a control to move it. A pulse a hair early reads
+ * as anticipation and a hair late reads as broken, so the error is deliberately biased
+ * toward early.
  */
-const val LEAD_MS = 60L
+const val LEAD_MS = 140L
+
+/** What the timing slider can ask for, in milliseconds ahead of the reported position. */
+const val LEAD_MIN = -60L
+const val LEAD_MAX = 400L
+
+/** The slider's 0-to-1 position as a lead, and back. Linear: milliseconds are milliseconds. */
+fun leadFor(position: Float): Long =
+    (LEAD_MIN + (LEAD_MAX - LEAD_MIN) * position.coerceIn(0f, 1f)).toLong()
+
+/** The inverse of [leadFor]. */
+fun leadPosition(ms: Long): Float =
+    ((ms.coerceIn(LEAD_MIN, LEAD_MAX) - LEAD_MIN).toFloat() / (LEAD_MAX - LEAD_MIN))
 
 /** The gain the sensitivity slider runs between. Below 1, only the hardest hits show. */
 const val PULSE_SENSE_MIN = 0.4f

@@ -72,29 +72,37 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
     }
 
     @Volatile private var window: Window? = null
-    @Volatile private var speed = 0f
 
     /**
-     * When the speed was last set, and whether a decode is already in flight.
+     * WHERE the finger is, in milliseconds into the track.
      *
-     * The first is why the record used to run away: `setSpeed` is called from drag events,
-     * and a finger that stops moving sends none - so the last speed stood for ever and the
-     * track carried on at whatever rate the hand happened to be going when it stopped. A real
-     * record stops when the hand does, so an update that does not arrive is itself a reading.
+     * ## Position, not speed, and that is the whole repair
+     *
+     * This used to be a speed, differentiated from two drag samples a few milliseconds
+     * apart and then smoothed back out with a chase constant. Every part of that was a
+     * problem. The derivative of a noisy signal is noise; the smoothing that fixed the noise
+     * made the sound lag the hand; and the engine integrating a speed while the picture
+     * integrated an angle gave one record two clocks, which drift, which is why the disc,
+     * the sound and the scrub bar all said different things.
+     *
+     * A real record has no speed input. It has a position - where your hand is holding the
+     * groove - and the speed is whatever that position is doing. So the finger writes a
+     * position here, every frame, and the audio converges on it. Speed, direction and
+     * silence-when-held all fall out of that one number, and nothing can drift from it
+     * because there is nothing else to drift from.
+     */
+    @Volatile private var targetMs = 0.0
+
+    /**
+     * When the finger was last heard from, and whether a decode is already in flight.
+     *
+     * The first is a safety net rather than the mechanism it used to be: a target that stops
+     * moving already stops the sound, because the gap closes. This only catches a gesture
+     * that ended without anyone saying so.
      */
     @Volatile private var spokeAt = 0L
     @Volatile private var recentring = false
 
-    /**
-     * The speed actually being played, as opposed to the one last asked for.
-     *
-     * A finger reports a position every frame or two and the speed derived from two samples
-     * a few milliseconds apart is noisy - it jumps around its own average by a long way, and
-     * playing each of those values for a chunk is heard as a stutter even though the finger
-     * moved smoothly. So the played speed CHASES the asked-for one rather than snapping to
-     * it. The audio is then as smooth as the hand rather than as smooth as the sampling.
-     */
-    @Volatile private var playing = 0f
     @Volatile private var running = false
     @Volatile private var atMs = 0.0
     private var track: AudioTrack? = null
@@ -103,6 +111,8 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
     /** Where the sound is now, for handing back to the player on release. */
     val positionMs: Long get() = atMs.toLong().coerceAtLeast(0L)
 
+    @Volatile private var lastStep = 0f
+
     /**
      * Decode a window around [aroundMs]. False means this track cannot be scratched.
      *
@@ -110,9 +120,17 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
      * second or so it takes.
      */
     suspend fun open(aroundMs: Long): Boolean = withContext(Dispatchers.IO) {
-        val w = decode(aroundMs) ?: return@withContext false
+        // A SMALL window to begin with.
+        //
+        // The sound has to start the moment the finger does, and decoding twenty-four
+        // seconds of audio takes long enough to be heard as the record not responding at
+        // the start of every spin. Eight seconds is a few hundred milliseconds of decode
+        // and is immediately replaced: `needsMore` is true against the full edge margin as
+        // soon as this lands, so the first drag frame asks for the big one.
+        val w = decode(aroundMs, OPEN_MS) ?: return@withContext false
         window = w
         atMs = aroundMs.toDouble()
+        targetMs = aroundMs.toDouble()
         true
     }
 
@@ -154,15 +172,19 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
     }
 
     /**
-     * How fast, and which way.
+     * Where the hand is holding the record, in milliseconds into the track.
      *
-     * 1 is forward at the track's own speed, -1 is backward at the same speed, 0 is a stopped
-     * record - which is silence, not a pause, because a stopped record makes no sound.
+     * Called on every drag frame. Writing one number, so there is no reason to throttle it
+     * and every reason not to: the more often the target arrives, the more exactly the
+     * sound is the hand.
      */
-    fun setSpeed(value: Float) {
-        speed = value.coerceIn(-MAX_SPEED, MAX_SPEED)
+    fun seekToward(ms: Long) {
+        targetMs = ms.toDouble()
         spokeAt = android.os.SystemClock.elapsedRealtime()
     }
+
+    /** Where the sound is now, as a fraction of real time. Negative is backwards. */
+    val speedNow: Float get() = lastStep
 
     /** Stop, free the window, and leave nothing running. */
     fun close() {
@@ -176,10 +198,18 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
         window = null
     }
 
-    /** True when the finger is near the edge of what has been decoded. */
+    /**
+     * True when the FINGER is near the edge of what has been decoded.
+     *
+     * The finger, not the sound. The sound is behind the finger by design, so asking where
+     * the sound is means the decode is not asked for until the finger is already most of the
+     * way to the edge - and on a fast spin it arrives after the hand has left the window,
+     * which is heard as the record cutting out. Asking where the HAND is buys the whole lag
+     * plus the whole decode.
+     */
     fun needsMore(): Boolean {
         val w = window ?: return false
-        val at = atMs
+        val at = targetMs
         return at - w.startMs < EDGE_MS || w.endMs - at < EDGE_MS
     }
 
@@ -194,7 +224,13 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
         if (recentring) return
         recentring = true
         try {
-            val fresh = withContext(Dispatchers.IO) { decode(positionMs) } ?: return
+            // Around the FINGER, and biased in the direction it is going. Centring on the
+            // sound decoded a window half of which was already behind, so a hand moving one
+            // way reached the far edge again almost immediately and the record cut out
+            // every few seconds instead of once.
+            val ahead = (lastStep * LOOK_AHEAD_MS).toLong().coerceIn(-WINDOW_MS / 3, WINDOW_MS / 3)
+            val around = (targetMs.toLong() + ahead).coerceAtLeast(0L)
+            val fresh = withContext(Dispatchers.IO) { decode(around, WINDOW_MS) } ?: return
             // Position is in milliseconds, so the audio thread reads the new window on its
             // next frame and carries on from the same instant. No index to translate.
             window = fresh
@@ -213,17 +249,37 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
                 runCatching { out.write(chunk, 0, chunk.size) }
                 continue
             }
-            // A speed nobody has confirmed lately is a finger that has stopped.
+            // A gesture that ended without saying so. The ordinary stop needs no help:
+            // a target that is not moving is reached, and a reached target is silence.
             val stale = android.os.SystemClock.elapsedRealtime() - spokeAt > QUIET_MS
-            if (stale && speed != 0f) speed = 0f
-            val target = speed
+            // CLAMPED to what has actually been decoded.
+            //
+            // Without this a hand that outran the decode left the target outside the window,
+            // the read index went off the end, and the engine wrote silence - which is the
+            // record cutting out mid-spin. Clamped, the sound runs to the edge of what is
+            // loaded and waits there, still playing the moment the next window lands. A
+            // record that briefly stops catching up is a record; one that goes silent is a
+            // bug.
+            val asked = if (stale) atMs else targetMs
+            val target = asked.coerceIn(
+                (w.startMs + EDGE_GUARD_MS).toDouble(),
+                (w.endMs - EDGE_GUARD_MS).toDouble(),
+            )
             var pos = atMs
             val perFrameMs = 1000.0 / w.rate
             for (f in 0 until CHUNK_FRAMES) {
-                // Per frame, not per chunk: a speed that changes in steps of 512 frames is
-                // twelve steps a second, which is audible as a chop on a long drag.
-                playing += (target - playing) * CHASE
-                val step = playing
+                // Per frame, not per chunk: the gap is re-read as the audio closes it, so
+                // the approach is exponential rather than twelve steps a second of constant
+                // speed - which is audible as a chop on a long drag.
+                //
+                // CATCH_MS is the time constant. A steady hand settles at a steady gap and
+                // therefore a steady speed equal to the hand's; a hand that stops is caught
+                // and the sound stops with it; a hand that reverses makes the gap negative
+                // and the step negative, which is the reverse play, falling out of the same
+                // line rather than being a mode.
+                val step = ((target - pos) / CATCH_MS)
+                    .coerceIn(-MAX_SPEED.toDouble(), MAX_SPEED.toDouble())
+                    .toFloat()
                 val offset = (pos - w.startMs) * w.rate / 1000.0
                 if (abs(step) < CREEP || offset < 1.0 || offset > w.frames - 2.0) {
                     // Off the edge of the window, or a record somebody is holding still.
@@ -239,6 +295,7 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
                     chunk[f * 2 + 1] = if (w.channels > 1) lerp(w, i, i + 1, 1, frac) else chunk[f * 2]
                 }
                 pos += step * perFrameMs
+                lastStep = step
             }
             atMs = pos.coerceIn(0.0, Double.MAX_VALUE)
             runCatching { out.write(chunk, 0, chunk.size) }.onFailure { running = false }
@@ -251,8 +308,8 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
         return (first + (second - first) * frac).toInt().coerceIn(-32768, 32767).toShort()
     }
 
-    /** Decode [WINDOW_MS] of PCM centred on [aroundMs]. Null when the track cannot be read. */
-    private fun decode(aroundMs: Long): Window? {
+    /** Decode [spanMs] of PCM centred on [aroundMs]. Null when the track cannot be read. */
+    private fun decode(aroundMs: Long, spanMs: Long): Window? {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         try {
@@ -271,7 +328,7 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
             if (audio < 0) return null
             extractor.selectTrack(audio)
 
-            val startMs = (aroundMs - WINDOW_MS / 2).coerceAtLeast(0L)
+            val startMs = (aroundMs - spanMs / 2).coerceAtLeast(0L)
             extractor.seekTo(startMs * 1000L, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
             // Where the decoder ACTUALLY starts, which is the sync point before the request
             // and can be seconds earlier.
@@ -289,7 +346,7 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
             // on can sit outside what was decoded - which is silence, intermittently,
             // depending entirely on where the nearest sync point happened to be. That was
             // most of "sometimes it is just silent".
-            val span = WINDOW_MS + lead
+            val span = spanMs + lead
             val wanted = (span * rate / 1000).toInt() * channels
             val out = ShortArray(wanted)
             var written = 0
@@ -377,14 +434,30 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
         /**
          * How much of the track is held as PCM at once.
          *
-         * Twelve seconds. At 44.1kHz stereo that is about two megabytes - a gesture's worth of
-         * memory, freed the moment the finger lifts - and it is far enough either way that an
-         * ordinary scratch never reaches the edge.
+         * Twenty-four seconds. At 44.1kHz stereo that is about four megabytes - a gesture's
+         * worth of memory, freed the moment the finger lifts. It was twelve, which at the
+         * speeds a hand actually reaches is about two seconds of spinning before the edge,
+         * and the edge was silence.
          */
-        const val WINDOW_MS = 12_000L
+        const val WINDOW_MS = 24_000L
 
-        /** How close to an edge counts as needing a fresh window. */
-        const val EDGE_MS = 2_500L
+        /**
+         * How close to an edge counts as needing a fresh window.
+         *
+         * Generous, because the decode is not instant and the thing it is racing is a hand.
+         * At six times speed this is a second and a half of warning, which is about what a
+         * decode of this size takes.
+         */
+        const val EDGE_MS = 9_000L
+
+        /** How far outside the decoded window the sound may be asked to go. Not at all. */
+        const val EDGE_GUARD_MS = 120L
+
+        /** How far ahead of the hand a fresh window is centred, per unit of speed. */
+        const val LOOK_AHEAD_MS = 3_000f
+
+        /** The first window, decoded on touch-down, sized to be quick rather than large. */
+        const val OPEN_MS = 8_000L
 
         /** Frames written per pass. About 12ms, so the finger's speed arrives promptly. */
         const val CHUNK_FRAMES = 512
@@ -393,13 +466,18 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
         const val MAX_SPEED = 6f
 
         /**
-         * How quickly the played speed catches the asked-for one, per frame.
+         * How long the sound takes to arrive where the finger is, in milliseconds.
          *
-         * At 44.1kHz this reaches a new speed in about five milliseconds - fast enough that
-         * the sound answers the hand immediately, slow enough that the jitter between two
-         * finger samples is averaged away instead of being played.
+         * The time constant of the whole thing, and the only tuning left. Forty-five is
+         * short enough that the sound is the hand rather than an echo of it, and long enough
+         * that the jitter between two finger samples is absorbed instead of played - which
+         * is what the old chase constant was for, done where it cannot cause drift.
+         *
+         * It also sets the steady-state lag: a hand moving at 1x sits forty-five
+         * milliseconds of track ahead of the sound, which is below what anybody hears as a
+         * delay and is, as it happens, roughly the compliance of a real stylus.
          */
-        const val CHASE = 0.004f
+        const val CATCH_MS = 45.0
 
         /** Below this there is no sound to make, and resampling it only produces a hum. */
         const val CREEP = 0.02f

@@ -222,6 +222,9 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         pulse = beatPulse,
         pulseSense = dev.niccc2007.filet.playback.sensePosition(vm.prefs.pulseSense.collectAsStateWithLifecycle().value),
         pulseDepth = vm.prefs.pulseDepth.collectAsStateWithLifecycle().value,
+        pulseLead = dev.niccc2007.filet.playback.leadPosition(
+            vm.prefs.pulseLead.collectAsStateWithLifecycle().value,
+        ),
         speed = speed,
         sleepLeft = sleepLeft,
         maxSpeed = maxSpeed,
@@ -338,9 +341,10 @@ private class PlayerCtx(
     /** Aurora's two switches, read here so the overflow does not reach for the prefs. */
     val scratch: Boolean,
     val pulse: Boolean,
-    /** The pulse's two knobs, both as 0-to-1 slider positions. */
+    /** The pulse's knobs, all as 0-to-1 slider positions. */
     val pulseSense: Float,
     val pulseDepth: Float,
+    val pulseLead: Float,
     val speed: Float,
     val sleepLeft: Int,
     val maxSpeed: Float,
@@ -398,6 +402,10 @@ private fun FaceTopBar(c: PlayerCtx) {
             },
             depth = c.pulseDepth.takeIf { c.glow },
             onDepth = if (!c.glow) null else { v: Float -> c.vm.prefs.setPulseDepth(v) },
+            lead = c.pulseLead.takeIf { c.glow },
+            onLead = if (!c.glow) null else { v: Float ->
+                c.vm.prefs.setPulseLead(dev.niccc2007.filet.playback.leadFor(v))
+            },
         )
     }
 }
@@ -728,8 +736,10 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
     val depth by c.vm.prefs.pulseDepth.collectAsStateWithLifecycle()
     // ONE envelope for the whole face, so the backdrop and the ring beat together rather
     // than each keeping its own clock a frame apart. See `rememberBeatPulse`.
-    val envelope =
-        dev.niccc2007.filet.playback.rememberBeatPulse(beats, c.playback, pulse, sense)
+    val lead by c.vm.prefs.pulseLead.collectAsStateWithLifecycle()
+    val envelope = dev.niccc2007.filet.playback.rememberBeatPulse(
+        beats, c.playback, pulse, sense, lead,
+    )
     val beating = if (pulse && beats != null) envelope else null
 
     dev.niccc2007.filet.playback.AuroraBackdrop(
@@ -814,15 +824,20 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                     // the place rather than guessing at a bar. See `Scratch` for the
                     // geometry and for why the decoder is told twelve times a second rather
                     // than sixty.
-                    .pointerInput(c.node.path) {
+                    // KEYED ON `dj` as well as the track.
+                    //
+                    // `pointerInput` launches its block once per key and keeps everything it
+                    // closed over. Keyed on the path alone, turning the sound on or off did
+                    // not reach this code until the next song - so the gesture ran with one
+                    // setting while the engine ran with the other. See `Scratch.MS_PER_TURN`
+                    // for what that did.
+                    .pointerInput(c.node.path, dj) {
                         val centre = androidx.compose.ui.geometry.Offset(
                             size.width / 2f,
                             size.height / 2f,
                         )
                         var at = 0L
                         var told = 0L
-                        var lastMoveAt = 0L
-                        val perTurn = dev.niccc2007.filet.playback.Scratch.perTurnMs(dj)
                         // `awaitEachGesture` would be the wrong tool here: this must
                         // consume everything from the first move onwards, or a fast
                         // back-and-forth leaks into whatever is behind the disc and the
@@ -843,7 +858,11 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                                 // StateFlow is live by construction.
                                 at = c.playback.state.value.positionMs
                                 told = 0L
-                                lastMoveAt = 0L
+                                // The handle under the scrub bar follows the record from the
+                                // first frame. Without this the bar sat where it was when the
+                                // finger landed and only jumped at the end, so the two halves
+                                // of the same gesture disagreed on where the track was.
+                                c.onScrub(at)
                                 if (!dj) return@detectDragGestures
                                 // Everything the engine costs starts HERE, on touch, and ends
                                 // on release. Nothing is decoded or allocated while a track is
@@ -873,11 +892,11 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                             },
                             onDragEnd = {
                                 scratching = false
-                                endScratch(c, engine, resumeAfter, scope)
+                                endScratch(c, engine, resumeAfter, scope, at)
                             },
                             onDragCancel = {
                                 scratching = false
-                                endScratch(c, engine, resumeAfter, scope)
+                                endScratch(c, engine, resumeAfter, scope, at)
                             },
                         ) { change, _ ->
                             change.consume()
@@ -890,7 +909,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                             val duration = c.playback.state.value.durationMs
                             val was = at
                             at = dev.niccc2007.filet.playback.Scratch.seekTo(
-                                at, turned, duration, perTurn,
+                                at, turned, duration,
                             )
                             // The disc stops when the track does.
                             //
@@ -902,26 +921,18 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                             // it simply stops and waits for the hand to come back.
                             val moved = at != was || (duration <= 0L)
                             if (moved) scratched += turned
+                            // ONE position drives all three: the picture turns by it, the
+                            // handle sits on it, and the engine plays toward it. They cannot
+                            // disagree because there is nothing to disagree with.
+                            c.onScrub(at)
                             val live = engine.value
                             if (live != null) {
-                                // The engine owns the position while it is running: it is the
-                                // thing actually making the sound, and two clocks for one
-                                // record is how the picture and the audio drift apart.
-                                val since = (now - lastMoveAt).coerceIn(1L, 80L)
-                                val rate = dev.niccc2007.filet.playback.Scratch.speedFor(
-                                    turned * 1000f / since, perTurn,
-                                )
-                                live.setSpeed(rate)
-                                android.util.Log.i(
-                                    "FiletScratch",
-                                    "turn=$turned dt=$since rate=$rate at=${live.positionMs}",
-                                )
+                                live.seekToward(at)
                                 if (live.needsMore()) scope.launch { live.recentre() }
                             } else if (now - told >= dev.niccc2007.filet.playback.Scratch.SEEK_EVERY_MS) {
                                 told = now
                                 c.playback.seekTo(at)
                             }
-                            lastMoveAt = now
                         }
                     },
             ) {
@@ -1081,14 +1092,22 @@ private fun endScratch(
     engine: androidx.compose.runtime.MutableState<ScratchEngine?>,
     resumeAfter: androidx.compose.runtime.MutableState<Boolean>,
     scope: kotlinx.coroutines.CoroutineScope,
+    /** Where the FINGER left the record. */
+    landedAt: Long,
 ) {
-    val live = engine.value ?: return
+    val live = engine.value
+    // The handle goes down where the finger left it, whether or not the sound was
+    // following - that is also what takes the scrub bar off its override.
+    c.onScrubEnd(landedAt)
+    if (live == null) return
     engine.value = null
-    val landed = live.positionMs
-    live.setSpeed(0f)
+    live.seekToward(landedAt)
     scope.launch {
         live.close()
-        c.playback.seekTo(landed)
+        // The finger's position, not the engine's. They are within a few tens of
+        // milliseconds of each other by construction, and the one the player should
+        // continue from is the one the picture and the handle are both showing.
+        c.playback.seekTo(landedAt)
         // Only if it was playing when the finger landed. Scratching a paused track and
         // having it start is the player deciding something nobody asked it to.
         if (resumeAfter.value) c.playback.resume()

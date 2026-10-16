@@ -26,6 +26,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -142,6 +147,22 @@ fun FileRow(
         label = "rowBackground",
     )
     val step = metrics.step
+    // The outline ARRIVES rather than being there.
+    //
+    // Drawn at full strength on the frame the branch opens, it reads as a box snapping into
+    // existence over rows that are themselves still appearing - two unrelated things
+    // happening at once, which is what made expanding a folder feel wrong rather than slow.
+    // Faded and drawn in from slightly outside, it reads as one movement.
+    //
+    // The last edge is held through the fade OUT, or a row would lose its piece of the box
+    // the instant it stopped being in it and the outline would come apart before it faded.
+    var heldEdge by remember { mutableStateOf(edge) }
+    if (edge != null) heldEdge = edge
+    val framed by animateFloatAsState(
+        if (edge != null) 1f else 0f,
+        animationSpec = tween(FRAME_IN_MS, easing = FastOutSlowInEasing),
+        label = "workingFrame",
+    )
     Row(
         verticalAlignment = Alignment.CenterVertically,
         // ORDER MATTERS, and it is not the usual convention.
@@ -167,7 +188,7 @@ fun FileRow(
             .then(modifier)
             .drawBehind {
                 if (treeRow) treeGuides(depth, spines, lastOfSiblings, openInPlace, steps, accent)
-                if (edge != null) activeFrame(edge, accent)
+                heldEdge?.takeIf { framed > 0.01f }?.let { activeFrame(it, accent, framed) }
             }
             .padding(
                 start = (steps.startDp + depth * steps.indentDp).dp,
@@ -465,8 +486,10 @@ enum class ActiveEdge { TOP, MIDDLE, BOTTOM, ONLY }
  * hairline rectangle sitting on top of the list. At that alpha the outer pass is barely a
  * colour; it is the whole difference between a drawn border and a stuck-on one.
  */
-private fun DrawScope.activeFrame(edge: ActiveEdge, accent: Color) {
-    val inset = 3.dp.toPx()
+private fun DrawScope.activeFrame(edge: ActiveEdge, accent: Color, at: Float) {
+    // From a little outside to its resting place. A box that only fades in reads as a
+    // transparency change; one that also closes reads as something arriving.
+    val inset = (3f + 5f * (1f - at)).dp.toPx()
     val r = 12.dp.toPx()
     val left = inset
     val right = size.width - inset
@@ -482,7 +505,7 @@ private fun DrawScope.activeFrame(edge: ActiveEdge, accent: Color) {
     val box = androidx.compose.ui.geometry.Size(r * 2f, r * 2f)
 
     for ((width, alpha) in FRAME_PASSES) {
-        val colour = accent.copy(alpha = alpha)
+        val colour = accent.copy(alpha = alpha * at)
         val w = width.dp.toPx()
         val stroke = Stroke(width = w)
         drawLine(colour, Offset(left, sideTop), Offset(left, sideBottom), w)
@@ -502,6 +525,14 @@ private fun DrawScope.activeFrame(edge: ActiveEdge, accent: Color) {
 
 /** Stroke widths and alphas, outside in. The first two are the glow; the last is the line. */
 private val FRAME_PASSES = listOf(6f to 0.07f, 3f to 0.16f, 1.4f to 0.72f)
+
+/**
+ * How long the outline takes to arrive.
+ *
+ * Short. It is confirming something that has already happened - the branch is open, the rows
+ * are there - so anything long enough to watch is an animation for its own sake.
+ */
+private const val FRAME_IN_MS = 150
 
 /** Half the chevron's 26dp box, which is where its spine hangs from. */
 private const val CHEVRON_HALF = 13

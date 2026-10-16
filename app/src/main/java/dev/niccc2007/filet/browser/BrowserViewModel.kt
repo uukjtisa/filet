@@ -186,7 +186,10 @@ data class AppPick(
 data class OpenRequest(val node: VNode, val handler: HandlerId)
 
 data class AppState(
-    val tabIds: List<Int> = emptyList(),
+    // `tabIds` used to sit here, always empty, never written and never read - until the
+    // swipe hint read it to decide whether there was a tab that way. The answer was
+    // therefore always no, so a swipe that worked perfectly well announced "No tab that
+    // way" while doing it. A field that is dead but looks live is worse than no field.
     val activeA: Int = 0,
     val activeB: Int = 0,
     val split: SplitMode = SplitMode.OFF,
@@ -780,6 +783,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     /** What the tab a swipe would land on is called, for the hint while you are pushing. */
     fun tabTitleAt(index: Int): String? = _tabs.value.getOrNull(index)?.state?.value?.title
+
+    /** How many tabs there are, for anything deciding whether there is one that way. */
+    fun tabCount(): Int = _tabs.value.size
 
     /**
      * The pane a side is showing.

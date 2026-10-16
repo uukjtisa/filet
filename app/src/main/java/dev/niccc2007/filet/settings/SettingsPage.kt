@@ -120,6 +120,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val beatPulse by prefs.beatPulse.collectAsState()
     val pulseSense by prefs.pulseSense.collectAsState()
     val pulseDepth by prefs.pulseDepth.collectAsState()
+    val pulseLead by prefs.pulseLead.collectAsState()
     val glowLevel by prefs.glowLevel.collectAsState()
     val glowSpill by prefs.glowSpill.collectAsState()
     val treeView by prefs.treeView.collectAsState()
@@ -492,6 +493,16 @@ fun SettingsPage(vm: BrowserViewModel) {
                             "brightest together.",
                         pulseDepth,
                     ) { prefs.setPulseDepth(it) }
+                }
+                item {
+                    SliderRow(
+                        "Timing",
+                        "Where the pulse sits against the sound. Android does not report " +
+                            "what a phone adds between its decoder and its speaker, and it " +
+                            "differs per device and over Bluetooth - so this is the one " +
+                            "that has to be set by ear. Right is later.",
+                        dev.niccc2007.filet.playback.leadPosition(pulseLead),
+                    ) { prefs.setPulseLead(dev.niccc2007.filet.playback.leadFor(it)) }
                 }
             }
             item {

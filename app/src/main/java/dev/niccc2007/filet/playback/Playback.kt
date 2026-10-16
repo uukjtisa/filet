@@ -687,6 +687,18 @@ class Playback(
      * simply not drawn. Releasing the player instead - which is what closing the video screen
      * used to do - is the thing that stopped it.
      */
+    /**
+     * Where the player is this instant, not where the ticker last wrote it down.
+     *
+     * The ticker runs five times a second, which is right for a scrub bar and wrong for
+     * anything that has to land ON something: reading the state flow and extrapolating adds
+     * the age of the last tick to every answer. Asking the player costs one JNI call.
+     *
+     * Returns null when there is no player, rather than 0 - a missing answer and the start
+     * of the track are different things, and conflating them is a light that fires at zero.
+     */
+    fun positionNow(): Long? = runCatching { player?.currentPosition?.toLong() }.getOrNull()
+
     fun setSurface(target: Surface?) {
         surface = target
         runCatching { player?.setSurface(target) }

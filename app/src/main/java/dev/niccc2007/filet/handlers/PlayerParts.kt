@@ -234,6 +234,9 @@ fun PlayerOverflow(
     /** How far a beat swings the glow, 0 to 1. Null when the pulse is off. */
     depth: Float? = null,
     onDepth: ((Float) -> Unit)? = null,
+    /** How far ahead of the player the beats are read, 0 to 1. Null when the pulse is off. */
+    lead: Float? = null,
+    onLead: ((Float) -> Unit)? = null,
 ) {
     var open by remember { mutableStateOf(false) }
     var faces by remember { mutableStateOf(false) }
@@ -311,6 +314,14 @@ fun PlayerOverflow(
                                 }
                                 if (pulse && depth != null && onDepth != null) {
                                     PanelSlider("Intensity", depth, onDepth)
+                                }
+                                // The one that cannot be got right in code. What a phone
+                                // does between its decoder and its speaker is not
+                                // reportable, so where the pulse sits against the sound is
+                                // the listener's to set - and it is here, over the track,
+                                // because that is the only place it can be judged.
+                                if (pulse && lead != null && onLead != null) {
+                                    PanelSlider("Timing", lead, onLead)
                                 }
                             }
                         }

@@ -50,36 +50,46 @@ class ScratchTest {
 
     @Test
     fun `a hand moving at a record's pace plays at about normal speed`() {
-        // Roughly what an ordinary drag across a phone-sized disc measures.
-        val speed = Scratch.speedFor(200f, Scratch.MS_PER_TURN_DJ)
+        // Roughly what an ordinary drag across a phone-sized disc measures. This is the
+        // whole reason MS_PER_TURN is what it is.
+        val speed = Scratch.speedFor(200f, Scratch.MS_PER_TURN)
         assertTrue("got ${speed}x, which is not a sound", speed > 0.7f && speed < 2.5f)
     }
 
     @Test
-    fun `the silent setting would have been a chirp`() {
-        // The reason the disc turns at two speeds: the same hand against twenty seconds a
-        // revolution is eleven times speed.
-        val speed = Scratch.speedFor(200f, Scratch.MS_PER_TURN)
+    fun `the old seeking constant would have been a chirp`() {
+        // Why there is only one constant now. Twenty seconds a revolution against the same
+        // hand is eleven times speed, which is clamped and heard as a chirp - and that is
+        // what ran whenever the setting and the gesture disagreed about which one applied.
+        val speed = Scratch.speedFor(200f, 20_000f)
         assertTrue("expected an unusable rate, got ${speed}x", speed > 8f)
     }
 
     @Test
     fun `backwards is just a negative speed`() {
-        val back = Scratch.speedFor(-200f, Scratch.MS_PER_TURN_DJ)
-        val forward = Scratch.speedFor(200f, Scratch.MS_PER_TURN_DJ)
+        val back = Scratch.speedFor(-200f, Scratch.MS_PER_TURN)
+        val forward = Scratch.speedFor(200f, Scratch.MS_PER_TURN)
         assertEquals(-forward, back, 0.0001f)
     }
 
     @Test
     fun `a still hand is a stopped record`() {
-        assertEquals(0f, Scratch.speedFor(0f, Scratch.MS_PER_TURN_DJ), 0.0001f)
+        assertEquals(0f, Scratch.speedFor(0f, Scratch.MS_PER_TURN), 0.0001f)
     }
 
     @Test
-    fun `a turn covers less of the track when the sound is following`() {
-        assertTrue(
-            Scratch.msFor(360f, Scratch.MS_PER_TURN_DJ) <
-                Scratch.msFor(360f, Scratch.MS_PER_TURN),
+    fun `one turn means one thing, whatever the sound is doing`() {
+        // The inconsistency that was reported: the same drag moved the track eight times
+        // further depending on a switch, and which of the two was in force depended on
+        // when the gesture had last been rebuilt.
+        assertEquals(
+            Scratch.msFor(360f, Scratch.MS_PER_TURN),
+            Scratch.msFor(360f),
+        )
+        assertEquals(
+            Scratch.seekTo(10_000L, 360f, 300_000L),
+            Scratch.seekTo(10_000L, 360f, 300_000L, Scratch.MS_PER_TURN),
         )
     }
+
 }
