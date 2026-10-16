@@ -122,82 +122,77 @@ fun BeatRing(
 
         // ── the wave ───────────────────────────────────────────────────────────────
         //
-        // The travelling highlight that used to live here was a clock with a gradient on
-        // it: a bright arc going round at a fixed rate, which looks like a loading spinner
-        // the moment you notice the rate never changes. This is the track's own shape.
+        // ## What this is, and the two versions it is not
         //
-        // The last [WAVE_HISTORY_MS] of onsets, wrapped round the circle with NOW at the
-        // top. Each beat therefore enters at twelve o'clock as it is heard and travels
-        // round as it ages, so the ring is a rolling picture of the few seconds just
-        // played rather than a decoration keeping time with nothing. It needs no new
-        // analysis - the map is already read for the pulse, and sampling it is an array
-        // index per point.
+        // It was a bright arc going round at a fixed rate - a clock with a gradient on it,
+        // which reads as a loading spinner the moment you notice the rate never changes.
+        //
+        // The second version drew the last three seconds of the track wrapped round the
+        // circle. Honest, and still wrong: the shape is fixed and it takes three seconds to
+        // come round, so nothing appears to move and a beat only made the whole ring bigger.
+        // A wave that expands is not waving.
+        //
+        // This is a standing wave. Several spatial harmonics round the circle, each turning
+        // at its own rate and in its own direction, so the figure is ALWAYS moving - lobes
+        // travel, cross, and curl into each other, and because the rates do not divide into
+        // one another the shape never repeats. A beat does not resize it; it drives it:
+        // the harmonics deepen and snap outward together and then settle, which is the
+        // difference between a ring that inflates and one that ripples.
+        //
+        // The music is in the amplitude, not in the shape. [BeatMap] gives the loudness at
+        // this instant and the onset envelope on top of it, and between them they decide how
+        // hard the wave is being driven. Putting the track's shape into the ANGLES is what
+        // made the last version static; putting it into the drive is what makes this one
+        // answer the music while still being a wave.
         if (onBeat && waveSize > 0f && beats != null && !beats.empty) {
             val nowMs = (playback.positionNow() ?: state.value.positionMs) + leadMs
+            val seconds = android.os.SystemClock.elapsedRealtime() / 1000.0
             val base = ring * (1f + WAVE_OFF_MIN + waveGap * WAVE_OFF_SPAN)
-            val amp = r * (WAVE_AMP_MIN + waveSize * WAVE_AMP_SPAN) * (1f + hit * 0.5f)
-            // Smoothed over three samples. A 20ms bucket next to a silent one is a spike,
-            // and a ring of spikes reads as noise; three is enough to make a peak a shape
-            // without blunting the attack that makes it worth drawing.
-            // The LOUDNESS for the figure and the onsets for the punch on top of it. On
-            // onsets alone the ring is a circle with occasional dents, because that is what
-            // a derivative looks like; the envelope is what gives it a shape at every angle.
-            fun at(i: Int): Float {
-                val t = i.toFloat() / WAVE_POINTS
-                val ms = nowMs - (t * WAVE_HISTORY_MS).toLong()
-                return (beats.levelAt(ms) * 0.8f + beats.strengthAt(ms) * 0.5f)
-                    .coerceAtMost(1.2f)
-            }
+            val amp = r * (WAVE_AMP_MIN + waveSize * WAVE_AMP_SPAN)
+            // Always some motion, more when the track is loud, and a hard kick on a beat.
+            val loud = beats.levelAt(nowMs)
+            val drive = (WAVE_IDLE + loud * WAVE_LOUD + hit * WAVE_KICK).coerceIn(0f, 1.6f)
             val path = Path()
             for (i in 0..WAVE_POINTS) {
-                val v = (at(i - 1) + at(i) * 2f + at(i + 1)) / 4f
-                val a = i.toFloat() / WAVE_POINTS * 2f * PI.toFloat() - PI.toFloat() / 2f
-                val rad = base + amp * v
+                val th = i.toFloat() / WAVE_POINTS * 2f * PI.toFloat()
+                var d = 0f
+                for (k in LOBES.indices) {
+                    val lobe = LOBES[k]
+                    d += lobe.weight * sin(lobe.count * th + (lobe.speed * seconds).toFloat())
+                }
+                // Against the TYPICAL peak, not the sum of the weights.
+                //
+                // Four harmonics at random phases almost never line up, so dividing by the
+                // sum - the one arrangement where they all peak together - scaled the whole
+                // figure down by about three and the ring came out looking like a circle.
+                // Normalising against what it actually reaches and clamping the rare
+                // alignment is the difference between a wave and a hairline.
+                val rad = base + amp * drive * (d / LOBE_PEAK).coerceIn(-1.25f, 1.25f)
+                val a = th - PI.toFloat() / 2f
                 val x = centre.x + kotlin.math.cos(a) * rad
                 val y = centre.y + kotlin.math.sin(a) * rad
                 if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
             path.close()
-            // Brightest where the newest beat is and fading round to the oldest, so the
-            // whole figure reads as moving even in a still frame.
             val head = tint.copy(alpha = 0.85f * lit)
-            val tail = tint.copy(alpha = 0.10f * lit)
             val brush = Brush.sweepGradient(
                 0.00f to head,
                 0.35f to tint.copy(alpha = 0.45f * lit),
-                0.75f to tail,
+                0.75f to tint.copy(alpha = 0.14f * lit),
                 1.00f to head,
                 center = centre,
             )
-            // Twice: a wide, faint pass for the bloom and a fine one for the line itself.
+            // Twice: a wide faint pass for the bloom and a fine one for the line itself.
             drawPath(
                 path, brush,
-                style = Stroke(width = r * 0.030f, cap = StrokeCap.Round, join = StrokeJoin.Round),
-                alpha = 0.22f,
+                style = Stroke(width = r * 0.034f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+                alpha = 0.20f,
             )
             drawPath(
                 path, brush,
-                style = Stroke(width = r * 0.010f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+                style = Stroke(width = r * 0.009f, cap = StrokeCap.Round, join = StrokeJoin.Round),
             )
         }
-
-        // The glow it throws outward. A radial that starts AT the ring, so the artwork keeps
-        // its own edge and the light only ever goes away from it.
-        // And it reaches further on a beat, so the light moves outward rather than only
-        // getting brighter - a change of size is seen from across a room, a change of alpha
-        // is not.
-        val reach = r * (1.34f + 0.16f * hit)
-        drawCircle(
-            brush = Brush.radialGradient(
-                0f to Color.Transparent,
-                (ring / reach) to tint.copy(alpha = (0.22f + 0.10f * swell) * lit),
-                1f to Color.Transparent,
-                center = centre,
-                radius = reach,
-            ),
-            radius = reach,
-            center = centre,
-        )
 
         // The wave: a bright arc travelling round, drawn with a sweep gradient rotated by the
         // phase. Narrow, so it reads as a highlight moving over the ring rather than as the
@@ -255,21 +250,59 @@ private const val SWEEP_UNDER_BEAT = 0f
 private const val WAVE_POINTS = 180
 
 /**
- * How much of the recent past the wave holds.
+ * One travelling lobe pattern.
  *
- * Three seconds, which at ordinary tempos is six to eight beats - enough that the figure
- * has a rhythm in it rather than one lump, and short enough that what is on screen is
- * recognisably what was just heard.
+ * @param count how many bumps it makes round the circle.
+ * @param speed how fast it turns, in radians a second. Negative turns the other way.
+ * @param weight how much of the final shape is this one.
  */
-private const val WAVE_HISTORY_MS = 3_000f
+private class Lobe(val count: Int, val speed: Double, val weight: Float)
 
-/** Where the wave sits, as a fraction of the ring, at the two ends of its control. */
-private const val WAVE_OFF_MIN = 0.02f
+/**
+ * The harmonics the wave is made of.
+ *
+ * Four, with counts that share no factor and speeds that are not multiples of each other -
+ * so the pattern they add up to never comes back round to where it started, and two of them
+ * turn against the other two, which is what makes lobes appear to curl into one another
+ * rather than march.
+ *
+ * A low count carries the big slow swell, the high one puts the detail on top of it, and
+ * the weights fall off with count because an eight-lobed ripple at the same depth as a
+ * two-lobed one reads as noise.
+ */
+private val LOBES = arrayOf(
+    Lobe(2, 0.55, 1.00f),
+    Lobe(3, -0.90, 0.70f),
+    Lobe(5, 1.35, 0.42f),
+    Lobe(8, -2.10, 0.24f),
+)
+
+/**
+ * What the harmonics typically add up to at their peaks.
+ *
+ * Just over half the sum of the weights. Four waves at unrelated phases reach all four
+ * maxima at the same angle about never, so the sum is the wrong yardstick - using it made
+ * every peak a third of what the amplitude said it would be.
+ */
+private val LOBE_PEAK = LOBES.sumOf { it.weight.toDouble() }.toFloat() * 0.55f
+
+/** How much the wave moves with nothing happening, with the music, and on a beat. */
+private const val WAVE_IDLE = 0.34f
+private const val WAVE_LOUD = 0.40f
+private const val WAVE_KICK = 0.95f
+
+/**
+ * Where the wave sits, as a fraction of the ring, at the two ends of its control.
+ *
+ * The floor leaves room for the troughs. At the old one the wave's low side reached back
+ * over the edge of the artwork, which is the one thing this face will not spend.
+ */
+private const val WAVE_OFF_MIN = 0.06f
 private const val WAVE_OFF_SPAN = 0.26f
 
-/** And how tall its peaks are, as a fraction of the artwork's radius. */
-private const val WAVE_AMP_MIN = 0.02f
-private const val WAVE_AMP_SPAN = 0.22f
+/** And how deep its lobes get, as a fraction of the artwork's radius. */
+private const val WAVE_AMP_MIN = 0.04f
+private const val WAVE_AMP_SPAN = 0.40f
 
 /** How long the highlight takes to go round. Inside the range most music sits in. */
 private const val SWEEP_MS = 2_400

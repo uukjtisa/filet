@@ -500,8 +500,9 @@ fun SettingsPage(vm: BrowserViewModel) {
                 item {
                     SliderRow(
                         "Wave size",
-                        "How tall the beat wave's peaks are around the Aurora disc. All the " +
-                            "way down draws no wave at all.",
+                        "How hard the beat drives the wave around the Aurora disc - it " +
+                            "ripples rather than inflating, so this is how deep the lobes " +
+                            "get, not how big the ring is. All the way down draws no wave.",
                         waveSize,
                     ) { prefs.setWaveSize(it) }
                 }

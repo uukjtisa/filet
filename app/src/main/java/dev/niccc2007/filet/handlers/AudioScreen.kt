@@ -818,6 +818,18 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
      * composition is the kind of leak that is only noticed as a phone getting warm.
      */
     val dj by c.vm.prefs.scratchAudio.collectAsStateWithLifecycle()
+    // Read the track for scratching BEFORE a finger lands on it.
+    //
+    // `TrackPcm` caches by URI, so this is the difference between the first spin of a track
+    // being instant and it being the one that waits for a decode. Only while the setting is
+    // on and only on this face; the whole cache is dropped when the face goes.
+    LaunchedEffect(c.source, dj) {
+        val source = c.source
+        if (dj && source != null) dev.niccc2007.filet.playback.TrackPcm.of(context, source)
+    }
+    DisposableEffect(Unit) {
+        onDispose { dev.niccc2007.filet.playback.TrackPcm.forget() }
+    }
     val scope = rememberCoroutineScope()
     val engine = remember(c.node.path) { mutableStateOf<ScratchEngine?>(null) }
     /** Whether the track was playing when the finger landed. See [endScratch]. */
@@ -956,8 +968,10 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                             c.onScrub(at)
                             val live = engine.value
                             if (live != null) {
+                                // One call, one number. There is nothing to refill and
+                                // nothing to decode: the whole track is already in memory.
+                                // See `TrackPcm`.
                                 live.seekToward(at)
-                                if (live.needsMore()) scope.launch { live.recentre() }
                             } else if (now - told >= dev.niccc2007.filet.playback.Scratch.SEEK_EVERY_MS) {
                                 told = now
                                 c.playback.seekTo(at)
