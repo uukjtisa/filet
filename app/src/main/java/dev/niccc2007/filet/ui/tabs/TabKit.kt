@@ -397,7 +397,14 @@ fun TickRow(on: Boolean, title: String, sub: String? = null, onToggle: () -> Uni
 // ── rows ────────────────────────────────────────────────────────────────────────────────
 
 /** The pill at the end of a [TRow]. Tone is what the pill is saying, not a colour name. */
-enum class PillTone { Plain, Good, Running }
+/**
+ * What a pill is saying.
+ *
+ * [Bad] arrived with the remote probe: there was no tone for "this was tried and it failed",
+ * so a failed dial would have had to borrow [Running]'s accent - which is the colour for
+ * something in progress, and reading a failure as activity is the wrong way round.
+ */
+enum class PillTone { Plain, Good, Running, Bad }
 
 @Composable
 fun Pill(text: String, tone: PillTone = PillTone.Plain) {
@@ -406,6 +413,7 @@ fun Pill(text: String, tone: PillTone = PillTone.Plain) {
         PillTone.Plain -> colors.fg3
         PillTone.Good -> colors.good
         PillTone.Running -> colors.accent
+        PillTone.Bad -> colors.warn
     }
     Text(
         text,
@@ -547,6 +555,7 @@ private fun dotColor(state: DotState): Color {
  * character or retype - rather than prose.
  */
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 fun NRow(
     title: String,
     sub: String,
@@ -562,11 +571,30 @@ fun NRow(
      * like a list item and does nothing when tapped reads as the app being broken.
      */
     onClick: (() -> Unit)? = null,
+    /**
+     * What a long press does, or null for nothing.
+     *
+     * Rows in this app answer a long press everywhere else - a file, a playlist, a track - and
+     * these did not, so the actions that do not fit in a row's trailing buttons had no home at
+     * all. See the Remotes screen, where Forget and Duplicate live.
+     */
+    onLongClick: (() -> Unit)? = null,
 ) {
     val colors = Filet.colors
     Row(
         Modifier.fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(
+                when {
+                    onClick == null && onLongClick == null -> Modifier
+                    // `combinedClickable` with a null onClick still consumes the tap, so the
+                    // plain case keeps using `clickable` - a row that looks inert and swallows
+                    // presses is worse than one that is plainly inert.
+                    else -> Modifier.combinedClickable(
+                        onClick = onClick ?: {},
+                        onLongClick = onLongClick,
+                    )
+                },
+            )
             .padding(horizontal = 14.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),

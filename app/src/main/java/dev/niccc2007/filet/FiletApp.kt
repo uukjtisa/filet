@@ -171,6 +171,14 @@ class FiletGraph(context: Context) {
         scope.launch { prefs.rootVolumes.collect { RootProvider.showVolumes = it } }
     }
 
+    /**
+     * Finding servers on this network that are not Filet. See `ServerScan`.
+     *
+     * Process-wide for the same reason the beacon is: a sweep takes a few seconds and somebody
+     * who starts one and taps into a folder should not have thrown it away.
+     */
+    val serverScan by lazy { dev.niccc2007.filet.remotes.ServerScan(app, scope) }
+
     /** Local copies for the readers that need a seekable file. See `LocalCopy`. */
     val localCopy = dev.niccc2007.filet.ops.LocalCopy(app, vfs, staging)
 

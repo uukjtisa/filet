@@ -80,8 +80,23 @@ import dev.niccc2007.filet.webdav.DavHost
 fun RemotesScreen(vm: BrowserViewModel) {
     val colors = Filet.colors
     val revision by vm.remotesRevision.collectAsState()
-    val list = remember(revision) { vm.connections.all() }
+    // MOST RECENTLY USED first, then the never-opened ones by name.
+    //
+    // Alphabetical put the share somebody uses every day wherever its name happened to fall.
+    // On a list of six, the one wanted is almost always the one used last. The tail is sorted
+    // by name rather than left in storage order, so a fresh install is not in the arbitrary
+    // order entries were created in.
+    val list = remember(revision) {
+        vm.connections.all().sortedWith(
+            compareByDescending<NetConnection> { it.lastUsedAt }
+                .thenBy { it.label.ifEmpty { it.host }.lowercase() },
+        )
+    }
+    val tests by vm.remoteTests.collectAsState()
+    val testing by vm.remoteTesting.collectAsState()
     var editing by remember { mutableStateOf<NetConnection?>(null) }
+    var menuFor by remember { mutableStateOf<NetConnection?>(null) }
+    var forgetting by remember { mutableStateOf<NetConnection?>(null) }
 
     // This screen's own interest in scanning, which is balanced and refcounted - the app keeps a
     // scan of its own running while it is in the foreground, so a saved remote learns the address
@@ -94,10 +109,81 @@ fun RemotesScreen(vm: BrowserViewModel) {
         onDispose { beacon.stopScan() }
     }
 
+    // And the other half of discovery: servers that are not Filet, which is what somebody is
+    // usually trying to reach. mDNS runs while the screen is open because it costs one packet;
+    // the subnet sweep is a BUTTON, because it is 254 connects and doing that unasked every
+    // time the screen opens wakes the radio for nothing most of the time. See `ServerScan`.
+    val scan = vm.serverScan
+    val servers by scan.state.collectAsState()
+    DisposableEffect(Unit) {
+        scan.listen()
+        onDispose { scan.stop() }
+    }
+
     // Remotes a discovered Filet host could be. WebDAV only: a beacon is a Filet share, and
     // offering to link one to an SFTP entry would be offering something that cannot work.
     val linkable = remember(revision) { list.filter { it.protocol == NetProtocol.WEBDAV } }
     var linking by remember { mutableStateOf<DavHost?>(null) }
+
+    // ── what a long press offers ──────────────────────────────────────────────────
+    //
+    // Open, Test, Edit, Duplicate, Forget. Duplicate is the one that earns its place: a second
+    // share on the same PC is otherwise the whole form typed again, credentials included.
+    // Forget was previously not offered anywhere at all - a saved remote could be created and
+    // edited for ever but never removed.
+    menuFor?.let { c ->
+        Dlg(onDismiss = { menuFor = null }) {
+            DlgHeader(
+                icon = iconFor(c.protocol),
+                title = c.label.ifEmpty { c.host },
+                sub = c.protocol.scheme + "://" + c.host,
+                onClose = { menuFor = null },
+            )
+            DlgBody {
+                DlgPick(FiletIcons.Open, "Open", "Browse it now") { menuFor = null; vm.openConnection(c) }
+                DlgPick(FiletIcons.Wifi, "Test", "Dial it and say what happened") {
+                    menuFor = null
+                    vm.testConnection(c)
+                }
+                DlgPick(FiletIcons.Code, "Edit", "Address, sign-in and name") { menuFor = null; editing = c }
+                DlgPick(FiletIcons.Copy, "Duplicate", "A copy to point somewhere near by") {
+                    menuFor = null
+                    editing = vm.duplicateConnection(c)
+                }
+                DlgPick(FiletIcons.Delete, "Forget", "Remove it and its saved password") {
+                    menuFor = null
+                    forgetting = c
+                }
+            }
+            DlgFooter { DlgBtn("Close", BtnKind.PLAIN) { menuFor = null } }
+        }
+    }
+
+    // Confirmed, because it takes a password with it and there is no undo. Everything else in
+    // that menu is reversible by doing it again.
+    forgetting?.let { c ->
+        Dlg(onDismiss = { forgetting = null }) {
+            DlgHeader(
+                icon = iconFor(c.protocol),
+                title = "Forget " + c.label.ifEmpty { c.host } + "?",
+                sub = "The saved password goes with it",
+                onClose = { forgetting = null },
+            )
+            DlgBody {
+                DlgCaption(
+                    "Nothing on the other device is touched. Only what Filet remembers about " +
+                        "how to reach it.",
+                )
+            }
+            DlgFooter {
+                DlgBtn("Keep it", BtnKind.PLAIN) { forgetting = null }
+                DlgBtn("Forget", BtnKind.DANGER) {
+                    vm.forgetConnection(c)
+                    forgetting = null
+                }
+            }
+        }
+    }
 
     LazyColumn(Modifier.fillMaxSize()) {
         item { TabHeader("Network and root") }
@@ -138,6 +224,69 @@ fun RemotesScreen(vm: BrowserViewModel) {
             }
         }
 
+        // ── servers on this network that are not Filet ──────────────────────────────
+        item {
+            SectionRow(
+                "Servers on this network",
+                note = if (servers.sweeping) {
+                    "looking… ${(servers.progress * 100).toInt()}%"
+                } else {
+                    null
+                },
+            )
+        }
+        items(servers.found.size) { i ->
+            val s = servers.found[i]
+            // Already saved is not something to add, and offering it as new is how one NAS
+            // becomes four entries. Matched on host and protocol, which is what an entry
+            // actually addresses.
+            val already = remember(revision, s.key) {
+                list.firstOrNull { it.host == s.host && it.protocol == s.protocol }
+            }
+            NRow(
+                title = s.name,
+                sub = "${s.protocol.scheme}://${s.host}:${s.port}" +
+                    if (s.byName) "  ·  announced itself" else "",
+                lead = NLead.Glyph(iconFor(s.protocol)),
+                mono = true,
+                trailing = {
+                    if (already != null) {
+                        Pill("saved", PillTone.Good)
+                        SmallBtn("Open") { vm.openConnection(already) }
+                    } else {
+                        Pill(s.protocol.name, PillTone.Plain)
+                        // The form opens with the protocol, host and port filled in, so the
+                        // only thing left is the sign-in - which is the whole difference
+                        // between discovery and writing an IP address on a hand.
+                        SmallBtn("Add") { editing = vm.connectionFromFound(s) }
+                    }
+                },
+            )
+        }
+        item {
+            Column(
+                Modifier.fillMaxWidth().padding(start = 15.dp, end = 15.dp, top = 2.dp, bottom = 6.dp),
+            ) {
+                if (servers.found.isEmpty() && !servers.sweeping) {
+                    DlgCaption(
+                        "Nothing has announced itself. A Windows PC does not - it uses a " +
+                            "different protocol for that - so look for it by sweeping the " +
+                            "network below.",
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+                servers.note?.let {
+                    DlgCaption(it)
+                    Spacer(Modifier.height(6.dp))
+                }
+                if (servers.sweeping) {
+                    SmallButton("Stop looking") { scan.stop() }
+                } else {
+                    SmallButton("Look for servers") { scan.sweep() }
+                }
+            }
+        }
+
         item { SectionRow("Network") }
         if (list.isEmpty()) {
             item {
@@ -149,31 +298,58 @@ fun RemotesScreen(vm: BrowserViewModel) {
         }
         items(list.size) { i ->
             val c = list[i]
-            NRow(
-                title = c.label.ifEmpty { c.host },
-                sub = "${c.protocol.scheme}://${c.host}${if (c.share.isNotEmpty()) "/" + c.share else ""}",
-                lead = NLead.Glyph(iconFor(c.protocol)),
-                mono = true,
-                trailing = {
-                    // What the pill says has to be something that is actually known. Nothing
-                    // here polls the share, so "connected" would be a guess dressed as a fact;
-                    // whether the stored connection encrypts itself is not a guess.
-                    val plain = !c.useTls &&
-                        (c.protocol == NetProtocol.FTP || c.protocol == NetProtocol.WEBDAV)
-                    if (plain) {
-                        Pill(
-                            if (c.protocol == NetProtocol.FTP) "plain FTP" else "plain HTTP",
-                            PillTone.Running,
-                        )
-                    } else {
-                        Pill(c.protocol.name, PillTone.Plain)
-                    }
-                    SmallBtn("Edit") { editing = c }
-                },
-                // The row itself opens it. This is what was missing entirely: the only control
-                // was Edit, so a saved place could be created and then never reached.
-                onClick = { vm.openConnection(c) },
-            )
+            val verdict = tests[c.id]
+            val busy = c.id in testing
+            Column {
+                NRow(
+                    title = c.label.ifEmpty { c.host },
+                    sub = "${c.protocol.scheme}://${c.host}${if (c.share.isNotEmpty()) "/" + c.share else ""}" +
+                        lastUsedLine(c.lastUsedAt),
+                    lead = NLead.Glyph(iconFor(c.protocol)),
+                    mono = true,
+                    trailing = {
+                        // The pill says what is KNOWN, which is now more than it was.
+                        //
+                        // It used to be the protocol name and a plain-text warning, because
+                        // nothing polled the share - so "connected" would have been a guess
+                        // dressed as a fact. There is a probe now (see `RemoteProbe`), so a
+                        // tested remote says what the dial actually returned, and an untested
+                        // one still says only what is certain.
+                        when {
+                            busy -> Pill("dialling", PillTone.Running)
+                            verdict != null && verdict.ok -> Pill("reachable", PillTone.Good)
+                            verdict != null -> Pill(verdict.label, PillTone.Bad)
+                            !c.useTls && (c.protocol == NetProtocol.FTP || c.protocol == NetProtocol.WEBDAV) ->
+                                Pill(
+                                    if (c.protocol == NetProtocol.FTP) "plain FTP" else "plain HTTP",
+                                    PillTone.Running,
+                                )
+                            else -> Pill(c.protocol.name, PillTone.Plain)
+                        }
+                        SmallBtn("Test") { vm.testConnection(c) }
+                    },
+                    // The row itself opens it. This is what was missing entirely: the only
+                    // control was Edit, so a saved place could be created and never reached.
+                    onClick = { vm.openConnection(c) },
+                    onLongClick = { menuFor = c },
+                )
+                // The sentence, under the row, and only when there is one. A verdict's whole
+                // value is naming what to change, and that does not fit in a pill - but a
+                // pill nobody can act on is the state this screen was already in.
+                if (verdict != null && verdict.detail.isNotEmpty()) {
+                    Text(
+                        verdict.detail,
+                        fontSize = 10.5.sp,
+                        lineHeight = 14.sp,
+                        color = colors.fg3,
+                        modifier = Modifier.padding(
+                            start = 48.dp,
+                            end = 15.dp,
+                            bottom = 7.dp,
+                        ),
+                    )
+                }
+            }
         }
         item {
             // ONE button.
@@ -327,4 +503,26 @@ private fun Field(
             )
         }
     }
+}
+
+/**
+ * " · opened yesterday", or nothing at all.
+ *
+ * Nothing, and not "never opened": a remote that has not been used yet is the ordinary state
+ * of one just added, and labelling it is a reproach rather than information. Pure, so the
+ * wording can be tested without a screen.
+ */
+fun lastUsedLine(at: Long, now: Long = System.currentTimeMillis()): String {
+    if (at <= 0L) return ""
+    val minutes = (now - at) / 60_000L
+    val words = when {
+        minutes < 0L -> return ""
+        minutes < 2L -> "just now"
+        minutes < 60L -> "${minutes}m ago"
+        minutes < 60L * 24 -> "${minutes / 60}h ago"
+        minutes < 60L * 48 -> "yesterday"
+        minutes < 60L * 24 * 30 -> "${minutes / (60 * 24)}d ago"
+        else -> "a while ago"
+    }
+    return "  ·  " + words
 }

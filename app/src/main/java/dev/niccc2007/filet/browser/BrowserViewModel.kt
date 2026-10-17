@@ -3935,6 +3935,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             "/" + c.id + if (parts.isEmpty()) "" else "/" + parts.joinToString("/"),
         )
         pane.navigateTo(path)
+        // Stamped on OPEN, which is the intent. A share reached for and failed is still the
+        // one most likely to be reached for again - that is when somebody is fixing it.
+        graph.connections.save(c.copy(lastUsedAt = System.currentTimeMillis()))
+        bumpRemotes()
         toast("Opening " + c.label.ifEmpty { c.host })
     }
 
@@ -4346,6 +4350,128 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             toast("${c.label.ifEmpty { c.host }} already knew that address")
         }
     }
+
+    /**
+     * What happened when each remote was last dialled, by connection id.
+     *
+     * In memory rather than stored. A verdict is a fact about the network a moment ago, and a
+     * remembered one is a claim about a share that may well have been unplugged since - which
+     * is the thing the screen's own comment refused to make before there was a probe at all.
+     */
+    private val _remoteTests = MutableStateFlow(
+        emptyMap<String, dev.niccc2007.filet.remotes.RemoteProbe.Verdict>(),
+    )
+    val remoteTests: StateFlow<Map<String, dev.niccc2007.filet.remotes.RemoteProbe.Verdict>> =
+        _remoteTests.asStateFlow()
+
+    /** Which remotes are being dialled right now, so their row can say so. */
+    private val _remoteTesting = MutableStateFlow(emptySet<String>())
+    val remoteTesting: StateFlow<Set<String>> = _remoteTesting.asStateFlow()
+
+    /**
+     * Dial a saved remote and say what happened.
+     *
+     * ## Why this lists rather than opening a socket
+     *
+     * A bare TCP connect would prove something is listening on the port and nothing else - not
+     * that the credentials work, not that the share name exists, not that the protocol version
+     * is one both ends speak. Those are the failures people actually have, and all three
+     * present as a successful connect. Listing the remote's own root is the cheapest operation
+     * that exercises the whole path, and it is the same call that a tap on the row makes - so a
+     * green verdict means the thing somebody is about to do will work.
+     *
+     * The classification is `RemoteProbe`, which is pure and tested. Nothing here has an
+     * opinion about what an exception means.
+     */
+    fun testConnection(c: dev.niccc2007.filet.vfs.provider.net.NetConnection) {
+        if (c.id in _remoteTesting.value) return
+        _remoteTesting.value = _remoteTesting.value + c.id
+        viewModelScope.launch {
+            val parts = listOf(c.share, c.startPath)
+                .map { it.trim('/') }
+                .filter { it.isNotEmpty() }
+            val path = VPath.of(
+                c.protocol.scheme,
+                "/" + c.id + if (parts.isEmpty()) "" else "/" + parts.joinToString("/"),
+            )
+            val verdict = runCatching {
+                withContext(Dispatchers.IO) {
+                    // Bounded by the connection's own timeout plus a margin, so a server that
+                    // accepts a socket and then says nothing cannot leave the row spinning for
+                    // ever. The provider's timeout should fire first; this is the backstop.
+                    kotlinx.coroutines.withTimeout(
+                        (c.timeoutSeconds.coerceIn(5, 60) + 5) * 1000L,
+                    ) {
+                        graph.vfs.list(path) { }
+                    }
+                }
+            }
+            val result = verdict.fold(
+                onSuccess = { dev.niccc2007.filet.remotes.RemoteProbe.WORKING },
+                onFailure = { dev.niccc2007.filet.remotes.RemoteProbe.verdictFor(it) },
+            )
+            _remoteTests.value = _remoteTests.value + (c.id to result)
+            _remoteTesting.value = _remoteTesting.value - c.id
+        }
+    }
+
+    /** Copy a saved remote, credentials and all, as a new entry waiting to be edited. */
+    fun duplicateConnection(
+        c: dev.niccc2007.filet.vfs.provider.net.NetConnection,
+    ): dev.niccc2007.filet.vfs.provider.net.NetConnection =
+        c.copy(
+            id = graph.connections.newId(),
+            label = (c.label.ifEmpty { c.host }) + " copy",
+            // Not carried: the new entry has not been opened, and a learned address belongs to
+            // the device that taught it rather than to a copy of its settings.
+            lastUsedAt = 0L,
+            lastGood = "",
+        )
+
+    fun forgetConnection(c: dev.niccc2007.filet.vfs.provider.net.NetConnection) {
+        graph.connections.delete(c.id)
+        _remoteTests.value = _remoteTests.value - c.id
+        bumpRemotes()
+        toast((c.label.ifEmpty { c.host }) + " forgotten")
+    }
+
+    /** Finding servers that are not Filet. See `ServerScan`. */
+    val serverScan get() = graph.serverScan
+
+    /**
+     * Start an entry from something the scan found.
+     *
+     * The protocol, the host and the port are known, so the form opens with only the sign-in
+     * left - which is the whole difference between discovery and a note of an IP address.
+     */
+    fun connectionFromFound(
+        found: dev.niccc2007.filet.remotes.ServerScan.Found,
+    ): dev.niccc2007.filet.vfs.provider.net.NetConnection =
+        dev.niccc2007.filet.remotes.RemoteKinds.blank(
+            // The existing `kindFor` takes a whole connection, so it is given a bare one
+            // carrying only the protocol and port - which is all that function reads, and
+            // reproducing its table here would be a second copy to keep in step.
+            dev.niccc2007.filet.remotes.RemoteKinds.kindFor(
+                dev.niccc2007.filet.vfs.provider.net.NetConnection(
+                    id = "",
+                    protocol = found.protocol,
+                    label = "",
+                    host = found.host,
+                    port = found.port,
+                    user = "",
+                    password = "",
+                ),
+            ),
+            graph.connections.newId(),
+        ).copy(
+            protocol = found.protocol,
+            host = found.host,
+            port = found.port,
+            // The announced name where there is one, and the address where there is not. Not
+            // left blank: the label is what the storage card shows, and a blank one there was
+            // a real fault once already.
+            label = found.name.takeIf { it != found.host }.orEmpty(),
+        )
 
     fun saveConnection(c: dev.niccc2007.filet.vfs.provider.net.NetConnection) {
         graph.connections.save(c)

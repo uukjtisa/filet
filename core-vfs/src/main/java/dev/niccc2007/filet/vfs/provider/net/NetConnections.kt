@@ -115,6 +115,19 @@ data class NetConnection(
 
     /** Passphrase for [privateKey], if it has one. */
     val keyPassphrase: String = "",
+
+    /**
+     * When this remote was last opened, as epoch millis. 0 means never.
+     *
+     * Stored so the list can be in the order somebody actually uses it. On a list of six
+     * shares the one wanted is almost always the one used last, and alphabetical order puts
+     * it wherever its name happens to fall.
+     *
+     * Written on OPEN rather than on a successful listing: opening is the intent, and a share
+     * that was reached for and failed is still the one most likely to be reached for again -
+     * which is exactly when somebody is trying to fix it.
+     */
+    val lastUsedAt: Long = 0L,
 )
 
 /**
@@ -347,6 +360,7 @@ class NetConnections(context: Context) {
         // The key is a secret of the same kind as the password and gets the same treatment.
         put("privateKey", encrypt(c.privateKey))
         put("keyPassphrase", encrypt(c.keyPassphrase))
+        put("lastUsedAt", c.lastUsedAt)
     }
 
     private fun fromJson(o: JSONObject): NetConnection? = runCatching {
@@ -376,6 +390,7 @@ class NetConnections(context: Context) {
             timeoutSeconds = o.optInt("timeout", 15).coerceIn(3, 120),
             privateKey = decrypt(o.optString("privateKey")),
             keyPassphrase = decrypt(o.optString("keyPassphrase")),
+            lastUsedAt = o.optLong("lastUsedAt"),
         )
     }.getOrNull()
 

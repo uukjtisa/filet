@@ -309,10 +309,35 @@ private fun ShareRow(
                 // what makes Windows route it to its WebDAV client instead of to a web fetch.
                 UncRow(ip, "\\\\$ip@$port\\DavWWWRoot\\a\\${state.code}", onCopy)
             }
-            // Named for what you DO with it. The add-a-place form on the other phone has a
-            // "Paste the address" box as its first field, and this is the string that goes in it.
+            // ── the same two fields the other phone is going to ask for ──────────────
+            //
+            // This card and the add-a-place form on the other device are two halves of one
+            // job, and they did not agree about what the thing being copied IS. The card
+            // printed one string with the code buried in the middle of it; the form asks for
+            // an Address and an Access code, in two boxes, under those two headings. So
+            // somebody reading this card had to work out which part of one URL was which
+            // before they could fill in a form that had already split them.
+            //
+            // They are the same labels now, in the same order, so the card reads as the
+            // instructions for the form. The whole string stays underneath, because pasting
+            // one thing is still fewer steps when the two devices can share a clipboard.
+            //
+            // One value underneath, as always: `ShareAddress` splits for display and joins
+            // straight back, and the form does the same thing with the same code. Two
+            // editors onto one string, never two strings to keep in step.
             MicroLabel(
-                "Mac, Linux, or paste into another phone",
+                "On the other phone: Add a place",
+                Modifier.padding(top = 9.dp, bottom = 4.dp),
+            )
+            for (ip in reachable) {
+                val whole = DavShares.endpoint(ip, port, state.code)
+                val parts = ShareAddress.split(whole)
+                UncRow("Address", parts.prefix, onCopy)
+                UncRow("Access code", parts.code, onCopy)
+            }
+
+            MicroLabel(
+                "Mac, Linux, or one thing to paste",
                 Modifier.padding(top = 6.dp, bottom = 4.dp),
             )
             for (ip in reachable) {
