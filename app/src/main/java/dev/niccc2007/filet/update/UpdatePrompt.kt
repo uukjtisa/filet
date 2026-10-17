@@ -112,9 +112,36 @@ fun shouldPrompt(
     return true
 }
 
-/** Should GitHub be asked at all, or was it asked recently enough? */
-fun shouldCheck(state: ReminderState, now: Long, intervalMs: Long = CHECK_INTERVAL_MS): Boolean {
+/**
+ * Should GitHub be asked at all, or was it asked recently enough?
+ *
+ * ## Why a deliberate launch ignores the interval
+ *
+ * Reported as the update notice never appearing any more, even on opening the app fresh - and
+ * the interval is most of why. Filet holds a foreground service while music plays and keeps
+ * watching tracked folders, so its PROCESS routinely lives for days; the check runs on resume
+ * and is then throttled to twelve hours, which means somebody who opens the app ten times a
+ * day is told at most twice and never at a moment they would connect with having opened it.
+ *
+ * Worse, the app cannot tell the two situations apart from the process alone. Swiping it out of
+ * the task switcher and opening it again is, to the process, indistinguishable from never
+ * having left - so "I just opened the app and it did not check" was a correct description of
+ * the behaviour.
+ *
+ * A cold launch - a new Activity task, which is what swiping away and reopening produces - is
+ * therefore allowed through regardless. It happens a handful of times a day at most, it costs
+ * one request, and it is exactly the moment a person expects to be told.
+ *
+ * @param coldLaunch true on the first check of a newly created task.
+ */
+fun shouldCheck(
+    state: ReminderState,
+    now: Long,
+    intervalMs: Long = CHECK_INTERVAL_MS,
+    coldLaunch: Boolean = false,
+): Boolean {
     if (state.notificationsOff) return false
+    if (coldLaunch) return true
     // A clock that went backwards (timezone, manual set, a reboot before NTP) must not lock the
     // check out until the future catches up.
     if (now < state.lastCheckedAt) return true

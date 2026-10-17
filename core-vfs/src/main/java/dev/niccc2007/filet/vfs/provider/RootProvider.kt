@@ -37,6 +37,20 @@ class RootProvider : FileSystemProvider {
     )
 
     override suspend fun roots(): List<VNode> = withContext(Dispatchers.IO) {
+        // ── nothing at all until root has actually been granted ──
+        //
+        // Bug identified here: `SuFile` falls back to an ordinary `File` when there is no
+        // superuser shell, so `SuFile("/data").exists()` is true on a phone that has never
+        // been rooted. These three were therefore published as volumes on EVERY device, and
+        // the volume list is what draws the drive cards - so an unrooted phone showed cards
+        // called "storage" and "data" that opened onto nothing, because listing them without
+        // root is AccessDenied.
+        //
+        // `isGranted` and not `isAvailable`: the latter asks for a shell and can raise the
+        // superuser prompt, and this runs on every cold start. A permission dialogue nobody
+        // asked for, during launch, to decide whether to draw a card, is a worse bug than the
+        // one being fixed.
+        if (!showVolumes || !isGranted()) return@withContext emptyList()
         // Three entries rather than just "/": these are the three places anyone actually
         // wants root for, and starting at "/" means four taps before anything useful.
         listOf("/", "/data", "/system")
@@ -134,6 +148,19 @@ class RootProvider : FileSystemProvider {
          * device, triggers the superuser prompt - so it is called when the user opts in,
          * never at startup.
          */
+        /**
+         * Whether the root volumes are offered at all, even to a rooted phone.
+         *
+         * A plain flag rather than a `Prefs` read, because this module is below the settings
+         * layer and is deliberately kept that way - see PLAN.md R3. `FiletApp` mirrors the
+         * preference into it, which keeps one direction of dependency and means a test can set
+         * it without a `Context`.
+         *
+         * Default true: somebody who has granted root wants to see what they granted it for.
+         */
+        @Volatile
+        var showVolumes: Boolean = true
+
         fun isAvailable(): Boolean = runCatching { Shell.getShell().isRoot }.getOrDefault(false)
 
         /** Non-blocking probe: true only when root was already granted this session. */

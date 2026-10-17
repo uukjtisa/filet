@@ -2936,10 +2936,20 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     // ── inbound intents (PLAN.md L2) ──
 
     /** Another app asked Filet to VIEW something. */
-    fun openIncoming(uri: android.net.Uri, mime: String?) {
+    /**
+     * @param edit true when another app sent ACTION_EDIT rather than ACTION_VIEW - it wants
+     *   the file changed, so the editor opens regardless of which handler the type is
+     *   registered to. Honouring the registered handler here would answer "edit this" with a
+     *   read-only preview, which is a worse answer than refusing.
+     */
+    fun openIncoming(uri: android.net.Uri, mime: String?, edit: Boolean = false) {
         viewModelScope.launch {
             val node = incomingNode(uri) ?: run { toast("Filet cannot open that link."); return@launch }
-            if (node.isDir) focusedPane()?.navigateTo(node.path) else openWithRegistered(node)
+            when {
+                node.isDir -> focusedPane()?.jumpTo(node.path)
+                edit -> openWith(node, HandlerId.TEXT, remember = false)
+                else -> openWithRegistered(node)
+            }
         }
     }
 
@@ -3247,7 +3257,16 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun checkForUpdatesQuietly() {
         if (!dev.niccc2007.filet.BuildConfig.UPDATER_ENABLED) return
         val now = System.currentTimeMillis()
-        if (!shouldCheck(reminderState(), now)) return
+        // ── a deliberate launch always asks ──
+        //
+        // A fourth fault, on top of the three above: the twelve-hour interval was applied to
+        // every resume, and this ViewModel outlives a great many of them. Opening the app
+        // fresh - which is what swiping it out of the task switcher and tapping the icon
+        // produces - is a new ViewModel and therefore a new task, and that is the one moment
+        // somebody connects with "it should have told me". See `shouldCheck`.
+        val cold = !askedThisTask
+        askedThisTask = true
+        if (!shouldCheck(reminderState(), now, coldLaunch = cold)) return
         if (now - lastUpdateAttempt < RETRY_AFTER_FAILURE_MS) return
         lastUpdateAttempt = now
         viewModelScope.launch {
@@ -3271,6 +3290,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * inside one session, not to postpone tomorrow's check because today's failed.
      */
     private var lastUpdateAttempt = 0L
+
+    /**
+     * Whether this task has asked yet.
+     *
+     * A ViewModel lives as long as its Activity, and an Activity is destroyed when the task is
+     * swiped away - so a false here IS a cold launch, which is the distinction the process's
+     * own start time cannot make. See `shouldCheck`.
+     */
+    private var askedThisTask = false
 
     /**
      * Open the sheet for the release a notification was about.

@@ -254,6 +254,12 @@ class MainActivity : ComponentActivity() {
         }
         when (intent?.action) {
             Intent.ACTION_VIEW -> intent.data?.let { browser.openIncoming(it, intent.type) }
+            // EDIT is VIEW with an opinion about which handler. Routed to the same place so
+            // there is one path for an incoming file, with a flag rather than a second copy
+            // of the staging, the stat and the failure wording.
+            Intent.ACTION_EDIT -> intent.data?.let {
+                browser.openIncoming(it, intent.type, edit = true)
+            }
             Intent.ACTION_SEND -> {
                 val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
                 if (uri != null) browser.acceptIncoming(listOf(uri))

@@ -78,9 +78,42 @@ enum class FileKind {
  * has and every user notices.
  */
 fun List<VNode>.sortedBy(spec: SortSpec): List<VNode> {
-    // Each comparator is written so that its UNREVERSED order is the one worth seeing first:
-    // A to Z, newest, largest. See SortOrder for why that is not the same as "ascending".
-    val byKey: Comparator<VNode> = when (spec.key) {
+    val forFiles = comparatorFor(spec.key, spec.descending)
+    val folderKey = spec.folderKey
+    // ── folders on their own key ────────────────────────────────────────────────
+    //
+    // Only when folders are GROUPED. With them mixed in among the files there is one
+    // sequence, and one sequence cannot be in two orders - so the folder key is ignored
+    // rather than half-applied, which would produce a list that is sorted in neither order.
+    //
+    // Partitioned and sorted separately rather than expressed as one comparator, because
+    // there is no comparator that does this: a comparison between a folder and a file would
+    // have to pick a key, and the whole point is that the two sides use different ones. The
+    // grouping already guarantees they never meet.
+    if (folderKey != null && spec.foldersFirst) {
+        val forFolders = comparatorFor(folderKey, spec.folderDescending ?: spec.descending)
+        val folders = ArrayList<VNode>()
+        val files = ArrayList<VNode>()
+        for (node in this) if (node.isDir) folders.add(node) else files.add(node)
+        folders.sortWith(forFolders)
+        files.sortWith(forFiles)
+        return folders + files
+    }
+    // Folders-first is applied AFTER the direction flip, so reversing the sort never
+    // reverses the folder grouping too - which looks like a bug even when it is consistent.
+    val full =
+        if (spec.foldersFirst) compareByDescending<VNode> { it.isDir }.then(forFiles) else forFiles
+    return sortedWith(full)
+}
+
+/**
+ * One key and one direction, as a comparator.
+ *
+ * Each is written so that its UNREVERSED order is the one worth seeing first: A to Z, newest,
+ * largest. See `SortOrder` for why that is not the same as "ascending".
+ */
+private fun comparatorFor(key: SortKey, descending: Boolean): Comparator<VNode> {
+    val byKey: Comparator<VNode> = when (key) {
         SortKey.NAME -> Comparator { a, b -> naturalCompare(a.name, b.name) }
         SortKey.SIZE -> compareByDescending { it.size }
         SortKey.MODIFIED -> compareByDescending { it.mtime }
@@ -89,11 +122,7 @@ fun List<VNode>.sortedBy(spec: SortSpec): List<VNode> {
             if (c != 0) c else naturalCompare(a.name, b.name)
         }
     }
-    val directed = if (spec.descending) byKey else byKey.reversed()
-    // Folders-first is applied AFTER the direction flip, so reversing the sort never
-    // reverses the folder grouping too - which looks like a bug even when it is consistent.
-    val full = if (spec.foldersFirst) compareByDescending<VNode> { it.isDir }.then(directed) else directed
-    return sortedWith(full)
+    return if (descending) byKey else byKey.reversed()
 }
 
 /**

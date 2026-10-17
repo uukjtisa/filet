@@ -106,6 +106,89 @@ fun ViewPopover(vm: BrowserViewModel, onDismiss: () -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 Text(SortOrder.label(sort.key, sort.descending), fontSize = 12.sp)
             }
+            // ── folders on their own key ──────────────────────────────────────────
+            //
+            // Folders are easiest to find alphabetically and new files are easiest to find by
+            // date, so one order cannot serve both - issue #10. Off by default, which leaves
+            // the uniform A-to-Z order everything has always had.
+            //
+            // Hidden entirely when folders are mixed in among the files, because then there is
+            // one sequence and a sequence cannot be in two orders at once. A visible control
+            // that silently does nothing is the thing R1 exists to stop.
+            if (sort.foldersFirst) {
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        vm.prefs.setSort(
+                            // Turning it ON starts folders on Name, which is the order they
+                            // are wanted in nine times out of ten and is also where they
+                            // already were - so switching it on changes nothing until the
+                            // FILE key is moved, which is the point.
+                            if (sort.folderKey == null) {
+                                sort.copy(folderKey = SortKey.NAME, folderDescending = true)
+                            } else {
+                                sort.copy(folderKey = null, folderDescending = null)
+                            },
+                        )
+                    }.padding(vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        if (sort.folderKey != null) FiletIcons.Check else FiletIcons.Folder,
+                        null,
+                        tint = colors.fg2,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Sort folders separately", fontSize = 12.sp)
+                }
+                val folderKey = sort.folderKey
+                if (folderKey != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Row(
+                        Modifier
+                            .padding(start = 22.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .border(1.dp, colors.lineSoft, RoundedCornerShape(7.dp)),
+                    ) {
+                        listOf(
+                            "Name" to SortKey.NAME,
+                            "Date" to SortKey.MODIFIED,
+                            "Size" to SortKey.SIZE,
+                            "Type" to SortKey.TYPE,
+                        ).forEach { (label, key) ->
+                            val on = folderKey == key
+                            Text(
+                                label,
+                                fontSize = 10.5.sp,
+                                color = if (on) MaterialTheme.colorScheme.onPrimary else colors.fg2,
+                                modifier = Modifier
+                                    .background(if (on) colors.accent else Color.Transparent)
+                                    .clickable {
+                                        val dir = sort.folderDescending ?: sort.descending
+                                        vm.prefs.setSort(
+                                            if (on) {
+                                                sort.copy(folderDescending = !dir)
+                                            } else {
+                                                sort.copy(folderKey = key)
+                                            },
+                                        )
+                                    }
+                                    .padding(horizontal = 9.dp, vertical = 5.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "Folders: " + SortOrder.label(
+                            folderKey,
+                            sort.folderDescending ?: sort.descending,
+                        ),
+                        fontSize = 10.sp,
+                        color = colors.fg3,
+                        modifier = Modifier.padding(start = 22.dp, bottom = 2.dp),
+                    )
+                }
+            }
             Row(
                 Modifier.fillMaxWidth().clickable {
                     vm.prefs.setShowHidden(!hidden)

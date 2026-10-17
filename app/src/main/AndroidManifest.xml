@@ -108,6 +108,110 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
 
+            <!--
+              The types Filet actually has a screen for, declared one by one.
+
+              ## Why this is not redundant with the */* filter above
+
+              A catch-all does put Filet in the chooser, and that is all it does. Android
+              ranks a handler that matches a SPECIFIC mime type above one that matched
+              everything, and "always open .apk with Filet" can only be set against a filter
+              that names the type - a default chosen against */* would make Filet the default
+              for every file on the phone, which no sane person wants and Android therefore
+              will not offer. So the wide filter is what gets Filet listed, and these are what
+              get it listed FIRST and let it be chosen permanently.
+
+              Each one here has a viewer or an inspector behind it. Nothing is claimed that
+              opens to an error, which is the one rule that matters in a list like this.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <!-- Packages: the APK inspector and the bundle tools. -->
+                <data android:mimeType="application/vnd.android.package-archive" />
+                <!-- Archives, which the archive browser mounts and walks into. -->
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/java-archive" />
+                <data android:mimeType="application/x-tar" />
+                <data android:mimeType="application/gzip" />
+                <data android:mimeType="application/x-gzip" />
+                <data android:mimeType="application/x-bzip2" />
+                <data android:mimeType="application/x-xz" />
+                <data android:mimeType="application/x-7z-compressed" />
+                <data android:mimeType="application/vnd.rar" />
+                <data android:mimeType="application/x-rar-compressed" />
+                <!-- Documents, which now have readers of their own. -->
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/x-markdown" />
+                <data android:mimeType="text/html" />
+                <data
+                    android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data
+                    android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+                <!-- Text and code, which is the editor. -->
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/xml" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="application/json" />
+            </intent-filter>
+
+            <!--
+              The extensions Android has NO mime type for at all.
+
+              `.xapk`, `.apkm` and `.apks` are split-package bundles and none of them is in
+              Android's mime table, so a file manager handing one over says
+              `application/octet-stream` - the same type as a firmware blob and a disk image.
+              Matching on the type alone would therefore claim every unknown binary on the
+              phone, which is exactly the overreach the specific filters above avoid.
+
+              So they are matched on the PATH instead. Two things about that worth knowing
+              before editing it:
+
+              - Attributes from several `data` tags combine as a cross product, so this is
+                four patterns against two schemes and one type, not four separate rules.
+              - A `content://` URI frequently carries no filename, in which case nothing here
+                can match and the catch-all above is what answers. That is a limitation of
+                content URIs, not of this filter, and it is why the catch-all stays.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:pathPattern=".*\\.xapk" />
+                <data android:pathPattern=".*\\.apkm" />
+                <data android:pathPattern=".*\\.apks" />
+                <data android:pathPattern=".*\\.apk" />
+                <data android:pathPattern=".*\\.md" />
+                <data android:pathPattern=".*\\.markdown" />
+            </intent-filter>
+
+            <!--
+              "Edit this" from another app, as opposed to "look at this".
+
+              Filet has one editor and several ways into it (see `HandlerRegistry`), so the
+              types here are the ones that editor can actually save: text, markdown, HTML and
+              XML. A document format it can only READ is deliberately absent - answering
+              ACTION_EDIT for a .docx would promise a save that cannot happen.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="application/json" />
+            </intent-filter>
+
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />

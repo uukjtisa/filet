@@ -29,6 +29,14 @@ class Prefs(context: Context) {
             key = SortKey.valueOfOr(sp.getString(K_SORT, null), SortKey.NAME),
             descending = sp.getBoolean(K_SORT_DESC, dev.niccc2007.filet.browser.SortOrder.DEFAULT_DESCENDING),
             foldersFirst = sp.getBoolean(K_FOLDERS_FIRST, true),
+            // Absent by default, which is the uniform A-to-Z order everything started with.
+            folderKey = sp.getString(K_SORT_FOLDER, null)
+                ?.let { stored -> SortKey.entries.firstOrNull { it.name == stored } },
+            folderDescending = if (!sp.contains(K_SORT_FOLDER_DESC)) {
+                null
+            } else {
+                sp.getBoolean(K_SORT_FOLDER_DESC, true)
+            },
         )
     )
     val sort: StateFlow<SortSpec> = _sort.asStateFlow()
@@ -613,6 +621,22 @@ class Prefs(context: Context) {
     }
 
     /**
+     * Whether `/`, `/data` and `/system` are offered as volumes.
+     *
+     * Only ever consulted on a phone where root has actually been granted - see
+     * `RootProvider.roots`, which returns nothing without that regardless of this. So this is
+     * the second gate rather than the first: somebody with root who does not want three more
+     * drive cards on Home.
+     */
+    private val _rootVolumes = MutableStateFlow(sp.getBoolean(K_ROOT_VOLUMES, true))
+    val rootVolumes: StateFlow<Boolean> = _rootVolumes.asStateFlow()
+
+    fun setRootVolumes(on: Boolean) {
+        _rootVolumes.value = on
+        sp.edit().putBoolean(K_ROOT_VOLUMES, on).apply()
+    }
+
+    /**
      * Whether a track opens where it was left rather than at the start.
      *
      * On by default. A ninety-minute film and a two-hour mix are things people come back to,
@@ -656,8 +680,20 @@ class Prefs(context: Context) {
 
     fun setSort(s: SortSpec) {
         _sort.value = s
-        sp.edit().putString(K_SORT, s.key.name).putBoolean(K_SORT_DESC, s.descending)
-            .putBoolean(K_FOLDERS_FIRST, s.foldersFirst).apply()
+        val edit = sp.edit()
+            .putString(K_SORT, s.key.name)
+            .putBoolean(K_SORT_DESC, s.descending)
+            .putBoolean(K_FOLDERS_FIRST, s.foldersFirst)
+        // REMOVED rather than written as a sentinel: null is a real state here - "folders
+        // follow the files" - and a sentinel string would have to be excluded from the enum
+        // lookup for ever afterwards.
+        if (s.folderKey == null) edit.remove(K_SORT_FOLDER) else edit.putString(K_SORT_FOLDER, s.folderKey.name)
+        if (s.folderDescending == null) {
+            edit.remove(K_SORT_FOLDER_DESC)
+        } else {
+            edit.putBoolean(K_SORT_FOLDER_DESC, s.folderDescending)
+        }
+        edit.apply()
     }
 
     fun setShowHidden(v: Boolean) { _showHidden.value = v; sp.edit().putBoolean(K_HIDDEN, v).apply() }
@@ -810,6 +846,8 @@ class Prefs(context: Context) {
         const val K_SORT = "sort.key"
         const val K_SORT_DESC = "sort.desc"
         const val K_FOLDERS_FIRST = "sort.foldersFirst"
+        const val K_SORT_FOLDER = "sort.folderKey"
+        const val K_SORT_FOLDER_DESC = "sort.folderDesc"
         const val K_HIDDEN = "browse.hidden"
         const val K_RESTORE_TABS = "browse.restoreTabs"
         const val K_BOTTOM_BAR = "browse.bottomBar"
@@ -848,6 +886,7 @@ class Prefs(context: Context) {
         const val K_PITCH_MODE = "play.pitch"
         const val K_PLAYER_FACE = "play.face"
         const val K_RESUME = "play.resume"
+        const val K_ROOT_VOLUMES = "files.rootVolumes"
         const val K_GLOW = "play.glow"
         const val K_GLOW_LEVEL = "play.glowLevel"
         const val K_GLOW_STRENGTH = "play.glowStrength"
@@ -977,6 +1016,24 @@ data class SortSpec(
      */
     val descending: Boolean = true,
     val foldersFirst: Boolean = true,
+    /**
+     * The key FOLDERS are sorted on, or null to use the same one as the files.
+     *
+     * ## Why this is nullable rather than a second key plus a flag
+     *
+     * Asked for as issue #10: folders are easiest to find alphabetically and new files are
+     * easiest to find by date, so one order cannot serve both. The obvious shape is two keys
+     * and a boolean saying whether to use the second - and that is three values with an
+     * illegal combination in it, where this is two values with none. Null means uniform, and
+     * uniform is the default, so nothing changes for anybody who does not ask.
+     *
+     * It is only consulted when [foldersFirst] is on. With folders mixed in among the files
+     * there is ONE sequence, and a sequence cannot be in two orders at once - so the setting
+     * is ignored rather than half-applied. See `sortedBy`.
+     */
+    val folderKey: SortKey? = null,
+    /** The direction for [folderKey], or null to follow [descending]. */
+    val folderDescending: Boolean? = null,
 )
 
 /** A stored enum name, or the default when it is missing or no longer exists. */

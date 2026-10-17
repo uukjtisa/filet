@@ -121,6 +121,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val face = dev.niccc2007.filet.playback.PlayerFace.of(playerFace)
     val pitchMode by prefs.pitchMode.collectAsState()
     val resumePlayback by prefs.resumePlayback.collectAsState()
+    val rootVolumes by prefs.rootVolumes.collectAsState()
     val livingGlow by prefs.livingGlow.collectAsState()
     val beatPulse by prefs.beatPulse.collectAsState()
     val pulseSense by prefs.pulseSense.collectAsState()
@@ -693,6 +694,31 @@ fun SettingsPage(vm: BrowserViewModel) {
                     updatesOn,
                 ) { vm.setUpdateNotifications(it) }
             }
+            item {
+                // ── when it last asked, said out loud ──
+                //
+                // Without this, "there is no update" and "nothing has been checked" look
+                // identical, which is how a silent updater gets reported as a broken one and
+                // cannot be argued with. Two facts, both already stored: the version running,
+                // and when GitHub last answered.
+                val checkedAt by prefs.updateLastCheckedAt.collectAsState()
+                Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)) {
+                    Text(
+                        "Running " + dev.niccc2007.filet.update.Updater.installed.toString() +
+                            if (checkedAt <= 0L) {
+                                "  ·  not checked yet"
+                            } else {
+                                "  ·  checked " + dev.niccc2007.filet.playback.agoOf(
+                                    System.currentTimeMillis() - checkedAt,
+                                )
+                            },
+                        fontSize = 10.5.sp,
+                        color = Filet.colors.fg3,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    SmallButton("Check now") { vm.checkForUpdates() }
+                }
+            }
         }
 
         // Only when Termux is actually on the phone. An integration section advertising an
@@ -780,6 +806,25 @@ fun SettingsPage(vm: BrowserViewModel) {
                     Spacer(Modifier.width(8.dp))
                     SmallButton("Import settings") { vm.openSettingsImport() }
                 }
+            }
+        }
+
+        // Only on a phone that has actually granted root. Offering it anywhere else would be
+        // a switch over three volumes that cannot exist - and those volumes appearing without
+        // root is the bug this setting arrived with. See `RootProvider.roots`.
+        if (dev.niccc2007.filet.vfs.provider.RootProvider.isGranted()) {
+            item {
+                ToggleRow(
+                    "Root volumes on Home",
+                    if (rootVolumes) {
+                        "The phone's root, /data and /system are listed as drives. They are " +
+                            "only ever offered while root is granted."
+                    } else {
+                        "Hidden. Root still works everywhere else - this is only about the " +
+                            "three drive cards."
+                    },
+                    rootVolumes,
+                ) { prefs.setRootVolumes(it) }
             }
         }
 

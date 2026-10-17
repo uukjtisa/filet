@@ -164,6 +164,13 @@ class FiletGraph(context: Context) {
         }
     }
 
+    init {
+        // Mirrored rather than read, because `RootProvider` sits below the settings layer and
+        // is kept there deliberately (PLAN.md R3). One direction of dependency, and a test can
+        // set the flag without a Context.
+        scope.launch { prefs.rootVolumes.collect { RootProvider.showVolumes = it } }
+    }
+
     val apkTools = dev.niccc2007.filet.apk.ApkTools(app, vfs, ledger, staging)
     val bridge = dev.niccc2007.filet.bridge.TrawlBridge(app, ledger)
     /** What Filet has put on the home screen, so it is manageable from inside the app. */
