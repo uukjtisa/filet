@@ -62,6 +62,11 @@ signing.properties
 /YOUR-CHECKS.md
 /CLAUDE.md
 /HANDOFF*.md
+# The decision log. It records why a fork was taken the way it was, including where a
+# judgement was overruled and by whom - which is a conversation between two people about this
+# app, and the repository's voice rule is that there is only one developer in it. The reasoning
+# that belongs in the code is in the code; this is the part that does not.
+/DECISIONS.md
 /*-SPEC.md
 
 # Source art for the launcher icon. The rendered assets ship in app/src/main/res.

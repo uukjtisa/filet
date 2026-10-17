@@ -98,6 +98,42 @@ private fun SettingsSection(title: String, subtitle: String, first: Boolean = fa
     }
 }
 
+/**
+ * Settings, in six rooms instead of one corridor.
+ *
+ * ## Why this is a tab strip and not a longer list
+ *
+ * There are sixteen sections and well over sixty controls, and they were one scroll. Finding
+ * the player's beat settings meant passing the bottom-bar editor, the selection-bar editor and
+ * every default opener on the way - and the sections that read as one subject were separated by
+ * whichever other section happened to sit between them. Reported as cramped, which is the right
+ * word for it: nothing was wrong with any one row, there were simply too many of them in a
+ * line.
+ *
+ * ## Why embedded tabs rather than six destinations
+ *
+ * Settings is ONE place somebody goes. Six entries in the navigation surfaces would make it six
+ * places, the switcher and the rail are already eight rows deep, and "where is that setting" is
+ * a question better answered by a strip you can read at a glance than by a menu you have to
+ * open. The tab is also remembered for the session, so coming back lands where you were.
+ *
+ * ## The grouping follows the existing order
+ *
+ * Deliberately. Every group below is a CONTIGUOUS run of the sections that were already there,
+ * so nothing moved - which means a reader who knew where something was still finds it, and the
+ * diff is a wrapper rather than a reshuffle. Where a group's membership looks arguable (the
+ * bottom-bar editor is under Files rather than Look) it is because that is where it already
+ * sat, and moving it would be a second change hiding inside this one.
+ */
+enum class SettingsGroup(val label: String) {
+    LOOK("Look"),
+    FILES("Files"),
+    PLAYER("Player"),
+    SEARCH("Search"),
+    SYSTEM("System"),
+    STORAGE("Storage"),
+}
+
 @Composable
 fun SettingsPage(vm: BrowserViewModel) {
     val prefs = vm.prefs
@@ -143,7 +179,40 @@ fun SettingsPage(vm: BrowserViewModel) {
     val tracked by vm.tracked.paths.collectAsState()
     val colors = Filet.colors
 
+    // Remembered for the session, not stored. Which page of settings somebody was last on is a
+    // fact about the last thirty seconds, and restoring it a week later would be a screen that
+    // opens somewhere unexplained.
+    var group by remember { mutableStateOf(SettingsGroup.LOOK) }
+
+    Column(Modifier.fillMaxSize()) {
+        // The strip scrolls, because six labels do not fit across a narrow phone and shrinking
+        // them to fit is how a tab strip becomes unreadable. `HScroll` so the edge says there
+        // is more - which is the whole rule the scroll-cue checker enforces.
+        dev.niccc2007.filet.ui.HScroll(
+            ground = Filet.colors.raised,
+            contentPadding = 12.dp,
+            spacing = 6.dp,
+            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+        ) {
+            for (g in SettingsGroup.entries) {
+                val on = g == group
+                Text(
+                    g.label,
+                    fontSize = 12.sp,
+                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (on) MaterialTheme.colorScheme.onPrimary else colors.fg2,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (on) colors.accent else colors.sunken)
+                        .clickable { group = g }
+                        .padding(horizontal = 13.dp, vertical = 7.dp),
+                )
+            }
+        }
+        HorizontalDivider(color = colors.lineSoft)
+
     LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
+        if (group == SettingsGroup.LOOK) {
         item { SettingsSection("Appearance", "Theme, accent, and how much fits on a screen.", first = true) }
         item {
             SegmentRow("Theme", ThemeChoice.entries.map { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } }, theme.ordinal) {
@@ -206,6 +275,8 @@ fun SettingsPage(vm: BrowserViewModel) {
             }
         }
 
+        }
+        if (group == SettingsGroup.FILES) {
         item { SettingsSection("Files and folders", "Sorting, hidden files, and what happens when you pick things.") }
         item {
             ToggleRow("Show hidden files", "Dotfiles and anything the volume marks hidden", hidden) {
@@ -431,6 +502,8 @@ fun SettingsPage(vm: BrowserViewModel) {
                 }
             }
         }
+        }
+        if (group == SettingsGroup.PLAYER) {
         item {
             SettingsSection(
                 "Filet's own viewers",
@@ -649,6 +722,8 @@ fun SettingsPage(vm: BrowserViewModel) {
             }
         }
 
+        }
+        if (group == SettingsGroup.SEARCH) {
         item { SettingsSection("Search index", "The database that makes whole-device search answer instantly.") }
         item {
             ToggleRow(
@@ -662,6 +737,8 @@ fun SettingsPage(vm: BrowserViewModel) {
         }
         item { IndexStatusCard(vm) }
 
+        }
+        if (group == SettingsGroup.SYSTEM) {
         item {
             SettingsSection(
                 "Logs",
@@ -751,6 +828,8 @@ fun SettingsPage(vm: BrowserViewModel) {
             }
         }
 
+        }
+        if (group == SettingsGroup.STORAGE) {
         item { SettingsSection("Tracked folders", "Watched closely, so Home shows what just arrived.") }
         item {
             Text(
@@ -842,6 +921,8 @@ fun SettingsPage(vm: BrowserViewModel) {
             // permission can have changed - see PermissionWatch for why that beats a timer.
             dev.niccc2007.filet.perms.PermissionsCard { intents -> vm.openFirstThatResolves(intents) }
         }
+        }
+    }
     }
 
     pickingOpenerFor?.let { ext ->
