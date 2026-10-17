@@ -21,6 +21,13 @@ data class TreeRow(
     val loading: Boolean = false,
     val spines: List<Boolean> = emptyList(),
     val last: Boolean = false,
+    /**
+     * True for the note under a branch that turned out to hold nothing.
+     *
+     * Carries its PARENT's node, same as a [loading] row, so the guide geometry and the
+     * working-folder frame both already know where it belongs.
+     */
+    val empty: Boolean = false,
 )
 
 /**
@@ -79,11 +86,24 @@ object TreeRows {
                     kids == null -> out.add(
                         TreeRow(node, at + 1, loading = true, spines = spines.toList(), last = true),
                     )
-                    // Opened and genuinely empty. Nothing is emitted: a row saying "empty"
-                    // under every empty folder in a tree is noise, and the chevron already
-                    // turned, which is the acknowledgement.
-                    kids.isEmpty() -> Unit
-                    at + 1 >= depth -> Unit
+                    // Opened and genuinely empty, which now says so.
+                    //
+                    // It used to emit nothing, on the reasoning that a row under every empty
+                    // folder is noise and the chevron turning is acknowledgement enough. Two
+                    // things changed that. A folder known to be empty no longer HAS a chevron,
+                    // so the only way to reach this state is a folder whose count was stale or
+                    // whose read failed - which is exactly when somebody needs telling. And
+                    // "the branch opened and nothing happened" is indistinguishable from the
+                    // chevron not working, which is the reading this gets reported as.
+                    kids.isEmpty() -> out.add(
+                        TreeRow(node, at + 1, empty = true, spines = spines.toList(), last = true),
+                    )
+                    // The depth guard, which now also says so rather than stopping silently.
+                    // A tree that simply stops twelve deep looks broken at exactly the moment
+                    // somebody is lost enough to be twelve deep.
+                    at + 1 >= depth -> out.add(
+                        TreeRow(node, at + 1, empty = true, spines = spines.toList(), last = true),
+                    )
                     else -> walk(kids, at + 1)
                 }
                 spines.removeAt(spines.lastIndex)
@@ -103,6 +123,42 @@ object TreeRows {
     fun toggle(open: Set<VPath>, path: VPath): Set<VPath> =
         if (path in open) open.filterNot { it == path || it.path.startsWith(path.path + "/") }.toSet()
         else open + path
+
+    /**
+     * Every folder between [root] and [target], so a jump can land with the tree already open
+     * down to where it went.
+     *
+     * ## Why a shortcut needs this
+     *
+     * Opening a shortcut to Downloads used to make Downloads the tree's own root - the pane
+     * navigated there, and the tree draws whatever the pane is showing. So the tree arrived
+     * with no trunk: no internal storage above it, no siblings beside it, and no way to see
+     * where in the device you had landed. Which is the one thing a tree is for.
+     *
+     * The fix is to navigate to the VOLUME and open the path down to the target instead. This
+     * is the part worth testing: the ancestors are derived by walking parents up from the
+     * target and stopping at the root, which gets the boundary cases - target IS the root, or
+     * target is not under it at all - decided once rather than at three call sites.
+     *
+     * [target] itself is included, so the folder somebody asked for is open and showing its
+     * contents rather than merely visible.
+     */
+    fun pathTo(root: VPath, target: VPath): Set<VPath> {
+        if (root == target) return setOf(target)
+        if (!target.path.startsWith(root.path)) return setOf(target)
+        val out = LinkedHashSet<VPath>()
+        var at: VPath? = target
+        // Guarded against a path that is somehow not under the root after all: without the
+        // depth bound a parent chain that never reaches it is an infinite loop on the main
+        // thread.
+        var guard = 0
+        while (at != null && guard++ < MAX_DEPTH * 2) {
+            out.add(at)
+            if (at == root) break
+            at = at.parent
+        }
+        return out
+    }
 
     /**
      * How deep the tree will go.

@@ -3154,7 +3154,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      */
     fun openRecent(entry: dev.niccc2007.filet.data.RecentEntry) {
         if (entry.isDir) {
-            focusedPane()?.navigateTo(entry.path)
+            focusedPane()?.jumpTo(entry.path)
         } else {
             openHomeEntry(VNode(entry.path, false, -1, entry.at))
         }
@@ -4465,7 +4465,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 toast("That file is gone — removed from the list.")
                 return@launch
             }
-            if (live.isDir) focusedPane()?.navigateTo(live.path) else openNode(live)
+            if (live.isDir) focusedPane()?.jumpTo(live.path) else openNode(live)
         }
     }
 
@@ -4893,7 +4893,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             if (node.isDir) {
                 val pane = paneForShortcut()
                 if (pane == null) { toast("Filet could not open a tab for that folder."); return@launch }
-                pane.navigateTo(path)
+                // jumpTo, not navigateTo: a shortcut ARRIVES, and in a tree that means
+                // opening the trunk down to the folder rather than making the folder the
+                // trunk. See `PaneController.revealInTree`.
+                pane.jumpTo(path)
                 // The tab is named after the folder, so a shortcut to Download does not leave a
                 // tab still calling itself Home.
                 focusSide(_state.value.focused)

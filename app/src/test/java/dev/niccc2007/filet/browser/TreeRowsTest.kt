@@ -41,9 +41,61 @@ class TreeRowsTest {
     }
 
     @Test
-    fun `an opened folder that is empty adds nothing`() {
+    fun `an opened folder that is empty says so`() {
+        // It used to add nothing, on the reasoning that the chevron turning was enough
+        // acknowledgement. A folder known to be empty has no chevron any more, so reaching
+        // this state means the count was stale or the read failed - and "it opened and
+        // nothing happened" is indistinguishable from the chevron being broken.
         val rows = TreeRows.flatten(listOf(a), setOf(a.path), mapOf(a.path to emptyList()))
-        assertEquals(1, rows.size)
+        assertEquals(2, rows.size)
+        assertTrue(rows[1].empty)
+        assertEquals(1, rows[1].depth)
+        // It carries its PARENT's node, same as a loading row, so the guide geometry and the
+        // working-folder frame already know where it belongs.
+        assertEquals(a.path, rows[1].node.path)
+    }
+
+    @Test
+    fun `the depth guard says so rather than stopping silently`() {
+        // A tree that simply stops twelve deep looks broken at exactly the moment somebody is
+        // lost enough to be twelve deep.
+        val rows = TreeRows.flatten(
+            roots = listOf(a),
+            open = setOf(a.path),
+            branches = mapOf(a.path to listOf(file("/a/one"))),
+            depth = 1,
+        )
+        assertTrue("the guard drew no note", rows.any { it.empty })
+    }
+
+    @Test
+    fun `the way to a folder is every folder on the way, including it`() {
+        val root = VPath.of("local", "/storage/emulated/0")
+        val target = VPath.of("local", "/storage/emulated/0/Download/Music")
+        val path = TreeRows.pathTo(root, target)
+        assertEquals(
+            setOf(
+                "/storage/emulated/0",
+                "/storage/emulated/0/Download",
+                "/storage/emulated/0/Download/Music",
+            ),
+            path.map { it.path }.toSet(),
+        )
+    }
+
+    @Test
+    fun `the way to the root is the root`() {
+        val root = VPath.of("local", "/storage/emulated/0")
+        assertEquals(setOf(root), TreeRows.pathTo(root, root))
+    }
+
+    @Test
+    fun `a target outside the root does not walk for ever`() {
+        // The guard that matters: a parent chain that never reaches the root would otherwise
+        // spin on the main thread, and this is reachable with an archive mount or a remote.
+        val root = VPath.of("local", "/storage/emulated/0")
+        val elsewhere = VPath.of("local", "/data/local/tmp/thing")
+        assertEquals(setOf(elsewhere), TreeRows.pathTo(root, elsewhere))
     }
 
     @Test

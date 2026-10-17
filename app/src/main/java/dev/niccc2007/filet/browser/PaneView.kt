@@ -848,6 +848,8 @@ private fun FolderBody(
                     rememberFolderPeek(vm.folderPeek, node.path, node.mtime, true).value.empty
                 if (row?.loading == true) {
                     BranchLoading(row.depth, steps)
+                } else if (row?.empty == true) {
+                    BranchEmpty(row.depth, steps)
                 } else if (s.search.active) {
                     SearchResultRow(
                         node = node,
@@ -909,7 +911,14 @@ private fun FolderBody(
                             null
                         },
                         onOpenInPlace = if (tree && node.isDir && !emptyFolder) {
-                            ({ pane.toggleBranch(node.path) })
+                            // Closing goes through `collapseBranch`, which keeps the folder
+                            // in view: a LazyColumn anchors on its first VISIBLE row, so
+                            // folding away a branch you are reading INSIDE takes the anchor
+                            // with it and the list lands somewhere unrelated.
+                            ({
+                                if (node.path in s.open) pane.collapseBranch(node.path)
+                                else pane.toggleBranch(node.path)
+                            })
                         } else {
                             null
                         },
@@ -932,7 +941,10 @@ private fun FolderBody(
                             // it outranks opening a file everywhere else in the list - while
                             // a selection is live, a tap is about the selection. The chevron
                             // is its own target and still expands, so nothing is lost.
-                            if (tree && node.isDir && !s.selecting) pane.toggleBranch(node.path)
+                            if (tree && node.isDir && !s.selecting) {
+                                if (node.path in s.open) pane.collapseBranch(node.path)
+                                else pane.toggleBranch(node.path)
+                            }
                             else rowClick(pane, vm, side, node)
                         },
                         // See the tile above: the drag detector owns the long press.
@@ -1258,6 +1270,38 @@ private fun BranchLoading(depth: Int, steps: TreeScale.Steps) {
     ) {
         Spacer(Modifier.width(26.dp))
         Text("Reading\u2026", fontSize = 11.sp, color = Filet.colors.fg3)
+    }
+}
+
+/**
+ * A branch that was opened and holds nothing.
+ *
+ * ## Why this row exists at all
+ *
+ * Nothing used to be drawn here, on the reasoning that the chevron turning is acknowledgement
+ * enough. But a folder known to be empty no longer HAS a chevron, so the only way to reach
+ * this state is a folder whose child count was stale or whose read came back empty - which is
+ * precisely the case where somebody needs to be told something, rather than left looking at a
+ * branch that opened and did nothing.
+ *
+ * Deliberately the same shape as [BranchLoading]: same indent, same size, same grey. The two
+ * are the same kind of statement about a branch, and a reader who has seen one should
+ * recognise the other without reading it.
+ */
+@Composable
+private fun BranchEmpty(depth: Int, steps: TreeScale.Steps) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(
+                start = (steps.startDp + depth * steps.indentDp).dp,
+                top = 6.dp,
+                bottom = 6.dp,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Spacer(Modifier.width(26.dp))
+        Text("Nothing in here", fontSize = 11.sp, color = Filet.colors.fg3)
     }
 }
 

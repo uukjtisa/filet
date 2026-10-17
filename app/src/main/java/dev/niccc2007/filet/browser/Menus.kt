@@ -133,6 +133,54 @@ fun ViewPopover(vm: BrowserViewModel, onDismiss: () -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 Text("Tree view", fontSize = 12.sp)
             }
+            // Only while the tree is on, and only when there is something to act on. A
+            // greyed-out row is against R1, and both of these do nothing on a folded tree.
+            //
+            // The pane is asked for here rather than taken as a parameter: this popover is
+            // opened from the toolbar of whichever pane has focus, so the focused pane IS the
+            // one it is about, and threading it through would let the two disagree.
+            val pane = vm.focusedPane()
+            val paneState = pane?.state?.collectAsState()?.value
+            if (tree && paneState != null) {
+                if (paneState.open.isNotEmpty()) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            pane.collapseTree()
+                        }.padding(vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            FiletIcons.Up, null,
+                            tint = colors.fg2, modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Fold everything away", fontSize = 12.sp)
+                    }
+                }
+                // The other direction, and the one that answers a trunkless tree: somebody
+                // deep in a flat list who turns the tree on gets a tree rooted where they
+                // stand, which is the same thing a shortcut used to do. See
+                // `PaneController.expandToHere`.
+                val here = paneState.cwd
+                val root = here?.let { at ->
+                    pane.rootsForDevice.firstOrNull { it.contains(at) && it != at }
+                }
+                if (root != null) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            pane.expandToHere(root)
+                        }.padding(vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            FiletIcons.Folder, null,
+                            tint = colors.fg2, modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Show where this is", fontSize = 12.sp)
+                    }
+                }
+            }
         }
     }
 }

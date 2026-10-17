@@ -492,6 +492,88 @@ class PaneController(
     }
 
     /**
+     * Close one branch and keep the folder it belonged to in view.
+     *
+     * ## The yank this avoids
+     *
+     * A `LazyColumn` with keys anchors on its first VISIBLE row, so rows disappearing above
+     * the viewport cost nothing - that case was already right. The one that is not is closing
+     * a branch you are reading INSIDE: the anchor row itself goes, and the list lands wherever
+     * the new row at that index happens to be, which is usually somewhere else entirely.
+     *
+     * So the fold being closed becomes the reveal target, and the existing machinery scrolls
+     * it in once the rows have settled. See [revealOnly] for why that is request-driven rather
+     * than a timed scroll.
+     */
+    fun collapseBranch(path: VPath) {
+        if (path !in _state.value.open) return
+        toggleBranch(path)
+        _state.update { it.copy(revealTarget = path) }
+    }
+
+    /**
+     * Arrive at [target] from outside the pane - a shortcut, a widget, a bookmark, a result.
+     *
+     * With the tree off this is exactly [navigateTo], which is why every one of those call
+     * sites can use it unconditionally. With the tree on it opens the trunk instead; see
+     * [revealInTree] for what was wrong with navigating.
+     *
+     * The volume is found from [rootsForDevice], and a target under none of them - an archive
+     * mount, a remote, a provider with no volume list - falls back to navigating. A tree
+     * rooted at an archive IS the archive's own root, so there is nothing to expand toward.
+     */
+    fun jumpTo(target: VPath) {
+        val root = rootsForDevice.firstOrNull { it.contains(target) }
+        if (!prefs.treeView.value || root == null || root == target) {
+            navigateTo(target)
+            return
+        }
+        revealInTree(root, target)
+    }
+
+    /**
+     * Land on [target] with the tree open from [root] down to it.
+     *
+     * ## Why a jump is not a navigation
+     *
+     * A shortcut, a widget, a bookmark and a search result all arrive from OUTSIDE the pane,
+     * and `navigateTo` makes the thing it is given the pane's own folder. In a flat list that
+     * is exactly right. In a tree it means the tree's root becomes whatever was tapped, so a
+     * shortcut to Downloads produced a tree with Downloads at the top, no internal storage
+     * above it and no siblings beside it - a tree with no trunk, which is a flat list wearing
+     * guide lines.
+     *
+     * Walking INTO a folder from inside the tree still navigates, and that is the distinction:
+     * arriving expands, walking moves. See [TreeRows.pathTo].
+     */
+    fun revealInTree(root: VPath, target: VPath) {
+        navigateTo(root)
+        _state.update {
+            it.copy(
+                open = it.open + TreeRows.pathTo(root, target),
+                // The target is also the working folder, so New folder and Paste land where
+                // somebody was taken rather than at the volume root they were taken through.
+                active = target.takeIf { t -> t != root },
+                revealTarget = target,
+            )
+        }
+    }
+
+    /**
+     * Open every folder on the way to the pane's own current folder.
+     *
+     * The other half of [revealInTree], for somebody who is already deep in a flat list and
+     * turns the tree on: without this the tree appears rooted where they stand, which is the
+     * same trunkless tree arrived at from the other direction.
+     */
+    fun expandToHere(root: VPath) {
+        // No folder means a special pane - Home, Playlists, Remotes - and there is nothing
+        // under it to expand toward.
+        val here = _state.value.cwd ?: return
+        revealInTree(root, here)
+    }
+
+    /**
      * Re-read this folder without settling the tail.
      *
      * What every internal re-list uses - the one after a copy, a move, a rename or a create.
