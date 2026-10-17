@@ -77,17 +77,64 @@ class BeatMapTest {
     }
 
     @Test
-    fun `the glow swings both ways about its resting level`() {
-        // Below rest between beats, above it on one. A pulse that only ever adds is half a
-        // pulse and spends most of its time indistinguishable from the pulse being off.
-        assertTrue("silence did not dip", glowSwing(0f, 1f) < 0f)
-        assertTrue("a beat did not rise", glowSwing(1f, 1f) > 0f)
+    fun `the glow swings both ways about what the track has been doing`() {
+        // Below the recent average between beats, above it on one. A pulse that only ever
+        // adds is half a pulse and spends most of its time indistinguishable from off.
+        assertTrue("silence did not dip", beatSwing(0f, 0.4f) < 0f)
+        assertTrue("a beat did not rise", beatSwing(1f, 0.4f) > 0f)
         // The dip is the gentler half, or a quiet passage just goes dark and stays there.
-        assertTrue(kotlin.math.abs(glowSwing(0f, 1f)) < glowSwing(1f, 1f))
-        // And depth scales both halves together.
-        assertEquals(0f, glowSwing(0f, 0f), 0.001f)
-        assertEquals(0f, glowSwing(1f, 0f), 0.001f)
-        assertEquals(glowSwing(1f, 1f) / 2f, glowSwing(1f, 0.5f), 0.001f)
+        assertTrue(kotlin.math.abs(beatSwing(0.1f, 0.5f)) < beatSwing(0.9f, 0.5f))
+        // Nothing happening is no swing at all, whatever the level - which is the property
+        // the old hardcoded resting point of 0.34 did not have, and the whole of the bug.
+        assertEquals(0f, beatSwing(0.05f, 0.05f), 0.001f)
+        assertEquals(0f, beatSwing(0.9f, 0.9f), 0.001f)
+    }
+
+    @Test
+    fun `the pulse never leaves the glow dimmer on average than no pulse`() {
+        // THE guarantee, and the defect it replaces.
+        //
+        // The old swing measured every envelope value against a constant 0.34 while the
+        // envelope itself decays to zero between beats. So a track's average swing was
+        // decisively negative, and a negative average swing is a glow that is permanently
+        // dimmer with the pulse on than with it off - about two thirds, which against a
+        // Faint default was invisible. Nothing about that is apparent by looking at a light,
+        // so it is asserted instead.
+        //
+        // Three shapes of track, including the two extremes that break a fixed resting point:
+        // sparse hits in near-silence, and a loud track that never lets up.
+        val sparse = FloatArray(600) { if (it % 40 == 0) 0.9f else 0f }
+        val busy = FloatArray(600) { if (it % 6 == 0) 1f else 0.55f }
+        val flat = FloatArray(600) { 0.7f }
+        for (track in listOf(sparse, busy, flat)) {
+            assertTrue(
+                "the average swing is a net dim: ${averageSwing(track)}",
+                swingIsBalanced(track),
+            )
+        }
+        // A flat track barely pulses at all, and what little it does is UPWARD.
+        //
+        // Not asserted as zero, which is what this said first and which failed at 0.022: the
+        // running mean starts at zero and takes a second or so to climb to the track's level,
+        // so the opening of every track is a genuine rise and contributes a real positive
+        // swing. That is correct behaviour - a track starting IS an event - and it is also
+        // the warm-up transient, so the property worth pinning is the sign and the size
+        // rather than an exact figure.
+        val average = averageSwing(flat)
+        assertTrue("a flat track is a net dim: $average", average >= -0.001f)
+        assertTrue("a flat track pulses far too much: $average", average < 0.05f)
+    }
+
+    @Test
+    fun `the timing bias comes from the window and the rate, not from an opinion`() {
+        // The lateness that used to be a slider. An onset sounds near the END of its
+        // analysis window, so it is later than its bucket index implies by about a window.
+        val normal = BeatMap(floatArrayOf(1f), floatArrayOf(1f), 22_050).biasMs
+        assertTrue("22kHz bias out of range: $normal", normal in 30L..45L)
+        // HALF the rate is twice the bias, which is exactly why a constant compiled in here
+        // was wrong for long tracks - those used to be decoded at half rate.
+        val halved = BeatMap(floatArrayOf(1f), floatArrayOf(1f), 11_025).biasMs
+        assertTrue("11kHz bias should be about double: $halved", halved > normal * 1.8f)
     }
 
     @Test

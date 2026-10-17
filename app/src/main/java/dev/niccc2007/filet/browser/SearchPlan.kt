@@ -46,6 +46,7 @@ fun searchPlan(kind: PaneKind): SearchMode = when (kind) {
     PaneKind.ACTIVITY -> SearchMode.FILTER
     PaneKind.NEARBY -> SearchMode.FILTER
     PaneKind.APPS -> SearchMode.FILTER
+    PaneKind.RESUME -> SearchMode.FILTER
 
     // Home searches the device.
     //

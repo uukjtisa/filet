@@ -39,6 +39,14 @@ enum class PaneKind {
 
     /** Installed apps, and extracting their APK back out. */
     APPS,
+
+    /**
+     * What was part way through, and where it got to. See `ResumeStore`.
+     *
+     * Audio and video in one list with a filter rather than a tab each - the reasoning is on
+     * `ResumeScreen`, and it is reversible from here if it turns out to be wrong.
+     */
+    RESUME,
 }
 
 data class SearchUi(

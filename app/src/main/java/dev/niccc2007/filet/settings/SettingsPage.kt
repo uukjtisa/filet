@@ -115,12 +115,16 @@ fun SettingsPage(vm: BrowserViewModel) {
     val navWhileSelecting by prefs.navWhileSelecting.collectAsState()
     val uninterrupted by prefs.uninterrupted.collectAsState()
     val playerFace by prefs.playerFace.collectAsState()
+    // Hoisted out of the look-picker row below: the beat settings are scoped to the
+    // look that is selected, and a LazyColumn's items cannot see a value declared
+    // inside one of their siblings.
+    val face = dev.niccc2007.filet.playback.PlayerFace.of(playerFace)
     val pitchMode by prefs.pitchMode.collectAsState()
+    val resumePlayback by prefs.resumePlayback.collectAsState()
     val livingGlow by prefs.livingGlow.collectAsState()
     val beatPulse by prefs.beatPulse.collectAsState()
     val pulseSense by prefs.pulseSense.collectAsState()
     val pulseDepth by prefs.pulseDepth.collectAsState()
-    val pulseLead by prefs.pulseLead.collectAsState()
     val waveGap by prefs.waveGap.collectAsState()
     val waveSize by prefs.waveSize.collectAsState()
     val waveRest by prefs.waveRest.collectAsState()
@@ -433,7 +437,6 @@ fun SettingsPage(vm: BrowserViewModel) {
             )
         }
         item {
-            val face = dev.niccc2007.filet.playback.PlayerFace.of(playerFace)
             Column {
                 SegmentRow(
                     "Music player",
@@ -466,23 +469,33 @@ fun SettingsPage(vm: BrowserViewModel) {
         }
         if (livingGlow) {
             item {
-                // Under the glow, because it IS the glow answering the music. Asked for in
-                // those terms, and it is also the honest arrangement: with the glow off
-                // there is nothing for a beat to move.
+                // Under the glow, because it IS the glow answering the music, and indented to
+                // say so. With the glow off there is nothing for a beat to move.
                 ToggleRow(
                     "Pulse on the beat",
-                    if (beatPulse) {
-                        "The glow swells on every drum. The track is read once when it " +
-                            "opens on the Aurora look - a second of work, then nothing " +
-                            "while it plays."
+                    if (!face.pulses) {
+                        "Nothing to move on the Classic look, which is the flat one by " +
+                            "design. Switch to Ambient, Editorial, Immersive or Aurora."
+                    } else if (beatPulse) {
+                        "The glow swells on every drum and dips between them. The track is " +
+                            "read once when the player opens - a second of work, then " +
+                            "nothing while it plays."
                     } else {
                         "The glow drifts on its own time."
                     },
-                    beatPulse,
+                    beatPulse && face.pulses,
                     beta = true,
+                    sub = true,
                 ) { prefs.setBeatPulse(it) }
             }
-            if (beatPulse) {
+            // ONLY the controls that do something on the look that is selected.
+            //
+            // Every one of these used to be shown on every look, so four of the five offered
+            // Wave at rest, Wave on a beat and Wave distance while drawing no wave at all -
+            // three live sliders with nothing on the other end of them. A control that is
+            // visible and inert reads as the feature being broken, which is worse than it
+            // being absent. See `PlayerFace.pulses` and `PlayerFace.hasWave`.
+            if (beatPulse && face.pulses) {
                 item {
                     SliderRow(
                         "Sensitivity",
@@ -491,6 +504,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                             "inventing beats that are not there.",
                         dev.niccc2007.filet.playback.sensePosition(pulseSense),
                         beta = true,
+                        sub = true,
                     ) { prefs.setPulseSense(dev.niccc2007.filet.playback.senseFor(it)) }
                 }
                 item {
@@ -501,45 +515,42 @@ fun SettingsPage(vm: BrowserViewModel) {
                             "range about it, which is why there are two of them.",
                         pulseDepth,
                         beta = true,
+                        sub = true,
                     ) { prefs.setPulseDepth(it) }
                 }
-                item {
-                    SliderRow(
-                        "Wave at rest",
-                        "How much the wave moves when nothing is happening. All the way " +
-                            "down and it is a flat circle until a drum arrives.",
-                        waveRest,
-                        beta = true,
-                    ) { prefs.setWaveRest(it) }
-                }
-                item {
-                    SliderRow(
-                        "Wave on a beat",
-                        "Where a full-strength beat takes it. Softer beats land " +
-                            "between this and the resting size rather than all hitting the " +
-                            "same, so the wave has the track's dynamics in it.",
-                        waveSize,
-                        beta = true,
-                    ) { prefs.setWaveSize(it) }
-                }
-                item {
-                    SliderRow(
-                        "Wave distance",
-                        "How far off the artwork it sits.",
-                        waveGap,
-                        beta = true,
-                    ) { prefs.setWaveGap(it) }
-                }
-                item {
-                    SliderRow(
-                        "Timing",
-                        "Where the pulse sits against the sound. Android does not report " +
-                            "what a phone adds between its decoder and its speaker, and it " +
-                            "differs per device and over Bluetooth - so this is the one " +
-                            "that has to be set by ear. Right is later.",
-                        dev.niccc2007.filet.playback.leadPosition(pulseLead),
-                        beta = true,
-                    ) { prefs.setPulseLead(dev.niccc2007.filet.playback.leadFor(it)) }
+                // The wave is Aurora's, so its three controls are too. There is no wave on
+                // the other looks for them to be about.
+                if (face.hasWave) {
+                    item {
+                        SliderRow(
+                            "Wave at rest",
+                            "How much the wave moves when nothing is happening. All the way " +
+                                "down and it is a flat circle until a drum arrives.",
+                            waveRest,
+                            beta = true,
+                            sub = true,
+                        ) { prefs.setWaveRest(it) }
+                    }
+                    item {
+                        SliderRow(
+                            "Wave on a beat",
+                            "Where a full-strength beat takes it. A hard hit adds lobes as " +
+                                "well as depth, so it gets busier and not just bigger, and " +
+                                "the biggest throw a ring outward.",
+                            waveSize,
+                            beta = true,
+                            sub = true,
+                        ) { prefs.setWaveSize(it) }
+                    }
+                    item {
+                        SliderRow(
+                            "Wave distance",
+                            "How far off the artwork it sits.",
+                            waveGap,
+                            beta = true,
+                            sub = true,
+                        ) { prefs.setWaveGap(it) }
+                    }
                 }
             }
             item {
@@ -588,6 +599,20 @@ fun SettingsPage(vm: BrowserViewModel) {
                 dev.niccc2007.filet.playback.Scratch.turnPosition(discTurn),
                 beta = true,
             ) { prefs.setDiscTurnMs(dev.niccc2007.filet.playback.Scratch.turnMsFor(it)) }
+        }
+        item {
+            ToggleRow(
+                "Carry on where I left off",
+                if (resumePlayback) {
+                    "A track or a film opens where it stopped, and the Carry on tab lists " +
+                        "what is part way through. Positions are written as it plays, so " +
+                        "they survive the app being closed from the task switcher."
+                } else {
+                    "Everything opens at the start. Nothing is remembered, and the Carry on " +
+                        "tab stays empty."
+                },
+                resumePlayback,
+            ) { prefs.setResumePlayback(it) }
         }
         item {
             ToggleRow(
@@ -837,16 +862,42 @@ fun BetaTag() {
 }
 
 /** A labelled slider with the sentence that says what moving it does. */
+/**
+ * How far in a dependent row sits.
+ *
+ * ## Why these rows needed an indent at all
+ *
+ * The player's settings are two levels deep - the glow, then the pulse under it, then the
+ * pulse's own four controls - and every one of them was drawn at the same 14dp margin. Read
+ * top to bottom that is eight equal siblings, so nothing says that turning the glow off takes
+ * seven of them with it, and the list reads as a pile of unrelated switches rather than as one
+ * feature with its settings. The panel inside the player already indents its sub-rows; this
+ * brings the two into line.
+ *
+ * One step, not two. A second level of indent on the pulse's children would cost 28dp of a
+ * phone's width to say something the enclosing switch already says.
+ */
+private val SUB_INDENT = 30.dp
+
 @Composable
 fun SliderRow(
     title: String,
     subtitle: String,
     value: Float,
     beta: Boolean = false,
+    /** True for a row that only applies while the row above it is on. See [SUB_INDENT]. */
+    sub: Boolean = false,
     onChange: (Float) -> Unit,
 ) {
     val colors = Filet.colors
-    Column(Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) {
+    Column(
+        Modifier.padding(
+            start = if (sub) SUB_INDENT else 14.dp,
+            end = 14.dp,
+            top = 4.dp,
+            bottom = 4.dp,
+        ),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
             if (beta) BetaTag()
@@ -870,11 +921,21 @@ fun ToggleRow(
     subtitle: String,
     checked: Boolean,
     beta: Boolean = false,
+    /** True for a row that only applies while the row above it is on. See [SUB_INDENT]. */
+    sub: Boolean = false,
     onChange: (Boolean) -> Unit,
 ) {
     val colors = Filet.colors
     Row(
-        Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(horizontal = 14.dp, vertical = 9.dp),
+        Modifier
+            .fillMaxWidth()
+            .clickable { onChange(!checked) }
+            .padding(
+                start = if (sub) SUB_INDENT else 14.dp,
+                end = 14.dp,
+                top = 9.dp,
+                bottom = 9.dp,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {

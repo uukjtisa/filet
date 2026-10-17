@@ -86,6 +86,49 @@ class TrackPcm(
          * case, and eleven kilohertz of bandwidth, which is more than a record gives you
          * once you are moving it by hand.
          */
+        /**
+         * The rate the samples are actually at, from how many of them there are.
+         *
+         * ## Why this is measured rather than trusted
+         *
+         * A long track played back an octave high, and every candidate explanation for it was
+         * a different place where the decimation and the declared rate could disagree: the
+         * container's duration being wrong on a variable-bitrate file, the halving loop above,
+         * a source whose own rate is BELOW the target so the decimator emits every frame and
+         * the result is declared at twice the rate it was captured at. All of them are the
+         * same class of fault - samples at one rate wearing a label saying another - and all
+         * of them sound identical, because pitch error is the only symptom a rate label has.
+         *
+         * So the label is not taken on trust. The number of samples and the duration the
+         * container states are two independent facts about the same audio, and together they
+         * give the rate directly. If they agree with the declared rate, nothing changes. If
+         * they do not, the measurement wins, because the samples are the thing that exists.
+         *
+         * Guarded both ways: a duration that is missing or absurd leaves the declared rate
+         * alone, and a correction is only taken when it differs by more than [RATE_SLACK],
+         * since a container's duration is rounded to the millisecond and the last partial
+         * buffer is not always decoded.
+         *
+         * @param count how many mono samples came out.
+         * @param declared what the decimation believed it was producing.
+         * @param durationMs what the container says the track is, or 0 when it will not say.
+         */
+        fun trueRate(count: Int, declared: Int, durationMs: Long): Int {
+            if (count <= 0 || durationMs <= 0L) return declared
+            val measured = (count * 1000L / durationMs).toInt()
+            if (measured !in FLOOR_RATE / 4..192_000) return declared
+            val drift = kotlin.math.abs(measured - declared).toFloat() / declared
+            return if (drift > RATE_SLACK) measured else declared
+        }
+
+        /**
+         * How far the measured rate may sit from the declared one before it is believed.
+         *
+         * Eight percent. Below that it is rounding and a missing tail buffer; a genuine
+         * mismatch in this code can only be a factor of two, which is a hundred percent.
+         */
+        const val RATE_SLACK = 0.08f
+
         const val TARGET_RATE = 22_050
 
         /** The least it will drop to for a long track rather than give up. */
@@ -285,10 +328,20 @@ class TrackPcm(
                     dev.niccc2007.filet.data.Diag.log(TAG, "pcm too short: ${out.size}")
                     return null
                 }
-                val made = TrackPcm(out.toArray(), rate)
+                // The rate is MEASURED, not assumed. See [trueRate].
+                val samples = out.toArray()
+                val declared = trueRate(samples.size, rate, durationUs / 1000L)
+                if (declared != rate) {
+                    dev.niccc2007.filet.data.Diag.log(
+                        TAG,
+                        "pcm rate corrected ${rate}Hz -> ${declared}Hz " +
+                            "(${samples.size} samples, ${durationUs / 1000L}ms)",
+                    )
+                }
+                val made = TrackPcm(samples, declared)
                 dev.niccc2007.filet.data.Diag.log(
                     TAG,
-                    "pcm ${made.durationMs}ms at ${rate}Hz, ${out.size * 2 / 1024}KB",
+                    "pcm ${made.durationMs}ms at ${declared}Hz, ${samples.size * 2 / 1024}KB",
                 )
                 return made
             } catch (e: Throwable) {

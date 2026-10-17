@@ -46,7 +46,8 @@ import androidx.compose.ui.graphics.Color
  * See [rememberBeatPulse].
  *
  * @param running false freezes the lights where they started.
- * @param pulse the beat envelope, or null when the pulse is off.
+ * @param pulse the beat, SIGNED about the track's own average, or null when the pulse is
+ *   off. See [beatSwing].
  */
 @Composable
 fun AuroraBackdrop(
@@ -84,9 +85,11 @@ fun AuroraBackdrop(
                 // reading the frame up there recomposes all of it sixty times a second. See
                 // the note in `livingGlow`.
                 val p = phases.value
-                // Signed: below the resting glow between beats, above it on one. See
-                // `glowSwing` for why a light that only ever grows is half a pulse.
-                val swing = if (pulse == null) 0f else glowSwing(pulse.value, pulseDepth)
+                // Already signed about the track's own recent average by the time it
+                // arrives here - below the resting glow between beats, above it on one. See
+                // `beatSwing` for why a light that only ever grows is half a pulse, and for
+                // the sign error that made this read as no glow at all.
+                val swing = if (pulse == null) 0f else pulse.value * pulseDepth
                 drawRect(ground)
                 if (!on) {
                     // The COLOUR stays; the lights go.

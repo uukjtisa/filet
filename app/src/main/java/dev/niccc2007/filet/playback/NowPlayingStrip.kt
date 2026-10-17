@@ -113,8 +113,24 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
 
     val glow by vm.prefs.livingGlow.collectAsStateWithLifecycle()
     val strength by vm.prefs.glowStrength.collectAsStateWithLifecycle()
-    val level = GlowLevel.nearest(strength)
     val spill by vm.prefs.glowSpill.collectAsStateWithLifecycle()
+
+    /**
+     * The beat, but only if something else has already paid for it.
+     *
+     * `BeatMap.cached` never measures - see the note there. The strip is in every folder, and
+     * a sixty-times-a-second envelope running while somebody browses files is a cost worth
+     * paying only when the answer is already sitting in memory, which after one play of the
+     * track it is.
+     */
+    val pulseOn by vm.prefs.beatPulse.collectAsStateWithLifecycle()
+    val map = remember(track.id, pulseOn) {
+        if (!pulseOn || !glow) null else BeatMap.cached(track.id)
+    }
+    val depth by vm.prefs.pulseDepth.collectAsStateWithLifecycle()
+    val sense by vm.prefs.pulseSense.collectAsStateWithLifecycle()
+    val signal = rememberBeatSignal(map, vm.playback, pulseOn && glow && map != null, sense)
+    val beating = if (map == null) null else signal
 
     Column(
         Modifier
@@ -133,13 +149,21 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
             // is the player it minimises into rather than a different widget. Weaker here:
             // this is a 56dp band under a file list, and the lights are nearly the whole
             // surface of it. See `LivingGlow`.
+            // The CONTINUOUS strength, not the nearest named stop.
+            //
+            // This read `GlowLevel.nearest(strength).scale`, which quantised the slider to
+            // three values - so moving it anywhere between Faint and Soft changed the full
+            // player and left the strip exactly where it was. The three names are stops on
+            // this scale, not the scale itself; see `glowScale`.
             .livingGlow(
                 base = tint,
                 on = glow,
                 running = state.playing,
-                strength = GLOW_OVER_STRIP * level.scale,
+                strength = GLOW_OVER_STRIP * glowScale(strength),
                 spread = GLOW_SPREAD_STRIP,
                 clip = !spill,
+                pulse = beating?.swing,
+                pulseDepth = depth,
             ),
     ) {
         HorizontalDivider(color = colors.lineSoft)
@@ -153,7 +177,23 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
         }
         Canvas(Modifier.fillMaxWidth().height(2.dp)) {
             drawRect(colors.lineSoft, size = size)
-            drawRect(tint, size = size.copy(width = size.width * fraction))
+            // The hairline brightens on the beat. Read inside the draw lambda, so a beat
+            // invalidates two device pixels and recomposes nothing - the whole strip is a
+            // BoxWithConstraints subcomposition and reading the beat above here would put all
+            // of it on the sixty-hertz clock. See the same note in `livingGlow`.
+            //
+            // The strip is the surface that is actually on screen while the phone is being
+            // used, so it is worth it having any answer to the music at all; and brightness
+            // is the only move available to a 2dp line.
+            val swing = if (beating == null) 0f else beating.swing.value * depth
+            // BRIGHTER, not more opaque. The tint arrives fully opaque from the palette,
+            // so raising its alpha is arithmetic with no visible result - the first cut of
+            // this did exactly that and the line never moved.
+            val lift = (1f + swing.coerceAtLeast(0f) * HAIRLINE_PUNCH).coerceAtMost(2.2f)
+            drawRect(
+                tint.brighter(lift),
+                size = size.copy(width = size.width * fraction),
+            )
         }
 
         BoxWithConstraints {
@@ -201,7 +241,7 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
                 // menu rather than cycling: four states read off one unlabelled button is a
                 // guessing game, and the menu stays beside the strip so the strip itself is
                 // visible while it is being judged.
-                GlowMenu(vm, glow, level, spill, tint)
+                GlowMenu(vm, glow, GlowLevel.nearest(strength), spill, tint)
 
                 if (roomForPrev && state.canStep) {
                     StripButton(FiletIcons.Prev, "Previous") { playback.previous() }
@@ -497,3 +537,12 @@ private fun StripButton(
         Icon(icon, label, tint = ink, modifier = Modifier.size(glyph))
     }
 }
+
+/**
+ * How much brighter the hairline gets on a hard beat.
+ *
+ * Generous, because this is the smallest surface in the app that answers the music: two device
+ * pixels, where the player has a whole screen. A change that reads as a pulse on a 2dp line has
+ * to be most of the way to white.
+ */
+private const val HAIRLINE_PUNCH = 1.1f

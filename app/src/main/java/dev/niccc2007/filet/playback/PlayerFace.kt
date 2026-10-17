@@ -80,6 +80,64 @@ enum class PlayerFace(val id: String, val label: String, val about: String) {
     /** Everything but Classic takes its colour from the artwork and lights the background. */
     val ambient: Boolean get() = this != CLASSIC
 
+    /**
+     * Whether the beat may drive this face at all.
+     *
+     * ## Why this exists, and why it is a `when` rather than a flag
+     *
+     * The player's settings offered every beat control on every face. So Wave at rest, Wave on
+     * a beat, Wave distance, Disc travel and Sound follows the disc were all adjustable while
+     * looking at a face that has no wave and no disc - five controls that did nothing, on four
+     * of the five looks, with no way to tell from the panel which was which. A setting that is
+     * visible and inert is worse than a missing one: it reads as the feature being broken.
+     *
+     * An exhaustive `when` over the enum rather than a `val` in the constructor, because that
+     * is the version the compiler enforces: a sixth face cannot be added without deciding
+     * every one of these, which is exactly the mistake that shipped the Apps tab to a rail
+     * that only exists above 720dp.
+     */
+    val pulses: Boolean
+        get() = when (this) {
+            // Classic is deliberately the plain one - a minimised player that happens to be
+            // full screen. A beat in it would be the only thing about it that was not flat.
+            CLASSIC -> false
+            AMBIENT, EDITORIAL, IMMERSIVE, AURORA -> true
+        }
+
+    /** Whether the beat thins the veil over the artwork, so the picture itself punches. */
+    val veilPulses: Boolean
+        get() = when (this) {
+            AMBIENT, EDITORIAL -> true
+            CLASSIC, IMMERSIVE, AURORA -> false
+        }
+
+    /**
+     * Whether the artwork itself breathes on the beat.
+     *
+     * Immersive only, and tiny - see `IMMERSIVE_BREATH`. At full-bleed size anything you can
+     * measure is too much, but the eye catches a fraction of a percent, and on this face the
+     * picture IS the screen so there is nothing else to move.
+     */
+    val artBreathes: Boolean
+        get() = when (this) {
+            IMMERSIVE -> true
+            CLASSIC, AMBIENT, EDITORIAL, AURORA -> false
+        }
+
+    /** Whether this face draws the wave round a disc. Aurora's, and only Aurora's. */
+    val hasWave: Boolean
+        get() = when (this) {
+            AURORA -> true
+            CLASSIC, AMBIENT, EDITORIAL, IMMERSIVE -> false
+        }
+
+    /** Whether there is a record to turn - which is what makes the drag controls mean anything. */
+    val hasDisc: Boolean
+        get() = when (this) {
+            AURORA -> true
+            CLASSIC, AMBIENT, EDITORIAL, IMMERSIVE -> false
+        }
+
     companion object {
         val DEFAULT = AMBIENT
 

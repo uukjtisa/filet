@@ -67,7 +67,24 @@ class Playback(
      * and so the Android service lifecycle stays in one file.
      */
     private val onServiceWanted: (Boolean) -> Unit = {},
+    /**
+     * Whether a track opens where it was left.
+     *
+     * A lambda rather than a `Prefs`, so this class keeps knowing nothing about settings
+     * storage and stays testable - and so the answer is read at the moment a track opens
+     * rather than captured when the player was built.
+     */
+    private val resumeWanted: () -> Boolean = { true },
 ) {
+
+    /**
+     * Where things were left off. See [ResumeStore].
+     *
+     * Held here because this is the only object that knows where a track got to, and it has
+     * to be written as playback happens rather than when a screen closes - a screen is not on
+     * the path of the process being killed, and that is the case this exists for.
+     */
+    val resume: ResumeStore by lazy { ResumeStore.of(app) }
 
     /** Tags as the file reports them. A separate type so [Track] stays free of a `Bitmap`. */
     data class TrackTags(
@@ -393,7 +410,17 @@ class Playback(
             )
             // Sought BEFORE starting, so a hand-off from the video screen resumes where that
             // screen was rather than playing a moment from the beginning first.
-            val at = startAt?.invoke() ?: startAtMs
+            //
+            // The remembered position is the LAST resort, after an explicit request and after
+            // whatever the caller passed: a hand-off from the video screen knows better than
+            // the store does, and a tap on a queue row at a chosen point is a deliberate act
+            // that must not be overridden by where the track was last week.
+            val asked = startAt?.invoke() ?: startAtMs
+            val at = when {
+                asked > 0L -> asked
+                resumeWanted() -> resume.positionOf(track.id) ?: 0L
+                else -> 0L
+            }
             if (at > 0L) seekTo(at)
             applySpeed(prepared)
             if (restart) resume()
@@ -442,6 +469,9 @@ class Playback(
         runCatching { player?.pause() }
         ticker?.cancel()
         _state.value = _state.value.copy(playing = false)
+        // A pause is the most likely moment for somebody to leave, so it is the one place
+        // worth writing synchronously rather than waiting for the next tick that will not come.
+        rememberWhereWeAre()
         // Focus is NOT dropped on a pause. Releasing it tells the system this app is finished
         // with audio, and some launchers then hand the media buttons to another player - so the
         // Play button on our own notification would start somebody else's music.
@@ -647,6 +677,36 @@ class Playback(
         _state.value = _state.value.copy(shuffle = on)
     }
 
+    /**
+     * Take one track out of the queue without stopping the music.
+     *
+     * ## The case that makes this more than a list edit
+     *
+     * Removing the track that is PLAYING has to load the next one, and removing any other
+     * track must not interrupt a note. Those are opposite requirements over the same call, so
+     * the decision is made from the index before anything is touched, and the player is only
+     * reloaded when it is the current row that went. See [indexAfterDrop] for the arithmetic,
+     * which is pure and tested because every one of its four cases is an off-by-one.
+     *
+     * Dropping the last remaining track is [stop] - a queue of nothing is not a queue, and
+     * leaving an empty player on screen with a dead Play button is worse than clearing it.
+     */
+    fun dropFromQueue(at: Int) {
+        val s = _state.value
+        if (at !in s.queue.indices) return
+        val next = dev.niccc2007.filet.handlers.indexAfterDrop(s.size, s.index, at)
+        if (next < 0) {
+            stop()
+            return
+        }
+        val remaining = s.queue.toMutableList().also { it.removeAt(at) }
+        val wasCurrent = at == s.index
+        _state.value = s.copy(queue = remaining, index = next)
+        // Only when the thing that went was the thing playing. Any other removal is a list
+        // edit and must not cost a gap in the sound.
+        if (wasCurrent) play(remaining, next)
+    }
+
     /** Finished with. Clears the queue, so the strip and the notification both go away. */
     fun stop() {
         loadJob?.cancel()
@@ -661,8 +721,31 @@ class Playback(
         onServiceWanted(false)
     }
 
+    /**
+     * Write where the current track is, or clear it when there is nothing to come back to.
+     *
+     * The judgement lives in `ResumeStore.worthKeeping` - a tap and a change of mind is not a
+     * place to come back to, and neither is the last few seconds of something finished.
+     */
+    private fun rememberWhereWeAre() {
+        val s = _state.value
+        val track = s.current ?: return
+        runCatching {
+            resume.put(
+                path = track.id,
+                title = track.title,
+                video = track.medium == Medium.VIDEO,
+                positionMs = s.positionMs,
+                durationMs = s.durationMs,
+            )
+        }
+    }
+
     private fun onCompletion() {
         val s = _state.value
+        // Finished IS the one state where resuming has no meaning, so the row goes rather
+        // than being left pointing at the run-out groove.
+        runCatching { s.current?.let { resume.forget(it.id) } }
         when {
             s.repeat == Repeat.ONE -> load(restart = true)
             // The end of a queue with repeat off stops rather than wrapping. Wrapping is what
@@ -711,9 +794,23 @@ class Playback(
         // 200 ms: smooth enough for a scrub bar, cheap enough to ignore. Read from the player
         // rather than counted, so a seek or a stall cannot make the bar lie.
         ticker = scope.launch {
+            var sinceSave = 0L
             while (_state.value.playing) {
                 val at = runCatching { player?.currentPosition?.toLong() }.getOrNull() ?: 0L
                 _state.value = _state.value.copy(positionMs = at)
+                // Written while it PLAYS, not when something closes.
+                //
+                // The case this is for is the process being killed - swiped out of the task
+                // switcher, or trimmed in the background - and nothing in this app is called
+                // on that path. So the position has to already be on disk, and the only
+                // question is how often. Every few seconds: the write is a few hundred bytes
+                // to its own file, and the worst a kill can cost is that many seconds of
+                // progress. See `ResumeStore`.
+                sinceSave += TICK_MS
+                if (sinceSave >= SAVE_EVERY_MS) {
+                    sinceSave = 0L
+                    rememberWhereWeAre()
+                }
                 delay(TICK_MS)
             }
         }
@@ -751,6 +848,9 @@ class Playback(
 
     private companion object {
         const val TICK_MS = 200L
+
+        /** How often the position is written down while something plays. See `ResumeStore`. */
+        const val SAVE_EVERY_MS = 5_000L
 
         /** Lowered to this for a ducking request rather than silenced. */
         const val DUCKED = 0.2f

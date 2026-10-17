@@ -145,6 +145,10 @@ class FiletGraph(context: Context) {
             onServiceWanted = { wanted ->
                 dev.niccc2007.filet.playback.PlaybackService.reconcile(app, wanted)
             },
+            // Read at the moment a track opens, not captured here: turning it off should
+            // affect the next thing opened, and a captured boolean would hold whatever it
+            // was when the player was first built.
+            resumeWanted = { prefs.resumePlayback.value },
         ).also { player ->
             // The setting follows the player for as long as the process lives, rather than
             // being read when a track starts. Turning it on mid-track has to take effect on

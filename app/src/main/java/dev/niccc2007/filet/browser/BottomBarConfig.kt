@@ -26,14 +26,15 @@ enum class BarItem(val id: String, val label: String) {
     /**
      * Everything that has ARRIVED in a tracked folder, newest first.
      *
-     * Not the same thing as [RECENT], which is what you opened. Asked for by name:
-     * *"recently added files are my mostly used feature in a file manager - I don't
-     * have to worry about going to the location of an app folder, no matter what app
-     * or what location the newly created file is"*. It was already a screen; it was
-     * only reachable from a heading on the Home overview, which is exactly the trip
-     * the feature exists to save.
+     * Not the same thing as [RECENT], which is what you OPENED. The distinction is the whole
+     * value: finding a file that an app has just written means knowing which folder that app
+     * chose, and this is the list that removes that trip. It was already a screen, reachable
+     * only from a heading on the Home overview - which is the same trip again.
      */
     NEW_FILES("newfiles", "New files"),
+
+    /** What was part way through, with its position. See `ResumeStore`. */
+    RESUME("resume", "Carry on"),
     SHARING("sharing", "Share"),
     SCRIPTS("scripts", "Scripts"),
     SHORTCUTS("shortcuts", "Shortcuts"),

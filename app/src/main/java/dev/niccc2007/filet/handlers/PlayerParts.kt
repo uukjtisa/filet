@@ -1,5 +1,9 @@
 package dev.niccc2007.filet.handlers
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -241,10 +245,12 @@ fun PlayerOverflow(
     /** How far a beat swings the glow, 0 to 1. Null when the pulse is off. */
     depth: Float? = null,
     onDepth: ((Float) -> Unit)? = null,
-    /** How far ahead of the player the beats are read, 0 to 1. Null when the pulse is off. */
-    lead: Float? = null,
-    onLead: ((Float) -> Unit)? = null,
-    /** How far the beat wave sits off the artwork, and how tall its peaks are. */
+    /**
+     * How far the beat wave sits off the artwork, and how deep its peaks are.
+     *
+     * Null on any face with no wave on it, which is every face except Aurora. These were
+     * offered everywhere and did nothing on four looks out of five.
+     */
     waveGap: Float? = null,
     onWaveGap: ((Float) -> Unit)? = null,
     waveSize: Float? = null,
@@ -347,14 +353,12 @@ fun PlayerOverflow(
                                 if (pulse && depth != null && onDepth != null) {
                                     PanelSlider("Beat intensity", depth, onChange = onDepth)
                                 }
-                                // The one that cannot be got right in code. What a phone
-                                // does between its decoder and its speaker is not
-                                // reportable, so where the pulse sits against the sound is
-                                // the listener's to set - and it is here, over the track,
-                                // because that is the only place it can be judged.
-                                if (pulse && lead != null && onLead != null) {
-                                    PanelSlider("Timing", lead, onChange = onLead)
-                                }
+                                // There was a Timing slider here, and it is gone rather
+                                // than moved. It asked somebody to line a light up with a
+                                // sound by eye, which is a calibration, and a calibration
+                                // that has to be done by hand is wrong on every phone nobody
+                                // has done it on. Every term it was covering for is now
+                                // derived - see `BeatLatency` and `BeatMap.biasMs`.
                                 if (pulse && waveRest != null && onWaveRest != null) {
                                     PanelSlider("Wave at rest", waveRest, onChange = onWaveRest)
                                 }
@@ -934,10 +938,26 @@ fun PlayerChips(
     tint: Color,
     onTint: Color,
     playback: dev.niccc2007.filet.playback.Playback,
+    /**
+     * Whether the row centres itself.
+     *
+     * Aurora centres its title, its scrub bar and its transport, and this row was the one
+     * thing on that face still ranged left - two small chips hugging the left gutter under a
+     * centred stack, which is what "off placed" meant and it was right. The left-aligned
+     * faces pass false and are unchanged.
+     */
+    centred: Boolean = false,
     onPitch: (dev.niccc2007.filet.playback.PitchMode) -> Unit,
 ) {
     var speedOpen by remember { mutableStateOf(false) }
-    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+    Row(
+        modifier = if (centred) Modifier.fillMaxWidth() else Modifier,
+        horizontalArrangement = if (centred) {
+            Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally)
+        } else {
+            Arrangement.spacedBy(7.dp)
+        },
+    ) {
         PlayerChip(
             FiletIcons.Speed,
             speedLabel(speed),
@@ -1058,6 +1078,18 @@ fun BoxScope.QueueSheet(
     visible: Boolean,
     onPick: (Int) -> Unit,
     onClose: () -> Unit,
+    /** What the queue is, in words - a playlist's name or the folder. See `NowPlaying.from`. */
+    from: String = "",
+    /** Milliseconds into the current track, for the time left in the header. */
+    positionMs: Long = 0L,
+    durationMs: Long = 0L,
+    shuffle: Boolean = false,
+    onShuffle: (() -> Unit)? = null,
+    repeat: Repeat = Repeat.OFF,
+    onRepeat: (() -> Unit)? = null,
+    /** Take one row out. Null where the queue cannot be edited. */
+    onDrop: ((Int) -> Unit)? = null,
+    onClear: (() -> Unit)? = null,
 ) {
     val colors = Filet.colors
     // The scrim first, so a tap outside closes it. Without indication: it is a dismiss target,
@@ -1098,17 +1130,24 @@ fun BoxScope.QueueSheet(
                     .clip(RoundedCornerShape(2.dp))
                     .background(colors.high),
             )
+            // ── the header says what the queue IS ─────────────────────────────────
+            //
+            // It said "N in this folder", which is wrong whenever the queue came from a
+            // playlist - and it is the queue's own `from` line that knows. The rest is the
+            // two facts somebody opens this to find out: how much is left, and how it is
+            // going to be played.
             Row(
                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                Text("Up next", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.width(9.dp))
-                Text(
-                    "${tracks.size} in this folder",
-                    fontSize = 11.5.sp, color = colors.fg3,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(Modifier.weight(1f)) {
+                    Text("Up next", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        queueShape(tracks, index, positionMs, durationMs, from),
+                        fontSize = 11.5.sp, color = colors.fg3,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
                     "Close",
                     fontSize = 11.5.sp, color = colors.fg3,
@@ -1118,13 +1157,64 @@ fun BoxScope.QueueSheet(
                         .padding(horizontal = 9.dp, vertical = 5.dp),
                 )
             }
-            QueueRows(tracks, index, tint, onPick)
+            // Shuffle, repeat and Clear. They are also in the transport, deliberately: the
+            // transport is the row that gets pressed without looking, and taking two controls
+            // out of it to make a point about which object they belong to would be a worse
+            // trade than one duplicate. They are facts about the QUEUE, so they are offered
+            // where the queue is, as well as where the hand already is.
+            Row(
+                Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (onShuffle != null) {
+                    QueueChip(
+                        FiletIcons.Shuffle,
+                        if (shuffle) "Shuffling" else "Shuffle",
+                        lit = shuffle,
+                        tint = tint,
+                        onClick = onShuffle,
+                    )
+                    Spacer(Modifier.width(7.dp))
+                }
+                if (onRepeat != null) {
+                    QueueChip(
+                        if (repeat == Repeat.ONE) FiletIcons.RepeatOne else FiletIcons.Repeat,
+                        when (repeat) {
+                            Repeat.OFF -> "Repeat"
+                            Repeat.ALL -> "Repeating"
+                            Repeat.ONE -> "This track"
+                        },
+                        lit = repeat != Repeat.OFF,
+                        tint = tint,
+                        onClick = onRepeat,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                if (onClear != null) {
+                    Text(
+                        "Clear",
+                        fontSize = 11.5.sp,
+                        color = colors.fg3,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClick = onClear)
+                            .padding(horizontal = 9.dp, vertical = 5.dp),
+                    )
+                }
+            }
+            QueueRows(tracks, index, tint, onPick, onDrop)
         }
     }
 }
 
 @Composable
-private fun QueueRows(tracks: List<Track>, index: Int, tint: Color, onPick: (Int) -> Unit) {
+private fun QueueRows(
+    tracks: List<Track>,
+    index: Int,
+    tint: Color,
+    onPick: (Int) -> Unit,
+    onDrop: ((Int) -> Unit)?,
+) {
     val colors = Filet.colors
     val listState = rememberLazyListState()
     LaunchedEffect(index) {
@@ -1138,10 +1228,71 @@ private fun QueueRows(tracks: List<Track>, index: Int, tint: Color, onPick: (Int
     LazyColumn(state = listState, modifier = Modifier.fillMaxWidth()) {
         itemsIndexed(tracks, key = { _, t -> t.id }) { i, t ->
             val here = i == index
+            // ── swipe a row away to take it out of the queue ──────────────────────
+            //
+            // Sideways, and only sideways: this list scrolls vertically, so a drag has to be
+            // claimed on the axis the list does not want. `awaitEachGesture` with a drag
+            // claimed after the slop is crossed is the shape that cooperates with a
+            // LazyColumn - `detectHorizontalDragGestures` takes the touch before the list has
+            // had a chance to decide and makes the sheet feel like it is fighting the thumb.
+            //
+            // Taking the row out is the player's call rather than the list's, because
+            // removing the row that is PLAYING has to load the next track. See
+            // `Playback.dropFromQueue`.
+            var slide by remember(t.id) { mutableFloatStateOf(0f) }
+            val away = with(LocalDensity.current) { DROP_AWAY.toPx() }
             Row(
                 Modifier
                     .fillMaxWidth()
+                    .graphicsLayer {
+                        translationX = slide
+                        // Fading with the distance, so the row looks like it is leaving
+                        // rather than like it has been nudged.
+                        alpha = (1f - kotlin.math.abs(slide) / (away * 1.6f)).coerceIn(0.25f, 1f)
+                    }
                     .background(if (here) tint.copy(alpha = 0.14f) else Color.Transparent)
+                    .then(
+                        if (onDrop == null || tracks.size <= 1) {
+                            Modifier
+                        } else {
+                            Modifier.pointerInput(t.id, i, tracks.size) {
+                                awaitEachGesture {
+                                    awaitFirstDown(requireUnconsumed = false)
+                                    var total = 0f
+                                    var claimed = false
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull() ?: break
+                                        if (change.changedToUp()) break
+                                        val dx = change.positionChange().x
+                                        val dy = change.positionChange().y
+                                        total += dx
+                                        if (!claimed) {
+                                            // Horizontal INTENT, not just horizontal motion:
+                                            // a thumb flicking the list up moves sideways by
+                                            // a few pixels on the way and must not start a
+                                            // removal.
+                                            if (kotlin.math.abs(total) > DROP_SLOP_PX &&
+                                                kotlin.math.abs(dx) > kotlin.math.abs(dy)
+                                            ) {
+                                                claimed = true
+                                            } else if (kotlin.math.abs(dy) > DROP_SLOP_PX) {
+                                                break
+                                            }
+                                        }
+                                        if (claimed) {
+                                            slide = total
+                                            change.consume()
+                                        }
+                                    }
+                                    if (claimed && kotlin.math.abs(slide) > away) {
+                                        onDrop(i)
+                                    }
+                                    slide = 0f
+                                }
+                            }
+                        },
+                    )
                     .clickable { onPick(i) }
                     .padding(horizontal = 16.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1181,6 +1332,79 @@ private fun QueueRows(tracks: List<Track>, index: Int, tint: Color, onPick: (Int
                 }
             }
         }
+    }
+}
+
+/**
+ * What the queue is, in one line: where it came from, how many are left, and how long.
+ *
+ * ## Why the time is "left" and not the total
+ *
+ * The total is a fact about a folder; the time remaining is a fact about the evening. It is
+ * also the only one of the two that changes while you look at it, which is what makes it worth
+ * the width. The current track's own remainder is counted, not its whole length - a queue with
+ * four minutes left should not claim seven because the first track is half played.
+ *
+ * Pure, so the arithmetic can be tested without a sheet to look at. A duration of zero means
+ * the track has not been opened yet, and those are simply not counted rather than guessed at -
+ * naming a figure built out of unknowns is worse than naming none.
+ */
+fun queueShape(
+    tracks: List<Track>,
+    index: Int,
+    positionMs: Long,
+    durationMs: Long,
+    from: String,
+): String {
+    val ahead = (tracks.size - index - 1).coerceAtLeast(0)
+    val parts = ArrayList<String>(3)
+    if (from.isNotBlank()) parts += from
+    parts += when (ahead) {
+        0 -> "last one"
+        1 -> "1 more"
+        else -> "$ahead more"
+    }
+    // Only the current track's remainder is knowable from here: the queue holds paths, and
+    // the lengths of tracks nobody has opened are not read until they play. So the figure is
+    // honest about being about this track rather than pretending to total the queue.
+    if (durationMs > 0L) {
+        val left = (durationMs - positionMs).coerceAtLeast(0L)
+        parts += clockOf(left) + " left"
+    }
+    return parts.joinToString("  ·  ")
+}
+
+/** How far a row has to be dragged sideways before it is gone. */
+private val DROP_AWAY = 96.dp
+
+/** And how far it has to move before the drag is a removal rather than a scroll. */
+private const val DROP_SLOP_PX = 14f
+
+/** One of the queue header's little controls. */
+@Composable
+private fun QueueChip(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    lit: Boolean,
+    tint: Color,
+    onClick: () -> Unit,
+) {
+    val colors = Filet.colors
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (lit) tint.copy(alpha = 0.16f) else colors.sunken)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            icon, null,
+            tint = if (lit) tint else colors.fg2,
+            modifier = Modifier.size(13.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(label, fontSize = 11.sp, color = if (lit) tint else colors.fg2)
     }
 }
 
@@ -1346,10 +1570,31 @@ fun ImmersiveBackdrop(
     playing: Boolean,
     source: android.net.Uri?,
     modifier: Modifier = Modifier,
+    /** The beat, SIGNED, or null. See [IMMERSIVE_BREATH]. */
+    pulse: androidx.compose.runtime.State<Float>? = null,
+    /** How far a beat may move it. See `Prefs.pulseDepth`. */
+    pulseDepth: Float = 1f,
 ) {
     val picture = art ?: return
     val bitmap = picture.asImageBitmap()
-    Box(modifier.fillMaxSize()) {
+    Box(
+        modifier
+            .fillMaxSize()
+            // The picture breathes with the beat. On this face the artwork IS the screen, so
+            // there is no frame around it to brighten and nothing else large enough to move -
+            // and a backdrop that answers the music while the controls stay still is the whole
+            // reason this face exists.
+            //
+            // `graphicsLayer` with a lambda, not a value: the lambda runs in the draw phase, so
+            // a beat re-rasterises the layer and recomposes nothing. Passing a scale as a
+            // parameter would put a full-screen image's composition on the sixty-hertz clock.
+            .graphicsLayer {
+                val swing = if (pulse == null) 0f else pulse.value * pulseDepth
+                val breath = 1f + swing.coerceIn(-1f, 1f) * IMMERSIVE_BREATH
+                scaleX = breath
+                scaleY = breath
+            },
+    ) {
         // The wallpaper: a blurred STILL, even for a video.
         //
         // A `VideoView` is a SurfaceView, and a surface is composited by the display rather
@@ -1419,6 +1664,16 @@ private fun Modifier.androidBlur(radius: Dp): Modifier =
  * thing this face is for. The two bands exist so white text has ground under it wherever the
  * picture happens to be pale.
  */
+/**
+ * How much the full-bleed artwork grows on a full-strength beat.
+ *
+ * Three quarters of one percent, which on a 1080-wide screen is eight pixels. Deliberately
+ * below what can be measured by eye: a picture that visibly resizes on every drum reads as a
+ * broken layout, where one that moves by a hair reads as the room breathing. The eye catches
+ * motion far below the threshold at which it can name the amount.
+ */
+private const val IMMERSIVE_BREATH = 0.0075f
+
 @Composable
 fun ImmersiveVeil(modifier: Modifier = Modifier) {
     Box(

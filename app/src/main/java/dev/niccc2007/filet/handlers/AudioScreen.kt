@@ -127,7 +127,11 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     // beat to move - and a switch left on while doing nothing is worse than one that is not
     // offered. It is therefore a sub-setting rather than a sibling, here and in the panel
     // and in Settings.
-    val beatPulse = vm.prefs.beatPulse.collectAsStateWithLifecycle().value && glow
+    // And on the FACE. Classic is deliberately the flat one, and the other three ambient
+    // faces each have something for a beat to move - see `PlayerFace.pulses`. A switch that
+    // is on while the face it is looking at cannot answer it is the ambiguity this removes.
+    val beatPulse = vm.prefs.beatPulse.collectAsStateWithLifecycle().value &&
+        glow && face.pulses
     // ONE number for how bright the glow is. The three named steps are stops on it -
     // see `glowScale` for why this is not the same question as how hard a beat swings it.
     val glowStrength by vm.prefs.glowStrength.collectAsStateWithLifecycle()
@@ -191,6 +195,33 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     }
     val sleepLeft = sleepMinutesLeft(sleepAt, now)
 
+    /**
+     * The track's samples, read once for the whole screen.
+     *
+     * Hoisted out of the Aurora face, which is where it used to live - and that was why the
+     * pulse did nothing on the other faces: the glow on all five was wired to answer a beat,
+     * and only one of them ever loaded one. See `rememberTrackBeat`.
+     */
+    val beat = dev.niccc2007.filet.playback.rememberTrackBeat(
+        source = source,
+        pulse = beatPulse,
+        record = scratchAudio && face.hasDisc,
+    )
+    val pulseSenseGain by vm.prefs.pulseSense.collectAsStateWithLifecycle()
+    /**
+     * ONE envelope for the whole screen.
+     *
+     * So the backdrop, the ring, the veil and the strip beat together rather than each
+     * keeping its own clock a frame apart. See `rememberBeatSignal`.
+     */
+    val signal = dev.niccc2007.filet.playback.rememberBeatSignal(
+        beats = beat.map,
+        playback = playback,
+        on = beatPulse,
+        sensitivity = pulseSenseGain,
+    )
+    val beating = if (beatPulse && beat.map != null) signal else null
+
     val folderLine = remember(node.path) { folderContext(node.path) }
 
     val title = track?.title ?: node.name
@@ -225,11 +256,11 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         discTurn = discTurn,
         scratch = scratchAudio,
         pulse = beatPulse,
-        pulseSense = dev.niccc2007.filet.playback.sensePosition(vm.prefs.pulseSense.collectAsStateWithLifecycle().value),
+        signal = beating,
+        ready = beat.ready,
+        record = beat.record,
+        pulseSense = dev.niccc2007.filet.playback.sensePosition(pulseSenseGain),
         pulseDepth = vm.prefs.pulseDepth.collectAsStateWithLifecycle().value,
-        pulseLead = dev.niccc2007.filet.playback.leadPosition(
-            vm.prefs.pulseLead.collectAsStateWithLifecycle().value,
-        ),
         waveGap = vm.prefs.waveGap.collectAsStateWithLifecycle().value,
         waveSize = vm.prefs.waveSize.collectAsStateWithLifecycle().value,
         waveRest = vm.prefs.waveRest.collectAsStateWithLifecycle().value,
@@ -258,6 +289,9 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (face == PlayerFace.CLASSIC) {
+            // No pulse here, and not by omission - see `PlayerFace.pulses`. Classic's whole
+            // identity is that it does not react to what is playing, including its colour,
+            // so a beating background would be the one thing about it that was not flat.
             dev.niccc2007.filet.playback.LivingGlow(
                 base = colors.accent,
                 on = glow,
@@ -294,6 +328,17 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
             visible = showQueue && state.queue.isNotEmpty(),
             onPick = { i -> playback.play(state.queue, i) },
             onClose = { showQueue = false },
+            from = state.from.ifBlank { folderLine },
+            positionMs = state.positionMs,
+            durationMs = state.durationMs,
+            shuffle = state.shuffle,
+            onShuffle = { playback.setShuffle(!state.shuffle) },
+            repeat = state.repeat,
+            onRepeat = { playback.cycleRepeat() },
+            onDrop = { i -> playback.dropFromQueue(i) },
+            // Clearing closes the sheet first: the alternative is a sheet that stays open
+            // over an empty player with nothing in it.
+            onClear = { showQueue = false; playback.stop() },
         )
     }
 }
@@ -353,10 +398,15 @@ private class PlayerCtx(
     /** Aurora's two switches, read here so the overflow does not reach for the prefs. */
     val scratch: Boolean,
     val pulse: Boolean,
+    /** The beat itself, or null when nothing is driving it. See `BeatSignal`. */
+    val signal: dev.niccc2007.filet.playback.BeatSignal?,
+    /** How far along the reading of the track is, so a face can say so. */
+    val ready: dev.niccc2007.filet.playback.TrackReady,
+    /** Whether there are samples in memory for the disc to make a sound with. */
+    val record: Boolean,
     /** The pulse's knobs, all as 0-to-1 slider positions. */
     val pulseSense: Float,
     val pulseDepth: Float,
-    val pulseLead: Float,
     val waveGap: Float,
     val waveSize: Float,
     val waveRest: Float,
@@ -400,14 +450,13 @@ private fun FaceTopBar(c: PlayerCtx) {
             // so the gate is on the face rather than on which bar it is - and it has to be
             // here rather than on Classic's copy of the overflow, which is where they were
             // first wired and therefore where they were never seen.
-            scratch = c.scratch.takeIf { c.face == PlayerFace.AURORA },
-            onScratch = { c.vm.prefs.setScratchAudio(!c.scratch) }
-                .takeIf { c.face == PlayerFace.AURORA },
+            scratch = c.scratch.takeIf { c.face.hasDisc },
+            onScratch = { c.vm.prefs.setScratchAudio(!c.scratch) }.takeIf { c.face.hasDisc },
             travel = dev.niccc2007.filet.playback.Scratch.turnPosition(c.discTurn)
-                .takeIf { c.face == PlayerFace.AURORA },
+                .takeIf { c.face.hasDisc },
             travelLabel = dev.niccc2007.filet.playback.Scratch.travelLabel(c.discTurn)
-                .takeIf { c.face == PlayerFace.AURORA },
-            onTravel = if (c.face != PlayerFace.AURORA) null else { v: Float ->
+                .takeIf { c.face.hasDisc },
+            onTravel = if (!c.face.hasDisc) null else { v: Float ->
                 c.vm.prefs.setDiscTurnMs(dev.niccc2007.filet.playback.Scratch.turnMsFor(v))
             },
             // The glow, and the pulse underneath it. Both on every face: the glow is
@@ -418,31 +467,51 @@ private fun FaceTopBar(c: PlayerCtx) {
             onGlowStrength = if (!c.glow) null else { v: Float ->
                 c.vm.prefs.setGlowStrength(v)
             },
-            pulse = c.pulse.takeIf { c.glow },
-            onPulse = { c.vm.prefs.setBeatPulse(!c.pulse) }.takeIf { c.glow },
+            // The pulse is offered on the faces that can answer it. Classic cannot, by
+            // decision rather than omission - see `PlayerFace.pulses`.
+            pulse = c.pulse.takeIf { c.glow && c.face.pulses },
+            onPulse = { c.vm.prefs.setBeatPulse(!c.pulse) }.takeIf { c.glow && c.face.pulses },
             // Both sliders run 0 to 1 in the UI and are mapped to their real range here,
             // so the control does not have to know what a gain of 0.4 means.
-            sense = c.pulseSense.takeIf { c.glow },
-            onSense = if (!c.glow) null else { v: Float ->
+            sense = c.pulseSense.takeIf { c.glow && c.face.pulses },
+            onSense = if (!c.glow || !c.face.pulses) null else { v: Float ->
                 c.vm.prefs.setPulseSense(dev.niccc2007.filet.playback.senseFor(v))
             },
-            depth = c.pulseDepth.takeIf { c.glow },
-            onDepth = if (!c.glow) null else { v: Float -> c.vm.prefs.setPulseDepth(v) },
-            lead = c.pulseLead.takeIf { c.glow },
-            onLead = if (!c.glow) null else { v: Float ->
-                c.vm.prefs.setPulseLead(dev.niccc2007.filet.playback.leadFor(v))
+            depth = c.pulseDepth.takeIf { c.glow && c.face.pulses },
+            onDepth = if (!c.glow || !c.face.pulses) null else { v: Float ->
+                c.vm.prefs.setPulseDepth(v)
             },
-            waveGap = c.waveGap.takeIf { c.glow },
-            onWaveGap = if (!c.glow) null else { v: Float -> c.vm.prefs.setWaveGap(v) },
-            waveSize = c.waveSize.takeIf { c.glow },
-            onWaveSize = if (!c.glow) null else { v: Float -> c.vm.prefs.setWaveSize(v) },
-            waveRest = c.waveRest.takeIf { c.glow },
-            onWaveRest = if (!c.glow) null else { v: Float -> c.vm.prefs.setWaveRest(v) },
+            // And the wave's three only where there IS a wave, which is Aurora alone.
+            waveGap = c.waveGap.takeIf { c.glow && c.face.hasWave },
+            onWaveGap = if (!c.glow || !c.face.hasWave) null else { v: Float ->
+                c.vm.prefs.setWaveGap(v)
+            },
+            waveSize = c.waveSize.takeIf { c.glow && c.face.hasWave },
+            onWaveSize = if (!c.glow || !c.face.hasWave) null else { v: Float ->
+                c.vm.prefs.setWaveSize(v)
+            },
+            waveRest = c.waveRest.takeIf { c.glow && c.face.hasWave },
+            onWaveRest = if (!c.glow || !c.face.hasWave) null else { v: Float ->
+                c.vm.prefs.setWaveRest(v)
+            },
         )
     }
 }
 
-/** The error line, in the one place every face puts it. */
+/**
+ * The error line and the progress line, in the one place every face puts them.
+ *
+ * ## Why there is a progress line at all
+ *
+ * Both of the things that need the track's samples take a moment to get them, and both used to
+ * be silent about it: the wave simply was not there, and the disc made no sound when a finger
+ * turned it. Neither is a failure and both look exactly like one - so both were reported as
+ * broken rather than as slow, which is the correct reading of a control that does nothing and
+ * says nothing.
+ *
+ * It is one line, under the title, and it leaves as soon as there is an answer. An indicator
+ * that stays is furniture.
+ */
 @Composable
 private fun ColumnScope.FaceError(c: PlayerCtx) {
     c.state.error?.let { message ->
@@ -451,6 +520,25 @@ private fun ColumnScope.FaceError(c: PlayerCtx) {
             message,
             fontSize = 12.sp,
             color = Filet.colors.warn,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+    // Only ONE of these, and the beat wins: it is the slower of the two and the one with
+    // something on screen waiting for it. Two stacked progress lines about the same read of
+    // the same file would be the app talking to itself.
+    val note = when {
+        c.pulse && c.ready == dev.niccc2007.filet.playback.TrackReady.READING ->
+            "Reading the beat…"
+        c.scratch && c.face.hasDisc && !c.record -> "Preparing the record…"
+        else -> null
+    }
+    if (note != null) {
+        Spacer(Modifier.height(8.dp))
+        Text(
+            note,
+            fontSize = 10.5.sp,
+            color = Filet.colors.fg3,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -589,8 +677,14 @@ private fun BoxScope.AmbientFace(c: PlayerCtx) {
         on = c.glow,
         running = c.state.playing,
         strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowScale,
+        pulse = c.signal?.swing,
+        pulseDepth = c.pulseDepth,
     )
-    dev.niccc2007.filet.playback.AmbientVeil(MaterialTheme.colorScheme.background)
+    dev.niccc2007.filet.playback.AmbientVeil(
+        MaterialTheme.colorScheme.background,
+        pulse = c.signal?.swing,
+        pulseDepth = c.pulseDepth,
+    )
     Column(Modifier.fillMaxSize()) {
         FaceTopBar(c)
         // `.artwrap{padding:14px 28px 0;flex:1;place-items:center}`
@@ -659,8 +753,14 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
         on = c.glow,
         running = c.state.playing,
         strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowScale,
+        pulse = c.signal?.swing,
+        pulseDepth = c.pulseDepth,
     )
-    dev.niccc2007.filet.playback.AmbientVeil(MaterialTheme.colorScheme.background)
+    dev.niccc2007.filet.playback.AmbientVeil(
+        MaterialTheme.colorScheme.background,
+        pulse = c.signal?.swing,
+        pulseDepth = c.pulseDepth,
+    )
     Column(Modifier.fillMaxSize()) {
         FaceTopBar(c)
         Spacer(Modifier.weight(1f))
@@ -739,62 +839,18 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
 @Composable
 private fun BoxScope.AuroraFace(c: PlayerCtx) {
     val context = LocalContext.current
-    val pulse = c.pulse
-    // Read once per track, and only while this face is on screen with the pulse switched on.
-    // Keyed on the source rather than the node so a hand-off from the video screen does not
-    // read the same file twice. See `BeatMap` for what it costs and why it is a switch.
-    //
-    // Declared up here rather than beside the disc because the BACKDROP is the first thing
-    // drawn and is now the main thing the beat moves - the ring was all it reached before,
-    // which is a few percent of the face and is why the pulse looked like it was not working.
-    var beats by remember(c.source) { mutableStateOf<BeatMap?>(null) }
-    LaunchedEffect(c.source, pulse) {
-        val source = c.source
-        if (!pulse || source == null) {
-            beats = null
-            return@LaunchedEffect
-        }
-        // ONE read of the file, shared with the record. `TrackPcm` decodes it (or hands
-        // back what it already decoded) and the map is arithmetic over those samples - so
-        // arming the pulse and the disc at the same time no longer puts two MediaCodec
-        // instances on the same file, which is what made the pulse come back slowly on a
-        // reopen and sometimes not at all.
-        //
-        // Partial maps are taken as they come, so the pulse is running within a frame or
-        // two of the samples arriving rather than after the whole track is measured. The
-        // old `beats = null` that stood here went with it: it threw away a perfectly good
-        // map for the length of the next read.
-        val key = source.toString()
-        // The opening of the track is measured as soon as it exists, so there is a wave
-        // within a moment of the face appearing rather than after the whole file has been
-        // read AND the whole file has been analysed - two waits in series, which is why it
-        // used to take so long to show up.
-        val pcm = dev.niccc2007.filet.playback.TrackPcm.of(context, source) { early ->
-            if (beats == null) beats = BeatMap.from(early)
-        } ?: return@LaunchedEffect
-        val stamp = withContext(kotlinx.coroutines.Dispatchers.IO) {
-            dev.niccc2007.filet.playback.AudioCache.keyFor(context, source)
-        }
-        beats = withContext(kotlinx.coroutines.Dispatchers.Default) {
-            BeatMap.of(context, stamp, key, pcm) { partial -> beats = partial }
-        }
-    }
-    val sense by c.vm.prefs.pulseSense.collectAsStateWithLifecycle()
-    val depth by c.vm.prefs.pulseDepth.collectAsStateWithLifecycle()
-    // ONE envelope for the whole face, so the backdrop and the ring beat together rather
-    // than each keeping its own clock a frame apart. See `rememberBeatPulse`.
-    val lead by c.vm.prefs.pulseLead.collectAsStateWithLifecycle()
-    val envelope = dev.niccc2007.filet.playback.rememberBeatPulse(
-        beats, c.playback, pulse, sense, lead,
-    )
-    val beating = if (pulse && beats != null) envelope else null
+    val depth = c.pulseDepth
+    // The track is read at the screen now, not here. See `rememberTrackBeat` for why: this
+    // face owning the read is what left the glow on the other four wired to a beat that was
+    // never loaded.
+    val beating = c.signal
 
     dev.niccc2007.filet.playback.AuroraBackdrop(
         base = c.tint,
         ground = MaterialTheme.colorScheme.background,
         on = c.glow,
         running = c.glow && c.state.playing,
-        pulse = beating,
+        pulse = beating?.swing,
         pulseDepth = depth,
         strength = c.glowScale,
     )
@@ -838,15 +894,10 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
      * composition is the kind of leak that is only noticed as a phone getting warm.
      */
     val dj by c.vm.prefs.scratchAudio.collectAsStateWithLifecycle()
-    // Read the track for scratching BEFORE a finger lands on it.
-    //
-    // `TrackPcm` caches by URI, so this is the difference between the first spin of a track
-    // being instant and it being the one that waits for a decode. Only while the setting is
-    // on and only on this face; the whole cache is dropped when the face goes.
-    LaunchedEffect(c.source, dj) {
-        val source = c.source
-        if (dj && source != null) dev.niccc2007.filet.playback.TrackPcm.of(context, source)
-    }
+    // The track is read BEFORE a finger lands on it, which is the difference between the
+    // first spin being instant and it being the one that waits for a decode. That read is
+    // the screen's now and is shared with the beat map - see `rememberTrackBeat` - so there
+    // is no second effect here asking for the same samples.
     val scope = rememberCoroutineScope()
     val engine = remember(c.node.path) { mutableStateOf<ScratchEngine?>(null) }
     /** Whether the track was playing when the finger landed. See [endScratch]. */
@@ -1046,11 +1097,9 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                 dev.niccc2007.filet.playback.BeatRing(
                     tint = c.tint,
                     playback = c.playback,
-                    pulse = beating,
+                    signal = beating,
                     pulseDepth = depth,
                     glow = c.glow,
-                    beats = if (pulse) beats else null,
-                    leadMs = lead,
                     waveGap = c.waveGap,
                     waveSize = c.waveSize,
                     waveRest = c.waveRest,
@@ -1095,6 +1144,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
             Spacer(Modifier.height(PlayerMetrics.CHIPS_TOP))
             PlayerChips(
                 c.speed, c.maxSpeed, c.sleepLeft, c.pitch, c.tint, c.onTint, c.playback,
+                centred = true,
             ) { c.vm.prefs.setPitchMode(it.id) }
         }
         Spacer(Modifier.height(16.dp))
@@ -1118,12 +1168,18 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
 @Composable
 private fun BoxScope.ImmersiveFace(c: PlayerCtx) {
     var chrome by remember { mutableStateOf(true) }
-    ImmersiveBackdrop(c.art, c.isVideo, c.state.playing, c.source)
+    ImmersiveBackdrop(
+        c.art, c.isVideo, c.state.playing, c.source,
+        pulse = c.signal?.swing,
+        pulseDepth = c.pulseDepth,
+    )
     dev.niccc2007.filet.playback.LivingGlow(
         base = c.tint,
         on = c.glow,
         running = c.state.playing,
         strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowScale,
+        pulse = c.signal?.swing,
+        pulseDepth = c.pulseDepth,
     )
     ImmersiveVeil()
     Box(

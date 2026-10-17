@@ -32,7 +32,14 @@ object AudioCache {
 
     private const val PCM_MAGIC = 0x4650_434D // "FPCM"
     private const val BEAT_MAGIC = 0x4642_4541 // "FBEA"
-    private const val VERSION = 1
+    /**
+     * Two, because a beat file now carries the rate it was measured at.
+     *
+     * A reader of version 1 cannot know it, and guessing would reintroduce exactly the timing
+     * error the rate is there to remove. The check below rejects the old entries and they are
+     * measured again once - which costs a second, on first play, never again.
+     */
+    private const val VERSION = 2
 
     /**
      * How much disk the samples may use.
@@ -116,22 +123,30 @@ object AudioCache {
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         if (buffer.int != BEAT_MAGIC || buffer.int != VERSION) return null
         val n = buffer.int
-        if (n <= 0 || bytes.size != 12 + n * 8) return null
+        val rate = buffer.int
+        if (n <= 0 || bytes.size != 16 + n * 8) return null
+        if (rate !in 4_000..192_000) return null
         val onsets = FloatArray(n)
         val levels = FloatArray(n)
         val floats = buffer.asFloatBuffer()
         floats.get(onsets)
         floats.get(levels)
         file.setLastModified(System.currentTimeMillis())
-        BeatMap(onsets, levels)
+        BeatMap(onsets, levels, rate)
     }.getOrNull()
 
-    fun writeBeats(context: Context, key: String, onsets: FloatArray, levels: FloatArray) {
+    fun writeBeats(
+        context: Context,
+        key: String,
+        onsets: FloatArray,
+        levels: FloatArray,
+        rate: Int,
+    ) {
         runCatching {
             if (onsets.isEmpty() || onsets.size != levels.size) return
             val folder = dir(context) ?: return
-            val buffer = ByteBuffer.allocate(12 + onsets.size * 8).order(ByteOrder.LITTLE_ENDIAN)
-            buffer.putInt(BEAT_MAGIC).putInt(VERSION).putInt(onsets.size)
+            val buffer = ByteBuffer.allocate(16 + onsets.size * 8).order(ByteOrder.LITTLE_ENDIAN)
+            buffer.putInt(BEAT_MAGIC).putInt(VERSION).putInt(onsets.size).putInt(rate)
             val floats = buffer.asFloatBuffer()
             floats.put(onsets)
             floats.put(levels)

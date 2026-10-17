@@ -598,24 +598,37 @@ class Prefs(context: Context) {
     }
 
     /**
-     * How far ahead of the reported position the beat map is read, in milliseconds.
+     * There is no timing setting any more, and the key is dropped on sight.
      *
-     * A setting because the thing it compensates for - the delay between a decoder and a
-     * speaker - is not reportable on Android and differs by device, by output and by
-     * whether anything is paired over Bluetooth. See `LEAD_MS`.
+     * It held how far ahead of the player the beat map was read - a calibration somebody did
+     * by eye, which is wrong on every device nobody has calibrated. Each term it stood in for
+     * is derived now: the analysis window's own offset from `BeatMap.biasMs`, the output
+     * buffer and a Bluetooth hop from `BeatLatency`.
+     *
+     * Removed rather than left to rot because a stored value nothing reads is a trap for the
+     * next person who greps for it and assumes it is live.
      */
-    private val _pulseLead = MutableStateFlow(
-        sp.getLong(K_PULSE_LEAD, dev.niccc2007.filet.playback.LEAD_MS),
-    )
-    val pulseLead: StateFlow<Long> = _pulseLead.asStateFlow()
+    init {
+        if (sp.contains(K_PULSE_LEAD)) sp.edit().remove(K_PULSE_LEAD).apply()
+    }
 
-    fun setPulseLead(ms: Long) {
-        val c = ms.coerceIn(
-            dev.niccc2007.filet.playback.LEAD_MIN,
-            dev.niccc2007.filet.playback.LEAD_MAX,
-        )
-        _pulseLead.value = c
-        sp.edit().putLong(K_PULSE_LEAD, c).apply()
+    /**
+     * Whether a track opens where it was left rather than at the start.
+     *
+     * On by default. A ninety-minute film and a two-hour mix are things people come back to,
+     * and coming back to the start of one is the behaviour of a preview pane. Still a switch,
+     * because the opposite preference is real: somebody who uses this to audition files wants
+     * the start of the file every time, and for them a remembered position is a bug.
+     *
+     * See `ResumeStore` for what is remembered and `Playback.load` for when it is read - last,
+     * after anything the caller asked for, so a deliberate tap always wins.
+     */
+    private val _resumePlayback = MutableStateFlow(sp.getBoolean(K_RESUME, true))
+    val resumePlayback: StateFlow<Boolean> = _resumePlayback.asStateFlow()
+
+    fun setResumePlayback(on: Boolean) {
+        _resumePlayback.value = on
+        sp.edit().putBoolean(K_RESUME, on).apply()
     }
 
     /** Which face the full music player draws. See `PlayerFace`. */
@@ -834,6 +847,7 @@ class Prefs(context: Context) {
         const val K_UNINTERRUPTED = "play.uninterrupted"
         const val K_PITCH_MODE = "play.pitch"
         const val K_PLAYER_FACE = "play.face"
+        const val K_RESUME = "play.resume"
         const val K_GLOW = "play.glow"
         const val K_GLOW_LEVEL = "play.glowLevel"
         const val K_GLOW_STRENGTH = "play.glowStrength"

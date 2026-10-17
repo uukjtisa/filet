@@ -689,6 +689,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             }
             RefreshTarget.RECENTS -> graph.recents.reload()
 
+            // Nothing cached to drop either: the list is a snapshot of the store taken when
+            // the pane composed, so re-reading it is all a refresh here can mean. The flow is
+            // what the screen is watching.
+            RefreshTarget.RESUME_POINTS -> bumpResume()
+
             // Bug identified: these three shared one branch and one comment claiming
             // all of them were live, and for one of them that was false. Remotes reads
             // its own revision flow, which nothing here was bumping - so the button on
@@ -4632,6 +4637,88 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             // one tap away on the player, which is where it belongs here.
             graph.playback.play(tracks, at, asAudio = true, from = list.name)
             graph.playback.setShuffle(shuffle)
+            maximisePlayer()
+        }
+    }
+
+    /**
+     * Bumped whenever the remembered positions change, so the Carry on pane can redraw.
+     *
+     * A revision rather than a flow of the rows themselves: the store is a file this process
+     * writes several times a minute while anything plays, and turning every one of those into
+     * a list rebuild would mean re-reading and re-sorting a hundred rows for a screen that is
+     * usually not even composed. The pane reads when it is told something changed.
+     */
+    private val _resumeRevision = MutableStateFlow(0)
+    val resumeRevision: StateFlow<Int> = _resumeRevision.asStateFlow()
+
+    fun bumpResume() {
+        _resumeRevision.value = _resumeRevision.value + 1
+    }
+
+    /**
+     * Carry on with something that was part way through. See `ResumeStore`.
+     *
+     * ## Why the folder comes with it
+     *
+     * Playing the one file would make a queue of one, so Next would be dead and the track
+     * would stop at its end - and somebody resuming an album at track four wants track five
+     * after it. So the folder is listed and the queue is made from it, with the cursor on the
+     * track being resumed. That is the same thing tapping the file in the browser does, which
+     * is the point: this is a shortcut to a place, not a different way of playing.
+     *
+     * ## And why a missing file is a sentence rather than a silent removal
+     *
+     * The row stays in the list until somebody forgets it on purpose. A file that has been
+     * deleted since is a thing worth being TOLD about - the alternative is a row that does
+     * nothing when tapped, which is indistinguishable from the app being broken.
+     *
+     * @param fromStart true to ignore the remembered position, which is the other thing
+     *   somebody wants from this list often enough to be worth a menu row.
+     */
+    fun resumePoint(
+        point: dev.niccc2007.filet.playback.ResumeStore.Point,
+        fromStart: Boolean = false,
+    ) {
+        viewModelScope.launch {
+            val path = runCatching {
+                dev.niccc2007.filet.vfs.VPath.parse(point.path)
+            }.getOrNull()
+            if (path == null) {
+                toast("That is not a place any more.")
+                return@launch
+            }
+            val node = runCatching {
+                withContext(Dispatchers.IO) { graph.vfs.stat(path) }
+            }.getOrNull()
+            if (node == null) {
+                toast("${point.title} is not there any more.")
+                return@launch
+            }
+            if (fromStart) graph.playback.resume.forget(point.path)
+            // The folder around it, so the queue continues past this track. A listing that
+            // fails - a card pulled out, a permission withdrawn - falls back to the one file
+            // rather than refusing: one track playing beats a tap that does nothing.
+            val siblings = runCatching {
+                withContext(Dispatchers.IO) {
+                    val out = ArrayList<dev.niccc2007.filet.vfs.VNode>()
+                    path.parent?.let { parent -> graph.vfs.list(parent) { chunk -> out += chunk } }
+                    out
+                }
+            }.getOrNull().orEmpty()
+            val playable = dev.niccc2007.filet.playback.tracksOf(
+                siblings.filter {
+                    val kind = FileKind.of(it)
+                    kind == FileKind.AUDIO || kind == FileKind.VIDEO
+                }.sortedBy(prefs.sort.value),
+            )
+            val at = playable.indexOfFirst { it.id == point.path }
+            if (at >= 0) {
+                graph.playback.play(playable, at, asAudio = !point.video, from = "")
+            } else {
+                val one = dev.niccc2007.filet.playback.tracksOf(listOf(node))
+                graph.playback.play(one, 0, asAudio = !point.video, from = "")
+            }
             maximisePlayer()
         }
     }

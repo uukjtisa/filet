@@ -513,6 +513,7 @@ private fun tabIcon(s: PaneState) = when (s.kind) {
     PaneKind.SETTINGS -> FiletIcons.Cog
     PaneKind.BOOKMARKS -> FiletIcons.Star
     PaneKind.PLAYLISTS -> FiletIcons.Audio
+    PaneKind.RESUME -> FiletIcons.Clock
     PaneKind.RECENT -> FiletIcons.Clock
     PaneKind.HISTORY -> FiletIcons.Clock
     PaneKind.SHORTCUTS -> FiletIcons.Home
@@ -1276,6 +1277,7 @@ private fun barIcon(item: BarItem) = when (item) {
     BarItem.ACTIVITY -> FiletIcons.Jobs
     BarItem.BOOKMARKS -> FiletIcons.Star
     BarItem.PLAYLISTS -> FiletIcons.Audio
+    BarItem.RESUME -> FiletIcons.Clock
     BarItem.HOME -> FiletIcons.Home
     BarItem.RECENT -> FiletIcons.Clock
     BarItem.NEW_FILES -> FiletIcons.Download
@@ -1301,6 +1303,7 @@ private fun runBarItem(item: BarItem, vm: BrowserViewModel, active: PaneControll
         BarItem.ACTIVITY -> vm.openActivity(true)
         BarItem.BOOKMARKS -> active?.openSpecial(PaneKind.BOOKMARKS, "Bookmarks")
         BarItem.PLAYLISTS -> active?.openSpecial(PaneKind.PLAYLISTS, "Playlists")
+        BarItem.RESUME -> active?.openSpecial(PaneKind.RESUME, "Carry on")
         BarItem.HOME -> active?.openHome()
         BarItem.RECENT -> active?.openSpecial(PaneKind.RECENT, "Opened")
         BarItem.NEW_FILES -> active?.openSpecial(

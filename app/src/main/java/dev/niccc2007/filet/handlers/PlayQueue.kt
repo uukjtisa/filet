@@ -71,3 +71,30 @@ fun audioQueue(siblings: List<VNode>, opened: VNode, spec: SortSpec = SortSpec()
     if (start < 0) return PlayQueue(listOf(opened), 0)
     return PlayQueue(playable, start)
 }
+
+/**
+ * Where the cursor goes when the row at [removed] is taken out of a queue of [size].
+ *
+ * ## Why this is a function and not three lines at the call site
+ *
+ * Four cases, three of them off-by-one traps. A row ABOVE the cursor shifts everything below
+ * it up by one. A row below changes nothing. The row the cursor is ON leaves the cursor
+ * pointing at what used to be the next track, which is right and looks wrong. And the LAST row
+ * of all leaves it pointing past the end. Get any of them wrong and the queue silently skips a
+ * track or throws on an index, and both of those happen to somebody else, later, with no clue
+ * as to why.
+ *
+ * @return the new index, or -1 when there is nothing left to point at.
+ */
+fun indexAfterDrop(size: Int, index: Int, removed: Int): Int {
+    if (size <= 1) return -1
+    if (removed !in 0 until size) return index
+    val last = size - 2
+    return when {
+        removed < index -> (index - 1).coerceIn(0, last)
+        // ON the cursor: the row that was next slides into this slot, so the index does not
+        // move - except at the very end of the queue, where there is no next to slide in.
+        removed == index -> index.coerceIn(0, last)
+        else -> index.coerceIn(0, last)
+    }
+}

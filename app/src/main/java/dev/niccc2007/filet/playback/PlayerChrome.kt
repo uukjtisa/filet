@@ -108,20 +108,54 @@ fun AmbientBackdrop(art: Bitmap?, modifier: Modifier = Modifier) {
  * up was actually fighting.
  */
 @Composable
-fun AmbientVeil(ground: Color, modifier: Modifier = Modifier) {
+fun AmbientVeil(
+    ground: Color,
+    modifier: Modifier = Modifier,
+    /**
+     * The beat, SIGNED, or null when nothing is driving it.
+     *
+     * ## Why the VEIL and not the lights
+     *
+     * On these two faces the subject is the artwork and the veil is what is standing in front
+     * of it. Brightening the lights on a beat moves the frame around the picture; thinning the
+     * veil moves the picture, and a hit that makes the thing you are looking at punch forward
+     * reads as far harder than the same hit spent on its surroundings. It is also free: the
+     * gradient is already being drawn every frame, so this is one multiply on two stops.
+     */
+    pulse: androidx.compose.runtime.State<Float>? = null,
+    /** How far a beat may thin it. See `Prefs.pulseDepth`. */
+    pulseDepth: Float = 1f,
+) {
     Box(
         modifier.fillMaxSize().drawWithContent {
+            // READ HERE, in the draw lambda. See `livingGlow` for what reading a beat in a
+            // composable's body costs: this one fills the screen.
+            val swing = if (pulse == null) 0f else pulse.value * pulseDepth
+            // Clamped above zero on the thin side only. A veil that gets THICKER in the gaps
+            // would dim the artwork most of the time, which is the same sign error that made
+            // the glow disappear - see `beatSwing`.
+            val lift = (1f - swing.coerceAtLeast(0f) * VEIL_PART).coerceIn(VEIL_FLOOR, 1f)
             drawRect(
                 Brush.verticalGradient(
                     0.00f to Color.Transparent,
                     VEIL_START to Color.Transparent,
-                    0.76f to ground.copy(alpha = 0.38f),
-                    1.00f to ground.copy(alpha = 0.88f),
+                    0.76f to ground.copy(alpha = 0.38f * lift),
+                    1.00f to ground.copy(alpha = 0.88f * lift),
                 ),
             )
         },
     )
 }
+
+/**
+ * How much of the veil a full-strength beat takes away, and the least that is left.
+ *
+ * Two thirds at most, because the veil is not decoration - it is what the title and the
+ * transport are legible against, and a beat that makes the controls unreadable for two hundred
+ * milliseconds is a worse trade than a beat nobody notices.
+ */
+private const val VEIL_PART = 0.34f
+private const val VEIL_FLOOR = 0.62f
 
 /**
  * The artwork's colour, sampled off the main thread, with the theme accent as the answer

@@ -39,6 +39,15 @@ enum class RefreshTarget {
     /** Bookmarks, which another pane or a widget may have changed. */
     BOOKMARKS,
 
+    /**
+     * Where things were left off.
+     *
+     * Needed even though the store is written by this process: the player writes it as a
+     * track plays, and the list is a snapshot taken when the pane opened - so a pull-down
+     * after listening to something is a reader asking for the thing they just did to appear.
+     */
+    RESUME_POINTS,
+
     /** Kept queues, which the heart on the player screen writes into. */
     PLAYLISTS,
 
@@ -93,6 +102,7 @@ fun refreshPlan(kind: PaneKind): RefreshPlan = when (kind) {
     PaneKind.APPS -> RefreshPlan(setOf(RefreshTarget.INSTALLED_APPS), "Apps")
     PaneKind.BOOKMARKS -> RefreshPlan(setOf(RefreshTarget.BOOKMARKS), "Bookmarks")
     PaneKind.PLAYLISTS -> RefreshPlan(setOf(RefreshTarget.PLAYLISTS), "Playlists")
+    PaneKind.RESUME -> RefreshPlan(setOf(RefreshTarget.RESUME_POINTS), "Carry on")
     PaneKind.RECENT -> RefreshPlan(setOf(RefreshTarget.RECENTS), "Opened")
 
     // The expanded new-files history is the same feed the home card shows, so refreshing it

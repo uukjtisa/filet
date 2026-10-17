@@ -69,7 +69,7 @@ fun LivingGlow(
     running: Boolean,
     strength: Float = 1f,
     spread: Float = 1f,
-    /** The beat envelope, where there is one. See [rememberBeatPulse]. */
+    /** The beat, SIGNED about the track's own average. See [beatSwing]. */
     pulse: State<Float>? = null,
     /** How far the beat may swing the glow. See `Prefs.pulseDepth`. */
     pulseDepth: Float = 1f,
@@ -100,7 +100,7 @@ fun Modifier.livingGlow(
     strength: Float = 1f,
     spread: Float = 1f,
     clip: Boolean = true,
-    /** The beat envelope, where there is one. See [rememberBeatPulse]. */
+    /** The beat, SIGNED about the track's own average. See [beatSwing]. */
     pulse: State<Float>? = null,
     /** How far the beat may swing the glow. See `Prefs.pulseDepth`. */
     pulseDepth: Float = 1f,
@@ -131,7 +131,9 @@ fun Modifier.livingGlow(
         // files somebody is trying to read.
         // The beat, read here for the same reason and with the same effect: the draw
         // invalidates on every onset and nothing above it recomposes at all.
-        val swing = if (pulse == null) 0f else glowSwing(pulse.value, pulseDepth)
+        // Already signed about the track's own recent average when it gets here, so this
+        // is a multiply and not a judgement - see `beatSwing` for why the judgement moved.
+        val swing = if (pulse == null) 0f else pulse.value * pulseDepth
         if (clip) {
             clipRect { lights(tints, a, b, c, spread, swing) }
         } else {
@@ -157,39 +159,21 @@ private fun DrawScope.lights(
 }
 
 /**
- * The beat as a SIGNED swing about the resting glow.
+ * How much the lights swell on a hard beat, and how much brighter they get with it.
  *
- * ## Two ways, not one
+ * ## The constant that used to live here, and the bug it was
  *
- * The first version only ever added: the glow sat at its normal brightness and bloomed on a
- * beat. That is half a pulse. A light that only grows has to grow a long way before anything
- * is visible, and between beats it sits exactly where it sits with the pulse switched off -
- * so most of the time there is no evidence it is doing anything at all.
+ * The beat used to be measured against a hardcoded resting point of 0.34 at the moment of
+ * drawing. The envelope that fed it decays to ZERO between beats (see `rememberBeatSignal`),
+ * so every moment that was not a drum measured a third BELOW rest and these two multipliers
+ * took the lights down with it. Switching the pulse on therefore made the resting glow about
+ * two thirds of its brightness - and against the default Faint strength and the alpha the
+ * lights are drawn at over artwork, that is a glow of roughly a seventh. Invisible, reported
+ * as the glow being nowhere, and entirely a sign error rather than a missing feature.
  *
- * Measuring the beat against [REST] instead means the glow falls BELOW its resting level in
- * the gaps and rises above it on the hit. The same total movement, seen twice as often, and
- * the dark half is what makes the bright half read as a punch rather than as a fade-up.
- *
- * ## The dip is gentler than the rise
- *
- * [DIP] damps the negative half. Symmetrical, a quiet passage simply goes dark and stays
- * there, which reads as the artwork being dimmed rather than as the music being quiet.
- *
- * @param hit the envelope, 0 to 1.
- * @param depth how far it may swing at all. See `Prefs.pulseDepth`.
+ * The resting point is now the track's own recent average and is computed where the clock is.
+ * See `beatSwing`.
  */
-fun glowSwing(hit: Float, depth: Float): Float {
-    val raw = hit - REST
-    return (if (raw < 0f) raw * DIP else raw) * depth
-}
-
-/** Where "no beat right now" sits on the 0-to-1 envelope. */
-private const val REST = 0.34f
-
-/** How much of the below-rest half is kept. */
-private const val DIP = 0.65f
-
-/** How much the lights swell on a hard beat, and how much brighter they get with it. */
 private const val BEAT_BLOOM = 0.30f
 private const val BEAT_FLARE = 1.5f
 

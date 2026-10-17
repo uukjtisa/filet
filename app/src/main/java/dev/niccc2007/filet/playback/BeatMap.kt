@@ -39,7 +39,35 @@ import kotlin.math.min
  * It degrades gracefully: on music with no percussion the ring breathes instead of punching,
  * which is the right answer for that music anyway.
  */
-class BeatMap(private val onsets: FloatArray, private val levels: FloatArray = FloatArray(0)) {
+class BeatMap(
+    private val onsets: FloatArray,
+    private val levels: FloatArray = FloatArray(0),
+    /** The sample rate the measurement ran at, which is what [biasMs] is derived from. */
+    val rate: Int = TrackPcm.TARGET_RATE,
+) {
+
+    /**
+     * How much later than its bucket's index an onset actually sounds, in milliseconds.
+     *
+     * ## This is the lateness that used to be a slider
+     *
+     * A bucket is indexed by where its window STARTS, and [strengthAt] reads
+     * `ms / BUCKET_MS` - so bucket i is read when the player says it is at `i * 20ms`. But
+     * the flux at frame i is the rise between window i-1 and window i, and the only content
+     * in window i that was not already in window i-1 is its last hop's worth. So whatever
+     * caused the rise is near the END of a [WINDOW]-sample window, not at its start.
+     *
+     * At 22050Hz that is 1024 samples less half a hop: about 36 milliseconds. It is
+     * arithmetic over the window and the rate, needs nobody's ear, and - because it scales
+     * with the rate - it was also silently DOUBLING on a long track, which used to be decoded
+     * at half rate. A constant compiled in here would have been wrong for exactly the tracks
+     * that were hardest to look at.
+     */
+    val biasMs: Long
+        get() {
+            val hop = (rate * BUCKET_MS / 1000).coerceAtLeast(1)
+            return ((WINDOW - hop / 2) * 1000L / rate.coerceAtLeast(1))
+        }
 
     /**
      * How LOUD the music is at [ms], 0 to 1 - which is a different question from how hard
@@ -88,7 +116,7 @@ class BeatMap(private val onsets: FloatArray, private val levels: FloatArray = F
 
     val empty: Boolean get() = onsets.isEmpty()
 
-    /** For writing it down. See `AudioCache`. */
+    /** Where the measurement is fine enough to be worth drawing, see `AudioCache`. */
     internal val onsetArray: FloatArray get() = onsets
     internal val levelArray: FloatArray get() = levels
 
@@ -152,7 +180,7 @@ class BeatMap(private val onsets: FloatArray, private val levels: FloatArray = F
         fun from(pcm: TrackPcm, onPartial: ((BeatMap) -> Unit)? = null): BeatMap {
             val hop = (pcm.rate * BUCKET_MS / 1000).toInt().coerceAtLeast(1)
             val frames = (pcm.samples.size - WINDOW) / hop
-            if (frames < WARM_UP * 2) return BeatMap(FloatArray(0), FloatArray(0))
+            if (frames < WARM_UP * 2) return BeatMap(FloatArray(0), FloatArray(0), pcm.rate)
 
             val window = Fft.hann(WINDOW)
             val re = FloatArray(WINDOW)
@@ -190,10 +218,10 @@ class BeatMap(private val onsets: FloatArray, private val levels: FloatArray = F
 
                 if (onPartial != null && f >= emitAt) {
                     emitAt = f + EMIT_EVERY
-                    onPartial(BeatMap(onsetsOf(flux), levelsOf(energy)))
+                    onPartial(BeatMap(onsetsOf(flux), levelsOf(energy), pcm.rate))
                 }
             }
-            return BeatMap(onsetsOf(flux), levelsOf(energy))
+            return BeatMap(onsetsOf(flux), levelsOf(energy), pcm.rate)
         }
 
         /**
@@ -204,7 +232,7 @@ class BeatMap(private val onsets: FloatArray, private val levels: FloatArray = F
          * several frames. The hop is [BUCKET_MS], so consecutive windows overlap by more
          * than half and no attack can fall between two of them.
          */
-        private const val WINDOW = 1024
+        const val WINDOW = 1024
 
         /** How far in the first usable map is handed over, in frames. Half a second. */
         private const val EMIT_FIRST = 25
@@ -308,6 +336,23 @@ class BeatMap(private val onsets: FloatArray, private val levels: FloatArray = F
         private const val KEEP = 4
 
         /**
+         * The map for [key] if it has ALREADY been measured, and null otherwise.
+         *
+         * ## Why a surface would want this
+         *
+         * The minimised strip is on screen in every folder. Giving it the beat the way the
+         * player gets it would mean decoding and measuring every track that plays, whether or
+         * not anybody ever opened the player - which is exactly the cost the pulse switch
+         * exists to make optional, paid in the one place it was never agreed to.
+         *
+         * So the strip asks whether the answer happens to exist and goes without when it does
+         * not. In practice it almost always does, because the map is measured the first time
+         * the player is opened on that track and kept (here, and on disk in `AudioCache`), so
+         * the hairline beats from the second play onward and costs nothing at all to do so.
+         */
+        fun cached(key: String): BeatMap? = synchronized(cache) { cache[key] }
+
+        /**
          * The map for [key], measuring it from [pcm] if it has not been measured yet.
          *
          * A cache hit never calls [onPartial]: there is nothing partial about a finished
@@ -344,7 +389,9 @@ class BeatMap(private val onsets: FloatArray, private val levels: FloatArray = F
             val built = from(pcm, onPartial)
             synchronized(cache) { cache[key] = built }
             if (stamp != null) {
-                AudioCache.writeBeats(context, stamp, built.onsetArray, built.levelArray)
+                AudioCache.writeBeats(
+                    context, stamp, built.onsetArray, built.levelArray, built.rate,
+                )
             }
             return built
         }
