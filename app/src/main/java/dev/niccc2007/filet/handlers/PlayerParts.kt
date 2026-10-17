@@ -49,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1255,7 +1256,14 @@ private fun QueueRows(
                         if (onDrop == null || tracks.size <= 1) {
                             Modifier
                         } else {
-                            Modifier.pointerInput(t.id, i, tracks.size) {
+                            // READ LIVE. `pointerInput` launches its block once per key and
+                            // keeps whatever it closed over, so a lambda captured here would
+                            // be the one from the composition that started the gesture - and
+                            // this list is rebuilt every time the queue changes underneath it.
+                            // Caught by check-deadswitch, which exists for exactly this.
+                            val drop = rememberUpdatedState(onDrop)
+                            val at = rememberUpdatedState(i)
+                            Modifier.pointerInput(t.id) {
                                 awaitEachGesture {
                                     awaitFirstDown(requireUnconsumed = false)
                                     var total = 0f
@@ -1286,7 +1294,7 @@ private fun QueueRows(
                                         }
                                     }
                                     if (claimed && kotlin.math.abs(slide) > away) {
-                                        onDrop(i)
+                                        drop.value(at.value)
                                     }
                                     slide = 0f
                                 }

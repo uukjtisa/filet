@@ -59,6 +59,12 @@ apksig = { group = "com.android.tools.build", name = "apksig", version = "9.4.0"
 arsclib = { group = "io.github.reandroid", name = "ARSCLib", version = "1.3.5" }
 
 luaj = { group = "org.luaj", name = "luaj-jse", version = "3.0.1" }
+# Markdown, as a parser rather than a pile of regexes. BSD-2-Clause, pure Java, ~350 KB
+# across the core and the two extensions, no NDK. See `Markdown.kt` for why the AST is
+# walked into Compose text instead of going through HTML.
+commonmark = { group = "org.commonmark", name = "commonmark", version = "0.22.0" }
+commonmark-gfm-tables = { group = "org.commonmark", name = "commonmark-ext-gfm-tables", version = "0.22.0" }
+commonmark-strikethrough = { group = "org.commonmark", name = "commonmark-ext-gfm-strikethrough", version = "0.22.0" }
 
 # Archive formats beyond zip: tar, 7z, and the gz/bz2/xz stream wrappers. Apache-2.0, which a
 # GPL-3 app may link. Pure Java, no NDK, no ABI splits.

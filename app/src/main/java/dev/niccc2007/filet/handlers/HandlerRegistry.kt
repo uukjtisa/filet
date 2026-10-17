@@ -27,6 +27,23 @@ enum class HandlerId(val label: String) {
     HEX("Hex viewer"),
     ARCHIVE("Archive viewer"),
     APK("APK inspector"),
+
+    /**
+     * The PDF reader. See `PdfDoc` for why this is the OS's own engine and not a dependency.
+     */
+    PDF("PDF reader"),
+
+    /**
+     * Markdown, DOCX and PPTX, which share one screen because they are read for one reason.
+     * See `DocModel` for why there is a single document model behind three readers.
+     */
+    DOC("Document reader"),
+
+    /**
+     * HTML, rendered with scripts and file access OFF, and its source one tap away in the
+     * ordinary editor. See `HtmlScreen` - the security decisions are the whole of that file.
+     */
+    WEB("Web preview"),
     MANIFEST("Manifest editor"),
 
     /**
@@ -63,14 +80,31 @@ class HandlerRegistry(private val prefs: Prefs) {
         return defaultFor(node)
     }
 
-    fun defaultFor(node: VNode): HandlerId = when (FileKind.of(node)) {
+    fun defaultFor(node: VNode): HandlerId {
+        // ── the document formats, decided by name before kind ──
+        //
+        // Before the kind switch, because these cut across it: `.md` and `.docx` are DOC,
+        // `.html` is CODE, and `.pptx` was OTHER and therefore went straight to another app.
+        // Routing them by kind would mean three new FileKinds for what is really one question
+        // - "is there a reader for this exact format" - which `DocFormat` already answers.
+        val ext = node.extension.lowercase(Locale.US)
+        when (ext) {
+            "pdf" -> return HandlerId.PDF
+            "md", "markdown", "mdown", "mkd", "docx", "pptx" -> return HandlerId.DOC
+            "html", "htm", "xhtml" -> return HandlerId.WEB
+        }
+        return defaultForKind(node)
+    }
+
+    private fun defaultForKind(node: VNode): HandlerId = when (FileKind.of(node)) {
         FileKind.FOLDER -> HandlerId.ARCHIVE
         FileKind.APK -> HandlerId.APK
         FileKind.ARCHIVE -> HandlerId.ARCHIVE
         FileKind.IMAGE -> HandlerId.IMAGE
         FileKind.VIDEO, FileKind.AUDIO -> HandlerId.MEDIA
         FileKind.CODE -> HandlerId.TEXT
-        FileKind.DOC -> if (node.extension == "pdf") HandlerId.EXTERNAL else HandlerId.TEXT
+        // PDF is handled above now; what is left in DOC is text-shaped.
+        FileKind.DOC -> HandlerId.TEXT
         FileKind.DEX -> HandlerId.APK
         FileKind.BINARY -> HandlerId.HEX
         FileKind.OTHER -> if (node.extension.isEmpty()) HandlerId.TEXT else HandlerId.EXTERNAL

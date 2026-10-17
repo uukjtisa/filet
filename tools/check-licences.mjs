@@ -77,6 +77,22 @@ const KNOWN = {
   "sora-editor": { licence: "LGPL-2.1", ok: true, note: "linked unmodified, never vendored" },
   editor: { licence: "LGPL-2.1", ok: true, note: "sora-editor; linked unmodified, never vendored" },
   "luaj-jse": { licence: "MIT", ok: true },
+
+  /**
+   * commonmark-java, for the Markdown reader.
+   *
+   * BSD-2-Clause, which is permissive and GPL-3 compatible. Taken as a dependency rather than
+   * written here because CommonMark is a 60-page specification and a hand-rolled subset of it
+   * gets lists-inside-lists, fenced code inside a list item, and reference links wrong in
+   * ways that are discovered one bug report at a time.
+   */
+  commonmark: { licence: "BSD-2-Clause", ok: true },
+  "commonmark-ext-gfm-tables": { licence: "BSD-2-Clause", ok: true, note: "commonmark tables" },
+  "commonmark-ext-gfm-strikethrough": {
+    licence: "BSD-2-Clause",
+    ok: true,
+    note: "commonmark strikethrough",
+  },
   smbj: { licence: "Apache-2.0", ok: true },
   sshj: { licence: "Apache-2.0", ok: true },
   "commons-net": { licence: "Apache-2.0", ok: true },

@@ -2406,6 +2406,39 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             graph.vfs.openRead(node.path)
         }
 
+    /**
+     * A local file holding [node]'s bytes, for the readers that cannot take a stream.
+     *
+     * The work is `LocalCopy`'s: PLAN.md R3 keeps `java.io.File` out of this layer, and
+     * `check-r3.mjs` refused the first version of this, which did the copying here. It was
+     * right to - "give me a local copy of this" is a storage operation, and it belongs beside
+     * the staging it shares a cache directory with.
+     *
+     * The REFUSAL is still said here, because a toast is this layer's job and a size limit the
+     * other layer enforces is a null that somebody has to explain.
+     */
+    val localCopy: dev.niccc2007.filet.ops.LocalCopy get() = graph.localCopy
+
+    /**
+     * Say why a reader got nothing, which is this layer's half of the job.
+     *
+     * The first version of this returned the file, and `check-r3.mjs` refused it a second
+     * time - correctly, and for a subtler reason than the first. Doing the copying here was
+     * the obvious violation; naming `java.io.File` in a signature is the quieter one, and it
+     * is the one that matters, because a handle that can be passed up a layer WILL be, and
+     * then the rule is about where the import is rather than where the filesystem is touched.
+     *
+     * So the reader asks `LocalCopy` directly and this only explains a failure, which needs a
+     * size and a name and no file at all.
+     */
+    fun sayWhyNoCopy(node: VNode) {
+        if (node.size > dev.niccc2007.filet.ops.LocalCopy.MAX_BYTES) {
+            toast("${node.name} is too large to open this way.")
+        } else {
+            toast("${node.name} could not be opened from where it is.")
+        }
+    }
+
     suspend fun readText(node: VNode): String =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             graph.vfs.openRead(node.path).use { String(it.readBytes(), Charsets.UTF_8) }

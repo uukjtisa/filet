@@ -45,7 +45,10 @@ enum class FileKind {
             "c", "h", "cpp", "hpp", "cs", "go", "rs", "rb", "php", "sh", "bash", "yml", "yaml", "toml",
             "ini", "cfg", "conf", "properties", "css", "scss", "html", "htm", "sql", "gradlew", "pro",
         )
-        private val DOC_EXT = setOf("txt", "md", "pdf", "doc", "docx", "rtf", "odt", "csv", "log", "srt", "vtt")
+        private val DOC_EXT = setOf(
+            "txt", "md", "markdown", "mdown", "mkd", "pdf", "doc", "docx", "pptx", "ppt",
+            "rtf", "odt", "odp", "csv", "log", "srt", "vtt",
+        )
         private val BINARY_EXT = setOf("so", "bin", "dat", "img", "iso", "arsc", "o", "a", "dll", "exe")
 
         fun of(node: VNode): FileKind {

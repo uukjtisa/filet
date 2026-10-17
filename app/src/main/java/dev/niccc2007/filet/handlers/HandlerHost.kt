@@ -83,6 +83,9 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
                     HandlerId.METADATA ->
                         dev.niccc2007.filet.metadata.MetadataScreen(vm, r.node)
                     HandlerId.MANIFEST -> dev.niccc2007.filet.apk.ManifestEditorScreen(vm, r.node)
+                    HandlerId.PDF -> dev.niccc2007.filet.docs.PdfScreen(vm, r.node)
+                    HandlerId.DOC -> dev.niccc2007.filet.docs.DocumentScreen(vm, r.node)
+                    HandlerId.WEB -> dev.niccc2007.filet.docs.HtmlScreen(vm, r.node)
                     else -> Unit
                 }
             }

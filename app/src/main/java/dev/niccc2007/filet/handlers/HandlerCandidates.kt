@@ -43,6 +43,12 @@ object HandlerCandidates {
         HandlerId.IMAGE,
         HandlerId.MEDIA,
         HandlerId.APK,
+        // The document readers sit in the second tier for an unknown file. They are the
+        // DEFAULT for the formats they are for, which is what puts them first there; offered
+        // for a blob they would be three more rows for a question nobody asked.
+        HandlerId.DOC,
+        HandlerId.WEB,
+        HandlerId.PDF,
         HandlerId.HEX,
     )
 
@@ -78,7 +84,11 @@ object HandlerCandidates {
         FileKind.ARCHIVE -> listOf(HandlerId.ARCHIVE)
         FileKind.APK -> listOf(HandlerId.APK, HandlerId.ARCHIVE)
         FileKind.DEX -> listOf(HandlerId.HEX)
-        FileKind.CODE, FileKind.DOC -> listOf(HandlerId.TEXT)
+        // Both tiers, because these two kinds hold the formats with readers: a `.md` wants
+        // the reader first and the editor second, and a `.txt` wants only the editor. The
+        // default decides which goes first (see `offer`), so listing both here is what makes
+        // the OTHER one reachable without a reveal.
+        FileKind.CODE, FileKind.DOC -> listOf(HandlerId.TEXT, HandlerId.DOC)
         // A blob could be anything, and an archive with the wrong name lands here - which is
         // the case that started this.
         FileKind.BINARY, FileKind.OTHER -> listOf(HandlerId.ARCHIVE, HandlerId.TEXT, HandlerId.HEX)

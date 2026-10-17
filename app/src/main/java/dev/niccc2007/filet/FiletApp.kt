@@ -171,6 +171,9 @@ class FiletGraph(context: Context) {
         scope.launch { prefs.rootVolumes.collect { RootProvider.showVolumes = it } }
     }
 
+    /** Local copies for the readers that need a seekable file. See `LocalCopy`. */
+    val localCopy = dev.niccc2007.filet.ops.LocalCopy(app, vfs, staging)
+
     val apkTools = dev.niccc2007.filet.apk.ApkTools(app, vfs, ledger, staging)
     val bridge = dev.niccc2007.filet.bridge.TrawlBridge(app, ledger)
     /** What Filet has put on the home screen, so it is manageable from inside the app. */

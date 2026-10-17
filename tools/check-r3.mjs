@@ -76,6 +76,17 @@ const ALLOWED = [
   // cacheDir that it evicts itself. It never builds a user path and never reads one directly,
   // which is the distinction R3 is about rather than the presence of java.io.File.
   "app/src/main/java/dev/niccc2007/filet/ops/RemoteStaging.kt",
+  // The same thing for the document readers: a local copy of whatever is being read, for the
+  // one API that cannot take a stream. `PdfRenderer` opens a ParcelFileDescriptor and seeks -
+  // it has to, because a PDF is read from its trailer backwards - so an archive entry or a
+  // file on a share has to be a real file first. Everything it reads comes through
+  // `vfs.openRead`, what it writes is a hashed name under cacheDir that it evicts itself, and
+  // the handle stops at the reader.
+  "app/src/main/java/dev/niccc2007/filet/ops/LocalCopy.kt",
+  // PdfRenderer's constructor takes a ParcelFileDescriptor over a real file and refuses
+  // anything else, so the PDF reader holds one. The file it is given came from LocalCopy
+  // above; this file never builds a path, never lists a directory and never writes.
+  "app/src/main/java/dev/niccc2007/filet/docs/PdfDoc.kt",
   // The session log cannot go through the VFS, because it has to exist BEFORE the VFS does.
   // It opens at process start - ahead of the graph - for the reason it was built: the graph
   // build is itself on the path being timed, and a logger that starts after it cannot measure

@@ -154,6 +154,12 @@ dependencies {
     implementation(libs.sora.editor)
     // Pure Java, ~300 KB, no NDK and no ABI splits - which is why Lua and not Python.
     implementation(libs.luaj)
+    // Markdown. BSD-2-Clause, pure Java, and the reference implementation of the spec -
+    // which matters because the alternative was a hand-rolled subset that would get tables,
+    // nested lists and fenced code inside a list item wrong in different ways for years.
+    implementation(libs.commonmark)
+    implementation(libs.commonmark.gfm.tables)
+    implementation(libs.commonmark.strikethrough)
     // M6: rebuild and re-sign on device. ARSCLib reads and writes AXML with no aapt2.
     implementation(libs.smali.assembler)
     implementation(libs.apksig)
