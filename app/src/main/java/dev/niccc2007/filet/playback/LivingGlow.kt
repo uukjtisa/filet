@@ -185,7 +185,16 @@ private const val BEAT_FLARE = 1.5f
  * samples to a dusty orange - the setting that is weather on one album is a coloured panel on
  * the next. Reported in those terms, about the strip, where it shows first.
  *
- * Faint by default: the glow should be noticed on the second look, not the first.
+ * ## SOFT by default, not FAINT
+ *
+ * It defaulted to Faint, on the reasoning that the glow should be noticed on the second look
+ * rather than the first. That reasoning has been overruled by use three separate times - the
+ * glow has been reported as invisible, as missing, and as "where is it" - and at 0.55 of the
+ * full strength, multiplied by the alpha the lights are drawn at over artwork, the default
+ * really was close to nothing on a bright cover.
+ *
+ * Faint is still there for anybody who wants it. It is no longer what somebody gets before
+ * they have an opinion.
  */
 enum class GlowLevel(val id: String, val label: String, val scale: Float) {
     FAINT("faint", "Faint", 0.55f),
@@ -196,7 +205,7 @@ enum class GlowLevel(val id: String, val label: String, val scale: Float) {
     val position: Float get() = ((scale - GLOW_MIN) / (GLOW_MAX - GLOW_MIN)).coerceIn(0f, 1f)
 
     companion object {
-        fun of(id: String?): GlowLevel = entries.firstOrNull { it.id == id } ?: FAINT
+        fun of(id: String?): GlowLevel = entries.firstOrNull { it.id == id } ?: SOFT
 
         /** The next one round, for a control that cycles rather than opening a menu. */
         fun after(level: GlowLevel): GlowLevel =
@@ -204,7 +213,7 @@ enum class GlowLevel(val id: String, val label: String, val scale: Float) {
 
         /** Which step a continuous strength is nearest, for the strip's three-stop pill. */
         fun nearest(position: Float): GlowLevel =
-            entries.minByOrNull { kotlin.math.abs(it.position - position) } ?: FAINT
+            entries.minByOrNull { kotlin.math.abs(it.position - position) } ?: SOFT
     }
 }
 

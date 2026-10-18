@@ -260,15 +260,15 @@ fun PlayerOverflow(
     onWaveRest: ((Float) -> Unit)? = null,
 ) {
     var open by remember { mutableStateOf(false) }
-    var faces by remember { mutableStateOf(false) }
+    var page by remember { mutableStateOf(PanelPage.MAIN) }
     val colors = Filet.colors
     val gap = with(LocalDensity.current) { 8.dp.roundToPx() }
     Box {
-        BarIcon(FiletIcons.More, "More") { open = true; faces = false }
+        BarIcon(FiletIcons.More, "More") { open = true; page = PanelPage.MAIN }
         if (open) {
             Popup(
                 popupPositionProvider = BelowPositionProvider(gap),
-                onDismissRequest = { open = false; faces = false },
+                onDismissRequest = { open = false; page = PanelPage.MAIN },
                 properties = PopupProperties(focusable = true),
             ) {
                 Column(
@@ -280,111 +280,178 @@ fun PlayerOverflow(
                         .border(1.dp, colors.lineSoft, RoundedCornerShape(22.dp))
                         .padding(vertical = 14.dp),
                 ) {
-                    if (faces) {
-                        PanelHead("THE LOOK")
-                        for (f in dev.niccc2007.filet.playback.PlayerFace.entries) {
-                            FaceRow(f, f == face) { open = false; faces = false; onFace(f) }
-                        }
-                    } else {
-                        PanelHead("NOW PLAYING")
-                        // The face switcher is here rather than only in Settings. Five looks
-                        // are worth nothing if changing them means leaving the thing you are
-                        // looking at - this is the one screen where the difference shows.
-                        PanelAction(
-                            "Look",
-                            FiletIcons.Eye,
-                            trailing = face.label,
-                        ) { faces = true }
-                        if (onAddToPlaylist != null) {
-                            PanelAction("Add to a playlist", FiletIcons.Rows) {
-                                open = false
-                                onAddToPlaylist()
+                    when (page) {
+                        PanelPage.FACES -> {
+                            PanelBack("THE LOOK") { page = PanelPage.MAIN }
+                            for (f in dev.niccc2007.filet.playback.PlayerFace.entries) {
+                                FaceRow(f, f == face) {
+                                    open = false
+                                    page = PanelPage.MAIN
+                                    onFace(f)
+                                }
                             }
                         }
-                        if (onSaveQueue != null) {
-                            // "Save the queue" rather than "new playlist": the queue is
-                            // already a list somebody arranged by playing it, and this keeps
-                            // THAT rather than opening an empty one to fill in again.
-                            PanelAction("Save the queue", FiletIcons.Save) {
-                                open = false
-                                onSaveQueue()
+
+                        // ── the light, on its own page ──────────────────────────────
+                        //
+                        // Seven sliders used to sit on the panel's front page, under two
+                        // switches, on a 254dp popup over the thing they were changing. Every
+                        // one of them earns its place and all of them together are a wall -
+                        // and the two controls somebody opens this panel for most often, the
+                        // look and the queue, were below the wall.
+                        //
+                        // The panel already knew how to be two pages: the look picker has
+                        // worked that way from the start. This is the same mechanism, so it
+                        // costs no new concept, and the front page is now six rows.
+                        PanelPage.GLOW -> {
+                            PanelBack("GLOW AND BEAT") { page = PanelPage.MAIN }
+                            if (glow != null && onGlow != null) {
+                                PanelSwitch("Living glow", glow, onGlow)
+                                if (glow && glowStrength != null && onGlowStrength != null) {
+                                    PanelSlider(
+                                        "Glow strength", glowStrength, onChange = onGlowStrength,
+                                    )
+                                }
+                                if (glow && pulse != null && onPulse != null) {
+                                    PanelSwitch("Pulse on the beat", pulse, onPulse, sub = true)
+                                    if (pulse && sense != null && onSense != null) {
+                                        PanelSlider("Sensitivity", sense, onChange = onSense)
+                                    }
+                                    if (pulse && depth != null && onDepth != null) {
+                                        PanelSlider("Beat intensity", depth, onChange = onDepth)
+                                    }
+                                    if (pulse && waveRest != null && onWaveRest != null) {
+                                        PanelSlider("Wave at rest", waveRest, onChange = onWaveRest)
+                                    }
+                                    if (pulse && waveSize != null && onWaveSize != null) {
+                                        PanelSlider("Wave on a beat", waveSize, onChange = onWaveSize)
+                                    }
+                                    if (pulse && waveGap != null && onWaveGap != null) {
+                                        PanelSlider("Wave distance", waveGap, onChange = onWaveGap)
+                                    }
+                                }
                             }
                         }
-                        // Only where they mean something. The record's switch belongs to
-                        // the record, and a switch on a face with no record on it is a
-                        // control that does nothing visible - worse than one not offered.
-                        if (travel != null && onTravel != null) {
+
+                        // And the record's two, which only exist on a face that has one.
+                        PanelPage.DISC -> {
+                            PanelBack("THE RECORD") { page = PanelPage.MAIN }
+                            if (travel != null && onTravel != null) {
+                                PanelSlider(
+                                    "Disc travel", travel, travelLabel, sub = false, onTravel,
+                                )
+                            }
+                            if (scratch != null && onScratch != null) {
+                                PanelSwitch("Sound follows the disc", scratch, onScratch)
+                            }
+                        }
+
+                        PanelPage.MAIN -> {
+                            PanelHead("NOW PLAYING")
+                            // The face switcher is here rather than only in Settings. Five
+                            // looks are worth nothing if changing them means leaving the thing
+                            // you are looking at - this is the one screen where it shows.
+                            PanelAction(
+                                "Look",
+                                FiletIcons.Eye,
+                                trailing = face.label,
+                            ) { page = PanelPage.FACES }
+                            if (onAddToPlaylist != null) {
+                                PanelAction("Add to a playlist", FiletIcons.Rows) {
+                                    open = false
+                                    onAddToPlaylist()
+                                }
+                            }
+                            if (onSaveQueue != null) {
+                                // "Save the queue" rather than "new playlist": the queue is
+                                // already a list somebody arranged by playing it, and this
+                                // keeps THAT rather than opening an empty one to fill in.
+                                PanelAction("Save the queue", FiletIcons.Save) {
+                                    open = false
+                                    onSaveQueue()
+                                }
+                            }
+                            // One row each for the two groups of settings, with the state in
+                            // the trailing label so the panel still says what is on without
+                            // being opened.
+                            if (glow != null) {
+                                PanelRule()
+                                PanelAction(
+                                    "Glow and beat",
+                                    FiletIcons.Eye,
+                                    trailing = when {
+                                        !glow -> "off"
+                                        pulse == true -> "beat"
+                                        else -> "on"
+                                    },
+                                ) { page = PanelPage.GLOW }
+                            }
+                            if (travel != null || scratch != null) {
+                                PanelAction(
+                                    "The record",
+                                    FiletIcons.Audio,
+                                    trailing = travelLabel,
+                                ) { page = PanelPage.DISC }
+                            }
                             PanelRule()
-                            // ABOVE the sound switch, and not indented under it.
-                            //
-                            // How far a turn moves the track is true whether or not anything
-                            // is audible - the disc scrubs either way. Sitting it under the
-                            // sound switch said it was part of that effect, which is both
-                            // wrong and the reason it was not findable.
-                            PanelSlider(
-                                "Disc travel", travel, travelLabel, sub = false, onTravel,
-                            )
-                        }
-                        if (scratch != null && onScratch != null) {
-                            PanelSwitch("Sound follows the disc", scratch, onScratch)
-                        }
-                        if (glow != null && onGlow != null) {
-                            PanelRule()
-                            PanelSwitch("Living glow", glow, onGlow)
-                            // The glow's OWN brightness, not the beat's swing. These were
-                            // one control and that was the fault: turning up something
-                            // called Intensity under "Living glow" changed only how hard a
-                            // beat moved it, so with the pulse off it did nothing at all.
-                            if (glow && glowStrength != null && onGlowStrength != null) {
-                                PanelSlider("Glow strength", glowStrength, onChange = onGlowStrength)
+                            PanelAction("Open in another app", FiletIcons.Open) {
+                                open = false
+                                onExternal()
                             }
-                            // The pulse is the glow answering the music, so it appears
-                            // UNDER the glow and only while the glow is on. Indented,
-                            // because a sub-switch at the same margin as its parent is
-                            // just a second switch.
-                            if (pulse != null && onPulse != null) {
-                                PanelSwitch("Pulse on the beat", pulse, onPulse, sub = true)
-                                // The two knobs, and only while the thing they tune is
-                                // running. A slider that does nothing is worse here than
-                                // in Settings: this panel is open over the very thing it
-                                // is supposed to be changing.
-                                if (pulse && sense != null && onSense != null) {
-                                    PanelSlider("Sensitivity", sense, onChange = onSense)
-                                }
-                                if (pulse && depth != null && onDepth != null) {
-                                    PanelSlider("Beat intensity", depth, onChange = onDepth)
-                                }
-                                // There was a Timing slider here, and it is gone rather
-                                // than moved. It asked somebody to line a light up with a
-                                // sound by eye, which is a calibration, and a calibration
-                                // that has to be done by hand is wrong on every phone nobody
-                                // has done it on. Every term it was covering for is now
-                                // derived - see `BeatLatency` and `BeatMap.biasMs`.
-                                if (pulse && waveRest != null && onWaveRest != null) {
-                                    PanelSlider("Wave at rest", waveRest, onChange = onWaveRest)
-                                }
-                                if (pulse && waveSize != null && onWaveSize != null) {
-                                    PanelSlider("Wave on a beat", waveSize, onChange = onWaveSize)
-                                }
-                                if (pulse && waveGap != null && onWaveGap != null) {
-                                    PanelSlider("Wave distance", waveGap, onChange = onWaveGap)
-                                }
+                            PanelAction("Share", FiletIcons.Share) { open = false; onShare() }
+                            PanelAction("Properties", FiletIcons.Info) {
+                                open = false
+                                onProperties()
                             }
-                        }
-                        PanelRule()
-                        PanelAction("Open in another app", FiletIcons.Open) {
-                            open = false
-                            onExternal()
-                        }
-                        PanelAction("Share", FiletIcons.Share) { open = false; onShare() }
-                        PanelAction("Properties", FiletIcons.Info) {
-                            open = false
-                            onProperties()
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * Which page of the player's panel is showing.
+ *
+ * The panel was one page with two switches and seven sliders on it, which is a wall of controls
+ * over the very thing they change - and the two rows somebody opens it for most, the look and
+ * the queue, sat above that wall and got lost in it. It already knew how to be two pages for
+ * the look picker; this is the same mechanism with two more.
+ */
+private enum class PanelPage { MAIN, FACES, GLOW, DISC }
+
+/**
+ * A page's heading, with the way back out of it.
+ *
+ * The look picker had no way back: it was reached by tapping Look and left by dismissing the
+ * whole panel, which with two more pages would mean three dead ends. One row, at the top, where
+ * a heading already was.
+ */
+@Composable
+private fun PanelBack(text: String, onBack: () -> Unit) {
+    val colors = Filet.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onBack)
+            .padding(horizontal = 16.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            FiletIcons.Back,
+            null,
+            tint = colors.fg3,
+            modifier = Modifier.size(13.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.3.sp,
+            color = colors.fg3,
+        )
     }
 }
 

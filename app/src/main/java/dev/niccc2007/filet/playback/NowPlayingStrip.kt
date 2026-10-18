@@ -149,19 +149,31 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
             // is the player it minimises into rather than a different widget. Weaker here:
             // this is a 56dp band under a file list, and the lights are nearly the whole
             // surface of it. See `LivingGlow`.
-            // The CONTINUOUS strength, not the nearest named stop.
+            // ── the light comes off the progress bar ──
             //
-            // This read `GlowLevel.nearest(strength).scale`, which quantised the slider to
-            // three values - so moving it anywhere between Faint and Soft changed the full
-            // player and left the strip exactly where it was. The three names are stops on
-            // this scale, not the scale itself; see `glowScale`.
-            .livingGlow(
+            // This used `livingGlow`, the same three drifting lights the full player has. On a
+            // screen-sized face that is weather; on a 56dp band it is three circles of colour
+            // wandering behind a row of buttons with no relationship to anything on screen, and
+            // unclipped it bled upward in a shape that had nothing to do with the strip.
+            //
+            // The spill was worth keeping. What was wrong is that the light had no source. See
+            // `stripRadiance`: it now radiates upward off the bar, brightest at the playhead,
+            // so it travels with the track.
+            //
+            // The CONTINUOUS strength, too. This read `GlowLevel.nearest(strength).scale`,
+            // which quantised the slider to three values - so moving it between Faint and Soft
+            // changed the full player and left the strip where it was.
+            .stripRadiance(
                 base = tint,
+                fraction = if (state.durationMs > 0) {
+                    (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
+                } else {
+                    0f
+                },
                 on = glow,
                 running = state.playing,
                 strength = GLOW_OVER_STRIP * glowScale(strength),
-                spread = GLOW_SPREAD_STRIP,
-                clip = !spill,
+                spill = spill,
                 pulse = beating?.swing,
                 pulseDepth = depth,
             ),

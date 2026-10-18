@@ -116,6 +116,23 @@ class BeatMap(
 
     val empty: Boolean get() = onsets.isEmpty()
 
+    /**
+     * How much of the track this map actually describes, in milliseconds.
+     *
+     * ## Why a consumer has to know this
+     *
+     * A map arrives in pieces - the opening of the track is measured within a frame or two and
+     * the rest follows (see [from] and `TrackPcm`'s early callback). But [strengthAt] answered
+     * a position past the end of a PARTIAL map with 0, which is the same answer it gives for
+     * "there is no beat here". Those are completely different facts, and conflating them means
+     * a pulse that works for the first few seconds and then goes dead with nothing to say why -
+     * which is indistinguishable from the feature being broken.
+     *
+     * With the coverage known, a reader past the end can hold what it had instead of being told
+     * the music stopped. See `rememberBeatSignal`.
+     */
+    val coveredMs: Long get() = onsets.size * BUCKET_MS
+
     /** Where the measurement is fine enough to be worth drawing, see `AudioCache`. */
     internal val onsetArray: FloatArray get() = onsets
     internal val levelArray: FloatArray get() = levels

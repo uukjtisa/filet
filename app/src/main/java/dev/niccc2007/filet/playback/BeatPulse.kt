@@ -84,18 +84,22 @@ fun rememberBeatSignal(
     val loud = remember { mutableFloatStateOf(0f) }
     val signal = remember { BeatSignal(level, swing, blast, shock, loud) }
 
-    // Kept across restarts of the loop below. A better map arrives every few hundred
-    // milliseconds while a track is being read (see `BeatMap.from`), and locals would be
-    // zeroed by each one - so the glow would drop out briefly, repeatedly, during exactly the
-    // part of the track this was built to fix.
-    val held = remember { FloatArray(5) }
+    /**
+     * The arithmetic, which outlives every restart of the loop below.
+     *
+     * A better map arrives every few hundred milliseconds while a track is being measured, and
+     * each one restarts the effect - so anything that has to be continuous cannot be a local.
+     * It was a FloatArray of five, which is the shape that invites getting an index wrong; it
+     * is an object now, and the object is testable without a phone. See [BeatFollower].
+     */
+    val follower = remember { BeatFollower() }
     val animated = rememberSystemAnimations()
     val context = LocalContext.current
     val live = on && animated && beats != null && !beats.empty
 
     LaunchedEffect(live, beats, sensitivity) {
         if (!live) {
-            held.fill(0f)
+            follower.reset()
             level.floatValue = 0f
             swing.floatValue = 0f
             blast.floatValue = 0f
@@ -108,21 +112,21 @@ fun rememberBeatSignal(
         // song, and the right answer changes under whoever did that.
         val output = BeatLatency.outputMs(context)
         val bias = map.biasMs
+        dev.niccc2007.filet.data.Diag.log(
+            "beat",
+            "map covers ${map.coveredMs}ms of ${playback.state.value.durationMs}ms, " +
+                "bias=${bias}ms output=${output}ms sense=$sensitivity",
+        )
         var reported = -1L
         var stampedAt = android.os.SystemClock.elapsedRealtime()
         var at = stampedAt
-        var value = held[0]
-        var mean = held[1]
-        var wave = held[2]
-        var impulse = held[3]
-        var loudness = held[4]
-        var wasOver = false
+        var sinceLog = 0f
         while (true) {
             val state = playback.state.value
             val now = android.os.SystemClock.elapsedRealtime()
-            // ASK THE PLAYER, and only fall back to the flow when there is no answer. The
-            // flow is written five times a second, so reading it adds up to two hundred
-            // milliseconds of the last tick's age to every reading.
+            // ASK THE PLAYER, and only fall back to the flow when there is no answer. The flow
+            // is written five times a second, so reading it adds up to two hundred milliseconds
+            // of the last tick's age to every reading.
             val livePos = playback.positionNow()
             if (livePos != null) {
                 reported = livePos
@@ -141,56 +145,42 @@ fun rememberBeatSignal(
             // and the only way to delay a light is to drive it from an earlier part of the
             // track.
             val ear = reported + (now - stampedAt) - output - bias
+            // ── a position past the end of a PARTIAL map is not silence ──
+            //
+            // The opening of a track is measured almost at once and the rest follows, so for
+            // the first moments the map covers only a few seconds of it - and `strengthAt`
+            // answered anything past that with 0, which is the same answer it gives for "no
+            // beat here". The light went out at the edge of the measured part and stayed out
+            // until the rest arrived. Clamped to the last bucket that exists instead: briefly
+            // it pulses on the wrong part of the track, which nobody can see, where the
+            // alternative is a light that plainly stops, which everybody can.
+            val covered = map.coveredMs
+            val readAt =
+                if (covered > 0L && ear >= covered) covered - BeatMap.BUCKET_MS else ear
             val raw =
                 if (!state.playing) 0f
-                else (map.strengthAt(ear) * sensitivity).coerceIn(0f, 1f)
+                else (map.strengthAt(readAt) * sensitivity).coerceIn(0f, 1f)
+            val loudNow = if (!state.playing) 0f else map.levelAt(readAt)
 
-            // ── the punch: instant up, exponential down ──
-            value = max(value * exp(-gap / DECAY_MS), raw)
+            follower.step(raw, loudNow, gap)
 
-            // ── what this track has been doing lately ──
-            //
-            // The resting point used to be the constant 0.34, and that was the whole of the
-            // glow going missing: this envelope decays to ZERO between beats, so every moment
-            // that was not a drum measured as 0.34 BELOW rest and the lights were multiplied
-            // by about two thirds. Switching the pulse on therefore made the glow dimmer on
-            // average than switching it off, which is the opposite of what a pulse is.
-            //
-            // Measured against the track's own mean instead, the swing averages about zero by
-            // construction, so the pulse can only move the glow around where it already was -
-            // never move it down and leave it there. It also self-calibrates: a sparse ambient
-            // track and a wall of drums each sit at their own normal.
-            mean += (value - mean) * (gap / MEAN_MS).coerceIn(0f, 1f)
-            val signed = beatSwing(value, mean)
+            level.floatValue = follower.level
+            swing.floatValue = follower.swing
+            blast.floatValue = follower.blast
+            shock.floatValue = follower.shock
+            loud.floatValue = follower.loud
 
-            // ── the wave: fast to rise, slow to fall, flat when nothing is happening ──
-            //
-            // Driven by the SIGNED swing rather than the envelope, which is what makes a calm
-            // passage genuinely flat instead of gently rippling: through anything that is not
-            // a rise above this track's own normal, the target is zero.
-            val want = (max(0f, signed) * WAVE_GAIN).coerceIn(0f, 1f)
-            val k = if (want > wave) gap / WAVE_ATTACK_MS else gap / WAVE_RELEASE_MS
-            wave += (want - wave) * k.coerceIn(0f, 1f)
-
-            // ── the impulse: only the big ones, and only once each ──
-            val over = signed > SHOCK_AT
-            impulse = if (over && !wasOver) 1f else max(0f, impulse - gap / SHOCK_MS)
-            wasOver = over
-
-            // ── the figure: loudness, smoothed, which is a shape and not a hit ──
-            val nowLoud = if (!state.playing) 0f else map.levelAt(ear)
-            loudness += (nowLoud - loudness) * (gap / LOUD_MS).coerceIn(0f, 1f)
-
-            held[0] = value
-            held[1] = mean
-            held[2] = wave
-            held[3] = impulse
-            held[4] = loudness
-            level.floatValue = value
-            swing.floatValue = signed
-            blast.floatValue = wave
-            shock.floatValue = impulse
-            loud.floatValue = loudness
+            // Once every few seconds, and only in a debug build - see `Diag`. A report about
+            // this can then carry numbers rather than adjectives, which is the difference
+            // between fixing it and guessing at it twice more.
+            sinceLog += gap
+            if (sinceLog >= LOG_EVERY_MS) {
+                sinceLog = 0f
+                dev.niccc2007.filet.data.Diag.log(
+                    "beat",
+                    "at=${readAt}ms raw=%.2f ".format(raw) + follower.describe(),
+                )
+            }
             delay(1000L / PULSE_FPS)
         }
     }
@@ -217,8 +207,10 @@ fun rememberBeatSignal(
  * property this function exists to guarantee: the pulse must never leave the glow dimmer on
  * average than no pulse at all.
  *
- * @param hit the envelope now, 0 to 1.
- * @param mean what it has averaged lately, 0 to 1.
+ * @param hit the NORMALISED envelope now, 0 to 1 - see the gain control in
+ *   [rememberBeatSignal]. Handing this a raw envelope works, and is how it shipped first, but
+ *   it is then only as large as whatever range the envelope happened to have left.
+ * @param mean what that has averaged lately, 0 to 1.
  */
 fun beatSwing(hit: Float, mean: Float): Float {
     val raw = (hit - mean).coerceIn(-1f, 1f)
@@ -238,11 +230,37 @@ const val DECAY_MS = 220f
 /**
  * How far back "lately" reaches, in milliseconds.
  *
- * Three seconds. Long enough that it is the track's character rather than the last bar, short
- * enough to follow a song into its chorus and back out - a thirty-second window would spend
- * the first chorus catching up and the verse after it over-reacting.
+ * Eight seconds, up from three. At three it was short enough to track the beat pattern ITSELF
+ * rather than the track's character - so the average rose into the rhythm it was supposed to be
+ * measured against, and the swing shrank away over the first few seconds of every song. The
+ * normalising above is what makes a longer window safe: the range is restored before the
+ * average is removed, so this only has to be slow enough not to chase the beat.
  */
-const val MEAN_MS = 3000f
+const val MEAN_MS = 8000f
+
+/**
+ * How quickly the floor follows the envelope down, and how slowly it creeps back up.
+ *
+ * Asymmetric by a factor of twenty-four. The floor is meant to be where this track sits
+ * BETWEEN hits, so it has to drop promptly into a quiet passage and must not be dragged up by
+ * the hits themselves - a symmetrical follower would sit at the average, which is the thing the
+ * mean already is.
+ */
+const val FLOOR_FALL_MS = 250f
+const val FLOOR_RISE_MS = 6000f
+
+/** And the ceiling, the other way round: quick to acknowledge a hard hit, slow to forget one. */
+const val CEIL_RISE_MS = 120f
+const val CEIL_FALL_MS = 4000f
+
+/**
+ * The least range the normalising will assume.
+ *
+ * Without a floor on the span, a passage where the envelope barely moves divides by almost
+ * nothing and turns dither into a strobe. Twelve percent: below that there genuinely is no
+ * dynamic range to show, and the honest answer is a still light.
+ */
+const val MIN_SPAN = 0.12f
 
 /** And the loudness figure's own smoothing, which only has to stop it jittering. */
 const val LOUD_MS = 260f
@@ -335,3 +353,6 @@ internal fun averageSwing(samples: FloatArray): Float {
 
 /** True when the swing is not quietly all dip. The guarantee, as a predicate. */
 internal fun swingIsBalanced(samples: FloatArray): Boolean = abs(averageSwing(samples)) < 0.25f
+
+/** How often the follower writes a line to the diagnostics, in milliseconds. */
+const val LOG_EVERY_MS = 4000f
