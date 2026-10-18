@@ -125,6 +125,29 @@ object TreeRows {
         else open + path
 
     /**
+     * Which fold a back press should close, or null when there is none to close.
+     *
+     * ## Why the deepest, and why not the last one opened
+     *
+     * In a flat list, back goes up a level. In a tree the equivalent is closing a branch - and
+     * issue #12 asks for exactly that, because a tree four deep otherwise needs four taps on
+     * four chevrons to put away, and the back gesture, which is the one thing a thumb reaches
+     * for without looking, instead leaves the folder entirely.
+     *
+     * The DEEPEST open fold rather than the most recently opened one. Those are usually the
+     * same, and where they differ the deepest is the one that matches what back means
+     * everywhere else: it undoes the innermost thing first. Closing the last-opened would mean
+     * a back press could collapse a branch near the top of the screen while a deeper one stayed
+     * open below it, which reads as the press having hit the wrong row.
+     *
+     * Ties - two folds at the same depth - go to the one whose path sorts last, which is
+     * arbitrary but stable. An arbitrary-but-stable answer is fine here; an unstable one would
+     * mean two identical back presses doing different things.
+     */
+    fun deepestFold(open: Set<VPath>): VPath? =
+        open.maxWithOrNull(compareBy({ it.path.count { c -> c == '/' } }, { it.path }))
+
+    /**
      * Every folder between [root] and [target], so a jump can land with the tree already open
      * down to where it went.
      *

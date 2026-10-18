@@ -99,6 +99,14 @@ const ALLOWED = [
   // read or write a file. The paths it returns are compared against what the VFS reported and
   // handed straight to the platform scanner; no file is opened here.
   "app/src/main/java/dev/niccc2007/filet/media/MediaCatchUp.kt",
+  // The whole-phone categories, which are a QUERY against MediaStore and nothing else.
+  // MediaStore is the media index rather than a filesystem: it is asked which rows exist and
+  // what they are called, and the paths it answers with are turned into VPaths that go back
+  // through the VFS like any other. No file is opened here, nothing is written, and no path is
+  // built - which is the distinction R3 is about rather than the presence of the import. The
+  // alternative was Filet's own index, and that is a SETTING: a headline feature that is empty
+  // until somebody switches on a database is a feature most people conclude is broken.
+  "app/src/main/java/dev/niccc2007/filet/home/MediaCategory.kt",
   // A debug-only diagnostic for the share server, and it cannot use the VFS because the VFS
   // is part of what it exists to watch. Compiles to nothing in a release build, writes a few
   // hundred lines to app-private external storage, one filename, never a user path. It exists

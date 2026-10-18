@@ -52,6 +52,9 @@ object HomeFolds {
     const val TRACKED = "tracked"
     const val OPENED = "opened"
 
+    /** The whole-phone categories. Issue #4, and see `MediaCategory`. */
+    const val CATEGORIES = "categories"
+
     /**
      * Folded until somebody opens them.
      *

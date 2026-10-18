@@ -150,6 +150,11 @@ fun BrowserScreen(vm: BrowserViewModel) {
             app.activityOpen -> vm.openActivity(false)
             activeState?.search?.open == true -> active.openSearch(false)
             activeState?.selecting == true -> active.clearSelection()
+            // BEFORE the history, and before going up. In a tree, the innermost thing a back
+            // press can undo is an open branch - issue #12 - and a tree four deep otherwise
+            // takes four taps on four chevrons to put away while the one gesture a thumb
+            // reaches for without looking leaves the folder entirely.
+            active?.collapseDeepest() == true -> Unit
             active?.goBack() == true -> Unit
             // push = false: see PaneController.goUp. Pushing here makes back and up fight each
             // other and the screen never closes.
@@ -514,6 +519,7 @@ private fun tabIcon(s: PaneState) = when (s.kind) {
     PaneKind.BOOKMARKS -> FiletIcons.Star
     PaneKind.PLAYLISTS -> FiletIcons.Audio
     PaneKind.RESUME -> FiletIcons.Clock
+    PaneKind.CATEGORY -> FiletIcons.Image
     PaneKind.RECENT -> FiletIcons.Clock
     PaneKind.HISTORY -> FiletIcons.Clock
     PaneKind.SHORTCUTS -> FiletIcons.Home

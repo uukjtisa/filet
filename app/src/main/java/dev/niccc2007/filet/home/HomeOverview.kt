@@ -322,6 +322,45 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         // What is being watched, and a way to stop. Without this the tracked list was
         // write-only: you could add a folder from its menu and never see the set again.
         if (tracked.isNotEmpty()) {
+        // ── everything of one kind, from the whole phone ───────────────────────────
+        //
+        // Issue #4: somewhere to open all the photos at once, and the same for audio, video,
+        // packages and documents, so that this app can replace the gallery and the music
+        // player rather than sitting beside them.
+        //
+        // Deliberately NOT a change to the tracked folders. The two answer different
+        // questions and both are worth having: a tracked folder says "what turned up in the
+        // places I care about", which is only useful BECAUSE it is scoped - point it at the
+        // whole phone and a build directory writing five hundred files buries the camera roll
+        // it exists to surface. A category says "all my photos", which is inherently
+        // device-wide. Collapsing one into the other would cost the first its entire value.
+        //
+        // One row, scrolling sideways, rather than six rows: six list rows is most of a first
+        // screen for something that is a shortcut rather than content. See `HScroll` for why
+        // the edge has a cue.
+        item {
+            SectionHeaderWithAction(
+                label = "Categories",
+                action = null,
+                folded = HomeFolds.CATEGORIES in folds,
+                onFold = { vm.prefs.toggleHomeFold(HomeFolds.CATEGORIES) },
+                onAction = {},
+            )
+        }
+        if (HomeFolds.CATEGORIES !in folds) {
+            item {
+                dev.niccc2007.filet.ui.HScroll(
+                    ground = MaterialTheme.colorScheme.background,
+                    contentPadding = 14.dp,
+                    spacing = 8.dp,
+                ) {
+                    for (c in dev.niccc2007.filet.home.MediaCategory.entries) {
+                        CategoryChip(c) { pane.openCategory(c) }
+                    }
+                }
+            }
+        }
+
             // Adding one needs somewhere to start browsing from, so the verb is only offered
             // when there is a volume to start in. Offering it with nothing to open would be a
             // control that silently does nothing, which is the one thing R1 forbids.
@@ -691,5 +730,42 @@ private fun ScanningDots() {
                 ),
             )
         }
+    }
+}
+
+/**
+ * One category, as a chip.
+ *
+ * A chip rather than a list row because this is a shortcut, not content: six full-width rows
+ * is most of a phone's first screen spent on navigation, and the thing somebody came to Home
+ * for is underneath it. Sideways in one scroller keeps all six reachable in the height of one.
+ */
+@Composable
+private fun CategoryChip(
+    category: dev.niccc2007.filet.home.MediaCategory,
+    onOpen: () -> Unit,
+) {
+    val colors = Filet.colors
+    Column(
+        Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(colors.raised)
+            .border(1.dp, colors.lineSoft, RoundedCornerShape(14.dp))
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            category.icon,
+            null,
+            tint = colors.accent,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            category.label,
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }

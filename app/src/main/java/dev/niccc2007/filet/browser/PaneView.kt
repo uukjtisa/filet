@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.browser
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -119,7 +120,10 @@ fun PaneView(
         // take the tree somewhere a tree cannot go.
         val asked = ViewStep.of(viewStep)
         val step = if (treeWanted) ViewStep.entries[asked.ordinal.coerceAtMost(TREE_MAX_STEP)] else asked
-        val metrics = PaneMetrics.forWidth(widthDp, step)
+        // Issue #11: a long name wraps rather than scrolling past. The row's own shape still
+        // has the last word - see `nameLineCount`.
+        val nameLines by vm.prefs.nameLines.collectAsStateWithLifecycle()
+        val metrics = PaneMetrics.forWidth(widthDp, step, nameLines)
 
         Column(
             Modifier
@@ -1007,6 +1011,17 @@ private fun SpecialBodyContent(pane: PaneController, vm: BrowserViewModel, s: Pa
         PaneKind.BOOKMARKS -> BookmarksBody(vm, pane)
         PaneKind.PLAYLISTS -> dev.niccc2007.filet.playback.PlaylistsScreen(vm, pane)
         PaneKind.RESUME -> dev.niccc2007.filet.playback.ResumeScreen(vm)
+        PaneKind.CATEGORY -> {
+            val category = s.category
+            if (category == null) {
+                // Cannot happen through `openCategory`, which always sets one - but a pane
+                // restored from a stale tab record could arrive without it, and a null here
+                // must not be a crash on a screen somebody is looking at.
+                pane.openHome()
+            } else {
+                dev.niccc2007.filet.home.CategoryScreen(vm, category)
+            }
+        }
         PaneKind.RECENT -> RecentBody(vm, pane)
         PaneKind.HISTORY -> dev.niccc2007.filet.home.FileHistoryScreen(vm, pane)
         PaneKind.SCRIPTS -> dev.niccc2007.filet.script.ScriptsScreen(vm)

@@ -77,5 +77,7 @@ object SpecialPanes {
         PaneKind.ACTIVITY to "pinned to the end of both surfaces, not a destination row",
         PaneKind.SETTINGS to "pinned to the end of both surfaces",
         PaneKind.ABOUT to "pinned to the end of both surfaces",
+        PaneKind.CATEGORY to
+            "the Categories section on the Home overview, one entry per kind of file",
     )
 }

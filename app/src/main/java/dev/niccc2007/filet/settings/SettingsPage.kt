@@ -158,6 +158,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val pitchMode by prefs.pitchMode.collectAsState()
     val resumePlayback by prefs.resumePlayback.collectAsState()
     val rootVolumes by prefs.rootVolumes.collectAsState()
+    val nameLines by prefs.nameLines.collectAsState()
     val livingGlow by prefs.livingGlow.collectAsState()
     val beatPulse by prefs.beatPulse.collectAsState()
     val pulseSense by prefs.pulseSense.collectAsState()
@@ -278,6 +279,30 @@ fun SettingsPage(vm: BrowserViewModel) {
         }
         if (group == SettingsGroup.FILES) {
         item { SettingsSection("Files and folders", "Sorting, hidden files, and what happens when you pick things.") }
+        item {
+            // Issue #11, and the request was specific: show the whole name by letting it wrap,
+            // NOT by scrolling it past. A marquee does show all of it eventually, and
+            // "eventually" is the objection - a list is read by scanning, and a name that has
+            // to be waited for cannot be scanned.
+            Column {
+                SegmentRow(
+                    "Lines for a name",
+                    listOf("1", "2", "3", "4"),
+                    (nameLines - 1).coerceIn(0, 3),
+                ) { prefs.setNameLines(it + 1) }
+                Text(
+                    if (nameLines <= 1) {
+                        "Long names are cut short with an ellipsis."
+                    } else {
+                        "Wraps onto $nameLines lines rather than being cut. Fewer rows fit."
+                    },
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                    color = Filet.colors.fg3,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
+                )
+            }
+        }
         item {
             ToggleRow("Show hidden files", "Dotfiles and anything the volume marks hidden", hidden) {
                 prefs.setShowHidden(it)

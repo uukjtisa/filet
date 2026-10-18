@@ -47,6 +47,15 @@ enum class PaneKind {
      * `ResumeScreen`, and it is reversible from here if it turns out to be wrong.
      */
     RESUME,
+
+    /**
+     * Everything of one kind on the phone - photos, music, packages. Issue #4.
+     *
+     * WHICH kind is on the pane's state rather than in the enum, because six kinds would be
+     * six pane kinds, six routes, six search plans and six refresh plans for one screen that
+     * differs by a WHERE clause. See [PaneState.category].
+     */
+    CATEGORY,
 }
 
 data class SearchUi(
@@ -104,6 +113,15 @@ data class PaneState(
      * guessed 160ms and then never scrolled at all.
      */
     val revealTarget: VPath? = null,
+    /**
+     * Which media category a [PaneKind.CATEGORY] pane is showing. Null for every other kind.
+     *
+     * On the state rather than encoded into [cwd] as a synthetic path: a VPath with a scheme no
+     * provider answers would be handed to the VFS by anything that reads `cwd` without checking
+     * the kind first, and that is a crash waiting for the next person who adds a feature here.
+     */
+    val category: dev.niccc2007.filet.home.MediaCategory? = null,
+
     /** Folders showing their contents in place. Empty unless the tree view is on. */
     val open: Set<VPath> = emptySet(),
     /** What is inside each of those, absent while it is still being read. */
@@ -486,6 +504,27 @@ class PaneController(
      */
     private val PUSH_EVERY_MS = 16L
 
+    /** Open one of the whole-phone categories. See `CategoryScreen`. */
+    fun openCategory(category: dev.niccc2007.filet.home.MediaCategory) {
+        val prev = _state.value
+        back.addLast(prev.copy(entries = emptyList()))
+        forward.clear()
+        _state.value = prev.copy(
+            kind = PaneKind.CATEGORY,
+            category = category,
+            title = category.label,
+            // Cleared, or the pane keeps the folder it came from and the path bar claims to be
+            // somewhere it is not.
+            cwd = null,
+            entries = emptyList(),
+            selected = emptySet(),
+            loading = false,
+            error = null,
+            canGoBack = back.isNotEmpty(),
+            canGoForward = forward.isNotEmpty(),
+        )
+    }
+
     /** Fold everything away, for the toolbar's collapse-all. */
     fun collapseTree() {
         _state.value = _state.value.copy(open = emptySet(), branches = emptyMap(), active = null)
@@ -529,6 +568,20 @@ class PaneController(
             return
         }
         revealInTree(root, target)
+    }
+
+    /**
+     * Close the innermost open branch, for a back press. False when there was none.
+     *
+     * Only ever true while the tree is actually on: with it off there are no folds, and a back
+     * press has to keep meaning what it has always meant. See [TreeRows.deepestFold] for why it
+     * is the deepest one.
+     */
+    fun collapseDeepest(): Boolean {
+        if (!prefs.treeView.value) return false
+        val fold = TreeRows.deepestFold(_state.value.open) ?: return false
+        collapseBranch(fold)
+        return true
     }
 
     /**

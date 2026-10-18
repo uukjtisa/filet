@@ -65,6 +65,17 @@ enum class RefreshTarget {
 
     /** The job ledger. */
     JOBS,
+
+    /**
+     * Re-query the system's media index for a category pane.
+     *
+     * Needed, and `RefreshTest` was right to fail the first attempt at this, which claimed a
+     * category had nothing to re-read. It has: the media scanner adds rows while the pane is
+     * open - take a photo, come back, and the newest thing on the phone is missing from a list
+     * whose whole promise is newest first. And a file deleted from somewhere else lingers in
+     * the index until the scanner notices, so the stale direction happens too.
+     */
+    CATEGORY,
 }
 
 /**
@@ -103,6 +114,7 @@ fun refreshPlan(kind: PaneKind): RefreshPlan = when (kind) {
     PaneKind.BOOKMARKS -> RefreshPlan(setOf(RefreshTarget.BOOKMARKS), "Bookmarks")
     PaneKind.PLAYLISTS -> RefreshPlan(setOf(RefreshTarget.PLAYLISTS), "Playlists")
     PaneKind.RESUME -> RefreshPlan(setOf(RefreshTarget.RESUME_POINTS), "Carry on")
+    PaneKind.CATEGORY -> RefreshPlan(setOf(RefreshTarget.CATEGORY), "Category")
     PaneKind.RECENT -> RefreshPlan(setOf(RefreshTarget.RECENTS), "Opened")
 
     // The expanded new-files history is the same feed the home card shows, so refreshing it

@@ -693,6 +693,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             // the pane composed, so re-reading it is all a refresh here can mean. The flow is
             // what the screen is watching.
             RefreshTarget.RESUME_POINTS -> bumpResume()
+            RefreshTarget.CATEGORY -> bumpCategory()
 
             // Bug identified: these three shared one branch and one comment claiming
             // all of them were live, and for one of them that was false. Remotes reads
@@ -4841,6 +4842,19 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun bumpResume() {
         _resumeRevision.value = _resumeRevision.value + 1
+    }
+
+    /**
+     * Bumped to re-query a category pane. Same shape as [resumeRevision], same reasoning.
+     *
+     * The query is cheap but it is not free - a cursor walk over every image row on the phone -
+     * so it happens when somebody asks for it rather than on a timer.
+     */
+    private val _categoryRevision = MutableStateFlow(0)
+    val categoryRevision: StateFlow<Int> = _categoryRevision.asStateFlow()
+
+    fun bumpCategory() {
+        _categoryRevision.value = _categoryRevision.value + 1
     }
 
     /**

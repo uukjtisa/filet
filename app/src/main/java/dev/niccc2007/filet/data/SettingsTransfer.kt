@@ -100,6 +100,7 @@ object SettingsTransfer {
                 "view.tree", "play.scratch", "play.pulse",
                 "play.pulseSense", "play.pulseDepth", "play.resume",
                 "files.rootVolumes", "sort.folderKey", "sort.folderDesc",
+                "files.nameLines",
                 "play.waveGap", "play.waveSize", "play.waveRest",
                 "home.hideStorage", "home.hideTermux", "home.folder",
                 "update.notificationsOff", "update.notesFraction",

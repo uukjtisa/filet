@@ -77,11 +77,18 @@ data class PaneMetrics(
     val showSize: Boolean,
     val showChips: Boolean,
     val oneLineName: Boolean = false,
+    /**
+     * How many lines a name may wrap onto, from `Prefs.nameLines`. Issue #11.
+     *
+     * Capped by the row's own shape rather than taken as given: a one-line step has no room to
+     * wrap into and would overlap the row below it. See [nameLineCount].
+     */
+    val nameLines: Int = 2,
     /** Carried so the things that size themselves against the pane can ask. See [TreeScale]. */
     val widthDp: Int = 0,
 ) {
     companion object {
-        fun forWidth(widthDp: Int, requested: ViewStep) = PaneMetrics(
+        fun forWidth(widthDp: Int, requested: ViewStep, nameLines: Int = 2) = PaneMetrics(
             widthDp = widthDp,
             step = if (widthDp < 270 && requested.isGrid) ViewStep.LIST
             else if (widthDp < 200) ViewStep.COMPACT_LIST
@@ -90,6 +97,7 @@ data class PaneMetrics(
             showSize = widthDp >= 180,
             showChips = widthDp >= 180,
             oneLineName = widthDp < 300,
+            nameLines = nameLines,
         )
     }
 }
@@ -238,7 +246,7 @@ fun FileRow(
                 text = node.name,
                 fontSize = step.nameSize.sp,
                 lineHeight = (step.nameSize + 4).sp,
-                maxLines = if (step.twoLine && !metrics.oneLineName) 2 else 1,
+                maxLines = nameLineCount(step.twoLine, metrics.oneLineName, metrics.nameLines),
                 overflow = TextOverflow.Ellipsis,
                 fontWeight = if (node.isDir) FontWeight.Medium else FontWeight.Normal,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -723,3 +731,26 @@ private const val GUIDE_ALPHA = 0.42f
 
 /** And fainter with depth, so the outer levels recede instead of stacking up. */
 private const val FADE_PER_LEVEL = 0.05f
+
+/**
+ * How many lines a name actually gets, which is not simply what the setting says.
+ *
+ * ## The two caps, and why both are needed
+ *
+ * **A one-line step stays one line.** Compact's row height is sized for a single line of text;
+ * wrapping inside it does not make the row taller, it makes the second line overlap the row
+ * below. So the step's own shape is a hard ceiling, and the setting raises the limit for the
+ * steps that have room rather than overriding every one of them.
+ *
+ * **A very narrow pane stays one line too.** In a split pane under 300dp, two lines of a long
+ * name is most of the row's height and the list stops being scannable - which is the thing
+ * wrapping was asked for in service of.
+ *
+ * Pure, because it is three booleans and an integer arguing, and that is exactly the shape that
+ * is wrong in a composable and provable in a test.
+ */
+fun nameLineCount(stepWraps: Boolean, narrow: Boolean, wanted: Int): Int {
+    if (!stepWraps) return 1
+    if (narrow) return 1
+    return wanted.coerceIn(1, 4)
+}

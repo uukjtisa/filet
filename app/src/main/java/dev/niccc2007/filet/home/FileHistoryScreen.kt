@@ -295,7 +295,7 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
  * group collapsed by label would reopen itself at midnight.
  */
 @Composable
-private fun DayHeader(group: DayGroup, collapsed: Boolean, onToggle: () -> Unit) {
+internal fun DayHeader(group: DayGroup, collapsed: Boolean, onToggle: () -> Unit) {
     val colors = Filet.colors
     Row(
         Modifier
@@ -333,7 +333,7 @@ private fun DayHeader(group: DayGroup, collapsed: Boolean, onToggle: () -> Unit)
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-private fun HistoryRow(
+internal fun HistoryRow(
     entry: HistoryEntry,
     sort: HistorySort,
     vm: BrowserViewModel,

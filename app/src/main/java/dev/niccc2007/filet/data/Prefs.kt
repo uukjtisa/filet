@@ -621,6 +621,33 @@ class Prefs(context: Context) {
     }
 
     /**
+     * How many lines a file's name may wrap onto in a list.
+     *
+     * ## What was asked for, and why it is a number rather than a switch
+     *
+     * Issue #11, in its own words: names should show in full, by allowing several lines, and
+     * NOT by scrolling the text. Which is a sharper request than it first looks - a marquee
+     * shows the whole name eventually, and the objection is to "eventually". A list is read by
+     * scanning it, and a name that has to be waited for cannot be scanned.
+     *
+     * A number, not a boolean, because the cost is real and belongs to the reader: at four
+     * lines a folder of long names is a third as many rows per screen. One keeps the old
+     * behaviour exactly, which is why it is still available.
+     *
+     * The view step's own two-line default is a FLOOR, not a cap - see `ViewStep.twoLine`.
+     * Compact deliberately stays at one line whatever this says, because its row is sized for
+     * one and wrapping inside it would overlap the row below.
+     */
+    private val _nameLines = MutableStateFlow(sp.getInt(K_NAME_LINES, 2).coerceIn(1, 4))
+    val nameLines: StateFlow<Int> = _nameLines.asStateFlow()
+
+    fun setNameLines(n: Int) {
+        val c = n.coerceIn(1, 4)
+        _nameLines.value = c
+        sp.edit().putInt(K_NAME_LINES, c).apply()
+    }
+
+    /**
      * Whether `/`, `/data` and `/system` are offered as volumes.
      *
      * Only ever consulted on a phone where root has actually been granted - see
@@ -887,6 +914,7 @@ class Prefs(context: Context) {
         const val K_PLAYER_FACE = "play.face"
         const val K_RESUME = "play.resume"
         const val K_ROOT_VOLUMES = "files.rootVolumes"
+        const val K_NAME_LINES = "files.nameLines"
         const val K_GLOW = "play.glow"
         const val K_GLOW_LEVEL = "play.glowLevel"
         const val K_GLOW_STRENGTH = "play.glowStrength"
