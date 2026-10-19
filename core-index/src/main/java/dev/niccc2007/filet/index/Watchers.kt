@@ -14,9 +14,14 @@ import java.io.File
  * directories than that. Anyone who has tried to watch everything has shipped an app that
  * silently stops noticing changes on a full device.
  *
- * So this watches *shallow and hot*: the tracked folders, plus whatever the open panes are
- * looking at. Everything else is caught by directory-mtime validation on read and by the
- * generation sweep, neither of which needs a watch at all.
+ * So this watches *shallow and hot*: the folders the visible panes are looking at, and nothing
+ * else. Everything else is caught by directory-mtime validation on read and by the generation
+ * sweep, neither of which needs a watch at all.
+ *
+ * It had a second job, and that job is gone: it watched the tracked folders to keep the New
+ * files list current. That list now reads the media index, which already knows when a file
+ * appears anywhere on shared storage (see `HomeFeed`). Wiring this back into the feed would
+ * re-create the tracked-folder walk the index replaced, and with it the cost of issue #13.
  */
 class HotWatcher(
     private val vfs: Vfs,

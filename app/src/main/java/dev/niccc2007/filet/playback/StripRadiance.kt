@@ -2,6 +2,7 @@ package dev.niccc2007.filet.playback
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -9,7 +10,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.withTransform
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -48,14 +49,27 @@ import kotlin.math.sin
  * ## Why this draws above its own bounds deliberately
  *
  * `drawBehind` is not clipped to the node, so drawing at a negative Y reaches up into the file
- * list. That is the spill, and it is the point. With it switched off, the same light is drawn
- * clipped to the strip and simply stops at the top edge.
+ * list. That is the spill, and it is the point.
+ *
+ * Bug identified here: this note used to say that with the spill off the light was "drawn
+ * clipped to the strip". Nothing clipped it. Off only halved the reach, and every lamp is drawn
+ * ABOVE the bar, so half the reach was still 1.25 strip-heights of light standing over the file
+ * list and beating with the music - the leftover element that ignored the switch. All of this
+ * light lives above the strip's top edge, so a clip and "not drawn" are the same picture: off
+ * now draws nothing here. The hairline and the strip's own wash are unaffected; they are inside
+ * the strip.
  */
 @Composable
 fun Modifier.stripRadiance(
     base: Color,
-    /** How far through the track, 0 to 1 - where the brightest point sits. */
-    fraction: Float,
+    /**
+     * How far through the track, 0 to 1 - where the brightest point sits.
+     *
+     * A function, read inside the draw. As a plain `Float` it was a position read in the
+     * strip's body, so every tick of the position put the whole strip - its subcomposition,
+     * marquee and five buttons - through a recomposition to move a light a pixel.
+     */
+    fraction: () -> Float,
     on: Boolean,
     running: Boolean,
     /** The glow's own brightness, as a multiplier. See `glowScale`. */
@@ -66,15 +80,17 @@ fun Modifier.stripRadiance(
     pulse: State<Float>? = null,
     pulseDepth: Float = 1f,
 ): Modifier {
-    if (!on) return this
-    val phases = rememberGlowPhases(running)
+    if (!on || !spill) return this
+    val clock = rememberGlowPhases(running)
+    // One brush for all three lamps: they are the same hue and differ only in alpha, which is
+    // the draw's own. See `GlowLamps` for the per-frame allocation this replaced.
+    val brush = remember(base) { unitRadial(base.copy(alpha = 1f), 0.45f, 0.42f) }
     return drawBehind {
         // READ HERE, not above. `Modifier.stripRadiance` is a composable function returning a
         // value, so it has no restart scope of its own - a state read in its body belongs to
         // the caller, which is the strip, which is on screen in every folder. Read in the draw
         // lambda, a frame invalidates the draw phase and nothing recomposes. The same note is
         // on `livingGlow`, and the cost of getting it wrong there was a phone that got hot.
-        val p = phases.value
         val swing = if (pulse == null) 0f else pulse.value * pulseDepth
         // Only the bright half reaches the light's size. A band this short has no room to lose
         // brightness and still be seen losing it, which is why the full player dips and this
@@ -85,19 +101,20 @@ fun Modifier.stripRadiance(
         // The bar is the top edge of the strip, so the light's origin is y = 0 and it travels
         // up from there. Height is the reach, which is a multiple of the band rather than of
         // the screen: the strip knows how tall it is and the list above it does not.
-        val reach = size.height * (REACH + hit * BEAT_REACH) * (if (spill) 1f else 0.5f)
-        val head = Offset(size.width * fraction.coerceIn(0f, 1f), 0f)
+        val reach = size.height * (REACH + hit * BEAT_REACH)
+        val head = Offset(size.width * fraction().coerceIn(0f, 1f), 0f)
 
         // ── the two drifting companions, confined to the bar's line ──
         //
         // Along the bar, never away from it. A light that wanders off the line it is supposed
         // to be coming from is the thing this file exists to stop.
         for (i in 0 until 2) {
-            val t = p[i] * 2f * Math.PI.toFloat()
+            val t = clock.phase(i) * 2f * Math.PI.toFloat()
             val x = size.width * (0.3f + 0.4f * i + 0.22f * cos(t))
             val sway = 1f + 0.18f * sin(t * 1.3f)
             lamp(
-                colour = base.copy(alpha = (COMPANION_ALPHA * lit).coerceIn(0f, 1f)),
+                brush = brush,
+                alpha = (COMPANION_ALPHA * lit).coerceIn(0f, 1f),
                 at = Offset(x, 0f),
                 reach = reach * 0.8f * sway,
             )
@@ -105,7 +122,8 @@ fun Modifier.stripRadiance(
 
         // ── the playhead, brightest, and it travels with the music ──
         lamp(
-            colour = base.copy(alpha = (HEAD_ALPHA * lit).coerceIn(0f, 1f)),
+            brush = brush,
+            alpha = (HEAD_ALPHA * lit).coerceIn(0f, 1f),
             at = head,
             reach = reach,
         )
@@ -122,24 +140,27 @@ fun Modifier.stripRadiance(
  * Whether it may leave the strip is the caller's clip, not this function's business - which is
  * why there is no spill parameter here.
  */
-private fun DrawScope.lamp(colour: Color, at: Offset, reach: Float) {
+private fun DrawScope.lamp(brush: Brush, alpha: Float, at: Offset, reach: Float) {
     if (reach <= 1f) return
     // Squashed with a scale around the origin rather than drawn as an ellipse, because a radial
     // brush takes one radius and cannot be given two - and scaling the whole draw keeps the
     // falloff smooth where stretching the stops would band it.
-    scale(scaleX = WIDTH_RATIO, scaleY = 1f, pivot = at) {
+    //
+    // The remembered brush is centred on the origin at `UNIT_RADIUS`, so the light's position
+    // and reach are the same transform: translate to the origin of the light, then scale the
+    // unit gradient out to `reach` - three times wider than tall, as before.
+    val k = reach / UNIT_RADIUS
+    withTransform({
+        translate(at.x, at.y)
+        scale(scaleX = WIDTH_RATIO * k, scaleY = k, pivot = Offset.Zero)
+    }) {
         drawRect(
-            brush = Brush.radialGradient(
-                0f to colour,
-                0.45f to colour.copy(alpha = colour.alpha * 0.42f),
-                1f to Color.Transparent,
-                center = at,
-                radius = reach,
-            ),
+            brush = brush,
             // ABOVE the origin only. Nothing is drawn below the bar: the strip's own ground is
             // down there and lighting it from behind only muddies the buttons on it.
-            topLeft = Offset(at.x - reach, at.y - reach),
-            size = Size(reach * 2f, reach),
+            topLeft = Offset(-UNIT_RADIUS, -UNIT_RADIUS),
+            size = Size(UNIT_RADIUS * 2f, UNIT_RADIUS),
+            alpha = alpha,
         )
     }
 }

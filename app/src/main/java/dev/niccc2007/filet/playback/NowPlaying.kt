@@ -64,6 +64,17 @@ data class NowPlaying(
 
     /** Whether stepping is worth offering at all. A queue of one has nowhere to go. */
     val canStep: Boolean get() = size > 1
+
+    /**
+     * Whether [other] differs from this in anything but the position. Pure.
+     *
+     * Written as a copy-and-compare rather than a field list, so a field added to this class
+     * later is compared without anybody remembering to add it here.
+     */
+    fun samePlayback(other: NowPlaying): Boolean = this == other.copy(positionMs = positionMs)
+
+    /** This, with the position zeroed. What `Playback.status` emits; see the note there. */
+    fun withoutPosition(): NowPlaying = if (positionMs == 0L) this else copy(positionMs = 0L)
 }
 
 /**
@@ -181,6 +192,86 @@ object PlaybackNotice {
      * and look exactly like a crash. It stops when the queue is finished or cleared.
      */
     fun shouldKeepService(state: NowPlaying): Boolean = state.active && state.current != null
+
+    /**
+     * Whether the shade card has to be rebuilt and posted again. Pure.
+     *
+     * ## The defect this closes
+     *
+     * The service posted the card and republished the session - metadata with the full-size
+     * artwork twice over, and a playback state - on EVERY emission of the player's state. The
+     * ticker writes the position into that state five times a second, so a playing track was
+     * five `startForeground` calls, five notification builds, five channel registrations and
+     * five metadata bundles carrying the cover across to the system per second. Each of those
+     * is a binder transaction into the system server, and each repost makes SystemUI re-inflate
+     * and re-render the media card. That is work in two OTHER processes, which is why it read as
+     * the whole phone lagging rather than as this app being slow, and why it continued with the
+     * app in the background and the screen off. Other players post when the track or the play
+     * state changes and let the session's own clock run the progress bar.
+     *
+     * Nothing on the card shows the position, so a change in the position alone is never a
+     * reason to post it.
+     */
+    fun needsRepost(shown: NowPlaying?, next: NowPlaying): Boolean =
+        shown == null || !shown.samePlayback(next)
+
+    /**
+     * Whether the session's metadata - title, artist, album, duration, artwork - has to be set
+     * again. Pure. The artwork is compared by identity: it is a new bitmap when it changes and
+     * the same one when it does not, and comparing pixels would cost more than the bundle.
+     */
+    fun metadataChanged(
+        shown: NowPlaying?,
+        shownArt: Any?,
+        next: NowPlaying,
+        nextArt: Any?,
+    ): Boolean = shown == null ||
+        shown.current != next.current ||
+        shown.durationMs != next.durationMs ||
+        shownArt !== nextArt
+
+    /**
+     * Whether the session's playback state has to be published again. Pure.
+     *
+     * The session is handed a position, a rate and the moment they were true, and the lock
+     * screen, a watch or a car runs its own clock from them. So it only needs telling again
+     * when that clock would now be wrong: the play state or the rate changed, or the real
+     * position has left where the clock would put it by more than [SEEK_SLACK_MS] - which is
+     * a seek, a track change or a stall.
+     *
+     * @param rate the rate published, 0 when it was published paused.
+     */
+    fun sessionStale(
+        publishedMs: Long,
+        publishedAt: Long,
+        publishedRate: Float,
+        positionMs: Long,
+        now: Long,
+        rate: Float,
+    ): Boolean {
+        if (rate != publishedRate) return true
+        val expected = publishedMs + ((now - publishedAt) * publishedRate).toLong()
+        return kotlin.math.abs(positionMs - expected) > SEEK_SLACK_MS
+    }
+
+    /**
+     * How far the real position may drift from the session's clock before it is corrected.
+     *
+     * A second. The ticker's own reading is up to a tick old and `elapsedRealtime` is stamped
+     * when the state is published rather than when the position was read, so a few hundred
+     * milliseconds of disagreement is measurement and not a seek. Any seek a person makes is
+     * further than this.
+     */
+    const val SEEK_SLACK_MS = 1_000L
+
+    /**
+     * Whether the shade card's colour drift should re-post. Pure.
+     *
+     * Not while the screen is off: the drift exists to be seen at a glance, and a re-post with
+     * the display dark is a wakeup and a bitmap handed to SystemUI for nobody.
+     */
+    fun driftWanted(glowOn: Boolean, playing: Boolean, interactive: Boolean): Boolean =
+        glowOn && playing && interactive
 }
 
 /**

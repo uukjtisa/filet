@@ -5,7 +5,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -72,164 +75,185 @@ fun Switcher(vm: BrowserViewModel, tabs: List<PaneController>) {
     val trawl = remember { vm.trawlInstalled() }
     val reduced = reduceMotion()
 
-    Column(
+    val reach by vm.prefs.reachMode.collectAsState()
+
+    // In reach mode the drawer's contents sit on its bottom edge rather than hanging from the
+    // status bar. The drawer is already ordered with the rows reached for without reading at the
+    // end, so anchoring it low puts those directly under the thumb and moves the rarely used
+    // groups up to where the reach runs out - the same trade the listing makes.
+    //
+    // Bottom-anchoring inside a scrolling column needs a minimum height: a scrolling column is
+    // measured unbounded, so `Arrangement.Bottom` on its own has no bottom to push towards.
+    BoxWithConstraints(
         Modifier
             .fillMaxHeight()
             .width(236.dp)
             .background(MaterialTheme.colorScheme.background)
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .verticalScroll(rememberScrollState())
-            .padding(vertical = 10.dp),
+            .windowInsetsPadding(WindowInsets.statusBars),
     ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            // The APP icon, not the maker's mark. `FiletIcons.Mark` is the author's signature - it
-            // belongs on About, where it means "who made this", and nowhere else.
-            Icon(
-                appIcon(body = colors.fg2, flap = colors.accent),
-                null,
-                tint = Color.Unspecified,
-                modifier = Modifier.size(24.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Filet", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "${BuildConfig.VERSION_NAME} · ${BuildConfig.FLAVOR_LABEL}",
-                    fontSize = 10.sp,
-                    color = colors.fg3,
+        val tall = maxHeight
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = tall)
+                .padding(vertical = 10.dp),
+            verticalArrangement = if (reach) Arrangement.Bottom else Arrangement.Top,
+        ) {
+            Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                // The APP icon, not the maker's mark. `FiletIcons.Mark` is the author's signature - it
+                // belongs on About, where it means "who made this", and nowhere else.
+                Icon(
+                    appIcon(body = colors.fg2, flap = colors.accent),
+                    null,
+                    tint = Color.Unspecified,
+                    modifier = Modifier.size(24.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Filet", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${BuildConfig.VERSION_NAME} · ${BuildConfig.FLAVOR_LABEL}",
+                        fontSize = 10.sp,
+                        color = colors.fg3,
+                    )
+                }
+                // Closing a drawer by tapping outside it is a thing you have to know; a button is
+                // a thing you can see.
+                Icon(
+                    FiletIcons.Close, "Close", tint = colors.fg2,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .clickable { vm.openSwitcher(false) }
+                        .padding(6.dp),
                 )
             }
-            // Closing a drawer by tapping outside it is a thing you have to know; a button is
-            // a thing you can see.
-            Icon(
-                FiletIcons.Close, "Close", tint = colors.fg2,
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(RoundedCornerShape(7.dp))
-                    .clickable { vm.openSwitcher(false) }
-                    .padding(6.dp),
-            )
-        }
-        Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(6.dp))
 
-        // The stagger index. Shared across the groups so the rows animate in reading order
-        // rather than each group starting its own wave.
-        var i = 0
+            // The stagger index. Shared across the groups so the rows animate in reading order
+            // rather than each group starting its own wave.
+            var i = 0
 
-        // ── grouped, and most of it folded away ──
-        //
-        // Every destination used to be a flat column of a dozen identical rows: four volumes,
-        // Home, eight places, Activity, Settings, About. Reported as crowded, and it was - a
-        // list that long is read by scanning rather than by looking, which is the opposite of
-        // what a navigation drawer is for.
-        //
-        // Three groups, each folded on its own. The states persist, so the drawer somebody
-        // arranged stays arranged; and the group holding what they use is the one they leave
-        // open, which is a thing only they can know.
-        SwitcherGroup(
-            "Storage",
-            open = openStorage,
-            onToggle = { vm.prefs.setDrawerStorage(!openStorage) },
-        ) {
-            app.volumes.forEach { v ->
-                SwitcherRow(FiletIcons.Storage, v.label, i++, reduced) {
-                    vm.focusedPane()?.navigateTo(v.node.path); vm.openSwitcher(false)
+            // ── grouped, and most of it folded away ──
+            //
+            // Every destination used to be a flat column of a dozen identical rows: four volumes,
+            // Home, eight places, Activity, Settings, About. Reported as crowded, and it was - a
+            // list that long is read by scanning rather than by looking, which is the opposite of
+            // what a navigation drawer is for.
+            //
+            // Three groups, each folded on its own. The states persist, so the drawer somebody
+            // arranged stays arranged; and the group holding what they use is the one they leave
+            // open, which is a thing only they can know.
+            SwitcherGroup(
+                "Storage",
+                open = openStorage,
+                onToggle = { vm.prefs.setDrawerStorage(!openStorage) },
+            ) {
+                app.volumes.forEach { v ->
+                    SwitcherRow(FiletIcons.Storage, v.label, i++, reduced) {
+                        // Arriving from outside the pane. A volume is its own root, so today this
+                        // lands exactly where navigating would - but the drawer does not get to
+                        // decide that, and the day it offers anything below a root it opens the
+                        // trunk instead of re-rooting the tree.
+                        vm.focusedPane()?.jumpTo(v.node.path); vm.openSwitcher(false)
+                    }
                 }
             }
-        }
 
-        // The recent files themselves, not a row that leads to them. This is the one list in
-        // the app somebody opens the drawer FOR - asked for by name - and a link to it is one
-        // more tap than the thing it links to is worth.
-        SwitcherGroup(
-            "Recent",
-            open = openRecent,
-            onToggle = { vm.prefs.setDrawerRecent(!openRecent) },
-        ) {
-            if (recents.isEmpty()) {
-                Text(
-                    "Nothing yet",
-                    fontSize = 11.sp,
-                    color = colors.fg3,
-                    modifier = Modifier.padding(start = 34.dp, top = 2.dp, bottom = 6.dp),
+            // The recent files themselves, not a row that leads to them. This is the one list in
+            // the app somebody opens the drawer FOR - asked for by name - and a link to it is one
+            // more tap than the thing it links to is worth.
+            SwitcherGroup(
+                "Recent",
+                open = openRecent,
+                onToggle = { vm.prefs.setDrawerRecent(!openRecent) },
+            ) {
+                if (recents.isEmpty()) {
+                    Text(
+                        "Nothing yet",
+                        fontSize = 11.sp,
+                        color = colors.fg3,
+                        modifier = Modifier.padding(start = 34.dp, top = 2.dp, bottom = 6.dp),
+                    )
+                }
+                for (entry in recents.take(RECENT_IN_DRAWER)) {
+                    SwitcherRow(
+                        if (entry.isDir) FiletIcons.Folder else FiletIcons.File,
+                        entry.label,
+                        i++,
+                        reduced,
+                    ) {
+                        vm.openRecent(entry)
+                        vm.openSwitcher(false)
+                    }
+                }
+            }
+
+            // Built from SpecialPanes, not from a copy of it. The switcher is the only route to
+            // a special pane on a PHONE and the rail is the only route on a tablet, so two
+            // hand-maintained lists meant a destination could exist on one and not the other -
+            // which is exactly how the Apps tab shipped unreachable on a phone.
+            SwitcherGroup(
+                "Places and tools",
+                open = openPlaces,
+                onToggle = { vm.prefs.setDrawerPlaces(!openPlaces) },
+            ) {
+                for (d in SpecialPanes.DESTINATIONS) {
+                    if (d.kind == PaneKind.HISTORY) continue
+                    SwitcherRow(
+                        d.icon,
+                        d.label,
+                        i++,
+                        reduced,
+                        count = if (d.kind == PaneKind.BOOKMARKS) {
+                            bookmarks.size.takeIf { it > 0 }?.toString()
+                        } else {
+                            null
+                        },
+                    ) {
+                        vm.focusedPane()?.openSpecial(d.kind, d.label); vm.openSwitcher(false)
+                    }
+                }
+                // Trawl is a different APP, so it sits with the tools rather than among Filet's
+                // own destinations - a row that leaves the app should not look like a row that
+                // changes the pane. It only appears when it is actually installed; an entry that
+                // opens a store page is an advertisement, and this is a file manager.
+                if (trawl) {
+                    SwitcherRow(FiletIcons.Trawl, "Trawl", i++, reduced) {
+                        vm.openTrawl(); vm.openSwitcher(false)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+            // Down here with Activity, Settings and About rather than at the top. These are the
+            // two somebody reaches for without reading, so they belong where the thumb already
+            // is on a phone - which is the bottom of a drawer, not the top of it.
+            SwitcherRow(FiletIcons.Home, "Home", i++, reduced) {
+                vm.focusedPane()?.openHome(); vm.openSwitcher(false)
+            }
+            SwitcherRow(FiletIcons.Download, "New files", i++, reduced) {
+                vm.focusedPane()?.openSpecial(
+                    PaneKind.HISTORY,
+                    dev.niccc2007.filet.home.HomeSections.ARRIVED_TAB,
                 )
+                vm.openSwitcher(false)
             }
-            for (entry in recents.take(RECENT_IN_DRAWER)) {
-                SwitcherRow(
-                    if (entry.isDir) FiletIcons.Folder else FiletIcons.File,
-                    entry.label,
-                    i++,
-                    reduced,
-                ) {
-                    vm.openRecent(entry)
-                    vm.openSwitcher(false)
-                }
+            SwitcherRow(
+                FiletIcons.Jobs, "Activity", i++, reduced,
+                count = jobs.count { it.running }.takeIf { it > 0 }?.toString(),
+            ) {
+                vm.openActivity(true); vm.openSwitcher(false)
             }
-        }
-
-        // Built from SpecialPanes, not from a copy of it. The switcher is the only route to
-        // a special pane on a PHONE and the rail is the only route on a tablet, so two
-        // hand-maintained lists meant a destination could exist on one and not the other -
-        // which is exactly how the Apps tab shipped unreachable on a phone.
-        SwitcherGroup(
-            "Places and tools",
-            open = openPlaces,
-            onToggle = { vm.prefs.setDrawerPlaces(!openPlaces) },
-        ) {
-            for (d in SpecialPanes.DESTINATIONS) {
-                if (d.kind == PaneKind.HISTORY) continue
-                SwitcherRow(
-                    d.icon,
-                    d.label,
-                    i++,
-                    reduced,
-                    count = if (d.kind == PaneKind.BOOKMARKS) {
-                        bookmarks.size.takeIf { it > 0 }?.toString()
-                    } else {
-                        null
-                    },
-                ) {
-                    vm.focusedPane()?.openSpecial(d.kind, d.label); vm.openSwitcher(false)
-                }
+            SwitcherRow(FiletIcons.Cog, "Settings", i++, reduced) {
+                vm.focusedPane()?.openSpecial(PaneKind.SETTINGS, "Settings"); vm.openSwitcher(false)
             }
-            // Trawl is a different APP, so it sits with the tools rather than among Filet's
-            // own destinations - a row that leaves the app should not look like a row that
-            // changes the pane. It only appears when it is actually installed; an entry that
-            // opens a store page is an advertisement, and this is a file manager.
-            if (trawl) {
-                SwitcherRow(FiletIcons.Trawl, "Trawl", i++, reduced) {
-                    vm.openTrawl(); vm.openSwitcher(false)
-                }
+            SwitcherRow(FiletIcons.Info, "About", i++, reduced) {
+                vm.focusedPane()?.openSpecial(PaneKind.ABOUT, "About"); vm.openSwitcher(false)
             }
+            Spacer(Modifier.height(10.dp))
         }
-
-        Spacer(Modifier.height(4.dp))
-        // Down here with Activity, Settings and About rather than at the top. These are the
-        // two somebody reaches for without reading, so they belong where the thumb already
-        // is on a phone - which is the bottom of a drawer, not the top of it.
-        SwitcherRow(FiletIcons.Home, "Home", i++, reduced) {
-            vm.focusedPane()?.openHome(); vm.openSwitcher(false)
-        }
-        SwitcherRow(FiletIcons.Download, "New files", i++, reduced) {
-            vm.focusedPane()?.openSpecial(
-                PaneKind.HISTORY,
-                dev.niccc2007.filet.home.HomeSections.ARRIVED_TAB,
-            )
-            vm.openSwitcher(false)
-        }
-        SwitcherRow(
-            FiletIcons.Jobs, "Activity", i++, reduced,
-            count = jobs.count { it.running }.takeIf { it > 0 }?.toString(),
-        ) {
-            vm.openActivity(true); vm.openSwitcher(false)
-        }
-        SwitcherRow(FiletIcons.Cog, "Settings", i++, reduced) {
-            vm.focusedPane()?.openSpecial(PaneKind.SETTINGS, "Settings"); vm.openSwitcher(false)
-        }
-        SwitcherRow(FiletIcons.Info, "About", i++, reduced) {
-            vm.focusedPane()?.openSpecial(PaneKind.ABOUT, "About"); vm.openSwitcher(false)
-        }
-        Spacer(Modifier.height(10.dp))
     }
 }
 

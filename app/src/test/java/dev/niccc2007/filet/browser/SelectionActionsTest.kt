@@ -51,19 +51,27 @@ class SelectionActionsTest {
         archive: Boolean = false,
         otherPane: Boolean = false,
         picking: Boolean = false,
+        shape: SelectionShape = SelectionShape.files(count),
+        announceable: Boolean = false,
     ) = selectionActions(
         count, readOnly, icons, callbacks, archive, otherPane, picking,
-        playable = true,
+        announceable = announceable,
+        shape = shape,
     )
 
     private val extractIds = listOf("extracthere", "extractto", "extractother")
 
-    @Test fun the_same_actions_exist_whatever_is_selected() {
-        // Disabled, never hidden. Hiding makes the menu change length between one file and two,
-        // and leaves somebody hunting for where "Open with" went.
+    @Test fun single_item_actions_are_absent_for_a_multi_selection_not_blocked() {
+        // The rule since the menu review: a row that cannot act on this selection is not shown.
+        // Rename on four files is not unavailable, it is meaningless.
+        val many = actions(4).map { it.id }
+        for (id in listOf("rename", "openwith", "details", "shortcut")) {
+            assertTrue("$id should be absent for a multi-selection", id !in many)
+        }
         val one = actions(1).map { it.id }
-        val many = actions(7).map { it.id }
-        assertEquals(one, many)
+        for (id in listOf("rename", "openwith", "details", "shortcut")) {
+            assertTrue("$id should be offered for one file", id in one)
+        }
     }
 
     @Test fun every_action_has_a_unique_id_and_a_label() {
@@ -72,20 +80,59 @@ class SelectionActionsTest {
         assertTrue(all.none { it.label.isBlank() })
     }
 
-    @Test fun single_file_actions_are_blocked_with_a_reason_when_several_are_selected() {
-        val many = actions(4).associateBy { it.id }
-        for (id in listOf("rename", "openwith", "details")) {
-            val reason = many.getValue(id).blocked
-            assertNotNull("$id should be blocked for a multi-selection", reason)
-            assertTrue("$id must say WHY", reason!!.length > 10)
+    @Test fun nothing_offered_is_blocked_for_a_reason_the_selection_could_not_fix() {
+        // Only the volume being read-only may leave a row present and blocked. Every other
+        // obstacle removes the row instead.
+        for (shape in listOf(
+            SelectionShape(1), SelectionShape(4, folders = 2), SelectionShape(3, playable = 3, media = 3),
+        )) {
+            assertTrue(actions(shape.count, shape = shape, announceable = true).all { it.blocked == null })
         }
     }
 
-    @Test fun those_same_actions_are_live_for_exactly_one_file() {
-        val one = actions(1).associateBy { it.id }
-        for (id in listOf("rename", "openwith", "details")) {
-            assertNull("$id should be available for one file", one.getValue(id).blocked)
+    // -- the gates, per type --
+
+    @Test fun playlist_and_queue_exist_only_when_something_selected_can_play() {
+        val pdf = actions(1, shape = SelectionShape(1)).map { it.id }
+        assertTrue("playlist" !in pdf && "queue" !in pdf)
+        val folder = actions(1, shape = SelectionShape(1, folders = 1)).map { it.id }
+        assertTrue("playlist" !in folder && "queue" !in folder)
+        val song = actions(1, shape = SelectionShape(1, playable = 1, media = 1)).associateBy { it.id }
+        assertEquals("Add to playlist", song.getValue("playlist").label)
+        assertEquals("Add to queue", song.getValue("queue").label)
+    }
+
+    @Test fun a_mixed_selection_keeps_the_row_and_says_how_many_it_takes() {
+        // Eleven songs and a screenshot: the music actions stay, and do not claim the screenshot.
+        val mixed = actions(12, shape = SelectionShape(12, playable = 11, media = 12), announceable = true)
+            .associateBy { it.id }
+        assertEquals("Add to playlist · 11 of 12", mixed.getValue("playlist").label)
+        assertEquals("Add to queue · 11 of 12", mixed.getValue("queue").label)
+        // All twelve are media, so the gallery row is unqualified.
+        assertEquals("Add to gallery", mixed.getValue("gallery").label)
+    }
+
+    @Test fun gallery_needs_media_on_this_device() {
+        val photo = SelectionShape(1, media = 1)
+        assertTrue("gallery" in actions(1, shape = photo, announceable = true).map { it.id })
+        // On a share: the phone's media index cannot hold it.
+        assertTrue("gallery" !in actions(1, shape = photo, announceable = false).map { it.id })
+        // A document on the phone: a gallery has nothing to show for it.
+        assertTrue("gallery" !in actions(1, shape = SelectionShape(1), announceable = true).map { it.id })
+        val some = actions(3, shape = SelectionShape(3, media = 1), announceable = true).associateBy { it.id }
+        assertEquals("Add to gallery · 1 of 3", some.getValue("gallery").label)
+    }
+
+    @Test fun send_and_open_with_are_for_files_not_folders() {
+        val folder = actions(1, shape = SelectionShape(1, folders = 1)).map { it.id }
+        assertTrue("send" !in folder)
+        assertTrue("openwith" !in folder)
+        // But a folder can still be renamed, described, shortcut and bookmarked.
+        for (id in listOf("rename", "details", "shortcut", "bookmark", "copy", "move", "compress")) {
+            assertTrue("$id applies to a folder", id in folder)
         }
+        val mixed = actions(3, shape = SelectionShape(3, folders = 1)).associateBy { it.id }
+        assertEquals("Send · 2 of 3", mixed.getValue("send").label)
     }
 
     @Test fun a_read_only_volume_blocks_everything_that_writes_and_nothing_that_does_not() {
@@ -98,11 +145,10 @@ class SelectionActionsTest {
         }
     }
 
-    @Test fun read_only_beats_the_one_file_rule_because_it_is_the_more_basic_obstacle() {
-        // Telling somebody to select one file, when selecting one file still would not work,
-        // is worse than telling them nothing.
-        val ro = actions(5, readOnly = "This volume is read-only").associateBy { it.id }
-        assertEquals("This volume is read-only", ro.getValue("rename").blocked)
+    @Test fun read_only_blocks_rename_for_one_file_and_the_multi_rule_still_removes_it() {
+        val one = actions(1, readOnly = "This volume is read-only").associateBy { it.id }
+        assertEquals("This volume is read-only", one.getValue("rename").blocked)
+        assertTrue("rename" !in actions(5, readOnly = "This volume is read-only").map { it.id })
     }
 
     @Test fun delete_is_the_only_dangerous_one_and_it_is_last() {

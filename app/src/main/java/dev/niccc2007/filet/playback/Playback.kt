@@ -13,11 +13,19 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.random.Random
 
 /**
@@ -96,6 +104,44 @@ class Playback(
 
     private val _state = MutableStateFlow(NowPlaying())
     val state: StateFlow<NowPlaying> = _state.asStateFlow()
+
+    /**
+     * Everything in [state] except where the track is, emitting only when something else moves.
+     *
+     * Bug identified here: every surface collected [state] whole, and the ticker writes the
+     * position into it five times a second - so the full player, every one of its faces, the
+     * strip on every screen, and the ring round the artwork all recomposed five times a second
+     * to redraw two numbers and a bar. A surface that draws the playhead reads [position]
+     * where it draws it; everything else reads this, which changes on a play, a pause, a track
+     * change or a queue edit.
+     *
+     * The position in what this emits is ZERO, not stale, so a reader that should have used
+     * [position] shows a bar stuck at the start - which is caught by looking - rather than a
+     * bar a few seconds behind, which is not.
+     */
+    val status: Flow<NowPlaying> = _state
+        .distinctUntilChanged { a, b -> a.samePlayback(b) }
+        .map { it.withoutPosition() }
+
+    /**
+     * How many collectors of [position] there are right now.
+     *
+     * The ticker's rate follows this: somebody looking at a playhead needs it five times a
+     * second, and nobody looking needs it only as often as it is written to disk. Counted here
+     * rather than read off a `subscriptionCount`, because the notification service collects
+     * [state] for its own reasons and would otherwise count as an audience forever.
+     */
+    private val watchers = MutableStateFlow(0)
+
+    /**
+     * Where the track is, for a surface that draws it. Collecting this is what tells the ticker
+     * somebody is watching; see [tickInterval].
+     */
+    val position: Flow<Long> = _state
+        .map { it.positionMs }
+        .distinctUntilChanged()
+        .onStart { watchers.update { it + 1 } }
+        .onCompletion { watchers.update { it - 1 } }
 
     /**
      * The current cover art, kept out of [NowPlaying].
@@ -468,7 +514,11 @@ class Playback(
     fun pause() {
         runCatching { player?.pause() }
         ticker?.cancel()
-        _state.value = _state.value.copy(playing = false)
+        // The position is taken from the player here rather than left at the last tick. With
+        // nobody watching the ticker runs every five seconds, so the last tick can be that old
+        // - and this is the value the resume store, the lock screen and the strip all keep.
+        val at = positionNow() ?: _state.value.positionMs
+        _state.value = _state.value.copy(playing = false, positionMs = at)
         // A pause is the most likely moment for somebody to leave, so it is the one place
         // worth writing synchronously rather than waiting for the next tick that will not come.
         rememberWhereWeAre()
@@ -487,7 +537,10 @@ class Playback(
      * is what every other player does and what a hand reaching for it usually means.
      */
     fun previous() {
-        if (_state.value.positionMs > RESTART_WINDOW_MS) {
+        // Asked of the player, not the state: with the screen off the ticker is five seconds
+        // apart, and a Previous pressed from the lock screen six seconds in would otherwise
+        // read two and leave the track instead of restarting it.
+        if ((positionNow() ?: _state.value.positionMs) > RESTART_WINDOW_MS) {
             seekTo(0)
             return
         }
@@ -727,7 +780,13 @@ class Playback(
      * The judgement lives in `ResumeStore.worthKeeping` - a tap and a change of mind is not a
      * place to come back to, and neither is the last few seconds of something finished.
      */
-    private fun rememberWhereWeAre() {
+    /**
+     * @param settled true when playback actually came to rest - a pause, a stop, leaving the
+     *   screen - as opposed to the five-second ticker. Only a settled write moves
+     *   `ResumeStore.changes`, so the Carry-on list re-reads when something finished rather
+     *   than every five seconds while a track plays.
+     */
+    private fun rememberWhereWeAre(settled: Boolean = false) {
         val s = _state.value
         val track = s.current ?: return
         runCatching {
@@ -737,6 +796,7 @@ class Playback(
                 video = track.medium == Medium.VIDEO,
                 positionMs = s.positionMs,
                 durationMs = s.durationMs,
+                settled = settled,
             )
         }
     }
@@ -789,12 +849,26 @@ class Playback(
 
     // ── internals ──
 
+    /**
+     * The position poll.
+     *
+     * ## Cost model
+     *
+     * - **Trigger:** playing. Cancelled on pause, stop, release and the end of a queue.
+     * - **Rate:** [tickInterval] - every [TICK_MS] while anything collects [position], every
+     *   [SAVE_EVERY_MS] while nothing does (screen off, app in the background). The beat does
+     *   NOT ride this tick: it asks the player directly at its own rate, see
+     *   `rememberBeatSignal`, so this one only has to be as fast as a scrub bar.
+     * - **Allocates:** one `NowPlaying` copy per tick.
+     * - **Wakes:** the collectors of [state] (the notification service, which now does nothing
+     *   for a position-only change - see `PlaybackNotice.needsRepost`) and of [position].
+     *
+     * Read from the player rather than counted, so a seek or a stall cannot make the bar lie.
+     */
     private fun startTicker() {
         ticker?.cancel()
-        // 200 ms: smooth enough for a scrub bar, cheap enough to ignore. Read from the player
-        // rather than counted, so a seek or a stall cannot make the bar lie.
         ticker = scope.launch {
-            var sinceSave = 0L
+            var savedAt = android.os.SystemClock.elapsedRealtime()
             while (_state.value.playing) {
                 val at = runCatching { player?.currentPosition?.toLong() }.getOrNull() ?: 0L
                 _state.value = _state.value.copy(positionMs = at)
@@ -806,12 +880,21 @@ class Playback(
                 // question is how often. Every few seconds: the write is a few hundred bytes
                 // to its own file, and the worst a kill can cost is that many seconds of
                 // progress. See `ResumeStore`.
-                sinceSave += TICK_MS
-                if (sinceSave >= SAVE_EVERY_MS) {
-                    sinceSave = 0L
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - savedAt >= SAVE_EVERY_MS) {
+                    savedAt = now
                     rememberWhereWeAre()
                 }
-                delay(TICK_MS)
+                val watched = watchers.value > 0
+                val wait = tickInterval(watched)
+                if (watched) {
+                    delay(wait)
+                } else {
+                    // Asleep for the long interval, but woken the moment somebody starts
+                    // watching - the app coming back to the front must not show a bar that is
+                    // five seconds behind for up to five seconds.
+                    withTimeoutOrNull(wait) { watchers.first { it > 0 } }
+                }
             }
         }
     }
@@ -846,11 +929,29 @@ class Playback(
         player = null
     }
 
-    private companion object {
+    internal companion object {
+        /**
+         * The poll while somebody is looking at the playhead.
+         *
+         * 200 ms. The slowest consumer that is ever on screen is a clock in whole seconds and
+         * a bar: at 200 ms a second boundary is shown at most a fifth of a second late, and a
+         * full-width bar on a three-minute track moves about a pixel per tick. At 500 ms the
+         * clock visibly skips and holds, and the bar steps by three pixels.
+         */
         const val TICK_MS = 200L
 
         /** How often the position is written down while something plays. See `ResumeStore`. */
         const val SAVE_EVERY_MS = 5_000L
+
+        /**
+         * How long the ticker sleeps. Pure.
+         *
+         * Unwatched, the only consumer left is the resume store, which writes every
+         * [SAVE_EVERY_MS] - so polling faster than that is work whose result nobody reads.
+         * The lock screen and the notification do not need it: the session is handed a
+         * position and a timestamp and runs its own clock between them.
+         */
+        fun tickInterval(watched: Boolean): Long = if (watched) TICK_MS else SAVE_EVERY_MS
 
         /** Lowered to this for a ducking request rather than silenced. */
         const val DUCKED = 0.2f

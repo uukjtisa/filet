@@ -117,7 +117,7 @@ class MainActivity : ComponentActivity() {
                                 // And ask about updates HERE rather than once per Activity.
                                 //
                                 // Filet's process outlives its screen - a foreground service
-                                // while music plays, tracked folders being watched - so
+                                // while music plays or a share is hosted - so
                                 // coming back from recents resumes this same Activity and a
                                 // one-shot effect below never runs again. That is why a new
                                 // version could sit on GitHub for days without the app ever

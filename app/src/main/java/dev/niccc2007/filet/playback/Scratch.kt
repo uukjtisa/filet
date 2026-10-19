@@ -54,9 +54,18 @@ object Scratch {
     fun seekTo(fromMs: Long, degrees: Float, durationMs: Long): Long =
         seekTo(fromMs, degrees, durationMs, MS_PER_TURN)
 
-    /** As above, with the turn length given. Kept for the tests that pin the arithmetic. */
+    /**
+     * As above, with the turn length given.
+     *
+     * Bug identified here, and it was the disc snapping to the start: an unknown duration
+     * returned 0. The player reports a duration of 0 between a track being chosen and its
+     * header being read - every track change, every restart - and on a short clip a drag very
+     * often starts inside that window, so every frame of the drag resolved to the beginning and
+     * the handle and the sound jumped there. A drag against an unknown length is now HELD where
+     * it was, never resolved; see [Scrub] for the gesture side of the same rule.
+     */
     fun seekTo(fromMs: Long, degrees: Float, durationMs: Long, perTurnMs: Float): Long {
-        if (durationMs <= 0L) return 0L
+        if (durationMs <= 0L) return fromMs
         return (fromMs + msFor(degrees, perTurnMs)).coerceIn(0L, durationMs)
     }
 
@@ -174,4 +183,78 @@ object Scratch {
      * frame - telling it is writing one number.
      */
     const val SEEK_EVERY_MS = 80L
+}
+
+/**
+ * Turning a drag - on the bar or on the disc - into a whole-second target.
+ *
+ * ## One second, on both controls
+ *
+ * A bar 330dp wide over a ten-minute track is nearly two seconds a dp, so the second somebody
+ * wants is often between two pixels and cannot be reached at all. Every target here is rounded
+ * to a whole second, and the readout shows that second while the finger is down.
+ *
+ * ## Precision by pulling away from the bar
+ *
+ * Decision: the drag's rate falls as the finger moves vertically away from the bar - normal on
+ * the bar, a quarter speed past [QUARTER_DP], and [FINE_DP_PER_SECOND] dp per second past
+ * [FINE_DP]. The alternative of slowing with sustained horizontal travel was rejected: the same
+ * finger movement then means different amounts at different moments of one gesture, and nobody
+ * can predict where it will land. A pull is visible, reversible mid-drag, and the readout names
+ * the mode. It is what the platform's own players do.
+ *
+ * ## Unknown length
+ *
+ * Every function returns null when the duration is not known yet. The caller holds the drag and
+ * commits nothing; resolving against zero is what made the disc snap to the start.
+ */
+object Scrub {
+
+    const val QUARTER_DP = 48f
+    const val FINE_DP = 112f
+    const val FINE_DP_PER_SECOND = 12f
+
+    enum class Mode(val label: String) { NORMAL(""), QUARTER("Quarter speed"), FINE("Fine · 1 s steps") }
+
+    fun modeFor(pullDp: Float): Mode = when {
+        kotlin.math.abs(pullDp) >= FINE_DP -> Mode.FINE
+        kotlin.math.abs(pullDp) >= QUARTER_DP -> Mode.QUARTER
+        else -> Mode.NORMAL
+    }
+
+    /** The nearest whole second inside the track, or null when the length is unknown. Pure. */
+    fun wholeSecond(ms: Double, durationMs: Long): Long? {
+        if (durationMs <= 0L) return null
+        val last = durationMs / 1000L * 1000L
+        val s = kotlin.math.round(ms / 1000.0).toLong() * 1000L
+        return s.coerceIn(0L, last)
+    }
+
+    /** Where a touch on the bar starts: the position under the finger. Unrounded. */
+    fun barStart(x: Float, widthPx: Float, durationMs: Long): Double? {
+        if (durationMs <= 0L || widthPx <= 0f) return null
+        return (x / widthPx).coerceIn(0f, 1f).toDouble() * durationMs
+    }
+
+    /**
+     * One drag frame on the bar: [dxPx] horizontally, with the finger [pullDp] from the bar.
+     * Returns the new unrounded position, or null when the length is unknown.
+     */
+    fun barMove(currentMs: Double, dxPx: Float, widthPx: Float, durationMs: Long, pullDp: Float, pxPerDp: Float): Double? {
+        if (durationMs <= 0L || widthPx <= 0f) return null
+        val normal = durationMs.toDouble() / widthPx
+        val perPx = when (modeFor(pullDp)) {
+            Mode.NORMAL -> normal
+            Mode.QUARTER -> normal / 4
+            // Never coarser than quarter speed: on a short track "fine" must not be faster.
+            Mode.FINE -> minOf(normal / 4, 1000.0 / (FINE_DP_PER_SECOND * pxPerDp.coerceAtLeast(0.1f)))
+        }
+        return (currentMs + dxPx * perPx).coerceIn(0.0, durationMs.toDouble())
+    }
+
+    /** One drag frame on the disc. Unrounded, so the scratch engine can follow it smoothly. */
+    fun discMove(currentMs: Double, degrees: Float, perTurnMs: Float, durationMs: Long): Double? {
+        if (durationMs <= 0L) return null
+        return (currentMs + degrees / 360.0 * perTurnMs).coerceIn(0.0, durationMs.toDouble())
+    }
 }

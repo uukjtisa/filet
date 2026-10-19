@@ -6,60 +6,62 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 /**
  * A whole track in memory as PCM, for anything that has to read it at an arbitrary speed.
  *
- * ## Why the whole track, and why this replaced a sliding window
+ * ## Why the whole track, not a sliding window
  *
- * The scratch engine used to decode a window around wherever the finger was and swap in a
- * new one as the hand moved. Every failure it had came from that one decision: the hand
- * outran the decode and the sound cut out; a window landed centred ahead of where the audio
- * was reading and the read index fell outside it; the refill margin and the window size had
- * to be tuned against each other and against how fast a thumb moves, which is not a thing
- * that has a right answer.
+ * The scratch engine once decoded a window around the finger and swapped in new ones as the hand
+ * moved; every failure it had came from that (the hand outran the decode, a window landed ahead
+ * of the read index, refill margins had no right answer). xwax, Mixxx and digitalscratch all hold
+ * the track in RAM. So does this: a position is inside the track or it is not.
  *
- * Every desktop implementation of this - xwax, Mixxx's vinyl control, digitalscratch - holds
- * the track in RAM instead, and that is the actual difference between them and what was
- * here. With the whole track there is no window, no edge, no refill, no race: a position is
- * either inside the track or it is not.
+ * ## Filled in place, from the playhead outward
  *
- * ## What it costs, and how that is kept to something reasonable
+ * Bug identified here: the disc did nothing until the WHOLE file had decoded. `ScratchEngine.open`
+ * awaited `of()`, which ran the codec from the first frame to the last before returning, so the
+ * first touch waited a second or two on a four-minute track - longer when the playhead was near
+ * the end, because that region was decoded last. A real deck answers the first touch.
  *
- * **Mono, and downsampled.** Scratching is a lo-fi effect by construction - playing samples
- * back at a fractional rate is what it IS - so the second channel and the top octave are
- * paying for nothing. Four minutes at [TARGET_RATE] mono is about ten megabytes, where the
- * same track at 44.1kHz stereo would be forty.
+ * Now the buffer is allocated at full length the moment the header is read (milliseconds), and
+ * the decode writes into it by presentation time: first from just behind the playhead to the end,
+ * then from the start up to where it began. Anything not yet written reads as silence. So the
+ * engine starts on touch with whatever exists, the region under the finger arrives within tens of
+ * milliseconds, and the rest improves behind it. [complete] says when it is done; only then is it
+ * cached and written to disk.
  *
- * A box filter rather than nearest-neighbour on the way down. Decimating by taking every
- * second sample folds everything above the new Nyquist back into the audible range as a
- * metallic hiss, and averaging the samples that are being dropped costs one add each.
+ * One decode per URI, shared: the beat map's [of] and the engine's [live] join whichever is
+ * running, so the two never read the same file twice into two buffers.
  *
- * **Capped.** A track that would need more than [MAX_BYTES] is decoded at a lower rate
- * rather than refused: a long mix scratches slightly duller instead of not at all.
+ * ## Memory bound
  *
- * ## Nothing is held between gestures that nobody asked for
- *
- * It is read on demand and cached by URI, two deep, because the thing people actually do is
- * scratch the same track repeatedly. [forget] empties it; the player calls that when the
- * face changes away from the one with a record on it.
+ * Mono, downsampled with a box filter (decimating without one folds the top octave back in as
+ * hiss), at [TARGET_RATE], halved toward [FLOOR_RATE] until the track fits [MAX_BYTES]. One track
+ * is held ([KEEP]), so the steady state is at most 11 MiB of shorts whoever asked for it. When
+ * the container states no duration the buffer is sized to [MAX_BYTES] and trimmed once at the
+ * end, which is the one moment two copies exist.
  */
 class TrackPcm(
-    /** Mono samples, one per frame, at [rate]. */
+    /** Mono samples, one per frame, at [rate]. Unwritten frames are zero while [complete] is false. */
     val samples: ShortArray,
     val rate: Int,
 ) {
     val durationMs: Long get() = samples.size * 1000L / rate
 
+    /** True once every frame the decoder produced has been written. */
+    @Volatile var complete: Boolean = true
+        internal set
+
     /**
      * One sample at a fractional index, interpolated.
      *
-     * Catmull-Rom across four neighbours rather than linear across two. At a fractional
-     * read rate - which is every moment of this - linear interpolation is a low-pass filter
-     * whose corner moves with the speed, heard as the sound going dull as the hand slows.
-     * Four-point cubic costs a handful of multiplies and does not.
+     * Catmull-Rom across four neighbours rather than linear across two: at a fractional read
+     * rate, linear interpolation is a low-pass whose corner moves with the speed, heard as the
+     * sound going dull as the hand slows.
      */
     fun at(x: Double): Float {
         val i = kotlin.math.floor(x).toInt()
@@ -80,38 +82,12 @@ class TrackPcm(
         private const val TAG = "FiletScratch"
 
         /**
-         * What the track is resampled to.
+         * The rate the samples are at, from how many there are and how long the track is.
          *
-         * 22.05kHz: half of CD, so the box filter is an exact pair average on the common
-         * case, and eleven kilohertz of bandwidth, which is more than a record gives you
-         * once you are moving it by hand.
-         */
-        /**
-         * The rate the samples are actually at, from how many of them there are.
-         *
-         * ## Why this is measured rather than trusted
-         *
-         * A long track played back an octave high, and every candidate explanation for it was
-         * a different place where the decimation and the declared rate could disagree: the
-         * container's duration being wrong on a variable-bitrate file, the halving loop above,
-         * a source whose own rate is BELOW the target so the decimator emits every frame and
-         * the result is declared at twice the rate it was captured at. All of them are the
-         * same class of fault - samples at one rate wearing a label saying another - and all
-         * of them sound identical, because pitch error is the only symptom a rate label has.
-         *
-         * So the label is not taken on trust. The number of samples and the duration the
-         * container states are two independent facts about the same audio, and together they
-         * give the rate directly. If they agree with the declared rate, nothing changes. If
-         * they do not, the measurement wins, because the samples are the thing that exists.
-         *
-         * Guarded both ways: a duration that is missing or absurd leaves the declared rate
-         * alone, and a correction is only taken when it differs by more than [RATE_SLACK],
-         * since a container's duration is rounded to the millisecond and the last partial
-         * buffer is not always decoded.
-         *
-         * @param count how many mono samples came out.
-         * @param declared what the decimation believed it was producing.
-         * @param durationMs what the container says the track is, or 0 when it will not say.
+         * A long track once played an octave high: samples at one rate wearing a label for
+         * another. Placement by presentation time and the decoder's own output format now keep
+         * the label right by construction; this stays as the check run on completion, and is
+         * logged rather than applied when it disagrees.
          */
         fun trueRate(count: Int, declared: Int, durationMs: Long): Int {
             if (count <= 0 || durationMs <= 0L) return declared
@@ -121,77 +97,127 @@ class TrackPcm(
             return if (drift > RATE_SLACK) measured else declared
         }
 
-        /**
-         * How far the measured rate may sit from the declared one before it is believed.
-         *
-         * Eight percent. Below that it is rounding and a missing tail buffer; a genuine
-         * mismatch in this code can only be a factor of two, which is a hundred percent.
-         */
+        /** How far the measured rate may sit from the declared one before it is believed. */
         const val RATE_SLACK = 0.08f
 
+        /** 22.05 kHz: half of CD, so the box filter is a pair average on the common case. */
         const val TARGET_RATE = 22_050
 
         /** The least it will drop to for a long track rather than give up. */
         const val FLOOR_RATE = 11_025
 
-        /** About ten megabytes of shorts. A gesture's worth of memory, not a session's. */
+        /** About eleven megabytes of shorts. A gesture's worth of memory, not a session's. */
         const val MAX_BYTES = 11L * 1024 * 1024
+
+        /**
+         * The rate a track of [durationMs] is held at. Pure.
+         *
+         * Halved from [TARGET_RATE] until it fits [MAX_BYTES], never below [FLOOR_RATE]: a long
+         * mix scratches slightly duller instead of not at all.
+         */
+        fun rateFor(durationMs: Long): Int {
+            val seconds = (durationMs / 1000.0).coerceAtLeast(1.0)
+            var rate = TARGET_RATE
+            while (rate > FLOOR_RATE && seconds * rate * 2 > MAX_BYTES) rate /= 2
+            // Past about eight and a half minutes even the floor overflows the budget. The rate
+            // then drops to whatever fits, down to [LOWEST_RATE], so a long mix is held whole
+            // and duller rather than cut off; only beyond that is the tail left silent.
+            if (seconds * rate * 2 > MAX_BYTES) rate = (MAX_BYTES / 2 / seconds).toInt()
+            return rate.coerceIn(LOWEST_RATE, TARGET_RATE)
+        }
+
+        /** The least any track is held at; below this it is no longer recognisably the track. */
+        const val LOWEST_RATE = 4_000
+
+        /** Frames to allocate. Unknown duration gets the whole budget, trimmed at the end. Pure. */
+        fun framesFor(durationMs: Long, rate: Int): Int =
+            if (durationMs <= 0L) (MAX_BYTES / 2).toInt()
+            else ((durationMs * rate / 1000L) + rate / 2).coerceAtMost(MAX_BYTES / 2).toInt()
+
+        /**
+         * Where the decode starts: a little behind [aroundMs], so a scratch backwards from the
+         * playhead has audio as soon as a scratch forwards does. Pure.
+         */
+        fun startFor(aroundMs: Long, durationMs: Long): Long {
+            val back = (aroundMs - BEHIND_MS).coerceAtLeast(0L)
+            return if (durationMs > 0L) back.coerceAtMost(durationMs) else back
+        }
+
+        /** The frame a presentation time lands on. Pure. */
+        fun frameAt(ptsUs: Long, rate: Int): Int = (ptsUs * rate / 1_000_000L).toInt()
+
+        /** How far behind the playhead the first pass begins. */
+        const val BEHIND_MS = 4_000L
 
         private val cache = LinkedHashMap<String, TrackPcm>(4, 0.75f, true)
 
         /**
-         * Decodes already running, by URI.
+         * A decode in progress: the buffer it is filling, the finished result, and the job.
          *
-         * Three decodes of the same four-minute track inside four seconds, from the
-         * diagnostics - the preload, the beat map and the finger landing on the disc all
-         * missed an empty cache at the same moment and all started reading. Each then
-         * competed with the others for the codec, so the one that mattered finished last
-         * and the gesture was over before the engine existed. Callers now share whichever
-         * read got there first.
+         * [pinned] marks a decode the engine is reading. Those are not cancelled when the beat
+         * map's waiter leaves, only by [forget] or by a scratch on another track.
          */
-        private val inFlight = HashMap<String, kotlinx.coroutines.Deferred<TrackPcm?>>()
+        private class Shared {
+            val buffer = kotlinx.coroutines.CompletableDeferred<TrackPcm?>()
+            val done = kotlinx.coroutines.CompletableDeferred<TrackPcm?>()
+            var job: kotlinx.coroutines.Job? = null
+            var waiters = 0
+            var pinned = false
+        }
 
-        /** What has already been read, without reading anything. */
+        private val inFlight = HashMap<String, Shared>()
+
+        /** Owns every decode, so none is an orphan of a scope that no longer exists. */
+        private val decodes = kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.SupervisorJob() + Dispatchers.IO,
+        )
+
+        /** What has already been read in full, without reading anything. */
         fun cached(uri: Uri): TrackPcm? = synchronized(cache) { cache[uri.toString()] }
 
-        /**
-         * Drop everything held.
-         *
-         * NOT called when the player is minimised, which is what it used to be: reopening
-         * then re-read the whole track, and until that finished there was no pulse and no
-         * scratch. Reported as the pulse taking an age to come back and sometimes not
-         * coming back at all. One track is kept, which is the one being played.
-         */
+        /** Drop everything held, and stop any decode in progress. */
         fun forget() {
             synchronized(cache) { cache.clear() }
+            synchronized(inFlight) {
+                inFlight.values.forEach { it.job?.cancel() }
+                inFlight.clear()
+            }
         }
 
         /**
-         * The track, decoded, from memory when it has been read before.
+         * The track as a buffer that may still be filling, returned as soon as it exists.
          *
-         * Suspending and on IO. It reads and decodes a whole file, which on a modern phone
-         * is a fraction of a second and is never a main-thread job whatever it is.
+         * For the scratch engine. Waits only for the header - never for the decode - and a
+         * decode it starts begins just behind [aroundMs]. Null when the file has no audio track
+         * or cannot be opened.
+         */
+        suspend fun live(context: Context, uri: Uri, aroundMs: Long): TrackPcm? {
+            val key = uri.toString()
+            synchronized(cache) { cache[key] }?.let { return it }
+            val shared = synchronized(inFlight) {
+                // One engine-driven decode at a time: a scratch on another track stops the old one.
+                val stale = inFlight.entries.filter { (k, s) -> k != key && s.pinned }
+                stale.forEach { (k, s) -> s.job?.cancel(); inFlight.remove(k) }
+                (inFlight[key] ?: start(context, uri, key, aroundMs, null).also { inFlight[key] = it })
+                    .also { it.pinned = true }
+            }
+            return shared.buffer.await()
+        }
+
+        /**
+         * The whole track, decoded, from memory or disk when it has been read before.
+         *
+         * For the beat map, which needs it complete. Joins a decode already running - including
+         * one the engine started - rather than starting a second. [onEarly] is told about the
+         * opening seconds, and only when this call is the one that starts the decode.
          */
         suspend fun of(
             context: Context,
             uri: Uri,
-            /**
-             * The first few seconds, handed over as soon as they exist.
-             *
-             * Reading a four-minute track takes a second or two, and anything that measures
-             * it - the beat map - could not start until that finished. Two serial waits is
-             * why the wave took so long to appear. This one is a copy of the opening, which
-             * is enough to analyse and draw something from while the rest arrives.
-             *
-             * Only the caller that STARTS the read is told; anyone who joins one already
-             * running just waits for the whole thing.
-             */
             onEarly: ((TrackPcm) -> Unit)? = null,
         ): TrackPcm? {
             val key = uri.toString()
             synchronized(cache) { cache[key] }?.let { return it }
-            // Then disk, which is a hundred milliseconds against a second or two of
-            // decoding. See `AudioCache`.
             val stamp = withContext(Dispatchers.IO) { AudioCache.keyFor(context, uri) }
             if (stamp != null) {
                 val saved = withContext(Dispatchers.IO) { AudioCache.readPcm(context, stamp) }
@@ -200,34 +226,69 @@ class TrackPcm(
                     return saved
                 }
             }
-            val job = synchronized(inFlight) {
-                inFlight[key] ?: kotlinx.coroutines.CoroutineScope(Dispatchers.IO).async {
-                    decode(context, uri, onEarly)
-                }.also { inFlight[key] = it }
+            val shared = synchronized(inFlight) {
+                (inFlight[key] ?: start(context, uri, key, 0L, onEarly).also { inFlight[key] = it })
+                    .also { it.waiters++ }
             }
-            val made = runCatching { job.await() }.getOrNull()
-            synchronized(inFlight) { inFlight.remove(key) }
-            if (made == null) return null
-            synchronized(cache) {
-                cache[key] = made
-                while (cache.size > KEEP) {
-                    val oldest = cache.keys.firstOrNull() ?: break
-                    cache.remove(oldest)
+            try {
+                return shared.done.await()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // THIS caller went away. The last unpinned waiter stops the decode; rethrown so
+                // the caller's own cancellation is never turned into a null.
+                synchronized(inFlight) {
+                    if (shared.waiters <= 1 && !shared.pinned) {
+                        shared.job?.cancel()
+                        if (inFlight[key] === shared) inFlight.remove(key)
+                    }
+                }
+                throw e
+            } finally {
+                synchronized(inFlight) { shared.waiters-- }
+            }
+        }
+
+        private fun start(context: Context, uri: Uri, key: String, aroundMs: Long, onEarly: ((TrackPcm) -> Unit)?): Shared {
+            val shared = Shared()
+            val job = decodes.launch {
+                val made = decode(context, uri, aroundMs, onEarly, { shared.buffer.complete(it) }) { isActive }
+                // A decode that failed before the buffer existed still has to release `live`.
+                shared.buffer.complete(made)
+                synchronized(inFlight) { if (inFlight[key] === shared) inFlight.remove(key) }
+                if (made != null) {
+                    synchronized(cache) {
+                        cache[key] = made
+                        while (cache.size > KEEP) cache.remove(cache.keys.firstOrNull() ?: break)
+                    }
+                    AudioCache.keyFor(context, uri)?.let { AudioCache.writePcm(context, it, made) }
+                }
+                shared.done.complete(made)
+            }
+            job.invokeOnCompletion { cause ->
+                if (cause != null) {
+                    shared.buffer.complete(null)
+                    shared.done.complete(null)
                 }
             }
-            if (stamp != null) {
-                withContext(Dispatchers.IO) { AudioCache.writePcm(context, stamp, made) }
-            }
-            return made
+            shared.job = job
+            return shared
         }
 
         /** One track, which is eleven megabytes at most. The one being played. */
         private const val KEEP = 1
 
+        /**
+         * Decode [uri] into a buffer allocated up front, playhead region first.
+         *
+         * [onAllocated] receives the buffer the moment the header has been read. Returns the
+         * finished track - trimmed if its length had to be guessed - or null on failure.
+         */
         private fun decode(
             context: Context,
             uri: Uri,
-            onEarly: ((TrackPcm) -> Unit)? = null,
+            aroundMs: Long,
+            onEarly: ((TrackPcm) -> Unit)?,
+            onAllocated: (TrackPcm) -> Unit,
+            alive: () -> Boolean,
         ): TrackPcm? {
             val extractor = MediaExtractor()
             var codec: MediaCodec? = null
@@ -244,106 +305,129 @@ class TrackPcm(
                     }
                 }
                 val fmt = format ?: return null
-                if (audio < 0) return null
                 extractor.selectTrack(audio)
                 val mime = fmt.getString(MediaFormat.KEY_MIME) ?: return null
-                val srcRate = fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-                val channels = fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)
-                val durationUs = runCatching { fmt.getLong(MediaFormat.KEY_DURATION) }.getOrDefault(0L)
+                var srcRate = fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                var channels = fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)
+                val durationMs = runCatching { fmt.getLong(MediaFormat.KEY_DURATION) }.getOrDefault(0L) / 1000L
 
-                // Pick the rate from how long the track is, so a long mix is duller rather
-                // than refused. Two bytes a sample.
-                val seconds = (durationUs / 1_000_000.0).coerceAtLeast(1.0)
-                var rate = TARGET_RATE
-                while (rate > FLOOR_RATE && seconds * rate * 2 > MAX_BYTES) rate /= 2
-                if (rate < FLOOR_RATE) rate = FLOOR_RATE
+                val rate = rateFor(durationMs)
+                val pcm = TrackPcm(ShortArray(framesFor(durationMs, rate)), rate).apply { complete = false }
+                onAllocated(pcm)
+                val buf = pcm.samples
 
                 codec = MediaCodec.createDecoderByType(mime)
                 codec.configure(fmt, null, null, 0)
                 codec.start()
 
-                val step = srcRate.toDouble() / rate
-                val out = ShortArrayBuilder(((seconds + 2) * rate).toInt().coerceAtLeast(1024))
-                var sum = 0.0
-                var n = 0
-                var sinceEmit = 0.0
-                var earlyAt = rate * EARLY_SECONDS
+                val begin = startFor(aroundMs, durationMs)
+                // Two passes: [begin, end], then [0, begin). Each is a seek and a flush.
+                val passes = if (begin > 0L) listOf(begin to Long.MAX_VALUE, 0L to begin) else listOf(0L to Long.MAX_VALUE)
+                var highest = 0
+                var earlyAt = if (onEarly != null && begin == 0L) rate * EARLY_SECONDS else Int.MAX_VALUE
                 val info = MediaCodec.BufferInfo()
-                var fed = false
 
-                while (true) {
-                    if (!fed) {
-                        val inIndex = codec.dequeueInputBuffer(TIMEOUT_US)
-                        if (inIndex >= 0) {
-                            val buffer = codec.getInputBuffer(inIndex)
-                            val read = if (buffer == null) -1 else extractor.readSampleData(buffer, 0)
-                            if (read < 0) {
-                                codec.queueInputBuffer(
-                                    inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM,
-                                )
-                                fed = true
-                            } else {
-                                codec.queueInputBuffer(inIndex, 0, read, extractor.sampleTime, 0)
-                                extractor.advance()
-                            }
-                        }
-                    }
-                    val outIndex = codec.dequeueOutputBuffer(info, TIMEOUT_US)
-                    if (outIndex >= 0) {
-                        val buffer = codec.getOutputBuffer(outIndex)
-                        if (buffer != null && info.size > 0) {
-                            // The frame is the slice at info.offset, and PCM16 out of
-                            // MediaCodec is in the machine's byte order rather than a
-                            // ByteBuffer's big-endian default. Both, or this is noise -
-                            // see the same note in `BeatMap`.
-                            buffer.position(info.offset)
-                            buffer.limit(info.offset + info.size)
-                            val shorts =
-                                buffer.order(java.nio.ByteOrder.nativeOrder()).asShortBuffer()
-                            while (shorts.remaining() >= channels) {
-                                var frame = 0
-                                for (c in 0 until channels) frame += shorts.get().toInt()
-                                sum += frame.toDouble() / channels
-                                n++
-                                sinceEmit += 1.0
-                                if (sinceEmit >= step) {
-                                    sinceEmit -= step
-                                    out.add((sum / n).toInt().coerceIn(-32768, 32767).toShort())
-                                    sum = 0.0
-                                    n = 0
-                                    if (onEarly != null && out.size >= earlyAt) {
-                                        earlyAt = Int.MAX_VALUE
-                                        onEarly(TrackPcm(out.toArray(), rate))
-                                    }
+                for ((from, until) in passes) {
+                    extractor.seekTo(from * 1000L, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+                    codec.flush()
+                    var fed = false
+                    // Synced from the presentation time of the first buffer after each seek, then
+                    // advanced sample by sample, so buffer boundaries cannot leave a seam.
+                    var write = -1
+                    var sum = 0.0
+                    var n = 0
+                    var sinceEmit = 0.0
+                    passLoop@ while (true) {
+                        if (!alive()) return null
+                        if (!fed) {
+                            val inIndex = codec.dequeueInputBuffer(TIMEOUT_US)
+                            if (inIndex >= 0) {
+                                val input = codec.getInputBuffer(inIndex)
+                                val read = if (input == null) -1 else extractor.readSampleData(input, 0)
+                                val past = until != Long.MAX_VALUE && extractor.sampleTime >= until * 1000L
+                                if (read < 0 || past) {
+                                    codec.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                    fed = true
+                                } else {
+                                    codec.queueInputBuffer(inIndex, 0, read, extractor.sampleTime, 0)
+                                    extractor.advance()
                                 }
                             }
                         }
-                        codec.releaseOutputBuffer(outIndex, false)
-                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
-                    } else if (outIndex == MediaCodec.INFO_TRY_AGAIN_LATER && fed) {
-                        break
+                        val outIndex = codec.dequeueOutputBuffer(info, TIMEOUT_US)
+                        if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                            // The decoder's word, not the container's. HE-AAC declares half the
+                            // rate it decodes to, which is the octave-high fault in one line.
+                            val o = codec.outputFormat
+                            runCatching { srcRate = o.getInteger(MediaFormat.KEY_SAMPLE_RATE) }
+                            runCatching { channels = o.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1) }
+                        } else if (outIndex >= 0) {
+                            val output = codec.getOutputBuffer(outIndex)
+                            if (output != null && info.size > 0) {
+                                if (write < 0) write = frameAt(info.presentationTimeUs, rate).coerceAtLeast(0)
+                                val step = srcRate.toDouble() / rate
+                                // The slice at info.offset, in native byte order - see `BeatMap`.
+                                output.position(info.offset)
+                                output.limit(info.offset + info.size)
+                                val shorts = output.order(java.nio.ByteOrder.nativeOrder()).asShortBuffer()
+                                while (shorts.remaining() >= channels) {
+                                    var frame = 0
+                                    for (c in 0 until channels) frame += shorts.get().toInt()
+                                    sum += frame.toDouble() / channels
+                                    n++
+                                    sinceEmit += 1.0
+                                    if (sinceEmit >= step) {
+                                        sinceEmit -= step
+                                        if (write in buf.indices) {
+                                            buf[write] = (sum / n).toInt().coerceIn(-32768, 32767).toShort()
+                                            if (write > highest) highest = write
+                                        }
+                                        write++
+                                        sum = 0.0
+                                        n = 0
+                                        if (write >= earlyAt) {
+                                            earlyAt = Int.MAX_VALUE
+                                            onEarly?.invoke(TrackPcm(buf.copyOf(write.coerceAtMost(buf.size)), rate))
+                                        }
+                                    }
+                                }
+                            }
+                            codec.releaseOutputBuffer(outIndex, false)
+                            // Feeds the beat-map panel's "reading the file" phase. One volatile
+                            // read unless this URI is the one the screen is waiting on, so it
+                            // costs nothing on the decode path it reports.
+                            // `durationMs` is the container's length, read from the track
+                            // format above; it is 0 when the container does not declare one,
+                            // and then there is no fraction to report.
+                            if (durationMs > 0L && info.presentationTimeUs > 0) {
+                                dev.niccc2007.filet.playback.BeatWork.reportDecode(
+                                    uri.toString(),
+                                    (info.presentationTimeUs / 1000.0 / durationMs).toFloat(),
+                                )
+                            }
+                            if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break@passLoop
+                        } else if (outIndex == MediaCodec.INFO_TRY_AGAIN_LATER && fed) {
+                            break@passLoop
+                        }
                     }
                 }
-                if (out.size < rate / 4) {
-                    dev.niccc2007.filet.data.Diag.log(TAG, "pcm too short: ${out.size}")
+
+                if (highest < rate / 4) {
+                    dev.niccc2007.filet.data.Diag.log(TAG, "pcm too short: $highest")
                     return null
                 }
-                // The rate is MEASURED, not assumed. See [trueRate].
-                val samples = out.toArray()
-                val declared = trueRate(samples.size, rate, durationUs / 1000L)
-                if (declared != rate) {
-                    dev.niccc2007.filet.data.Diag.log(
-                        TAG,
-                        "pcm rate corrected ${rate}Hz -> ${declared}Hz " +
-                            "(${samples.size} samples, ${durationUs / 1000L}ms)",
-                    )
+                // Trimmed only when the length was a guess; a stated duration is trusted, and an
+                // eleven-megabyte copy to drop a fraction of a second of zeros is not worth it.
+                val made = if (durationMs <= 0L) TrackPcm(buf.copyOf(highest + 1), rate) else pcm
+                made.complete = true
+                pcm.complete = true
+                if (trueRate(highest + 1, rate, durationMs) != rate) {
+                    dev.niccc2007.filet.data.Diag.log(TAG, "pcm extent disagrees: ${highest + 1} frames at ${rate}Hz for ${durationMs}ms")
                 }
-                val made = TrackPcm(samples, declared)
-                dev.niccc2007.filet.data.Diag.log(
-                    TAG,
-                    "pcm ${made.durationMs}ms at ${declared}Hz, ${samples.size * 2 / 1024}KB",
-                )
+                dev.niccc2007.filet.data.Diag.log(TAG, "pcm ${made.durationMs}ms at ${rate}Hz, ${made.samples.size * 2 / 1024}KB, from ${begin}ms")
                 return made
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 dev.niccc2007.filet.data.Diag.log(TAG, "pcm failed: $e")
                 return null
@@ -354,34 +438,9 @@ class TrackPcm(
             }
         }
 
-        /**
-         * How much of the opening is handed over early.
-         *
-         * Four seconds, which the decoder reaches in a few tens of milliseconds and which
-         * is two hundred analysis frames - enough for the wave to have a shape and for the
-         * first beats of the track to be in it.
-         */
+        /** How much of the opening is handed to the beat map early. */
         private const val EARLY_SECONDS = 4
 
         private const val TIMEOUT_US = 5_000L
     }
-}
-
-/**
- * A growable ShortArray.
- *
- * `ArrayList<Short>` boxes every sample, which for ten million of them is ten million
- * objects and a minute of garbage collection. This is the same thing without that.
- */
-private class ShortArrayBuilder(initial: Int) {
-    private var data = ShortArray(initial)
-    var size = 0
-        private set
-
-    fun add(v: Short) {
-        if (size == data.size) data = data.copyOf(data.size * 2)
-        data[size++] = v
-    }
-
-    fun toArray(): ShortArray = if (size == data.size) data else data.copyOf(size)
 }

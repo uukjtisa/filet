@@ -116,6 +116,12 @@ class SelectionBarConfigTest {
             ),
             // Every conditional action switched ON, because the question this asks is whether the
             // catalogue can ever produce each id - not whether it does for one particular file.
+            //
+            // The shape has to qualify for everything too, now that rows are ABSENT when they
+            // are meaningless rather than present and blocked. A default shape has no playable
+            // and no media items, so playlist, queue and gallery would be missing and this
+            // would fail for the right reason at the wrong question.
+            shape = SelectionShape(count = 1, folders = 0, playable = 1, media = 1),
             installable = true,
             hasMetadata = true,
             announceable = true,

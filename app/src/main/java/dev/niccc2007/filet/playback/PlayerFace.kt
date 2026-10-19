@@ -64,17 +64,19 @@ enum class PlayerFace(val id: String, val label: String, val about: String) {
     ),
 
     /**
-     * A drifting gradient in the track's colours, and the artwork as a turning disc.
+     * The artwork as a turning disc, ringed with light that bursts outward on the beat.
      *
-     * The only face whose background is not the artwork. Three soft lights taken from the
-     * sampled hue move on their own slow ellipses at periods that do not divide into each
-     * other, so the pattern never visibly repeats - see `AuroraBackdrop`. The disc turns
-     * while the track plays and coasts to a stop when it is paused, which is the same thing
-     * the other faces say by resizing their artwork, said the way a record player says it.
+     * The only face whose background is not the artwork: three soft lights in the sampled hue
+     * drift behind it (see `HaloBackdrop`). The disc spins up, coasts and recovers like a
+     * platter (see `Platter`), a glow sits on its rim, and the wave leaves that rim outward.
+     *
+     * Named for that ring of light. It was called Halo after the drifting gradient, which
+     * stopped being the point of the face once the disc, the rim glow and the wave arrived.
+     * The stored id was "aurora" and existing choices still resolve here - see [of].
      */
-    AURORA(
-        "aurora", "Aurora",
-        "A slow gradient in the track's colours, and the artwork as a turning disc.",
+    HALO(
+        "halo", "Halo",
+        "The artwork as a turning disc, ringed with light that bursts with the beat.",
     );
 
     /** Everything but Classic takes its colour from the artwork and lights the background. */
@@ -101,14 +103,14 @@ enum class PlayerFace(val id: String, val label: String, val about: String) {
             // Classic is deliberately the plain one - a minimised player that happens to be
             // full screen. A beat in it would be the only thing about it that was not flat.
             CLASSIC -> false
-            AMBIENT, EDITORIAL, IMMERSIVE, AURORA -> true
+            AMBIENT, EDITORIAL, IMMERSIVE, HALO -> true
         }
 
     /** Whether the beat thins the veil over the artwork, so the picture itself punches. */
     val veilPulses: Boolean
         get() = when (this) {
             AMBIENT, EDITORIAL -> true
-            CLASSIC, IMMERSIVE, AURORA -> false
+            CLASSIC, IMMERSIVE, HALO -> false
         }
 
     /**
@@ -121,26 +123,66 @@ enum class PlayerFace(val id: String, val label: String, val about: String) {
     val artBreathes: Boolean
         get() = when (this) {
             IMMERSIVE -> true
-            CLASSIC, AMBIENT, EDITORIAL, AURORA -> false
+            CLASSIC, AMBIENT, EDITORIAL, HALO -> false
         }
 
-    /** Whether this face draws the wave round a disc. Aurora's, and only Aurora's. */
+    /** Whether this face draws the wave round a disc. Halo's, and only Halo's. */
     val hasWave: Boolean
         get() = when (this) {
-            AURORA -> true
+            HALO -> true
             CLASSIC, AMBIENT, EDITORIAL, IMMERSIVE -> false
         }
 
     /** Whether there is a record to turn - which is what makes the drag controls mean anything. */
     val hasDisc: Boolean
         get() = when (this) {
-            AURORA -> true
+            HALO -> true
             CLASSIC, AMBIENT, EDITORIAL, IMMERSIVE -> false
         }
 
     companion object {
         val DEFAULT = AMBIENT
 
-        fun of(stored: String?): PlayerFace = entries.firstOrNull { it.id == stored } ?: DEFAULT
+        /**
+         * The face for a stored id.
+         *
+         * An old id resolves to the face it became rather than falling through to the
+         * default: the rename of Halo to Halo would otherwise have silently reset everybody
+         * who had picked it. Aliased here rather than migrated in the preference store, so it
+         * works whatever wrote the value - a restored backup or a settings import included.
+         */
+        fun of(stored: String?): PlayerFace {
+            val id = LEGACY_IDS[stored] ?: stored
+            return entries.firstOrNull { it.id == id } ?: DEFAULT
+        }
+
+        /** Ids this enum has used before, and what they are called now. */
+        private val LEGACY_IDS = mapOf("aurora" to "halo")
     }
 }
+
+// ── the wave's fixed shape ────────────────────────────────────────────────────────────
+//
+// Five sliders for one visual effect read as a bloated panel, so two became fixed - wave at
+// rest and wave on a beat - at the values their preferences defaulted to, so a player nobody
+// had tuned looks exactly as before. Three stay settings: "Beat sensitivity" (`pulseSense`),
+// "How much it reacts" (`pulseDepth`) and "Wave distance" (`waveGap`).
+//
+// Sensitivity was briefly fixed too, and that lost a real control. It is not a second depth:
+// it scales the onset strength BEFORE the follower, so it decides which beats reach full
+// strength (soft ones included, or only the hardest), while depth scales the swing AFTER it
+// and decides how far the light moves on whatever fires.
+
+/** The onset gain's default - what `Prefs.pulseSense` falls back to. */
+const val PULSE_SENSE = 1.0f
+
+/**
+ * How deep the wave sits with nothing happening.
+ *
+ * 0.10, NOT `BeatRing`'s own parameter default of 0.12: the preference defaulted to 0.10 and
+ * always passed it, so 0.10 is what anyone has ever actually seen.
+ */
+const val WAVE_REST = 0.10f
+
+/** How far a full-strength beat takes the wave. The preference defaulted to 0.5. */
+const val WAVE_SIZE = 0.5f

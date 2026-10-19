@@ -7,7 +7,6 @@ import dev.niccc2007.filet.data.Bookmarks
 import dev.niccc2007.filet.data.Prefs
 import dev.niccc2007.filet.data.Recents
 import dev.niccc2007.filet.home.HomeFeed
-import dev.niccc2007.filet.home.TrackedFolders
 import dev.niccc2007.filet.index.FileIndex
 import dev.niccc2007.filet.index.HotWatcher
 import dev.niccc2007.filet.index.IndexCoordinator
@@ -76,7 +75,6 @@ class FiletGraph(context: Context) {
     val trackCards by lazy { dev.niccc2007.filet.playback.TrackCards(app, vfs) }
     val folderPeek by lazy { dev.niccc2007.filet.browser.FolderPeek(vfs) }
     val recents = Recents(prefs)
-    val tracked = TrackedFolders(prefs, scope)
     val ledger = JobLedger()
     val registry = dev.niccc2007.filet.handlers.HandlerRegistry(prefs)
 
@@ -191,7 +189,22 @@ class FiletGraph(context: Context) {
     }
     init { dev.niccc2007.filet.data.Diag.start(app) }
 
-    val home = HomeFeed(vfs, tracked, scope, dev.niccc2007.filet.home.FeedCache(prefs))
+    val home = HomeFeed(app, scope).also { feed ->
+        // The New files list re-reads once Filet's own writes are in the media index, which is
+        // when "after our own writes land" is actually true - a re-read at the moment the copy
+        // finishes would race the scanner and miss them.
+        dev.niccc2007.filet.media.MediaAnnounce.onScanned = { feed.changed() }
+    }
+
+    /**
+     * The folders on screen, which are what the watcher watches. Set by the browser as panes
+     * move; see `BrowserViewModel.followVisibleFolders`.
+     */
+    val watchedFolders = kotlinx.coroutines.flow.MutableStateFlow<Set<dev.niccc2007.filet.vfs.VPath>>(emptySet())
+
+    /** Told when a watched folder changed, so the pane showing it can re-list. */
+    @Volatile
+    var onFolderChanged: ((dev.niccc2007.filet.vfs.VPath) -> Unit)? = null
 
     /**
      * Hosting this phone over WebDAV, so it appears in Windows Explorer.
@@ -377,13 +390,53 @@ class FiletGraph(context: Context) {
         )
     }.getOrElse { NullIndex() }
 
+    /** How many Activities are started. Zero means nothing of Filet is on screen. */
+    @Volatile
+    private var activitiesStarted = 0
+
+    /** How long a folder has to go quiet before its index pass runs. See [watcher]. */
+    private val watchSettleMs = 1_500L
+
+    private val watchPending = java.util.concurrent.ConcurrentHashMap<
+        dev.niccc2007.filet.vfs.VPath,
+        Pair<kotlinx.coroutines.Job, MutableSet<String?>>,
+        >()
+
+    /**
+     * An inotify event in a folder that is on screen.
+     *
+     * Bug identified here, and it is most of issue #13. Every event started its own
+     * four-second index pass: no debounce, no suppression of Filet's own writes, and no gate on
+     * whether anybody was looking. And on Android 11+ shared storage is a FUSE mount served BY
+     * MediaProvider, so every folder walk is MediaProvider CPU - which is why the battery
+     * showed up against the system's media picker rather than against Filet.
+     *
+     * The folder is coalesced over a 1.5 s quiet window, so a burst is one pass. A path Filet
+     * itself just wrote is dropped, because the operation that wrote it already refreshed what
+     * it touched. And the index pass only runs while the app is visible.
+     *
+     * What it watches changed again when tracked folders were retired: it used to watch those
+     * and feed the New files list, and that list now reads the media index (see `HomeFeed`).
+     * Its job is the folders on screen - the pane showing a changed folder re-lists - and it
+     * must not be wired back into the feed: the index already knows, at no cost.
+     */
     val watcher = HotWatcher(vfs) { changed, name ->
-        // The cheap thing first, and now the SPECIFIC thing. This used to run a four-second
-        // crawl and only then refresh the feed, so the update Home actually shows queued
-        // behind the one nobody sees. Handing the changed directory through means the feed
-        // re-reads that one folder and nothing else - one listing, and the file is on Home.
-        home.onChanged(changed, name)
-        scope.launch { runCatching { index.crawl(listOf(changed), budgetMs = 4_000) } }
+        if (name != null &&
+            dev.niccc2007.filet.media.MediaAnnounce.wroteRecently(changed.child(name))
+        ) {
+            return@HotWatcher
+        }
+        val names = watchPending.remove(changed)?.let { (job, seen) -> job.cancel(); seen }
+            ?: HashSet()
+        names += name
+        watchPending[changed] = scope.launch {
+            kotlinx.coroutines.delay(watchSettleMs)
+            watchPending.remove(changed)
+            onFolderChanged?.invoke(changed)
+            if (dev.niccc2007.filet.media.MediaAnnounce.visible()) {
+                runCatching { index.crawl(listOf(changed), budgetMs = 4_000) }
+            }
+        } to names
     }
 
     val indexCoordinator = IndexCoordinator(app, index, prefs, ledger, scope)
@@ -403,33 +456,44 @@ class FiletGraph(context: Context) {
             val roots = dev.niccc2007.filet.log.FiletLog.span("launch", "vfs.roots") {
                 runCatching { vfs.roots().map { it.path } }.getOrElse { emptyList() }
             }
-            val freshInstall = dev.niccc2007.filet.log.FiletLog.span("launch", "tracked.seedDefaults") {
-                tracked.seedDefaults(roots)
-            }
-            // The conventional media folders, so Home opens with something in it rather than
-            // with one card and no sign that the list can be added to. See `TrackedSeeds`.
-            dev.niccc2007.filet.log.FiletLog.span("launch", "tracked.seedCommonFolders") {
-                tracked.seedCommonFolders(roots, fresh = freshInstall) { path ->
-                    runCatching { vfs.stat(path)?.isDir == true }.getOrDefault(false)
-                }
-            }
-            // One-time cleanup of what the old seeding did: a Download folder on every root,
-            // including remotes. See pruneSeededRemotes for why it is this narrow.
-            dev.niccc2007.filet.log.FiletLog.span("launch", "tracked.pruneSeededRemotes") { tracked.pruneSeededRemotes() }
+            // Once, and harmless after: the retired tracked-folder list and its first-seen
+            // store, so a phone that used them does not carry state nothing reads.
+            dev.niccc2007.filet.home.HomeFeed.forgetRetired(prefs)
             dev.niccc2007.filet.log.FiletLog.span("launch", "scripts.seedExamples") { scripts.seedExamples() }
             dev.niccc2007.filet.log.FiletLog.span("launch", "home.refresh") { home.refresh() }
             index.status.value.let {
                 if (it.enabled) dev.niccc2007.filet.log.FiletLog.span("launch", "index.onStart") { indexCoordinator.onStart(roots) }
             }
-            // Follow the tracked list rather than sampling it once at startup. A folder
-            // tracked afterwards was never watched at all, so it only ever updated when Home
-            // was reopened - the other half of "its not latest".
+            // Follow the folders on screen. Gated on the app being on screen: inotify itself is
+            // cheap, but what it triggers is not, and this process routinely lives for days
+            // behind the playback and sharing services. Part of issue #13.
             scope.launch {
-                tracked.paths.collect { paths ->
-                    watcher.watch(paths)
-                    home.refresh()
+                watchedFolders.collect { paths ->
+                    if (activitiesStarted > 0) watcher.watch(paths) else watcher.stopAll()
                 }
             }
+            (app as? android.app.Application)?.registerActivityLifecycleCallbacks(
+                object : android.app.Application.ActivityLifecycleCallbacks {
+                    override fun onActivityStarted(a: android.app.Activity) {
+                        if (activitiesStarted++ == 0) watcher.watch(watchedFolders.value)
+                    }
+
+                    override fun onActivityStopped(a: android.app.Activity) {
+                        // Last one out stops the watches. A foreground service keeps the
+                        // process alive, which is exactly the case this exists for.
+                        if (--activitiesStarted <= 0) {
+                            activitiesStarted = 0
+                            watcher.stopAll()
+                        }
+                    }
+
+                    override fun onActivityCreated(a: android.app.Activity, b: android.os.Bundle?) = Unit
+                    override fun onActivityResumed(a: android.app.Activity) = Unit
+                    override fun onActivityPaused(a: android.app.Activity) = Unit
+                    override fun onActivitySaveInstanceState(a: android.app.Activity, b: android.os.Bundle) = Unit
+                    override fun onActivityDestroyed(a: android.app.Activity) = Unit
+                },
+            )
             // Provenance is what makes the Source chip real; wiring it here rather than in
             // the UI keeps Home ignorant of whether an index exists.
             home.originLookup = { path ->
@@ -458,7 +522,7 @@ class FiletGraph(context: Context) {
         if (now - last < MEDIA_SWEEP_EVERY) return
         prefs.putLong(MEDIA_SWEEP_AT, now)
         runCatching {
-            val where = (roots + tracked.paths.value + nearby.receivedFolder).distinct()
+            val where = (roots + nearby.receivedFolder).distinct()
             dev.niccc2007.filet.media.MediaCatchUp.sweep(app, vfs, where)
         }
     }

@@ -6,19 +6,12 @@ import org.junit.Test
 import java.util.TimeZone
 
 /**
- * The expand that took seconds on a long list.
+ * The preparation in front of the first row of New files.
  *
- * "Load as you scroll" was already there - the list is a `LazyColumn` with a `shown` window
- * that grows as it is scrolled. What was NOT paged is everything that happens before the first
- * row can be drawn, and that is where the wait came from:
- *
- *  - every path's first-seen date was **recorded and the whole store re-serialised to JSON and
- *    written to preferences**, for the entire tracked set, inside a `LaunchedEffect` - which
- *    runs on the main dispatcher, so a thousand-file write blocked the frame;
- *  - then the full list was mapped and grouped before the first of twenty visible rows.
- *
- * These tests hold the two properties that keep that from coming back. They are about work
- * done, not wall-clock, because a timing assertion on a build machine is a flake generator.
+ * The tab holds up to ten thousand rows now, device-wide, so what happens before the first of
+ * twenty visible rows is drawn has to scale with the list rather than with its square, and
+ * must not drop rows. About work done, not wall-clock, because a timing assertion on a build
+ * machine is a flake generator.
  */
 class FileHistoryPagingTest {
 
@@ -35,55 +28,6 @@ class FileHistoryPagingTest {
             lastChanged = 1_700_000_000_000L + it * 3_600_000L,
             origin = "Download",
         )
-    }
-
-    // ── the write storm on the main thread ──
-
-    @Test
-    fun `recording a thousand files writes the store once, not once per file`() {
-        var writes = 0
-        var blob: String? = null
-        val store = FirstSeenStore({ blob }, { blob = it; writes++ })
-
-        val paths = entries(1200).associate { it.path to it.lastChanged }
-        store.record(paths, now = 1_700_000_000_000L)
-
-        assertEquals("one pass over the list is one write", 1, writes)
-    }
-
-    @Test
-    fun `opening the screen again with nothing new writes nothing at all`() {
-        // The expand is re-entered constantly - every time the feed refreshes, every time the
-        // tab is switched back to. If each of those re-serialised a thousand-key JSON object on
-        // the main thread, the screen would stutter forever and not only on first open.
-        var writes = 0
-        var blob: String? = null
-        val store = FirstSeenStore({ blob }, { blob = it; writes++ })
-
-        val paths = entries(1200).associate { it.path to it.lastChanged }
-        store.record(paths, now = 1_700_000_000_000L)
-        val afterFirst = writes
-
-        repeat(5) { store.record(paths, now = 1_700_000_000_100L) }
-        store.prune(paths.keys)
-
-        assertEquals("a re-open with no new files must not write", afterFirst, writes)
-    }
-
-    @Test
-    fun `a single genuinely new file still gets recorded`() {
-        // The positive control for the test above. A store that never wrote again would pass it
-        // and would silently stop tracking anything.
-        var writes = 0
-        var blob: String? = null
-        val store = FirstSeenStore({ blob }, { blob = it; writes++ })
-
-        val first = entries(50).associate { it.path to it.lastChanged }
-        store.record(first, now = 1_700_000_000_000L)
-        val before = writes
-
-        store.record(first + ("/storage/emulated/0/Download/brand-new.bin" to 0L), now = 1_700_000_100_000L)
-        assertTrue("a new path must be persisted", writes > before)
     }
 
     // ── the preparation that happens before the first row ──

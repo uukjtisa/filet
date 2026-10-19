@@ -18,9 +18,9 @@ import org.json.JSONObject
  *    Restoring these would reopen somebody else's tabs and re-show, or re-suppress, first-run
  *    help on a phone that has never run the app.
  *  - **Grants that cannot be given.** A SAF `content://` path is a permission token issued to
- *    one install on one device. It cannot be transferred, and a tracked folder restored from
- *    one is an entry that will never resolve - which is exactly how dead rows get into a
- *    tracked list and stay there.
+ *    one install on one device. It cannot be transferred, and a bookmark restored from one is
+ *    an entry that will never resolve - which is exactly how dead rows get into a list and
+ *    stay there.
  *  - **Secrets.** Remote passwords are stored encrypted under a key held in the Android
  *    keystore, which never leaves the phone. Copying the stored string across transfers
  *    ciphertext nobody can read. Transferring a usable password means writing the PLAINTEXT
@@ -60,8 +60,8 @@ object SettingsTransfer {
      * One thing you can choose to take with you.
      *
      * Each section is a group somebody would want independently: a new phone usually wants the
-     * look and the openers, often wants the tracked folders, and may or may not want the
-     * network drives and the shares.
+     * look and the openers, often wants the bookmarks, and may or may not want the network
+     * drives and the shares.
      */
     enum class Section(
         val id: String,
@@ -79,7 +79,7 @@ object SettingsTransfer {
             listOf(
                 "ui.theme", "ui.accent", "browse.viewStep", "browse.tabSize",
                 "browse.bottomBar", "browse.selectionBar", "browse.selectionStyle",
-                "browse.navWhileSelecting", "browse.split", "browse.restoreTabs",
+                "browse.split", "browse.restoreTabs",
                 "entry.subtitle", "entry.measure", "entry.dateColumn", "entry.dateStyle",
                 "entry.dateOrder", "entry.dateSeparator", "entry.relativeDates",
             ),
@@ -91,8 +91,8 @@ object SettingsTransfer {
             true,
             listOf(
                 "sort.key", "sort.desc", "sort.foldersFirst", "browse.hidden",
-                "drag.behaviour", "index.enabled",
-                "video.keepsPlaying", "play.uninterrupted", "play.face", "play.pitch",
+                "index.enabled",
+                "play.uninterrupted", "play.face", "play.pitch",
                 "play.glow", "play.glowLevel", "play.glowStrength", "play.glowSpill",
                 "play.discTurnMs",
                 "panes.swipe", "panes.swipeAt",
@@ -100,9 +100,9 @@ object SettingsTransfer {
                 "view.tree", "play.scratch", "play.pulse",
                 "play.pulseSense", "play.pulseDepth", "play.resume",
                 "files.rootVolumes", "sort.folderKey", "sort.folderDesc",
-                "files.nameLines",
-                "play.waveGap", "play.waveSize", "play.waveRest",
-                "home.hideStorage", "home.hideTermux", "home.folder",
+                "files.nameLines", "view.reachMode", "play.deviceTier",
+                "play.waveGap",
+                "home.hideStorage", "home.folder",
                 "update.notificationsOff", "update.notesFraction",
             ),
         ),
@@ -112,14 +112,6 @@ object SettingsTransfer {
             "Which viewer opens which extension, including the ones you added yourself.",
             true,
             listOf("handlers.v1", "handlers.external.v1", "openers.customExtensions"),
-        ),
-
-        TRACKED(
-            "tracked", "Tracked folders",
-            "The folders Home watches. Folders granted through the system picker cannot come " +
-                "with you - Android ties that permission to one install.",
-            true,
-            listOf("tracked.folders"),
         ),
 
         BOOKMARKS(
@@ -168,15 +160,18 @@ object SettingsTransfer {
         "recents" to "files opened on this phone",
         "media.sweptAt" to "when this install last swept media",
         "scripts.seeded" to "a one-time setup flag",
-        "tracked.seeded" to "a one-time setup flag",
-        "tracked.seededCommon" to "a one-time setup flag",
-        "tracked.prunedRemotes" to "a one-time repair flag",
         "home.firstSeen" to "first-run help this phone has already seen",
         "update.lastCheckedAt" to "when this install last looked for an update",
         "update.silencedUntil" to "an update reminder silenced on this phone",
         "update.silencedVersion" to "an update reminder silenced on this phone",
         "update.skippedVersion" to "an update skipped on this phone",
     )
+
+    /**
+     * Section ids older files may carry and this build no longer has. `tracked`: the
+     * tracked-folder list, retired when New files became device-wide - see `HomeFeed`.
+     */
+    val RETIRED: Set<String> = setOf("tracked")
 
     /** Every key any section would carry, for an assertion that the two lists cannot overlap. */
     val EXPORTED: Set<String> = Section.entries.flatMap { it.keys }.toSet()
@@ -372,7 +367,9 @@ object SettingsTransfer {
         for (key in body.keys()) {
             val section = Section.of(key)
             if (section == null) {
-                unknown.add(key)
+                // A section this build retired is skipped quietly. Reporting it as unknown
+                // would tell somebody restoring an older file that something is wrong with it.
+                if (key !in RETIRED) unknown.add(key)
                 continue
             }
             if (section == Section.REMOTES) {

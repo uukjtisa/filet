@@ -124,7 +124,7 @@ fun RecentBody(vm: BrowserViewModel, pane: PaneController) {
                     thumbOf = if (r.isDir) null
                     else dev.niccc2007.filet.vfs.VNode(r.path, isDir = false, size = -1, mtime = r.at),
                     onClick = {
-                        if (r.isDir) pane.navigateTo(r.path)
+                        if (r.isDir) pane.jumpTo(r.path)
                         else vm.openNode(
                             dev.niccc2007.filet.vfs.VNode(r.path, isDir = false, size = -1, mtime = r.at)
                         )

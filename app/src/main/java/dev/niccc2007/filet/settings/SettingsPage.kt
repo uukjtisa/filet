@@ -46,7 +46,6 @@ import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.browser.SectionLabel
 import dev.niccc2007.filet.data.AccentChoice
-import dev.niccc2007.filet.data.SortKey
 import dev.niccc2007.filet.data.TabSize
 import dev.niccc2007.filet.data.ThemeChoice
 import dev.niccc2007.filet.data.ViewStep
@@ -99,40 +98,52 @@ private fun SettingsSection(title: String, subtitle: String, first: Boolean = fa
 }
 
 /**
- * Settings, in six rooms instead of one corridor.
+ * Settings, in seven rooms named for what somebody is trying to change.
+ *
+ * ## Why the rooms are named for the reader's goal and not for the code
+ *
+ * The first version grouped the rows by where they already sat, and the result had a room called
+ * Files holding gestures, one-handed layout, both bar editors and the tree view - things a person
+ * looking for "how do I change the swipe" would never open Files to find. Android's own settings
+ * guidance asks for titles that are brief and meaningful rather than a vague catch-all, and for a
+ * screen of more than 10-15 items to be split. Firefox's 2017 preferences redesign reported a 30%
+ * gain in task success from fewer, task-named categories, and a later one removed a "General"
+ * page for the reason Files failed here: unrelated controls under a label that predicts none of
+ * them. So each room has to pass one test - given only the label, would somebody guess what is
+ * inside it?
+ *
+ *  - **Appearance** - how it looks: theme, palette, sizes, how much of a name shows.
+ *  - **Browsing** - how folders behave: where it opens, tabs coming back, the tree, folders
+ *    first, which app opens which file.
+ *  - **Controls** - what a finger does: swipes, one-handed layout, and which buttons sit on the
+ *    two bars.
+ *  - **Playback** - the music and video players: their look, the beat, the disc, and how
+ *    playback behaves.
+ *  - **Search** - the index and its state.
+ *  - **Storage and access** - what Filet may see: Android's grants, root and
+ *    Termux, which are both ways of reaching storage that is otherwise closed.
+ *  - **Maintenance** - looking after the app itself: updates, logs, and moving the setup to
+ *    another phone.
+ *
+ * Every control is in exactly one room. A setting that seems to belong in two is a setting whose
+ * label is wrong, and duplicating it would give "where did I change that" two answers.
  *
  * ## Why this is a tab strip and not a longer list
  *
- * There are sixteen sections and well over sixty controls, and they were one scroll. Finding
- * the player's beat settings meant passing the bottom-bar editor, the selection-bar editor and
- * every default opener on the way - and the sections that read as one subject were separated by
- * whichever other section happened to sit between them. Reported as cramped, which is the right
- * word for it: nothing was wrong with any one row, there were simply too many of them in a
- * line.
- *
- * ## Why embedded tabs rather than six destinations
- *
- * Settings is ONE place somebody goes. Six entries in the navigation surfaces would make it six
- * places, the switcher and the rail are already eight rows deep, and "where is that setting" is
- * a question better answered by a strip you can read at a glance than by a menu you have to
- * open. The tab is also remembered for the session, so coming back lands where you were.
- *
- * ## The grouping follows the existing order
- *
- * Deliberately. Every group below is a CONTIGUOUS run of the sections that were already there,
- * so nothing moved - which means a reader who knew where something was still finds it, and the
- * diff is a wrapper rather than a reshuffle. Where a group's membership looks arguable (the
- * bottom-bar editor is under Files rather than Look) it is because that is where it already
- * sat, and moving it would be a second change hiding inside this one.
+ * There are over forty controls and they were one scroll. Settings is ONE place somebody goes,
+ * so the rooms are tabs inside it rather than seven destinations in the navigation, and the tab
+ * is remembered for the session so coming back lands where you were.
  */
 enum class SettingsGroup(val label: String) {
-    LOOK("Look"),
-    FILES("Files"),
-    PLAYER("Player"),
+    APPEARANCE("Appearance"),
+    BROWSING("Browsing"),
+    CONTROLS("Controls"),
+    PLAYBACK("Playback"),
     SEARCH("Search"),
-    SYSTEM("System"),
-    STORAGE("Storage"),
+    STORAGE("Storage and access"),
+    MAINTENANCE("Maintenance"),
 }
+
 
 @Composable
 fun SettingsPage(vm: BrowserViewModel) {
@@ -140,7 +151,6 @@ fun SettingsPage(vm: BrowserViewModel) {
     val theme by prefs.theme.collectAsState()
     val accent by prefs.accent.collectAsState()
     val step by prefs.viewStep.collectAsState()
-    val hidden by prefs.showHidden.collectAsState()
     val restoreTabs by prefs.restoreTabs.collectAsState()
     val storedBar by prefs.bottomBar.collectAsState()
     val sort by prefs.sort.collectAsState()
@@ -148,7 +158,6 @@ fun SettingsPage(vm: BrowserViewModel) {
     val verboseLogs by prefs.verboseLogs.collectAsState()
     val updatesOn by vm.updateNotificationsOn.collectAsState()
     val selectionBar by prefs.selectionBar.collectAsState()
-    val navWhileSelecting by prefs.navWhileSelecting.collectAsState()
     val uninterrupted by prefs.uninterrupted.collectAsState()
     val playerFace by prefs.playerFace.collectAsState()
     // Hoisted out of the look-picker row below: the beat settings are scoped to the
@@ -161,32 +170,29 @@ fun SettingsPage(vm: BrowserViewModel) {
     val nameLines by prefs.nameLines.collectAsState()
     val livingGlow by prefs.livingGlow.collectAsState()
     val beatPulse by prefs.beatPulse.collectAsState()
-    val pulseSense by prefs.pulseSense.collectAsState()
     val pulseDepth by prefs.pulseDepth.collectAsState()
     val waveGap by prefs.waveGap.collectAsState()
-    val waveSize by prefs.waveSize.collectAsState()
-    val waveRest by prefs.waveRest.collectAsState()
     val glowSpill by prefs.glowSpill.collectAsState()
     val treeView by prefs.treeView.collectAsState()
+    val reachMode by prefs.reachMode.collectAsState()
+    val deviceTier by prefs.deviceTier.collectAsState()
     val scratchAudio by prefs.scratchAudio.collectAsState()
     val discTurn by prefs.discTurnMs.collectAsState()
     val glowStrength by prefs.glowStrength.collectAsState()
     val paneSwipe by prefs.paneSwipe.collectAsState()
     val paneSwipeAt by prefs.paneSwipeAt.collectAsState()
-    val drag by prefs.drag.collectAsState()
-    val hideTermux by prefs.hideTermux.collectAsState()
     val tabSize by prefs.tabSize.collectAsState()
+    val entry by prefs.entry.collectAsState()
     var pickingOpenerFor by remember { mutableStateOf<String?>(null) }
-    val tracked by vm.tracked.paths.collectAsState()
     val colors = Filet.colors
 
     // Remembered for the session, not stored. Which page of settings somebody was last on is a
     // fact about the last thirty seconds, and restoring it a week later would be a screen that
     // opens somewhere unexplained.
-    var group by remember { mutableStateOf(SettingsGroup.LOOK) }
+    var group by remember { mutableStateOf(SettingsGroup.APPEARANCE) }
 
     Column(Modifier.fillMaxSize()) {
-        // The strip scrolls, because six labels do not fit across a narrow phone and shrinking
+        // The strip scrolls, because seven labels do not fit across a narrow phone and shrinking
         // them to fit is how a tab strip becomes unreadable. `HScroll` so the edge says there
         // is more - which is the whole rule the scroll-cue checker enforces.
         dev.niccc2007.filet.ui.HScroll(
@@ -211,9 +217,8 @@ fun SettingsPage(vm: BrowserViewModel) {
             }
         }
         HorizontalDivider(color = colors.lineSoft)
-
     LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
-        if (group == SettingsGroup.LOOK) {
+        if (group == SettingsGroup.APPEARANCE) {
         item { SettingsSection("Appearance", "Theme, accent, and how much fits on a screen.", first = true) }
         item {
             SegmentRow("Theme", ThemeChoice.entries.map { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } }, theme.ordinal) {
@@ -252,33 +257,6 @@ fun SettingsPage(vm: BrowserViewModel) {
                 modifier = Modifier.padding(horizontal = 14.dp).padding(bottom = 4.dp),
             )
         }
-
-        // The place the one-time reminder points at. It is here, under Appearance, because
-        // what Home shows is what the app looks like when it opens - and a reminder that names
-        // a section the setting is not in is worse than no reminder.
-        item {
-            val home by prefs.homeFolder.collectAsState()
-            Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Home screen", fontSize = 12.sp, color = colors.fg2)
-                        Text(
-                            home ?: "The overview — storage, new files and recents",
-                            fontSize = 10.5.sp,
-                            color = colors.fg3,
-                            maxLines = 2,
-                        )
-                    }
-                    // Only offered when there is something to undo. A reset button on a
-                    // default is a control that does nothing.
-                    if (home != null) SmallButton("Reset") { prefs.setHomeFolder(null) }
-                }
-            }
-        }
-
-        }
-        if (group == SettingsGroup.FILES) {
-        item { SettingsSection("Files and folders", "Sorting, hidden files, and what happens when you pick things.") }
         item {
             // Issue #11, and the request was specific: show the whole name by letting it wrap,
             // NOT by scrolling it past. A marquee does show all of it eventually, and
@@ -303,9 +281,185 @@ fun SettingsPage(vm: BrowserViewModel) {
                 )
             }
         }
+
+        // ── what a row says under its name ──
+        //
+        // Bug identified here: the row display was a stored preference that every listing read
+        // and nothing could change. Its control had gone in an earlier rework, so the date
+        // format, the folder counts and the date column were fixed at their defaults with the
+        // code for all of it still in place. Found by the test that every preference read by the
+        // app has something that writes it.
+        //
+        // The preview runs through `EntryFormat`, the same function the list uses, so what it
+        // shows is what the rows will show rather than a second guess at it.
+        item { SettingsSection("Rows", "What each file and folder shows under its name.") }
         item {
-            ToggleRow("Show hidden files", "Dotfiles and anything the volume marks hidden", hidden) {
-                prefs.setShowHidden(it)
+            val sample = remember { System.currentTimeMillis() - 12L * 86_400_000L }
+            Text(
+                "report.pdf   " + dev.niccc2007.filet.browser.EntryFormat.subtitle(
+                    isDir = false, size = 284_000L, at = sample, d = entry,
+                ),
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                color = colors.fg2,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+            )
+        }
+        item {
+            ToggleRow("Details under the name", "Size and date on a second line", entry.subtitle) {
+                prefs.setEntry(entry.copy(subtitle = it))
+            }
+        }
+        item {
+            ToggleRow(
+                "Count what is in folders",
+                "A folder shows how many things it holds. Each one is read once to count it.",
+                entry.measure,
+            ) { prefs.setEntry(entry.copy(measure = it)) }
+        }
+        item {
+            ToggleRow(
+                "Date column",
+                "A separate date on the right, on screens wide enough for it. It repeats the " +
+                    "line under the name, which is why it starts off.",
+                entry.dateColumn,
+            ) { prefs.setEntry(entry.copy(dateColumn = it)) }
+        }
+        item {
+            ToggleRow(
+                "Recent dates in words",
+                "Today, yesterday, and up to six days ago, instead of the date.",
+                entry.relative,
+            ) { prefs.setEntry(entry.copy(relative = it)) }
+        }
+        item {
+            SegmentRow(
+                "Date",
+                dev.niccc2007.filet.browser.DateStyle.entries.map { it.label },
+                entry.style.ordinal,
+            ) { prefs.setEntry(entry.copy(style = dev.niccc2007.filet.browser.DateStyle.entries[it])) }
+        }
+        item {
+            SegmentRow(
+                "Order",
+                dev.niccc2007.filet.browser.DateOrder.entries.map { it.label },
+                entry.order.ordinal,
+            ) { prefs.setEntry(entry.copy(order = dev.niccc2007.filet.browser.DateOrder.entries[it])) }
+        }
+        // Only where it does anything: a named month is joined with spaces whatever this says.
+        if (entry.style == dev.niccc2007.filet.browser.DateStyle.NUMERIC) {
+            item {
+                val seps = listOf("-", "/", ".")
+                SegmentRow("Separator", seps, seps.indexOf(entry.separator).coerceAtLeast(0)) {
+                    prefs.setEntry(entry.copy(separator = seps[it]))
+                }
+            }
+        }
+        }
+        if (group == SettingsGroup.BROWSING) {
+        item { SettingsSection("Where you start", "The folder Filet opens on, and the tabs that come back with it.", first = true) }
+        // First under Browsing, because the folder Filet opens on is where browsing starts.
+        // It sat under Appearance on the reasoning that Home is what the app looks like when it
+        // opens; that is true of the overview and false of a folder set as Home, which is the
+        // case this row exists for.
+        item {
+            val home by prefs.homeFolder.collectAsState()
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Home screen", fontSize = 12.sp, color = colors.fg2)
+                        Text(
+                            home ?: "The overview — storage, new files and recents",
+                            fontSize = 10.5.sp,
+                            color = colors.fg3,
+                            maxLines = 2,
+                        )
+                    }
+                    // Only offered when there is something to undo. A reset button on a
+                    // default is a control that does nothing.
+                    if (home != null) SmallButton("Reset") { prefs.setHomeFolder(null) }
+                }
+            }
+        }
+        item {
+            ToggleRow(
+                "Reopen my tabs",
+                "Start with the tabs you had open last time. Off starts with Home alone — your saved tabs are kept, so turning this back on brings them back.",
+                restoreTabs,
+            ) {
+                prefs.setRestoreTabs(it)
+            }
+        }
+        item { SettingsSection("Folders", "How a folder lists what is in it.") }
+        item {
+            ToggleRow(
+                "Tree view",
+                if (treeView) {
+                    "A folder opens underneath itself. Its name still goes into it."
+                } else {
+                    "A folder replaces the list, the usual way."
+                },
+                treeView,
+                beta = true,
+            ) { prefs.setTreeView(it) }
+        }
+        item {
+            ToggleRow("Folders first", "Keep directories above files whichever way you sort", sort.foldersFirst) {
+                prefs.setSort(sort.copy(foldersFirst = it))
+            }
+        }
+        // Directly under Browsing, not at the bottom. Buried at the end of the page,
+        // "where is that?" was the result.
+        defaultOpenersSection(vm) { pickingOpenerFor = it }
+        }
+        if (group == SettingsGroup.CONTROLS) {
+        item { SettingsSection("Gestures and reach", "What a swipe does, and how far up the screen a thumb has to go.", first = true) }
+        item {
+            ToggleRow(
+                "One-handed",
+                if (reachMode) {
+                    "Folders start halfway down the screen, and the tabs, the path and the " +
+                        "toolbar sit at the bottom."
+                } else {
+                    "Folders start at the top, with the toolbar above them."
+                },
+                reachMode,
+            ) { prefs.setReachMode(it) }
+        }
+        item {
+            ToggleRow(
+                "Swipe to change tab",
+                if (paneSwipe) {
+                    "A sideways swipe moves to the next tab. In dual pane it only moves the " +
+                        "pane you swiped in."
+                } else {
+                    "Tap a tab at the top to move to it."
+                },
+                paneSwipe,
+                beta = true,
+            ) { prefs.setPaneSwipe(it) }
+        }
+        if (paneSwipe) {
+            item {
+                val at = dev.niccc2007.filet.browser.PaneSwipe.Sensitivity.of(paneSwipeAt)
+                Column {
+                    SegmentRow(
+                        "How hard",
+                        dev.niccc2007.filet.browser.PaneSwipe.Sensitivity.entries.map { it.label },
+                        dev.niccc2007.filet.browser.PaneSwipe.Sensitivity.entries.indexOf(at),
+                    ) {
+                        prefs.setPaneSwipeAt(
+                            dev.niccc2007.filet.browser.PaneSwipe.Sensitivity.entries[it].id,
+                        )
+                    }
+                    Text(
+                        "Firmer if you keep catching it while scrolling.",
+                        fontSize = 10.5.sp,
+                        lineHeight = 14.sp,
+                        color = Filet.colors.fg3,
+                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
+                    )
+                }
             }
         }
         item {
@@ -370,64 +524,12 @@ fun SettingsPage(vm: BrowserViewModel) {
             }
         }
         item {
-            ToggleRow(
-                "Reopen my tabs",
-                "Start with the tabs you had open last time. Off starts with Home alone — your saved tabs are kept, so turning this back on brings them back.",
-                restoreTabs,
-            ) {
-                prefs.setRestoreTabs(it)
-            }
-        }
-        item {
-            ToggleRow("Folders first", "Keep directories above files whichever way you sort", sort.foldersFirst) {
-                prefs.setSort(sort.copy(foldersFirst = it))
-            }
-        }
-        item {
-            SegmentRow("Sort by", listOf("Name", "Size", "Date", "Type"), sortIndex(sort.key)) {
-                prefs.setSort(sort.copy(key = sortKey(it)))
-            }
-        }
-        item {
-            ToggleRow(
-                "Most relevant first",
-                dev.niccc2007.filet.browser.SortOrder.settingsSummary(sort.descending),
-                sort.descending,
-            ) {
-                prefs.setSort(sort.copy(descending = it))
-            }
-        }
-
-        item {
             val bar = dev.niccc2007.filet.browser.SelectionBarConfig.normalise(selectionBar)
             SettingsSection(
                 "When you select files",
                 "${bar.size} of ${dev.niccc2007.filet.browser.SelectionBarConfig.MAX_ON_BAR} " +
                     "on the bar. Everything else is behind More.",
             )
-        }
-        item {
-            // Above the list of which actions go on the bar, not below it. That list is long
-            // enough to bury anything after it, and this is a question about the same moment.
-            val mode = dev.niccc2007.filet.browser.NavDuringSelection.of(navWhileSelecting)
-            Column {
-                SegmentRow(
-                    "The nav bar while selecting",
-                    dev.niccc2007.filet.browser.NavDuringSelection.entries.map { it.label },
-                    dev.niccc2007.filet.browser.NavDuringSelection.entries.indexOf(mode),
-                ) {
-                    prefs.setNavWhileSelecting(
-                        dev.niccc2007.filet.browser.NavDuringSelection.entries[it].id,
-                    )
-                }
-                Text(
-                    dev.niccc2007.filet.browser.NavDuringSelection.summary(mode),
-                    fontSize = 10.5.sp,
-                    color = Filet.colors.fg3,
-                    lineHeight = 14.sp,
-                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
-                )
-            }
         }
         items(dev.niccc2007.filet.browser.SelectionBarConfig.CHOOSABLE.size) { i ->
             val (id, label) = dev.niccc2007.filet.browser.SelectionBarConfig.CHOOSABLE[i]
@@ -450,90 +552,30 @@ fun SettingsPage(vm: BrowserViewModel) {
                 )
             }
         }
-
-        item {
-            SegmentRow(
-                "Dragging between split panes",
-                dev.niccc2007.filet.browser.DragBehaviour.entries.map { it.label },
-                drag.ordinal,
-            ) {
-                prefs.setDrag(dev.niccc2007.filet.browser.DragBehaviour.entries[it])
-            }
         }
-        item {
-            Text(
-                dev.niccc2007.filet.browser.DragBehaviour.entries[drag.ordinal].detail,
-                fontSize = 11.sp,
-                lineHeight = 15.sp,
-                color = colors.fg3,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
-            )
-        }
-
-        // Directly under Browsing, not at the bottom. It was below the Tracked-folders list,
-        // which can run to a dozen rows, and "where is that?" was the result.
-        defaultOpenersSection(vm) { pickingOpenerFor = it }
-
-        // ── the built-in viewers, each with its own look and behaviour ──
-        //
-        // One home for them. The playback switches were under a heading of their own and the
-        // player's appearance had nowhere to live at all, so a question like "how does Filet
-        // open this kind of file" was answered in two places and a third that did not exist.
-        item {
-            ToggleRow(
-                "Tree view",
-                if (treeView) {
-                    "A folder opens underneath itself. Its name still goes into it."
-                } else {
-                    "A folder replaces the list, the usual way."
-                },
-                treeView,
-                beta = true,
-            ) { prefs.setTreeView(it) }
-        }
-        item {
-            ToggleRow(
-                "Swipe to change tab",
-                if (paneSwipe) {
-                    "A sideways swipe moves to the next tab. In dual pane it only moves the " +
-                        "pane you swiped in."
-                } else {
-                    "Tap a tab at the top to move to it."
-                },
-                paneSwipe,
-                beta = true,
-            ) { prefs.setPaneSwipe(it) }
-        }
-        if (paneSwipe) {
-            item {
-                val at = dev.niccc2007.filet.browser.PaneSwipe.Sensitivity.of(paneSwipeAt)
-                Column {
-                    SegmentRow(
-                        "How hard",
-                        dev.niccc2007.filet.browser.PaneSwipe.Sensitivity.entries.map { it.label },
-                        dev.niccc2007.filet.browser.PaneSwipe.Sensitivity.entries.indexOf(at),
-                    ) {
-                        prefs.setPaneSwipeAt(
-                            dev.niccc2007.filet.browser.PaneSwipe.Sensitivity.entries[it].id,
-                        )
-                    }
-                    Text(
-                        "Firmer if you keep catching it while scrolling.",
-                        fontSize = 10.5.sp,
-                        lineHeight = 14.sp,
-                        color = Filet.colors.fg3,
-                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
-                    )
-                }
-            }
-        }
-        }
-        if (group == SettingsGroup.PLAYER) {
+        if (group == SettingsGroup.PLAYBACK) {
         item {
             SettingsSection(
                 "Filet's own viewers",
                 "How the built-in music player, video player and viewers look and behave.",
             )
+        }
+        item {
+            Column {
+                SegmentRow(
+                    "Player detail",
+                    listOf("Automatic", "Full", "Light"),
+                    dev.niccc2007.filet.data.PLAYER_TIERS.indexOf(deviceTier)
+                        .coerceAtLeast(0),
+                ) { prefs.setDeviceTier(dev.niccc2007.filet.data.PLAYER_TIERS[it]) }
+                Text(
+                    "Light updates the beat and glow less often. Nothing is removed.",
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                    color = Filet.colors.fg3,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+                )
+            }
         }
         item {
             Column {
@@ -587,64 +629,37 @@ fun SettingsPage(vm: BrowserViewModel) {
                     sub = true,
                 ) { prefs.setBeatPulse(it) }
             }
-            // ONLY the controls that do something on the look that is selected.
+            // Two of the five beat sliders remain: how much the beat moves things, and where
+            // Aurora's wave sits.
             //
-            // Every one of these used to be shown on every look, so four of the five offered
-            // Wave at rest, Wave on a beat and Wave distance while drawing no wave at all -
-            // three live sliders with nothing on the other end of them. A control that is
-            // visible and inert reads as the feature being broken, which is worse than it
-            // being absent. See `PlayerFace.pulses` and `PlayerFace.hasWave`.
+            // Sensitivity, Wave at rest and Wave on a beat were each a real control over a real
+            // term, and with these two they made five sliders for one effect - a mixing desk
+            // rather than a setting. The three that went are constants at the values they
+            // defaulted to, so a player nobody tuned looks exactly as it did. Beat intensity
+            // stays, renamed for what it answers, because it is the one that changes how much
+            // the beat shows on every look that pulses. Distance stays because where a ring sits
+            // against the artwork is taste rather than tuning.
+            //
+            // Only the controls that do something on the look that is selected: a control that
+            // is visible and inert reads as the feature being broken. See `PlayerFace.pulses`
+            // and `PlayerFace.hasWave`.
             if (beatPulse && face.pulses) {
                 item {
                     SliderRow(
-                        "Sensitivity",
-                        "How much of a rise counts. Turn it up and the soft hits pulse too, " +
-                            "weakly - it lifts the quiet beats up the scale rather than " +
-                            "inventing beats that are not there.",
-                        dev.niccc2007.filet.playback.sensePosition(pulseSense),
-                        beta = true,
-                        sub = true,
-                    ) { prefs.setPulseSense(dev.niccc2007.filet.playback.senseFor(it)) }
-                }
-                item {
-                    SliderRow(
-                        "Beat intensity",
-                        "How far a beat swings the glow AROUND the strength set above - down " +
-                            "between beats, up on them. Strength is the level; this is the " +
-                            "range about it, which is why there are two of them.",
+                        "How much it reacts",
+                        "How far a beat moves the glow from where it rests - and on Aurora, how " +
+                            "far it pushes the wave. Low is a gentle breath; high is a hard hit " +
+                            "on every drum.",
                         pulseDepth,
                         beta = true,
                         sub = true,
                     ) { prefs.setPulseDepth(it) }
                 }
-                // The wave is Aurora's, so its three controls are too. There is no wave on
-                // the other looks for them to be about.
                 if (face.hasWave) {
                     item {
                         SliderRow(
-                            "Wave at rest",
-                            "How much the wave moves when nothing is happening. All the way " +
-                                "down and it is a flat circle until a drum arrives.",
-                            waveRest,
-                            beta = true,
-                            sub = true,
-                        ) { prefs.setWaveRest(it) }
-                    }
-                    item {
-                        SliderRow(
-                            "Wave on a beat",
-                            "Where a full-strength beat takes it. A hard hit adds lobes as " +
-                                "well as depth, so it gets busier and not just bigger, and " +
-                                "the biggest throw a ring outward.",
-                            waveSize,
-                            beta = true,
-                            sub = true,
-                        ) { prefs.setWaveSize(it) }
-                    }
-                    item {
-                        SliderRow(
                             "Wave distance",
-                            "How far off the artwork it sits.",
+                            "How far off the artwork the wave sits.",
                             waveGap,
                             beta = true,
                             sub = true,
@@ -674,6 +689,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                 ) { prefs.setGlowSpill(it) }
             }
         }
+        item { SettingsSection("Aurora's disc", "What turning the record does.") }
         item {
             ToggleRow(
                 "Sound follows the disc",
@@ -699,6 +715,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                 beta = true,
             ) { prefs.setDiscTurnMs(dev.niccc2007.filet.playback.Scratch.turnMsFor(it)) }
         }
+        item { SettingsSection("Playing", "How a track or a film starts, and what may interrupt it.") }
         item {
             ToggleRow(
                 "Carry on where I left off",
@@ -746,7 +763,6 @@ fun SettingsPage(vm: BrowserViewModel) {
                 )
             }
         }
-
         }
         if (group == SettingsGroup.SEARCH) {
         item { SettingsSection("Search index", "The database that makes whole-device search answer instantly.") }
@@ -763,30 +779,65 @@ fun SettingsPage(vm: BrowserViewModel) {
         item { IndexStatusCard(vm) }
 
         }
-        if (group == SettingsGroup.SYSTEM) {
+        if (group == SettingsGroup.STORAGE) {
+        item { SettingsSection("Storage access", "What Android lets Filet see.", first = true) }
+        item { StorageAccessCard(vm) }
         item {
             SettingsSection(
-                "Logs",
-                "A file per run, so a fault that happens once can still be looked at afterwards.",
+                "Permissions",
+                "What Filet holds, and what it costs to go without the rest.",
             )
         }
         item {
-            ToggleRow(
-                "Detailed logging",
-                "Records what Filet is doing, step by step, into " +
-                    dev.niccc2007.filet.log.FiletLog.FOLDER +
-                    ". Off still records warnings and failures. " +
-                    "The newest " + dev.niccc2007.filet.log.FiletLog.KEEP +
-                    " runs are kept and older ones are deleted.",
-                verboseLogs,
-            ) { prefs.setVerboseLogs(it) }
+            // Re-read whenever the app comes back to the front, which is the only moment a
+            // permission can have changed - see PermissionWatch for why that beats a timer.
+            dev.niccc2007.filet.perms.PermissionsCard { intents -> vm.openFirstThatResolves(intents) }
         }
-        item { LogFileRow(vm) }
-
+        // Only on a phone that has actually granted root. Offering it anywhere else would be
+        // a switch over three volumes that cannot exist - and those volumes appearing without
+        // root is the bug this setting arrived with. See `RootProvider.roots`.
+        if (dev.niccc2007.filet.vfs.provider.RootProvider.isGranted()) {
+            item {
+                ToggleRow(
+                    "Root volumes on Home",
+                    if (rootVolumes) {
+                        "The phone's root, /data and /system are listed as drives. They are " +
+                            "only ever offered while root is granted."
+                    } else {
+                        "Hidden. Root still works everywhere else - this is only about the " +
+                            "three drive cards."
+                    },
+                    rootVolumes,
+                ) { prefs.setRootVolumes(it) }
+            }
+        }
+        // Only when Termux is actually on the phone. An integration section advertising an
+        // app somebody does not have is the definition of a dead switch.
+        if (vm.termuxInstalled) {
+            item {
+                SettingsSection(
+                    "Termux",
+                    "Its files live in another app's private storage, so Android has to grant " +
+                        "access once. After that it is an ordinary volume.",
+                )
+            }
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SmallButton("Connect home") { vm.connectTermux(home = true) }
+                    SmallButton("Connect files") { vm.connectTermux(home = false) }
+                    SmallButton("Open Termux") { vm.launchTermux() }
+                }
+            }
+        }
+        }
+        if (group == SettingsGroup.MAINTENANCE) {
         // Only on the flavour that has an updater at all. R1, no dead switches: on F-Droid
         // this would be a control over something that is compiled out.
         if (dev.niccc2007.filet.BuildConfig.UPDATER_ENABLED) {
-            item { SettingsSection("Updates", "Filet is sideloaded, so it looks for its own new versions.") }
+            item { SettingsSection("Updates", "Filet is sideloaded, so it looks for its own new versions.", first = true) }
             item {
                 ToggleRow(
                     "Tell me about new versions",
@@ -822,74 +873,24 @@ fun SettingsPage(vm: BrowserViewModel) {
                 }
             }
         }
-
-        // Only when Termux is actually on the phone. An integration section advertising an
-        // app somebody does not have is the definition of a dead switch.
-        if (vm.termuxInstalled) {
-            item {
-                SettingsSection(
-                    "Termux",
-                    "Its files live in another app's private storage, so Android has to grant " +
-                        "access once. After that it is an ordinary volume.",
-                )
-            }
-            item {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    SmallButton("Connect home") { vm.connectTermux(home = true) }
-                    SmallButton("Connect files") { vm.connectTermux(home = false) }
-                    SmallButton("Open Termux") { vm.launchTermux() }
-                }
-            }
-            item {
-                ToggleRow(
-                    "Show it on Home",
-                    "The card disappears from Home once its folder is granted anyway. These " +
-                        "buttons stay here either way.",
-                    !hideTermux,
-                ) { prefs.setHideTermux(!it) }
-            }
-        }
-
-        }
-        if (group == SettingsGroup.STORAGE) {
-        item { SettingsSection("Tracked folders", "Watched closely, so Home shows what just arrived.") }
         item {
-            Text(
-                "Home shows what arrives here. Keep it short - the OS caps how many are watched.",
-                fontSize = 11.sp,
-                color = colors.fg3,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
+            SettingsSection(
+                "Logs",
+                "A file per run, so a fault that happens once can still be looked at afterwards.",
             )
         }
-        items(tracked.size) { i ->
-            val p = tracked[i]
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(FiletIcons.Folder, null, tint = colors.accent, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    p.path, fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = colors.fg2,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-                )
-                Icon(
-                    FiletIcons.Close, "Stop tracking", tint = colors.fg3,
-                    modifier = Modifier.size(20.dp).clickable { vm.tracked.remove(p) }.padding(3.dp),
-                )
-            }
-        }
         item {
-            Text(
-                "Add the folder you are standing in with the ⋮ menu.",
-                fontSize = 10.5.sp, color = colors.fg3,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-            )
+            ToggleRow(
+                "Detailed logging",
+                "Records what Filet is doing, step by step, into " +
+                    dev.niccc2007.filet.log.FiletLog.FOLDER +
+                    ". Off still records warnings and failures. " +
+                    "The newest " + dev.niccc2007.filet.log.FiletLog.KEEP +
+                    " runs are kept and older ones are deleted.",
+                verboseLogs,
+            ) { prefs.setVerboseLogs(it) }
         }
-
+        item { LogFileRow(vm) }
         item {
             SettingsSection(
                 "Moving to another phone",
@@ -912,40 +913,6 @@ fun SettingsPage(vm: BrowserViewModel) {
                 }
             }
         }
-
-        // Only on a phone that has actually granted root. Offering it anywhere else would be
-        // a switch over three volumes that cannot exist - and those volumes appearing without
-        // root is the bug this setting arrived with. See `RootProvider.roots`.
-        if (dev.niccc2007.filet.vfs.provider.RootProvider.isGranted()) {
-            item {
-                ToggleRow(
-                    "Root volumes on Home",
-                    if (rootVolumes) {
-                        "The phone's root, /data and /system are listed as drives. They are " +
-                            "only ever offered while root is granted."
-                    } else {
-                        "Hidden. Root still works everywhere else - this is only about the " +
-                            "three drive cards."
-                    },
-                    rootVolumes,
-                ) { prefs.setRootVolumes(it) }
-            }
-        }
-
-        item { SettingsSection("Storage access", "What Android lets Filet see.") }
-        item { StorageAccessCard(vm) }
-
-        item {
-            SettingsSection(
-                "Permissions",
-                "What Filet holds, and what it costs to go without the rest.",
-            )
-        }
-        item {
-            // Re-read whenever the app comes back to the front, which is the only moment a
-            // permission can have changed - see PermissionWatch for why that beats a timer.
-            dev.niccc2007.filet.perms.PermissionsCard { intents -> vm.openFirstThatResolves(intents) }
-        }
         }
     }
     }
@@ -953,14 +920,6 @@ fun SettingsPage(vm: BrowserViewModel) {
     pickingOpenerFor?.let { ext ->
         OpenerPicker(vm, ext) { pickingOpenerFor = null }
     }
-}
-
-private fun sortIndex(k: SortKey) = when (k) {
-    SortKey.NAME -> 0; SortKey.SIZE -> 1; SortKey.MODIFIED -> 2; SortKey.TYPE -> 3
-}
-
-private fun sortKey(i: Int) = when (i) {
-    1 -> SortKey.SIZE; 2 -> SortKey.MODIFIED; 3 -> SortKey.TYPE; else -> SortKey.NAME
 }
 
 /**

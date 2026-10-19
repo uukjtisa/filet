@@ -417,11 +417,36 @@ class PaneController(
      */
     fun refresh() {
         freshTail = FreshTail()
-        // Opened branches are dropped rather than re-read. A refresh is somebody saying "this
-        // is not what is there", and silently keeping a listing from before it is the one
-        // answer that cannot be right. The folds stay, so the tree comes back as it was.
+        // Opened branches are dropped AND RE-READ. A refresh is somebody saying "this is not
+        // what is there", so keeping a listing from before it is the one answer that cannot be
+        // right - but dropping it alone was worse.
+        //
+        // Bug identified here: this cleared `branches` and left `open` populated, and the only
+        // thing that ever read a branch was `toggleBranch` on the way open. So every fold a
+        // person had open rendered as a permanent "Reading..." row after any refresh, with no
+        // way back except closing and reopening each one. That shipped. The fold set is the
+        // source of truth for what has to be read, which is why the re-read is driven off it.
         _state.value = _state.value.copy(branches = emptyMap())
+        // `relist` re-reads the folds itself, and `navigateTo` leaves `open` and `branches`
+        // alone, so clearing first and re-listing second is the whole sequence. Calling the
+        // re-read again here would start a second listing of every open fold against the
+        // first, for no gain.
         relist()
+    }
+
+    /**
+     * Read every open fold again, from scratch.
+     *
+     * Driven off `open` rather than off `branches`, deliberately: a branch that is missing
+     * from `branches` is exactly the case that needs reading, so iterating the map would skip
+     * precisely the folds that are broken.
+     *
+     * The cost is bounded by what somebody deliberately opened, and `MAX_DEPTH` bounds that in
+     * turn. Each read is streamed and paced like any other listing, and a fold closed while
+     * its read is in flight stops costing - see [readBranch].
+     */
+    private fun reReadOpenBranches() {
+        for (path in _state.value.open) readBranch(path)
     }
 
     /**
@@ -455,6 +480,21 @@ class PaneController(
             "tree", "toggle $path opening=$opening open=${next.size}",
         )
         if (!opening || now.branches.containsKey(path)) return
+        readBranch(path)
+    }
+
+    /**
+     * Read one fold's children into [PaneState.branches].
+     *
+     * Extracted from [toggleBranch] because opening a fold was the only thing that could ever
+     * trigger it, which made a cleared `branches` map unrecoverable. Two other callers need it:
+     * a refresh, which empties the map on purpose, and a re-list, whose folder has changed
+     * underneath the folds as well as inside the pane.
+     *
+     * Idempotent in the way that matters: a path not in `open` publishes nothing, so a fold
+     * closed mid-read neither reopens itself nor keeps paying for its listing.
+     */
+    private fun readBranch(path: VPath) {
         scope.launch {
             // Streamed, like every other listing here. A branch can be a camera folder too,
             // and reading five thousand files before the first row appears is the stall the
@@ -503,6 +543,23 @@ class PaneController(
      * thousands is not re-sorted sixty times on the way.
      */
     private val PUSH_EVERY_MS = 16L
+
+    /**
+     * Put back the folds a restored tab had open, and read them.
+     *
+     * Separate from [revealInTree] because nothing is being revealed: the folder is already
+     * where it should be and this only re-opens the branches around it. Using the reveal path
+     * would also set `revealTarget`, which scrolls the pane - wrong on a restore, where the
+     * scroll position is its own thing and is not restored at all.
+     *
+     * The read is driven off the fold set, like every other re-read here, so a fold whose
+     * parent did not survive the cap simply never opens rather than appearing parentless.
+     */
+    fun restoreFolds(folds: List<VPath>) {
+        if (folds.isEmpty()) return
+        _state.update { it.copy(open = it.open + folds) }
+        for (f in folds) readBranch(f)
+    }
 
     /** Open one of the whole-phone categories. See `CategoryScreen`. */
     fun openCategory(category: dev.niccc2007.filet.home.MediaCategory) {
@@ -561,13 +618,13 @@ class PaneController(
      * mount, a remote, a provider with no volume list - falls back to navigating. A tree
      * rooted at an archive IS the archive's own root, so there is nothing to expand toward.
      */
-    fun jumpTo(target: VPath) {
+    fun jumpTo(target: VPath, push: Boolean = true) {
         val root = rootsForDevice.firstOrNull { it.contains(target) }
         if (!prefs.treeView.value || root == null || root == target) {
-            navigateTo(target)
+            navigateTo(target, push = push)
             return
         }
-        revealInTree(root, target)
+        revealInTree(root, target, push = push)
     }
 
     /**
@@ -599,8 +656,8 @@ class PaneController(
      * Walking INTO a folder from inside the tree still navigates, and that is the distinction:
      * arriving expands, walking moves. See [TreeRows.pathTo].
      */
-    fun revealInTree(root: VPath, target: VPath) {
-        navigateTo(root)
+    fun revealInTree(root: VPath, target: VPath, push: Boolean = true) {
+        navigateTo(root, push = push)
         _state.update {
             it.copy(
                 open = it.open + TreeRows.pathTo(root, target),
@@ -636,6 +693,11 @@ class PaneController(
     fun relist() {
         val s = _state.value
         if (s.kind == PaneKind.FOLDER && s.cwd != null) navigateTo(s.cwd, push = false)
+        // And the folds. Bug identified here: this re-listed `cwd` alone, so a folder created
+        // or pasted INTO an open branch - which is what `active` makes the default target -
+        // did not appear in that branch until it was closed and opened again. The file landed,
+        // the app re-read, and the row the person was looking at did not change.
+        reReadOpenBranches()
     }
 
     /**

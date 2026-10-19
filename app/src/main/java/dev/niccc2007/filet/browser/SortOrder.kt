@@ -43,8 +43,4 @@ object SortOrder {
         SortKey.TYPE -> if (descending) "Type A to Z" else "Type Z to A"
     }
 
-    /** One line for the settings row, which has no sort key in front of it to refer to. */
-    fun settingsSummary(descending: Boolean): String =
-        if (descending) "A to Z, newest first, largest first"
-        else "Z to A, oldest first, smallest first"
 }

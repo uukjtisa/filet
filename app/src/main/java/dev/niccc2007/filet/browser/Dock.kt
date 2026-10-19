@@ -78,6 +78,12 @@ fun Dock(
     modifier: Modifier = Modifier,
 ) {
     if (s.kind != PaneKind.FOLDER || s.cwd == null) return
+
+    // Where a paste or a new folder actually lands. `target`, not `cwd`: with tree view on,
+    // `cwd` stays at the volume root and only `active` moves as branches open, so `cwd` is not
+    // "where the user is" and reading it put everything at the top of the storage. See
+    // `PaneState.target`.
+    val here = s.target ?: s.cwd ?: return
     // Out of the way while a selection is running: the selection bar owns the bottom of the
     // screen then, and its own Copy/Move/Delete are the actions in hand.
     if (s.selecting) return
@@ -142,7 +148,7 @@ fun Dock(
             if (loaded > 0) {
                 PastePill(
                     count = app.clips.totalPicked,
-                    blocked = vm.writeBlockReason(s.cwd),
+                    blocked = vm.writeBlockReason(here),
                     onPaste = { vm.pasteInto(pane) },
                     onOpenTray = { tray = true },
                 )
@@ -162,7 +168,7 @@ fun Dock(
             ClipTraySheet(
                 pane = pane,
                 vm = vm,
-                dest = s.cwd,
+                dest = here,
                 tray = app.clips,
                 onDismiss = { tray = false },
             )

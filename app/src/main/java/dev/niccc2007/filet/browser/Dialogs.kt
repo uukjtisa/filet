@@ -124,25 +124,6 @@ fun FiletDialogs(vm: BrowserViewModel) {
         )
     }
 
-    // Same reason as the sheet below: this one carries a callback, which a value type compared
-    // for equality cannot.
-    val pick by vm.folderPick.collectAsState()
-    pick?.let { p ->
-        FolderPicker(
-            title = p.title,
-            at = p.at,
-            entries = p.entries,
-            loading = p.loading,
-            atRoot = p.atRoot,
-            confirmLabel = p.confirmLabel,
-            onOpen = vm::browsePick,
-            onUp = vm::pickUp,
-            onConfirm = vm::confirmPick,
-            onDismiss = vm::cancelPick,
-            onFile = if (p.takeFile == null) null else vm::pickThisFile,
-        )
-    }
-
     // Not one of the `Dialog` cases: an extraction is a pending OPERATION with a plan attached
     // that re-plans as the options change, which a one-shot dialog state cannot hold.
     val pendingExtract by vm.extractPlan.collectAsState()
@@ -284,16 +265,18 @@ fun DeniedDialog(denial: dev.niccc2007.filet.vfs.Denial, onDismiss: () -> Unit) 
  *
  * Both answers are rows of equal weight rather than a footer's confirm and cancel: a move and a
  * copy are two different operations, not an action and its refusal. The suggested one is only
- * marked, because the same-volume rule it comes from is a good guess and a bad decision - see
- * [DragBehaviour].
+ * marked, because the same-volume rule it comes from is a good guess and a bad decision.
+ *
+ * Asked every time. The "always do this" tick is gone with the setting that stored it: with no
+ * settings row left there would be nowhere to undo a remembered choice, so one tick would have
+ * silently turned every later drop into a move - the one mistake here that loses data.
  */
 @Composable
 fun DropDialog(
     pending: PendingDrop,
-    onAnswer: (DropAction, Boolean) -> Unit,
+    onAnswer: (DropAction) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var always by remember { mutableStateOf(false) }
     Dlg(onDismiss = onDismiss) {
         DlgHeader(
             FiletIcons.Cut,
@@ -309,7 +292,7 @@ fun DropDialog(
                 detail = "Takes it out of where it came from",
                 tag = if (pending.suggested == DropAction.MOVE) "suggested" else null,
                 ours = true,
-                onClick = { onAnswer(DropAction.MOVE, always) },
+                onClick = { onAnswer(DropAction.MOVE) },
             )
             DlgPick(
                 icon = FiletIcons.Copy,
@@ -317,14 +300,7 @@ fun DropDialog(
                 detail = "Leaves the original where it is",
                 tag = if (pending.suggested == DropAction.COPY) "suggested" else null,
                 ours = true,
-                onClick = { onAnswer(DropAction.COPY, always) },
-            )
-            Spacer(Modifier.height(10.dp))
-            DlgTick(
-                on = always,
-                label = "Always do this",
-                sub = "Stops the question. Changeable in Settings.",
-                onToggle = { always = !always },
+                onClick = { onAnswer(DropAction.COPY) },
             )
         }
         DlgFooter {

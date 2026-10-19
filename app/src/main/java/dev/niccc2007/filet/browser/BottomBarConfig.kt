@@ -24,7 +24,7 @@ enum class BarItem(val id: String, val label: String) {
     RECENT("recent", "Opened"),
 
     /**
-     * Everything that has ARRIVED in a tracked folder, newest first.
+     * Everything that has ARRIVED on the phone's own storage, newest first.
      *
      * Not the same thing as [RECENT], which is what you OPENED. The distinction is the whole
      * value: finding a file that an app has just written means knowing which folder that app
@@ -36,6 +36,9 @@ enum class BarItem(val id: String, val label: String) {
     /** What was part way through, with its position. See `ResumeStore`. */
     RESUME("resume", "Carry on"),
     SHARING("sharing", "Share"),
+
+    /** Saved network locations - shares, servers, cloud accounts. The `Remotes` pane. */
+    REMOTES("remotes", "Remotes"),
     SCRIPTS("scripts", "Scripts"),
     SHORTCUTS("shortcuts", "Shortcuts"),
     SPLIT("split", "Split"),
@@ -49,8 +52,29 @@ enum class BarItem(val id: String, val label: String) {
 
 object BottomBarConfig {
 
-    /** What the bar held before it was configurable. Anyone who never opens Settings sees this. */
-    val DEFAULT = listOf(BarItem.FILES, BarItem.SEARCH, BarItem.ACTIVITY, BarItem.BOOKMARKS)
+    /**
+     * The bar for anyone who has never saved one, left to right.
+     *
+     * Places first and the two network destinations last: Home and Files are where browsing
+     * starts, Activity and Bookmarks are what gets checked during it, and Share and Remotes are
+     * how files leave or arrive from another device. Search is not here because every pane
+     * header already carries it, one tap away.
+     *
+     * Decision: "never configured" is the absence of the stored key, not the length of what is
+     * stored. [normalise] returns this only for a null or empty value; Settings writes the key
+     * only when somebody changes the bar. So a bar somebody saved stays exactly as they saved
+     * it, however short, and changing this list moves only the people who never set one. The
+     * alternative, comparing the stored bar against the old default and replacing it if they
+     * match, cannot tell somebody who chose those four from somebody who never looked.
+     */
+    val DEFAULT = listOf(
+        BarItem.HOME,
+        BarItem.FILES,
+        BarItem.ACTIVITY,
+        BarItem.BOOKMARKS,
+        BarItem.SHARING,
+        BarItem.REMOTES,
+    )
 
     /**
      * Past this many the bar scrolls instead of squeezing.

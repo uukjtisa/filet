@@ -101,11 +101,18 @@ compose.desktop {
              *  - `java.instrument`, `jdk.unsupported` - Compose and JNA's native loader
              *  - `java.prefs` - where the autostart check and the config path are read from
              *  - `java.sql` - Compose's resource loading pulls it in on Windows
+             *  - `java.net.http` - the mount probe. `HttpURLConnection` rejects PROPFIND, so
+             *    the pre-mount check uses `HttpClient`; leaving this out does not degrade the
+             *    probe, it makes EVERY packaged mount fail as "could not be reached", because
+             *    the probe catches `NoClassDefFoundError` and reports unreachable.
              *
              * Leaving one out produces a distribution that starts and then fails at the moment
              * the feature is used, which is the worst shape of failure available here.
              */
-            modules("java.naming", "java.instrument", "jdk.unsupported", "java.prefs", "java.sql")
+            modules(
+                "java.naming", "java.instrument", "jdk.unsupported", "java.prefs", "java.sql",
+                "java.net.http",
+            )
 
             windows {
                 // Spaces are fine in the Start-menu name but not in a shortcut's file name, and

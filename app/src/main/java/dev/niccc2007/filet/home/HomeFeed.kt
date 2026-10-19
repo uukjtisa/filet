@@ -1,645 +1,267 @@
 package dev.niccc2007.filet.home
 
+import android.content.Context
 import dev.niccc2007.filet.data.Prefs
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
-import dev.niccc2007.filet.vfs.Vfs
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
-import org.json.JSONArray
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
- * A row on the Home overview: a file, when it appeared, and where it came from.
+ * A row on the Home overview and in New files.
  *
- * [origin] is the provenance chip (PLAN.md §5.1) and stays null until something has written a
- * biography record. Rendering "unknown" there would be worse than rendering nothing.
+ * @param at when the file last CHANGED, from its modification time.
+ * @param added when the file first APPEARED on the phone - see [HomeFeed] for where that comes
+ *   from and what it is not.
+ * @param origin the provenance chip (PLAN.md §5.1), null until something has written a biography
+ *   record. Rendering "unknown" there would be worse than rendering nothing.
  */
-data class FeedItem(val node: VNode, val at: Long, val origin: String? = null)
+data class FeedItem(val node: VNode, val at: Long, val origin: String? = null, val added: Long = at)
 
 /**
- * Tracked folders: the places worth noticing changes in.
+ * New files: every file on the phone's own storage, by when it first appeared.
  *
- * Download is tracked by default because it is where things arrive. This is deliberately a
- * *short* list: it is also the watch list for the inotify tier (SEARCH.md §4.1), and inotify
- * costs one watch per directory against a per-process ceiling of roughly 8192.
- */
-/**
- * One tracked place.
+ * ## The clock is the media index's `DATE_ADDED`
  *
- * @param recursive watch everything beneath it too. Off by default, and deliberately not the
- *   default: the tracked list is also the inotify watch list, inotify costs one watch per
- *   DIRECTORY, and the per-process ceiling is about 8192. Tracking `/storage/emulated/0`
- *   recursively would spend the whole budget on one entry. The design calls for it because adding
- *   folders one at a time is a hassle, which is true, so it is offered with the cost named
- *   rather than hidden.
- */
-data class TrackedFolder(val path: VPath, val recursive: Boolean = false)
-
-class TrackedFolders(private val prefs: Prefs, private val scope: CoroutineScope) {
-
-    private val _folders = MutableStateFlow(load())
-    val folders: StateFlow<List<TrackedFolder>> = _folders.asStateFlow()
-
-    /**
-     * Just the paths, for the callers that only ever wanted those.
-     *
-     * One flow, mapped once. Building it per read would hand every collector a flow that
-     * never emits again, which is the quiet kind of broken: the first frame looks right and
-     * nothing updates afterwards.
-     */
-    val paths: StateFlow<List<VPath>> = _folders
-        .map { list -> list.map { it.path } }
-        .stateIn(scope, SharingStarted.Eagerly, _folders.value.map { it.path })
-
-    fun add(p: VPath, recursive: Boolean = false) {
-        if (_folders.value.any { it.path == p }) return
-        _folders.value = _folders.value + TrackedFolder(p, recursive)
-        save()
-    }
-
-    fun remove(p: VPath) {
-        _folders.value = _folders.value.filterNot { it.path == p }
-        save()
-    }
-
-    /** Turn subfolder tracking on or off for one entry, without losing its place in the list. */
-    fun setRecursive(p: VPath, recursive: Boolean) {
-        _folders.value = _folders.value.map { if (it.path == p) it.copy(recursive = recursive) else it }
-        save()
-    }
-
-    /**
-     * Re-read the list from storage.
-     *
-     * For an import, which writes the stored key directly rather than going through [add] -
-     * there is no setter for "replace the whole list", and inventing one that imports
-     * understand would put the import's rules in here. Without this the new folders are on
-     * disk and the screen keeps showing the old ones until the app is restarted.
-     */
-    fun reload() { _folders.value = load() }
-
-    fun contains(p: VPath) = _folders.value.any { it.path == p }
-
-    fun isRecursive(p: VPath) = _folders.value.firstOrNull { it.path == p }?.recursive == true
-
-    /**
-     * Seed with the conventional download directory the first time the app runs.
-     *
-     * **Local volumes only**, and that is a bug fix rather than a preference. This used to seed
-     * `Download` under EVERY root, which on the test device meant the root provider, `/system`, and a
-     * WebDAV test server that is not running. The feed then waited on that server's connect
-     * timeout on every refresh, so a screenshot taken a foot away took two minutes to appear.
-     * A remote share is a fine thing to track; it is not a sensible thing to track by default,
-     * because nobody asked for it and nobody will think to remove it.
-     */
-    /**
-     * @return true when this call did the seeding, which is to say this is a first launch.
-     *
-     * Returned rather than kept, because [seedCommonFolders] has to tell a fresh install from
-     * an existing one and the only honest signal is whether THIS launch was the one that
-     * seeded. A pref of its own cannot answer it: both installs reach the new code for the
-     * first time on the same launch.
-     */
-    fun seedDefaults(roots: List<VPath>): Boolean {
-        if (prefs.getBool(SEEDED, false)) return false
-        prefs.putBool(SEEDED, true)
-        for (r in roots) {
-            if (r.scheme !in SEEDABLE_SCHEMES) continue
-            _folders.value = _folders.value + TrackedFolder(r.child("Download"))
-        }
-        save()
-        return true
-    }
-
-    /**
-     * Track the conventional media folders too, once.
-     *
-     * [TrackedSeeds] holds the reasoning and the candidate table; this is the IO half. Runs on
-     * its own one-time key rather than extending [seedDefaults], because that one has already
-     * run on every existing install - so without a second key the folders would only ever
-     * appear for people installing the app after this change, which is the smaller half of the
-     * people who would want them.
-     *
-     * **`Download` is deliberately excluded on an existing install.** It is the one folder
-     * earlier versions seeded, so its absence from the list is a decision somebody made, and a
-     * migration that overrules a removal is worse than one that misses a folder. A fresh
-     * install has no such history and gets all five.
-     *
-     * @param exists asked once per candidate. Suspending because a volume may be a document
-     *   tree, where "is there a folder called DCIM" is a content-provider query.
-     */
-    suspend fun seedCommonFolders(
-        roots: List<VPath>,
-        fresh: Boolean,
-        exists: suspend (VPath) -> Boolean,
-    ) {
-        if (prefs.getBool(SEEDED_COMMON, false)) return
-        prefs.putBool(SEEDED_COMMON, true)
-
-        val candidates = TrackedSeeds.candidatesFor(roots)
-        val present = candidates.filter { runCatching { exists(it) }.getOrDefault(false) }.toSet()
-        val skip = if (fresh) {
-            emptySet()
-        } else {
-            candidates.filter { it.name == "Download" }.toSet()
-        }
-        val add = TrackedSeeds.plan(
-            roots = roots,
-            present = present,
-            already = _folders.value.map { it.path },
-            skip = skip,
-        )
-        if (add.isEmpty()) return
-        _folders.value = _folders.value + add
-        save()
-    }
-
-    /**
-     * Drop the remote and root entries the old seeding added, once.
-     *
-     * Only entries that look exactly like what the seeder made - a folder called `Download` on
-     * a scheme it should never have touched. Anything the user added by hand survives, whatever
-     * its scheme, because removing somebody's tracked folder without being asked is worse than
-     * leaving a slow one in the list. The timeout in `HomeFeed.refresh` already stops it hurting.
-     */
-    fun pruneSeededRemotes() {
-        if (prefs.getBool(PRUNED, false)) return
-        prefs.putBool(PRUNED, true)
-        val before = _folders.value
-        val after = before.filterNot {
-            it.path.scheme !in SEEDABLE_SCHEMES && it.path.path.trimEnd('/').endsWith("/Download")
-        }
-        if (after.size != before.size) {
-            _folders.value = after
-            save()
-        }
-    }
-
-    /**
-     * Reads both shapes.
-     *
-     * Entries written before subfolder tracking existed are bare strings; new ones are
-     * objects. Migrating on read rather than on upgrade means a downgrade does not lose the
-     * list, and it costs one type check.
-     */
-    private fun load(): List<TrackedFolder> {
-        val raw = prefs.getString(KEY) ?: return emptyList()
-        return runCatching {
-            val arr = JSONArray(raw)
-            (0 until arr.length()).mapNotNull { i ->
-                val entry = arr.get(i)
-                runCatching {
-                    if (entry is org.json.JSONObject) {
-                        TrackedFolder(VPath.parse(entry.getString("path")), entry.optBoolean("deep", false))
-                    } else {
-                        TrackedFolder(VPath.parse(entry.toString()), recursive = false)
-                    }
-                }.getOrNull()
-            }
-        }.getOrElse { emptyList() }
-    }
-
-    private fun save() {
-        val arr = JSONArray()
-        _folders.value.forEach {
-            arr.put(org.json.JSONObject().put("path", it.path.toString()).put("deep", it.recursive))
-        }
-        prefs.putString(KEY, arr.toString())
-    }
-
-    private companion object {
-        const val KEY = "tracked.folders"
-        const val SEEDED = "tracked.seeded"
-        const val PRUNED = "tracked.prunedRemotes"
-        const val SEEDED_COMMON = "tracked.seededCommon"
-
-        /**
-         * Where a default is allowed to be seeded.
-         *
-         * `local` is the device's own storage; `saf` is a folder the user granted, which they
-         * chose, so a Download inside one is a reasonable guess. Everything else - remotes,
-         * root, archives - is somewhere a default has no business being.
-         */
-        val SEEDABLE_SCHEMES = setOf("local", "saf")
-    }
-}
-
-/**
- * What Home shows above the fold.
+ * This used to be a walk of a short list of "tracked folders", with Filet stamping each path
+ * the first time the walk met it. The concept is gone - there is no list to keep, and the tab
+ * covers the whole device - and the clock went with it, for a reason worth keeping:
  *
- * Reads the tracked folders directly through the VFS rather than waiting for an index, so the
- * first screen after onboarding is populated on a device that has never been crawled. M3
- * replaces the polling refresh with watcher pushes; the shape of the data does not change.
+ * On Android 11 and later the shared-storage filesystem is served by the media provider, so
+ * every file any app creates there gets a MediaStore row as it is written, and `DATE_ADDED`
+ * on that row is the moment the file appeared on the phone. Below 11 a file written without a
+ * scan has no row until somebody announces it, which `MediaCatchUp` does. So the answer to
+ * "when did this turn up" already exists for every file, device-wide, indexed, and costs one
+ * query - no walk, no FUSE traffic, nothing for the battery to notice (issue #13).
+ *
+ * Filet's own first-seen store was NOT kept as a supplement. Its only writer was the
+ * tracked-folder walk; with that gone nothing writes to it, and a store with no writer is not a
+ * safety net - it is stranded state that reads as data until the day it is wrong.
+ *
+ * ## What that means on a real phone
+ *
+ * - **Installed an hour ago:** the list is full from the first minute. `DATE_ADDED` predates
+ *   Filet, so a "first detected" list has no warm-up and no day where everything reads as
+ *   arriving at install time.
+ * - **Restored or migrated:** a backup restore or a phone-to-phone transfer writes every file
+ *   at once, so they all appeared that day and are listed under it. That is true and unhelpful;
+ *   the "Last changed" ordering is the way out, and stays.
+ * - **Not covered:** remote folders, app-private storage, anything reached only through a
+ *   document provider, and the inside of archives - none of it is in the media index. A
+ *   remote folder that used to be tracked by hand no longer has a new-files feed.
+ * - **Permission:** without all-files access Android 11+ shows only photos, video and music
+ *   here, and the screen says so - see [CategoryResult.Refused].
+ *
+ * ## Bounded
+ *
+ * [PAGE] rows at a time, newest first, sorted and cut by the DATABASE; the next page loads
+ * when the list is scrolled near its end, up to [MAX_HELD]. Past that the list says so and the
+ * date jump becomes a range query for the day asked for - see [reach] - so every file stays
+ * reachable without fifty thousand rows in memory.
+ *
+ * Queried on open, on resume, on the refresh button, and after Filet's own writes have been
+ * indexed (see `MediaAnnounce.onScanned`) - never on recomposition. While the New files tab is
+ * on screen, and only then, a MediaStore observer brings in other apps' files: [watchIndex].
  */
-class HomeFeed(
-    private val vfs: Vfs,
-    private val tracked: TrackedFolders,
-    private val scope: CoroutineScope,
-    /** Where the last published feed is kept. Null in a test, which then has no cache. */
-    private val cache: FeedCache? = null,
-) {
-    /**
-     * What was on screen last time, drawn before anything is read.
-     *
-     * Reported on a full 256GB phone: opening New files showed YESTERDAY's files for two to
-     * five seconds and then corrected itself. Both halves of that are worth separating. The
-     * correcting is unavoidable - the only way to know what is in a folder is to read it, and
-     * on a phone with a quarter of a terabyte on it that takes as long as it takes. The two
-     * to five seconds of blankness before it is not: the answer from the last pass is already
-     * known and was being thrown away at every process start.
-     *
-     * So the cached feed is the first frame, and the scan replaces it when it has something
-     * better. The list is the same list, so nothing jumps - rows that are still there stay
-     * where they are. What the cache must never do is pretend to be fresh, which is what
-     * `loading` is for and why the headers now show it.
-     */
-    private val _downloads = MutableStateFlow(cache?.load().orEmpty())
-    val downloads: StateFlow<List<FeedItem>> = _downloads.asStateFlow()
+class HomeFeed(private val context: Context, private val scope: CoroutineScope) {
 
-    /**
-     * Everything the last pass found, untrimmed.
-     *
-     * The expanded history is this list; the home card is the first [SHOWN] of it. Kept as one
-     * value rather than a second scan, which was the point when the feature was
-     * specified - there is already an architecture for what is being watched, and a second
-     * scanner would drift from the feed and disagree with it about what is new.
-     *
-     * Provenance is deliberately NOT resolved for these. It costs a lookup per file and the
-     * expanded list can hold thousands; the visible rows get it, the rest do not need it.
-     */
+    private val _recent = MutableStateFlow<List<FeedItem>>(emptyList())
+
+    /** The Home card: the newest [SHOWN]. */
+    val recent: StateFlow<List<FeedItem>> = _recent.asStateFlow()
+
     private val _all = MutableStateFlow<List<FeedItem>>(emptyList())
-    val all: StateFlow<List<FeedItem>> = _all.asStateFlow()
 
-    /**
-     * The feed as of the end of a COMPLETE pass, and never mid-pass.
-     *
-     * Bug identified: `publish` is called from inside each folder's coroutine, so [all] is
-     * emitted many times per pass, each time holding only the folders that have finished. That
-     * is right for drawing - rows appear as they are found - and catastrophic for anything that
-     * treats the list as the full set.
-     *
-     * `FirstSeen.prune` is exactly such a caller, and its own documentation forbids it: pruning
-     * against an incomplete listing forgets every path that has not arrived yet, and those
-     * paths are then re-recorded as brand new. Past the seeding window a new path takes the
-     * CLOCK, so a file written months ago came back stamped today - which is why the history
-     * collapsed into "today" and "yesterday" and why old entries appeared to flicker in before
-     * the real ones.
-     *
-     * Anything that records, prunes or reasons about the whole tracked set reads this. Anything
-     * that only draws reads [all].
-     */
-    private val _settled = MutableStateFlow<List<FeedItem>>(emptyList())
-    val settled: StateFlow<List<FeedItem>> = _settled.asStateFlow()
+    /** Everything loaded so far, newest first-appearance first. The New files tab draws this. */
+    val all: StateFlow<List<FeedItem>> = _all.asStateFlow()
 
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
-    /** Supplies the Source chip once provenance exists. Set by the bridge at M7. */
+    private val _outcome = MutableStateFlow<CategoryResult?>(null)
+
+    /** What the last first-page read came to, for the empty and refused states. */
+    val outcome: StateFlow<CategoryResult?> = _outcome.asStateFlow()
+
+    private val _capped = MutableStateFlow(false)
+
+    /** [MAX_HELD] rows are loaded and more exist; the screen says so. */
+    val capped: StateFlow<Boolean> = _capped.asStateFlow()
+
+    private val _windowFrom = MutableStateFlow<Long?>(null)
+
+    /**
+     * Non-null when the list is not the newest files but a window starting at this day - a
+     * date jump past what paging would hold. The screen offers the way back to the newest.
+     */
+    val windowFrom: StateFlow<Long?> = _windowFrom.asStateFlow()
+
+    /** Supplies the Source chip once provenance exists. */
     var originLookup: (suspend (VPath) -> String?)? = null
 
-    /** When the pass now running began, for the partial grace window. */
-    private var passStartedAt = 0L
+    private val lock = Mutex()
+    private var exhausted = false
+    private var pendingChange: Job? = null
 
-    /** Each tracked folder's own mtime: an upper bound on when anything arrived inside it. */
-    private var folderMtimes: Map<VPath, Long> = emptyMap()
-
-    /**
-     * Tracked folders this pass has not read yet. Only these can still displace a row.
-     *
-     * A CONCURRENT set, and that is the whole of a crash report: tapping Home while a
-     * selection was running threw `ConcurrentModificationException` out of
-     * `LinkedHashMap$LinkedKeyIterator.next`. This was `mutableSetOf()`, which is a
-     * LinkedHashSet, and the refresh pass runs its folders in parallel - each coroutine
-     * removes its own folder from this set and then calls `publish`, which iterates it. One
-     * worker removing while another iterates is the exception, and it needs two folders
-     * finishing close enough together to interleave, which is why it only showed up on a
-     * busy pass rather than every time.
-     *
-     * `newKeySet` iterates weakly-consistently instead of throwing. A publish that sees a
-     * folder a microsecond after it was read is harmless - it makes the partial-publish test
-     * slightly more conservative for one frame, and the COMPLETE publish at the end of the
-     * pass is the authoritative one.
-     */
-    private var unreadFolders: MutableSet<VPath> = java.util.concurrent.ConcurrentHashMap.newKeySet()
-
-    /** The last time a change arrived, and the first one of the current burst. */
-    private var burstStartedAt = 0L
-    private var lastChangeAt = 0L
-    private var pending: Job? = null
-
-    /**
-     * Something changed in a watched folder.
-     *
-     * Coalesced rather than serviced per event: copying twenty files in fires twenty
-     * notifications, and twenty full re-reads of every tracked folder is exactly why the feed
-     * felt slow. See [coalesceDelay] for why there are two clocks.
-     */
-    fun onChanged(changed: VPath? = null, name: String? = null) {
-        // THE FAST PATH, and the reason the feed is instant rather than eventually right.
-        //
-        // The kernel tells us the FILE that changed, not just the folder, and that distinction
-        // is the whole thing. A Screenshots folder can hold 1700 files; listing it through the
-        // VFS takes seconds, so any design that re-reads a directory to notice one new file is
-        // slow in exactly the case that matters. One `stat` of one known path is microseconds
-        // and does not care how big the folder is.
-        //
-        // The coalesced full pass below still runs, and still reconciles deletions and anything
-        // the watcher did not report. It just is not what anybody waits for.
-        if (changed != null) scope.launch { spliceNow(changed, name) }
-
-        val now = System.currentTimeMillis()
-        if (pending?.isActive != true) burstStartedAt = now
-        lastChangeAt = now
-        if (pending?.isActive == true) return
-        pending = scope.launch {
-            while (true) {
-                val wait = coalesceDelay(
-                    sinceFirstChange = System.currentTimeMillis() - burstStartedAt,
-                    sinceLastChange = System.currentTimeMillis() - lastChangeAt,
-                )
-                if (wait <= 0L) break
-                delay(wait)
-            }
-            refresh()
-        }
-    }
-
-    private var running: Job? = null
-
-    /**
-     * The last complete read of each tracked folder.
-     *
-     * So a folder that times out on one pass shows what it showed before, rather than
-     * disappearing from the feed and reappearing on the next pass.
-     */
-    private val lastGood = java.util.concurrent.ConcurrentHashMap<VPath, List<FeedItem>>()
-
-    /**
-     * Re-read every tracked folder.
- * separately that the refresh button did nothing on Home. Those were one bug.
-     *
-     * The old version read the folders in parallel and then `awaitAll`ed the lot before
-     * publishing anything. The tracked list had been seeded with a Download folder on EVERY
-     * volume, including a WebDAV test server that is not running - so every refresh sat on that
-     * connect timeout, and a screenshot taken a foot away could not appear until a dead remote
-     * on another network finished failing. Refresh had the same problem, which is why pressing
-     * it looked like it did nothing.
-     *
-     * Two changes, and the first is the one that matters:
-     *
-     * 1. **Each folder gets its own deadline.** A tracked place that cannot answer within
-     *    [FOLDER_TIMEOUT_MS] is left out of this pass rather than holding up the others. The
-     *    next refresh tries again; nothing is forgotten, it is just not waited for.
-     * 2. **Results publish as they arrive.** The local folders are back in milliseconds, so the
-     *    feed is right almost immediately and only gets more right as slower places answer.
-     *    Waiting for the slowest folder before showing the fastest one was the whole defect.
-     */
-    /** Set when a refresh is asked for while one is already running. */
-    private var rerunWanted = false
-
-    /**
-     * Bug identified, reported as the feed showing a state from hours ago after a cold start,
-     * and as being inconsistent about it.
-     *
-     * A pass used to cancel the one before it. On startup there are three refreshes in quick
-     * succession - `onFirstScreen` calls one, the tracked-folder flow emits its current value
-     * and calls another, and the Home screen composes and calls a third - so two of them died
-     * before finishing. The only publish that sets the settled list is the one at the very end
-     * of a pass, so a startup could easily finish with no complete publish at all, leaving
-     * whichever partial landed first on screen for good. Sometimes a pass survived and the
-     * feed was right, which is the inconsistency.
-     *
-     * A pass in flight now finishes, and one more is queued behind it. Queued rather than
-     * counted: ten requests during one pass are still one more pass, because they would all
-     * read the same folders and reach the same answer.
-     */
+    /** The newest page, replacing whatever is loaded. */
     fun refresh() {
-        if (running?.isActive == true) {
-            rerunWanted = true
-            return
-        }
-        running = scope.launch {
-            _loading.value = true
-            val folders = tracked.folders.value
-            if (folders.isEmpty()) {
-                _downloads.value = emptyList()
+        scope.launch { lock.withLock { firstPage(before = null) } }
+    }
+
+    /** Back to the newest files after a date jump. */
+    fun toNewest() = refresh()
+
+    /** The next page, if there is one and the cap allows. Called as the list nears its end. */
+    fun loadMore() {
+        scope.launch {
+            lock.withLock {
+                val at = NewFilesPaging.nextOffset(_all.value.size, exhausted, MAX_HELD) ?: return@withLock
+                _loading.value = true
+                val (_, page) = CategoryQuery.readNew(context, at, PAGE, _windowFrom.value)
+                exhausted = page.size < PAGE
+                _all.value = NewFilesPaging.merge(_all.value, page.map(::item))
+                _capped.value = !exhausted && _all.value.size >= MAX_HELD
                 _loading.value = false
-                // A queued rerun is dropped rather than honoured here on purpose: with no
-                // tracked folders a second pass would read the same nothing. It is cleared so
-                // it cannot fire later against a different question.
-                rerunWanted = false
-                return@launch
-            }
-            val gathered = java.util.concurrent.ConcurrentHashMap<VPath, List<FeedItem>>()
-
-            // When this pass began, and how new each folder is. Both exist so a partial answer
-            // can be judged instead of simply allowed: see FeedPublish.partialIsFinal.
-            //
-            // One stat per tracked folder, before any listing. It is the cheapest thing in the
-            // pass - a dozen stats against listings that walk thousands of entries - and it is
-            // what lets the common cold start paint once, correctly, instead of painting whoever
-            // finished first and then correcting.
-            passStartedAt = System.currentTimeMillis()
-            folderMtimes = folders.associate { f ->
-                f.path to (runCatching { vfs.stat(f.path)?.mtime }.getOrNull() ?: Long.MAX_VALUE)
-            }
-            // MAX_VALUE for a folder that cannot be statted, deliberately: an unknown bound must
-            // never read as "older than everything", which would let a partial claim to be final
-            // on the strength of a folder it knows nothing about.
-            unreadFolders = java.util.concurrent.ConcurrentHashMap.newKeySet<VPath>()
-                .apply { addAll(folders.map { it.path }) }
-
-            coroutineScope {
-                for (batch in folders.chunked(FEED_PARALLELISM)) {
-                    batch.map { folder ->
-                        async {
-                            val out = ArrayList<FeedItem>()
-                            // The deadline wraps the LISTING, not the whole pass.
-                            val finished = withTimeoutOrNull(FOLDER_TIMEOUT_MS) {
-                                collect(folder.path, folder.recursive, depth = 0, into = out)
-                                true
-                            } == true
-                            // A folder that ran out of time keeps whatever it last contributed
-                            // instead of contributing nothing. This is not defensive coding, it
-                            // is a bug that already happened: `collect` wraps its listing in
-                            // runCatching, which SWALLOWS the timeout's cancellation, so a slow
-                            // folder returned an empty list that looked like a successful read
-                            // of an empty directory - and the feed went blank.
-                            if (finished || out.isNotEmpty()) {
-                                lastGood[folder.path] = out
-                                gathered[folder.path] = out
-                            } else {
-                                gathered[folder.path] = lastGood[folder.path].orEmpty()
-                            }
-                            // Read means answered, whether it answered with anything or not: an
-                            // empty folder can no longer contribute, so it stops bounding.
-                            unreadFolders.remove(folder.path)
-                            publish(gathered.values)
-                        }
-                    }.awaitAll()
-                }
-            }
-            // Deliberately NOT in a `finally`. This pass cancels the previous one, and a
-            // finally runs on cancellation too - so publishing there emptied the feed every
-            // time Home was reopened, because the new pass killed the old one before it had
-            // gathered anything. Cancellation must leave whatever is on screen alone; only a
-            // pass that actually finished has a better answer.
-            // The only complete publish. Every earlier one came from inside a folder's own
-            // coroutine and held whatever had finished by then.
-            publish(gathered.values, PublishKind.COMPLETE)
-            _loading.value = false
-            // Anything asked for while this was running gets exactly one more pass.
-            if (rerunWanted) {
-                rerunWanted = false
-                refresh()
             }
         }
     }
 
     /**
-     * Sort, trim, and only then ask where these few files came from.
+     * Make sure files from [dayStartMs] are loaded, for the date jump.
      *
-     * The order is the point. Resolving provenance during the walk meant one bridge lookup per
-     * candidate - 1700 of them for one folder of screenshots - to produce a list of [SHOWN]
-     * rows. Trimming first turns that into at most eight lookups, and it is why the feed went
-     * from minutes to immediate.
+     * Pages forward while the day is within [MAX_HELD] of the newest; past that the list is
+     * replaced by a window that STARTS at the end of that day. A jump is a range query, not a
+     * scroll through every newer page.
      */
-    private fun publish(all: Collection<List<FeedItem>>, kind: PublishKind = PublishKind.PARTIAL) {
-        val everything = all.flatten().distinctBy { it.node.path }.sortedByDescending { it.at }
-        // Partial results are only drawn when there is nothing on screen yet. On a refresh the
-        // previous full list stays put until the new one is ready, because watching entries
-        // appear, re-sort and be replaced is the flicker in the report - and every intermediate
-        // state it shows is a list that was never true.
-        // In front of EVERYTHING this function writes, not just the backing list.
-        //
-        // The guard used to wrap `_all` alone while `_downloads` - the rows actually on screen
-        // - was assigned unconditionally below it. So the protection existed and the screen
-        // never got it: a refresh still painted every intermediate answer, which is the
-        // flicker as reported. A blocked publish now changes nothing at all.
-        // A partial is drawn when it can be shown to be final for the rows it would show, and
-        // otherwise only once the grace window has passed. The oldest visible row is the
-        // threshold every unread folder is measured against.
-        val window = everything.take(SHOWN)
-        val provenFinal = FeedPublish.partialIsFinal(
-            shownCount = window.size,
-            shownLimit = SHOWN,
-            oldestShownAt = window.lastOrNull()?.at ?: Long.MAX_VALUE,
-            unreadFolderMtimes = unreadFolders.map { folderMtimes[it] ?: Long.MAX_VALUE },
-        )
-        val elapsed = System.currentTimeMillis() - passStartedAt
-        if (!FeedPublish.publishable(kind, _all.value.isEmpty(), elapsed, provenFinal)) return
-        _all.value = everything
-        if (kind == PublishKind.COMPLETE) _settled.value = everything
-        val top = everything.take(SHOWN)
-        _downloads.value = top
-        // Only a COMPLETE pass is written down. A partial one is an answer from some of the
-        // folders, and keeping it would mean the next cold start opens on a feed that was
-        // already known to be half an answer.
-        if (kind == PublishKind.COMPLETE) cache?.save(top)
+    suspend fun reach(dayStartMs: Long, dayEndMs: Long) {
+        lock.withLock {
+            while (true) {
+                val oldest = _all.value.lastOrNull()?.added ?: return@withLock
+                if (oldest <= dayStartMs || exhausted) return@withLock
+                val at = NewFilesPaging.nextOffset(_all.value.size, exhausted, MAX_HELD)
+                if (at == null) {
+                    firstPage(before = dayEndMs)
+                    return@withLock
+                }
+                _loading.value = true
+                val (_, page) = CategoryQuery.readNew(context, at, PAGE, _windowFrom.value)
+                exhausted = page.size < PAGE
+                _all.value = NewFilesPaging.merge(_all.value, page.map(::item))
+                _capped.value = !exhausted && _all.value.size >= MAX_HELD
+                _loading.value = false
+            }
+        }
+    }
+
+    /**
+     * Something on storage changed. Coalesced over [SETTLE_MS], so a copy of a hundred files is
+     * one query rather than a hundred.
+     */
+    fun changed() {
+        pendingChange?.cancel()
+        pendingChange = scope.launch {
+            delay(SETTLE_MS)
+            // A jump window is left alone: somebody reading March does not want it replaced by
+            // today because a screenshot was taken.
+            if (_windowFrom.value == null) lock.withLock { firstPage(before = null) }
+        }
+    }
+
+    /**
+     * Listen to the media index while the New files tab is on screen, and only then.
+     *
+     * The caller closes the handle when the tab leaves the screen or the app stops - an observer
+     * that outlived the tab would be issue #13 coming back through a different door, a standing
+     * cost for a list nobody is reading.
+     */
+    fun watchIndex(): AutoCloseable = CategoryQuery.observe(context) { changed() }
+
+    /** Must hold [lock]. */
+    private suspend fun firstPage(before: Long?) {
+        _loading.value = true
+        val (result, page) = CategoryQuery.readNew(context, 0, PAGE, before)
+        _outcome.value = result
+        val items = page.map(::item)
+        exhausted = page.size < PAGE
+        _all.value = items
+        _capped.value = false
+        _windowFrom.value = before
+        if (before == null) publishRecent(items.take(SHOWN))
+        _loading.value = false
+    }
+
+    private fun item(r: CategoryQuery.NewRow) =
+        FeedItem(node = r.node, at = r.node.mtime, added = r.addedAtMs)
+
+    private fun publishRecent(top: List<FeedItem>) {
+        _recent.value = top
         val lookup = originLookup ?: return
-        // Off the critical path: the rows are already on screen, and the Source chip fills in
-        // a moment later rather than holding everything up.
+        // Off the critical path, and only for the rows on the card: a lookup per row of a
+        // two-thousand-row page would be the slow version of this screen again.
         scope.launch {
             val withOrigin = top.map { it.copy(origin = runCatching { lookup(it.node.path) }.getOrNull()) }
-            // Only if nothing else has published since, or a slow lookup would resurrect a
-            // stale list over a newer one.
-            if (_downloads.value == top) _downloads.value = withOrigin
+            if (_recent.value == top) _recent.value = withOrigin
         }
     }
 
-    /**
-     * One directory, read now, merged into what is already showing.
-     *
-     * Deliberately not recursive: this is the directory the kernel just told us about, and
-     * walking beneath it would turn the fast path back into the slow one.
-     *
-     * Merged rather than replacing, and de-duplicated by path, because the feed is a view over
-     * several folders and this only knows about one of them. The result is the same list the
-     * full pass would produce for these rows, arriving sooner - if the full pass later disagrees
-     * it wins, which is why it still runs.
-     */
-    private suspend fun spliceNow(dir: VPath, name: String?) {
-        val fresh = ArrayList<FeedItem>()
-        if (name != null) {
-            // One file, one stat. Independent of how many siblings it has.
-            val node = runCatching { vfs.stat(dir.child(name)) }.getOrNull()
-            if (node == null || node.isDir || node.hidden) return
-            fresh += FeedItem(node, node.mtime, origin = null)
-        } else {
-            // The kernel did not name it - rare, and worth a listing rather than nothing.
-            withTimeoutOrNull(FOLDER_TIMEOUT_MS) {
-                collect(dir, recursive = false, depth = 0, into = fresh)
-            }
-        }
-        if (fresh.isEmpty()) return
-        // SPLICE, not PARTIAL. This is a file the kernel has just named, not a subset of
-        // a pass - blocking it is what made a new arrival invisible until some later pass
-        // happened to run all the way through.
-        publish(listOf(fresh + _downloads.value), PublishKind.SPLICE)
-    }
-
-    /**
-     * Newly-arrived FILES in one tracked folder.
-     *
-     * Files only, and that is a reversal of round 7 worth recording. Round 7 called for folders to be detected too; the requirement is now the opposite, and the second answer is the right one.
-     *
-     * A folder's mtime moves whenever anything inside it changes. So subfolders of a tracked
-     * place churn constantly, every one of them claims to be new, and in a list of [SHOWN] rows
-     * they push out the actual arrivals. What he originally wanted - noticing a whole extracted
-     * archive, or a folder pushed over Nearby - is served better by tracking that place
-     * recursively, which lists the files that arrived rather than the box they came in.
-     *
-     * @param depth bounded, because a tracked root plus recursion is otherwise a full crawl on
-     *   every Home refresh, and Home is the first screen after launch.
-     */
-    private suspend fun collect(dir: VPath, recursive: Boolean, depth: Int, into: MutableList<FeedItem>) {
-        val kids = runCatching { vfs.list(dir) }.getOrNull() ?: return
-        for (k in kids) {
-            if (k.hidden) continue
-            if (k.isDir) {
-                // Descend when asked, but never list the folder itself as an arrival. A folder
-                // that is separately tracked is skipped so its files are not collected twice.
-                if (recursive && depth < MAX_DEPTH && !tracked.contains(k.path)) {
-                    collect(k.path, true, depth + 1, into)
-                }
-                continue
-            }
-            // NO provenance lookup here. That is the whole difference between this being
-            // instant and taking minutes: a Screenshots folder can hold 1700 files, and asking
-            // the bridge where each one came from is 1700 suspend calls to build a list that
-            // shows eight rows. Origins are resolved in `publish`, for the rows that survive.
-            into += FeedItem(k, k.mtime, origin = null)
-        }
-    }
-
-    private companion object {
+    companion object {
+        /** The Home card's rows. */
         const val SHOWN = 8
 
+        /** One query's worth. Two thousand rows of a sorted, indexed column is milliseconds. */
+        const val PAGE = 2_000
+
         /**
-         * How long one tracked folder gets before this pass gives up on it.
-         *
-         * This is for the BACKGROUND pass, and it is deliberately generous: a real folder on
-         * this phone holds 1700 screenshots and listing it through the VFS is seconds, not
-         * milliseconds. 2.5 seconds was tried first and was worse than no timeout - it killed
-         * the listing of the one folder the user actually cared about.
-         *
-         * Nothing waits on this any more. A new file reaches the feed through the watcher's
-         * single stat; this deadline only stops an unreachable remote from stalling a pass.
+         * At most this many rows held. Ten thousand rows is a few megabytes; past it the date
+         * jump answers with a range query instead of more paging.
          */
-const val FOLDER_TIMEOUT_MS = 12_000L
-        /** Deep enough for `Download/Telegram/x`, shallow enough not to be a crawl. */
-        const val MAX_DEPTH = 3
+        const val MAX_HELD = 10_000
+
+        /** Quiet time before a change is re-queried. */
+        const val SETTLE_MS = 2_000L
+
+        /**
+         * Preference keys the retired tracked-folder feature wrote. Removed once, so a phone that
+         * used it does not carry a list and a store that nothing reads any more.
+         */
+        val RETIRED_KEYS = listOf(
+            "tracked.folders", "tracked.seeded", "tracked.prunedRemotes", "tracked.seededCommon",
+            "home.firstSeen.v4", "home.feed.v1",
+        )
+
+        fun forgetRetired(prefs: Prefs) {
+            // putString(null) is a remove, whatever type the key was written with - two of these
+            // were booleans.
+            for (k in RETIRED_KEYS) runCatching { prefs.putString(k, null) }
+        }
+    }
+}
+
+/** The paging decisions, pure, so the order and the cap are tests rather than hopes. */
+object NewFilesPaging {
+
+    /** Where the next page starts, or null when there is none to load. */
+    fun nextOffset(loaded: Int, exhausted: Boolean, cap: Int): Int? =
+        if (exhausted || loaded >= cap) null else loaded
+
+    /**
+     * A new page after what is loaded. Offsets move when files arrive between two pages, so a
+     * row can appear in both; it is kept once, in its first position. Never re-sorted here - the
+     * database's order is the order.
+     */
+    fun merge(loaded: List<FeedItem>, page: List<FeedItem>): List<FeedItem> {
+        if (page.isEmpty()) return loaded
+        val seen = HashSet<VPath>(loaded.size + page.size)
+        val out = ArrayList<FeedItem>(loaded.size + page.size)
+        for (i in loaded) if (seen.add(i.node.path)) out += i
+        for (i in page) if (seen.add(i.node.path)) out += i
+        return out
     }
 }

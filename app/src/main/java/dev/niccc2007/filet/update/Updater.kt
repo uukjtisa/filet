@@ -118,8 +118,11 @@ object Updater {
      */
     @Volatile private var downloaded: File? = null
 
-    /** The version running right now. */
-    val installed: Version get() = Version.parse(BuildConfig.VERSION_NAME)
+    /** The version running right now, or the debug override - see [UpdateGate.installedFor]. */
+    val installed: Version get() = UpdateGate.installedFor(Version.parse(BuildConfig.VERSION_NAME), pretend, BuildConfig.DEBUG)
+
+    /** Set by [UpdateGate.prepare] in a debug build only. */
+    @Volatile var pretend: String? = null
 
     /**
      * The newest release on the channel, newer than installed or not.
@@ -143,11 +146,7 @@ object Updater {
                     .filter { !it.optBoolean("draft", false) }
                     .filter { includePreRelease || !it.optBoolean("prerelease", false) }
                     .map { it.toRelease() }
-                    // This repository publishes two release lines - see ReleaseTags. Without
-                    // this filter the desktop tool's tag parses as a higher version, wins, and
-                    // the phone is offered an update whose release carries no APK at all.
-                    .filter { ReleaseTags.isApp(it.tag) }
-                    .maxByOrNull { it.version }
+                    .let { ReleaseTags.newestApp(it) }
             }
         }
 

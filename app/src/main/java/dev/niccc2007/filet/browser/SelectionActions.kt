@@ -14,9 +14,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
  * once, here, with no Compose in it, and both renderings are just paint over it. Adding an
  * action means adding one entry and it appears in both.
  *
- * The list is also why the menu can be honest about *why* something is unavailable. A phone has
- * no hover, so a greyed-out row with no explanation leaves somebody pressing a dead control and
- * guessing; every blocked action carries the sentence it answers with.
+ * The list is also where it is decided which rows exist at all for a selection - see
+ * [selectionActions] for the rule. A row that is shown but blocked carries the sentence it
+ * answers with, because a phone has no hover and a greyed row with no reason is a guess.
  */
 data class SelectionAction(
     val id: String,
@@ -34,20 +34,73 @@ data class SelectionAction(
 }
 
 /**
- * Every selection action, in order, with its blocked reason already resolved.
+ * What a selection is made of, for deciding which actions mean anything.
  *
- * @param count how many items are selected.
+ * Counted once from the nodes and passed in, so every gate below is decided synchronously and
+ * from the same facts: a row that appeared a moment after the menu opened, because its answer
+ * needed a disk read, would be worse than a row that is greyed.
+ */
+data class SelectionShape(
+    val count: Int,
+    /** How many are folders. */
+    val folders: Int = 0,
+    /** How many the player can open: audio and video. */
+    val playable: Int = 0,
+    /** How many a gallery or music app could index: pictures, video and audio. */
+    val media: Int = 0,
+) {
+    /** How many are files rather than folders. */
+    val files: Int get() = count - folders
+
+    companion object {
+        fun of(nodes: List<dev.niccc2007.filet.vfs.VNode>): SelectionShape {
+            var folders = 0
+            var playable = 0
+            var media = 0
+            for (n in nodes) {
+                val kind = FileKind.of(n)
+                if (kind == FileKind.FOLDER) folders++
+                if (kind == FileKind.AUDIO || kind == FileKind.VIDEO) playable++
+                if (kind == FileKind.AUDIO || kind == FileKind.VIDEO || kind == FileKind.IMAGE) media++
+            }
+            return SelectionShape(nodes.size, folders, playable, media)
+        }
+
+        /** [count] plain files, none of them media. What a caller with no nodes in hand means. */
+        fun files(count: Int) = SelectionShape(count)
+    }
+}
+
+/**
+ * Every selection action that means something for this selection, in order.
+ *
+ * ## The rule: absent when meaningless, blocked only when temporarily impossible
+ *
+ * A row that can never act on what is selected is not shown. "Add to playlist" on a PDF,
+ * "Rename" on five files and "Extract" on a photo are not unavailable - they mean nothing, and a
+ * greyed row is a control somebody presses to learn it does nothing. So each row has a gate
+ * deciding whether it exists, and only a reason that a different moment could fix (a read-only
+ * volume) leaves a row present and blocked.
+ *
+ * This replaced the earlier rule, "disabled, never hidden", which kept the menu one length for
+ * every selection. That bought a stable list at the price of a playlist and a queue row on every
+ * document, every archive and every folder in the app, each one answering a press with a
+ * sentence about why it would not work. A list that changes length with the selection is the
+ * cost of a list where every row does something.
+ *
+ * ## Mixed selections
+ *
+ * A row that applies to SOME of the selection is shown and says how many it will act on - "Add
+ * to playlist · 11 of 12" for eleven songs and a screenshot. Hiding it there would make a
+ * mostly-music selection lose its music actions to one stray file; showing it unqualified would
+ * claim the screenshot goes in too.
+ *
  * @param readOnly why the volume cannot be written to, or null.
- * @param archive true when the selection is exactly one archive Filet can read. The extract
- *   rows are absent rather than blocked when it is false - "Extract" on a photo is not a thing
- *   that is unavailable, it is a thing that makes no sense, and blocking it would fill the menu
- *   with sentences nobody needs.
+ * @param archive true when the selection is exactly one archive Filet can read.
  * @param otherPane true when the view is split, so there is another pane to extract into.
- * @param picking true when Filet is running as another app's file picker. Delete is dropped:
- *   somebody who reached this screen through a chooser came to CHOOSE a file, and a destructive
- *   action one tap from the one they meant is a screen failing them rather than a mistake they
- *   made. Everything non-destructive stays, because a picker that cannot even show properties
- *   is a worse file manager than the one it replaced.
+ * @param picking true while a pick is live. Delete is dropped: somebody who came to CHOOSE a file
+ *   should not have a destructive action one tap from the one they meant.
+ * @param announceable the selection is on this device's own storage, so the media index can hold it.
  */
 fun selectionActions(
     count: Int,
@@ -59,70 +112,51 @@ fun selectionActions(
     picking: Boolean = false,
     installable: Boolean = false,
     hasMetadata: Boolean = false,
-    /** The selection is on this device's own storage, so the media index can hold it. */
     announceable: Boolean = false,
-    /**
-     * Everything selected is something the player can open.
-     *
-     * A playlist of PDFs is a list of rows that can never do anything, so the two playback
-     * actions are BLOCKED with a reason rather than hidden: hidden, somebody who selected
-     * eleven songs and one screenshot would wonder why the app had changed its mind.
-     */
-    playable: Boolean = false,
+    shape: SelectionShape = SelectionShape.files(count),
 ): List<SelectionAction> {
-    val single = count == 1
-    // Written out rather than inlined three times: these two sentences are the whole of what a
-    // user gets told, and having one copy of each is how they stay consistent.
-    val needsOne = if (single) null else "Pick one file — this works on a single file"
-    val needsOneName = if (single) null else "Pick one file — rename takes one name at a time"
-    val needsOneInfo = if (single) null else "Pick one file — details describe one file"
-    val notPlayable = if (playable) null else "Only music and video can go in a playlist"
+    val single = shape.count == 1
+    val oneFile = single && shape.files == 1
+
+    /** "Label · 3 of 5" when a row acts on only part of the selection. */
+    fun partOf(label: String, n: Int): String = if (n < shape.count) "$label · $n of ${shape.count}" else label
 
     return buildList {
+        // Copy and Move apply to anything that can be selected.
         add(SelectionAction("copy", "Copy", icons.copy, run = on.copy))
         add(SelectionAction("move", "Move", icons.cut, blocked = readOnly, run = on.move))
-        add(SelectionAction("send", "Send", icons.share, run = on.send))
-        // Install, and this row is the whole fix for "there's no way to get to that install
-        // it part". A `.xapk` opens the archive browser when tapped, so the APK inspector -
-        // the only other place Install lived - was unreachable for exactly the formats that
-        // needed it. Absent rather than blocked for anything that is not a package: "Install"
-        // on a photo is not unavailable, it is meaningless.
+        // Send hands FILES to another app; a folder cannot be handed over and is skipped.
+        if (shape.files > 0) {
+            add(SelectionAction("send", partOf("Send", shape.files), icons.share, run = on.send))
+        }
+        // Install: one package. A `.xapk` opens the archive browser when tapped, so this row is
+        // the only route to installing one.
         if (single && installable) {
             add(SelectionAction("install", "Install", icons.apk, run = on.install))
         }
-        // Absent rather than blocked for a format nothing can read: "Metadata" on a file that has
-        // none is not unavailable, it is meaningless - the same rule Install follows two lines up.
+        // Metadata: one file in a format the writer can read.
         if (single && hasMetadata) {
             add(SelectionAction("metadata", "Metadata", icons.cog, run = on.metadata))
         }
-        // Add to gallery, when the selection is on this phone's own storage.
-        //
-        // Filet announces everything it writes, so this is not usually needed - it is for
-        // the files that got onto the phone some OTHER way and are invisible to every gallery
-        // and music player as a result. Android has not background-scanned storage for years,
-        // so a file nothing announced simply is not in MediaStore, and the only way back in
-        // is somebody asking.
-        //
-        // Absent rather than blocked off-device, on the same rule Install and Metadata
-        // follow: a file on a share cannot be in this phone's media index, so the action is
-        // not unavailable there, it is meaningless.
-        if (announceable) {
+        // Add to gallery: pictures, video and audio on this phone's own storage. Filet announces
+        // what it writes; this is for files that arrived some other way and that no gallery or
+        // music app can see. A document or a file on a share has no place in the media index.
+        if (announceable && shape.media > 0) {
             add(
                 SelectionAction(
-                    "gallery", "Add to gallery", icons.star,
+                    "gallery", partOf("Add to gallery", shape.media), icons.star,
                     group = SelectionAction.Group.PLACE, run = on.announce,
                 ),
             )
         }
+        // Compress takes files and folders alike.
         add(
             SelectionAction(
                 "compress", "Compress", icons.zip,
                 blocked = readOnly, group = SelectionAction.Group.EDIT, run = on.compress,
             ),
         )
-        // The three destinations, next to Compress because they are its other direction. Each
-        // opens the same preview; the only difference is where it is aimed. Present only for an
-        // archive, because that is the only selection for which any of them means anything.
+        // The three extract destinations: one archive.
         if (archive) {
             add(
                 SelectionAction(
@@ -132,7 +166,7 @@ fun selectionActions(
             )
             add(
                 SelectionAction(
-                    "extractto", "Extract to\u2026", icons.open,
+                    "extractto", "Extract to…", icons.open,
                     group = SelectionAction.Group.EDIT, run = on.extractTo,
                 ),
             )
@@ -145,39 +179,50 @@ fun selectionActions(
                 )
             }
         }
-        add(
-            SelectionAction(
-                "rename", "Rename", icons.rename,
-                blocked = readOnly ?: needsOneName,
-                group = SelectionAction.Group.EDIT, run = on.rename,
-            ),
-        )
-        add(
-            SelectionAction(
-                "openwith", "Open with", icons.open,
-                blocked = needsOne, group = SelectionAction.Group.EDIT, run = on.openWith,
-            ),
-        )
-        add(
-            SelectionAction(
-                "playlist", "Add to playlist", icons.audio,
-                blocked = notPlayable,
-                group = SelectionAction.Group.EDIT, run = on.addToPlaylist,
-            ),
-        )
-        add(
-            SelectionAction(
-                "queue", "Add to queue", icons.rows,
-                blocked = notPlayable,
-                group = SelectionAction.Group.EDIT, run = on.enqueue,
-            ),
-        )
-        add(
-            SelectionAction(
-                "details", "Details", icons.info,
-                blocked = needsOneInfo, group = SelectionAction.Group.EDIT, run = on.details,
-            ),
-        )
+        // Rename: one item, file or folder. Blocked rather than absent on a read-only volume,
+        // because that is the place, not the selection, and moving the file elsewhere fixes it.
+        if (single) {
+            add(
+                SelectionAction(
+                    "rename", "Rename", icons.rename,
+                    blocked = readOnly, group = SelectionAction.Group.EDIT, run = on.rename,
+                ),
+            )
+        }
+        // Open with: one FILE. A folder opens as a folder; there is nothing to choose.
+        if (oneFile) {
+            add(
+                SelectionAction(
+                    "openwith", "Open with", icons.open,
+                    group = SelectionAction.Group.EDIT, run = on.openWith,
+                ),
+            )
+        }
+        // Playlist and queue: the tracks in the selection, and nothing else.
+        if (shape.playable > 0) {
+            add(
+                SelectionAction(
+                    "playlist", partOf("Add to playlist", shape.playable), icons.audio,
+                    group = SelectionAction.Group.EDIT, run = on.addToPlaylist,
+                ),
+            )
+            add(
+                SelectionAction(
+                    "queue", partOf("Add to queue", shape.playable), icons.rows,
+                    group = SelectionAction.Group.EDIT, run = on.enqueue,
+                ),
+            )
+        }
+        // Details describe one item, file or folder.
+        if (single) {
+            add(
+                SelectionAction(
+                    "details", "Details", icons.info,
+                    group = SelectionAction.Group.EDIT, run = on.details,
+                ),
+            )
+        }
+        // Bookmark and Nearby take any number of files and folders.
         add(
             SelectionAction(
                 "bookmark", "Bookmark", icons.star,
@@ -190,14 +235,17 @@ fun selectionActions(
                 group = SelectionAction.Group.PLACE, run = on.nearby,
             ),
         )
-        add(
-            SelectionAction(
-                "shortcut", "Shortcut", icons.home,
-                group = SelectionAction.Group.PLACE, run = on.shortcut,
-            ),
-        )
-        // Last, and on its own, because it is the one that cannot be undone - which is also
-        // why it is absent entirely while picking rather than merely blocked.
+        // A home-screen shortcut points at one thing.
+        if (single) {
+            add(
+                SelectionAction(
+                    "shortcut", "Shortcut", icons.home,
+                    group = SelectionAction.Group.PLACE, run = on.shortcut,
+                ),
+            )
+        }
+        // Last and on its own, because it cannot be undone - which is also why it is absent
+        // entirely while picking rather than merely blocked.
         if (!picking) {
             add(
                 SelectionAction(

@@ -25,6 +25,14 @@ class PlayerFaceTest {
     }
 
     @Test
+    fun `a renamed face keeps everybody who had picked it`() {
+        // The disc face was stored as "aurora" before it was Halo. Falling back to the default
+        // here would silently reset every one of those choices.
+        assertEquals(PlayerFace.HALO, PlayerFace.of("aurora"))
+        assertEquals("halo", PlayerFace.HALO.id)
+    }
+
+    @Test
     fun `every face round-trips through its stored id`() {
         for (face in PlayerFace.entries) assertEquals(face, PlayerFace.of(face.id))
     }

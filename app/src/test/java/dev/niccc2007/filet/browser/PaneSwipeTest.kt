@@ -98,4 +98,43 @@ class PaneSwipeTest {
         assertNull(PaneSwipe.nextTab(0, -1, 1))
         assertNull(PaneSwipe.nextTab(0, 1, 0))
     }
+
+    private val slop = 20f
+    private val undecided = PaneSwipe.Owner.UNDECIDED
+
+    @Test
+    fun `a sideways drag nothing inside took is the tab swipe`() {
+        assertEquals(PaneSwipe.Owner.TABS, PaneSwipe.owner(undecided, dx = -24f, dy = 3f, slop = slop, consumed = false))
+    }
+
+    @Test
+    fun `a sideways drag a chip row took stays with the chip row`() {
+        // The defect: scrolling the Home categories also changed tab.
+        assertEquals(PaneSwipe.Owner.CHILD, PaneSwipe.owner(undecided, dx = -24f, dy = 3f, slop = slop, consumed = true))
+    }
+
+    @Test
+    fun `nothing is decided inside the slop`() {
+        assertEquals(undecided, PaneSwipe.owner(undecided, dx = -12f, dy = 4f, slop = slop, consumed = true))
+    }
+
+    @Test
+    fun `a drag that started as a scroll never becomes a tab swipe`() {
+        assertEquals(PaneSwipe.Owner.CHILD, PaneSwipe.owner(undecided, dx = 8f, dy = 22f, slop = slop, consumed = true))
+        // And the decision holds: swinging sideways afterwards changes nothing.
+        assertEquals(
+            PaneSwipe.Owner.CHILD,
+            PaneSwipe.owner(PaneSwipe.Owner.CHILD, dx = -200f, dy = 22f, slop = slop, consumed = false),
+        )
+    }
+
+    @Test
+    fun `a swipe that has started keeps it when the list below claims the drift`() {
+        // The vertical list consumes once a swipe drifts a slop up or down. Re-reading that
+        // would take a diagonal swipe away halfway through.
+        assertEquals(
+            PaneSwipe.Owner.TABS,
+            PaneSwipe.owner(PaneSwipe.Owner.TABS, dx = -90f, dy = 30f, slop = slop, consumed = true),
+        )
+    }
 }

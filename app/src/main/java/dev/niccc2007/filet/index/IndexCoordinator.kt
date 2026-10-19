@@ -75,7 +75,7 @@ class IndexCoordinator(
     fun onStart(roots: List<VPath>) {
         if (!prefs.indexEnabled.value) return
         scheduleMaintenance()
-        scheduleWakeOnMediaChange()
+        cancelWakeOnMediaChange(context)
         scope.launch {
             // Let the UI settle before touching the disk at all.
             delay(2_500)
@@ -282,7 +282,9 @@ class IndexCoordinator(
     fun setEnabled(enabled: Boolean, roots: List<VPath>) {
         if (enabled) {
             scheduleMaintenance()
-            scheduleWakeOnMediaChange()
+            // Tier 2 is retired, and an install that armed it still has it armed - so
+            // turning the index on is also a chance to cancel it. See MediaChangeJobService.
+            cancelWakeOnMediaChange(context)
         } else {
             WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
             cancelWakeOnMediaChange(context)
@@ -296,7 +298,13 @@ class IndexCoordinator(
             .setConstraints(
                 Constraints.Builder()
                     .setRequiresBatteryNotLow(true)
-                    .setRequiresCharging(false)
+                    // On charge only. The pass is two minutes of walking every root, which
+                    // on Android 11+ is media-provider CPU because shared storage is a FUSE
+                    // mount it serves - and on charge that costs the battery nothing. The
+                    // cost of this choice: on a phone never charged long enough for
+                    // WorkManager to run it, this tier never runs, and the index is kept
+                    // fresh by the launch pass and the read-path checks alone.
+                    .setRequiresCharging(true)
                     .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
                     .build()
             )
@@ -306,14 +314,33 @@ class IndexCoordinator(
     }
 
     /**
-     * Tier 2: let the OS tell us when media changed.
+     * RETIRED. Tier 2 - wake on a MediaStore change - and why it must not come back.
      *
-     * `TriggerContentUri` costs nothing while nothing happens - no process, no wakelock, no
-     * alarm. It only covers what MediaStore knows about, which is why it is a *hint* that
-     * schedules a crawl rather than a source of truth.
+     * On Android 11 and later shared storage is a FUSE mount served by the media provider, so
+     * every listdir and stat performed under `/storage/emulated` is media-provider CPU. This job
+     * was armed on `MediaStore.Files` with `NOTIFY_FOR_DESCENDANTS`, so ANY media change
+     * anywhere on the phone - another app's download, a messenger receiving a photo - woke a
+     * twenty-second crawl of every root, in the background, which re-armed itself, with the
+     * index on by default. Not a leak and not a loop: a standing cost proportional to
+     * everything else the phone does, billed to a system process. It showed as "Media picker"
+     * taking most of a day's battery.
+     *
+     * **What retiring it loses**, stated so the trade is not rediscovered as a bug: the index is
+     * not refreshed while the app is closed, so the first search after a long absence can miss
+     * files that arrived meanwhile. The freshness stack covers it at no standing cost - a
+     * directory whose mtime has not moved is skipped and one whose mtime HAS moved is re-read
+     * (`SqliteIndex`'s `dirMtime` check), navigating into a folder indexes it
+     * (`indexFolderNow`), search asks `generationsFor` before trusting a hit, and the launch
+     * pass updates what changed. A stale result after a long absence is the visible symptom of
+     * this decision, NOT a bug to fix by re-arming a background trigger.
+     *
+     * `rearmMediaTrigger` is kept as a CANCEL so a build that armed the job unschedules it
+     * rather than leaving it live, and `MediaChangeJobService` stays declared so an
+     * already-armed job resolves and cancels itself instead of failing to bind.
      */
-    fun rearmMediaTrigger() = scheduleWakeOnMediaChange()
+    fun rearmMediaTrigger() = cancelWakeOnMediaChange(context)
 
+    @Suppress("UnusedPrivateMember")
     private fun scheduleWakeOnMediaChange() {
         val js = context.getSystemService(JobScheduler::class.java) ?: return
         val info = JobInfo.Builder(JOB_MEDIA_CHANGE, ComponentName(context, MediaChangeJobService::class.java))
@@ -386,17 +413,12 @@ class MediaChangeJobService : JobService() {
     private var work: Job? = null
 
     override fun onStartJob(params: JobParameters?): Boolean {
-        val graph = FiletApp.graphOf(applicationContext)
-        if (!graph.prefs.indexEnabled.value) return false
-        work = graph.scope.launch {
-            val roots = runCatching { graph.vfs.roots().map { it.path } }.getOrElse { emptyList() }
-            if (roots.isNotEmpty()) runCatching { graph.index.crawl(roots, budgetMs = 20_000) }
-            jobFinished(params, false)
-        }
-        // Re-arm: a TriggerContentUri job fires once and must be scheduled again to keep
-        // listening. Forgetting this is why most implementations "stop working after a day".
-        graph.indexCoordinator.rearmMediaTrigger()
-        return true
+        // Retired - see IndexCoordinator.rearmMediaTrigger for the whole reasoning. Every
+        // MediaStore change on the phone became a twenty-second walk of every root, in the
+        // background, served by the media provider. This cancels itself, so an install that
+        // armed the job stops being woken by it.
+        IndexCoordinator.cancelWakeOnMediaChange(applicationContext)
+        return false
     }
 
     override fun onStopJob(params: JobParameters?): Boolean {

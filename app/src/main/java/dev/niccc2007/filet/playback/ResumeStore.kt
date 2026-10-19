@@ -1,6 +1,9 @@
 package dev.niccc2007.filet.playback
 
 import android.content.Context
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -14,9 +17,6 @@ import org.json.JSONObject
  * ninety-minute film and a two-hour mix are both things you come back to, and coming back to
  * the start of one is the difference between a media app and a preview pane.
  *
- * Asked for as issue #6, in those terms: a way to resume audio and video after the app has
- * been closed, with somewhere to see what was playing.
- *
  * ## What is stored, and what deliberately is not
  *
  * One row per track: where it was, how long it is, and when. No artwork, no waveform, no beat
@@ -28,15 +28,47 @@ import org.json.JSONObject
  * one state where "resume" has no meaning, and an entry that offers to resume the last two
  * seconds of a track you have already heard is worse than no entry.
  *
+ * ## Who writes
+ *
+ * Two players, and both must. The shared player (`Playback`) writes while it plays and on
+ * pause. The video screen owns its own `MediaPlayer` and never went through that path at all -
+ * which is why a video quit halfway was never recorded. It writes through [put] with
+ * `settled = true` when it pauses, closes, or the app leaves the foreground.
+ *
+ * ## Telling the list
+ *
+ * Bug identified here: the Carry on list re-read only when a view-model counter was bumped, and
+ * nothing that WROTE a position bumped it - only the list's own buttons and a pull-to-refresh
+ * did. A position written a moment ago was on disk and not on screen until something unrelated
+ * recomposed the pane, which presented as entries taking a while to appear. The store now says
+ * when it changed, through [changes], so every writer is covered without knowing the list
+ * exists.
+ *
+ * [changes] moves when the SET of rows changes, or when a write is marked settled - a pause, a
+ * stop, a close. It does not move for the periodic write while something plays: that would
+ * re-read the list every five seconds for as long as anything played with the pane open, a
+ * standing cost for a percentage nobody is watching move.
+ *
+ * Rows are held in memory after the first read, so neither a read nor a write re-parses the
+ * JSON.
+ *
  * ## Its own file
  *
- * Not in `Prefs`. This is a log that turns over constantly - a write every few seconds while
- * anything is playing - and putting that in the same file as the settings means every settings
- * read contends with it, and a corrupt write takes the settings with it.
+ * Not in `Prefs`. This turns over constantly while anything plays, and putting that in the same
+ * file as the settings means every settings read contends with it, and a corrupt write takes
+ * the settings with it.
  */
 class ResumeStore private constructor(context: Context) {
 
     private val sp = context.getSharedPreferences("filet.resume", Context.MODE_PRIVATE)
+
+    /** The parsed rows, newest first, or null before the first read. Guarded by `this`. */
+    private var rows: List<Point>? = null
+
+    private val _changes = MutableStateFlow(0)
+
+    /** Moves when the list should be re-read. See the note on the class. */
+    val changes: StateFlow<Int> = _changes.asStateFlow()
 
     /**
      * One place to come back to.
@@ -57,44 +89,75 @@ class ResumeStore private constructor(context: Context) {
         val at: Long,
     )
 
-    /** Newest first, which is the only order this list is ever wanted in. */
-    fun all(): List<Point> = parse(sp.getString(KEY, null)).sortedByDescending { it.at }
+    private fun current(): List<Point> =
+        rows ?: parse(sp.getString(KEY, null)).sortedByDescending { it.at }.also { rows = it }
 
-    fun positionOf(path: String): Long? =
-        all().firstOrNull { it.path == path }?.positionMs?.takeIf { it > 0L }
+    /** Newest first, which is the only order this list is ever wanted in. */
+    fun all(): List<Point> = synchronized(this) { current() }
+
+    fun pointOf(path: String): Point? = all().firstOrNull { it.path == path }
+
+    fun positionOf(path: String): Long? = pointOf(path)?.positionMs?.takeIf { it > 0L }
 
     /**
      * Write where a track got to, or forget it if there is nothing worth coming back to.
      *
      * The judgement is [worthKeeping] and it is pure, because "worth coming back to" is the
-     * only decision here that can be wrong in a way nobody notices - an entry for the first
-     * three seconds of every track anybody ever tapped would fill the list with noise, and a
-     * missing entry for the film somebody watched most of is the bug this exists to fix.
+     * only decision here that can be wrong in a way nobody notices.
+     *
+     * @param settled true for a write made because playback STOPPED - a pause, a close, the app
+     *   going to the background. That is the moment the list should show it, so [changes]
+     *   moves. The periodic write while playing passes false.
      */
-    fun put(path: String, title: String, video: Boolean, positionMs: Long, durationMs: Long) {
-        val rows = parse(sp.getString(KEY, null)).filterNot { it.path == path }
-        if (!worthKeeping(positionMs, durationMs)) {
-            // Rewritten WITHOUT it rather than left alone: a track played to its end should
-            // lose the stale position it had from the last time round.
-            save(rows)
-            return
+    fun put(
+        path: String,
+        title: String,
+        video: Boolean,
+        positionMs: Long,
+        durationMs: Long,
+        settled: Boolean = false,
+    ) {
+        synchronized(this) {
+            val before = current()
+            val had = before.any { it.path == path }
+            val others = before.filterNot { it.path == path }
+            if (!worthKeeping(positionMs, durationMs)) {
+                // Rewritten WITHOUT it rather than left alone: a track played to its end should
+                // lose the stale position it had from the last time round.
+                if (had) {
+                    save(others)
+                    _changes.value++
+                }
+                return
+            }
+            save(others + Point(path, title, video, positionMs, durationMs, System.currentTimeMillis()))
+            if (!had || settled) _changes.value++
         }
-        val now = System.currentTimeMillis()
-        save(rows + Point(path, title, video, positionMs, durationMs, now))
     }
 
     fun forget(path: String) {
-        save(parse(sp.getString(KEY, null)).filterNot { it.path == path })
+        synchronized(this) {
+            val before = current()
+            if (before.none { it.path == path }) return
+            save(before.filterNot { it.path == path })
+            _changes.value++
+        }
     }
 
     fun clear() {
-        sp.edit().remove(KEY).apply()
+        synchronized(this) {
+            rows = emptyList()
+            sp.edit().remove(KEY).apply()
+            _changes.value++
+        }
     }
 
-    private fun save(rows: List<Point>) {
+    /** Caller holds `this`. */
+    private fun save(list: List<Point>) {
         // Newest kept, oldest dropped. Sorted before the cut, or a long sitting adds rows at
         // the end of the array and the cut takes the ones somebody is most likely to want.
-        val keep = rows.sortedByDescending { it.at }.take(KEEP)
+        val keep = list.sortedByDescending { it.at }.take(KEEP)
+        rows = keep
         val out = JSONArray()
         for (r in keep) {
             out.put(
@@ -107,6 +170,8 @@ class ResumeStore private constructor(context: Context) {
                     .put("w", r.at),
             )
         }
+        // apply(), not commit(): the write is handed to the platform's own background writer,
+        // so a pause on the main thread costs a map update and nothing on the disk.
         sp.edit().putString(KEY, out.toString()).apply()
     }
 
@@ -146,7 +211,7 @@ class ResumeStore private constructor(context: Context) {
          */
         const val KEEP = 120
 
-        /** Below this, nothing was listened to - it was a tap and a change of mind. */
+        /** Below this, nothing was watched - it was a tap and a change of mind. */
         const val MIN_IN_MS = 10_000L
 
         /**
@@ -158,18 +223,28 @@ class ResumeStore private constructor(context: Context) {
          */
         const val MIN_LEFT_MS = 20_000L
 
+        /** Shorter than this, nothing is kept: a clip that short is watched again, not resumed. */
+        const val MIN_LENGTH_MS = 15_000L
+
         /**
          * Whether a position is worth coming back to.
          *
-         * Pure, and the one judgement in this file. A duration of zero means the length was
-         * never known - a stream, or a header that would not parse - and those are kept on the
-         * strength of the position alone, because the alternative is forgetting the one case
-         * where somebody most wants to be remembered.
+         * A duration of zero means the length was never known - a stream, or a header that
+         * would not parse - and those are kept on the strength of the position alone.
+         *
+         * Bug identified here: the thresholds were fixed, so a clip under forty seconds could
+         * never be kept at its halfway point - ten seconds in and twenty from the end cannot
+         * both hold. Each is now also capped at a share of the length: a tenth to count as
+         * started, a twentieth to count as finished. A film still needs ten seconds in and
+         * twenty left; a forty-second clip needs four in and two left; halfway through anything
+         * of [MIN_LENGTH_MS] or more is kept.
          */
         fun worthKeeping(positionMs: Long, durationMs: Long): Boolean {
-            if (positionMs < MIN_IN_MS) return false
-            if (durationMs <= 0L) return true
-            return positionMs < durationMs - MIN_LEFT_MS
+            if (durationMs <= 0L) return positionMs >= MIN_IN_MS
+            if (durationMs < MIN_LENGTH_MS) return false
+            val minIn = minOf(MIN_IN_MS, durationMs / 10)
+            val minLeft = minOf(MIN_LEFT_MS, durationMs / 20)
+            return positionMs >= minIn && positionMs < durationMs - minLeft
         }
 
         @Volatile private var instance: ResumeStore? = null
@@ -179,7 +254,7 @@ class ResumeStore private constructor(context: Context) {
          *
          * A second instance would be a second view of the same file with its own idea of
          * what is in it, and two of those writing a few seconds apart is how a position gets
-         * lost. The player writes and the list reads, so they have to be the same object.
+         * lost. Both players write and the list reads, so they have to be the same object.
          */
         fun of(context: Context): ResumeStore =
             instance ?: synchronized(this) {

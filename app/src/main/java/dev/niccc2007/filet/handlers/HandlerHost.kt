@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
@@ -66,14 +67,35 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
         content()
 
         val r = request
+        val parked = vm.inAppPick.collectAsState().value != null
         if (r != null) {
-            BackHandler(enabled = true) { vm.closeHandler() }
+            BackHandler(enabled = !parked) { vm.closeHandler() }
+            ParkWhilePicking(parked)
+            // Parked, not removed, while a pick it started is running in the browser.
+            //
+            // A viewer that asks for a file - the metadata writer wanting cover art - has to get
+            // out of the way of the browser, and closing it would throw away everything typed
+            // into it. So it stays COMPOSED, keeping every `remember`, but is laid out at zero
+            // size (nothing to see, nothing to touch) and its back handlers are pointed at a
+            // dispatcher nobody calls, so back cancels the pick instead of reaching a hidden
+            // "discard changes?". The tree is the same shape parked or not; only the modifier and
+            // the provided value change, which is what keeps the state.
             Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-                    .swallowPointers(),
+                if (parked) {
+                    Modifier.requiredSize(0.dp)
+                } else {
+                    Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                        .swallowPointers()
+                },
             ) {
+                val parkedBack = rememberParkedBackOwner()
+                val liveBack = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.activity.compose.LocalOnBackPressedDispatcherOwner provides
+                        (if (parked || liveBack == null) parkedBack else liveBack),
+                ) {
                 when (r.handler) {
                     HandlerId.TEXT -> TextEditorScreen(vm, r.node)
                     HandlerId.IMAGE -> ImageViewerScreen(vm, r.node)
@@ -87,6 +109,7 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
                     HandlerId.DOC -> dev.niccc2007.filet.docs.DocumentScreen(vm, r.node)
                     HandlerId.WEB -> dev.niccc2007.filet.docs.HtmlScreen(vm, r.node)
                     else -> Unit
+                }
                 }
             }
         }
@@ -305,6 +328,40 @@ private fun Modifier.swallowPointers(): Modifier = this.pointerInput(Unit) {
                 kind == androidx.compose.ui.input.pointer.PointerEventType.Press ||
                     kind == androidx.compose.ui.input.pointer.PointerEventType.Release
             if (worthEating) event.changes.forEach { if (!it.isConsumed) it.consume() }
+        }
+    }
+}
+
+/**
+ * What parking does beyond hiding: take focus off whatever had it.
+ *
+ * A focused text field keeps its caret blinking - a frame every half second for as long as it
+ * holds focus - and keeps the keyboard up over the picker. Clearing focus stops both. Nothing
+ * else in the viewers that can start a pick (the metadata writer, the code editor) animates
+ * while idle: their only progress indicators are shown while a file is loading, which is over
+ * before any of their buttons can be pressed.
+ */
+@Composable
+private fun ParkWhilePicking(parked: Boolean) {
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val view = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.LaunchedEffect(parked) {
+        if (!parked) return@LaunchedEffect
+        focus.clearFocus(force = true)
+        // The code editor is an Android view inside Compose, and Compose's focus manager does
+        // not reach a view's own focus.
+        view.findFocus()?.clearFocus()
+    }
+}
+
+/** A back dispatcher nobody calls, for a parked viewer's back handlers to register with. */
+@Composable
+private fun rememberParkedBackOwner(): androidx.activity.OnBackPressedDispatcherOwner {
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    return remember(owner) {
+        object : androidx.activity.OnBackPressedDispatcherOwner {
+            override val onBackPressedDispatcher = androidx.activity.OnBackPressedDispatcher()
+            override val lifecycle: androidx.lifecycle.Lifecycle get() = owner.lifecycle
         }
     }
 }

@@ -288,10 +288,13 @@ fun MoreMenu(
     }
     val homeFolder by vm.prefs.homeFolder.collectAsState()
     val colors = Filet.colors
-    val tracked by vm.tracked.paths.collectAsState()
     val selection = pane.selectedNodes()
     val inFolder = s.kind == PaneKind.FOLDER && s.cwd != null
-    val bookmarked = s.cwd?.let { vm.bookmarks.contains(it) } == true
+    // "This folder" is the folder being acted in - the open branch in tree mode, else the path
+    // bar's. Bug identified here: these read `cwd`, which in tree mode is the volume root, so
+    // "Bookmark this folder" and "Set as home" pinned the root of the drive instead.
+    val here = s.target
+    val bookmarked = here?.let { vm.bookmarks.contains(it) } == true
 
     // Read-only locations - an archive, an APK - refuse every write at the provider. Dropping
     // the write entries here is what keeps the refusal out of an error message, and the note
@@ -356,24 +359,16 @@ fun MoreMenu(
             Item(
                 if (bookmarked) FiletIcons.StarFilled else FiletIcons.Star,
                 if (bookmarked) "Remove bookmark" else "Bookmark this folder",
-            ) { onDismiss(); s.cwd?.let { vm.toggleBookmark(it) } }
-            val isTracked = s.cwd in tracked
-            Item(
-                FiletIcons.Clock,
-                if (isTracked) "Stop tracking this folder" else "Track this folder",
-            ) {
-                onDismiss()
-                s.cwd?.let { if (isTracked) vm.tracked.remove(it) else vm.tracked.add(it) }
-            }
+            ) { onDismiss(); here?.let { vm.toggleBookmark(it) } }
             // Home can be this folder instead of the overview. The reminder that it is
             // reversible fires once in the app's life and names where to reverse it.
-            val isHome = s.cwd?.toString() != null && s.cwd.toString() == homeFolder
+            val isHome = here != null && here.toString() == homeFolder
             Item(
                 FiletIcons.Home,
                 if (isHome) "Stop using this as Home" else "Set as home",
             ) {
                 onDismiss()
-                s.cwd?.let { vm.setHomeFolder(if (isHome) null else it) }
+                here?.let { vm.setHomeFolder(if (isHome) null else it) }
             }
             if (vm.canPaste()) {
                 Item(FiletIcons.Paste, "Paste here") { onDismiss(); vm.paste() }

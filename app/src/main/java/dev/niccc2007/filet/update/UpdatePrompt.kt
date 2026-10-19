@@ -97,19 +97,34 @@ fun shouldPrompt(
     state: ReminderState,
     now: Long,
     launchId: Long = 0L,
-): Boolean {
-    if (state.notificationsOff) return false
-    if (available <= installed) return false
+): Boolean = promptGate(available, installed, state, now, launchId) == null
+
+/**
+ * Which rule stops [available] being offered, or null when nothing does.
+ *
+ * The same rules as [shouldPrompt], which is now defined through this, so the reason that gets
+ * logged and the decision that gets made cannot drift apart. A bare boolean is what let a
+ * correct "nothing newer" and a broken check look identical from outside for nine releases.
+ */
+fun promptGate(
+    available: Version,
+    installed: Version,
+    state: ReminderState,
+    now: Long,
+    launchId: Long = 0L,
+): Gate? {
+    if (state.notificationsOff) return Gate.NOTIFICATIONS_OFF
+    if (available <= installed) return Gate.NOT_NEWER
 
     val version = available.toString()
     // Both silences are scoped to the version they were made about. A postponement of 0.2.0
     // says nothing about 0.3.0 - see the file comment.
-    if (state.skippedVersion == version) return false
-    if (state.silencedVersion != version) return true
-    if (now < state.silencedUntil) return false
+    if (state.skippedVersion == version) return Gate.SKIPPED
+    if (state.silencedVersion != version) return null
+    if (now < state.silencedUntil) return Gate.POSTPONED
     // "Later", said during this same run of the app.
-    if (launchId != 0L && state.silencedLaunch == launchId) return false
-    return true
+    if (launchId != 0L && state.silencedLaunch == launchId) return Gate.LATER_THIS_RUN
+    return null
 }
 
 /**
@@ -118,8 +133,8 @@ fun shouldPrompt(
  * ## Why a deliberate launch ignores the interval
  *
  * Reported as the update notice never appearing any more, even on opening the app fresh - and
- * the interval is most of why. Filet holds a foreground service while music plays and keeps
- * watching tracked folders, so its PROCESS routinely lives for days; the check runs on resume
+ * the interval is most of why. Filet holds a foreground service while music plays or a share
+ * is hosted, so its PROCESS routinely lives for days; the check runs on resume
  * and is then throttled to twelve hours, which means somebody who opens the app ten times a
  * day is told at most twice and never at a moment they would connect with having opened it.
  *

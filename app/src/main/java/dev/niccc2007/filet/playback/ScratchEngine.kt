@@ -74,12 +74,17 @@ class ScratchEngine(private val context: Context, private val uri: Uri) {
     val speedNow: Float get() = lastStep
 
     /**
-     * Read the track. False means it cannot be scratched, and the caller goes back to
+     * Get the track's buffer. False means it cannot be scratched, and the caller goes back to
      * seeking - an effect that takes the sound away when it cannot work is worse than no
      * effect.
+     *
+     * Returns once the header is read, not once the track is decoded: the buffer fills from
+     * just behind [aroundMs] outward while the finger is already moving, and frames not yet
+     * written play as silence. See [TrackPcm.live]. This used to await the whole decode, which
+     * was the wait between touching the disc and hearing anything.
      */
     suspend fun open(aroundMs: Long): Boolean {
-        val loaded = TrackPcm.of(context, uri) ?: return false
+        val loaded = TrackPcm.live(context, uri, aroundMs) ?: return false
         pcm = loaded
         atMs = aroundMs.toDouble()
         targetMs = aroundMs.toDouble()

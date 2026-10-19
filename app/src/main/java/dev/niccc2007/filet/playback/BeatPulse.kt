@@ -29,8 +29,8 @@ import kotlinx.coroutines.delay
  * @param swing the same punch measured against what this track has been doing LATELY, so it
  *   is signed: negative in the gaps, positive on a hit, and averaging about zero. See
  *   [beatSwing].
- * @param blast the wave's amplitude: fast to rise, slow to fall, and zero through anything
- *   that is not a rise. See [WAVE_ATTACK_MS].
+ * @param blast the wave's amplitude: instant to rise, quick to fall, and zero through anything
+ *   that is not a rise. See [WAVE_RELEASE_MS].
  * @param shock a rare impulse, 1 the moment a hit lands well above this track's own normal
  *   and 0 by [SHOCK_MS] later. Nothing else fires it; it is what makes a big beat read as an
  *   impact rather than as a bigger wobble.
@@ -68,13 +68,32 @@ class BeatSignal internal constructor(
  * What remains genuinely unknowable is a Bluetooth earbud's own pipeline, and that is one
  * constant with its reasoning written beside it rather than a control. See
  * [BeatLatency.A2DP_MS].
+ *
+ * ## Cost model
+ *
+ * - **Trigger:** a map exists, [on], [playing], the Activity is on screen and the OS animation
+ *   switch is on - see [shouldAnimate]. The loop exists only while all of those hold. It used
+ *   to run whenever a map and the switch were there, so it stepped through every pause and,
+ *   because `delay` is not the frame clock, through every minute of screen-off playback.
+ * - **Rate:** `PlayerDials.pulseFps` - 60 Hz on a capable phone, 40 and 30 below. Each step is
+ *   one `positionNow()` (a JNI call into the player, no binder), two array reads in the map,
+ *   one [BeatFollower.step] (a handful of `exp`s) and five float state writes.
+ * - **Allocates:** nothing per step. The diagnostics line is built only in a debug build, once
+ *   every [LOG_EVERY_MS].
+ * - **Invalidates:** the draw phase of every surface reading a signal, never a composition.
+ *
+ * Paused or out of sight, the five outputs go to rest (zero swing is the glow's resting
+ * level) and the follower keeps its gain and floor, so resuming carries on from the track's
+ * own measured range instead of re-learning it.
  */
 @Composable
 fun rememberBeatSignal(
     beats: BeatMap?,
     playback: Playback,
     on: Boolean,
-    /** How readily a rise counts as a beat. See `Prefs.pulseSense`. */
+    /** Whether the player is playing. A paused track has no beat to follow. */
+    playing: Boolean,
+    /** How readily a rise counts as a beat. Fixed at [PULSE_SENSE]. */
     sensitivity: Float = 1f,
 ): BeatSignal {
     val level = remember { mutableFloatStateOf(0f) }
@@ -93,13 +112,23 @@ fun rememberBeatSignal(
      * is an object now, and the object is testable without a phone. See [BeatFollower].
      */
     val follower = remember { BeatFollower() }
+    // Remembered, like the follower, so a stall that spans a restart of the loop below is
+    // still measured from the last real step rather than reset to nothing.
+    val watch = remember { DropoutWatch() }
     val animated = rememberSystemAnimations()
+    val onScreen = rememberOnScreen()
+    val fps = rememberPlayerDials().pulseFps
     val context = LocalContext.current
-    val live = on && animated && beats != null && !beats.empty
+    val wanted = on && beats != null && !beats.empty
+    val live = wanted && shouldAnimate(onScreen, playing, animated)
 
-    LaunchedEffect(live, beats, sensitivity) {
+    LaunchedEffect(live, wanted, beats, sensitivity, fps) {
         if (!live) {
-            follower.reset()
+            // Switched off or no map: forget the track. Merely paused or out of sight: keep
+            // what the follower has learned about it, and only put the outputs at rest.
+            if (!wanted) follower.reset()
+            // Not stepping here is deliberate, so it must not later read as a stall.
+            watch.rest()
             level.floatValue = 0f
             swing.floatValue = 0f
             blast.floatValue = 0f
@@ -121,7 +150,9 @@ fun rememberBeatSignal(
         var stampedAt = android.os.SystemClock.elapsedRealtime()
         var at = stampedAt
         var sinceLog = 0f
-        while (true) {
+        dev.niccc2007.filet.log.FiletLog.count("beat.restart")
+        val ticking = dev.niccc2007.filet.log.FiletLog.loop("beat.follower", 1000L / fps)
+        try { while (true) {
             val state = playback.state.value
             val now = android.os.SystemClock.elapsedRealtime()
             // ASK THE PLAYER, and only fall back to the flow when there is no answer. The flow
@@ -163,6 +194,33 @@ fun rememberBeatSignal(
             val loudNow = if (!state.playing) 0f else map.levelAt(readAt)
 
             follower.step(raw, loudNow, gap)
+            ticking.tick()
+
+            // ── the drop-out, measured rather than argued about ──
+            //
+            // Reported three times as the pulse vanishing for moments. Three causes are
+            // possible and they look identical on screen: the loop stopped stepping, the map had
+            // nothing for where the track was, or hits arrived and the follower flattened them.
+            // [DropoutWatch] tells them apart from the numbers of the quiet stretch itself and
+            // writes one line naming which, plus a counter per cause in the periodic stats.
+            val dropped = watch.step(
+                now = now,
+                pastMap = covered > 0L && ear >= covered,
+                raw = raw,
+                loud = loudNow,
+                blast = follower.blast,
+                swing = follower.swing,
+            )
+            if (dropped != null) {
+                dev.niccc2007.filet.log.FiletLog.count("beat.dropout." + dropped.cause.tag)
+                dev.niccc2007.filet.log.FiletLog.i("beat") {
+                    "pulse dropped for ${dropped.quietMs}ms: ${dropped.cause} " +
+                        "(longest gap ${dropped.longestGapMs}ms, past map ${dropped.pastMapMs}ms, " +
+                        "max raw %.2f, mean loud %.2f, map %dms, ear %dms) ".format(
+                            dropped.maxRaw, dropped.meanLoud, covered, ear,
+                        ) + follower.describe()
+                }
+            }
 
             level.floatValue = follower.level
             swing.floatValue = follower.swing
@@ -174,17 +232,162 @@ fun rememberBeatSignal(
             // this can then carry numbers rather than adjectives, which is the difference
             // between fixing it and guessing at it twice more.
             sinceLog += gap
-            if (sinceLog >= LOG_EVERY_MS) {
+            if (DEBUG_LOG && sinceLog >= LOG_EVERY_MS) {
                 sinceLog = 0f
                 dev.niccc2007.filet.data.Diag.log(
                     "beat",
                     "at=${readAt}ms raw=%.2f ".format(raw) + follower.describe(),
                 )
             }
-            delay(1000L / PULSE_FPS)
+            delay(1000L / fps)
+        } } finally {
+            ticking.close()
         }
     }
     return signal
+}
+
+/**
+ * Why the pulse went flat, from the numbers of the flat stretch. Pure; see [classifyDropout].
+ */
+enum class DropoutCause(val tag: String) {
+    /** The follower did not step: a gap between steps long enough to see. */
+    STALLED("stalled"),
+
+    /** The position was past the end of the map for most of it - the map was still partial. */
+    PAST_MAP("past-map"),
+
+    /** The music was audible and the map had no onsets for it. */
+    EMPTY_MAP("empty-map"),
+
+    /** Onsets were read and the follower's output stayed flat anyway: gain or mean. */
+    FLATTENED("flattened"),
+
+    /** The music itself was quiet. Not a fault. */
+    QUIET("quiet"),
+}
+
+/**
+ * The verdict for one flat stretch. Pure, and ordered: a stall explains everything after it,
+ * and a missing map explains an empty reading, so those are checked first.
+ */
+fun classifyDropout(
+    quietMs: Long,
+    longestGapMs: Long,
+    pastMapMs: Long,
+    maxRaw: Float,
+    meanLoud: Float,
+): DropoutCause = when {
+    longestGapMs >= STALL_MS -> DropoutCause.STALLED
+    pastMapMs * 2 >= quietMs -> DropoutCause.PAST_MAP
+    maxRaw >= HIT_RAW -> DropoutCause.FLATTENED
+    meanLoud >= AUDIBLE -> DropoutCause.EMPTY_MAP
+    else -> DropoutCause.QUIET
+}
+
+/** A gap between steps this long is a stall: four or more missed steps even at 30 Hz. */
+const val STALL_MS = 150L
+
+/** An onset strength this high, read during a flat stretch, is a hit the follower swallowed. */
+const val HIT_RAW = 0.15f
+
+/** And a mean loudness this high is music that ought to have had something in it. */
+const val AUDIBLE = 0.25f
+
+/** How long the output has to be flat to count as the pulse dropping out. */
+const val DROPOUT_MS = 1200L
+
+/**
+ * Watches the follower's output for flat stretches and names their cause.
+ *
+ * One flat stretch is one report, written when the stretch ends (or, for a stall, the moment
+ * the late step arrives). Allocates only on a report.
+ */
+class DropoutWatch {
+    class Report(
+        val cause: DropoutCause,
+        val quietMs: Long,
+        val longestGapMs: Long,
+        val pastMapMs: Long,
+        val maxRaw: Float,
+        val meanLoud: Float,
+    )
+
+    private var lastAt = -1L
+    private var quietMs = 0L
+    private var longestGap = 0L
+    private var pastMs = 0L
+    private var maxRaw = 0f
+    private var loudSum = 0f
+    private var loudN = 0
+
+    /** Not stepping on purpose - paused, hidden or switched off. The next step starts fresh. */
+    fun rest() {
+        lastAt = -1L
+        clear()
+    }
+
+    /**
+     * One step of the follower at [now] (milliseconds, any monotonic clock). Returns a report
+     * when a flat stretch of at least [DROPOUT_MS] has just ended, or a stall has just ended.
+     */
+    fun step(
+        now: Long,
+        pastMap: Boolean,
+        raw: Float,
+        loud: Float,
+        blast: Float,
+        swing: Float,
+    ): Report? {
+        val gap = if (lastAt < 0L) 0L else (now - lastAt).coerceAtLeast(0L)
+        lastAt = now
+        if (gap >= STALL_MS) {
+            // The output could not have moved while nothing was stepping, so the stall IS the
+            // drop-out, whatever the music was doing.
+            val report = Report(DropoutCause.STALLED, quietMs + gap, gap, pastMs, maxRaw, meanLoud())
+            clear()
+            return report
+        }
+        val flat = blast < FLAT_BLAST && swing <= FLAT_SWING
+        if (flat) {
+            quietMs += gap
+            if (gap > longestGap) longestGap = gap
+            if (pastMap) pastMs += gap
+            if (raw > maxRaw) maxRaw = raw
+            loudSum += loud
+            loudN++
+            return null
+        }
+        if (quietMs < DROPOUT_MS) {
+            clear()
+            return null
+        }
+        val report = Report(
+            classifyDropout(quietMs, longestGap, pastMs, maxRaw, meanLoud()),
+            quietMs, longestGap, pastMs, maxRaw, meanLoud(),
+        )
+        clear()
+        return report
+    }
+
+    private fun meanLoud(): Float = if (loudN == 0) 0f else loudSum / loudN
+
+    private fun clear() {
+        quietMs = 0L
+        longestGap = 0L
+        pastMs = 0L
+        maxRaw = 0f
+        loudSum = 0f
+        loudN = 0
+    }
+
+    private companion object {
+        /** Below this the wave is not visibly out. */
+        const val FLAT_BLAST = 0.03f
+
+        /** And at or below this the glow is not above its resting level. */
+        const val FLAT_SWING = 0.02f
+    }
 }
 
 /**
@@ -266,17 +469,17 @@ const val MIN_SPAN = 0.12f
 const val LOUD_MS = 260f
 
 /**
- * How fast the wave arrives, in milliseconds.
+ * How fast the wave falls back after a hit, in milliseconds - an exponential time constant.
  *
- * Forty. An attack is twenty, so this is as fast as it can be without being a step change -
- * and the asymmetry against [WAVE_RELEASE_MS] is the whole effect. Equal times give a ripple
- * that is always half way through something; fifteen times slower coming down gives a wave
- * that snaps out and then unwinds.
+ * Bug identified here: the wave rose on a 40 ms linear chase and fell over 600 ms. A hit is one
+ * 20 ms bucket, so the chase reached under half of the target before the hit had passed and the
+ * peak landed late and low; the 600 ms tail then outlived the gap to the next beat at most
+ * tempos, so consecutive hits merged into one long swell. That is the "weak wave" - it was
+ * never allowed to be sharp. Now the rise is instant (the wave jumps to the hit on the step it
+ * is read) and the fall is a 160 ms exponential: 95 percent gone in under half a second, so each
+ * beat is its own burst with dark between them.
  */
-const val WAVE_ATTACK_MS = 40f
-
-/** And how slowly it unwinds. */
-const val WAVE_RELEASE_MS = 600f
+const val WAVE_RELEASE_MS = 160f
 
 /**
  * How much of the swing the wave takes.
@@ -301,6 +504,9 @@ const val SHOCK_MS = 520f
  * catches only its tail - the difference between a punch and a gentle swell. It is above the
  * glow's own 15fps on purpose: the drift is a forty-second ellipse and does not need the
  * frames, the beat does, and only this state ticks at this rate.
+ *
+ * This is the capable tier's rate. Below it the follower steps at 40 or 30 - see
+ * `PlayerDials.pulseFps` for why 30 still cannot step over an onset.
  */
 const val PULSE_FPS = 60L
 
@@ -356,3 +562,11 @@ internal fun swingIsBalanced(samples: FloatArray): Boolean = abs(averageSwing(sa
 
 /** How often the follower writes a line to the diagnostics, in milliseconds. */
 const val LOG_EVERY_MS = 4000f
+
+/**
+ * Whether the follower's periodic line is built at all.
+ *
+ * `Diag.log` returns early in a release build, but the line handed to it was formatted first -
+ * a `String.format` and a string concatenation every few seconds for a log nobody would see.
+ */
+private val DEBUG_LOG = dev.niccc2007.filet.BuildConfig.DEBUG

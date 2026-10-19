@@ -184,6 +184,81 @@ object TreeRows {
     }
 
     /**
+     * The open folds that actually draw under [root], shallowest first.
+     *
+     * ## Why `open` is not already this
+     *
+     * Folds outlive navigation on purpose: walk out of a folder and back in, and the branches
+     * you had open are still open. So `open` routinely holds folds belonging to folders the
+     * pane is not showing, and folds under a parent that has since been closed by something
+     * other than [toggle]. A fold draws only if its parent is [root] itself or a fold that
+     * draws - which is the rule [flatten] applies implicitly, written down once here so the
+     * three things that need it agree with the renderer:
+     *
+     *  - which branches to read again after a refresh or a re-list, since reading folds that
+     *    cannot be seen costs a directory read each for nothing;
+     *  - which branches to read after a tab comes back from disk, which arrives with folds and
+     *    no listings for them;
+     *  - which folds are worth saving at all.
+     *
+     * Shallowest first, so any prefix of the answer is itself a tree that draws - a capped save
+     * never keeps a child whose parent was cut.
+     */
+    fun visibleFolds(root: VPath, open: Set<VPath>): List<VPath> {
+        val out = LinkedHashSet<VPath>()
+        val byDepth = open
+            .filter { it.scheme == root.scheme && it != root && root.contains(it) }
+            .sortedWith(compareBy({ it.segments.size }, { it.path }))
+        for (fold in byDepth) {
+            val parent = fold.parent ?: continue
+            if (parent == root || parent in out) out.add(fold)
+        }
+        return out.toList()
+    }
+
+    /**
+     * The folds a tab writes to disk, so it comes back from a restart as it was left.
+     *
+     * Bug identified here: the tab record held a kind and a path and nothing else, so a tab
+     * restored after the process was killed came back as a flat folder with every fold shut -
+     * which is the one state a tree used across several tabs most needs to survive, since the
+     * process is killed behind the user's back rather than closed by them.
+     *
+     * Only the folds that draw, and at most [cap] of them, shallowest first. Writing every fold
+     * ever opened in the tab would grow the record without bound and restore reads for
+     * branches nobody can see.
+     */
+    fun foldsToSave(root: VPath?, open: Set<VPath>, cap: Int = MAX_SAVED_FOLDS): List<VPath> =
+        if (root == null) emptyList() else visibleFolds(root, open).take(cap)
+
+    /**
+     * Whether every fold that draws under [root] has had something read back for it.
+     *
+     * A reveal in a tree cannot use "the listing has finished" as its signal for giving up: the
+     * target lives inside a branch, and the pane's own listing finishes long before the branch
+     * that holds the target has been read. Giving up at that moment is how a jump to a folder
+     * deep in a volume opened the tree down to it and then left it scrolled out of sight.
+     */
+    fun foldsRead(root: VPath, open: Set<VPath>, branches: Map<VPath, List<VNode>>): Boolean =
+        visibleFolds(root, open).all { it in branches }
+
+    /**
+     * Where [target] sits in a flattened tree, or -1.
+     *
+     * A placeholder row carries its parent's node, so a plain search for the path lands on the
+     * "Reading…" or "Nothing here" row under the folder rather than on the folder's own row
+     * whenever the placeholder happens to be found first. It never is today, because the folder
+     * row always comes before its placeholder - but the reveal scrolls to whatever this returns,
+     * and a rule that is right only because of the order rows are emitted in is one reorder away
+     * from scrolling to the wrong row.
+     */
+    fun revealIndex(rows: List<TreeRow>, target: VPath): Int =
+        rows.indexOfFirst { it.node.path == target && !it.loading && !it.empty }
+
+    /** How many folds a tab keeps across a restart. See [foldsToSave]. */
+    const val MAX_SAVED_FOLDS = 64
+
+    /**
      * How deep the tree will go.
      *
      * A guard, not a feature. Nothing stops somebody opening their way down a symlinked loop

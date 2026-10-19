@@ -35,8 +35,9 @@ class ScratchTest {
     }
 
     @Test
-    fun `a track with no duration yet cannot be scratched into nonsense`() {
-        assertEquals(0L, Scratch.seekTo(5_000L, 180f, 0L))
+    fun `a track with no duration yet holds the drag where it was, never at zero`() {
+        // This assertion used to expect 0, which pinned the snap-to-start in place.
+        assertEquals(5_000L, Scratch.seekTo(5_000L, 180f, 0L))
     }
 
     @Test

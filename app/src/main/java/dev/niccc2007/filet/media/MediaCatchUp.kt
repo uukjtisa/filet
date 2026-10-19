@@ -111,6 +111,12 @@ object MediaCatchUp {
      * @param limit a ceiling on one pass. A device that has never been scanned could otherwise
      *   hand the scanner tens of thousands of files at once; the remainder is picked up by the
      *   next sweep, because the ones already done stop being missing.
+     * @param maxFolders a ceiling on the WALK, which [limit] is not. On a device already in step
+     *   nothing is ever found, so a limit on finds never stops the walk and the pass reads every
+     *   folder on the phone - each listing a request to the media provider, which serves shared
+     *   storage on Android 11 and later. Four thousand folders is a large photo library's worth;
+     *   a later pass starts from the roots again, which is acceptable for a sweep whose only job
+     *   is the stragglers.
      * @return how many were announced.
      */
     suspend fun sweep(
@@ -118,15 +124,22 @@ object MediaCatchUp {
         vfs: Vfs,
         roots: List<VPath>,
         limit: Int = 2_000,
+        maxFolders: Int = 4_000,
     ): Int {
+        // Only while somebody is looking. This queries the whole of MediaStore and walks the
+        // disk; behind a foreground service, nobody is waiting for the result.
+        if (!MediaAnnounce.visible()) return 0
         val known = knownToMediaStore(context)
         val found = ArrayList<VPath>()
+        val budget = intArrayOf(maxFolders)
         for (root in roots) {
-            if (found.size >= limit) break
-            walk(vfs, root, found, limit, known)
+            if (found.size >= limit || budget[0] <= 0) break
+            walk(vfs, root, found, limit, known, budget)
         }
         if (found.isEmpty()) return 0
-        MediaAnnounce.announce(context, found)
+        // FOUND, not written: anything Filet itself wrote moments ago is still in the scanner's
+        // hands and missing from MediaStore only because the scan has not landed yet.
+        MediaAnnounce.announceFound(context, found)
         return found.size
     }
 
@@ -143,9 +156,11 @@ object MediaCatchUp {
         into: MutableList<VPath>,
         limit: Int,
         known: Set<String>,
+        budget: IntArray,
     ) {
-        if (into.size >= limit) return
+        if (into.size >= limit || budget[0] <= 0) return
         if (!worthWalking(dir.name)) return
+        budget[0]--
         val children = runCatching { vfs.list(dir) }.getOrNull() ?: return
         // A folder holding .nomedia is deliberately hidden from galleries, and that applies to
         // THIS folder and everything under it - announcing any of it would override a choice
@@ -154,7 +169,7 @@ object MediaCatchUp {
         for (child in children) {
             if (into.size >= limit) return
             if (child.isDir) {
-                walk(vfs, child.path, into, limit, known)
+                walk(vfs, child.path, into, limit, known, budget)
             } else if (isMedia(child.name) &&
                 child.path.path !in known &&
                 MediaAnnounce.worthAnnouncing(child.path)

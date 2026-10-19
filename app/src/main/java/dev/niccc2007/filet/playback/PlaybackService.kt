@@ -83,6 +83,18 @@ class PlaybackService : Service() {
     private var lastSample: Pair<android.graphics.Bitmap, ArtPalette.Result>? = null
 
     /**
+     * What the card and the session were last given, so an emission that changes nothing they
+     * show can be dropped. See `PlaybackNotice.needsRepost` for the defect this closes.
+     */
+    private var postedState: NowPlaying? = null
+    private var postedArt: android.graphics.Bitmap? = null
+    private var metaState: NowPlaying? = null
+    private var metaArt: android.graphics.Bitmap? = null
+    private var sessionMs = 0L
+    private var sessionAt = 0L
+    private var sessionRate = -1f
+
+    /**
      * Pause when the sound is about to come out of the phone's own speaker.
      *
      * Reported: unplugging a wireless neckband left the music playing, out loud, on the
@@ -156,6 +168,18 @@ class PlaybackService : Service() {
         // alone is posted before there is a picture to put on it, and nothing ever posts it
         // again. The result was a shade entry that stayed blank for the whole track while the
         // player screen showed the artwork perfectly well.
+        //
+        // ## Cost model
+        //
+        // Woken by every emission of the state and the art: five times a second while playing
+        // and watched, from the position ticker, and once per real change. A position-only
+        // emission costs a comparison and an arithmetic check, and NOTHING crosses to the
+        // system - no post, no metadata, no playback state. A real change (track, play/pause,
+        // queue, repeat, art) posts the card once and sets what changed on the session. A seek
+        // republishes the playback state alone.
+        postedState = null
+        metaState = null
+        sessionRate = -1f
         watch = scope.launch {
             combine(playback.state, playback.art) { state, art -> state to art }
                 .collectLatest { (state, art) ->
@@ -165,8 +189,12 @@ class PlaybackService : Service() {
                     }
                     lastState = state
                     lastArt = art
-                    runCatching { post(state, art) }
-                    runCatching { publish(state, art) }
+                    if (PlaybackNotice.needsRepost(postedState, state) || art !== postedArt) {
+                        runCatching { post(state, art) }
+                        postedState = state
+                        postedArt = art
+                    }
+                    runCatching { publish(state, art, playback.speed.value) }
                 }
         }
 
@@ -274,10 +302,37 @@ class PlaybackService : Service() {
         tapHandler.postDelayed(run, MediaButtons.TAP_WINDOW_MS)
     }
 
-    /** Tell the system what is playing, which is what draws the lock screen and a watch face. */
-    private fun publish(state: NowPlaying, art: android.graphics.Bitmap?) {
+    /**
+     * Tell the system what is playing, which is what draws the lock screen and a watch face.
+     *
+     * Each half only when it has changed - see `PlaybackNotice.metadataChanged` and
+     * `PlaybackNotice.sessionStale`. The metadata carries the cover twice, so setting it again
+     * for nothing hands two full-size bitmaps across the binder for nothing.
+     */
+    private fun publish(state: NowPlaying, art: android.graphics.Bitmap?, speed: Float) {
         val s = session ?: return
         val track = state.current ?: return
+        if (PlaybackNotice.metadataChanged(metaState, metaArt, state, art)) {
+            publishMetadata(s, state, track, art)
+            metaState = state
+            metaArt = art
+        }
+        val now = SystemClock.elapsedRealtime()
+        val rate = if (state.playing) speed else 0f
+        if (PlaybackNotice.sessionStale(sessionMs, sessionAt, sessionRate, state.positionMs, now, rate)) {
+            publishState(s, state, rate, now)
+            sessionMs = state.positionMs
+            sessionAt = now
+            sessionRate = rate
+        }
+    }
+
+    private fun publishMetadata(
+        s: MediaSession,
+        state: NowPlaying,
+        track: Track,
+        art: android.graphics.Bitmap?,
+    ) {
         s.setMetadata(
             MediaMetadata.Builder()
                 .putString(MediaMetadata.METADATA_KEY_TITLE, track.title)
@@ -292,6 +347,9 @@ class PlaybackService : Service() {
                 .putBitmap(MediaMetadata.METADATA_KEY_ART, art)
                 .build(),
         )
+    }
+
+    private fun publishState(s: MediaSession, state: NowPlaying, rate: Float, now: Long) {
         s.setPlaybackState(
             SessionState.Builder()
                 .setActions(
@@ -301,13 +359,16 @@ class PlaybackService : Service() {
                         SessionState.ACTION_SKIP_TO_NEXT or SessionState.ACTION_SKIP_TO_PREVIOUS,
                 )
                 // The elapsed-realtime stamp is what lets the lock screen run its own clock
-                // between updates instead of ticking only when we post. Without it the position
-                // jumps forward 200 ms at a time on the lock screen and looks broken.
+                // between updates instead of ticking only when we post - which it now has to,
+                // because this is published on a change rather than on every tick.
+                //
+                // The REAL rate, not 1. A session told 1x while playing at 1.5x runs its clock a
+                // third slow, and the drift check would then correct it every two seconds.
                 .setState(
                     if (state.playing) SessionState.STATE_PLAYING else SessionState.STATE_PAUSED,
                     state.positionMs,
-                    if (state.playing) 1f else 0f,
-                    SystemClock.elapsedRealtime(),
+                    rate,
+                    now,
                 )
                 .build(),
         )
@@ -346,14 +407,20 @@ class PlaybackService : Service() {
      *
      * It also posts once more when the switch is turned OFF, so the card settles back onto
      * the artwork's own colour instead of staying wherever the drift had left it.
+     *
+     * Not with the screen off - see `PlaybackNotice.driftWanted`. The loop still wakes every
+     * [GLOW_TICK_MS] to ask, which is one boolean read per twenty seconds; the post, the build
+     * and the bitmap handed to SystemUI are what is skipped.
      */
     private suspend fun driftColour() {
         var wasOn = false
+        val power = getSystemService(android.os.PowerManager::class.java)
         while (true) {
             val prefs = runCatching { FiletApp.graphOf(applicationContext).prefs }.getOrNull()
             val on = prefs?.livingGlow?.value == true
             val playing = lastState?.playing == true
-            if ((on && playing) || (wasOn && !on)) {
+            val interactive = power?.isInteractive != false
+            if (PlaybackNotice.driftWanted(on, playing, interactive) || (wasOn && !on)) {
                 runCatching { post(lastState, lastArt) }
             }
             wasOn = on && playing

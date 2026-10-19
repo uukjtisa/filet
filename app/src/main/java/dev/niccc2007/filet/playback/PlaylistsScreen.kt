@@ -112,9 +112,11 @@ fun PlaylistsScreen(vm: BrowserViewModel, pane: PaneController) {
     val shown = open?.let { id -> lists.firstOrNull { it.id == id } }
     // Back closes the drill-down first. Without this the tab closes and the list you were
     // three rows into is gone, which is the one thing a back button must not do.
-    BackHandler(enabled = shown != null) { open = null }
+    BackHandler(enabled = shown != null || open == AllMusic.ID) { open = null }
 
-    if (shown != null) {
+    if (open == AllMusic.ID) {
+        AllMusicDetail(vm = vm, onBack = { open = null })
+    } else if (shown != null) {
         PlaylistDetail(
             vm = vm,
             list = shown,
@@ -191,6 +193,8 @@ private fun PlaylistList(
 ) {
     val colors = Filet.colors
     LazyColumn(Modifier.fillMaxSize()) {
+        // First, above Favourites: the one list that is never empty on a phone with music on it.
+        item(key = AllMusic.ID) { AllMusicRow { onOpen(AllMusic.ID) } }
         items(lists, key = { it.id }) { list ->
             // A long press on a playlist, which is where a long press goes everywhere else
             // in this app. Without it the only way to rename or delete one was to open it
@@ -363,7 +367,12 @@ private fun PlaylistDetail(
     onDelete: () -> Unit,
 ) {
     val colors = Filet.colors
-    val state by vm.playback.state.collectAsStateWithLifecycle()
+    // Without the position: this list - every row and its card lookup - recomposed five
+    // times a second off the ticker while anything played. See `Playback.status`.
+    val state by rememberStatus(vm.playback)
+    // The bars are an infinite transition, so they stop under a viewer opened over this pane
+    // as well as on pause. See [shouldAnimate].
+    val covered = vm.openRequest.collectAsStateWithLifecycle().value != null
     val cards = list.tracks.map { rememberTrackCard(vm.trackCards, it).value }
     val total = cards.sumOf { it.durationMs }
     // The colour of the list, taken from its own first cover with the same sampler the player
@@ -395,7 +404,7 @@ private fun PlaylistDetail(
                 path = path,
                 card = cards[i],
                 playing = mine && state.active,
-                sounding = mine && state.playing,
+                sounding = mine && state.playing && !covered,
                 tint = tint,
                 onPlay = { vm.playPlaylist(list.id, from = i) },
                 onUp = if (i > 0) ({ vm.playlists.move(list.id, i, i - 1) }) else null,
@@ -596,7 +605,8 @@ private fun TrackRow(
     onPlay: () -> Unit,
     onUp: (() -> Unit)?,
     onDown: (() -> Unit)?,
-    onRemove: () -> Unit,
+    /** Null where taking a track out means nothing - All Music is a query, not a list. */
+    onRemove: (() -> Unit)?,
     onAddTo: () -> Unit,
     onReveal: () -> Unit,
 ) {
@@ -709,10 +719,12 @@ private fun TrackRow(
                     text = { Text("Open containing folder", fontSize = 13.sp) },
                     onClick = { menu = false; onReveal() },
                 )
-                DropdownMenuItem(
-                    text = { Text("Take out of this playlist", fontSize = 13.sp) },
-                    onClick = { menu = false; onRemove() },
-                )
+                onRemove?.let {
+                    DropdownMenuItem(
+                        text = { Text("Take out of this playlist", fontSize = 13.sp) },
+                        onClick = { menu = false; it() },
+                    )
+                }
             }
         }
     }
@@ -790,5 +802,158 @@ private fun NameDialog(
             DlgSpacer()
             DlgBtn(confirm, kind = BtnKind.PRIMARY) { onConfirm(text) }
         }
+    }
+}
+
+// ── All Music ─────────────────────────────────────────────────────────────────
+
+/** The shelf row for the built-in list. No play button: it means nothing until it has been read. */
+@Composable
+private fun AllMusicRow(onOpen: () -> Unit) {
+    val colors = Filet.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 14.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(54.dp).clip(RoundedCornerShape(13.dp)).background(colors.accent.copy(alpha = 0.13f)),
+            contentAlignment = Alignment.Center,
+        ) { Icon(FiletIcons.Audio, null, tint = colors.accent, modifier = Modifier.size(20.dp)) }
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f)) {
+            Text(AllMusic.NAME, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp)
+            Spacer(Modifier.height(2.dp))
+            Text("Every audio file on this device", fontSize = 11.sp, color = colors.fg3)
+        }
+    }
+}
+
+/**
+ * Every audio file, sorted, played as a real queue in the order on screen.
+ *
+ * Re-read on open and whenever the sort changes - see [AllMusic] for why it is never stored.
+ */
+@Composable
+private fun AllMusicDetail(vm: BrowserViewModel, onBack: () -> Unit) {
+    val colors = Filet.colors
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var sort by remember { mutableStateOf(AllMusic.sortOf(vm.prefs)) }
+    var read by remember { mutableStateOf<Pair<dev.niccc2007.filet.home.CategoryResult, List<dev.niccc2007.filet.home.CategoryQuery.AudioRow>>?>(null) }
+    androidx.compose.runtime.LaunchedEffect(sort) {
+        read = null
+        read = dev.niccc2007.filet.home.CategoryQuery.readAudio(ctx, sort.key.name, sort.descending)
+    }
+    val state by rememberStatus(vm.playback)
+    val covered = vm.openRequest.collectAsStateWithLifecycle().value != null
+    val rows = read?.second.orEmpty()
+
+    fun playFrom(i: Int) {
+        if (rows.isEmpty()) return
+        // The queue IS the list on screen, in its sort, so Next walks the order being looked at.
+        vm.playback.play(tracksOf(rows.map { it.node }), i.coerceIn(0, rows.lastIndex), asAudio = true, from = AllMusic.NAME)
+        vm.maximisePlayer()
+    }
+
+    LazyColumn(Modifier.fillMaxSize()) {
+        item {
+            Column(Modifier.fillMaxWidth().padding(start = 6.dp, end = 14.dp, top = 6.dp, bottom = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        FiletIcons.Back, "Back to the playlists",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(40.dp).clip(CircleShape).clickable(onClick = onBack).padding(10.dp),
+                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(AllMusic.NAME, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            when {
+                                read == null -> "Reading the media index"
+                                rows.isEmpty() -> "No audio files"
+                                else -> plural(rows.size, "track", "tracks")
+                            },
+                            fontSize = 11.sp, color = colors.fg3,
+                        )
+                    }
+                    if (rows.isNotEmpty()) {
+                        ShufflePill(colors.accent) {
+                            playFrom(0)
+                            vm.playback.setShuffle(true)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            Modifier.size(38.dp).clip(CircleShape).background(colors.accent).clickable { playFrom(0) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(FiletIcons.PlaySolid, "Play All Music", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(15.dp))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                // Sideways, with a fade at the edge so the hidden chips are announced.
+                dev.niccc2007.filet.ui.HScroll(
+                    ground = MaterialTheme.colorScheme.background,
+                    contentPadding = 8.dp,
+                    spacing = 6.dp,
+                ) {
+                        for (k in MusicSortKey.entries) {
+                            val on = k == sort.key
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(if (on) colors.accent.copy(alpha = 0.18f) else colors.sunken)
+                                    .clickable {
+                                        sort = sort.pick(k)
+                                        AllMusic.saveSort(vm.prefs, sort)
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                            ) {
+                                Text(
+                                    k.label + if (on) (if (sort.descending) "  ↓" else "  ↑") else "",
+                                    fontSize = 12.sp,
+                                    color = if (on) colors.accent else MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
+                }
+            }
+        }
+        when (val r = read?.first) {
+            null -> Unit
+            dev.niccc2007.filet.home.CategoryResult.Refused -> item {
+                DlgCaption("Filet needs access to files to see the music on this device.")
+                Text(
+                    "Allow access", fontSize = 13.sp, color = colors.accent,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp).clickable { vm.requestAllFiles() },
+                )
+            }
+            is dev.niccc2007.filet.home.CategoryResult.Failed -> item { DlgCaption("The media index refused the query: ${r.reason}") }
+            dev.niccc2007.filet.home.CategoryResult.Empty -> item { DlgCaption("No audio files on this device's shared storage.") }
+            is dev.niccc2007.filet.home.CategoryResult.Found -> Unit
+        }
+        itemsIndexed(rows, key = { _, row -> row.node.path.toString() }) { i, row ->
+            val path = row.node.path
+            val mine = state.current?.id == path.toString()
+            TrackRow(
+                path = path,
+                // Per visible row: artwork for two thousand tracks is never read up front.
+                card = rememberTrackCard(vm.trackCards, path).value,
+                playing = mine && state.active,
+                sounding = mine && state.playing && !covered,
+                tint = colors.accent,
+                onPlay = { playFrom(i) },
+                onUp = null,
+                onDown = null,
+                onRemove = null,
+                onAddTo = { vm.askAddToPlaylistPath(path) },
+                onReveal = { vm.revealPathInFolder(path) },
+            )
+        }
+        if (rows.size >= dev.niccc2007.filet.home.CategoryQuery.LIMIT) {
+            item { DlgCaption("Showing the first ${rows.size} by ${sort.key.label.lowercase()}. Change the sort to reach the rest.") }
+        }
+        item { Spacer(Modifier.height(20.dp)) }
     }
 }

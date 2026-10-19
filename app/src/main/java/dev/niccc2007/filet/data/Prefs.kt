@@ -63,23 +63,7 @@ class Prefs(context: Context) {
     )
     val entry: StateFlow<EntryDisplay> = _entry.asStateFlow()
 
-    /**
-     * What dragging between panes does.
-     *
-     * Defaults to asking. The two outcomes are not equally recoverable - a copy that should have
-     * been a move leaves a duplicate to delete, while a move that should have been a copy has
-     * already taken the file off the source, which across a network may be a device nobody is
-     * holding.
-     */
-    private val _drag = MutableStateFlow(
-        enumOr(sp.getString(K_DRAG, null), dev.niccc2007.filet.browser.DragBehaviour.ASK)
-    )
-    val drag: StateFlow<dev.niccc2007.filet.browser.DragBehaviour> = _drag.asStateFlow()
 
-    fun setDrag(b: dev.niccc2007.filet.browser.DragBehaviour) {
-        _drag.value = b
-        sp.edit().putString(K_DRAG, b.name).apply()
-    }
 
     fun setEntry(d: EntryDisplay) {
         _entry.value = d
@@ -213,12 +197,6 @@ class Prefs(context: Context) {
     private val _selectionBar = MutableStateFlow(sp.getString(K_SELECTION_BAR, null))
     val selectionBar: StateFlow<String?> = _selectionBar.asStateFlow()
 
-    /**
-     * What the bottom nav bar does while a selection is running. See [NavDuringSelection] -
-     * the default hides it, because two full-height bands over the list was the fault.
-     */
-    private val _navWhileSelecting = MutableStateFlow(sp.getString(K_NAV_SELECTING, null))
-    val navWhileSelecting: StateFlow<String?> = _navWhileSelecting.asStateFlow()
 
     /**
      * Storage cards the user has hidden, by VPath.
@@ -235,13 +213,6 @@ class Prefs(context: Context) {
     private val _hiddenCards = MutableStateFlow(sp.getStringSet(K_HIDDEN_CARDS, emptySet())!!.toSet())
     val hiddenCards: StateFlow<Set<String>> = _hiddenCards.asStateFlow()
 
-    /**
-     * Hide the Termux card on Home.
-. Hidden means hidden from HOME, not switched off - the connect action stays in
-     * Settings, because an option that vanishes completely is one nobody can find again.
-     */
-    private val _hideTermux = MutableStateFlow(sp.getBoolean(K_HIDE_TERMUX, false))
-    val hideTermux: StateFlow<Boolean> = _hideTermux.asStateFlow()
 
     // ── updates ──
 
@@ -271,22 +242,7 @@ class Prefs(context: Context) {
     private val _updateLastCheckedAt = MutableStateFlow(sp.getLong(K_UPD_CHECKED, 0L))
     val updateLastCheckedAt: StateFlow<Long> = _updateLastCheckedAt.asStateFlow()
 
-    /**
-     * Whether leaving a video hands its sound to the background player.
-     *
-     * Off by default. Audio carrying on when a video screen is closed is useful for a lecture
-     * or a music video and wrong for everything else - a clip closed mid-sentence should go
-     * quiet, not follow you into the next folder. So it is a switch on the player, remembered
-     * between videos because setting it per file would make it useless for the one case it is
-     * for: a folder of talks played one after another.
-     */
-    private val _videoKeepsPlaying = MutableStateFlow(sp.getBoolean(K_VIDEO_BG, false))
-    val videoKeepsPlaying: StateFlow<Boolean> = _videoKeepsPlaying.asStateFlow()
 
-    fun setVideoKeepsPlaying(on: Boolean) {
-        _videoKeepsPlaying.value = on
-        sp.edit().putBoolean(K_VIDEO_BG, on).apply()
-    }
 
     /**
      * Uninterrupted playback: Filet takes no audio focus and yields to none.
@@ -440,10 +396,8 @@ class Prefs(context: Context) {
      * A set of ids rather than a flag each, so a new section does not need a new preference,
      * a new key and a new accessor to be foldable - it needs an id.
      *
-     * Everything is open unless it is in here, EXCEPT the ones named in `HomeFolds.SHUT`:
-     * the list of tracked folders is a settings screen that had been left lying in the
-     * middle of a feed, and on a phone watching nine folders it was most of the first
-     * screen. Which is what was reported.
+     * Everything is open unless it is in here, or named in `HomeFolds.SHUT` for a phone that
+     * has never folded anything.
      */
     private val _homeFolds = MutableStateFlow(
         sp.getString(K_HOME_FOLDS, null)?.split('|')?.filter { it.isNotBlank() }?.toSet()
@@ -458,6 +412,84 @@ class Prefs(context: Context) {
         // read back as a whole, so a delimiter nobody can type into a section id is simpler
         // and survives an export as one string.
         sp.edit().putString(K_HOME_FOLDS, next.joinToString("|")).apply()
+    }
+
+    /**
+     * Reach mode: the list and the pane's own chrome sit low enough for one thumb.
+     *
+     * Off by default, because it trades the top of the viewport for reachability and that is
+     * only a good trade for somebody who wants it.
+     *
+     * Deliberately NOT a reversal of the list. Reversing puts a tree's children above their
+     * parents and runs the guide lines upside down, and it inverts what the sort order means
+     * while leaving the sort menu saying the opposite. A gap above the first row keeps order,
+     * sort and the tree's geometry exactly as they are and still puts the rows under a thumb.
+     */
+    /**
+     * How much work the player's animation is allowed to do: `auto`, `full` or `light`.
+     *
+     * `auto` is the answer and the default. The override exists because a classifier reading
+     * RAM and core count will occasionally be wrong about a specific phone, and somebody who
+     * can see their own phone stuttering should not have to wait for the heuristic to be
+     * improved - not because turning the detail down is the fix for it being too expensive.
+     * `Tiers` holds the resolved value; see `DeviceTier.kt`.
+     */
+    private val _deviceTier = MutableStateFlow(sp.getString(K_DEVICE_TIER, "auto") ?: "auto")
+    val deviceTier: StateFlow<String> = _deviceTier.asStateFlow()
+
+    fun setDeviceTier(id: String) {
+        val v = if (id in PLAYER_TIERS) id else "auto"
+        _deviceTier.value = v
+        sp.edit().putString(K_DEVICE_TIER, v).apply()
+        dev.niccc2007.filet.playback.Tiers.override.value = v.takeIf { it != "auto" }
+    }
+
+    /**
+     * How hard the beat detector listens: which beats fire at all.
+     *
+     * Restored after being collapsed away, and the reason is worth keeping. This scales the
+     * onset strength BEFORE the follower, so it decides WHICH beats register - the follower
+     * normalises against its own floor and ceiling, so a straight gain mostly cancels out
+     * except at the clamp, where a higher value pushes medium hits past full and a lower one
+     * leaves only the hardest. `pulseDepth` scales AFTER the follower and decides how FAR the
+     * light moves on whatever did fire. Turning depth up makes hard hits bigger and leaves soft
+     * ones dark, so it cannot stand in for this - which is exactly what the collapse to one
+     * slider got wrong.
+     *
+     * Same key as before, so anybody who had tuned it gets their value back rather than a reset.
+     */
+    private val _pulseSense = MutableStateFlow(
+        // Clamped on the way IN as well, because the broken clamp above could have stored a
+        // value below the floor. A stored number is not trustworthy just because this code
+        // writes it correctly now.
+        sp.getFloat(K_PULSE_SENSE, dev.niccc2007.filet.playback.PULSE_SENSE).coerceIn(
+            dev.niccc2007.filet.playback.PULSE_SENSE_MIN,
+            dev.niccc2007.filet.playback.PULSE_SENSE_MAX,
+        ),
+    )
+    val pulseSense: StateFlow<Float> = _pulseSense.asStateFlow()
+
+    fun setPulseSense(v: Float) {
+        // Bug identified here: this clamped to 0..1 while the gain range is
+        // PULSE_SENSE_MIN..PULSE_SENSE_MAX, which is 0.4..3. `senseFor` reaches a gain of 1 at
+        // about 45% of the slider, so every position past that clamped back to 1 and the thumb
+        // refused to travel - it read as a slider that only worked for half its length. A
+        // control's clamp has to be the control's own range, never the unit interval because
+        // sliders happen to be 0..1.
+        val c = v.coerceIn(
+            dev.niccc2007.filet.playback.PULSE_SENSE_MIN,
+            dev.niccc2007.filet.playback.PULSE_SENSE_MAX,
+        )
+        _pulseSense.value = c
+        sp.edit().putFloat(K_PULSE_SENSE, c).apply()
+    }
+
+    private val _reachMode = MutableStateFlow(sp.getBoolean(K_REACH_MODE, false))
+    val reachMode: StateFlow<Boolean> = _reachMode.asStateFlow()
+
+    fun setReachMode(on: Boolean) {
+        _reachMode.value = on
+        sp.edit().putBoolean(K_REACH_MODE, on).apply()
     }
 
     /**
@@ -532,26 +564,7 @@ class Prefs(context: Context) {
         sp.edit().putBoolean(K_BEAT_PULSE, on).apply()
     }
 
-    /**
-     * How readily a rise in the music counts as a beat.
-     *
-     * A multiplier on the onset before it is clamped, so it is a GAIN rather than a
-     * threshold: turning it up does not invent beats that are not there, it brings the soft
-     * ones up the scale until they are visible. Which is the right knob - what counts as a
-     * beat differs per track far more than per person, and a threshold would have to be
-     * reset for every song.
-     */
-    private val _pulseSense = MutableStateFlow(sp.getFloat(K_PULSE_SENSE, 1f))
-    val pulseSense: StateFlow<Float> = _pulseSense.asStateFlow()
 
-    fun setPulseSense(v: Float) {
-        val c = v.coerceIn(
-            dev.niccc2007.filet.playback.PULSE_SENSE_MIN,
-            dev.niccc2007.filet.playback.PULSE_SENSE_MAX,
-        )
-        _pulseSense.value = c
-        sp.edit().putFloat(K_PULSE_SENSE, c).apply()
-    }
 
     /**
      * How far a beat may swing the glow, from its quietest to its hardest.
@@ -585,25 +598,9 @@ class Prefs(context: Context) {
         sp.edit().putFloat(K_WAVE_GAP, c).apply()
     }
 
-    /** How deep the wave's lobes are with nothing happening. Zero is flat at rest. */
-    private val _waveRest = MutableStateFlow(sp.getFloat(K_WAVE_REST, 0.10f))
-    val waveRest: StateFlow<Float> = _waveRest.asStateFlow()
 
-    fun setWaveRest(v: Float) {
-        val c = v.coerceIn(0f, 1f)
-        _waveRest.value = c
-        sp.edit().putFloat(K_WAVE_REST, c).apply()
-    }
 
-    /** And how deep they get on a full-strength beat. Zero draws no wave. */
-    private val _waveSize = MutableStateFlow(sp.getFloat(K_WAVE_SIZE, 0.5f))
-    val waveSize: StateFlow<Float> = _waveSize.asStateFlow()
 
-    fun setWaveSize(v: Float) {
-        val c = v.coerceIn(0f, 1f)
-        _waveSize.value = c
-        sp.edit().putFloat(K_WAVE_SIZE, c).apply()
-    }
 
     /**
      * There is no timing setting any more, and the key is dropped on sight.
@@ -618,6 +615,12 @@ class Prefs(context: Context) {
      */
     init {
         if (sp.contains(K_PULSE_LEAD)) sp.edit().remove(K_PULSE_LEAD).apply()
+        // The stored override has to reach `Tiers` on START, not only when the row is touched.
+        // Without this a phone set to Full or Light goes back to Automatic on every cold launch
+        // and the setting reads as doing nothing - which is the shape of bug this repo keeps
+        // finding: the control works, the state never arrives.
+        dev.niccc2007.filet.playback.Tiers.override.value =
+            _deviceTier.value.takeIf { it != "auto" }
     }
 
     /**
@@ -743,7 +746,6 @@ class Prefs(context: Context) {
     }
     fun setHideStorage(v: Boolean) { _hideStorage.value = v; sp.edit().putBoolean(K_HIDE_STORAGE, v).apply() }
 
-    fun setHideTermux(v: Boolean) { _hideTermux.value = v; sp.edit().putBoolean(K_HIDE_TERMUX, v).apply() }
 
     fun hideCard(path: String) = setHiddenCards(_hiddenCards.value + path)
 
@@ -762,10 +764,6 @@ class Prefs(context: Context) {
         sp.edit().putString(K_SELECTION_BAR, v).apply()
     }
 
-    fun setNavWhileSelecting(v: String) {
-        _navWhileSelecting.value = v
-        sp.edit().putString(K_NAV_SELECTING, v).apply()
-    }
 
     fun setNotesFraction(v: Float) { _notesFraction.value = v; sp.edit().putFloat(K_NOTES_FRACTION, v).apply() }
 
@@ -889,12 +887,10 @@ class Prefs(context: Context) {
         const val K_TAB_SIZE = "browse.tabSize"
         const val K_HIDE_STORAGE = "home.hideStorage"
         const val K_HIDDEN_CARDS = "home.hiddenCards"
-        const val K_HIDE_TERMUX = "home.hideTermux"
         // A new key rather than a reused one. The old value was MENU or BAR, which is not a
         // list of action ids, and a stored MENU read as a list normalises to the default -
         // correct, but only by accident, and it leaves a value that means nothing behind.
         const val K_SELECTION_BAR = "browse.selectionBar"
-        const val K_NAV_SELECTING = "browse.navWhileSelecting"
         const val K_NOTES_FRACTION = "update.notesFraction"
         const val K_UPD_UNTIL = "update.silencedUntil"
         const val K_E_SUB = "entry.subtitle"
@@ -908,7 +904,6 @@ class Prefs(context: Context) {
         const val K_UPD_VERSION = "update.silencedVersion"
         const val K_UPD_SKIPPED = "update.skippedVersion"
         const val K_UPD_OFF = "update.notificationsOff"
-        const val K_VIDEO_BG = "video.keepsPlaying"
         const val K_UNINTERRUPTED = "play.uninterrupted"
         const val K_PITCH_MODE = "play.pitch"
         const val K_PLAYER_FACE = "play.face"
@@ -927,14 +922,14 @@ class Prefs(context: Context) {
         const val K_DRAWER_PLACES = "drawer.places"
         const val K_HOME_FOLDS = "home.folds"
         const val K_TREE_VIEW = "view.tree"
+        const val K_REACH_MODE = "view.reachMode"
+        const val K_DEVICE_TIER = "play.deviceTier"
+        const val K_PULSE_SENSE = "play.pulseSense"
         const val K_SCRATCH = "play.scratch"
         const val K_BEAT_PULSE = "play.pulse"
-        const val K_PULSE_SENSE = "play.pulseSense"
         const val K_PULSE_DEPTH = "play.pulseDepth"
         const val K_PULSE_LEAD = "play.pulseLead"
         const val K_WAVE_GAP = "play.waveGap"
-        const val K_WAVE_SIZE = "play.waveSize"
-        const val K_WAVE_REST = "play.waveRest"
 
         const val K_UPD_CHECKED = "update.lastCheckedAt"
     }
@@ -1110,3 +1105,12 @@ class PrefsDavStore(private val prefs: Prefs) : dev.niccc2007.filet.webdav.DavSe
             ?.let { runCatching { dev.niccc2007.filet.vfs.VPath.parse(it) }.getOrNull() }
         set(value) = prefs.putString(DAV_ROOT, value?.toString())
 }
+
+/**
+ * The player-detail ids, in the order the settings row shows them.
+ *
+ * Top level rather than in `Prefs`' companion because that companion is private and holds every
+ * preference key in the app; opening it up so one screen can read one list would publish the
+ * lot. A list, not a set, because the segmented row is index-based and the order is the UI's.
+ */
+internal val PLAYER_TIERS = listOf("auto", "full", "light")

@@ -84,3 +84,9 @@ signing.properties
 # builders, and importing it writes a cache next to it.
 __pycache__/
 *.pyc
+
+# The report backend keeps its secrets out of the tree.
+report-api/node_modules/
+report-api/.vercel/
+report-api/.env
+report-api/.env*.local

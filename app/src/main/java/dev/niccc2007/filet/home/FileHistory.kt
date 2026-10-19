@@ -23,9 +23,8 @@ import java.util.TimeZone
 /** Which timestamp to sort and group by. They are genuinely different questions. */
 enum class HistorySort {
     /**
-     * When Filet first noticed the file in a tracked folder.
-     * The filesystem cannot answer this - a file copied in today can carry any mtime at all -
-     * so it is recorded once per path by [FirstSeenStore].
+     * When the file first appeared on the phone: the media index's `DATE_ADDED`, see `HomeFeed`.
+     * The filesystem cannot answer this - a file copied in today can carry any mtime at all.
      */
     FIRST_SEEN,
 
@@ -44,7 +43,7 @@ data class HistoryEntry(
     val bytes: Long,
     val firstSeen: Long,
     val lastChanged: Long,
-    /** The tracked folder it came from, for the row's second line. */
+    /** The folder it is in, or its provenance when known, for the row's second line. */
     val origin: String? = null,
 ) {
     fun timeFor(sort: HistorySort): Long =

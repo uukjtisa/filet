@@ -194,10 +194,29 @@ class BeatMap(
          * is why [onPartial] exists: the caller gets a usable map almost at once and a
          * better one as more of the track is measured.
          */
-        fun from(pcm: TrackPcm, onPartial: ((BeatMap) -> Unit)? = null): BeatMap {
+        fun from(
+            pcm: TrackPcm,
+            onPartial: ((BeatMap) -> Unit)? = null,
+            /** Frames between partial maps. See `PlayerDials.emitEvery`. */
+            emitEvery: Int = EMIT_EVERY,
+            /**
+             * Polled every [CHECK_EVERY] frames; false abandons the measurement by throwing
+             * `CancellationException`, so nothing half-measured is cached. See [CHECK_EVERY].
+             */
+            alive: () -> Boolean = { true },
+            /**
+             * Frames measured and frames in total, reported every [CHECK_EVERY] frames and once
+             * at the end. Real work done over real work to do - the figure the progress bar
+             * draws, so nothing on screen moves unless this loop has moved.
+             */
+            onProgress: ((done: Int, total: Int) -> Unit)? = null,
+        ): BeatMap {
             val hop = (pcm.rate * BUCKET_MS / 1000).toInt().coerceAtLeast(1)
             val frames = (pcm.samples.size - WINDOW) / hop
-            if (frames < WARM_UP * 2) return BeatMap(FloatArray(0), FloatArray(0), pcm.rate)
+            if (frames < WARM_UP * 2) {
+                onProgress?.invoke(1, 1)
+                return BeatMap(FloatArray(0), FloatArray(0), pcm.rate)
+            }
 
             val window = Fft.hann(WINDOW)
             val re = FloatArray(WINDOW)
@@ -209,6 +228,10 @@ class BeatMap(
             var emitAt = EMIT_FIRST
 
             for (f in 0 until frames) {
+                if (f % CHECK_EVERY == 0) {
+                    if (!alive()) throw java.util.concurrent.CancellationException("track changed")
+                    onProgress?.invoke(f, frames)
+                }
                 val at = f * hop
                 var sum = 0.0
                 for (i in 0 until WINDOW) {
@@ -234,12 +257,28 @@ class BeatMap(
                 flux.add(rise.toFloat())
 
                 if (onPartial != null && f >= emitAt) {
-                    emitAt = f + EMIT_EVERY
+                    emitAt = f + emitEvery
                     onPartial(BeatMap(onsetsOf(flux), levelsOf(energy), pcm.rate))
                 }
             }
+            onProgress?.invoke(frames, frames)
             return BeatMap(onsetsOf(flux), levelsOf(energy), pcm.rate)
         }
+
+        /**
+         * Whether [next] may replace [current] on screen.
+         *
+         * Bug identified here: the wave ran for a few seconds after a track change and then
+         * froze. The early map, measured from the decoder's first four seconds, was replaced by
+         * the full measurement's FIRST partial - which covers half a second. Past the end of a
+         * map the pulse holds its last bucket (see `rememberBeatSignal`), so from that moment
+         * the wave read one frozen value until a later partial overtook the playhead: three
+         * seconds of audio away on a capable phone, twelve on a slow one. Each partial is
+         * better measured than the last, but a map that describes LESS of the track is not an
+         * improvement to the person watching it, so coverage may only grow.
+         */
+        fun keeps(current: BeatMap?, next: BeatMap): Boolean =
+            current == null || next.coveredMs >= current.coveredMs
 
         /**
          * The analysis window.
@@ -254,8 +293,25 @@ class BeatMap(
         /** How far in the first usable map is handed over, in frames. Half a second. */
         private const val EMIT_FIRST = 25
 
-        /** And how much more between each better one. */
-        private const val EMIT_EVERY = 150
+        /**
+         * And how much more between each better one, on a capable phone.
+         *
+         * Each partial map re-normalises everything measured so far - two sorts over the
+         * whole of it - so over a track the partials cost O(n^2 / EMIT_EVERY). On a ten-minute
+         * track at 150 that is two hundred sorts of up to thirty thousand values. Below the
+         * capable tier the gap widens; see `PlayerDials.emitEvery`.
+         */
+        internal const val EMIT_EVERY = 150
+
+        /**
+         * How often the measuring loop asks whether it is still wanted. Pure arithmetic between
+         * checks; 64 frames is about a millisecond of work.
+         *
+         * Bug identified here: the loop ran inside `withContext(Default)` with no cancellation
+         * point, so skipping a track left the previous one being measured to the end - a
+         * second or two of a full core per skip, stacking on a run of skips.
+         */
+        private const val CHECK_EVERY = 64
 
         /**
          * Energy per bucket becomes "how much louder than it has been lately".
@@ -370,6 +426,40 @@ class BeatMap(
         fun cached(key: String): BeatMap? = synchronized(cache) { cache[key] }
 
         /**
+         * The finished map from memory or disk, or null. Asked BEFORE the track is decoded.
+         *
+         * Bug identified here: the lookup used to happen only after a full decode, so a track
+         * measured long ago still waited a second or more of decoding for an answer that was
+         * already on disk - and in that wait the wave ran on the four-second early map and then
+         * froze. A map that exists needs no samples at all.
+         */
+        fun stored(context: android.content.Context, stamp: String?, key: String): BeatMap? {
+            synchronized(cache) { cache[key] }?.let { return it }
+            if (stamp == null) return null
+            return AudioCache.readBeats(context, stamp)?.also { synchronized(cache) { cache[key] = it } }
+        }
+
+        /**
+         * Forget a finished map in memory, for the manual rebuild in the player's panel. The
+         * copy on disk is not deleted - the rebuild passes `fresh` to [of], which skips it, and
+         * the new measurement is written over it when it finishes. A rebuild that is cancelled
+         * part-way therefore leaves the old map in place rather than none.
+         */
+        fun forget(key: String) {
+            synchronized(cache) { cache.remove(key) }
+        }
+
+        /**
+         * The one key a map is stored and asked for under: the URI the track resolved to.
+         *
+         * One function so the two sides cannot drift again. They had: the player stored under
+         * the resolved URI and the strip asked with the track's VFS path, which never matched.
+         * The URI rather than the path because the URI is what was actually decoded - a staged
+         * copy of a remote file has a different path and the same audio.
+         */
+        fun keyFor(resolvedUri: String): String = resolvedUri
+
+        /**
          * The map for [key], measuring it from [pcm] if it has not been measured yet.
          *
          * A cache hit never calls [onPartial]: there is nothing partial about a finished
@@ -395,15 +485,14 @@ class BeatMap(
             key: String,
             pcm: TrackPcm,
             onPartial: ((BeatMap) -> Unit)? = null,
+            emitEvery: Int = EMIT_EVERY,
+            alive: () -> Boolean = { true },
+            onProgress: ((done: Int, total: Int) -> Unit)? = null,
+            /** Measure even when a finished map is stored. The manual rebuild. */
+            fresh: Boolean = false,
         ): BeatMap {
-            synchronized(cache) { cache[key] }?.let { return it }
-            if (stamp != null) {
-                AudioCache.readBeats(context, stamp)?.let {
-                    synchronized(cache) { cache[key] = it }
-                    return it
-                }
-            }
-            val built = from(pcm, onPartial)
+            if (!fresh) stored(context, stamp, key)?.let { return it }
+            val built = from(pcm, onPartial, emitEvery, alive, onProgress)
             synchronized(cache) { cache[key] = built }
             if (stamp != null) {
                 AudioCache.writeBeats(

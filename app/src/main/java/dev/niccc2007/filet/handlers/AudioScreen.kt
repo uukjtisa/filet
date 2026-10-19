@@ -1,10 +1,7 @@
 package dev.niccc2007.filet.handlers
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -42,6 +39,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -99,7 +97,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     val playback = vm.playback
-    val state by playback.state.collectAsStateWithLifecycle()
+    // Without the position - see `Playback.status`. This screen and every face under it used
+    // to recompose five times a second off the position ticker, to move one bar and two
+    // clocks. Those read [position] themselves now; everything else changes on a real event.
+    val state by dev.niccc2007.filet.playback.rememberStatus(playback)
+    val position = dev.niccc2007.filet.playback.rememberPosition(playback)
     val art by playback.art.collectAsStateWithLifecycle()
     val source by playback.source.collectAsStateWithLifecycle()
     val colors = Filet.colors
@@ -168,7 +170,9 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     var scrubTo by remember { mutableStateOf<Long?>(null) }
     var showQueue by remember { mutableStateOf(false) }
     var saveQueue by remember { mutableStateOf(false) }
-    val shownPosition = scrubTo ?: state.positionMs
+    // A function, read by the bar that draws it. See `PlayerScrub`.
+    val shownPosition: () -> Long = remember { { scrubTo ?: position.value } }
+    val queuePosition: () -> Long = remember { { position.value } }
 
     /**
      * The colour borrowed from the artwork, and the one to draw on top of it.
@@ -198,7 +202,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     /**
      * The track's samples, read once for the whole screen.
      *
-     * Hoisted out of the Aurora face, which is where it used to live - and that was why the
+     * Hoisted out of the Halo face, which is where it used to live - and that was why the
      * pulse did nothing on the other faces: the glow on all five was wired to answer a beat,
      * and only one of them ever loaded one. See `rememberTrackBeat`.
      */
@@ -207,17 +211,19 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         pulse = beatPulse,
         record = scratchAudio && face.hasDisc,
     )
-    val pulseSenseGain by vm.prefs.pulseSense.collectAsStateWithLifecycle()
     /**
      * ONE envelope for the whole screen.
      *
      * So the backdrop, the ring, the veil and the strip beat together rather than each
      * keeping its own clock a frame apart. See `rememberBeatSignal`.
      */
+    // Which beats fire. Not the same control as depth: see `PULSE_SENSE`.
+    val pulseSenseGain by vm.prefs.pulseSense.collectAsStateWithLifecycle()
     val signal = dev.niccc2007.filet.playback.rememberBeatSignal(
         beats = beat.map,
         playback = playback,
         on = beatPulse,
+        playing = state.playing,
         sensitivity = pulseSenseGain,
     )
     val beating = if (beatPulse && beat.map != null) signal else null
@@ -262,8 +268,6 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         pulseSense = dev.niccc2007.filet.playback.sensePosition(pulseSenseGain),
         pulseDepth = vm.prefs.pulseDepth.collectAsStateWithLifecycle().value,
         waveGap = vm.prefs.waveGap.collectAsStateWithLifecycle().value,
-        waveSize = vm.prefs.waveSize.collectAsStateWithLifecycle().value,
-        waveRest = vm.prefs.waveRest.collectAsStateWithLifecycle().value,
         speed = speed,
         sleepLeft = sleepLeft,
         maxSpeed = maxSpeed,
@@ -305,7 +309,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
             PlayerFace.AMBIENT -> AmbientFace(ctx)
             PlayerFace.EDITORIAL -> EditorialFace(ctx)
             PlayerFace.IMMERSIVE -> ImmersiveFace(ctx)
-            PlayerFace.AURORA -> AuroraFace(ctx)
+            PlayerFace.HALO -> HaloFace(ctx)
         }
 
         // One sheet for all four, drawn last so it is over everything. It covers rather than
@@ -329,7 +333,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
             onPick = { i -> playback.play(state.queue, i) },
             onClose = { showQueue = false },
             from = state.from.ifBlank { folderLine },
-            positionMs = state.positionMs,
+            positionMs = queuePosition,
             durationMs = state.durationMs,
             shuffle = state.shuffle,
             onShuffle = { playback.setShuffle(!state.shuffle) },
@@ -395,7 +399,7 @@ private class PlayerCtx(
     val glowStrength: Float,
     /** How much of the track one turn of the disc is worth, in milliseconds. */
     val discTurn: Float,
-    /** Aurora's two switches, read here so the overflow does not reach for the prefs. */
+    /** Halo's two switches, read here so the overflow does not reach for the prefs. */
     val scratch: Boolean,
     val pulse: Boolean,
     /** The beat itself, or null when nothing is driving it. See `BeatSignal`. */
@@ -408,8 +412,6 @@ private class PlayerCtx(
     val pulseSense: Float,
     val pulseDepth: Float,
     val waveGap: Float,
-    val waveSize: Float,
-    val waveRest: Float,
     val speed: Float,
     val sleepLeft: Int,
     val maxSpeed: Float,
@@ -418,7 +420,8 @@ private class PlayerCtx(
     val title: String,
     val sub: String,
     val folderLine: String,
-    val shownPosition: Long,
+    /** Where the playhead is drawn. Read by the bar, not by the face. See `PlayerScrub`. */
+    val shownPosition: () -> Long,
     val onScrub: (Long) -> Unit,
     val onScrubEnd: (Long) -> Unit,
     val onQueue: () -> Unit,
@@ -446,7 +449,7 @@ private fun FaceTopBar(c: PlayerCtx) {
             onProperties = { c.vm.propertiesOfTrack(c.state.current, c.node) },
             onAddToPlaylist = { c.vm.askAddToPlaylistPath(c.livePath) },
             onSaveQueue = c.onSaveQueue.takeIf { c.state.canStep },
-            // Aurora's own two, and only Aurora's. This bar is shared by the ambient faces,
+            // Halo's own two, and only Halo's. This bar is shared by the ambient faces,
             // so the gate is on the face rather than on which bar it is - and it has to be
             // here rather than on Classic's copy of the overflow, which is where they were
             // first wired and therefore where they were never seen.
@@ -460,7 +463,7 @@ private fun FaceTopBar(c: PlayerCtx) {
                 c.vm.prefs.setDiscTurnMs(dev.niccc2007.filet.playback.Scratch.turnMsFor(v))
             },
             // The glow, and the pulse underneath it. Both on every face: the glow is
-            // not Aurora's, it is behind all of them and on the strip as well.
+            // not Halo's, it is behind all of them and on the strip as well.
             glow = c.glow,
             onGlow = { c.vm.prefs.setLivingGlow(!c.glow) },
             glowStrength = c.glowStrength.takeIf { c.glow },
@@ -471,8 +474,8 @@ private fun FaceTopBar(c: PlayerCtx) {
             // decision rather than omission - see `PlayerFace.pulses`.
             pulse = c.pulse.takeIf { c.glow && c.face.pulses },
             onPulse = { c.vm.prefs.setBeatPulse(!c.pulse) }.takeIf { c.glow && c.face.pulses },
-            // Both sliders run 0 to 1 in the UI and are mapped to their real range here,
-            // so the control does not have to know what a gain of 0.4 means.
+            // The slider runs 0 to 1 and is mapped to its real gain here, so the control does
+            // not have to know what a gain of 0.4 means.
             sense = c.pulseSense.takeIf { c.glow && c.face.pulses },
             onSense = if (!c.glow || !c.face.pulses) null else { v: Float ->
                 c.vm.prefs.setPulseSense(dev.niccc2007.filet.playback.senseFor(v))
@@ -481,18 +484,11 @@ private fun FaceTopBar(c: PlayerCtx) {
             onDepth = if (!c.glow || !c.face.pulses) null else { v: Float ->
                 c.vm.prefs.setPulseDepth(v)
             },
-            // And the wave's three only where there IS a wave, which is Aurora alone.
+            // And the wave's distance only where there IS a wave, which is Halo alone. Its
+            // size and resting depth are fixed now - see `WAVE_SIZE` in PlayerFace.kt.
             waveGap = c.waveGap.takeIf { c.glow && c.face.hasWave },
             onWaveGap = if (!c.glow || !c.face.hasWave) null else { v: Float ->
                 c.vm.prefs.setWaveGap(v)
-            },
-            waveSize = c.waveSize.takeIf { c.glow && c.face.hasWave },
-            onWaveSize = if (!c.glow || !c.face.hasWave) null else { v: Float ->
-                c.vm.prefs.setWaveSize(v)
-            },
-            waveRest = c.waveRest.takeIf { c.glow && c.face.hasWave },
-            onWaveRest = if (!c.glow || !c.face.hasWave) null else { v: Float ->
-                c.vm.prefs.setWaveRest(v)
             },
         )
     }
@@ -717,6 +713,7 @@ private fun BoxScope.AmbientFace(c: PlayerCtx) {
                 bookmarked = c.bookmarked,
                 tint = c.tint,
                 onHeart = { c.vm.toggleFavourite(c.livePath) },
+                scrolling = c.state.playing,
             )
             FaceError(c)
             Spacer(Modifier.height(PlayerMetrics.SCRUB_TOP))
@@ -800,6 +797,7 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
                     bookmarked = c.bookmarked,
                     tint = c.tint,
                     onHeart = { c.vm.toggleFavourite(c.livePath) },
+                    scrolling = c.state.playing,
                 )
             }
         }
@@ -823,7 +821,7 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
     }
 }
 
-// ── E: aurora ─────────────────────────────────────────────────────────────────
+// ── E: halo ───────────────────────────────────────────────────────────────────
 
 /**
  * A drifting gradient, and the artwork as a disc that turns while it plays.
@@ -837,7 +835,7 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
  * ranged left looks like it slipped.
  */
 @Composable
-private fun BoxScope.AuroraFace(c: PlayerCtx) {
+private fun BoxScope.HaloFace(c: PlayerCtx) {
     val context = LocalContext.current
     val depth = c.pulseDepth
     // The track is read at the screen now, not here. See `rememberTrackBeat` for why: this
@@ -845,7 +843,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
     // never loaded.
     val beating = c.signal
 
-    dev.niccc2007.filet.playback.AuroraBackdrop(
+    dev.niccc2007.filet.playback.HaloBackdrop(
         base = c.tint,
         ground = MaterialTheme.colorScheme.background,
         on = c.glow,
@@ -857,16 +855,39 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
     // The turn. A full revolution every 24 seconds - a 33rpm record is 1.8, which at this
     // size is a blur and makes the artwork unreadable. This is slow enough to look still
     // until you watch it.
-    val spin = rememberInfiniteTransition(label = "disc")
-    val angle by spin.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(24_000, easing = androidx.compose.animation.core.LinearEasing),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Restart,
-        ),
-        label = "angle",
-    )
+    //
+    // It turns like a deck rather than like a clock: see [Platter]. The angle is integrated
+    // from a rate that spins up when play starts, coasts down when it stops and snaps back
+    // after a scratch, so it never jumps and never stops dead.
+    //
+    // The loop runs only while the face is on screen AND the platter is moving or being driven:
+    // once a coast-down reaches rest it ends, and nothing integrates in the background. The
+    // angle is a state read inside the graphicsLayer below, so a step redraws the layer and
+    // recomposes nothing. Rate: every display frame on a capable phone, `PlayerDials.discFps`
+    // below it - the same turn, sampled less often.
+    var scratching by remember(c.node.path) { mutableStateOf(false) }
+    val onScreen = dev.niccc2007.filet.playback.rememberOnScreen()
+    val discFps = dev.niccc2007.filet.playback.rememberPlayerDials().discFps
+    val platter = remember { Platter() }
+    val discAngle = remember { mutableFloatStateOf(0f) }
+    val playingNow = c.state.playing
+    LaunchedEffect(onScreen, playingNow, scratching, discFps) {
+        if (!onScreen) return@LaunchedEffect
+        if (scratching) {
+            // The hand has it. The motor's part stops; the finger's turn is `scratched`.
+            platter.grab()
+            return@LaunchedEffect
+        }
+        var last = withFrameNanos { it }
+        while (true) {
+            if (discFps > 0L) delay(1000L / discFps)
+            val now = withFrameNanos { it }
+            val moving = platter.step((now - last) / 1_000_000_000f, playingNow)
+            last = now
+            discAngle.floatValue = platter.angle
+            if (!moving) break
+        }
+    }
     // Coasts rather than stopping dead. A disc that halts the instant the sound does reads as
     // a dropped frame; one that eases out reads as a platter.
     val turning by animateFloatAsState(
@@ -874,8 +895,6 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
         animationSpec = tween(1400),
         label = "coast",
     )
-    var held by remember { mutableStateOf(0f) }
-    if (c.state.playing) held = angle
 
     /**
      * How far the finger has turned the record, on top of whatever the platter was doing.
@@ -884,7 +903,6 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
      * disc keeps the turn it was given and carries on spinning from there.
      */
     var scratched by remember(c.node.path) { mutableFloatStateOf(0f) }
-    var scratching by remember(c.node.path) { mutableStateOf(false) }
 
     /**
      * The sound following the hand, when that is switched on.
@@ -935,7 +953,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                     .fillMaxWidth()
                     .aspectRatio(1f)
                     .graphicsLayer {
-                        rotationZ = (if (c.state.playing) angle else held) + scratched
+                        rotationZ = discAngle.floatValue + scratched
                     }
                     // Turn the record to move through the track.
                     //
@@ -1101,8 +1119,8 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                     pulseDepth = depth,
                     glow = c.glow,
                     waveGap = c.waveGap,
-                    waveSize = c.waveSize,
-                    waveRest = c.waveRest,
+                    waveSize = dev.niccc2007.filet.playback.WAVE_SIZE,
+                    waveRest = dev.niccc2007.filet.playback.WAVE_REST,
                     turning = turning,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -1135,6 +1153,7 @@ private fun BoxScope.AuroraFace(c: PlayerCtx) {
                 bookmarked = c.bookmarked,
                 tint = c.tint,
                 onHeart = { c.vm.toggleFavourite(c.livePath) },
+                scrolling = c.state.playing,
             )
             FaceError(c)
             Spacer(Modifier.height(PlayerMetrics.SCRUB_TOP))
@@ -1264,3 +1283,72 @@ private fun endScratch(
         if (resumeAfter.value) c.playback.resume()
     }
 }
+
+/**
+ * The Halo disc as a turntable platter: a rate, and an angle integrated from it. Pure.
+ *
+ * Modelled on a belt-drive deck, which is what a spinning record is read as. Three time
+ * constants, each a distinct physical situation:
+ *
+ * - **Spin-up**, [SPIN_UP_S]: play from a stop - the motor pulling against the platter's mass.
+ * - **Coast-down**, [SPIN_DOWN_S]: pause - no motor, only bearing friction, so slower.
+ * - **Scratch recovery**, [RECOVER_S]: letting go of a scratch while playing - the motor yanks
+ *   the platter back to speed, much faster than a cold start.
+ *
+ * Bug identified here: the turn was a wall-clock angle that froze on pause and jumped to
+ * wherever the clock had got to on resume, so the record stopped dead and then teleported.
+ * Integrating a rate cannot jump; every change of speed is a curve.
+ *
+ * The speed itself is unchanged: one turn in [DISC_TURN_MS], slow enough that the artwork
+ * stays readable.
+ */
+class Platter {
+    /** Where the platter has turned to, in degrees, 0 to 360. */
+    var angle = 0f
+        private set
+
+    /** How fast it turns, as a fraction of full speed. */
+    var rate = 0f
+        private set
+
+    private var recovering = false
+
+    /** A finger is holding it: the motor's turn stops, and on release it recovers. */
+    fun grab() {
+        rate = 0f
+        recovering = true
+    }
+
+    /**
+     * Advance by [dtSec] seconds. Returns false once it has come to rest with nothing driving
+     * it, which is the signal for the caller's loop to end.
+     */
+    fun step(dtSec: Float, playing: Boolean): Boolean {
+        // Clamped like the reference deck's frame step: a long gap is a pause in sampling, not
+        // a reason to fling the platter.
+        val dt = dtSec.coerceIn(0f, 0.05f)
+        val target = if (playing) 1f else 0f
+        val tau = when {
+            !playing -> SPIN_DOWN_S
+            recovering -> RECOVER_S
+            else -> SPIN_UP_S
+        }
+        rate += (target - rate) * (1f - kotlin.math.exp(-dt / tau))
+        if (recovering && kotlin.math.abs(rate - target) < 0.03f) recovering = false
+        if (!playing && rate < REST_RATE) rate = 0f
+        angle = (angle + rate * 360f * 1000f / DISC_TURN_MS * dt) % 360f
+        return playing || rate > 0f
+    }
+
+    companion object {
+        const val SPIN_UP_S = 1.1f
+        const val SPIN_DOWN_S = 2.2f
+        const val RECOVER_S = 0.133f
+
+        /** Below this it is at rest: a fiftieth of a degree a second. */
+        const val REST_RATE = 0.002f
+    }
+}
+
+/** One turn of the Halo disc, in milliseconds. */
+const val DISC_TURN_MS = 24_000L

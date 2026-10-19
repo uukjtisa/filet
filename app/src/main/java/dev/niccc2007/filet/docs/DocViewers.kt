@@ -1,20 +1,10 @@
 package dev.niccc2007.filet.docs
 
-import android.webkit.WebResourceRequest
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,11 +15,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import dev.niccc2007.filet.browser.BrowserViewModel
+import dev.niccc2007.filet.browser.FiletIcons
+import dev.niccc2007.filet.handlers.HandlerId
+import dev.niccc2007.filet.handlers.ViewerAction
+import dev.niccc2007.filet.handlers.ViewerBar
 import dev.niccc2007.filet.browser.FileKind
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
@@ -45,12 +37,23 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun DocumentScreen(vm: BrowserViewModel, node: VNode) {
+    // A sheet is not a document. It scrolls in two directions, it keeps its headers pinned, and
+    // a cell has a value, a display form and possibly a formula - none of which a `Doc` block
+    // can carry. So it gets its own reader and its own screen, routed here because this is the
+    // one entry point the handler registry knows about.
+    if (DocFormat.of(node.extension) == DocFormat.SHEET) {
+        SheetScreen(vm, node)
+        return
+    }
     val colors = Filet.colors
+    val kind = DocFormat.of(node.extension)
     var doc by remember(node.path) { mutableStateOf<Doc?>(null) }
     var error by remember(node.path) { mutableStateOf<String?>(null) }
+    var editing by remember(node.path) { mutableStateOf(false) }
+    // Bumped when the text editor closes, so the reader shows what was saved.
+    var generation by remember(node.path) { mutableStateOf(0) }
 
-    LaunchedEffect(node.path) {
-        val kind = DocFormat.of(node.extension)
+    LaunchedEffect(node.path, generation) {
         val read = runCatching {
             withContext(Dispatchers.IO) {
                 when (kind) {
@@ -60,168 +63,107 @@ fun DocumentScreen(vm: BrowserViewModel, node: VNode) {
                     // A plain text file reached here by somebody choosing this reader for it.
                     // Shown as one code block, which is honest - it has no structure to find.
                     DocFormat.NONE -> Doc(listOf(Block.Code(vm.readText(node))))
+                    // Unreachable: the early return above sends sheets to `SheetScreen`. Left
+                    // as a throw rather than a silent empty document so that if the guard is
+                    // ever moved, this fails loudly instead of showing a blank page.
+                    DocFormat.SHEET -> error("A sheet is read by SheetReader, not here.")
                 }
             }
         }
-        read.onSuccess { doc = it }
+        read.onSuccess { doc = it; error = null }
         read.onFailure { error = it.message ?: "This file could not be read." }
     }
 
-    val current = doc
-    when {
-        error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(error.orEmpty(), fontSize = 12.sp, color = colors.warn, modifier = Modifier.padding(28.dp))
+    if (editing) {
+        OfficeEditScreen(vm, node, presentation = kind == DocFormat.SLIDES) {
+            editing = false
+            generation++
         }
+        return
+    }
 
-        current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(strokeWidth = 2.dp)
+    val writable = vm.canWriteHere(node.path.parent)
+    Column(Modifier.fillMaxSize()) {
+        ViewerBar(title = node.name, subtitle = node.path.parent?.path.orEmpty(), onClose = { vm.closeHandler() }) {
+            when (kind) {
+                // Text editing in place, labelled on its own screen for exactly what it changes.
+                // Hidden where the folder is read-only rather than offered and refused.
+                DocFormat.WORD, DocFormat.SLIDES ->
+                    if (writable) ViewerAction(FiletIcons.Rename, "Edit text", enabled = doc != null) { editing = true }
+                // Markdown is plain text: the one code editor, not a second one.
+                DocFormat.MARKDOWN, DocFormat.NONE ->
+                    ViewerAction(FiletIcons.Rename, "Edit") { vm.openWith(node, HandlerId.TEXT, remember = false) }
+                DocFormat.SHEET -> Unit
+            }
         }
+        val current = doc
+        when {
+            error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(error.orEmpty(), fontSize = 12.sp, color = colors.warn, modifier = Modifier.padding(28.dp))
+            }
 
-        else -> DocReader(current)
+            current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(strokeWidth = 2.dp)
+            }
+
+            // Keyed on the path so the zoom resets when a different file opens, rather than only
+        // when the reader leaves composition - the same slot is reused between files.
+        else -> DocReader(current, key = node.path)
+        }
     }
 }
 
 /** Which reader a name points at. */
+/**
+ * Which reader a name points at - and the honest answer to "what can this app open".
+ *
+ * | Extension              | View                                            | Edit                                      |
+ * |------------------------|-------------------------------------------------|-------------------------------------------|
+ * | md markdown mdown mkd  | rendered (`MarkdownReader`)                     | source, in the one code editor            |
+ * | docx                   | headings, emphasis, lists, tables, pictures     | text of paragraphs, in place (`OfficeEditScreen`) |
+ * | pptx                   | slides in deck order, pictures, tables, notes   | text of slide paragraphs, in place        |
+ * | xlsx xlsm ods          | grid (`SheetScreen`)                            | no                                        |
+ * | pdf                    | pages (`PdfScreen`)                             | no                                        |
+ * | html htm xhtml         | rendered (`HtmlScreen`)                         | source, in the one code editor            |
+ * | anything else here     | as one block of text                            | in the code editor                        |
+ *
+ * DOCX/PPTX editing is TEXT ONLY and says so on its screen: the words in existing paragraphs
+ * change, and every byte of the archive outside those text nodes is kept. Not offered: new
+ * paragraphs, formatting, tables, pictures, headers, footnotes, comments, speaker notes. Lifting
+ * that ceiling means a document model that round-trips, which no GPL-compatible library on
+ * Android offers at a size this app would accept; see `OfficeReader` on POI.
+ *
+ * Not read at all, and routed to another app: doc, ppt, xls (binary Office), odt, odp, rtf, epub.
+ */
 enum class DocFormat {
-    MARKDOWN, WORD, SLIDES, NONE;
+    MARKDOWN, WORD, SLIDES,
+
+    /**
+     * A spreadsheet, which does NOT become a [Doc] - see `SheetScreen`.
+     *
+     * In this enum rather than branched on separately at the call site, because this enum is
+     * the registry of what the package can open and an exhaustive `when` over it is what forces
+     * a new surface to decide. A special case outside it compiles today and is invisible to the
+     * next person adding a format.
+     */
+    SHEET,
+    NONE;
 
     companion object {
         fun of(extension: String): DocFormat = when (extension.lowercase()) {
             "md", "markdown", "mdown", "mkd" -> MARKDOWN
             "docx" -> WORD
             "pptx" -> SLIDES
+            "xlsx", "xlsm", "ods" -> SHEET
             else -> NONE
         }
 
         /** Every extension this package has a reader for, for the handler registry. */
         val EXTENSIONS: Set<String> =
-            setOf("md", "markdown", "mdown", "mkd", "docx", "pptx", "pdf", "html", "htm", "xhtml")
-    }
-}
-
-/**
- * HTML, rendered, with its source one tap away.
- *
- * ## The security decisions, which are the whole of this file
- *
- * A local HTML file is somebody else's code, and a `WebView` is a browser. Three settings
- * decide whether opening one is safe, and all three are off:
- *
- * - **JavaScript.** Off. A local page with script can do everything a page can do, and the one
- *   thing somebody opening an `.html` in a file manager wants is to see what it says.
- * - **File access from file URLs.** Off, both flags. With them on, a page loaded from
- *   `file://` can `fetch` any other file the app can read and post it anywhere - which turns
- *   "preview this HTML" into an exfiltration primitive for the whole of shared storage. This
- *   is the single most important line here.
- * - **Navigation.** Blocked. Every link is refused rather than followed, so a preview cannot
- *   become a browsing session and cannot make a network request the reader did not ask for.
- *
- * The page is loaded as a STRING rather than by URL, which is what makes the file-access flags
- * moot as well as off: there is no base URL, so a relative `src` has nothing to resolve
- * against. Images and stylesheets beside the file therefore do not load, and that is the cost
- * of this being safe by construction rather than by configuration.
- *
- * ## Why the editor is the same editor
- *
- * The Source toggle does not open a second editor - it routes to the one in `TextEditorScreen`
- * through the handler registry, which is the editor the whole app uses. One editor, one set of
- * keybindings, one save path, one archive-save dialogue. A format gets a *pipeline* into it,
- * never a copy of it.
- */
-@Composable
-fun HtmlScreen(vm: BrowserViewModel, node: VNode) {
-    val colors = Filet.colors
-    var source by remember(node.path) { mutableStateOf<String?>(null) }
-    var error by remember(node.path) { mutableStateOf<String?>(null) }
-    var showSource by remember(node.path) { mutableStateOf(false) }
-
-    LaunchedEffect(node.path) {
-        runCatching { withContext(Dispatchers.IO) { vm.readText(node) } }
-            .onSuccess { source = it }
-            .onFailure { error = it.message ?: "This file could not be read." }
-    }
-
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                if (showSource) "Source" else "Preview",
-                fontSize = 11.sp,
-                color = colors.fg3,
-                modifier = Modifier.weight(1f),
+            setOf(
+                "md", "markdown", "mdown", "mkd", "docx", "pptx",
+                "xlsx", "xlsm", "ods", "pdf", "html", "htm", "xhtml",
             )
-            Text(
-                "no scripts",
-                fontSize = 9.5.sp,
-                color = colors.fg3,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(colors.sunken)
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                if (showSource) "Preview" else "Source",
-                fontSize = 11.sp,
-                color = colors.accent,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(colors.accent.copy(alpha = 0.12f))
-                    .clickable { showSource = !showSource }
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-            )
-        }
-        val html = source
-        when {
-            error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(error.orEmpty(), fontSize = 12.sp, color = colors.warn)
-            }
-
-            html == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(strokeWidth = 2.dp)
-            }
-
-            showSource -> DocReader(Doc(listOf(Block.Code(html, "html"))))
-
-            else -> AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { context ->
-                    WebView(context).apply {
-                        settings.javaScriptEnabled = false
-                        settings.allowFileAccess = false
-                        settings.allowContentAccess = false
-                        @Suppress("DEPRECATION")
-                        settings.allowFileAccessFromFileURLs = false
-                        @Suppress("DEPRECATION")
-                        settings.allowUniversalAccessFromFileURLs = false
-                        settings.cacheMode = WebSettings.LOAD_NO_CACHE
-                        settings.setSupportZoom(true)
-                        settings.builtInZoomControls = true
-                        settings.displayZoomControls = false
-                        // Reflowed to the width, which is the whole reason this is readable on
-                        // a phone at all.
-                        settings.loadWithOverviewMode = true
-                        settings.useWideViewPort = true
-                        webViewClient = object : WebViewClient() {
-                            // EVERY navigation refused. A preview that can follow a link is a
-                            // browser, and a browser inside a file manager is an outbound
-                            // request nobody asked for.
-                            override fun shouldOverrideUrlLoading(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                            ): Boolean = true
-                        }
-                    }
-                },
-                update = { view ->
-                    // loadDataWithBaseURL(null, ...) - no base, so a relative src resolves to
-                    // nothing rather than to the filesystem. See the note above.
-                    view.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
-                },
-            )
-        }
     }
 }
 

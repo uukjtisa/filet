@@ -97,6 +97,14 @@ fun AboutPage(vm: BrowserViewModel) {
         // rather than telling you something, and under three links it has nothing to do with
         // it reads as a footnote. Draws nothing until an address is configured.
         item { SupportCard(onOpen = { url -> vm.openUrl(url) }) }
+        // The way to tell the project something is wrong, from inside the app. The same form the
+        // crash screen opens - see ReportActivity - and it needs no GitHub account.
+        item {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            AboutRow(FiletIcons.Warn, "Report a problem", "Or suggest something. No account needed") {
+                context.startActivity(dev.niccc2007.filet.report.ReportActivity.intent(context))
+            }
+        }
         item {
             AboutRow(FiletIcons.Code, "Source", "github.com/uukjtisa/filet") {
                 vm.openUrl("https://github.com/uukjtisa/filet")

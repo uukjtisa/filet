@@ -21,7 +21,7 @@ enum class RefreshTarget {
     /** Volumes and free space: a card unmounted while the app was backgrounded. */
     VOLUMES,
 
-    /** Recents, new files, and the tracked-folder overview. */
+    /** Recents and new files. */
     HOME_FEED,
 
     /** The LAN server's own state, which is what makes the sharing button tell the truth. */
@@ -88,8 +88,8 @@ data class RefreshPlan(val targets: Set<RefreshTarget>, val label: String)
 fun refreshPlan(kind: PaneKind): RefreshPlan = when (kind) {
     PaneKind.FOLDER -> RefreshPlan(setOf(RefreshTarget.LISTING), "Folder")
 
-    // Home is the worst offender: it shows recents, new files, tracked folders and the
-    // storage cards, and every one of them was frozen at whenever the tab was opened.
+    // Home is the worst offender: it shows recents, new files and the storage cards, and
+    // every one of them was frozen at whenever the tab was opened.
     PaneKind.HOME -> RefreshPlan(
         setOf(
             RefreshTarget.HOME_FEED,

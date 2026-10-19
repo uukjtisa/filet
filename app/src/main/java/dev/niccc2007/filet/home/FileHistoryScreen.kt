@@ -63,11 +63,11 @@ import kotlinx.coroutines.launch
 import java.util.TimeZone
 
 /**
- * Everything in the tracked folders, by day.
+ * Every file on the phone's own storage, by the day it first appeared.
  *
- * The expanded form of the home screen's **New files** card. The design calls for the card to open
- * into a full history, grouped date by date, with the option of a plain ungrouped list - taking
- * Windows Explorer's Downloads view as a starting point and asking for better than it.
+ * The expanded form of the home screen's **New files** card, grouped date by date, with the
+ * option of a plain ungrouped list - taking Windows Explorer's Downloads view as a starting
+ * point and asking for better than it.
  *
  * What is better than it, and all of it visible on screen:
  *
@@ -75,12 +75,14 @@ import java.util.TimeZone
  *   months; here Today and Yesterday are named and everything older carries its date.
  * - **A count and a size on every header**, so a day is worth opening or it is not, before you
  *   open it.
- * - **Two orderings.** When a file was first SEEN in a tracked folder, or when it was last
- *   CHANGED. A download written last year turns up under today in one and last year in the
- *   other, which is the distinction the design calls for and which no file browser offers.
+ * - **Two orderings.** When a file first APPEARED on the phone, or when it was last CHANGED. A
+ *   download written last year turns up under today in one and last year in the other.
  *
- * The arithmetic - which day, what a day weighs, where a picked date lands - is in
- * [FileHistory] with tests on it. This file is only the drawing.
+ * Where the entries come from - the media index, paged, bounded - is `HomeFeed`, and why that is
+ * the clock is in its KDoc. The arithmetic is [FileHistory], with tests on it. This file is only
+ * the drawing, plus the one piece of lifecycle that must be exact: the media observer is
+ * registered while this tab is on screen and the app started, and unregistered the moment
+ * either stops being true.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,13 +90,9 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
     val colors = Filet.colors
     val all by vm.home.all.collectAsState()
     val scanning by vm.home.loading.collectAsState()
-    // Recording and pruning read the SETTLED list, never the one being drawn.
-    //
-    // `prune` drops every path it is not given, and its own documentation forbids calling it
-    // with a partial listing for exactly the reason this bug happened: a forgotten path is
-    // re-recorded as new, and past the seeding window a new path takes the clock rather than
-    // its mtime, so a file from months ago came back stamped today.
-    val settled by vm.home.settled.collectAsState()
+    val outcome by vm.home.outcome.collectAsState()
+    val capped by vm.home.capped.collectAsState()
+    val windowFrom by vm.home.windowFrom.collectAsState()
 
     var sort by remember { mutableStateOf(HistorySort.FIRST_SEEN) }
     var grouped by remember { mutableStateOf(true) }
@@ -107,42 +105,43 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
     var menuFor by remember { mutableStateOf<dev.niccc2007.filet.vfs.VNode?>(null) }
     val scope = rememberCoroutineScope()
 
-    // Record first-seen for whatever the feed found, so the ordering has something to sort on,
-    // and prune what is gone. Both are cheap and idempotent - the store only writes when
-    // something is genuinely new.
-    LaunchedEffect(settled) {
-        if (settled.isEmpty()) return@LaunchedEffect
-        // OFF the main thread, and that is the fix for "the expand takes so long to render".
-        //
-        // `LaunchedEffect` runs on the composition's dispatcher, which is the main thread. For a
-        // tracked set of a thousand-plus files this block builds a map of every path, walks it,
-        // then re-serialises the whole first-seen store to JSON and writes it to preferences -
-        // all before the frame can be produced. The list underneath was already paged; the
-        // preparation in front of it was not, which is why the wait scaled with the total
-        // number of tracked files rather than with the twenty rows actually on screen.
-        withContext(Dispatchers.Default) {
-            // Passed WITH their modification times, because the very first pass has to seed from
-            // those rather than from the clock - otherwise every file already on the device reads
-            // as having turned up the moment this screen was first opened.
-            val mtimes = settled.associate { it.node.path.toString() to it.at }
-            // complete: `settled` is only published after a whole pass, which is the same
-            // guarantee `prune` on the next line already relies on.
-            vm.firstSeen.record(mtimes, System.currentTimeMillis(), complete = true)
-            vm.firstSeen.prune(mtimes.keys)
+    // Read on open and on every return to the app, and listen to the media index for exactly
+    // as long as this tab is visible. ON_START/ON_STOP rather than only enter/leave: the tab
+    // can stay composed behind another app, and an observer left registered then is a standing
+    // cost for a list nobody is reading - the shape of issue #13.
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        var handle: AutoCloseable? = null
+        val watch = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                    if (handle == null) handle = vm.home.watchIndex()
+                    vm.home.refresh()
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                    handle?.close()
+                    handle = null
+                }
+                else -> Unit
+            }
+        }
+        // addObserver replays the current state, so a tab opened while the app is already
+        // started gets its ON_START here and does not wait for the next one.
+        lifecycle.addObserver(watch)
+        onDispose {
+            lifecycle.removeObserver(watch)
+            handle?.close()
+            handle = null
         }
     }
 
     val entries = remember(all) {
         all.map {
-            val p = it.node.path.toString()
             HistoryEntry(
-                path = p,
+                path = it.node.path.toString(),
                 name = it.node.name,
                 bytes = it.node.size.coerceAtLeast(0L),
-                // A file that predates this feature has no recorded date. Falling back to its
-                // mtime keeps it in a sensible place; zero would pin every pre-existing file to
-                // 1970 at the bottom of the list forever.
-                firstSeen = vm.firstSeen.of(p) ?: it.at,
+                firstSeen = it.added,
                 lastChanged = it.at,
                 origin = it.origin ?: it.node.path.parent?.name,
             )
@@ -168,6 +167,9 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
             .collectLatest { last ->
                 if (last >= shown - LOAD_AHEAD) shown = (shown + PAGE).coerceAtMost(entries.size + PAGE)
+                // And the next page of the index once what is held is nearly drawn. Bounded by
+                // the feed: past its cap this does nothing and the date jump takes over.
+                if (shown >= entries.size) vm.home.loadMore()
             }
     }
 
@@ -185,8 +187,13 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
                     val key = FileHistory.dayKey(chosen, TimeZone.getTimeZone("UTC"))
                     // A JUMP, not a filter. The history stays either side of the day asked for,
                     // and a day with nothing in it lands between its neighbours rather than
-                    // appearing to do nothing.
-                    scope.launch { listState.scrollToItem(FileHistory.jumpIndex(groups, key).coerceAtMost(shown)) }
+                    // appearing to do nothing. The day is loaded first if it is older than what
+                    // is held - by paging, or past the cap by a range query for that day.
+                    scope.launch {
+                        val start = chosen - zone.getOffset(chosen)
+                        vm.home.reach(start, start + 86_400_000L)
+                        listState.scrollToItem(FileHistory.jumpIndex(groups, key).coerceAtMost(shown))
+                    }
                 }) { Text("Go") }
             },
             dismissButton = { TextButton(onClick = { picking = false }) { Text("Cancel") } },
@@ -222,11 +229,35 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
             ) { grouped = !grouped }
         }
 
-        if (entries.isEmpty()) {
-            EmptyTab(
-                FiletIcons.Clock,
-                "Nothing in the tracked folders yet",
+        if (windowFrom != null) {
+            Text(
+                "Showing from the date picked. Back to the newest",
+                fontSize = 11.sp,
+                color = colors.accent,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { vm.home.toNewest() }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
             )
+        }
+
+        if (entries.isEmpty()) {
+            when (val r = outcome) {
+                // Three different answers, drawn as three. See `CategoryResult`.
+                is CategoryResult.Refused -> EmptyTab(FiletIcons.Clock, "Filet needs storage access to list these")
+                is CategoryResult.Failed -> {
+                    EmptyTab(FiletIcons.Clock, "The media index could not be read")
+                    Text(
+                        r.reason,
+                        fontSize = 10.5.sp,
+                        maxLines = 2,
+                        color = colors.fg3,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+                null -> EmptyTab(FiletIcons.Clock, "Looking")
+                else -> EmptyTab(FiletIcons.Clock, "No files on the phone's own storage yet")
+            }
             return@Column
         }
 
@@ -259,7 +290,16 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
             }
 
             val remaining = entries.size - shown
-            if (remaining > 0) {
+            if (remaining <= 0 && capped) {
+                item(key = "capped") {
+                    Text(
+                        "The newest ${"%,d".format(entries.size)} files. Pick a date to go further back.",
+                        fontSize = 10.5.sp,
+                        color = colors.fg3,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
+                    )
+                }
+            } else if (remaining > 0) {
                 item(key = "more") {
                     Text(
                         "$remaining more below",

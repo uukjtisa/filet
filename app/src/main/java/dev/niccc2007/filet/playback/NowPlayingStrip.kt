@@ -97,11 +97,31 @@ import dev.niccc2007.filet.ui.theme.Filet
 fun NowPlayingStrip(vm: BrowserViewModel) {
     val colors = Filet.colors
     val playback = vm.playback
-    val state by playback.state.collectAsStateWithLifecycle()
+    // Without the position: see `Playback.status`. Reading the whole state here recomposed
+    // this strip - on every screen of the app - five times a second for as long as anything
+    // played. The two things that draw the playhead read `position` inside their draw.
+    val state by rememberStatus(playback)
     val art by playback.art.collectAsStateWithLifecycle()
 
     if (!state.active) return
     val track = state.current ?: return
+    val position = rememberPosition(playback)
+    val fraction = remember(position, state.durationMs) {
+        { playheadFraction(position.value, state.durationMs) }
+    }
+
+    /**
+     * Whether anything here may move.
+     *
+     * A viewer is a layer over the browser rather than a destination, so this strip stays
+     * composed underneath the full player, the video screen and every other viewer. Its clocks
+     * kept running there, behind an opaque screen - and each of their redraws was a redraw of
+     * the window. Covered, or in the background, or paused, the strip shows its resting picture
+     * and runs nothing. See [shouldAnimate].
+     */
+    val covered = vm.openRequest.collectAsStateWithLifecycle().value != null
+    val onScreen = rememberOnScreen()
+    val moving = state.playing && onScreen && !covered
 
     // The same sampler the full player uses, so the two never disagree about what colour this
     // track is. Falls back to the theme accent when the artwork has none to give.
@@ -124,13 +144,34 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
      * track it is.
      */
     val pulseOn by vm.prefs.beatPulse.collectAsStateWithLifecycle()
-    val map = remember(track.id, pulseOn) {
-        if (!pulseOn || !glow) null else BeatMap.cached(track.id)
+    //
+    // Bug identified here: this asked for `track.id` - the track's VFS path - while the player
+    // stores every map under the URI the track resolved to, so the lookup never matched and
+    // the strip's pulse never fired on any track. Both sides now build the key with
+    // `BeatMap.keyFor` from the same resolved source. Re-asked when a viewer closes, because
+    // that is the moment the player has usually just finished measuring.
+    val source by playback.source.collectAsStateWithLifecycle()
+    val map = remember(source, pulseOn, glow, covered) {
+        val s = source
+        if (!pulseOn || !glow || s == null) null else BeatMap.cached(BeatMap.keyFor(s.toString()))
     }
     val depth by vm.prefs.pulseDepth.collectAsStateWithLifecycle()
     val sense by vm.prefs.pulseSense.collectAsStateWithLifecycle()
-    val signal = rememberBeatSignal(map, vm.playback, pulseOn && glow && map != null, sense)
+    val signal = rememberBeatSignal(
+        map, vm.playback,
+        on = pulseOn && glow && map != null && !covered,
+        playing = state.playing,
+        sensitivity = sense,
+    )
     val beating = if (map == null) null else signal
+    // Remembered per colour. It was rebuilt on every recomposition, which was five a second.
+    val wash = remember(tint) {
+        Brush.horizontalGradient(
+            0f to tint.copy(alpha = 0.16f),
+            0.65f to tint.copy(alpha = 0.04f),
+            1f to Color.Transparent,
+        )
+    }
 
     Column(
         Modifier
@@ -138,13 +179,7 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
             .background(colors.raised)
             // A wash of the track's colour, left to right, faint. Enough that the strip
             // belongs to what is playing; not enough to compete with the list above it.
-            .background(
-                Brush.horizontalGradient(
-                    0f to tint.copy(alpha = 0.16f),
-                    0.65f to tint.copy(alpha = 0.04f),
-                    1f to Color.Transparent,
-                ),
-            )
+            .background(wash)
             // And the same drifting lights the full player has, over that wash, so the strip
             // is the player it minimises into rather than a different widget. Weaker here:
             // this is a 56dp band under a file list, and the lights are nearly the whole
@@ -165,13 +200,9 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
             // changed the full player and left the strip where it was.
             .stripRadiance(
                 base = tint,
-                fraction = if (state.durationMs > 0) {
-                    (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
-                } else {
-                    0f
-                },
+                fraction = fraction,
                 on = glow,
-                running = state.playing,
+                running = moving,
                 strength = GLOW_OVER_STRIP * glowScale(strength),
                 spill = spill,
                 pulse = beating?.swing,
@@ -181,12 +212,8 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
         HorizontalDivider(color = colors.lineSoft)
 
         // The hairline. Full width, above the row, so it reads as the strip's own edge filling
-        // up rather than as a widget sitting inside it.
-        val fraction = if (state.durationMs > 0) {
-            (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
+        // up rather than as a widget sitting inside it. The position is read inside the draw,
+        // so a tick redraws two device pixels and recomposes nothing.
         Canvas(Modifier.fillMaxWidth().height(2.dp)) {
             drawRect(colors.lineSoft, size = size)
             // The hairline brightens on the beat. Read inside the draw lambda, so a beat
@@ -204,7 +231,7 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
             val lift = (1f + swing.coerceAtLeast(0f) * HAIRLINE_PUNCH).coerceAtMost(2.2f)
             drawRect(
                 tint.brighter(lift),
-                size = size.copy(width = size.width * fraction),
+                size = size.copy(width = size.width * fraction()),
             )
         }
 
@@ -235,6 +262,7 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
                         PlaybackNotice.title(state),
                         centred = false,
                         size = 13.sp,
+                        running = moving,
                     )
                     val subtitle = PlaybackNotice.strip(state)
                     if (subtitle.isNotEmpty()) {
@@ -549,6 +577,15 @@ private fun StripButton(
         Icon(icon, label, tint = ink, modifier = Modifier.size(glyph))
     }
 }
+
+/**
+ * How far through the track the playhead is, 0 to 1. Pure.
+ *
+ * Zero for a track with no duration yet, rather than a division by zero that draws a full bar
+ * for the instant between opening a file and learning how long it is.
+ */
+fun playheadFraction(positionMs: Long, durationMs: Long): Float =
+    if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
 
 /**
  * How much brighter the hairline gets on a hard beat.

@@ -66,11 +66,20 @@ fun HScroll(
     verticalAlignment: Alignment.Vertical = Alignment.CenterVertically,
     content: @Composable RowScope.() -> Unit,
 ) {
+    // A row that fits has nothing to scroll, and must not act as if it did.
+    //
+    // Bug identified here: a scrollable consumes a sideways drag once it passes the touch slop,
+    // whether or not it can move. The tab swipe gives way to anything that consumes, which is
+    // right for a row with more chips to show and wrong for one that fits - that row swallowed
+    // the swipe and did nothing with it. Scrolling is switched off until the row is measured as
+    // wider than its box. Before measurement `maxValue` is Int.MAX_VALUE, which counts as
+    // scrollable: the first frame errs towards the row, not the swipe.
+    val canScroll = state.maxValue > 0
     Box(modifier.fillMaxWidth()) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .horizontalScroll(state)
+                .horizontalScroll(state, enabled = canScroll)
                 .padding(horizontal = contentPadding),
             verticalAlignment = verticalAlignment,
             horizontalArrangement = Arrangement.spacedBy(spacing),

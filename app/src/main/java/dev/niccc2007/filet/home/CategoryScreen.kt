@@ -58,9 +58,13 @@ fun CategoryScreen(vm: BrowserViewModel, category: MediaCategory) {
     // than an empty list while the cursor is walked. Null means "not read yet", which is a
     // different thing from "read and found nothing" - and conflating those is how an empty
     // category comes to look like a failure.
-    val rows by produceState<List<VNode>?>(null, category, revision) {
-        value = CategoryQuery.read(context, category)
+    // Four outcomes, not two. Bug identified here: a refused permission and a provider error
+    // both arrived as an empty list, so a phone full of videos said "nothing of this kind" -
+    // which reads as the category being broken, and in fact was.
+    val result by produceState<CategoryResult?>(null, category, revision) {
+        value = CategoryQuery.readResult(context, category)
     }
+    val rows = (result as? CategoryResult.Found)?.nodes
 
     val groups = remember(rows) {
         FileHistory.group(
@@ -78,7 +82,7 @@ fun CategoryScreen(vm: BrowserViewModel, category: MediaCategory) {
         )
     }
 
-    if (rows == null) {
+    if (result == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(strokeWidth = 2.dp)
         }
@@ -89,8 +93,28 @@ fun CategoryScreen(vm: BrowserViewModel, category: MediaCategory) {
         item { TabHeader(category.label) }
 
         if (groups.isEmpty()) {
-            item { EmptyTab(category.icon, "Nothing of this kind on the phone's own storage") }
-            item {
+            when (val r = result) {
+                is CategoryResult.Refused -> item {
+                    EmptyTab(category.icon, "Filet needs storage access to list these")
+                }
+
+                is CategoryResult.Failed -> {
+                    item { EmptyTab(category.icon, "The media index could not be read") }
+                    item {
+                        Text(
+                            r.reason,
+                            fontSize = 10.5.sp,
+                            lineHeight = 14.sp,
+                            maxLines = 2,
+                            color = colors.fg3,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+
+                else -> {
+                    item { EmptyTab(category.icon, "Nothing of this kind on the phone's own storage") }
+                    item {
                 // Said plainly, because an empty category invites the wrong conclusion. This
                 // comes from the system's media index, which covers shared storage - so empty
                 // here means empty there, rather than Filet having failed to look.
@@ -99,8 +123,10 @@ fun CategoryScreen(vm: BrowserViewModel, category: MediaCategory) {
                     fontSize = 10.5.sp,
                     lineHeight = 14.sp,
                     color = colors.fg3,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                }
             }
         }
 

@@ -145,4 +145,22 @@ class BottomBarConfigTest {
         assertTrue(BarItem.entries.any { it.id == "playlists" })
         assertEquals(BarItem.PLAYLISTS, BarItem.byId("playlists"))
     }
+
+    @Test
+    fun `a bar nobody saved is home, files, activity, bookmarks, share, remotes`() {
+        assertEquals(
+            listOf("home", "files", "activity", "bookmarks", "sharing", "remotes"),
+            BottomBarConfig.normalise(null).map { it.id },
+        )
+    }
+
+    @Test
+    fun `a saved bar is kept as saved, however short`() {
+        // "Never configured" is the missing key. A one-button bar is a choice, not a gap.
+        assertEquals(listOf(BarItem.FILES), BottomBarConfig.normalise("files"))
+        assertEquals(
+            listOf(BarItem.FILES, BarItem.SEARCH, BarItem.ACTIVITY, BarItem.BOOKMARKS),
+            BottomBarConfig.normalise("files,search,activity,bookmarks"),
+        )
+    }
 }

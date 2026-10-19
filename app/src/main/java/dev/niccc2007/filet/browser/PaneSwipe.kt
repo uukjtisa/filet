@@ -109,6 +109,53 @@ object PaneSwipe {
         return at.coerceAtMost(1f)
     }
 
+    /** Who a sideways drag belongs to. See [owner]. */
+    enum class Owner { UNDECIDED, TABS, CHILD }
+
+    /**
+     * Decide, once, whether this drag is the tab swipe or belongs to something inside the pane.
+     *
+     * Bug identified here: the swipe watched every gesture on the Initial pass, ahead of every
+     * child, and never asked whether one of them had taken it. So scrolling a chip row - the
+     * Home categories, a sheet's grid, anything sideways - also counted as a swipe, and a long
+     * enough scroll changed tab under the thing being scrolled. A list of exempt widgets was the
+     * wrong fix, because every new sideways row would have to be remembered. The rule is
+     * general: **the child gets the first claim**.
+     *
+     * The decision is made the moment the horizontal travel passes the platform's touch slop,
+     * on the same event a horizontal scroller in the pane would use to start its own drag. The
+     * scroller consumes that event in the Main pass, so by the Final pass the swipe can see it
+     * was taken. Not consumed means nothing inside wanted it, and the swipe owns it for the rest
+     * of the gesture.
+     *
+     * Decided once and never revisited. The vertical list underneath consumes as soon as a
+     * swipe drifts more than a slop up or down, and re-reading consumption on every event would
+     * let that drift take back a swipe that had already started. That is a slightly diagonal
+     * thumb losing the gesture halfway.
+     *
+     * The vertical case is decided the same way: if the up-and-down travel passes the slop
+     * before the sideways travel does, the drag started as a scroll and it never becomes a tab
+     * swipe, however far sideways it ends up. [fires] also applies [RATIO] at lift, so a drag
+     * has to be both decided as sideways at its start and mostly sideways overall.
+     *
+     * @param dx horizontal travel so far, in pixels.
+     * @param dy vertical travel so far, in pixels.
+     * @param slop the platform's touch slop, in pixels: the same threshold the children use.
+     * @param consumed whether a child consumed the event this travel was read from.
+     */
+    fun owner(current: Owner, dx: Float, dy: Float, slop: Float, consumed: Boolean): Owner {
+        if (current != Owner.UNDECIDED) return current
+        val across = kotlin.math.abs(dx)
+        val down = kotlin.math.abs(dy)
+        return when {
+            // A scroll started first. Even if it later swings sideways, it is not a tab swipe.
+            down >= slop && down > across -> Owner.CHILD
+            across < slop -> Owner.UNDECIDED
+            consumed -> Owner.CHILD
+            else -> Owner.TABS
+        }
+    }
+
     /** Which way a swipe goes: left moves on through the strip, right moves back. */
     fun stepFor(dx: Float): Int = if (dx < 0f) 1 else -1
 

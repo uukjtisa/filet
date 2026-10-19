@@ -63,6 +63,17 @@ object ReleaseTags {
 
     fun isDesktop(tag: String?): Boolean = lineOf(tag) == Line.DESKTOP
 
+    /**
+     * The newest release the phone may be offered, from everything GitHub listed.
+     *
+     * Pure and here, rather than inline in the network call, so the rule that the desktop tool's
+     * tags never reach the phone is a test and not a comment. Without the filter
+     * `filet-desktop-mount-tool-v0.2.0` parses as 0.2.0, wins, and the phone is offered a
+     * release with no APK in it.
+     */
+    fun newestApp(releases: List<Release>): Release? =
+        releases.filter { isApp(it.tag) }.maxByOrNull { it.version }
+
     /** The tag for a given desktop version, so the shape is written in exactly one place. */
     fun desktopTag(version: String): String =
         DESKTOP_PREFIX + if (version.startsWith("v")) version else "v$version"

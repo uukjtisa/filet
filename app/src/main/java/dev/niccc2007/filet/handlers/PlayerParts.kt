@@ -45,6 +45,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -56,8 +57,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -194,6 +195,8 @@ fun BarIcon(
     label: String,
     lit: Boolean = false,
     tint: Color = Filet.colors.accent,
+    /** Something behind this button is working. See `ActivityDots`. */
+    dot: Boolean = false,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
@@ -211,6 +214,16 @@ fun BarIcon(
             tint = if (lit) tint else colors.fg2,
             modifier = Modifier.size(19.dp),
         )
+        if (dot) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 6.dp, end = 6.dp)
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(tint),
+            )
+        }
     }
 }
 
@@ -263,8 +276,18 @@ fun PlayerOverflow(
     var page by remember { mutableStateOf(PanelPage.MAIN) }
     val colors = Filet.colors
     val gap = with(LocalDensity.current) { 8.dp.roundToPx() }
+    // The beat map's readout lives only where there is a wave to show for it - see
+    // `PlayerFace.hasWave`. A bar and a button on a look that draws no wave would be a control
+    // that does nothing visible, and the dot with them: a dot for work this panel cannot show.
+    val beatShown = face.hasWave
+    val beat by dev.niccc2007.filet.playback.BeatWork.progress.collectAsState()
+    val working by dev.niccc2007.filet.playback.BeatWork.dot.collectAsState()
+    // Opening the panel while it runs is having seen it, and the dot goes.
+    if (open && beatShown) {
+        LaunchedEffect(beat.run) { dev.niccc2007.filet.playback.BeatWork.panelSeen() }
+    }
     Box {
-        BarIcon(FiletIcons.More, "More") { open = true; page = PanelPage.MAIN }
+        BarIcon(FiletIcons.More, "More", dot = beatShown && working) { open = true; page = PanelPage.MAIN }
         if (open) {
             Popup(
                 popupPositionProvider = BelowPositionProvider(gap),
@@ -315,16 +338,12 @@ fun PlayerOverflow(
                                 if (glow && pulse != null && onPulse != null) {
                                     PanelSwitch("Pulse on the beat", pulse, onPulse, sub = true)
                                     if (pulse && sense != null && onSense != null) {
+                                        // Which beats fire, as against how far they move.
+                                        // Both exist because neither can do the other's job.
                                         PanelSlider("Sensitivity", sense, onChange = onSense)
                                     }
                                     if (pulse && depth != null && onDepth != null) {
-                                        PanelSlider("Beat intensity", depth, onChange = onDepth)
-                                    }
-                                    if (pulse && waveRest != null && onWaveRest != null) {
-                                        PanelSlider("Wave at rest", waveRest, onChange = onWaveRest)
-                                    }
-                                    if (pulse && waveSize != null && onWaveSize != null) {
-                                        PanelSlider("Wave on a beat", waveSize, onChange = onWaveSize)
+                                        PanelSlider("How much it reacts", depth, onChange = onDepth)
                                     }
                                     if (pulse && waveGap != null && onWaveGap != null) {
                                         PanelSlider("Wave distance", waveGap, onChange = onWaveGap)
@@ -348,6 +367,10 @@ fun PlayerOverflow(
 
                         PanelPage.MAIN -> {
                             PanelHead("NOW PLAYING")
+                            if (beatShown) {
+                                PanelBeatMap(beat) { dev.niccc2007.filet.playback.BeatWork.requestRebuild() }
+                                PanelRule()
+                            }
                             // The face switcher is here rather than only in Settings. Five
                             // looks are worth nothing if changing them means leaving the thing
                             // you are looking at - this is the one screen where it shows.
@@ -509,6 +532,65 @@ private fun PanelSlider(
                 inactiveTrackColor = colors.sunken,
             ),
         )
+    }
+}
+
+/**
+ * The beat map: what it is doing, how far it has got, and a way to make it again.
+ *
+ * Every figure here is read from the work itself - see `BeatProgress`. Decoding shows a bar only
+ * when the decoder reports how far through the file it is; without that it says so in words.
+ * A bar that moved on a timer would be worse than none, because this row exists for somebody
+ * who does not trust that the work is happening.
+ */
+@Composable
+private fun PanelBeatMap(p: dev.niccc2007.filet.playback.BeatProgress, onBuild: () -> Unit) {
+    val colors = Filet.colors
+    val pct = p.fraction?.let { (it * 100).toInt().coerceIn(0, 100) }
+    val status = when (p.phase) {
+        dev.niccc2007.filet.playback.BeatPhase.IDLE -> "not running"
+        dev.niccc2007.filet.playback.BeatPhase.DECODING -> if (pct == null) "reading the file" else "reading the file $pct%"
+        dev.niccc2007.filet.playback.BeatPhase.MEASURING -> "measuring ${pct ?: 0}%"
+        dev.niccc2007.filet.playback.BeatPhase.DONE -> if (p.cached) "ready, from the cache" else "ready"
+    }
+    Column(Modifier.padding(horizontal = 17.dp, vertical = 4.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Beat map", fontSize = 12.5.sp, color = colors.fg2)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                status,
+                fontSize = 10.5.sp,
+                color = if (p.working) colors.accent else colors.fg3,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                if (p.working) "Building" else "Build",
+                fontSize = 11.sp,
+                color = if (p.working) colors.fg3 else colors.accent,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (p.working) colors.sunken else colors.accent.copy(alpha = 0.12f))
+                    .clickable(enabled = !p.working, onClick = onBuild)
+                    .padding(horizontal = 9.dp, vertical = 4.dp),
+            )
+        }
+        val shown = p.fraction
+        if (p.working && shown != null) {
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { shown },
+                color = colors.accent,
+                trackColor = colors.sunken,
+                modifier = Modifier.padding(top = 6.dp).fillMaxWidth().height(3.dp),
+            )
+        }
+        if (p.working) {
+            Text(
+                "One build at a time. This one finishes or stops with the track.",
+                fontSize = 9.5.sp,
+                color = colors.fg3,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
     }
 }
 
@@ -791,6 +873,8 @@ fun PlayerTitleBlock(
     bookmarked: Boolean,
     tint: Color,
     onHeart: () -> Unit,
+    /** Whether a title too long to fit may scroll. False holds it at its start. */
+    scrolling: Boolean = true,
 ) {
     val colors = Filet.colors
     Row(
@@ -807,7 +891,7 @@ fun PlayerTitleBlock(
             Modifier.weight(1f),
             horizontalAlignment = if (centred) Alignment.CenterHorizontally else Alignment.Start,
         ) {
-            MarqueeTitle(title, centred = centred, size = titleSize)
+            MarqueeTitle(title, centred = centred, size = titleSize, running = scrolling)
             Spacer(Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (isVideo) {
@@ -861,9 +945,15 @@ fun MarqueeTitle(
     centred: Boolean,
     size: androidx.compose.ui.unit.TextUnit,
     colour: Color = MaterialTheme.colorScheme.onSurface,
+    /**
+     * Whether it may move at all. The callers pass "playing, and on screen": a marquee is a
+     * frame-rate clock with an offscreen layer under it, and it ran on every screen the strip
+     * is on - including underneath the full player and with the track paused.
+     */
+    running: Boolean = true,
 ) {
     var overflow by remember(text) { mutableFloatStateOf(0f) }
-    val travel = rememberMarquee(overflow)
+    val travel = rememberMarquee(overflow, running)
     Box(
         Modifier
             .fillMaxWidth()
@@ -900,13 +990,18 @@ fun MarqueeTitle(
 /** The bar and its two clocks. `.bar{margin:22px 28px 0}` + `.times{margin:6px 28px 0}`. */
 @Composable
 fun PlayerScrub(
-    shownPosition: Long,
+    /**
+     * Where the playhead is drawn, read HERE. A function rather than a value, so the five
+     * ticks a second recompose this bar and its two clocks and not the face around them.
+     */
+    shownPosition: () -> Long,
     state: NowPlaying,
     tint: Color,
     onScrub: (Long) -> Unit,
     onScrubEnd: (Long) -> Unit,
 ) {
     val colors = Filet.colors
+    val shownPosition = shownPosition()
     ScrubBar(
         positionMs = shownPosition,
         durationMs = state.durationMs,
@@ -1148,8 +1243,11 @@ fun BoxScope.QueueSheet(
     onClose: () -> Unit,
     /** What the queue is, in words - a playlist's name or the folder. See `NowPlaying.from`. */
     from: String = "",
-    /** Milliseconds into the current track, for the time left in the header. */
-    positionMs: Long = 0L,
+    /**
+     * Milliseconds into the current track, for the time left in the header. A function, read
+     * where the header is built, so a closed sheet costs nothing per tick.
+     */
+    positionMs: () -> Long = { 0L },
     durationMs: Long = 0L,
     shuffle: Boolean = false,
     onShuffle: (() -> Unit)? = null,
@@ -1211,7 +1309,7 @@ fun BoxScope.QueueSheet(
                 Column(Modifier.weight(1f)) {
                     Text("Up next", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        queueShape(tracks, index, positionMs, durationMs, from),
+                        queueShape(tracks, index, positionMs(), durationMs, from),
                         fontSize = 11.5.sp, color = colors.fg3,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
@@ -1530,7 +1628,8 @@ fun MiniControls(
     state: NowPlaying,
     title: String,
     sub: String,
-    shownPosition: Long,
+    /** Read here, not by the caller. See [PlayerScrub]. */
+    shownPosition: () -> Long,
     tint: Color,
     onTint: Color,
     playback: dev.niccc2007.filet.playback.Playback,
@@ -1538,6 +1637,7 @@ fun MiniControls(
     onScrub: (Long) -> Unit,
     onScrubEnd: (Long) -> Unit,
 ) {
+    val shownPosition = shownPosition()
     Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp)) {
         Row(
             Modifier.padding(horizontal = 6.dp, vertical = 0.dp),
@@ -1752,16 +1852,19 @@ private const val IMMERSIVE_BREATH = 0.0075f
 @Composable
 fun ImmersiveVeil(modifier: Modifier = Modifier) {
     Box(
-        modifier.fillMaxSize().drawWithContent {
-            drawContent()
-            drawRect(
-                androidx.compose.ui.graphics.Brush.verticalGradient(
-                    0.00f to Color.Black.copy(alpha = 0.55f),
-                    0.22f to Color.Transparent,
-                    0.62f to Color.Transparent,
-                    1.00f to Color.Black.copy(alpha = 0.72f),
-                ),
+        // Built once per size. This sits in the same layer as the beat-driven backdrop, so
+        // every redraw of that re-ran this lambda - and it built a new gradient each time.
+        modifier.fillMaxSize().drawWithCache {
+            val bands = androidx.compose.ui.graphics.Brush.verticalGradient(
+                0.00f to Color.Black.copy(alpha = 0.55f),
+                0.22f to Color.Transparent,
+                0.62f to Color.Transparent,
+                1.00f to Color.Black.copy(alpha = 0.72f),
             )
+            onDrawWithContent {
+                drawContent()
+                drawRect(bands)
+            }
         },
     )
 }

@@ -84,23 +84,20 @@ import dev.niccc2007.filet.vfs.VNode
 @Composable
 fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     val app by vm.state.collectAsState()
-    val downloads by vm.home.downloads.collectAsState()
+    val downloads by vm.home.recent.collectAsState()
     val recents by vm.recents.items.collectAsState()
-    val tracked by vm.tracked.folders.collectAsState()
     val folds by vm.prefs.homeFolds.collectAsState()
     val scanning by vm.home.loading.collectAsState()
     val hideStorage by vm.prefs.hideStorage.collectAsState()
     val hiddenCards by vm.prefs.hiddenCards.collectAsState()
-    val hideTermux by vm.prefs.hideTermux.collectAsState()
     val colors = Filet.colors
     /**
      * The row a long press opened, and whether it came from the OPENED feed.
      *
      * Both feeds share one sheet, and the sheet was always offering "Remove from this list" -
-     * which is an action on the recents list and means nothing for a file that turned up in
-     * a tracked folder. There is no list to remove it from; the file is simply there, and
-     * the only way to stop seeing it is to stop tracking the folder or to delete it. So the
-     * action is absent for an arrival rather than present and lying about what it does.
+     * which is an action on the recents list and means nothing for a file that turned up on
+     * the phone. There is no list to remove it from; the file is simply there. So the action
+     * is absent for an arrival rather than present and lying about what it does.
      */
     var menuFor by remember { mutableStateOf<Pair<VNode, Boolean>?>(null) }
 
@@ -131,7 +128,14 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
 
         val shown = app.volumes.filter { it.node.path.toString() !in hiddenCards }
         val hiddenCount = app.volumes.size - shown.size
-        val showTermux = vm.termuxInstalled && !hideTermux && app.volumes.none {
+        // Dismissible, through `hiddenCards` - the same mechanism every storage card uses.
+        //
+        // Its own `hideTermux` preference was removed with the settings cleanup, and the
+        // replacement reasoning was that the tile disappears once its tree is granted. That was
+        // wrong: somebody who has Termux installed and does not want it connected to Filet has
+        // no way to grant the tree, so the tile became permanent. A card nobody can dismiss is
+        // bloat on the one screen that opens first.
+        val showTermux = vm.termuxInstalled && TERMUX_CARD !in hiddenCards && app.volumes.none {
             dev.niccc2007.filet.integrations.Termux.isTermuxTree(android.net.Uri.parse(it.node.path.path)) ||
                 it.label.startsWith("Termux")
         }
@@ -253,7 +257,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                                 fraction = if (used != null && v.total != null)
                                     used.toFloat() / v.total else null,
                                 onHide = { vm.prefs.hideCard(v.node.path.toString()) },
-                                onClick = { pane.navigateTo(v.node.path) },
+                                onClick = { pane.jumpTo(v.node.path) },
                             )
                         }
                     }
@@ -268,7 +272,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                                 kind = "Termux",
                                 value = "Connect",
                                 caption = "its home and usr/bin, as a volume",
-                                onHide = { vm.prefs.setHideTermux(true) },
+                                onHide = { vm.prefs.hideCard(TERMUX_CARD) },
                                 onClick = { vm.connectTermux(home = true) },
                             )
                         }
@@ -280,14 +284,14 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         if (downloads.isNotEmpty()) {
             // The name has moved several times, each time to describe what the list can
             // actually contain: "New downloads" (a file pushed over Nearby is not a download),
-            // "New files and folders" (the feed stopped listing folders), briefly "Files"
-            // (which claims the whole device when this watches a handful of tracked folders),
-            // then "New files".
+            // "New files and folders" (the feed stopped listing folders), then "New files" -
+            // which is now literally true: it is every file on the phone's own storage, by when
+            // it appeared. See `HomeFeed`.
             //
             // Bug identified: "New files" and "Recent" sat one above the other and could not be
             // told apart, because neither said what made an entry appear in it. One is files
-            // that TURNED UP in a folder being watched; the other is files YOU OPENED. Both now
-            // say which, in the header, because a subtitle under a section header is not read.
+            // that TURNED UP on the phone; the other is files YOU OPENED. Both now say which, in
+            // the header, because a subtitle under a section header is not read.
             item {
                 SectionHeaderWithAction(
                     label = HomeSections.ARRIVED,
@@ -306,7 +310,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                 val d = downloads[i]
                 FeedRow(
                     node = d.node,
-                    when_ = ago(d.at),
+                    when_ = ago(d.added),
                     sub = d.origin,
                     onClick = { vm.openHomeEntry(d.node) },
                     onLongClick = { menuFor = d.node to false },
@@ -319,21 +323,16 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         // Saved places, and anything advertising on the LAN this second. A phone that turns
         // hosting on appears here by itself, and disappears when it stops - which is the whole
         // point: a share is a thing that is happening, not a thing that was configured once.
-        // What is being watched, and a way to stop. Without this the tracked list was
-        // write-only: you could add a folder from its menu and never see the set again.
-        if (tracked.isNotEmpty()) {
+
         // ── everything of one kind, from the whole phone ───────────────────────────
         //
         // Issue #4: somewhere to open all the photos at once, and the same for audio, video,
         // packages and documents, so that this app can replace the gallery and the music
         // player rather than sitting beside them.
         //
-        // Deliberately NOT a change to the tracked folders. The two answer different
-        // questions and both are worth having: a tracked folder says "what turned up in the
-        // places I care about", which is only useful BECAUSE it is scoped - point it at the
-        // whole phone and a build directory writing five hundred files buries the camera roll
-        // it exists to surface. A category says "all my photos", which is inherently
-        // device-wide. Collapsing one into the other would cost the first its entire value.
+        // Bug identified here: this section sat INSIDE the `if` that drew the old tracked-folder
+        // list, so on a phone with no tracked folders the categories were never drawn at all.
+        // It is unconditional now.
         //
         // One row, scrolling sideways, rather than six rows: six list rows is most of a first
         // screen for something that is a shortcut rather than content. See `HScroll` for why
@@ -361,35 +360,6 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
             }
         }
 
-            // Adding one needs somewhere to start browsing from, so the verb is only offered
-            // when there is a volume to start in. Offering it with nothing to open would be a
-            // control that silently does nothing, which is the one thing R1 forbids.
-            val startAt = app.volumes.firstOrNull()?.node?.path
-            item {
-                SectionHeaderWithAction(
-                    label = "Tracked folders (${tracked.size})",
-                    action = if (startAt != null) "Add a folder" else null,
-                    folded = HomeFolds.TRACKED in folds,
-                    onFold = { vm.prefs.toggleHomeFold(HomeFolds.TRACKED) },
-                    onAction = {
-                        startAt ?: return@SectionHeaderWithAction
-                        vm.pickFolder("Track a folder", "Track this folder", startAt) { dest ->
-                            vm.tracked.add(dest); vm.home.refresh()
-                        }
-                    },
-                )
-            }
-            items(if (HomeFolds.TRACKED in folds) 0 else tracked.size) { i ->
-                val t = tracked[i]
-                TrackedRow(
-                    folder = t,
-                    onOpen = { pane.navigateTo(t.path) },
-                    onToggleDeep = { vm.tracked.setRecursive(t.path, !t.recursive); vm.home.refresh() },
-                    onStop = { vm.tracked.remove(t.path); vm.home.refresh() },
-                )
-            }
-        }
-
         if (recents.isNotEmpty()) {
             item {
                 SectionHeaderWithAction(
@@ -407,7 +377,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                     node = node,
                     when_ = ago(r.at),
                     sub = r.path.parent?.path,
-                    onClick = { if (r.isDir) pane.navigateTo(r.path) else vm.openHomeEntry(node) },
+                    onClick = { if (r.isDir) pane.jumpTo(r.path) else vm.openHomeEntry(node) },
                     onLongClick = { menuFor = node to true },
                 )
             }
@@ -568,68 +538,6 @@ private fun FeedRow(
 }
 
 /**
- * One tracked folder, with the two things you ever want to do to it.
- *
- * Subfolders is a per-folder switch rather than a global one because the cost is per folder:
- * the tracked list is also the inotify watch list, inotify charges one watch per directory,
- * and the ceiling is around 8192. Tracking Download deeply is free; tracking the volume root
- * deeply is the whole budget.
- */
-@Composable
-private fun TrackedRow(
-    folder: dev.niccc2007.filet.home.TrackedFolder,
-    onOpen: () -> Unit,
-    onToggleDeep: () -> Unit,
-    onStop: () -> Unit,
-) {
-    val colors = Filet.colors
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpen)
-            .padding(horizontal = 14.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(FiletIcons.Eye, null, tint = colors.accent, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(11.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                folder.path.name.ifEmpty { folder.path.scheme },
-                fontSize = 13.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                folder.path.path,
-                fontSize = 9.5.sp,
-                color = colors.fg3,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Text(
-            if (folder.recursive) "Subfolders on" else "Subfolders off",
-            fontSize = 9.5.sp,
-            color = if (folder.recursive) colors.accent else colors.fg3,
-            modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .clickable(onClick = onToggleDeep)
-                .padding(horizontal = 7.dp, vertical = 4.dp),
-        )
-        Icon(
-            FiletIcons.Close, "Stop tracking", tint = colors.fg3,
-            modifier = Modifier
-                .size(24.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .clickable(onClick = onStop)
-                .padding(5.dp),
-        )
-    }
-}
-
-/**
  * A section heading with one thing you can do to it.
  *
  * Used for New files, whose full history is a screen of its own - the card shows the newest
@@ -695,7 +603,7 @@ private fun SectionHeaderWithAction(
 }
 
 /**
- * Three dots, travelling, while the tracked folders are being read.
+ * Three dots, travelling, while the media index is being read.
  *
  * A spinner was the obvious choice and is the wrong one: a spinner over a list that already
  * has rows in it says "this is not ready", and it is - those rows are real, they are simply
@@ -769,3 +677,12 @@ private fun CategoryChip(
         )
     }
 }
+
+/**
+ * The Termux tile's id in `hiddenCards`.
+ *
+ * Not a path, because the tile is an offer rather than a volume - but it shares the set, so
+ * dismissing it works the same way, survives a restart, and comes back with "show hidden
+ * cards" like everything else there.
+ */
+private const val TERMUX_CARD = "offer:termux"

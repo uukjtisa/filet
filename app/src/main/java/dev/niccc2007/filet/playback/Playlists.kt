@@ -228,3 +228,64 @@ class Playlists(private val prefs: Prefs) {
         }
     }
 }
+
+/**
+ * What All Music can be sorted by. The query layer maps each to one media-index column - the
+ * column names stay there, per R3 - so the DATABASE sorts before the row limit applies. Sorting
+ * in memory would only order whichever rows survived the limit, and "A to Z" would quietly be
+ * "A to Z of the newest two thousand".
+ *
+ * Not `SortKey`: the file browser's keys have no date-added and no duration, and adding them
+ * there would put two options in every folder's sort menu that mean nothing for a folder.
+ */
+enum class MusicSortKey(val label: String, val newestFirst: Boolean) {
+    NAME("Name", false),
+    ADDED("Date added", true),
+    MODIFIED("Date modified", true),
+    SIZE("Size", true),
+    DURATION("Length", true),
+}
+
+/** A sort for All Music, remembered as one short string. */
+data class MusicSort(val key: MusicSortKey = MusicSortKey.ADDED, val descending: Boolean = true) {
+
+    fun encode(): String = key.name + ":" + (if (descending) "desc" else "asc")
+
+    /** The same key again flips direction; a new key starts in its natural direction. */
+    fun pick(next: MusicSortKey): MusicSort =
+        if (next == key) copy(descending = !descending) else MusicSort(next, next.newestFirst)
+
+    companion object {
+        /** Anything unreadable - an old value, a renamed key - falls back to newest added. */
+        fun decode(raw: String?): MusicSort {
+            val parts = raw.orEmpty().split(':')
+            val key = MusicSortKey.entries.firstOrNull { it.name == parts.getOrNull(0) } ?: return MusicSort()
+            return MusicSort(key, parts.getOrNull(1) != "asc")
+        }
+    }
+}
+
+/**
+ * The built-in list of every audio file on the device.
+ *
+ * Decision: a query, re-run on open and on every sort change, and never stored as paths. A
+ * stored list goes stale the moment a song is downloaded or deleted, and keeping it current
+ * would mean a second index of the device beside the system's own. Nothing about it is in
+ * [Playlists]' saved blob, so it cannot be renamed, deleted or emptied.
+ *
+ * Every audio type is the media index's own answer - `MEDIA_TYPE_AUDIO`, through the shared
+ * `CategoryQuery` - never a list of extensions, which is how a player ends up blind to somebody's
+ * flac or opus library while showing their mp3s.
+ *
+ * Bounded at `CategoryQuery.LIMIT` rows (2000), sorted by the database first, and the rows are
+ * light - a path, a size, two longs. Artwork is read per visible row only.
+ */
+object AllMusic {
+    const val ID = "all-music"
+    const val NAME = "All Music"
+    const val SORT_KEY = "allmusic.sort"
+
+    fun sortOf(prefs: Prefs): MusicSort = MusicSort.decode(prefs.getString(SORT_KEY))
+
+    fun saveSort(prefs: Prefs, sort: MusicSort) = prefs.putString(SORT_KEY, sort.encode())
+}

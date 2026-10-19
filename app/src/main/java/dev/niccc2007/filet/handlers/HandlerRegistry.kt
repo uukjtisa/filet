@@ -41,7 +41,7 @@ enum class HandlerId(val label: String) {
 
     /**
      * HTML, rendered with scripts and file access OFF, and its source one tap away in the
-     * ordinary editor. See `HtmlScreen` - the security decisions are the whole of that file.
+     * ordinary editor. See `HtmlView.kt` - the security decisions are the whole of that file.
      */
     WEB("Web preview"),
     MANIFEST("Manifest editor"),
@@ -90,7 +90,18 @@ class HandlerRegistry(private val prefs: Prefs) {
         val ext = node.extension.lowercase(Locale.US)
         when (ext) {
             "pdf" -> return HandlerId.PDF
-            "md", "markdown", "mdown", "mkd", "docx", "pptx" -> return HandlerId.DOC
+            "md", "markdown", "mdown", "mkd", "docx", "pptx",
+            "xlsx", "xlsm", "ods" -> return HandlerId.DOC
+
+            // The LEGACY binary office formats, which have no reader here.
+            //
+            // Bug identified here: these fall in `FileKind.DOC`, and `defaultForKind` sends
+            // that whole kind to the text editor on the grounds that "what is left in DOC is
+            // text-shaped". These five are not - they are OLE compound files and old
+            // OpenDocument zips, so opening one filled the code editor with mojibake. That
+            // reads as the app being broken rather than as the format being unsupported, which
+            // is the worse of the two failures. Hand them to something that can read them.
+            "doc", "ppt", "xls", "rtf", "odt", "odp" -> return HandlerId.EXTERNAL
             "html", "htm", "xhtml" -> return HandlerId.WEB
         }
         return defaultForKind(node)

@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,6 +31,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,12 +42,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
+import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgCaption
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
 import dev.niccc2007.filet.ui.tabs.EmptyTab
 import dev.niccc2007.filet.ui.tabs.Pill
 import dev.niccc2007.filet.ui.tabs.PillTone
 import dev.niccc2007.filet.ui.tabs.SectionRow
 import dev.niccc2007.filet.ui.tabs.TabHeader
 import dev.niccc2007.filet.ui.theme.Filet
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * What you were part way through, and where you got to.
@@ -72,12 +86,24 @@ import dev.niccc2007.filet.ui.theme.Filet
 fun ResumeScreen(vm: BrowserViewModel) {
     val colors = Filet.colors
     val store = vm.playback.resume
-    // Watched rather than counted locally, so a pull-down refresh and the player writing a
-    // new position both reach this list. See `BrowserViewModel.resumeRevision`.
+    // Two signals. The store's own moves the moment any player writes a stopped position or a
+    // row arrives or leaves - see `ResumeStore.changes`. The view model's moves on a pull-down
+    // refresh. Neither is a poll: both move only when something did.
     val revision by vm.resumeRevision.collectAsStateWithLifecycle()
+    val changed by store.changes.collectAsStateWithLifecycle()
     var filter by remember { mutableStateOf(ResumeFilter.ALL) }
-    val all = remember(revision) { store.all() }
-    val rows = remember(revision, filter) { all.filter(filter::accepts) }
+    val all = remember(revision, changed) { store.all() }
+    val rows = remember(all, filter) { all.filter(filter::accepts) }
+    // The row whose tap is being asked about. A question per tap, never remembered.
+    var asking by remember { mutableStateOf<ResumeStore.Point?>(null) }
+    asking?.let { point ->
+        ResumePrompt(
+            point,
+            onContinue = { asking = null; vm.resumePoint(point) },
+            onRestart = { asking = null; vm.resumePoint(point, fromStart = true) },
+            onDismiss = { asking = null },
+        )
+    }
 
     LazyColumn(Modifier.fillMaxSize()) {
         item { TabHeader("Carry on") }
@@ -126,7 +152,7 @@ fun ResumeScreen(vm: BrowserViewModel) {
                 Modifier
                     .fillMaxWidth()
                     .combinedClickable(
-                        onClick = { vm.resumePoint(point) },
+                        onClick = { asking = point },
                         onLongClick = { menu = true },
                     )
                     .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -159,12 +185,7 @@ fun ResumeScreen(vm: BrowserViewModel) {
                         )
                     }
                 }
-                Icon(
-                    if (point.video) FiletIcons.Video else FiletIcons.Audio,
-                    null,
-                    tint = colors.fg2,
-                    modifier = Modifier.size(19.dp),
-                )
+                ResumeThumb(vm, point)
                 Spacer(Modifier.width(11.dp))
                 Column(Modifier.fillMaxWidth(0.72f)) {
                     Text(
@@ -227,6 +248,237 @@ fun ResumeScreen(vm: BrowserViewModel) {
             }
         }
     }
+}
+
+/**
+ * Carry on, or start again.
+ *
+ * Asked on every tap and remembered never: whether to pick a film up where it was or watch it
+ * again is a decision about this sitting, not a setting. The saved position is in the question
+ * as a clock - "23:41 of 48:02" - because "continue?" with no number is a guess about what is
+ * being continued.
+ */
+@Composable
+private fun ResumePrompt(
+    point: ResumeStore.Point,
+    onContinue: () -> Unit,
+    onRestart: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dlg(onDismiss = onDismiss) {
+        DlgHeader(
+            if (point.video) FiletIcons.Video else FiletIcons.Audio,
+            point.title,
+            sub = "Left at " + resumeWhere(point),
+            onClose = onDismiss,
+        )
+        DlgBody {
+            DlgCaption("Carry on from where you stopped, or play it from the start.")
+        }
+        DlgFooter {
+            DlgBtn("Cancel", onClick = onDismiss)
+            DlgBtn("From the start", onClick = onRestart)
+            DlgBtn("Continue", kind = BtnKind.PRIMARY, onClick = onContinue)
+        }
+    }
+}
+
+/** "23:41 of 48:02", or "23:41" when the length was never known. Pure, for the prompt. */
+fun resumeWhere(point: ResumeStore.Point): String {
+    val where = dev.niccc2007.filet.handlers.clockOf(point.positionMs)
+    return if (point.durationMs > 0L) {
+        where + " of " + dev.niccc2007.filet.handlers.clockOf(point.durationMs)
+    } else {
+        where
+    }
+}
+
+/**
+ * The row's picture: a frame from where the video was left, or an audio file's own artwork.
+ *
+ * Generated, not looked up. A video with no cached thumbnail is the common case for a file
+ * copied over by hand, and a typed glyph in its place was the gap in this list. The frame is
+ * taken at the SAVED position rather than at zero - a better picture than a title card, and a
+ * reminder of where they were.
+ *
+ * The typed icon is only the fallback for a file that yields nothing: audio with no embedded
+ * art, a file on a share or inside an archive (see [ResumeThumbs.load]), or a container the
+ * platform cannot decode.
+ */
+@Composable
+private fun ResumeThumb(vm: BrowserViewModel, point: ResumeStore.Point) {
+    val colors = Filet.colors
+    val context = LocalContext.current
+    val key = ResumeThumbs.key(point)
+    var image by remember(key) { mutableStateOf(ResumeThumbs.cached(key)) }
+    var tried by remember(key) { mutableStateOf(image != null || ResumeThumbs.failed(key)) }
+    LaunchedEffect(key) {
+        if (tried) return@LaunchedEffect
+        image = ResumeThumbs.load(context.applicationContext, vm, point)
+        tried = true
+    }
+    Box(
+        Modifier
+            .size(width = 56.dp, height = 36.dp)
+            .clip(RoundedCornerShape(5.dp))
+            .background(colors.sunken),
+        contentAlignment = Alignment.Center,
+    ) {
+        val shown = image
+        if (shown != null) {
+            androidx.compose.foundation.Image(
+                shown,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else if (tried) {
+            Icon(
+                if (point.video) FiletIcons.Video else FiletIcons.Audio,
+                null,
+                tint = colors.fg2,
+                modifier = Modifier.size(17.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Generated thumbnails for the Carry on list, held in memory.
+ *
+ * - **Bound:** [MAX] pictures of at most [W] x [H] pixels in RGB_565 - about 32 KB each, under
+ *   1.6 MB for the whole cache. Least recently used is evicted first ([Lru]).
+ * - **Keyed** on the path and the saved position in half-minute steps, so a film left further
+ *   on gets a new frame and one reopened in the same spot does not.
+ * - **One at a time.** Extraction runs on a single IO lane. Twenty rows opening twenty decoders
+ *   at once is exactly the burst that warms a phone; one lane fills the rows in order.
+ * - **Failures are remembered** per key, so a file that will not decode is not retried on every
+ *   scroll.
+ */
+internal object ResumeThumbs {
+    const val MAX = 48
+    const val W = 160
+    const val H = 100
+
+    private val cache = Lru<String, ImageBitmap>(MAX)
+    private val failures = Lru<String, Boolean>(MAX * 2)
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val lane = Dispatchers.IO.limitedParallelism(1)
+
+    fun key(point: ResumeStore.Point): String = point.path + "@" + point.positionMs / 30_000
+
+    fun cached(key: String): ImageBitmap? = cache[key]
+
+    fun failed(key: String): Boolean = failures[key] == true
+
+    suspend fun load(
+        context: android.content.Context,
+        vm: BrowserViewModel,
+        point: ResumeStore.Point,
+    ): ImageBitmap? = withContext(lane) {
+        val key = key(point)
+        cache[key] ?: run {
+            val made = runCatching { extract(context, vm, point) }.getOrNull()
+            if (made == null) failures.put(key, true) else cache.put(key, made)
+            made
+        }
+    }
+
+    private suspend fun extract(
+        context: android.content.Context,
+        vm: BrowserViewModel,
+        point: ResumeStore.Point,
+    ): ImageBitmap? {
+        val path = dev.niccc2007.filet.vfs.VPath.parse(point.path)
+        // Only a file already on this device. A share or an archive entry would have to be
+        // copied out first, and copying a two-gigabyte film to draw a 56dp picture is not a
+        // trade anybody would make knowingly.
+        if (vm.vfs.isRemote(path) || vm.vfs.osPath(path) == null) return null
+        val node = vm.vfs.stat(path) ?: return null
+        val uri = vm.localUriFor(node) ?: return null
+        val r = android.media.MediaMetadataRetriever()
+        try {
+            r.setDataSource(context, uri)
+            val raw: android.graphics.Bitmap = (if (point.video) frameOf(r, point.positionMs) else artOf(r)) ?: return null
+            val (w, h) = fitInside(raw.width, raw.height, W, H)
+            val sized = if (raw.width == w && raw.height == h) {
+                raw
+            } else {
+                android.graphics.Bitmap.createScaledBitmap(raw, w, h, true).also { if (it !== raw) raw.recycle() }
+            }
+            val small = if (sized.config == android.graphics.Bitmap.Config.RGB_565) {
+                sized
+            } else {
+                sized.copy(android.graphics.Bitmap.Config.RGB_565, false)?.also { sized.recycle() } ?: sized
+            }
+            return small.asImageBitmap()
+        } finally {
+            runCatching { r.release() }
+        }
+    }
+
+    /** A frame at the saved position, scaled by the decoder where it can be; at zero if that fails. */
+    private fun frameOf(r: android.media.MediaMetadataRetriever, positionMs: Long): android.graphics.Bitmap? {
+        val opt = android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+        val us = positionMs * 1000
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            r.getScaledFrameAtTime(us, opt, W, H) ?: r.getScaledFrameAtTime(0, opt, W, H)
+        } else {
+            r.getFrameAtTime(us, opt) ?: r.getFrameAtTime(0, opt)
+        }
+    }
+
+    /** Embedded artwork, decoded at a fraction of its size rather than whole and then shrunk. */
+    private fun artOf(r: android.media.MediaMetadataRetriever): android.graphics.Bitmap? {
+        val bytes = r.embeddedPicture ?: return null
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val opts = android.graphics.BitmapFactory.Options().apply {
+            inSampleSize = sampleFor(bounds.outWidth, bounds.outHeight, W, H)
+            inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+        }
+        return android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+    }
+}
+
+/** The largest power-of-two step that still leaves a picture at least [w] x [h]. Pure. */
+fun sampleFor(srcW: Int, srcH: Int, w: Int, h: Int): Int {
+    var n = 1
+    while (srcW / (n * 2) >= w && srcH / (n * 2) >= h) n *= 2
+    return n
+}
+
+/** [srcW] x [srcH] scaled down to fit inside [w] x [h], aspect kept, never scaled up. Pure. */
+fun fitInside(srcW: Int, srcH: Int, w: Int, h: Int): Pair<Int, Int> {
+    if (srcW <= 0 || srcH <= 0) return Pair(w, h)
+    val k = minOf(1f, w.toFloat() / srcW, h.toFloat() / srcH)
+    // Rounded, then clamped: truncating turned 1920 * (100 / 1920f) = 99.99999 into 99.
+    return Pair(
+        kotlin.math.round(srcW * k).toInt().coerceIn(1, w),
+        kotlin.math.round(srcH * k).toInt().coerceIn(1, h),
+    )
+}
+
+/** A least-recently-used map of fixed size. Thread-safe. Pure. */
+class Lru<K, V>(val max: Int) {
+    private val map = object : LinkedHashMap<K, V>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean = size > max
+    }
+
+    @Synchronized
+    operator fun get(key: K): V? = map[key]
+
+    @Synchronized
+    fun put(key: K, value: V) {
+        map[key] = value
+    }
+
+    @Synchronized
+    fun keys(): List<K> = map.keys.toList()
+
+    val size: Int
+        @Synchronized get() = map.size
 }
 
 /** The two halves of the media this app plays, plus everything. */

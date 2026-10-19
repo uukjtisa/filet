@@ -5,8 +5,8 @@ package dev.niccc2007.filet.home
  *
  * Bug identified: the home screen showed "New files" directly above "Recent", and neither name
  * said what put an entry in it. They are different questions - one list is files that TURNED
- * UP in a folder Filet is watching, the other is files YOU OPENED - and read together, the
- * second looked like a shorter way of saying the first.
+ * UP on the phone, the other is files YOU OPENED - and read together, the second looked like a
+ * shorter way of saying the first.
  *
  * Both headings now name their own cause. Not a subtitle: a line of explanation under a
  * section header is not read, and if it has to be read the header has already failed.
@@ -14,26 +14,22 @@ package dev.niccc2007.filet.home
 object HomeSections {
 
     /**
-     * Files that appeared in a tracked folder. The cause is the folder, not the user.
-     *
-     * "tracked" is in the name because it was never watching all of them - only the folders on
-     * the tracked list - and a heading that overstates its reach makes an empty section look
-     * like a fault rather than an accurate answer.
+     * Files that appeared on the phone's own storage. The cause is the file arriving, not the
+     * user. Device-wide since the tracked-folder list was retired - see `HomeFeed` - so the
+     * heading no longer has to apologise for a narrow reach.
      */
-    const val ARRIVED = "New in your tracked folders"
+    const val ARRIVED = "Added to this phone"
 
     /**
      * The same list, named for a tab strip rather than for a section heading.
      *
      * [ARRIVED] has to carry its own cause because it sits directly above "Recently opened"
      * with nothing else to tell them apart. A tab has its own icon, its own position and no
-     * neighbour making the same claim, and "New in your tracked folders" truncates to
-     * "New in your tr…" in the space a tab actually gets - which says less than the short
-     * name does. So the two differ on purpose, and neither is a rename of the other.
+     * neighbour making the same claim, so the short name says enough there.
      */
     const val ARRIVED_TAB = "New files"
 
-    /** Files the user opened. The cause is the user, not the folder. */
+    /** Files the user opened. The cause is the user, not the file. */
     const val OPENED = "Recently opened"
 
     /** Both, for anything that needs to render or check the pair. */
@@ -49,17 +45,15 @@ object HomeSections {
  */
 object HomeFolds {
     const val ARRIVED = "arrived"
-    const val TRACKED = "tracked"
     const val OPENED = "opened"
 
     /** The whole-phone categories. Issue #4, and see `MediaCategory`. */
     const val CATEGORIES = "categories"
 
     /**
-     * Folded until somebody opens them.
-     *
-     * The tracked-folder list only: it is a settings screen that was left lying in the middle
-     * of a feed, and on a phone watching nine folders it was most of the first screen.
+     * Folded until somebody opens them. Empty: the one section that started shut was the
+     * tracked-folder list, which no longer exists. A stored fold id for it is simply never
+     * matched again.
      */
-    val SHUT = setOf(TRACKED)
+    val SHUT: Set<String> = emptySet()
 }

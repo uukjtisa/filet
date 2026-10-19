@@ -303,7 +303,7 @@ class NetConnections(context: Context) {
      * Take connections from another phone, re-encrypting their secrets under this one's key.
      *
      * Matched by id: an entry already here is replaced rather than duplicated, because the id
-     * is what paths already saved in bookmarks and tracked folders point at. Returns how many
+     * is what paths already saved in bookmarks point at. Returns how many
      * were written.
      */
     fun importAll(entries: List<JSONObject>): Int {

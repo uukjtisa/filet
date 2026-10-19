@@ -125,21 +125,24 @@ class BeatFollowerTest {
     }
 
     @Test
-    fun `the wave snaps out and unwinds rather than tracking the envelope`() {
-        // The asymmetry IS the effect: a wave that takes as long to arrive as to leave is
-        // always half way through something and reads as a decoration.
+    fun `the wave is a burst, not a swell`() {
+        // Peaks on the step the hit is read, and is mostly gone before a beat at 120bpm
+        // (500ms) arrives - so consecutive hits never merge into one long swell, which is what
+        // the old 40ms chase and 600ms tail did.
         val follower = BeatFollower()
         // Settle first, so the followers are where a real track would have them.
         repeat(600) { follower.step(if (it % 30 == 0) 1f else 0f, 0.5f, frame) }
         repeat(60) { follower.step(0f, 0.5f, frame) }
         val before = follower.blast
         follower.step(1f, 0.5f, frame)
-        repeat(3) { follower.step(0f, 0.5f, frame) }
-        val justAfter = follower.blast
-        repeat(10) { follower.step(0f, 0.5f, frame) }
-        val later = follower.blast
-        assertTrue("the wave did not rise: $before -> $justAfter", justAfter > before + 0.05f)
-        assertTrue("the wave fell as fast as it rose", later > justAfter * 0.5f)
+        val onTheHit = follower.blast
+        follower.step(0f, 0.5f, frame)
+        val nextFrame = follower.blast
+        repeat(27) { follower.step(0f, 0.5f, frame) }
+        val halfSecond = follower.blast
+        assertTrue("the wave did not jump on the hit: $before -> $onTheHit", onTheHit > before + 0.3f)
+        assertTrue("the wave was still rising after the hit", nextFrame <= onTheHit)
+        assertTrue("the wave was still there half a second later: $halfSecond", halfSecond < onTheHit * 0.2f)
     }
 
     @Test

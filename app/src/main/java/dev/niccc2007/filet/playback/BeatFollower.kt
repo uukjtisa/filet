@@ -107,10 +107,12 @@ class BeatFollower {
         mean += (norm - mean) * (gap / MEAN_MS).coerceIn(0f, 1f)
         swing = beatSwing(norm, mean)
 
-        // ── the wave: fast to rise, slow to fall, flat when nothing is happening ──
+        // ── the wave: instant up, fast exponential down, flat when nothing is happening ──
+        //
+        // A burst, not a swell. See [WAVE_RELEASE_MS] for the linear chase this replaced and why
+        // it could never be sharp.
         val want = (max(0f, swing) * WAVE_GAIN).coerceIn(0f, 1f)
-        val k = if (want > blast) gap / WAVE_ATTACK_MS else gap / WAVE_RELEASE_MS
-        blast += (want - blast) * k.coerceIn(0f, 1f)
+        blast = max(want, blast * exp(-gap / WAVE_RELEASE_MS))
 
         // ── the impulse: only the big ones, and only once each ──
         val over = swing > SHOCK_AT

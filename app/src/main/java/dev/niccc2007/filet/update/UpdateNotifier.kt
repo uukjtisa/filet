@@ -35,9 +35,25 @@ object UpdateNotifier {
     /** The sheet opens straight to this release rather than re-checking. */
     const val EXTRA_UPDATE = "dev.niccc2007.filet.extra.UPDATE"
 
-    fun notify(context: Context, release: Release) {
-        if (!canPost(context)) return
+    /**
+     * Post the notification, and say whether anybody can actually see it.
+     *
+     * Bug identified here: a missing permission returned silently, and nothing ever read the
+     * channel's importance or the app-level switch. `notify()` succeeds against a channel the
+     * user turned off, so from the code and from the log a hidden notification looked exactly
+     * like a delivered one. Every outcome is now classified by [NotifyGate] and logged.
+     */
+    fun notify(context: Context, release: Release): NotifyGate.Outcome {
         ensureChannel(context)
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val outcome = NotifyGate.classify(
+            sdk = android.os.Build.VERSION.SDK_INT,
+            permissionGranted = canPost(context),
+            appEnabled = runCatching { NotificationManagerCompat.from(context).areNotificationsEnabled() }.getOrDefault(true),
+            channelImportance = runCatching { manager?.getNotificationChannel(CHANNEL)?.importance }.getOrNull(),
+        )
+        NotifyGate.log(outcome)
+        if (!outcome.posts) return outcome
 
         val open = Intent(context, MainActivity::class.java).apply {
             // Reuse the running task rather than stacking a second copy of the browser on top
@@ -77,7 +93,8 @@ object UpdateNotifier {
             .setOnlyAlertOnce(true)
             .build()
 
-        runCatching { NotificationManagerCompat.from(context).notify(ID, notification) }
+        return runCatching { NotificationManagerCompat.from(context).notify(ID, notification); outcome }
+            .getOrElse { dev.niccc2007.filet.log.FiletLog.w("update", "notification post threw", it); NotifyGate.Outcome.FAILED }
     }
 
     fun clear(context: Context) {

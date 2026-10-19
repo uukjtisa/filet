@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/report.mjs": {
+      "maxDuration": 20
+    }
+  }
+}

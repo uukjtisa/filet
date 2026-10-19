@@ -5,7 +5,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -14,6 +15,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalContext
 import kotlin.math.cos
 import kotlin.math.sin
@@ -24,12 +26,11 @@ import kotlinx.coroutines.delay
  *
  * ## What this is, and what it is not
  *
- * It is NOT the Aurora face. That was the mistake worth writing down: asked for *"an animated
- * colour gradient - that glow on the back of the thing - enchanted, like something"*, a fifth
- * face was built whose whole identity is a drifting gradient. The face was kept, because it
- * is good. It was also the wrong answer, because the ask was about **every** look: the glow
- * that is already behind the player should be alive rather than a still photograph, and that
- * should hold on the minimised strip and in the shade as well.
+ * It is NOT the Halo face's backdrop. That was the mistake worth writing down: an animated
+ * colour gradient behind the player was first built as a fifth face whose whole identity was
+ * the gradient. The face was kept, because it is good, but a gradient on one face was the wrong
+ * answer: the glow already behind EVERY look should be alive rather than a still photograph,
+ * and that should hold on the minimised strip and in the shade as well.
  *
  * So this is one layer, used in five places, governed by one switch:
  *
@@ -38,7 +39,7 @@ import kotlinx.coroutines.delay
  * | Classic | lights in the theme accent - that face deliberately ignores the artwork |
  * | Ambient, Editorial | lights over the blurred artwork, under the veil |
  * | Immersive | lights over the backdrop |
- * | Aurora | the face's own drift, which this switch now governs too |
+ * | Halo | the face's own drift, which this switch now governs too |
  * | The strip | two sweeps across a 56dp band |
  * | The notification | see `PlaybackService` - the shade cannot animate, so the card's own colour drifts between posts |
  *
@@ -106,8 +107,8 @@ fun Modifier.livingGlow(
     pulseDepth: Float = 1f,
 ): Modifier {
     if (!on) return this
-    val phases = rememberGlowPhases(running)
-    val tints = remember(base, strength) { glowTints(base, strength) }
+    val clock = rememberGlowPhases(running)
+    val lamps = remember(base, strength) { GlowLamps(glowTints(base, strength)) }
     return drawBehind {
         // READ HERE, not above.
         //
@@ -120,10 +121,9 @@ fun Modifier.livingGlow(
         // recomposed on every animation frame for as long as anything was playing.
         //
         // Read inside the draw lambda, the frame invalidates the draw phase and nothing else.
-        val p = phases.value
-        val a = p[0]
-        val b = p[1]
-        val c = p[2]
+        val a = clock.phase(0)
+        val b = clock.phase(1)
+        val c = clock.phase(2)
         // `drawBehind` is not bounded by the node it is on, so a radial brush wider than a
         // 56dp strip reaches up into whatever is above it. That arrived as a bug - the first
         // build painted the bottom third of the file list - and was then liked, so it is a
@@ -135,28 +135,72 @@ fun Modifier.livingGlow(
         // is a multiply and not a judgement - see `beatSwing` for why the judgement moved.
         val swing = if (pulse == null) 0f else pulse.value * pulseDepth
         if (clip) {
-            clipRect { lights(tints, a, b, c, spread, swing) }
+            clipRect { lights(lamps, a, b, c, spread, swing) }
         } else {
-            lights(tints, a, b, c, spread, swing)
+            lights(lamps, a, b, c, spread, swing)
         }
     }
 }
 
 private fun DrawScope.lights(
-    tints: List<Color>,
+    lamps: GlowLamps,
     a: Float,
     b: Float,
     c: Float,
     spread: Float,
     swing: Float,
 ) {
-    // Swell AND brighten. See `AuroraBackdrop`: on its own, a change of alpha is a flicker.
+    // Swell AND brighten. See `HaloBackdrop`: on its own, a change of alpha is a flicker.
     val grow = spread * (1f + swing * BEAT_BLOOM).coerceAtLeast(0.25f)
     val lift = (1f + swing * BEAT_FLARE).coerceAtLeast(0.15f)
-    glowBlob(tints[0].brighter(lift), a, 0.30f, 0.26f, size.maxDimension * 0.80f * grow)
-    glowBlob(tints[1].brighter(lift), b, 0.74f, 0.44f, size.maxDimension * 0.95f * grow)
-    glowBlob(tints[2].brighter(lift), c, 0.52f, 0.72f, size.maxDimension * 0.65f * grow)
+    glowBlob(lamps.brushes[0], lamps.alpha(0, lift), a, 0.30f, 0.26f, size.maxDimension * 0.80f * grow)
+    glowBlob(lamps.brushes[1], lamps.alpha(1, lift), b, 0.74f, 0.44f, size.maxDimension * 0.95f * grow)
+    glowBlob(lamps.brushes[2], lamps.alpha(2, lift), c, 0.52f, 0.72f, size.maxDimension * 0.65f * grow)
 }
+
+/**
+ * Three lights' brushes, built once per colour rather than once per frame.
+ *
+ * Bug identified here: every redraw of every light built a fresh `Brush.radialGradient` - a
+ * list of stops, a brush and a native shader - because the gradient's centre, radius and alpha
+ * were all baked into it and all three move. At the glow's rate and the beat's rate, over three
+ * lights on the face and three on the strip, that was hundreds of short-lived objects a second
+ * for the collector to chase on a phone that was already warm.
+ *
+ * So the brush carries only the hue, at full alpha, centred on the origin at a fixed radius.
+ * Position and size are a canvas transform (see [glowBlob]) and brightness is the draw's own
+ * alpha, which multiplies every stop - so `colour, colour * 0.45, transparent` at alpha `a`
+ * is the same gradient the old per-frame brush drew with `a` baked into its stops. A brush
+ * whose size never changes also keeps its shader: `ShaderBrush` rebuilds only when the size it
+ * is applied at changes, and a canvas transform does not change it.
+ */
+internal class GlowLamps(private val tints: List<Color>) {
+    val brushes: Array<Brush> = Array(tints.size) { i -> unitRadial(tints[i].copy(alpha = 1f), 0.55f, 0.45f) }
+
+    /** The same arithmetic `brighter` did, as a number for the draw rather than a new colour. */
+    fun alpha(i: Int, lift: Float): Float = (tints[i].alpha * lift).coerceIn(0f, 1f)
+}
+
+/**
+ * A radial gradient from [colour] to transparent, centred on the origin at [UNIT_RADIUS].
+ *
+ * @param at where the middle stop sits, and [keep] how much of the colour's alpha it keeps.
+ */
+internal fun unitRadial(colour: Color, at: Float, keep: Float): Brush = Brush.radialGradient(
+    0f to colour,
+    at to colour.copy(alpha = colour.alpha * keep),
+    1f to Color.Transparent,
+    center = Offset.Zero,
+    radius = UNIT_RADIUS,
+)
+
+/**
+ * The radius every remembered gradient is built at, and scaled from.
+ *
+ * Large rather than 1, so the shader's own arithmetic is done at screen-like magnitudes and the
+ * transform scales it by something near 1 rather than by a thousand.
+ */
+internal const val UNIT_RADIUS = 1000f
 
 /**
  * How much the lights swell on a hard beat, and how much brighter they get with it.
@@ -266,49 +310,90 @@ const val GLOW_MAX = 2.20f
  *
  * Returns the starting phases unchanged when nothing should be moving, so a caller draws a
  * still gradient rather than nothing at all, and the loop does not run at all.
+ *
+ * ## Cost model
+ *
+ * - **Trigger:** [running] (the caller's "playing"), the Activity being on screen, and the OS
+ *   animation switch - all three, see [shouldAnimate]. Any one false and the loop is not
+ *   running; it is not merely writing the same value.
+ * - **Rate:** `PlayerDials.glowFps` - 15 Hz on a capable phone, 12 and 10 below it.
+ * - **Allocates:** nothing per tick. It writes one `Long`; the three phases are arithmetic on
+ *   it inside the draw. It used to build a `FloatArray(3)` every tick.
+ * - **Invalidates:** the draw phase of whoever reads [GlowClock.phase], never a composition.
  */
 @Composable
-fun rememberGlowPhases(running: Boolean): State<FloatArray> {
+fun rememberGlowPhases(running: Boolean): GlowClock {
     val animated = rememberSystemAnimations()
-    val move = running && animated
-    val phases = remember { mutableStateOf(START) }
-    LaunchedEffect(move) {
+    val onScreen = rememberOnScreen()
+    val fps = rememberPlayerDials().glowFps
+    val move = shouldAnimate(onScreen, running, animated)
+    val at = remember { mutableLongStateOf(GlowClock.STILL) }
+    LaunchedEffect(move, fps) {
         if (!move) {
-            phases.value = START
+            at.longValue = GlowClock.STILL
             return@LaunchedEffect
         }
         while (true) {
-            val now = android.os.SystemClock.elapsedRealtime()
-            phases.value = FloatArray(3) { i ->
-                START[i] + (now % PERIODS_MS[i]).toFloat() / PERIODS_MS[i]
-            }
-            delay(1000L / GLOW_FPS)
+            at.longValue = android.os.SystemClock.elapsedRealtime()
+            delay(1000L / fps)
         }
     }
-    return phases
+    return remember { GlowClock(at) }
 }
 
 /**
- * One phase, from the wall clock, at a rate somebody picks.
+ * The glow's three phases, computed where they are drawn.
+ *
+ * One `Long` of state rather than an array of phases, so a tick writes a number and allocates
+ * nothing. Reading [phase] inside a draw lambda subscribes that draw and nothing else.
+ */
+class GlowClock internal constructor(private val at: State<Long>) {
+    /** Light [i]'s phase, 0 to 2: its starting offset plus how far round its period it is. */
+    fun phase(i: Int): Float {
+        val now = at.value
+        if (now == STILL) return START[i]
+        return START[i] + (now % PERIODS_MS[i]).toFloat() / PERIODS_MS[i]
+    }
+
+    internal companion object {
+        /** No clock running: every light sits at its start. */
+        const val STILL = -1L
+    }
+}
+
+/**
+ * One phase, from the wall clock, at the tier's rate.
  *
  * The same discipline as [rememberGlowPhases] and for the same reason: a `State` to be read
  * inside a draw lambda, stepped on a slow loop rather than produced every frame. A caller
  * that reads this in composition undoes all of it - see the note in [livingGlow].
+ *
+ * Gated the same way: [running], on screen, and the OS switch. Stopped, it holds wherever it
+ * was rather than snapping back, which is what it has always done.
+ *
+ * Rate: `PlayerDials.phaseFps`, 20 Hz on a capable phone. Allocates nothing; a `Float` state
+ * write per tick.
  */
 @Composable
-fun rememberPhase(periodMs: Int, running: Boolean, fps: Long = 20L): State<Float> {
+fun rememberPhase(periodMs: Int, running: Boolean): State<Float> {
     val animated = rememberSystemAnimations()
-    val move = running && animated
-    val phase = remember { mutableStateOf(0f) }
-    LaunchedEffect(move, periodMs) {
+    val onScreen = rememberOnScreen()
+    val fps = rememberPlayerDials().phaseFps
+    val move = shouldAnimate(onScreen, running, animated)
+    val phase = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(move, periodMs, fps) {
         if (!move) return@LaunchedEffect
         while (true) {
-            phase.value = (android.os.SystemClock.elapsedRealtime() % periodMs).toFloat() / periodMs
+            phase.floatValue =
+                (android.os.SystemClock.elapsedRealtime() % periodMs).toFloat() / periodMs
             delay(1000L / fps)
         }
     }
     return phase
 }
+
+/** `rememberPhase`'s rate before tiers existed, kept as the capable tier's value. */
+internal const val PHASE_FPS = 20L
 
 /** Where each light sits before anything moves, spread so they never start together. */
 private val START = floatArrayOf(0f, 0.37f, 0.71f)
@@ -323,7 +408,7 @@ private val PERIODS_MS = intArrayOf(23_000, 31_000, 41_000)
  * difference between this and sixty is not visible on a blurred gradient - and it is four
  * times less drawing, continuously, for as long as music is playing.
  */
-private const val GLOW_FPS = 15L
+internal const val GLOW_FPS = 15L
 
 /**
  * Whether the system wants anything to move.
@@ -354,43 +439,40 @@ fun rememberSystemAnimations(): Boolean {
  * rotation - the eye finds the centre it is going round and the motion stops being weather.
  */
 fun DrawScope.glowBlob(
-    colour: Color,
+    /** A remembered [unitRadial] in the light's hue. See [GlowLamps] for why it is not built here. */
+    brush: Brush,
+    alpha: Float,
     phase: Float,
     cx: Float,
     cy: Float,
     radius: Float,
 ) {
+    if (radius <= 0f || alpha <= 0f) return
     val t = phase * 2f * Math.PI.toFloat()
-    val centre = Offset(
-        size.width * (cx + 0.17f * cos(t)),
-        size.height * (cy + 0.11f * sin(t * 1.3f)),
-    )
-    drawCircle(
-        brush = Brush.radialGradient(
-            0f to colour,
-            0.55f to colour.copy(alpha = colour.alpha * 0.45f),
-            1f to Color.Transparent,
-            center = centre,
-            radius = radius,
-        ),
-        radius = radius,
-        center = centre,
-    )
+    val x = size.width * (cx + 0.17f * cos(t))
+    val y = size.height * (cy + 0.11f * sin(t * 1.3f))
+    val k = radius / UNIT_RADIUS
+    withTransform({
+        translate(x, y)
+        scale(k, k, pivot = Offset.Zero)
+    }) {
+        drawCircle(brush = brush, radius = UNIT_RADIUS, center = Offset.Zero, alpha = alpha)
+    }
 }
 
 /**
  * The three lights' colours, at a given strength.
  *
- * [auroraTints] is the full-strength set, which is right for a face whose entire background is
+ * [haloTints] is the full-strength set, which is right for a face whose entire background is
  * these lights. Every other surface already HAS a background - blurred artwork, a video frame,
  * the theme - and the glow goes on top of it, so the same alphas there would bury what is
  * underneath. [strength] scales the alpha and nothing else, so the hues stay the track's.
  */
 fun glowTints(base: Color, strength: Float): List<Color> =
     if (strength == 1f) {
-        auroraTints(base)
+        haloTints(base)
     } else {
-        auroraTints(base).map { it.copy(alpha = (it.alpha * strength).coerceIn(0f, 1f)) }
+        haloTints(base).map { it.copy(alpha = (it.alpha * strength).coerceIn(0f, 1f)) }
     }
 
 /** How strong the glow is over a surface that already has a background of its own. */

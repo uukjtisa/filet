@@ -754,3 +754,67 @@ fun nameLineCount(stepWraps: Boolean, narrow: Boolean, wanted: Int): Int {
     if (narrow) return 1
     return wanted.coerceIn(1, 4)
 }
+
+/**
+ * Reach mode: the listing starts low on the screen, so the first rows sit under a thumb.
+ *
+ * ## Decision: a gap at the top, not a reversed list
+ *
+ * There are two ways to get the top of a listing within one-handed reach. One is to reverse the
+ * list so it fills from the bottom up. The other is what One UI does with its large app bars: leave
+ * the top of the screen empty, so the first row starts partway down and the empty space scrolls
+ * away as you read. This is the second, and it must not be "simplified" into
+ * `reverseLayout = true`:
+ *
+ *  - **A reversed tree is upside down.** Children land ABOVE the folder they belong to, and the
+ *    guide lines - drawn from each row down to its next sibling - run the wrong way. The tree
+ *    view is a large part of why this setting exists at all, so the setting cannot break it.
+ *  - **Reversing fights the sort.** "A to Z" would read Z to A down the screen, so either the
+ *    sort menu lies or it gets a second meaning in this mode. A gap leaves order, sort and the
+ *    tree's geometry exactly as they are: nothing about the rows changes, only where the first
+ *    one starts.
+ *  - **The fresh tail would flip.** New arrivals are held at the end of the list, which in a
+ *    reversed list is the top of the screen - the hard-to-reach end this mode exists to avoid.
+ *
+ * The gap is content padding, so it is part of what scrolls. It goes away as the reader scrolls
+ * down and comes back only when they scroll back to the top, or on arriving in a new folder,
+ * which starts at the top by design. It is never re-applied by a recomposition. Its height is
+ * latched per folder and per width - see `FolderBody` - so a selection bar shrinking the
+ * viewport cannot change it underneath the reader.
+ *
+ * A gap alone is not the feature: a list that starts low with tabs, back and the path bar still
+ * along the top is still a two-handed screen. The pane header moves to the bottom of the pane
+ * in the same mode, and the app's own bars move under the listing.
+ */
+object Reach {
+
+    /**
+     * How much of the viewport is left empty above the first row.
+     *
+     * Half. In reach mode the app's bars are under the listing, so the viewport starts at the
+     * status bar and runs most of the screen. On a 360 x 760dp phone that is a viewport of
+     * about 560dp, and half of it puts the first row's top at about 300dp, two fifths of the
+     * way down the screen. That is where One UI's large title ends, and about as high as a
+     * thumb holding the phone travels comfortably. Two fifths of the viewport was tried on
+     * paper first, and it lands the first row a third of the way down, which is still a
+     * stretch.
+     */
+    const val GAP_FRACTION = 0.5f
+
+    /**
+     * Room for at least three rows under the gap, whatever the viewport is.
+     *
+     * Landscape on a phone leaves a viewport of about 250dp. Two fifths of that is reasonable
+     * proportionally and leaves room for about two rows, which reads as a broken list rather
+     * than a deliberate one.
+     */
+    const val KEEP_DP = 168f
+
+    /** The gap in dp for a viewport [viewportDp] tall, or zero when the mode is off. */
+    fun gapDp(viewportDp: Float, on: Boolean): Float {
+        if (!on || viewportDp <= 0f) return 0f
+        return (viewportDp * GAP_FRACTION)
+            .coerceAtMost(viewportDp - KEEP_DP)
+            .coerceAtLeast(0f)
+    }
+}

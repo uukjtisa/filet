@@ -21,9 +21,10 @@ package dev.niccc2007.filet.docs
  * model that carried the original geometry would invite trying to reproduce it - which is how
  * a reader turns into a word processor that renders everything slightly wrong.
  *
- * Not editable either. These formats are read here and edited as their source where that
- * means anything: Markdown and HTML open in the code editor, and a DOCX has no source to
- * open. See `DocHandlers`.
+ * Not editable either. The model is lossy by design, so writing a file back FROM it would
+ * destroy whatever it does not carry. Markdown and HTML are edited as their source in the code
+ * editor; DOCX and PPTX text is edited in place inside the original archive - see
+ * `OfficeTextEdit` - and never regenerated from here.
  */
 data class Doc(
     val blocks: List<Block>,
@@ -49,6 +50,10 @@ sealed interface Block {
         val level: Int = 0,
         val spans: List<Span> = emptyList(),
         val quote: Boolean = false,
+        /** How the paragraph sits across the width. Read from the file, never guessed. */
+        val align: Align = Align.START,
+        /** Indent from the start edge, in points, as the file declares it. 0 for none. */
+        val indent: Int = 0,
     ) : Block
 
     /** A list item, flattened: the depth is carried rather than nested. */
@@ -58,6 +63,12 @@ sealed interface Block {
         val ordered: Boolean = false,
         val number: Int = 0,
         val spans: List<Span> = emptyList(),
+        /**
+         * The marker exactly as the file defines it - `1.`, `a)`, `iv.`, `2.3.` or a bullet
+         * glyph. Empty when the reader had no definition to work from, in which case the screen
+         * falls back to [number] or a plain bullet.
+         */
+        val marker: String = "",
     ) : Block
 
     /** Preformatted text, drawn monospaced and never reflowed. */
@@ -70,7 +81,16 @@ sealed interface Block {
      * common and must draw rather than throw, and a ragged list of rows is the shape that
      * cannot be inconsistent with itself.
      */
-    data class Table(val rows: List<List<String>>, val header: Boolean = true) : Block
+    data class Table(
+        val rows: List<List<String>>,
+        val header: Boolean = true,
+        /**
+         * How many grid columns each cell covers, parallel to [rows]. Empty means every cell is
+         * one column wide, which is what every reader produced before merges were read, and a
+         * row shorter than its cells means the same for the cells it does not cover.
+         */
+        val colSpans: List<List<Int>> = emptyList(),
+    ) : Block
 
     /** A horizontal rule. */
     data object Rule : Block
@@ -82,7 +102,38 @@ sealed interface Block {
      * do with one - see `PptxReader`. The number is the slide's own, so a reader can say
      * "slide 7" and mean the same thing the file does.
      */
-    data class Slide(val number: Int, val title: String = "") : Block
+    data class Slide(
+        val number: Int,
+        val title: String = "",
+        /** Skipped when the deck is presented. Still shown here, and said. */
+        val hidden: Boolean = false,
+    ) : Block
+
+    /**
+     * A picture the document carries, as its encoded bytes.
+     *
+     * Bytes rather than a bitmap so the reader stays a pure function that runs off the device;
+     * decoding is the screen's job and happens off the main thread at the width it is drawn at.
+     *
+     * @param format the file extension of the part it came from, so a picture in a format the
+     *   platform cannot decode (EMF, WMF) can be named rather than shown as an empty box.
+     * @param emuWidth the size the document places it at, in EMU (914400 to the inch). 0 when
+     *   the file does not say.
+     */
+    class Image(
+        val data: ByteArray,
+        val alt: String = "",
+        val format: String = "",
+        val emuWidth: Long = 0,
+        val emuHeight: Long = 0,
+    ) : Block {
+        /** Width over height as placed, or 0 when unknown. */
+        val aspect: Float
+            get() = if (emuWidth > 0 && emuHeight > 0) emuWidth.toFloat() / emuHeight else 0f
+    }
+
+    /** A slide's speaker notes. Drawn apart from the slide, so they never read as its body. */
+    data class SlideNotes(val text: String) : Block
 
     /** Something the reader found and cannot draw, named rather than silently dropped. */
     data class Note(val text: String) : Block
@@ -101,11 +152,34 @@ data class Span(
     val style: Mark,
     /** Where a [Mark.LINK] goes. Empty for every other mark. */
     val href: String = "",
+    /** The colour of a [Mark.COLOR] or [Mark.HIGHLIGHT], as 0xAARRGGBB. 0 for every other mark. */
+    val argb: Long = 0L,
+    /** For [Mark.SIZE]: the run's size over the body size. 0 for every other mark. */
+    val scale: Float = 0f,
 ) {
     val valid: Boolean get() = to > from && from >= 0
 }
 
-enum class Mark { BOLD, ITALIC, CODE, STRIKE, LINK }
+enum class Mark {
+    BOLD, ITALIC, CODE, STRIKE, LINK,
+
+    UNDERLINE,
+
+    /** Text colour, in [Span.argb]. The screen drops it where it would not read on its ground. */
+    COLOR,
+
+    /** A highlighter behind the text, in [Span.argb]. */
+    HIGHLIGHT,
+
+    /** A size relative to the document's body text, in [Span.scale]. */
+    SIZE,
+
+    SUPERSCRIPT,
+    SUBSCRIPT,
+}
+
+/** Paragraph alignment, as declared by the file. */
+enum class Align { START, CENTER, END, JUSTIFY }
 
 /**
  * Build a paragraph's spans while appending its text, which is what every reader needs.
@@ -126,8 +200,8 @@ class SpanBuilder {
     }
 
     /** Mark everything appended between [start] and now. */
-    fun mark(start: Int, style: Mark, href: String = "") {
-        val span = Span(start, sb.length, style, href)
+    fun mark(start: Int, style: Mark, href: String = "", argb: Long = 0L, scale: Float = 0f) {
+        val span = Span(start, sb.length, style, href, argb, scale)
         // Dropped rather than stored: an empty span is a mark over nothing, which happens
         // with `**` next to `**` in real markdown, and a zero-width annotation makes
         // AnnotatedString throw on some versions rather than draw nothing.

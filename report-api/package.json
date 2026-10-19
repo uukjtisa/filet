@@ -1,0 +1,19 @@
+{
+  "name": "filet-report-api",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Anonymous issue reports from the Filet app, filed on GitHub with a server-side token.",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "dev": "node dev/server.mjs",
+    "fake-github": "node dev/fake-github.mjs"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.8.2"
+  }
+}

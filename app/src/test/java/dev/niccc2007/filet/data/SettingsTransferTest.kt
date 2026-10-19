@@ -22,7 +22,7 @@ class SettingsTransferTest {
         "ui.accent" to "ember",
         "sort.key" to "DATE",
         "handlers.v1" to """{"mp4":"MEDIA"}""",
-        "tracked.folders" to """[{"path":"/storage/emulated/0/DCIM","deep":true}]""",
+        "bookmarks" to """[{"path":"/storage/emulated/0/DCIM"}]""",
         "dav.code" to "SECRETCODE",
         "tabs.v1" to "[]",
         "recents" to "[]",
@@ -131,16 +131,16 @@ class SettingsTransferTest {
 
     @Test
     fun `a round trip restores exactly what was picked`() {
-        val picked = setOf(SettingsTransfer.Section.LOOK, SettingsTransfer.Section.TRACKED)
+        val picked = setOf(SettingsTransfer.Section.LOOK, SettingsTransfer.Section.BOOKMARKS)
         val out = SettingsTransfer.build("0.1.14", 1234L, picked, values(), emptyList(), false)
         val read = SettingsTransfer.read(out)
         assertTrue(read is SettingsTransfer.Reading.Ok)
         read as SettingsTransfer.Reading.Ok
         assertEquals("0.1.14", read.app)
         assertEquals(1234L, read.exportedAt)
-        assertEquals(setOf(SettingsTransfer.Section.LOOK, SettingsTransfer.Section.TRACKED), read.counts.keys)
+        assertEquals(setOf(SettingsTransfer.Section.LOOK, SettingsTransfer.Section.BOOKMARKS), read.counts.keys)
         assertEquals("dark", read.valuesOf(SettingsTransfer.Section.LOOK)["ui.theme"])
-        assertEquals(1, read.counts[SettingsTransfer.Section.TRACKED])
+        assertEquals(1, read.counts[SettingsTransfer.Section.BOOKMARKS])
     }
 
     @Test

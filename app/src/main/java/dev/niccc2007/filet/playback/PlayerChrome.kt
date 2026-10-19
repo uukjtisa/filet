@@ -19,7 +19,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -55,10 +55,15 @@ import kotlinx.coroutines.withContext
 @Composable
 fun AmbientBackdrop(art: Bitmap?, modifier: Modifier = Modifier) {
     if (art == null) return
-    val image = art.asImageBitmap()
+    // Both remembered. Built in the body they were new objects on every recomposition, and a
+    // new colour filter on an `Image` re-records its layer - which, under a blur, means the
+    // blur is run again over the whole screen for an identical picture.
+    val image = remember(art) { art.asImageBitmap() }
     // Saturation is applied with a colour matrix rather than by generating a second bitmap.
     // The blur radius does the spreading; the matrix does the colour.
-    val lift = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(SATURATION) })
+    val lift = remember {
+        ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(SATURATION) })
+    }
     Box(modifier.fillMaxSize()) {
         Image(
             bitmap = image,
@@ -85,16 +90,17 @@ fun AmbientBackdrop(art: Bitmap?, modifier: Modifier = Modifier) {
                 .blur(HOT_BLUR)
                 // Faded out towards the bottom so the hot spot sits behind the artwork and
                 // does not fight the text.
-                .drawWithContent {
-                    drawContent()
-                    drawRect(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.55f to Color.Transparent,
-                            1f to Color.Black,
-                        ),
-                        blendMode = androidx.compose.ui.graphics.BlendMode.DstOut,
+                // The gradient is built once per size, not once per draw. See `GlowLamps`.
+                .drawWithCache {
+                    val fade = Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.55f to Color.Transparent,
+                        1f to Color.Black,
                     )
+                    onDrawWithContent {
+                        drawContent()
+                        drawRect(fade, blendMode = androidx.compose.ui.graphics.BlendMode.DstOut)
+                    }
                 },
         )
     }
@@ -127,22 +133,26 @@ fun AmbientVeil(
     pulseDepth: Float = 1f,
 ) {
     Box(
-        modifier.fillMaxSize().drawWithContent {
-            // READ HERE, in the draw lambda. See `livingGlow` for what reading a beat in a
-            // composable's body costs: this one fills the screen.
-            val swing = if (pulse == null) 0f else pulse.value * pulseDepth
-            // Clamped above zero on the thin side only. A veil that gets THICKER in the gaps
-            // would dim the artwork most of the time, which is the same sign error that made
-            // the glow disappear - see `beatSwing`.
-            val lift = (1f - swing.coerceAtLeast(0f) * VEIL_PART).coerceIn(VEIL_FLOOR, 1f)
-            drawRect(
-                Brush.verticalGradient(
-                    0.00f to Color.Transparent,
-                    VEIL_START to Color.Transparent,
-                    0.76f to ground.copy(alpha = 0.38f * lift),
-                    1.00f to ground.copy(alpha = 0.88f * lift),
-                ),
+        // The gradient is built once per size and colour, and the beat is the draw's alpha.
+        // It was a new brush on every frame the beat moved: every stop is multiplied by the
+        // same `lift`, so drawing the unlifted gradient at alpha `lift` is the same picture.
+        modifier.fillMaxSize().drawWithCache {
+            val veil = Brush.verticalGradient(
+                0.00f to Color.Transparent,
+                VEIL_START to Color.Transparent,
+                0.76f to ground.copy(alpha = 0.38f),
+                1.00f to ground.copy(alpha = 0.88f),
             )
+            onDrawWithContent {
+                // READ HERE, in the draw lambda. See `livingGlow` for what reading a beat in a
+                // composable's body costs: this one fills the screen.
+                val swing = if (pulse == null) 0f else pulse.value * pulseDepth
+                // Clamped above zero on the thin side only. A veil that gets THICKER in the
+                // gaps would dim the artwork most of the time, which is the same sign error
+                // that made the glow disappear - see `beatSwing`.
+                val lift = (1f - swing.coerceAtLeast(0f) * VEIL_PART).coerceIn(VEIL_FLOOR, 1f)
+                drawRect(veil, alpha = lift)
+            }
         },
     )
 }
@@ -161,8 +171,11 @@ private const val VEIL_FLOOR = 0.62f
  * The artwork's colour, sampled off the main thread, with the theme accent as the answer
  * whenever the artwork has none to give.
  *
- * Keyed on the bitmap, so it is computed once per track rather than per recomposition - and
- * the player recomposes five times a second off the position ticker.
+ * Cost model: triggered by a new bitmap, i.e. once per track per surface - the strip and the
+ * player each run it once, the notification once more through its own per-bitmap cache
+ * (`PlaybackService.sampled`). Each run is one scale to 24x24 and a pass over 576 pixels on
+ * `Dispatchers.Default`, allocating the scaled bitmap and a 576-int array. Never per frame and
+ * never per position tick.
  */
 @Composable
 fun rememberArtPalette(art: Bitmap?, fallback: Color, onFallback: Color): Pair<Color, Color> {
@@ -198,8 +211,14 @@ fun rememberArtPalette(art: Bitmap?, fallback: Color, onFallback: Color): Pair<C
  * the first letter of a name that was never in trouble.
  */
 @Composable
-fun rememberMarquee(overflowPx: Float): State<Float> {
-    if (overflowPx <= 2f) return remember { mutableFloatStateOf(0f) }
+fun rememberMarquee(overflowPx: Float, running: Boolean = true): State<Float> {
+    // Cost model: an infinite transition is a frame-rate clock - one frame requested per
+    // display refresh, and with it a redraw of the offscreen layer the fade needs. Trigger: the
+    // title overflowing AND [running] AND the Activity on screen. Otherwise no transition exists
+    // and the title sits at its start. Allocates nothing per frame; the travel is a derived
+    // state read in the title's graphicsLayer.
+    val onScreen = rememberOnScreen()
+    if (overflowPx <= 2f || !running || !onScreen) return remember { mutableFloatStateOf(0f) }
     val clock = rememberInfiniteTransition(label = "marquee")
     val t = clock.animateFloat(
         initialValue = 0f,
@@ -242,17 +261,18 @@ fun Modifier.marqueeFade(running: Boolean): Modifier =
     if (!running) this
     else this
         .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-        .drawWithContent {
-            drawContent()
-            drawRect(
-                Brush.horizontalGradient(
-                    0.00f to Color.Transparent,
-                    0.07f to Color.Black,
-                    0.93f to Color.Black,
-                    1.00f to Color.Transparent,
-                ),
-                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+        .drawWithCache {
+            // Built once per size rather than on every draw of the layer.
+            val mask = Brush.horizontalGradient(
+                0.00f to Color.Transparent,
+                0.07f to Color.Black,
+                0.93f to Color.Black,
+                1.00f to Color.Transparent,
             )
+            onDrawWithContent {
+                drawContent()
+                drawRect(mask, blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+            }
         }
 
 /*

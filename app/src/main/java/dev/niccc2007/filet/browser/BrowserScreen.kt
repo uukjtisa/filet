@@ -190,17 +190,26 @@ fun BrowserScreen(vm: BrowserViewModel) {
                 }
                 .background(MaterialTheme.colorScheme.background),
         ) {
+            // Reach mode moves the app's own bars UNDER the listing. A list that starts low
+            // while the tabs, back, up and the path bar stay along the top is still a
+            // two-handed screen, so moving the rows alone would have been half an answer.
+            // See `Reach` in RowViews.kt for why the rows move by a gap rather than by
+            // reversing the list.
+            val reach by vm.prefs.reachMode.collectAsState()
             Column(Modifier.fillMaxSize()) {
-                TabStrip(vm, tabs, app, showMenu = !wide)
-                TopBar(vm, app, active, wide)
-                HorizontalDivider(color = colors.lineSoft)
+                if (!reach) {
+                    TabStrip(vm, tabs, app, showMenu = !wide)
+                    TopBar(vm, app, active, wide)
+                    HorizontalDivider(color = colors.lineSoft)
+                }
 
                 // Below the tabs and the toolbar on purpose. It sat ABOVE both at first and
                 // a strip over the top of the whole app looks like
                 // a system dialog wrapped around Filet rather than like Filet doing something.
                 // Down here it is one of the app's own bars, and the action that completes the
                 // pick lives in the selection bar with every other action.
-                if (vm.picking) PickNotice(vm, activeState?.selected?.size ?: 0)
+                val livePick = vm.inAppPick.collectAsState().value
+                if (vm.picking || livePick != null) PickNotice(vm, livePick, activeState?.selected?.size ?: 0)
 
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     if (wide) {
@@ -210,6 +219,15 @@ fun BrowserScreen(vm: BrowserViewModel) {
                     Body(vm, app, paneA, paneB, registry) { ghost = it }
                 }
 
+                if (reach) {
+                    HorizontalDivider(color = colors.lineSoft)
+                    TopBar(vm, app, active, wide)
+                    TabStrip(vm, tabs, app, showMenu = !wide)
+                }
+
+                // Under the moved bars in reach mode as well, and that ordering is deliberate:
+                // in a selection the action bar is what a thumb needs most, so it stays
+                // nearest it in both modes.
                 if (activeState?.selecting == true) {
                     SelectionBar(
                         vm,
@@ -229,17 +247,15 @@ fun BrowserScreen(vm: BrowserViewModel) {
                 // screens with room for it.
                 dev.niccc2007.filet.playback.NowPlayingStrip(vm)
 
-                // The nav bar gets out of the way while a selection is running - how far is
-                // the setting. See `NavDuringSelection` for why it has to do something.
-                if (!wide) {
-                    val navMode = NavDuringSelection.of(vm.prefs.navWhileSelecting.collectAsState().value)
-                    val selecting = activeState?.selecting == true
-                    when {
-                        !selecting -> BottomNav(vm, app, active)
-                        navMode == NavDuringSelection.HIDDEN -> Unit
-                        else -> BottomNav(vm, app, active, compact = navMode == NavDuringSelection.COMPACT)
-                    }
-                }
+                // The nav bar steps aside while a selection is running, so only the selection
+                // bar covers the list. Clear is pinned on that bar and Back still ends the
+                // selection, so nothing is unreachable while it is away.
+                //
+                // This was a three-way setting. It is gone: HIDDEN was the default, nobody
+                // needs to express an opinion about how far a bar moves during a selection,
+                // and a preference whose off state is "slightly different bar" is not a
+                // preference worth maintaining.
+                if (!wide && activeState?.selecting != true) BottomNav(vm, app, active)
             }
 
             // Tapping the pushed-away app closes the sidebar.
@@ -686,6 +702,7 @@ private fun PathBar(vm: BrowserViewModel, active: PaneController?, s: PaneState?
                     // also send Done or Enter regardless of what was requested.
                     val commit: () -> Unit = {
                         val target = resolveTyped(draft, s.cwd)
+                        // walking: typed into the path bar, which is this pane's own address.
                         if (target != null) active?.navigateTo(target)
                         else vm.toast("That is not a path Filet can open.")
                         active?.startEditingPath(false)
@@ -707,6 +724,7 @@ private fun PathBar(vm: BrowserViewModel, active: PaneController?, s: PaneState?
                 modifier = Modifier.size(20.dp).clickable { active?.startEditingPath(false) }.padding(3.dp),
             )
         } else {
+            // walking: a breadcrumb is a step back up the pane's own path.
             Breadcrumb(s, vm, Modifier.weight(1f)) { active?.navigateTo(it) }
             Icon(
                 FiletIcons.Copy, "Copy path", tint = colors.fg3,
@@ -1163,7 +1181,7 @@ private fun Rail(vm: BrowserViewModel, app: AppState) {
                     if (q.pinned) FiletIcons.Star else FiletIcons.Folder,
                     q.label,
                     current = here == q.path,
-                ) { vm.focusedPane()?.navigateTo(q.path) }
+                ) { vm.focusedPane()?.jumpTo(q.path) }
             }
         }
 
@@ -1171,7 +1189,7 @@ private fun Rail(vm: BrowserViewModel, app: AppState) {
             SectionLabel("Opened")
             recent.forEach { r ->
                 RailItem(FiletIcons.Clock, r.label, current = here == r.path) {
-                    vm.focusedPane()?.navigateTo(r.path)
+                    vm.focusedPane()?.jumpTo(r.path)
                 }
             }
         }
@@ -1179,7 +1197,7 @@ private fun Rail(vm: BrowserViewModel, app: AppState) {
         SectionLabel("This device")
         app.volumes.forEach { v ->
             RailItem(FiletIcons.Storage, v.label, current = here == v.node.path) {
-                vm.focusedPane()?.navigateTo(v.node.path)
+                vm.focusedPane()?.jumpTo(v.node.path)
             }
         }
 
@@ -1288,6 +1306,7 @@ private fun barIcon(item: BarItem) = when (item) {
     BarItem.RECENT -> FiletIcons.Clock
     BarItem.NEW_FILES -> FiletIcons.Download
     BarItem.SHARING -> FiletIcons.Wifi
+    BarItem.REMOTES -> FiletIcons.Device
     BarItem.SCRIPTS -> FiletIcons.Script
     BarItem.SHORTCUTS -> FiletIcons.Pin
     BarItem.SPLIT -> FiletIcons.SplitV
@@ -1312,6 +1331,7 @@ private fun runBarItem(item: BarItem, vm: BrowserViewModel, active: PaneControll
         BarItem.RESUME -> active?.openSpecial(PaneKind.RESUME, "Carry on")
         BarItem.HOME -> active?.openHome()
         BarItem.RECENT -> active?.openSpecial(PaneKind.RECENT, "Opened")
+        BarItem.REMOTES -> active?.openSpecial(PaneKind.REMOTES, "Remotes")
         BarItem.NEW_FILES -> active?.openSpecial(
             PaneKind.HISTORY,
             dev.niccc2007.filet.home.HomeSections.ARRIVED_TAB,
@@ -1412,10 +1432,10 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
         ),
         archive = vm.selectionIsArchive(),
         otherPane = vm.isSplit(),
-        picking = vm.picking,
+        picking = vm.pickingAnything,
         installable = vm.selectionIsInstallable(),
         hasMetadata = vm.selectionHasMetadata(),
-        playable = vm.selectionIsPlayable(),
+        shape = SelectionShape.of(vm.focusedPane()?.selectedNodes().orEmpty()),
         announceable = vm.selectionIsOnThisDevice(),
     )
 
@@ -1439,7 +1459,8 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
             // While picking, the thing that finishes the job sits with the other actions
             // rather than in a bar of its own, and it is the emphasised one because it is the
             // only reason this screen is open.
-            if (vm.picking) {
+            val inAppPick = vm.inAppPick.collectAsState().value
+            if (vm.picking || inAppPick != null) {
                 Text(
                     if (count > 1) "Use these" else "Use this",
                     fontSize = 12.sp,
@@ -1448,7 +1469,7 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .background(colors.sel)
-                        .clickable { vm.onPickConfirm?.invoke() }
+                        .clickable { vm.confirmPicking() }
                         .padding(horizontal = 14.dp, vertical = 7.dp),
                 )
                 Spacer(Modifier.width(6.dp))
@@ -1695,21 +1716,48 @@ private fun Toast(message: String, onDone: () -> Unit) {
 }
 
 /**
- * The strip that says a file is being chosen for somebody else.
+ * The strip that says a file is being chosen - for another app, or for Filet itself.
  *
- * The only thing on screen explaining why Filet opened without being opened, so it is always
- * visible while picking - but it is a line of the app's own chrome rather than a lid over it.
- * It carries the count as it changes, so "nothing chosen yet" and "2 chosen" are the same
- * sentence moving rather than a bar appearing from nowhere.
+ * The only thing on screen explaining why the browser is in this state, so it is always visible
+ * while picking - but it is a line of the app's own chrome rather than a lid over it. It carries
+ * the count as it changes, so "nothing chosen yet" and "2 chosen" are the same sentence moving
+ * rather than a bar appearing from nowhere.
  *
- * Cancel lives here because there has to be a way out that is not the back button, and the
- * confirm deliberately does NOT: it belongs with the other actions, in the selection bar, where
- * somebody looks after choosing something.
+ * Cancel lives here because there has to be a way out that is not the back button. A file
+ * confirm deliberately does NOT: it belongs with the other actions in the selection bar, where
+ * somebody looks after choosing something. A FOLDER pick is the exception, because the answer
+ * is the open folder and nothing is ever selected - its confirm has nowhere else to be.
  */
 @Composable
-private fun PickNotice(vm: BrowserViewModel, count: Int) {
+private fun PickNotice(vm: BrowserViewModel, live: BrowserViewModel.LivePick?, count: Int) {
     val colors = Filet.colors
-    val request = vm.pickRequest ?: return
+    val request = vm.pickRequest
+    if (live == null && request == null) return
+    // Back walks up the pick tab's folders first - the pane's own handler is composed after this
+    // one and wins while it has somewhere to go - and cancels the pick once it has none.
+    if (live != null) BackHandler(enabled = true) { vm.cancelPicking() }
+    val want = live?.spec?.want
+    // The folder a FOLDER pick will take, read live from the pick tab. Named on the button
+    // because in tree view the path bar shows the volume root, not the folder being looked at.
+    val standing = if (live != null) {
+        val s = live.pane.state.collectAsState().value
+        live.spec.folderOf(s.cwd, s.active)
+    } else {
+        null
+    }
+    val title = when {
+        live != null -> live.spec.title
+        else -> vm.pickCaller?.let { "Choosing ${request!!.what} for $it" } ?: "Choosing ${request!!.what}"
+    }
+    val multiple = want == dev.niccc2007.filet.pick.PickSpec.Want.FILES || (live == null && request?.allowMultiple == true)
+    val hint = when {
+        want == dev.niccc2007.filet.pick.PickSpec.Want.FOLDER -> "Takes the folder you are in"
+        want == dev.niccc2007.filet.pick.PickSpec.Want.FILE && count == 0 -> "Tap ${live?.spec?.accept?.what ?: "a file"}"
+        count == 0 && multiple -> "Hold a file to select — one or more"
+        count == 0 -> "Hold a file to select it"
+        count == 1 -> "1 chosen — Use this, below"
+        else -> "$count chosen — Use these, below"
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -1726,7 +1774,7 @@ private fun PickNotice(vm: BrowserViewModel, count: Int) {
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                vm.pickCaller?.let { "Choosing ${request.what} for $it" } ?: "Choosing ${request.what}",
+                title,
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -1734,12 +1782,7 @@ private fun PickNotice(vm: BrowserViewModel, count: Int) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                when {
-                    count == 0 && request.allowMultiple -> "Hold a file to select — one or more"
-                    count == 0 -> "Hold a file to select it"
-                    count == 1 -> "1 chosen — Use this, below"
-                    else -> "$count chosen — Use these, below"
-                },
+                hint,
                 fontSize = 9.5.sp,
                 color = colors.fg3,
                 maxLines = 1,
@@ -1752,9 +1795,26 @@ private fun PickNotice(vm: BrowserViewModel, count: Int) {
             color = colors.fg2,
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
-                .clickable { vm.onPickCancel?.invoke() }
+                .clickable { vm.cancelPicking() }
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         )
+        if (want == dev.niccc2007.filet.pick.PickSpec.Want.FOLDER) {
+            Text(
+                live?.spec?.confirmLabel.orEmpty().ifEmpty { "Use this folder" } +
+                    (standing?.let { " · " + it.name.ifBlank { it.path } } ?: ""),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.accent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .widthIn(max = 200.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(colors.sel)
+                    .clickable { vm.confirmPicking() }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
     }
     HorizontalDivider(color = colors.lineSoft)
 }

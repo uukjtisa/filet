@@ -174,4 +174,97 @@ class TreeRowsTest {
         assertEquals(listOf(true, false), deep.spines)
     }
 
+    private fun p(path: String) = VPath.of("local", path)
+
+    @Test
+    fun `only folds that draw under the root are visible, shallowest first`() {
+        val root = p("/storage/emulated/0")
+        val open = setOf(
+            p("/storage/emulated/0/DCIM/Camera"),
+            p("/storage/emulated/0/DCIM"),
+            p("/storage/emulated/0/Download"),
+            // Under a folder that is not open, so it cannot draw.
+            p("/storage/emulated/0/Music/Albums"),
+            // Left open in a folder the pane walked out of.
+            p("/sdcard2/Movies"),
+        )
+        assertEquals(
+            listOf(
+                p("/storage/emulated/0/DCIM"),
+                p("/storage/emulated/0/Download"),
+                p("/storage/emulated/0/DCIM/Camera"),
+            ),
+            TreeRows.visibleFolds(root, open),
+        )
+    }
+
+    @Test
+    fun `the root itself and other schemes are never visible folds`() {
+        val root = p("/a")
+        val open = setOf(root, VPath.of("smb", "/a/b"), p("/a/b"))
+        assertEquals(listOf(p("/a/b")), TreeRows.visibleFolds(root, open))
+    }
+
+    @Test
+    fun `visible folds agree with what the renderer draws`() {
+        // The rule exists so three callers agree with flatten. Checked against it directly:
+        // every visible fold has a row, and no fold left out has one.
+        val root = p("/")
+        val open = setOf(p("/a"), p("/a/two"), p("/c/x"))
+        val rows = TreeRows.flatten(
+            roots = listOf(a, dir("/c")),
+            open = open,
+            branches = mapOf(a.path to listOf(dir("/a/two")), p("/a/two") to emptyList()),
+        )
+        val drawn = rows.filter { !it.loading && !it.empty }.map { it.node.path }.toSet()
+        val visible = TreeRows.visibleFolds(root, open)
+        assertTrue(visible.all { it in drawn })
+        assertTrue(p("/c/x") !in visible)
+    }
+
+    @Test
+    fun `a capped save never keeps a child without its parent`() {
+        val root = p("/r")
+        val open = setOf(p("/r/a/b/c"), p("/r/a/b"), p("/r/a"), p("/r/z"))
+        val saved = TreeRows.foldsToSave(root, open, cap = 2)
+        assertEquals(listOf(p("/r/a"), p("/r/z")), saved)
+        assertEquals(emptyList<VPath>(), TreeRows.foldsToSave(null, open))
+    }
+
+    @Test
+    fun `a tree is read only once every visible fold has something back`() {
+        val root = p("/r")
+        val open = setOf(p("/r/a"), p("/r/a/b"), p("/elsewhere/x"))
+        val partly = mapOf(p("/r/a") to listOf(dir("/r/a/b")))
+        assertTrue(!TreeRows.foldsRead(root, open, partly))
+        // A fold that does not draw is not waited for.
+        val whole = partly + (p("/r/a/b") to emptyList())
+        assertTrue(TreeRows.foldsRead(root, open, whole))
+    }
+
+    @Test
+    fun `a reveal lands on the folder's own row, never its placeholder`() {
+        val target = p("/a")
+        val rows = listOf(
+            TreeRow(a, 1, loading = true),
+            TreeRow(a, 0),
+        )
+        assertEquals(1, TreeRows.revealIndex(rows, target))
+        assertEquals(-1, TreeRows.revealIndex(listOf(TreeRow(a, 1, empty = true)), target))
+    }
+
+    @Test
+    fun `reach leaves half of a phone viewport empty`() {
+        assertEquals(280f, Reach.gapDp(560f, on = true), 0.01f)
+        assertEquals(0f, Reach.gapDp(600f, on = false), 0.01f)
+    }
+
+    @Test
+    fun `reach always keeps room for three rows`() {
+        // A landscape phone: two fifths of 250 would leave about two rows on screen.
+        assertEquals(250f - Reach.KEEP_DP, Reach.gapDp(250f, on = true), 0.01f)
+        // Shorter than the rows themselves: no gap at all, never a negative one.
+        assertEquals(0f, Reach.gapDp(120f, on = true), 0.01f)
+        assertEquals(0f, Reach.gapDp(0f, on = true), 0.01f)
+    }
 }
