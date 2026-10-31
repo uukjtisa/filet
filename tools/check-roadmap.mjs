@@ -26,8 +26,8 @@ import { readFileSync, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 
 const SRC = {
-  plan: "PLAN.md",
-  features: "FEATURES.md",
+  plan: "docs/PLAN.md",
+  features: "docs/FEATURES.md",
 };
 
 /**

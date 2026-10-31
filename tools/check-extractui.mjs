@@ -62,15 +62,35 @@ const SECOND_OPINIONS = [
   { pattern: /\bentries\s*\.\s*(filter|map)\s*\{/, why: "the sheet is deriving its own tree from raw entries" },
 ];
 
-/** The destinations. One of these alone is the bug the gate exists for. */
-const TARGETS = [
-  { label: "here", from: /"Extract here"/ },
-  { label: "a folder you pick", from: /vm\.extractToPicked/ },
-  { label: "the other pane", from: /vm\.extractToOtherPane/ },
-];
+/**
+ * The destinations.
+ *
+ * It was three: here, a folder you picked, and the other pane. The gate existed because a
+ * single "Extract here" made the current folder the only answer, so extracting anywhere else
+ * meant extracting and then moving.
+ *
+ * It is two now, and the lost one was not removed - it was absorbed. "Extract to..." opened a
+ * pick tab so a folder could be chosen; the ghosts follow the folder, so starting an
+ * extraction and walking somewhere re-aims it. Standing still is "here", walking is "to".
+ * What the gate is really protecting is that extracting somewhere ELSE stays reachable, and a
+ * destination that moves with you satisfies that more completely than a tab did.
+ *
+ * The other pane stays separate and must: it names a target that is NOT where you are
+ * standing, and walking to it would mean leaving the pane you are extracting from.
+ *
+ * Both were once required in the toolbar's overflow menu as well. That menu no longer acts on a
+ * selection at all - it had become a second, partial copy of the selection's own list, offering
+ * New file in the middle of choosing files - so the destinations are required in the one list
+ * every selection surface is drawn from, and X12 keeps the overflow from growing a copy back.
+ */
 
 /**
- * The same three in the SELECTION action list.
+ * Rows that act on a selection, which the toolbar's overflow menu must not carry. See X12.
+ */
+const SELECTION_ROWS = /"(Extract|Extract to the other pane|Copy as path|Invert selection|Show in folder|Compress|Rename|Properties)"/;
+
+/**
+ * The destinations in the SELECTION action list.
  *
  * Found by looking: the toolbar overflow had all three and the long-press context menu had
  * none, so on a phone - where long-press is how anybody reaches an archive - "Extract" did not
@@ -78,8 +98,7 @@ const TARGETS = [
  * bar are painted from, which is why the rows belong there rather than in a third menu.
  */
 const ACTION_TARGETS = [
-  { label: "here", from: /"extracthere"/ },
-  { label: "a folder you pick", from: /"extractto"/ },
+  { label: "here, and anywhere you walk to", from: /"extract"/ },
   { label: "the other pane", from: /"extractother"/ },
 ];
 
@@ -107,13 +126,9 @@ export function check(sheet, menu, actions = "") {
     problems.push("X6: the preview must offer both confirm and cancel");
   }
 
-  const found = TARGETS.filter((t) => t.from.test(menu)).map((t) => t.label);
-  if (found.length < TARGETS.length) {
-    const missing = TARGETS.filter((t) => !t.from.test(menu)).map((t) => t.label);
-    problems.push(`X1: extraction can only go to ${found.join(", ") || "nowhere"} — missing: ${missing.join(", ")}`);
-  }
-
-  if (actions) {
+  if (!actions) {
+    problems.push("X1: there is no selection action list to extract from, so extraction goes nowhere");
+  } else {
     const missing = ACTION_TARGETS.filter((t) => !t.from.test(actions)).map((t) => t.label);
     if (missing.length) {
       problems.push(
@@ -129,6 +144,14 @@ export function check(sheet, menu, actions = "") {
           "rows are either always there or never",
       );
     }
+  }
+
+  const copied = menu.match(SELECTION_ROWS);
+  if (copied) {
+    problems.push(
+      `X12: the toolbar's overflow menu carries the selection row ${copied[0]} again - a selection's ` +
+        "actions are selectionActions, drawn by the bar, its More and the long-press menu",
+    );
   }
 
   // Every target has to open the preview. A "quick" path that skips it puts the bug back for
@@ -162,14 +185,15 @@ if (process.argv.includes("--selftest")) {
     ["a preview with the wrap button gone", sheet.replace(/onWrap/g, "onNothing"), menu, /X5/],
     ["a sheet that reads the archive itself", sheet + "\nval x = Archives.canList(name)\n", menu, /second opinion|reading the archive/],
     ["a sheet that re-plans", sheet + "\nval p = ExtractPlanner.plan(a, b, c)\n", menu, /re-planning/],
-    ["only one destination", sheet, menu.replace(/vm\.extractToPicked/g, "vm.extract"), /X1/],
+    ["no selection list at all", sheet, menu, /X1/, ""],
+    ["the overflow menu copying a selection row back", sheet, menu + '\nItem(FiletIcons.Archive, "Extract") { }\n', /X12/],
     ["a target that skips the preview", sheet, menu + "\nvm.graph.ops.extract(a, b, c)\n", /X11/],
     [
       "the long-press menu losing a destination",
       sheet,
       menu,
       /long-press/,
-      actions.replace(/"extractto"/g, '"somethingelse"'),
+      actions.replace(/"extractother"/g, '"somethingelse"'),
     ],
     [
       "extract rows shown for anything, not only archives",
@@ -205,6 +229,6 @@ if (problems.length) {
   process.exit(1);
 }
 console.log(
-  `EXTRACTUI OK  (${TARGETS.length} destinations in both menus, ${BUTTONS.length} reversible decisions, ` +
+  `EXTRACTUI OK  (${ACTION_TARGETS.length} destinations in the selection list, ${BUTTONS.length} reversible decisions, ` +
     `${SAYS.length} facts stated before you commit, all read from the plan)`,
 );

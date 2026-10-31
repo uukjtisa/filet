@@ -34,12 +34,11 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 
 const ROOTS = ["app/src", "core-vfs/src", "core-vfs-jvm/src", "core-dav/src", "core-index/src", "desktop/src", "tools", "docs", ".github"];
-// The repository-citizenship files are the most outward-facing prose here - the first thing
-// a contributor reads - so they are scanned rather than trusted.
-const TOP_DOCS = [
-  "README.md", "FEATURES.md", "FIXES.md", "PLAN.md", "GATES.md", "SEARCH.md", "NEARBY.md",
-  "TEMPLATE.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SHARING.md", "REMOTE-FILES.md",
-];
+// The README is the one document left at the top level; the design documents and ledgers live
+// in docs/ and the contributor files in .github/, both walked above. It is the most
+// outward-facing prose here - the first thing a contributor reads - so it is scanned rather
+// than trusted.
+const TOP_DOCS = ["README.md"];
 const EXT = [".kt", ".mjs", ".md", ".yml"];
 
 /**

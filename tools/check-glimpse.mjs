@@ -51,17 +51,18 @@ const SHOWS = {
     "app/src/main/java/dev/niccc2007/filet/ui/tabs/TabKit.kt"],
   "02-browse.png": ["app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt",
     "app/src/main/java/dev/niccc2007/filet/browser/RowViews.kt"],
-  "03-new-files.png": ["app/src/main/java/dev/niccc2007/filet/home/FileHistoryScreen.kt"],
   "04-view.png": ["app/src/main/java/dev/niccc2007/filet/browser/Menus.kt"],
-  "05-context-menu.png": ["app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt"],
   "06-extract.png": ["app/src/main/java/dev/niccc2007/filet/browser/ExtractSheet.kt"],
-  "07-scripts.png": ["app/src/main/java/dev/niccc2007/filet/script/ScriptsScreen.kt"],
-  "08-nearby.png": ["app/src/main/java/dev/niccc2007/filet/nearby/NearbyScreen.kt"],
   "09-remotes.png": ["app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt",
     "app/src/main/java/dev/niccc2007/filet/remotes/HostingCard.kt"],
-  "10-metadata.png": ["app/src/main/java/dev/niccc2007/filet/metadata/MetadataScreen.kt"],
   "11-image-editor.png": ["app/src/main/java/dev/niccc2007/filet/handlers/ImageScreen.kt"],
   "12-hex.png": ["app/src/main/java/dev/niccc2007/filet/handlers/Viewers.kt"],
+  "14-markdown.png": ["app/src/main/java/dev/niccc2007/filet/handlers/TextEditorScreen.kt"],
+  "15-sheet.png": ["app/src/main/java/dev/niccc2007/filet/docs/SheetScreen.kt"],
+  "16-apk.png": ["app/src/main/java/dev/niccc2007/filet/apk/ApkInspectorScreen.kt"],
+  "17-slides.png": ["app/src/main/java/dev/niccc2007/filet/docs/DocViewers.kt"],
+  "18-pdf.png": ["app/src/main/java/dev/niccc2007/filet/docs/PdfScreen.kt"],
+  "19-search.png": ["app/src/main/java/dev/niccc2007/filet/browser/SearchReach.kt"],
 };
 
 /** The section, as markdown. */
@@ -133,29 +134,42 @@ export function committedAt(p, run = execSync) {
   }
 }
 
+/**
+ * When a path last changed: its working-tree time while it has uncommitted changes, its last
+ * commit otherwise.
+ *
+ * Bug identified here: a re-shoot is a modified file until it is committed, and the commit time
+ * alone dated it to the PREVIOUS shoot - so every freshly taken screenshot was reported as older
+ * than the screen it shows, the opposite of true, until the commit landed. A dirty file's mtime
+ * can be trusted where a clean one's cannot: a checkout rewrites every mtime, but it never
+ * leaves a file modified.
+ */
+export function changedAt(p, run = execSync) {
+  try {
+    const dirty = run(`git status --porcelain -- "${p}"`, { encoding: "utf8" }).trim();
+    if (dirty && existsSync(p)) return statSync(p).mtimeMs;
+  } catch {
+    // Not a repository - fall through to the commit, which will also be null.
+  }
+  return committedAt(p, run);
+}
+
 /** Shots that have been re-taken since the banner was last built from them. */
 export function bannerBehind() {
   if (!existsSync(BANNER)) return ["(the banner itself is missing)"];
-  const bannerAt = committedAt(BANNER) ?? statSync(BANNER).mtimeMs;
+  const bannerAt = changedAt(BANNER) ?? statSync(BANNER).mtimeMs;
   const behind = [];
   for (const shot of Object.keys(SHOWS)) {
     const path = `docs/screenshots/${shot}`;
     if (!existsSync(path)) continue;
-    const shotAt = committedAt(path);
+    const shotAt = changedAt(path);
     if (shotAt && shotAt > bannerAt) behind.push(shot);
   }
   return behind;
 }
 
 export function stale() {
-  const when = (p) => {
-    try {
-      const out = execSync(`git log -1 --format=%ct -- "${p}"`, { encoding: "utf8" }).trim();
-      return out ? Number(out) * 1000 : null;
-    } catch {
-      return null;
-    }
-  };
+  const when = (p) => changedAt(p);
   const out = [];
   for (const [shot, sources] of Object.entries(SHOWS)) {
     const path = `docs/screenshots/${shot}`;
@@ -235,6 +249,6 @@ if (old.length) {
 
 const sec = section(md);
 console.log(
-  `GLIMPSE OK  (a banner at the top built from ${Object.keys(SHOWS).length} shots, ` +
-    `${images(sec).length} detail shots below it, all present, captioned and current)`,
+  `GLIMPSE OK  (the banner and ${images(sec).length} detail shots below it, ` +
+    `${Object.keys(SHOWS).length} shots mapped to the screens they show, all present, captioned and current)`,
 );

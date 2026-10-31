@@ -27,9 +27,9 @@
  */
 import { readFileSync, existsSync } from "node:fs";
 
-const FEATURES = "FEATURES.md";
+const FEATURES = "docs/FEATURES.md";
 const README = "README.md";
-const FIXES = "FIXES.md";
+const FIXES = "docs/FIXES.md";
 
 const STATUSES = ["SHIPPED", "BUILT", "IDEA", "CUT"];
 

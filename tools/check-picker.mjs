@@ -59,6 +59,13 @@ export function activities(manifest) {
   for (;;) {
     const start = manifest.indexOf("<activity", at);
     if (start < 0) break;
+    // An <activity-alias> starts with the same letters and closes with its own tag. Read as
+    // an activity it ran on to the NEXT </activity> and swallowed that activity's filters.
+    if (manifest.startsWith("<activity-alias", start)) {
+      const close = manifest.indexOf("</activity-alias>", start);
+      at = close < 0 ? start + 1 : close + "</activity-alias>".length;
+      continue;
+    }
     const openEnd = manifest.indexOf(">", start);
     if (openEnd < 0) break;
     // A self-closing <activity … /> ends at its own tag; anything else runs to </activity>.

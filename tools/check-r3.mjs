@@ -39,12 +39,34 @@ const ALLOWED = [
   // SQLite opens a database by file handle and nothing else; it is the index's own private
   // file under the app data directory, never a user path.
   "core-index/src/main/java/dev/niccc2007/filet/index/IndexDb.kt",
+  // The file memory's database, for the same reason as the index: SQLite opens by file handle
+  // and nothing else. Its folder comes from FiletStore (Area.MEMORY) as a path string, never
+  // from a location somebody browsed to, and the handle stops in this file.
+  "core-index/src/main/java/dev/niccc2007/filet/index/MemoryDb.kt",
   // inotify is a kernel facility that takes a real path. The path comes from the PROVIDER
   // via Vfs.osPath - the watcher never builds one.
   "core-index/src/main/java/dev/niccc2007/filet/index/Watchers.kt",
   // The app layer's single documented bridge: app-private working storage, and the
   // FileProvider hand-off that Android requires for anything leaving the process.
   "app/src/main/java/dev/niccc2007/filet/data/AppFiles.kt",
+  // The one folder the app keeps its own working files in, and the only place that decides
+  // where that is. It owns a directory under shared storage - never a path somebody browsed
+  // to - so that beat maps survive the system emptying cacheDir and so that a cache in a FILE
+  // MANAGER is something its user can actually open and delete. Paths stop here: callers ask
+  // for an Area and get a folder.
+  "app/src/main/java/dev/niccc2007/filet/data/FiletStore.kt",
+  // Filet's configuration, kept where an uninstall cannot reach it. It copies SharedPreferences
+  // files - Android's own XML, whole, so no store and no key type can be missed - between the
+  // app's private directory and one folder under Filet/. Both ends are decided here; it never
+  // sees a path somebody browsed to, and handles stop at this file: callers get a timestamp and
+  // a count. It exists because the alternative lost every playlist on the phone.
+  "app/src/main/java/dev/niccc2007/filet/data/SettingsHome.kt",
+  // filet.json and the two list files beside it: three fixed names in the root of the Filet
+  // folder, which FiletStore decides. It reads and renames them whole, and watches that one
+  // folder with a FileObserver, which takes a path and nothing else. It never sees a path
+  // somebody browsed to, and handles stop here: callers get the settings file's path as a
+  // string, to open it in the editor like any other file.
+  "app/src/main/java/dev/niccc2007/filet/data/ConfigSync.kt",
   // The decoded-audio cache. A four-minute track is a second of decoding and another of
   // spectrum, and both answers are identical every time - so they are written down. It is
   // cacheDir, hashed filenames derived from a URI, size-capped and evicted here; it never

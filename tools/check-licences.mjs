@@ -93,6 +93,27 @@ const KNOWN = {
     ok: true,
     note: "commonmark strikethrough",
   },
+  // The rest of commonmark-java's own extensions, same project and release (POMs checked 0.31.0).
+  "commonmark-ext-gfm-alerts": { licence: "BSD-2-Clause", ok: true, note: "GitHub alerts" },
+  "commonmark-ext-footnotes": { licence: "BSD-2-Clause", ok: true, note: "footnotes" },
+  "commonmark-ext-task-list-items": { licence: "BSD-2-Clause", ok: true, note: "task lists" },
+  "commonmark-ext-autolink": { licence: "BSD-2-Clause", ok: true, note: "bare URLs as links" },
+  "commonmark-ext-yaml-front-matter": { licence: "BSD-2-Clause", ok: true, note: "front matter" },
+  // Not in the catalogue - commonmark-ext-autolink pulls it - but recorded, because it ships.
+  autolink: { licence: "MIT", ok: true, note: "org.nibor.autolink, via commonmark-ext-autolink" },
+
+  /**
+   * Coil 3, for pictures in documents. Apache-2.0 (POMs checked 3.3.0). The network module is
+   * the core one, driven by Filet's own HttpURLConnection client, so no second HTTP stack ships.
+   * coil-svg draws SVG with AndroidSVG, Apache-2.0.
+   */
+  "coil-compose": { licence: "Apache-2.0", ok: true },
+  "coil-svg": { licence: "Apache-2.0", ok: true, note: "AndroidSVG underneath, Apache-2.0" },
+  "coil-network-core": { licence: "Apache-2.0", ok: true },
+  // Not in the catalogue - coil-svg pulls it - but recorded, because it ships.
+  "androidsvg-aar": { licence: "Apache-2.0", ok: true, note: "com.caverock AndroidSVG 1.4, via coil-svg" },
+  /** Highlights (dev.snipme), syntax colours in code blocks. Apache-2.0 (POM checked 1.1.0). */
+  highlights: { licence: "Apache-2.0", ok: true },
   smbj: { licence: "Apache-2.0", ok: true },
   sshj: { licence: "Apache-2.0", ok: true },
   "commons-net": { licence: "Apache-2.0", ok: true },

@@ -46,7 +46,14 @@ function findSevenZip() {
       execFileSync(c, ["i"], { stdio: "pipe", timeout: 20000 });
       return c;
     } catch (e) {
-      if (e.status !== undefined) return c; // ran, but exited non-zero: still the binary
+      // A NUMBER means it ran and exited non-zero, which still identifies the binary.
+      //
+      // This read `e.status !== undefined`, and on a spawn failure Node sets `status` to NULL
+      // with the reason in `code` - so `null !== undefined` was true and the very first
+      // candidate, the bare "7z", was accepted on a machine that does not have it on PATH.
+      // Every call then failed with ENOENT and no output, so the checker reported four archive
+      // problems with blank reasons while 7-Zip was installed and the archives were fine.
+      if (typeof e.status === "number") return c;
     }
   }
   return null;
@@ -58,7 +65,10 @@ function sevenZip(bin, args) {
     const out = execFileSync(bin, args, { stdio: "pipe", encoding: "utf8", timeout: 120000 });
     return { ok: true, out };
   } catch (e) {
-    return { ok: false, out: String(e.stdout || "") + String(e.stderr || "") };
+    const said = String(e.stdout || "") + String(e.stderr || "");
+    // Never an empty reason. A failure to START 7-Zip says nothing on either stream, and a
+    // problem printed with no explanation reads as the archive being broken.
+    return { ok: false, out: said || `7-Zip did not run (${e.code || e.message})` };
   }
 }
 

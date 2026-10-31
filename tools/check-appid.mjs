@@ -181,7 +181,7 @@ if (process.argv.includes("--selftest")) {
   );
 } else {
   const gradle = readFileSync("app/build.gradle.kts", "utf8");
-  const plan = readFileSync("PLAN.md", "utf8");
+  const plan = readFileSync("docs/PLAN.md", "utf8");
   const manifest = readFileSync("app/src/main/AndroidManifest.xml", "utf8");
 
   const { problems, appId, recorded } = checkPlan(gradle, plan);

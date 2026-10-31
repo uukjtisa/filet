@@ -9,7 +9,9 @@ import { createServer } from "node:http";
  * The server only honours `REPORT_GITHUB_API` outside production.
  */
 const port = Number(process.env.FAKE_GITHUB_PORT || 3999);
-let n = 0;
+// Numbers far past any real issue, so "Open the issue" on a test report lands on GitHub's 404
+// rather than on somebody's real issue #1.
+let n = 900_000;
 
 createServer((req, res) => {
   let body = "";

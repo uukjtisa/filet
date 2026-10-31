@@ -1,0 +1,1 @@
+{"v":1,"installId":"inst-0001","submissionId":"sub-00001","type":"bug","title":"Filet closes when I open About","body":"Tapping Report a problem closes the app.\n\n### Steps to reproduce\n\n1. Open About\n2. Tap Report a problem","device":"Phone: HUAWEI NCO-LX1\nAndroid: 12 (API 31)","log":"[heat and lag snapshot]\ntemp 41C\n\n[run 1]\nline one\nline two","images":[]}

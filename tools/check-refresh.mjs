@@ -2,6 +2,9 @@
 /**
  * Refresh reaches every tab, both ends of a list ask for it, and a new file waits at the bottom.
  *
+ * And the pull reaches every tab, not just the folder list: the gesture was attached in one
+ * place and every other refreshable tab silently had the button without it (section 4).
+ *
  * Three mechanisms reported together, and the first one is the reason this file exists rather
  * than another assertion in `RefreshTest`. That test proves every pane kind has a *plan*, and
  * it passed the whole time three of the plan's targets were routed to a shared `-> Unit`
@@ -118,6 +121,30 @@ export function problems(src) {
     }
   }
 
+  // ── 4. the pull reaches every tab that refreshes ─────────────────────────────────────
+  // Not "the gesture exists" - it existed the whole time it was missing from eight tabs. The
+  // property is that the special-pane body, through which every non-folder tab is drawn, is
+  // wrapped by it, and that the wrapping is decided by the refresh plan rather than by a
+  // second list of kinds that can drift from it.
+  if (!/fun pullsToRefresh\(kind: PaneKind\): Boolean = refreshPlan\(kind\)/.test(src.plan)) {
+    found.push("pullsToRefresh is not read off refreshPlan, so the gesture and the button can disagree");
+  }
+  const sb = src.pane.indexOf("private fun SpecialBody(");
+  const sbBody = sb < 0 ? "" : src.pane.slice(sb, src.pane.indexOf("\n}\n", sb));
+  if (!sbBody) {
+    found.push("SpecialBody not found - every non-folder tab is drawn through it");
+  } else {
+    if (!/pullsToRefresh\(s\.kind\)/.test(sbBody)) {
+      found.push("SpecialBody does not ask pullsToRefresh, so no special tab gets the pull");
+    }
+    if (!/edgePullRefresh\(/.test(sbBody)) {
+      found.push("SpecialBody never attaches edgePullRefresh: only the folder list pulls");
+    }
+    if (!/\.then\(pull\)/.test(sbBody)) {
+      found.push("SpecialBody builds the pull but never applies it to the tab's box");
+    }
+  }
+
   // ── 3. a new file waits at the bottom ────────────────────────────────────────────────
   if (!/class FreshTail/.test(src.tail)) {
     found.push("FreshTail is missing entirely");
@@ -191,6 +218,11 @@ if (process.argv.includes("--selftest")) {
     ["refreshPanes settling the tail it just filled", () =>
       swap("vm", "?.relist()", "?.refresh()")],
     ["no operation reporting what it made", () => swap("vm", "noteArrived(", "ignored(")],
+    ["the special tabs losing the pull", () => swap("pane", ".then(pull)) { SpecialBodyContent", ") { SpecialBodyContent")],
+    ["the pull gated on something other than the plan", () =>
+      swap("pane", "pullsToRefresh(s.kind)", "s.kind == PaneKind.HOME")],
+    ["a second registry of pullable kinds", () =>
+      swap("plan", "fun pullsToRefresh(kind: PaneKind): Boolean = refreshPlan(kind)", "fun pullsToRefresh(kind: PaneKind): Boolean = (kind == PaneKind.HOME)")],
   ];
 
   let bad = 0;
@@ -214,5 +246,5 @@ if (found.length) {
 const declared = targetsDeclared(read().plan);
 console.log(
   `REFRESH OK  (${declared.length} targets, every one executed; both list ends pull; ` +
-    `a new file waits at the bottom until it settles)`,
+    `a new file waits at the bottom until it settles; every refreshable tab pulls)`,
 );

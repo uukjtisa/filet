@@ -55,7 +55,7 @@ W, H = 2560, 1200
 SHOTS = [
     "02-browse.png",
     "01-home.png",
-    "10-metadata.png",
+    "14-markdown.png",
 ]
 
 #: The four pillars, named, each with the thing that makes it true.
@@ -89,54 +89,8 @@ PILLARS = [
 CALLOUTS = {
     "01-home.png": [
         {
-            "box": (0.512, 0.286, 0.964, 0.395),
-            "label": "your PC, mounted as a drive",
-            "side": "left",
-        },
-    ],
-}
-
-#: The category, said small, because the headline below no longer says it.
-#:
-#: A flagship page states what the thing IS in an eyebrow and spends the headline on what it
-#: does for you. Dropping the eyebrow and letting the headline carry both is what produced "A
-#: file manager that does real work" - a sentence that names the category twice over and
-#: promises nothing a competitor would not also claim.
-EYEBROW = "ANDROID FILE MANAGER"
-
-#: The four pillars, named, each with the thing that makes it true.
-#:
-#: The same four the repository description names and in the same order, so the banner and the
-#: About field are one message rather than two. The word on the left is the claim; the line
-#: beside it is what a reader can go and check, which is the only reason the claim is allowed
-#: to be an abstract noun at all.
-#: Ordered long, short, long, short so the left column alternates instead of stacking its two
-#: eleven-letter words on top of each other - and, read down, it is also the order the work
-#: happens in: find it, do something to it, whatever it turns out to be, send it on.
-#:
-#: Every proof is one verb phrase of about the same length. They were four different shapes
-#: before - a noun triplet, a noun phrase, two verbs, a preposition - which is why the right
-#: column read as four unrelated sentences rather than as a set.
-PILLARS = [
-    ("Convenience", "search the whole device in milliseconds"),
-    ("Power", "edit inside archives, APKs and dex"),
-    ("Versatility", "open any archive, any drive, any format"),
-    ("Sharing", "send to any browser, nothing installed"),
-]
-
-#: Rings and arrows drawn onto a copy of a single screenshot, for the detail strip.
-#:
-#: **Not onto the banner.** A banner points at nothing: it is the first thing anybody sees and
-#: its job is to look like the product, not to teach. Annotation belongs on the shots further
-#: down, where somebody is already reading and a pointer answers a question they now have.
-#:
-#: Each box is in fractions of the SCREENSHOT rather than in pixels, so it survives the shot
-#: being re-taken at another size.
-CALLOUTS = {
-    "01-home.png": [
-        {
-            "box": (0.512, 0.286, 0.964, 0.395),
-            "label": "your PC, mounted as a drive",
+            "box": (0.512, 0.211, 0.964, 0.320),
+            "label": "another phone, mounted as a drive",
             "side": "left",
         },
     ],
