@@ -1,25 +1,25 @@
 <div align="center">
 
-<img src="docs/glimpse.png" width="100%" alt="Filet: a file manager that does real work. Five phone screens side by side - a folder listing with thumbnails, the long-press menu, the home overview with its storage tiles and a PC mounted as a drive, an extraction preview, and the Remotes tab">
+<img src="docs/glimpse.png" width="100%" alt="Filet, an Android file manager: convenience, power, versatility and sharing, each with the thing that makes it true. Beside them three phone screens fanned out - a folder listing, the home overview with internal storage and another phone mounted as a drive, and a Markdown page with a photo and a table">
 
 [![Licence](https://img.shields.io/badge/Licence-GPL--3.0-4E7382?style=for-the-badge)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-4E7382?style=for-the-badge&logo=android&logoColor=white)](#building-it-yourself)
 [![Kotlin](https://img.shields.io/badge/Kotlin-Compose-4E7382?style=for-the-badge&logo=kotlin&logoColor=white)](#building-it-yourself)
 [![Release](https://img.shields.io/github/v/release/uukjtisa/filet?style=for-the-badge&color=4E7382&label=release)](https://github.com/uukjtisa/filet/releases/latest)
-[![Status](https://img.shields.io/badge/early%20development-C25E3A?style=for-the-badge)](FIXES.md)
+[![Status](https://img.shields.io/badge/early%20development-C25E3A?style=for-the-badge)](docs/FIXES.md)
 [![Support](https://img.shields.io/badge/Support-Ko--fi-C25E3A?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/thethirdy2007)
 
-Built by **[Niccc2007](https://github.com/uukjtisa)**.
+### PC-grade tools and native viewers, in a file manager that looks the part.
 
-Free and open source, always. **[Support its development](https://ko-fi.com/thethirdy2007)** if it is useful to you.
+Built by **[Niccc2007](https://github.com/uukjtisa)**. Free and open source, always.
 
 </div>
 
 > [!WARNING]
 > **Early development.** I built this for my own phone and I'm still finding things wrong with
 > it. There's no store listing - [Releases](https://github.com/uukjtisa/filet/releases) is the
-> only place it comes from. Everything below is what the code does today, not what I want it
-> to do later.
+> only place it comes from. Everything below is what the code does today, except the section
+> that says it is a plan.
 
 ---
 
@@ -27,14 +27,12 @@ Free and open source, always. **[Support its development](https://ko-fi.com/thet
 
 - [What Filet is](#what-filet-is)
 - [A glimpse of it](#a-glimpse-of-it)
-- [Supporting it](#supporting-it)
-- [Browsing](#browsing)
-- [Search](#search)
-- [Archives and APKs](#archives-and-apks)
-- [Opening things](#opening-things)
-- [Scripting](#scripting)
-- [Sharing over your network](#sharing-over-your-network)
-- [Shortcuts and surfaces](#shortcuts-and-surfaces)
+- [Support Filet](#support-filet)
+- [The tools](#the-tools)
+- [The viewers](#the-viewers)
+- [Finding things](#finding-things)
+- [Your phone and your network](#your-phone-and-your-network)
+- [Where it's going](#where-its-going)
 - [Installing it](#installing-it)
 - [How it's built](#how-its-built)
 - [Building it yourself](#building-it-yourself)
@@ -45,12 +43,18 @@ Free and open source, always. **[Support its development](https://ko-fi.com/thet
 
 ## What Filet is
 
-Four things it won't trade against each other:
+A general file manager with the tools you would normally go to a PC for built in, and its own
+viewers for the files you open every day - so a document, an archive or an app package opens
+*in* Filet instead of bouncing you to three other apps. Four things it won't trade against each
+other:
 
-- **Productivity** — whole-device search in milliseconds, split panes, your usual places a tap away.
-- **Power** — edit files inside archives, read and re-sign APKs, script the lot in Lua.
-- **Aesthetics** — a real palette and real motion, holding up on phone, tablet and landscape.
-- **Convenience** — share to any browser on your network, nothing installed at the other end.
+- **Productivity** - search the whole phone in milliseconds, work in two panes, and keep your
+  usual places a tap away.
+- **Power** - edit a file inside an archive, take an app apart and rebuild it, change raw bytes,
+  and script the lot in Lua.
+- **Aesthetics** - a real palette and real motion, holding up on phone, tablet and landscape.
+- **Convenience** - read Markdown, Word, slides, PDFs and spreadsheets where they lie, and share
+  to any browser on your network with nothing installed at the other end.
 
 Free and open source. No ads, no accounts, no telemetry, no paid tier.
 
@@ -59,33 +63,46 @@ Free and open source. No ads, no accounts, no telemetry, no paid tier.
 ## A glimpse of it
 
 <p align="center">
-  <img src="docs/screenshots/10-metadata.png" width="23%" alt="The metadata screen on an MP3, with its cover art, the tags read out of the file, and Replace, Extract and Remove">
-  <img src="docs/screenshots/11-image-editor.png" width="23%" alt="The image editor rotating a photo to a free angle on a slider, with the result previewed live">
-  <img src="docs/screenshots/12-hex.png" width="23%" alt="The hex editor with one byte changed, shown in a warning colour and counted as unsaved">
-  <img src="docs/screenshots/06-extract.png" width="23%" alt="An extraction preview showing the folder it is about to create and the redundant parent it lifted away">
+  <img src="docs/screenshots/16-apk.png" width="23%" alt="The APK inspector on Filet's own package: SDK levels and ABIs, 17 permissions with 2 flagged dangerous, 26 dex files and 48,083 classes, the signer, and actions to decompile, sign and edit the manifest">
+  <img src="docs/screenshots/12-hex.png" width="23%" alt="The hex viewer on a firmware file, offsets, bytes and the text they spell side by side">
+  <img src="docs/screenshots/06-extract.png" width="23%" alt="An extraction preview: the folder it will create drawn into the listing as a ghost row marked new, one of two doubled parent folders lifted, and seven files, 353 KB, mostly media that will not shrink">
+  <img src="docs/screenshots/11-image-editor.png" width="23%" alt="The image editor on a landscape photo, with crop, draw, text, resize, turn, mirror, flip and invert along the bottom">
 </p>
 
 <p align="center"><sub>
-<b>Metadata</b> read and written, cover art included &middot; an <b>image editor</b> that rotates
-to any angle rather than in quarter turns &middot; the <b>hex editor</b>, where an edit is staged
-and counted until you save it &middot; and an <b>extraction</b> previewed <i>before</i> it
-happens, so an archive that would spray forty files into the folder you are standing in says so
-first
+The <b>APK inspector</b> reads a package before anything is installed - permissions, dex, signer -
+and decompiles, signs or edits its manifest &middot; <b>hex</b>, where a changed byte is staged
+until you save &middot; an <b>extraction</b> previewed <i>before</i> it happens, the folder it
+will make already standing in the list and a doubled parent lifted one level at a time &middot;
+and an <b>image editor</b> that crops, draws, writes, resizes, turns and flips
 </sub></p>
 
 <p align="center">
-  <img src="docs/screenshots/callouts/01-home.png" width="23%" alt="The home screen, with the storage tile for a PC mounted over the network ringed and labelled">
-  <img src="docs/screenshots/03-new-files.png" width="23%" alt="New files grouped by day, each heading carrying a count and a size">
-  <img src="docs/screenshots/07-scripts.png" width="23%" alt="The script list, each script showing exactly what it is allowed to touch">
-  <img src="docs/screenshots/09-remotes.png" width="23%" alt="Remotes: SMB, SFTP, FTP and WebDAV, and hosting this phone as a drive on your PC">
+  <img src="docs/screenshots/14-markdown.png" width="23%" alt="A Markdown file read as a page: headings, a photo, a table with right-aligned numbers, a checklist and a quote">
+  <img src="docs/screenshots/15-sheet.png" width="23%" alt="A spreadsheet in the built-in reader, with sheet tabs, column letters and row numbers, and the header row and first column frozen">
+  <img src="docs/screenshots/17-slides.png" width="23%" alt="A slide deck read as a column of cards, one per slide, with its title and bullets">
+  <img src="docs/screenshots/18-pdf.png" width="23%" alt="A PDF rendered page by page, with a page counter">
 </p>
 
 <p align="center"><sub>
-A <b>PC on the network sits beside internal storage</b> as a tile like any other, and the bar
-under each one is coloured by how full it is &middot; <b>New files</b> answers a question the
-filesystem cannot: not when a file was made, but when it turned up here &middot; a <b>script</b>
-declares what it may touch and you approve that before it runs &middot; and the <b>Remotes</b>
-tab both mounts other machines and hosts this phone as a drive on yours
+Readers built in rather than handed off: <b>Markdown</b> as a page, pictures and tables
+included &middot; <b>spreadsheets</b> with their tabs and frozen headers &middot; <b>slides</b>
+&middot; and <b>PDF</b>. Word documents open in the same reader
+</sub></p>
+
+<p align="center">
+  <img src="docs/screenshots/callouts/01-home.png" width="23%" alt="The home screen, with internal storage and another phone mounted over the network side by side as tiles, the network one ringed and labelled, then categories and the newest files">
+  <img src="docs/screenshots/19-search.png" width="23%" alt="A search inside one folder, with scope chips from this folder out to every drive and filters for type, extension, size, date, name, package, class and permission">
+  <img src="docs/screenshots/04-view.png" width="23%" alt="The view menu over a folder of photos: a slider from compact list to large grid, sort by name, date, size or type, folders sorted separately, hidden files and tree view">
+  <img src="docs/screenshots/09-remotes.png" width="23%" alt="Remotes: a phone found on the network, two saved WebDAV shares, and this phone hosted as a drive with its Windows path and address, the access codes blacked out">
+</p>
+
+<p align="center"><sub>
+<b>Another phone on the network sits beside internal storage</b> as a tile like any other, the
+bar under each coloured by how full it is &middot; <b>search</b> that reaches from the folder you
+are in out to every drive, with filters for size, date, package, class and permission &middot;
+one <b>view</b> menu for density, sort and the tree &middot; and <b>Remotes</b>, which both mounts
+other machines and hosts this phone as a drive on yours
 </sub></p>
 
 <p align="center"><sub>
@@ -98,204 +115,157 @@ are never annotated.
 
 ---
 
-## Supporting it
+<div align="center">
 
-Filet is free and open source and always will be. There is no paid tier, nothing is locked,
-no feature is held back, and the app asks for nothing - the only mention of this inside it is
-one row on the About screen.
+## Support Filet
 
-If it is useful to you, **[ko-fi.com/thethirdy2007](https://ko-fi.com/thethirdy2007)** pays for
-the test devices and the hours. If it is not, the app is exactly the same.
+**Filet is independent.** It is built by one student, in the hours around studying, and every
+line of it is shared.<br>
+There is no company behind it and no paid tier coming - nothing is locked and nothing ever will be.
 
-## Browsing
+**Support goes straight to me**, and it buys the time and the test phones that keep Filet moving.
 
-- **Two panes**, labelled A and B, each with its own history and selection
-- **Drag between them.** Same volume moves, a different volume copies, and the ghost under
-  your finger says which before you let go
-- **Six view densities** on one slider, from a compact list to a large grid
-- **Thumbnails** for images, video frames, album art and APK icons, cached on content so a
-  rename doesn't re-decode anything
-- **Back, forward, up and refresh** in the toolbar, greyed when there's nowhere to go
-- **Type a path** and press Go, bare paths like `/sdcard/Download` included
-- **Per-extension default openers**, and when you hand a file to another app it remembers
-  which app
+<a href="https://ko-fi.com/thethirdy2007"><img src="https://img.shields.io/badge/Support%20Filet%20on%20Ko--fi-C25E3A?style=for-the-badge&logo=kofi&logoColor=white" height="44" alt="Support Filet on Ko-fi"></a>
+
+<sub>If it is not for you, the app is exactly the same. It never asks: the only mention of this
+inside it is one row on the About screen.</sub>
+
+</div>
 
 ---
 
-## Search
+## The tools
 
-Search runs in two stages. SQL narrows two hundred thousand rows down to five hundred, then a
-scorer reranks those in memory. Neither half is asked to do the other's job.
+The things a phone file manager usually sends you to a PC for.
 
-- **Fuzzy matching** with word-boundary and camelCase bonuses. `dwnld` finds Downloads, `AM`
-  finds AndroidManifest.xml
-- **Typo tolerance**, Damerau-Levenshtein, applied only to the five hundred candidates and
-  never as retrieval
-- **Frecency**, so what you open often and recently floats up
-- **A query language**: `type: size: modified: in: from: pkg: class: perm: inzip: dup:` with
-  AND, OR, NOT and grouping. Bad syntax degrades to a substring search instead of erroring
-- **Four scopes** as chips: this folder, subfolders, whole device, provenance
-- **Verified before display.** Every hit is re-checked against the filesystem, so the index
-  can be stale without you ever seeing a stale result
+### Archives
 
----
+- **Walk into an archive as if it were a folder** - zip and everything zip-shaped (apk, jar,
+  epub, cbz), tar on its own or through gzip, bzip2 or xz, 7z, and RAR and RAR5 including solid
+  archives
+- **See the extraction before it happens.** The destination is drawn as it will be: the folder
+  about to be made, a pointless parent folder lifted away, what would be overwritten, whether it
+  fits, and anything that tried to write outside the folder. The preview and the extractor are
+  the same plan, not a drawing of what a separate piece of code might do
+- **Edit a file inside an archive** and save it back. A zip re-compresses only the file you
+  changed; a `tar.gz` or a 7z has to be rebuilt whole, and it says so, with the size, first
+- **Make one** in zip, tar, tar.gz, tar.bz2, tar.xz or 7z, with real AES-256 zip encryption,
+  split volumes, and an honest estimate of what it will weigh
+- **RAR reads, and Filet cannot create one.** Every RAR writer descends from source whose licence
+  a GPL-3 app cannot accept; the readers Filet ships are libarchive's independent ones.
+  [`core-native/`](core-native/README.md) has the whole measurement
+- **A 7z cannot be given a password here**, for the same kind of reason: nothing Filet can
+  legally ship writes an encrypted 7z. Use zip if the archive needs a password
 
-## Archives and APKs
+### App packages
 
-- **Browse into an archive as a folder**, addressed as `zip:///path/a.tar.gz!/inner`. Zip and
-  everything zip-shaped (apk, jar, aar, epub, cbz), tar on its own or through gzip, bzip2 or
-  xz, 7z, RAR and RAR5 including solid archives, and a single compressed file such as
-  `notes.txt.gz`
-- **Make one** in zip, tar, tar.gz, tar.bz2, tar.xz or 7z, with the format picked at the time
-  and the suffix taken from the format rather than from what you typed
-- **Options tailored to the format, and nothing that does not apply.** Compression strength in
-  the encoder's own units — deflate 0-9, LZMA2's preset, bzip2's *block size*, which is not an
-  effort setting at all — a password where the format has encryption, and a split size where
-  the format can be split. Each control is drawn from one capability table, so a format cannot
-  show a switch its writer will refuse later
-- **Zip encryption that is real**: AES-256, AES-128, or the old ZipCrypto, offered and labelled
-  weak rather than hidden, because some readers take nothing else. Verified by opening Filet's
-  own archives in 7-Zip, including checking that the wrong password is refused
-- **Split archives**, both ways: zip volumes or a numbered `.001` byte split when you make one,
-  and a `.part1.rar` / `.r00` / `.zip.001` set someone sent you reads as a single archive
-- **An estimate of what it will weigh**, as a range with a reason. Already-compressed media is
-  counted separately, so a folder of mp4s is never promised a saving it will not get
-- **Extract here, to a folder you pick, or straight into the other pane** — and every one of
-  them shows you the result first
-- **A preview of the extraction, before it happens.** It draws the destination as it will be:
-  the folder it is about to invent is marked, a redundant parent it lifted away is struck
-  through, and it tells you what would be overwritten, whether it fits, how many files and how
-  many bytes, and how many entries tried to write outside the folder. Two buttons reverse the
-  two decisions, one tap each. The preview and the extractor are the same value — not a drawing
-  of what a separate code path might do
-- **It wraps and unwraps on its own, and it is right about it.** An archive with loose files at
-  the top lands in a folder named after it, so nothing is dumped over your Downloads; an archive
-  that is nothing but one folder holding one folder is unwrapped, all the way down while each
-  level holds exactly one thing
-- **Edit a file inside an archive.** Saving offers to update the archive or to write the file
-  somewhere else. A zip or a plain tar re-compresses only the file you changed — the others are
-  copied across as raw compressed bytes — while a `tar.gz` or a 7z is one compression stream and
-  has to be rebuilt whole, which it tells you, with the count and the size, before it starts. An
-  encrypted archive is refused rather than rewritten, because rewriting one entry would leave
-  the rest protected and that one not
-- **Search inside them.** `inzip:` reads member names from every format above
-- **RAR reads, and Filet cannot create one — that distinction is a licence, not a gap.**
-  Every RAR decoder published for the JVM descends from RARLAB's UnRAR source, whose licence
-  forbids using it to build a RAR-compatible archiver. That is a field-of-use restriction and
-  GPL-3 §7 does not allow one to be added, so none of them can ship here. **libarchive's RAR
-  readers are different**: `archive_read_support_format_rar.c` and `…rar5.c` are independent
-  implementations under BSD-2-Clause, which GPL-3 can take. They are vendored in
-  [`core-native/`](core-native/README.md) — about 130 KB per ABI, the only native code in the
-  app. Writing a RAR is the part RARLAB's licence actually protects, so Filet does not
-- **A 7z cannot be given a password, and that is also a licence answer rather than laziness.**
-  The format supports AES-256 perfectly well; nothing Filet can legally ship *writes* it.
-  libarchive's 7z writer contains no encryption at all — zero occurrences of `passphrase`,
-  `aes`, `encrypt` or `crypt` in its 2,356 lines, against eleven and an `aes256` option in the
-  zip writer of the same release — and commons-compress writes 7z without it. The one encoder
-  that does is 7-Zip's own C++ tree, which GPL-3 *can* take; it is a vendoring project rather
-  than a feature. The whole measurement is in [`core-native/`](core-native/README.md), and the
-  dialog says this instead of showing a grey box. Use zip if the archive needs a password
-- **`classes.dex` opens as a tree of smali** you can read and edit
-- **Search inside APKs.** `pkg:`, `label:` and `perm:` come from the resource table, `class:`
-  from deduplicated package prefixes in the dex. About 2 KB of facts per APK, not 2 MB
 - **Inspect** signature schemes, signer, SDK levels, native ABIs and protection status
-- **Edit the binary manifest** without needing aapt2
-- **Rebuild and re-sign**, reading minSdk from the APK being rebuilt so the dex format it
-  emits is one the target device can actually load
+- **`classes.dex` opens as a tree of smali** you can read and edit
+- **Edit the binary manifest** without aapt2
+- **Rebuild, re-sign and install**, on the phone, with the dex format chosen for the device it is
+  going to
+- **Search inside apps** - `pkg:`, `perm:` and `class:` find them by what they are, not their
+  file names
+
+### Bytes, pictures and tags
+
+- **A hex editor, not a viewer.** Tap a byte and type; edits are staged and counted until one
+  write applies them all
+- **An image editor** that rotates to any angle, crops, draws, resizes and adds text
+- **Tags and cover art, read and written** in MP3, FLAC, Ogg, Opus, MP4 and M4A, and document
+  properties in PDF and Office files. Nothing is written in place: a rewrite is built, re-read,
+  and only then replaces the original
+
+### Scripting
+
+- **Lua that can only touch what it declared.** A script states its permissions up front and you
+  approve them before it runs. No `io`, no `os.execute`, no network
+- **It works wherever the files are** - inside an archive or on a network share as much as on
+  internal storage
+- **Seven worked examples**, and a copyable prompt that explains the whole API to an AI agent
 
 ---
 
-## Opening things
+## The viewers
 
-Filet opens a file rather than handing it away. Every one of these reads and writes through the
-storage layer, so it works the same inside an archive and on a network share as it does on
-internal storage.
+Filet opens a file rather than handing it away, and every viewer works the same inside an archive
+and on a network share as it does on internal storage.
 
-- **Text and code**, with syntax highlighting from TextMate grammars and tree-sitter. Long lines
-  wrap, and the document scrolls past its own end so the line you are typing is never under the
-  keyboard
-- **Hex, as an editor rather than a viewer.** Tap a byte, type the new value; edits stage up and
-  show in a warning colour until you save, and the whole patch is applied in one write
-- **Images, with the tools you would otherwise go to a PC for** — crop, rotate to any angle on a
-  slider, draw, resize, add text and emoji. Two fingers zoom and pan even in the middle of a
-  stroke, and it zooms out past the fit so there is somewhere to work
-- **Video and audio fullscreen**, with the top bar retracting while you watch and coming back on
-  a touch. Drag to seek; brightness and volume need a clearly vertical drag, so a sideways seek
-  cannot trip them
-- **Metadata, read and written.** Twelve containers in three honest tiers — what is safe to
-  write, what is writable with a stated exception, and what is read-only and why. Tags in MP3,
-  FLAC, Ogg, Opus, MP4 and M4A; properties in PDF and in Word, Excel and PowerPoint documents;
-  text in PNG, comments in JPEG, GIF and zip; EXIF read from JPEG and WebP
-- **Cover art**, shown, extracted to a file beside the original, or replaced with any image on
-  the device — including one on a network share, because the picker is Filet's own
-- **Nothing is written in place.** A rewrite is built in memory, re-parsed, and only replaces the
-  original once the change reads back. A format Filet does not fully understand is refused with
-  the reason, which is the feature rather than the shortfall
-- **A session log**, off by default and one timestamped file per cold boot in `Filet/Logs`. It is
-  what a bug report attaches, and it is how the twenty-second cold start turned out to be two
-  unrelated faults rather than one
+- **Documents** - Markdown the way GitHub draws it, with tables, alerts, code blocks you can
+  resize and pictures at their real size; Word documents, PowerPoint slides, PDFs and
+  spreadsheets with frozen rows and smooth pinch zoom; HTML, rendered or edited. A link from one
+  file to another opens it, and Back brings you to the exact place you left
+- **Code and text**, highlighted with TextMate grammars and tree-sitter, in a real editor
+- **Pictures and video**, swiped through together, with the video player's gestures kept out of
+  each other's way
+- **Audio**, with playlists built from your own files
+- **A QR scanner**, which reads what the code actually is - a payment code shows who it pays
+- **Metadata, APK internals and archives**, as above
+
+**Every one of these gets better with each release, and more viewers are on the way.** Filet's
+aim is that a file on your phone never needs another app to be read properly.
 
 ---
 
-## Scripting
+## Finding things
 
-Lua, bound to the storage layer rather than to the filesystem, so a script that works on
-internal storage also works inside an archive or on a network share.
-
-- **A permission header** each script declares up front, and you approve it before it runs
-- **No `io`, no `os.execute`, no network.** The `fs` table is the whole surface
-- **Seven worked examples** ship with the app
-- **A copyable prompt** that explains the entire API to an AI agent, so you can paste it and
-  append what you want in plain words
-
----
-
-## Sharing over your network
-
-- **Any browser can open it.** Nothing installed on the other machine
-- **Every address the phone can be reached on**, labelled Wi-Fi, hotspot or wired, with the
-  unreachable ones marked and the reason given
-- **Paths never enter a URL.** A URL is `/f/<token>`, which makes traversal unrepresentable
-  rather than blocked
-- **A PIN by default**, settable and copyable, with a QR code
-- **Every session listed live and revocable**, and nothing expires unless you ask it to
-- **Folders open in the browser**, or download whole as a streamed zip with the tree intact
-- **Zero-copy streaming.** Sharing a 4 GB video costs no extra space and starts instantly
+- **Whole-phone search in milliseconds**, fuzzy and typo-tolerant, ranked by what you actually
+  open. `dwnld` finds Downloads
+- **A query language** - `type: size: modified: in: pkg: perm: inzip: dup:` with AND, OR and NOT.
+  Bad syntax falls back to a plain search instead of an error
+- **Every hit is checked against the disk before it is shown**, so a stale index never shows you
+  a stale result
+- **New files** - not when a file was made, but when it turned up on your phone
+- **Photos, videos and music from the whole phone**, grouped by date, latest first
+- **Shortcuts that survive a move.** A pinned shortcut follows its file when the file moves, and
+  says so when it is deleted
 
 ---
 
-## Shortcuts and surfaces
+## Your phone and your network
 
-- **Home-screen shortcuts that survive a move.** A shortcut stores the file's index ID rather
-  than its path, so moving the file doesn't break it, and deleting it makes the shortcut say
-  so instead of doing nothing
-- **Shortcuts to scripts and to app actions**, not only to files
-- **All of them listed inside the app**, renameable and cleanable, because a pinned shortcut
-  is otherwise write-only
-- **A folder widget**
-- **Crash reports on screen** instead of "app has stopped", kept locally and never uploaded
+- **Share to any browser** on your network, with nothing installed on the other machine. A PIN
+  by default, a QR code to open it, every session listed and revocable, and a 4 GB video
+  streamed without a copy
+- **Host this phone as a drive** on your PC
+- **Mount other machines** over WebDAV, SMB, SFTP and FTP, as a storage tile beside internal
+  storage. WebDAV is proven against a real server; SMB, SFTP and FTP are written and are the
+  next thing to be proven against real ones - see below
+
+---
+
+## Where it's going
+
+The big pieces still to come. The full plan, with the test each one has to pass, is
+[`docs/PLAN.md`](docs/PLAN.md).
+
+- **Network drives that just work** - find a PC by its name instead of its IP address, play a
+  film off a share without downloading it, and have a big copy survive the Wi-Fi dropping. The
+  phone itself showing up in Windows' Network folder
+- **Cloud drives** - OneDrive or Dropbox first, then Google Drive, browsed, searched and copied
+  exactly like a local folder
+- **APK reverse engineering, taken much further** - a code editor with jump-to-definition and a
+  symbol pane you drive without the keyboard, and split packages (XAPK, APKM, APKS) merged into
+  one installable APK
+- **An automation server** - an agent on your network driving Filet end to end: files, Lua, and
+  a smali-level change to an app, rebuilt and installed without a hand on the phone
+- **More viewers**, and better ones
 
 ---
 
 ## Installing it
 
 Grab the APK from **[Releases](https://github.com/uukjtisa/filet/releases/latest)**. Android 8.0
-or newer, one file, every phone. The only native code in Filet is libarchive's RAR readers, at
-about 130 KB per ABI, so a universal APK carries all four and there is nothing worth splitting.
-
-| File | For |
-|---|---|
-| `Filet-<version>.apk` | Anything running Android 8.0 or newer. |
+or newer, one file, every phone.
 
 You will have to allow installing from unknown sources, and Android will call the installer
 untrusted: the APK is signed with my own key rather than a store key, which is what a sideloaded
 build looks like. That key is also why an update has to come from the same place the first
-install did - Android refuses an update signed by anything else.
+install did.
 
-Once it is installed, the **About** page - from the side rail, the menu, or the switcher - has a
-**Check for updates** button that asks GitHub directly and offers the next release when there is
-one. That button is compiled out of the `fdroid` flavour, because F-Droid updates its own apps
-and refuses ones that update themselves.
+Once it is installed, **About** has a **Check for updates** button that asks GitHub directly. It
+is compiled out of the `fdroid` flavour, because F-Droid updates its own apps and refuses ones
+that update themselves.
 
 ---
 
@@ -312,29 +282,23 @@ Six layers, and only the bottom one is allowed to touch a filesystem.
 | **L1** Index | SQLite FTS5 and trigram, retrieve then rerank |
 | **L0** VFS | `FileSystemProvider` per backend, `VPath`, `VNode` |
 
-### The VFS is the whole design
+Nothing above L0 constructs a platform path, and `tools/check-r3.mjs` fails the build if one
+turns up. That one constraint is why archives, network shares, SAF grants and root all work
+through a single code path, and why every viewer above works on all of them.
 
-Nothing above L0 constructs a platform path. There's no `java.io.File` outside the local
-provider, and `tools/check-r3.mjs` fails the build if one turns up. The allow-list is fourteen
-files long and every entry carries a written reason for being there.
+Everything is checked rather than claimed:
 
-That one constraint is what makes archives, network shares, SAF grants and root all work
-through a single code path instead of five special cases. It's also why a new backend is a new
-file rather than a new set of exceptions scattered through the app.
+- **[`docs/FEATURES.md`](docs/FEATURES.md)** is the feature register, with per-feature notes
+- **[`docs/GATES.md`](docs/GATES.md)** is the per-milestone evidence, including the one gate that
+  was abandoned and why
+- **[`docs/FIXES.md`](docs/FIXES.md)** tracks every bug found in review to a demonstrated outcome
+- **[`docs/PLAN.md`](docs/PLAN.md)**, **[`docs/SEARCH.md`](docs/SEARCH.md)** and
+  **[`docs/NEARBY.md`](docs/NEARBY.md)** are the design documents
+- **[`docs/RELEASES.md`](docs/RELEASES.md)** is how a release body has to be written, because the
+  app renders it and for most people it is the only documentation they will ever read
 
-### Everything is checked rather than claimed
-
-- **[`FEATURES.md`](FEATURES.md)** is the feature register, 69 shipped, with per-feature notes
-- **[`GATES.md`](GATES.md)** is the per-milestone evidence, including the one gate that was
-  abandoned and why
-- **[`FIXES.md`](FIXES.md)** tracks every bug found in review to a demonstrated outcome
-- **[`PLAN.md`](PLAN.md)**, **[`SEARCH.md`](SEARCH.md)** and **[`NEARBY.md`](NEARBY.md)** are
-  the design documents
-- **[`docs/RELEASES.md`](docs/RELEASES.md)** is how a release body has to be written, because
-  the app renders it and for most people it is the only documentation they will ever read
-
-66 instrumented tests run on a real device, three JVM suites run on the JVM, and CI runs
-everything that doesn't need a phone. 57 review items, all of them closed with evidence.
+Over two thousand JVM tests, fifty-one source checkers that each prove they catch what they are
+for, and on-device tests for what only a phone can show.
 
 ---
 
@@ -362,8 +326,8 @@ Debug builds get a `.debug` application ID so they sit beside a release one. `mi
 
 ```bash
 ./gw.sh :core-vfs:test :core-index:test :app:testGithubDebugUnitTest   # JVM suites
-node tools/check-r3.mjs                                                # no storage API above L0
-./tools/run-gates.sh <adb-serial>                                      # 66 on-device tests
+node tools/check-all.mjs                                               # every source checker
+./tools/run-gates.sh <adb-serial>                                      # on-device tests
 ```
 
 `run-gates.sh` exists because `connectedAndroidTest` reinstalls the app between runs, which
@@ -398,8 +362,21 @@ GPL-3.0. See [`LICENSE`](LICENSE).
 Filet bundles ARSCLib (Apache-2.0), smali and dexlib2 (BSD), LuaJ (MIT), Apache
 commons-compress (Apache-2.0), XZ for Java (public domain) and zip4j (Apache-2.0) for
 the archive formats,
-sora-editor (LGPL-2.1, linked unmodified), and a build of SQLite with FTS5 and trigram
-enabled. Full attribution is on the About screen in the app.
+sora-editor (LGPL-2.1, linked unmodified), ZXing (Apache-2.0) for QR codes, CameraX
+(Apache-2.0) for the scanner, BeatRoot's beat tracker as carried in TarsosDSP (GPL-2.0-or-later
+and GPL-3.0; the source is in `app/src/main/java/be/tarsos/dsp/beatroot`, with the file and
+MIDI input removed), and a build of SQLite with FTS5 and trigram enabled. Full attribution is on the About screen in the app.
+
+The document reader reads Markdown with commonmark-java (BSD-2-Clause) and its own extensions,
+plus autolink-java (MIT) for bare addresses. Its alerts, lists and code highlighting are ported
+from Mike Penz's multiplatform-markdown-renderer (Apache-2.0), whose list rendering began in Erik
+Hellman's MarkdownComposer (MIT); its rounded inline code is ported from Saket Narayan's
+extended-spans (Apache-2.0). Each ported file keeps its copyright and licence header. Pictures
+load through Coil (Apache-2.0), with AndroidSVG (Apache-2.0) for SVG; code is coloured by
+Highlights (Apache-2.0); the alert icons are Material icons (Apache-2.0).
+
+RAR archives are read with libarchive's independent RAR readers (BSD-2-Clause), vendored in
+[`core-native/`](core-native/README.md) at about 130 KB per ABI - the only native code in the app.
 
 Every one of those is compatible with GPL-3.0, and `tools/check-licences.mjs` fails the build
 if a dependency is added that is not. That check is also where the RAR decision is recorded:
