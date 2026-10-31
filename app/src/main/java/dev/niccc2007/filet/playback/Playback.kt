@@ -209,6 +209,47 @@ class Playback(
 
     private val audio = app.getSystemService(AudioManager::class.java)
 
+    /**
+     * One audio session for every track this player opens.
+     *
+     * The sound's effects are attached to a session, and each `MediaPlayer` would otherwise come
+     * with a new one - so every track would start with no equaliser until something noticed. On
+     * one session they are linked per track all the same (see `SoundLink`), and nothing else is
+     * ever on it. 0 when the phone would not give one, and each player then makes its own.
+     */
+    private val session: Int = audio?.generateAudioSessionId()?.takeIf { it > 0 } ?: 0
+
+    /** The current track's link to the sound. Remade for every player; see [linkSound]. */
+    private var sound: SoundLink? = null
+
+    /** Whether the first start of the current player has happened, after which its effects are remade once. */
+    private var soundStarted = false
+
+    /** Lowered for a navigation prompt or a notification. See the focus listener. */
+    private var ducked = false
+
+    /**
+     * The player's volume: the sound's level, times the duck.
+     *
+     * Every volume change goes through here, so the app volume and the duck multiply instead of
+     * the last one to call `setVolume` winning.
+     */
+    private fun applyVolume() {
+        val v = (sound?.level ?: 1f) * (if (ducked) DUCKED else 1f)
+        runCatching { player?.setVolume(v, v) }
+    }
+
+    /** Put a new player's session under the sound, which remakes its effects for it. */
+    private fun linkSound(p: MediaPlayer) {
+        sound?.close()
+        sound = null
+        val id = runCatching { p.audioSessionId }.getOrDefault(0)
+        if (id <= 0) return
+        sound = Sound.of(app).link(id, SoundTarget.MUSIC) { applyVolume() }
+        soundStarted = false
+        applyVolume()
+    }
+
     private val attributes: AudioAttributes = AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_MEDIA)
         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
@@ -234,10 +275,12 @@ class Playback(
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 // Duck rather than pause: this is a navigation prompt or a notification, and
                 // stopping the music for a two-second announcement is worse than lowering it.
-                runCatching { player?.setVolume(DUCKED, DUCKED) }
+                ducked = true
+                applyVolume()
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
-                runCatching { player?.setVolume(1f, 1f) }
+                ducked = false
+                applyVolume()
                 if (pausedByFocusLoss) {
                     pausedByFocusLoss = false
                     resume()
@@ -411,6 +454,7 @@ class Playback(
             stop()
             return
         }
+        onTrack(track.id)
         _state.value = _state.value.copy(playing = false, positionMs = 0, durationMs = 0, error = null)
         _art.value = null
         _source.value = null
@@ -430,6 +474,8 @@ class Playback(
                 runCatching {
                     MediaPlayer().apply {
                         setAudioAttributes(attributes)
+                        // Before the source, which is the only time a session can be set.
+                        if (session > 0) setAudioSessionId(session)
                         setDataSource(app, uri)
                         prepare()
                     }
@@ -441,6 +487,7 @@ class Playback(
                 return@launch
             }
             player = prepared
+            linkSound(prepared)
             _source.value = uri
             surface?.let { runCatching { prepared.setSurface(it) } }
             prepared.setOnCompletionListener { onCompletion() }
@@ -505,6 +552,15 @@ class Playback(
         }
         if (!requestFocus()) return
         runCatching { p.start() }.onFailure { return }
+        // Remade once the track is actually playing: on some phones an effect made before the
+        // session's first start is dropped without a word. See `SoundLink`.
+        if (!soundStarted) {
+            soundStarted = true
+            sound?.reattach()
+        }
+        // BEAT1: how long the position stands still after a start, and the route's latency.
+        // Logged only; see LatencyProbe for what the two numbers decide.
+        LatencyProbe.watchStart(app) { positionNow() }
         pausedByFocusLoss = false
         _state.value = _state.value.copy(playing = true, error = null)
         startTicker()
@@ -586,6 +642,10 @@ class Playback(
      */
     fun setSpeed(rate: Float) {
         val clamped = rate.coerceIn(MIN_SPEED, maxSpeed)
+        // A remembered track keeps its speed with it, and the queue's stays where it was for the
+        // track after. Applied here as well as by the watch, so a slider being dragged does not
+        // trail the finger by a dispatch.
+        if (!soundState.editPlayback(SoundTarget.MUSIC) { it.copy(speed = clamped) }) generalSpeed = clamped
         _speed.value = clamped
         player?.let { applySpeed(it) }
     }
@@ -629,8 +689,8 @@ class Playback(
                 // has no artefacts at all, because there is nothing to invent. It is the
                 // smooth option, and the cost is that a slowed voice goes deep.
                 //
-                // Which of the two it gets is [PitchMode]'s decision, and the default
-                // holds the pitch only while the stretcher is good at it. See PitchMode.
+                // Which of the two it gets is [PitchMode]'s decision, and the default is
+                // the resampler: the pitch goes with the speed. See PitchMode.
                 .setPitch(pitch)
         }.isSuccess
         if (!ok) {
@@ -657,8 +717,43 @@ class Playback(
     private val _pitch = MutableStateFlow(PitchMode.DEFAULT)
     val pitch: StateFlow<PitchMode> = _pitch.asStateFlow()
 
+    /** The general pitch mode, from Prefs. A remembered track's own wins while it plays. */
     fun setPitchMode(mode: PitchMode) {
+        generalPitch = mode
+        if (soundState.rememberedNow(SoundTarget.MUSIC).value != null) return
         if (_pitch.value == mode) return
+        _pitch.value = mode
+        player?.let { applySpeed(it) }
+    }
+
+    /** Each file's remembered sheet, and which file this player is on. See [SoundState]. */
+    private val soundState by lazy { SoundState.of(app) }
+    private var rememberWatch: Job? = null
+
+    /**
+     * The speed and pitch the queue plays at, apart from what a remembered track plays at.
+     *
+     * Two, because a remembered track brings its own and the track after it has to go back to
+     * the queue's: the speed somebody kept for one song is not the speed of the album after it.
+     */
+    private var generalSpeed = 1f
+    private var generalPitch = PitchMode.DEFAULT
+
+    /** Say which file is playing, and follow its remembered sheet for the speed and the pitch. */
+    private fun onTrack(id: String?) {
+        if (rememberWatch == null) {
+            rememberWatch = scope.launch {
+                soundState.rememberedNow(SoundTarget.MUSIC).collect { followRemembered(it) }
+            }
+        }
+        soundState.playing(SoundTarget.MUSIC, id)
+    }
+
+    private fun followRemembered(r: Remembered?) {
+        val rate = (r?.speed ?: generalSpeed).coerceIn(MIN_SPEED, maxSpeed)
+        val mode = r?.pitch ?: generalPitch
+        if (_speed.value == rate && _pitch.value == mode) return
+        _speed.value = rate
         _pitch.value = mode
         player?.let { applySpeed(it) }
     }
@@ -772,6 +867,8 @@ class Playback(
         _asAudio.value = false
         _state.value = NowPlaying()
         onServiceWanted(false)
+        // On no file: a sheet opened now has nothing to remember.
+        if (rememberWatch != null) soundState.playing(SoundTarget.MUSIC, null)
     }
 
     /**
@@ -924,6 +1021,8 @@ class Playback(
 
     private fun releasePlayer() {
         ticker?.cancel()
+        sound?.close()
+        sound = null
         runCatching { player?.setSurface(null) }
         runCatching { player?.release() }
         player = null

@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.browser
 
+import dev.niccc2007.filet.vfs.MountBoundary
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 
@@ -73,18 +74,23 @@ object TreeRows {
     ): List<TreeRow> {
         val out = ArrayList<TreeRow>(roots.size + open.size * 8)
         val spines = ArrayList<Boolean>()
+        // Asked once: only with an archive open can a file row be a branch, and asking every
+        // file of a big folder what it is would be work for no answer.
+        val mounts = open.any { MountBoundary.isMounted(it) }
         fun walk(nodes: List<VNode>, at: Int) {
             for ((i, node) in nodes.withIndex()) {
                 val last = i == nodes.lastIndex
-                out.add(TreeRow(node, at, spines = spines.toList(), last = last))
-                if (!node.isDir || node.path !in open) continue
-                val kids = branches[node.path]
+                out.add(TreeRow(node, at, spines = shared(spines), last = last))
+                // A folder opens into itself, an archive into its mount. See TreeBranch.
+                val key = if (node.isDir) node.path else if (mounts) TreeBranch.keyOf(node) else null
+                if (key == null || key !in open) continue
+                val kids = branches[key]
                 // A level's spine continues only while its folder has siblings left below.
                 spines.add(!last)
                 when {
                     // Opened, nothing read back yet.
                     kids == null -> out.add(
-                        TreeRow(node, at + 1, loading = true, spines = spines.toList(), last = true),
+                        TreeRow(node, at + 1, loading = true, spines = shared(spines), last = true),
                     )
                     // Opened and genuinely empty, which now says so.
                     //
@@ -96,13 +102,13 @@ object TreeRows {
                     // "the branch opened and nothing happened" is indistinguishable from the
                     // chevron not working, which is the reading this gets reported as.
                     kids.isEmpty() -> out.add(
-                        TreeRow(node, at + 1, empty = true, spines = spines.toList(), last = true),
+                        TreeRow(node, at + 1, empty = true, spines = shared(spines), last = true),
                     )
                     // The depth guard, which now also says so rather than stopping silently.
                     // A tree that simply stops twelve deep looks broken at exactly the moment
                     // somebody is lost enough to be twelve deep.
                     at + 1 >= depth -> out.add(
-                        TreeRow(node, at + 1, empty = true, spines = spines.toList(), last = true),
+                        TreeRow(node, at + 1, empty = true, spines = shared(spines), last = true),
                     )
                     else -> walk(kids, at + 1)
                 }
@@ -114,6 +120,26 @@ object TreeRows {
     }
 
     /**
+     * One list per distinct spine pattern, the same instance every time it is asked for.
+     *
+     * Bug identified here: every flatten built a fresh list for every row, and a list is
+     * compared by IDENTITY when Compose decides whether a row can skip - so every row on screen
+     * looked changed on every flatten, and a branch streaming in, which flattens once per
+     * published chunk, recomposed the whole visible tree each time. The patterns are few - one
+     * per depth and shape actually drawn - so sharing them costs a small map.
+     */
+    private fun shared(spines: List<Boolean>): List<Boolean> {
+        if (spines.isEmpty()) return emptyList()
+        if (spines.size > 31) return spines.toList()
+        var bits = 0L
+        for ((i, b) in spines.withIndex()) if (b) bits = bits or (1L shl i)
+        val key = (spines.size.toLong() shl 32) or bits
+        return spineLists.getOrPut(key) { spines.toList() }
+    }
+
+    private val spineLists = java.util.concurrent.ConcurrentHashMap<Long, List<Boolean>>()
+
+    /**
      * Opening or closing one folder.
      *
      * Closing drops everything under it as well, so a branch reopened later is read fresh
@@ -121,7 +147,8 @@ object TreeRows {
      * does not stay in memory after it has been folded away.
      */
     fun toggle(open: Set<VPath>, path: VPath): Set<VPath> =
-        if (path in open) open.filterNot { it == path || it.path.startsWith(path.path + "/") }.toSet()
+        // TreeBranch.under, so closing a folder also closes an archive open inside it.
+        if (path in open) open.filterNot { TreeBranch.under(path, it) }.toSet()
         else open + path
 
     /**
@@ -168,7 +195,7 @@ object TreeRows {
      */
     fun pathTo(root: VPath, target: VPath): Set<VPath> {
         if (root == target) return setOf(target)
-        if (!target.path.startsWith(root.path)) return setOf(target)
+        if (!TreeBranch.under(root, target)) return setOf(target)
         val out = LinkedHashSet<VPath>()
         var at: VPath? = target
         // Guarded against a path that is somehow not under the root after all: without the
@@ -178,7 +205,8 @@ object TreeRows {
         while (at != null && guard++ < MAX_DEPTH * 2) {
             out.add(at)
             if (at == root) break
-            at = at.parent
+            // MountBoundary, so the way down to a file inside a zip passes through the zip.
+            at = MountBoundary.up(at)
         }
         return out
     }
@@ -207,10 +235,10 @@ object TreeRows {
     fun visibleFolds(root: VPath, open: Set<VPath>): List<VPath> {
         val out = LinkedHashSet<VPath>()
         val byDepth = open
-            .filter { it.scheme == root.scheme && it != root && root.contains(it) }
+            .filter { it != root && TreeBranch.under(root, it) }
             .sortedWith(compareBy({ it.segments.size }, { it.path }))
         for (fold in byDepth) {
-            val parent = fold.parent ?: continue
+            val parent = MountBoundary.up(fold) ?: continue
             if (parent == root || parent in out) out.add(fold)
         }
         return out.toList()
@@ -253,7 +281,11 @@ object TreeRows {
      * from scrolling to the wrong row.
      */
     fun revealIndex(rows: List<TreeRow>, target: VPath): Int =
-        rows.indexOfFirst { it.node.path == target && !it.loading && !it.empty }
+        rows.indexOfFirst { it.isRowOf(target) && !it.loading && !it.empty }
+
+    /** Whether this row stands for [branch]: its own path, or the mount an archive opens into. */
+    fun TreeRow.isRowOf(branch: VPath): Boolean =
+        node.path == branch || !node.isDir && TreeBranch.keyOf(node) == branch
 
     /** How many folds a tab keeps across a restart. See [foldsToSave]. */
     const val MAX_SAVED_FOLDS = 64

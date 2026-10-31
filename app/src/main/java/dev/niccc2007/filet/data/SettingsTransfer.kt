@@ -29,7 +29,7 @@ import org.json.JSONObject
  * So the transfer is an allowlist by section, with everything else refused and the refusals
  * explained. [Section] is the whole contract.
  *
- * ## Why every value is a string with a type letter on the front
+ * ## Why the values are plain JSON and the types come from the registry
  *
  * `SharedPreferences` is typed per key, and reading a key with the wrong getter throws. JSON
  * does not distinguish an Int from a Long, so a value exported as `18080` and read back as an
@@ -37,9 +37,11 @@ import org.json.JSONObject
  * `ClassCastException` at some unrelated moment later, which is about the worst shape a bug
  * can take.
  *
- * So a value travels as `"i:18080"`, `"b:true"`, `"s:dark"`. It stays readable and diffable,
- * the type survives the trip, and nothing here has to keep a table of which key is which type
- * - the value carries its own.
+ * Format 1 answered that by carrying the type on the value: `"i:18080"`, `"b:true"`. It had no
+ * letter for a string set, so a set was dropped at export without a word - the custom extensions
+ * and the blocked folders were listed in their sections and never written. Format 2 writes plain
+ * JSON (`18080`, `true`, `["a","b"]`) and reads each key back through its declared type in
+ * [ConfigKeys], which is also where the sections now get their keys. Format 1 files are still read.
  *
  * ## Why unknown keys are kept on import rather than refused
  *
@@ -51,7 +53,7 @@ import org.json.JSONObject
 object SettingsTransfer {
 
     /** Bumped only when the SHAPE changes, not when a key is added to a section. */
-    const val FORMAT = 1
+    const val FORMAT = 2
 
     /** What the file calls itself, so a wrong file is refused before anything is applied. */
     const val MAGIC = "filet.settings"
@@ -70,65 +72,38 @@ object SettingsTransfer {
         val about: String,
         /** Ticked when the chooser opens. */
         val onByDefault: Boolean,
-        val keys: List<String>,
     ) {
         LOOK(
             "look", "Appearance and layout",
             "Theme, accent, density, tab size, the bottom bar and the selection bar.",
             true,
-            listOf(
-                "ui.theme", "ui.accent", "browse.viewStep", "browse.tabSize",
-                "browse.bottomBar", "browse.selectionBar", "browse.selectionStyle",
-                "browse.split", "browse.restoreTabs",
-                "entry.subtitle", "entry.measure", "entry.dateColumn", "entry.dateStyle",
-                "entry.dateOrder", "entry.dateSeparator", "entry.relativeDates",
-            ),
         ),
 
         BEHAVIOUR(
             "behaviour", "Sorting and behaviour",
             "Sort order, hidden files, drag between panes, the index, and how media plays.",
             true,
-            listOf(
-                "sort.key", "sort.desc", "sort.foldersFirst", "browse.hidden",
-                "index.enabled",
-                "play.uninterrupted", "play.face", "play.pitch",
-                "play.glow", "play.glowLevel", "play.glowStrength", "play.glowSpill",
-                "play.discTurnMs",
-                "panes.swipe", "panes.swipeAt",
-                "home.folds", "drawer.storage", "drawer.recent", "drawer.places",
-                "view.tree", "play.scratch", "play.pulse",
-                "play.pulseSense", "play.pulseDepth", "play.resume",
-                "files.rootVolumes", "sort.folderKey", "sort.folderDesc",
-                "files.nameLines", "view.reachMode", "play.deviceTier",
-                "play.waveGap",
-                "home.hideStorage", "home.folder",
-                "update.notificationsOff", "update.notesFraction",
-            ),
         ),
 
         OPENERS(
             "openers", "Default openers",
             "Which viewer opens which extension, including the ones you added yourself.",
             true,
-            listOf("handlers.v1", "handlers.external.v1", "openers.customExtensions"),
         ),
 
         BOOKMARKS(
             "bookmarks", "Bookmarks",
             "Your saved places. Ones on a network drive need that drive to come too.",
             true,
-            listOf("bookmarks"),
         ),
 
         REMOTES(
             "remotes", "Network drives",
             "Saved connections: addresses, ports, shares. Passwords are left out unless you " +
                 "ask for them.",
-            true,
             // Not a preference key: the connections live in their own store and are written
             // into the file as a section of their own. Listed here so the chooser can offer it.
-            emptyList(),
+            true,
         ),
 
         SHARING(
@@ -136,8 +111,14 @@ object SettingsTransfer {
             "The folders you host over the network, and the port. Off by default: another " +
                 "phone does not have these folders, and it should not start sharing on its own.",
             false,
-            listOf("dav.port", "dav.shares", "nearby.shares", "nearby.uploads", "nearby.idle"),
         );
+
+        /**
+         * The preferences it carries, from [ConfigKeys]. The retired row-display keys stay in
+         * LOOK: a file from an older build carries them and nothing else for that setting, and
+         * `Prefs.restore` reads them through the same migration startup does.
+         */
+        val keys: List<String> get() = ConfigKeys.keysOf(this)
 
         companion object {
             fun of(id: String): Section? = entries.firstOrNull { it.id == id }
@@ -174,7 +155,44 @@ object SettingsTransfer {
     val RETIRED: Set<String> = setOf("tracked")
 
     /** Every key any section would carry, for an assertion that the two lists cannot overlap. */
-    val EXPORTED: Set<String> = Section.entries.flatMap { it.keys }.toSet()
+    val EXPORTED: Set<String> by lazy { Section.entries.flatMap { it.keys }.toSet() }
+
+    /**
+     * Keys a later key replaced, and the key or keys that replaced each one.
+     *
+     * Declared here once, rather than as a condition inside each migration, because the two
+     * places that need the relationship need it in opposite directions: `Prefs.storedParts` and
+     * `Prefs.storedSide` read the OLD key when the new one is absent, while `Prefs.restore` has
+     * to clear the NEW key when a file carries only the old one. Written as two separate
+     * conditions those drift, and the way they drift is silent - an import that reports a count
+     * and applies nothing.
+     *
+     * `entry.measure` and `entry.dateColumn` both map to both sides, because the pair of
+     * booleans decided both columns between them; either one arriving alone means the stored side
+     * configuration came from a build that did not have sides.
+     */
+    val SUPERSEDED: Map<String, List<String>> = mapOf(
+        "entry.subtitle" to listOf("entry.parts"),
+        "entry.measure" to listOf("entry.sideFile", "entry.sideFolder"),
+        "entry.dateColumn" to listOf("entry.sideFile", "entry.sideFolder"),
+        // Music and video were one sound; an older file's lands on both. See `Prefs.splitSound`.
+        "sound.eqOn" to listOf("sound.music.eqOn", "sound.video.eqOn"),
+        "sound.bands" to listOf("sound.music.bands", "sound.video.bands"),
+        "sound.bass" to listOf("sound.music.bass", "sound.video.bass"),
+        "sound.volume" to listOf("sound.music.volume", "sound.video.volume"),
+        "sound.space" to listOf("sound.music.space", "sound.video.space"),
+        "sound.filter" to listOf("sound.music.filter", "sound.video.filter"),
+    )
+
+    /**
+     * The keys an import must REMOVE so the old keys in [incoming] are read at all.
+     *
+     * A successor the same file also carries is left alone: an export from a build that has both
+     * keys sets the new one itself, and clearing it would throw away the newer of the two
+     * answers. See `Prefs.restore` for the defect this exists to prevent.
+     */
+    fun toClear(incoming: Set<String>): Set<String> =
+        incoming.flatMap { SUPERSEDED[it].orEmpty() }.filterNot { it in incoming }.toSet()
 
     /**
      * A preference value as it travels: one letter, a colon, then the text of the value.
@@ -193,7 +211,36 @@ object SettingsTransfer {
         else -> null
     }
 
-    /** The inverse. Null for anything malformed, which is then simply not applied. */
+    /**
+     * A preference value as format 2 writes it: plain JSON. Null for a type that has no place in
+     * the store, which is then not written.
+     *
+     * A Float goes out through its own decimal text, because JSON numbers are doubles and 0.35f
+     * widened is 0.3499999940395355 - correct, and unreadable in a file somebody may open.
+     */
+    fun encodePlain(value: Any): Any? = when (value) {
+        is String, is Boolean, is Int, is Long -> value
+        is Float -> value.toString().toDouble()
+        is Double -> value
+        is Set<*> -> JSONArray(value.map { it.toString() }.sorted())
+        else -> null
+    }
+
+    /**
+     * One value out of a file of either format, in the type the store keeps it in.
+     *
+     * Format 2 is read by the type alone, not the registry's list of allowed names: an export is
+     * written by Filet, and a value a newer build added to an enum is better carried than
+     * refused. The hand-edited file is checked harder - see `ConfigCodec.parse`.
+     */
+    fun valueOf(version: Int, key: String, raw: Any?): Any? {
+        if (raw == null || raw == JSONObject.NULL) return null
+        if (version < 2) return (raw as? String)?.let(::decode)
+        val k = ConfigKeys.of(key) ?: return null
+        return (ConfigCodec.coerce(k.copy(values = null), raw) as? ConfigCodec.Coerced.Value)?.value
+    }
+
+    /** The inverse of [encode], for format 1. Null for anything malformed, which is then not applied. */
     fun decode(text: String): Any? {
         if (text.length < 2 || text[1] != ':') return null
         val body = text.substring(2)
@@ -292,7 +339,7 @@ object SettingsTransfer {
             for (key in section.keys) {
                 if (key in NEVER) continue
                 val v = values[key] ?: continue
-                part.put(key, encode(v) ?: continue)
+                part.put(key, encodePlain(v) ?: continue)
             }
             body.put(section.id, part)
         }
@@ -311,6 +358,7 @@ object SettingsTransfer {
     sealed interface Reading {
         data class Refused(val why: String) : Reading
         data class Ok(
+            val version: Int,
             val app: String,
             val exportedAt: Long,
             val containsPasswords: Boolean,
@@ -324,9 +372,8 @@ object SettingsTransfer {
             fun valuesOf(section: Section): Map<String, Any> {
                 val part = body.optJSONObject(section.id) ?: return emptyMap()
                 return section.keys.mapNotNull { k ->
-                    val raw = part.optString(k, "")
                     if (!part.has(k)) return@mapNotNull null
-                    val v = decode(raw) ?: return@mapNotNull null
+                    val v = valueOf(version, k, part.opt(k)) ?: return@mapNotNull null
                     k to v
                 }.toMap()
             }
@@ -382,13 +429,14 @@ object SettingsTransfer {
                 // A key in the right section but written in a form this build cannot read is
                 // counted as unknown rather than as restored, so the number on the import
                 // screen is the number that will actually be applied.
-                if (k in section.keys && decode(part.optString(k, "")) != null) known++
+                if (k in section.keys && valueOf(version, k, part.opt(k)) != null) known++
                 else unknown.add(k)
             }
             counts[section] = known
         }
 
         return Reading.Ok(
+            version = version,
             app = root.optString("app", "unknown"),
             exportedAt = root.optLong("exportedAt", 0L),
             containsPasswords = root.optBoolean("containsPasswords", false),

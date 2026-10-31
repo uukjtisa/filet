@@ -74,6 +74,17 @@ private val CREDITS = listOf(
     Credit("apksig", "v1-v4 signing", "Apache-2.0"),
     Credit("sora-editor", "code editor, TextMate grammars", "LGPL-2.1"),
     Credit("LuaJ", "script runtime", "BSD"),
+    Credit("ZXing", "QR codes, drawn and read", "Apache-2.0"),
+    Credit("BeatRoot / TarsosDSP", "where the beats are, for the pulse", "GPL-3.0"),
+    Credit("commonmark-java", "Markdown, with GitHub's tables, alerts, task lists, footnotes and front matter", "BSD-2-Clause"),
+    Credit("autolink-java", "bare web addresses in Markdown as links", "MIT"),
+    Credit("multiplatform-markdown-renderer", "Mike Penz: alerts, lists and code highlighting, ported", "Apache-2.0"),
+    Credit("MarkdownComposer", "Erik Hellman: where that renderer's lists began", "MIT"),
+    Credit("extended-spans", "Saket Narayan: rounded inline code, ported", "Apache-2.0"),
+    Credit("Coil", "pictures in documents", "Apache-2.0"),
+    Credit("AndroidSVG", "SVG badges and logos, through Coil", "Apache-2.0"),
+    Credit("Highlights", "colours in code blocks", "Apache-2.0"),
+    Credit("Material icons", "the alert and reading icons", "Apache-2.0"),
 )
 
 /**
@@ -89,7 +100,7 @@ private val CREDITS = listOf(
 @Composable
 fun AboutPage(vm: BrowserViewModel) {
     val colors = Filet.colors
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("about"), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
         item { SignatureBanner() }
 
         item { SectionLabel("Project") }
@@ -354,8 +365,8 @@ private fun SignatureBanner() {
                 modifier = Modifier.padding(top = 12.dp, bottom = 10.dp),
             )
             Text(
-                "A file manager for people who want to do real work on their phone without a PC. " +
-                    "Open source, GPL-3.0, no ads, no accounts, no telemetry.",
+                "A file manager for people who values: convenience, power, versatility and seamless sharing." +
+                    "Open source, GPL-3.0, premium feel, no ads, no accounts, no paywalls.",
                 fontSize = 12.sp,
                 lineHeight = 17.sp,
                 color = colors.fg2,

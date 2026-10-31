@@ -29,6 +29,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import dev.niccc2007.filet.ui.theme.Filet
+import androidx.compose.material3.Text
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import dev.niccc2007.filet.playback.Scrub
 
 /**
  * The bits of a player that the audio screen and the video screen both need.
@@ -72,7 +77,28 @@ fun ScrubBar(
     val played = fill ?: colors.accent
     var width by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
-    var dragX by remember { mutableFloatStateOf(0f) }
+
+    // ── pull away from the bar to seek finely ──────────────────────────────────────────────
+    //
+    // The bar used to map its own width to the whole track and nothing else, so on a
+    // four-minute song one pixel was about a second and on an hour-long one it was fifteen -
+    // which makes landing on a particular moment a matter of luck rather than aim. Asked for
+    // as a one-second jump.
+    //
+    // Done by how far the finger is from the bar rather than by a mode button: drag along it
+    // for the whole track, pull down or up and the same horizontal movement covers a quarter
+    // as much, pull further and it steps in whole seconds. No control to find, nothing to put
+    // back afterwards, and the gesture tells you what it is doing while you are doing it.
+    //
+    // The arithmetic is `Scrub`, which is pure and tested - a seek that is subtly wrong is not
+    // something anybody notices as a bug, they just blame their thumb.
+    val pxPerDp = LocalDensity.current.density
+    // Held in MILLISECONDS, not as an x. Converting back and forth through the bar's width is
+    // what made a fine mode impossible: the position has to accumulate at the fine rate rather
+    // than being re-derived from where the finger is.
+    var scrubMs by remember { mutableStateOf<Double?>(null) }
+    var pullDp by remember { mutableFloatStateOf(0f) }
+    val mode = Scrub.modeFor(pullDp)
 
     // Read live: the block is keyed on `enabled` and `durationMs`, but `onScrubEnd` closes
     // over the player state, which changes far more often than either. See
@@ -80,8 +106,19 @@ fun ScrubBar(
     val liveScrub = rememberUpdatedState(onScrub)
     val liveScrubEnd = rememberUpdatedState(onScrubEnd)
 
+    // What the drag is asking for: whole seconds once it is fine, so the readout stops
+    // flickering through values nobody can aim at.
+    fun target(): Long {
+        val at = scrubMs ?: return positionMs
+        return if (mode == Scrub.Mode.FINE) {
+            Scrub.wholeSecond(at, durationMs) ?: at.toLong()
+        } else {
+            at.toLong().coerceIn(0L, durationMs.coerceAtLeast(0L))
+        }
+    }
+
     val shownFraction =
-        if (dragging) seekFraction(seekPosition(dragX, width, durationMs), durationMs)
+        if (dragging) seekFraction(target(), durationMs)
         else seekFraction(positionMs, durationMs)
 
     Box(
@@ -101,18 +138,39 @@ fun ScrubBar(
                     detectDragGestures(
                         onDragStart = { at ->
                             dragging = true
-                            dragX = at.x
-                            liveScrub.value(seekPosition(dragX, width, durationMs))
+                            pullDp = 0f
+                            // Unrounded, and from where the finger landed - a drag that begins
+                            // by jumping the playhead to the touch is what the bar has always
+                            // done and is what makes the first movement feel connected.
+                            scrubMs = Scrub.barStart(at.x, width, durationMs)
+                            liveScrub.value(target())
                         },
                         onDragEnd = {
                             dragging = false
-                            liveScrubEnd.value(seekPosition(dragX, width, durationMs))
+                            liveScrubEnd.value(target())
+                            scrubMs = null
+                            pullDp = 0f
                         },
-                        onDragCancel = { dragging = false },
+                        onDragCancel = {
+                            dragging = false
+                            scrubMs = null
+                            pullDp = 0f
+                        },
                     ) { change, drag ->
                         change.consume()
-                        dragX += drag.x
-                        liveScrub.value(seekPosition(dragX, width, durationMs))
+                        // Vertical travel is the pull, and it accumulates either way: up and
+                        // down both mean "finer", because which one there is room for depends
+                        // on where the bar sits on the screen.
+                        pullDp += drag.y / pxPerDp.coerceAtLeast(0.1f)
+                        scrubMs = Scrub.barMove(
+                            currentMs = scrubMs ?: Scrub.barStart(change.position.x, width, durationMs) ?: return@detectDragGestures,
+                            dxPx = drag.x,
+                            widthPx = width,
+                            durationMs = durationMs,
+                            pullDp = pullDp,
+                            pxPerDp = pxPerDp,
+                        )
+                        liveScrub.value(target())
                     }
                 }
             },
@@ -142,6 +200,20 @@ fun ScrubBar(
                     Offset(size.width * shownFraction, y),
                 )
             }
+        }
+        // What the pull has bought, said while it is being bought. Without this the finer
+        // mapping is indistinguishable from the bar having stopped responding - the finger
+        // moves the same distance and the playhead moves a quarter as far, which reads as a
+        // fault rather than as a gear.
+        if (dragging && mode != Scrub.Mode.NORMAL) {
+            Text(
+                mode.label,
+                fontSize = 9.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.4.sp,
+                color = played,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
         }
     }
 }

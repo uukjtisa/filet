@@ -31,20 +31,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +53,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,6 +79,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import android.media.AudioManager
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -112,6 +113,18 @@ private const val CHROME_MS = ViewerChrome.IDLE_MS
 /** How long the "-10s" flash stays up after the last double tap of a run. */
 private const val FLASH_MS = 700L
 
+/** How long the ticker trusts a frame step over the player's own position. See `steppedAt`. */
+private const val STEP_SETTLE_MS = 400L
+
+/** The longest a held step waits for the last seek to land before stepping anyway. */
+private const val SEEK_WAIT_MS = 600L
+
+/** Presses per video measured into the log, see `reportStep`. Enough to settle it, not a flood. */
+private const val MEASURED_STEPS = 20
+
+/** How long after a seek lands the picture is looked at: a frame or two for it to be drawn. */
+private const val PRINT_AFTER_MS = 150L
+
 /**
  * The handle, kept out of Compose state so exactly one place starts and stops it.
  *
@@ -126,6 +139,17 @@ private class VideoHandle {
     var view: VideoView? = null
     var player: android.media.MediaPlayer? = null
 
+    /** This video's link to the video player's own sound. Remade per prepare. */
+    var sound: dev.niccc2007.filet.playback.SoundLink? = null
+
+    /**
+     * When the last exact seek was asked for, and when the player last said a seek was done,
+     * in uptime. A held frame step waits on the second catching up with the first, so it never
+     * asks faster than the frames land. Set from the player's seek-complete callback.
+     */
+    @Volatile var seekAskedAt = 0L
+    @Volatile var seekDoneAt = 0L
+
     /**
      * Seek to [ms] itself, not to the keyframe before it.
      *
@@ -134,6 +158,7 @@ private class VideoHandle {
      */
     fun seekExactly(ms: Long) {
         val target = ms.coerceAtLeast(0L)
+        seekAskedAt = android.os.SystemClock.uptimeMillis()
         val mp = player
         if (mp != null) {
             runCatching { mp.seekTo(target, android.media.MediaPlayer.SEEK_CLOSEST) }
@@ -265,9 +290,16 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
      * it is on rather than only changing its glyph.
      */
     var muted by remember(node.path) { mutableStateOf(false) }
-    LaunchedEffect(muted, handedOver) {
+
+    /**
+     * The sound's level for this player, under 1 when the app volume is under 100%. Multiplied
+     * into the mute and the hand-off fade, so none of the three overrides the others.
+     */
+    var soundLevel by remember(node.path) { mutableFloatStateOf(1f) }
+    LaunchedEffect(muted, handedOver, soundLevel) {
         if (handedOver) return@LaunchedEffect
-        runCatching { handle.player?.setVolume(if (muted) 0f else 1f, if (muted) 0f else 1f) }
+        val v = if (muted) 0f else soundLevel
+        runCatching { handle.player?.setVolume(v, v) }
     }
 
     /** 0 while watching, 1 once the veil is fully up. Drives the dissolve and the volume. */
@@ -285,7 +317,7 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
             runCatching {
                 // A muted video is already at zero; the ramp must not turn it back up on its
                 // way out.
-                val v = if (muted) 0f else (1f - handOff).coerceIn(0f, 1f)
+                val v = if (muted) 0f else (1f - handOff).coerceIn(0f, 1f) * soundLevel
                 handle.player?.setVolume(v, v)
             }
         }
@@ -306,7 +338,7 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
         if (!handedOver) {
             handingOver = false
             runCatching {
-                val back = if (muted) 0f else 1f
+                val back = if (muted) 0f else soundLevel
                 handle.player?.setVolume(back, back)
             }
             vm.toast("Could not switch this to audio. Still playing as video.")
@@ -341,12 +373,59 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
      * read, because "what happens to a voice when I slow it down" is one answer, not one per
      * screen - the same rule Uninterrupted follows.
      */
-    var speed by remember(node.path) { mutableFloatStateOf(1f) }
+    // This video's remembered sheet, if it has one: its speed, pitch and sound come back with it.
+    // Said to the store while the screen is up, so the sheet's Remember toggle has a file to keep.
+    val soundState = dev.niccc2007.filet.playback.SoundState.of(LocalContext.current)
+    val fileKey = node.path.toString()
+    DisposableEffect(fileKey) {
+        soundState.playing(dev.niccc2007.filet.playback.SoundTarget.VIDEO, fileKey)
+        onDispose {
+            if (soundState.fileOf(dev.niccc2007.filet.playback.SoundTarget.VIDEO) == fileKey) {
+                soundState.playing(dev.niccc2007.filet.playback.SoundTarget.VIDEO, null)
+            }
+        }
+    }
+    val remembered by remember(fileKey) {
+        soundState.rememberedOf(dev.niccc2007.filet.playback.SoundTarget.VIDEO, fileKey)
+    }.collectAsStateWithLifecycle(
+        soundState.rememberedFor(dev.niccc2007.filet.playback.SoundTarget.VIDEO, fileKey),
+    )
+
+    var speed by remember(node.path) { mutableFloatStateOf(remembered?.speed ?: 1f) }
+    // A remembered video's speed follows its sheet. Off again, the speed stays where it is: a
+    // video's speed is its own for as long as it is open, remembered or not.
+    LaunchedEffect(remembered) { remembered?.let { speed = it.speed } }
     var speedOpen by remember(node.path) { mutableStateOf(false) }
     var speedCeiling by remember(node.path) { mutableFloatStateOf(dev.niccc2007.filet.playback.MAX_SPEED) }
-    val pitchMode = dev.niccc2007.filet.playback.PitchMode.of(
+    val generalPitch = dev.niccc2007.filet.playback.PitchMode.of(
         vm.prefs.pitchMode.collectAsStateWithLifecycle().value,
     )
+    val pitchMode = remembered?.pitch ?: generalPitch
+
+    // The video player's own sound - read here only to light the sheet's button. The sheet
+    // reads and writes it itself, and `Sound` applies it to this video's session.
+    val soundNow by soundState.sound(dev.niccc2007.filet.playback.SoundTarget.VIDEO).collectAsStateWithLifecycle()
+
+    // Frame by frame, on the bar under the picture (FrameBar). The steps go to the file's own
+    // frames once their list is read; until then, and where it cannot be, by the container's
+    // rate, read with the storyboard below, or a thirtieth where the file does not say. See
+    // FrameStep.
+    var fps by remember(node.path) { mutableStateOf(FrameStep.FALLBACK_FPS) }
+    var frameList by remember(node.path) { mutableStateOf<FrameList?>(null) }
+    /** How much of the frame list is read, 0 to 1, while it is being read. */
+    var framesReading by remember(node.path) { mutableStateOf<Float?>(null) }
+    /** The bar's height, which the picture is lifted by so the bar never covers it. */
+    var frameBarPx by remember(node.path) { mutableIntStateOf(0) }
+    /** How many steps on this video have been measured into the log. See `reportStep`. */
+    var measuredSteps by remember(node.path) { mutableIntStateOf(0) }
+    val frameBarUp = FrameBarState.on && error == null && uri != null
+    val scope = rememberCoroutineScope()
+
+    // When the last frame step was asked for. The ticker leaves the position alone for a moment
+    // after one: an exact seek takes a few frames' time to land, and until it does the player
+    // still reports where it was - so a second press, read from that, stepped from the old
+    // frame and the two presses came out as one.
+    var steppedAt by remember(node.path) { mutableLongStateOf(0L) }
 
     // Applied to the running decoder, and the refusal is handled rather than thrown away.
     //
@@ -457,6 +536,104 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     }
 
     /**
+     * Where the video is now, to step from.
+     *
+     * The player's own report, read at the press rather than the ticker's copy of it: that is
+     * up to a tick old, and a step pressed just after a pause would go from where the video was
+     * before it stopped. Inside a step's settling time it is the step's target instead, for the
+     * reason `steppedAt` gives.
+     */
+    fun livePosition(): Long {
+        if (System.currentTimeMillis() - steppedAt <= STEP_SETTLE_MS) return position
+        return runCatching { handle.player?.currentPosition?.toLong() }.getOrNull()?.coerceAtLeast(0L) ?: position
+    }
+
+    /** Returns once the last seek has landed, or after [SEEK_WAIT_MS]. A held step's pace. */
+    suspend fun settled() {
+        val asked = handle.seekAskedAt
+        withTimeoutOrNull(SEEK_WAIT_MS) { while (handle.seekDoneAt < asked) delay(8) }
+    }
+
+    /**
+     * One step measured into the log: how long the seek took, where the player says it is, and
+     * whether the picture changed.
+     *
+     * The question it answers is this phone's, not the code's: whether a paused exact seek is
+     * drawn at all. A player that seeks without drawing would show the old frame while the
+     * readout moves on, and on a moving clip the picture change says which it is. A still scene
+     * reads as unchanged either way. The first [MEASURED_STEPS] presses on a video only.
+     */
+    suspend fun reportStep(view: VideoView, before: IntArray, from: Long, to: Long, askedAt: Long) {
+        val took = withTimeoutOrNull(1_500L) {
+            while (handle.seekDoneAt < askedAt) delay(8)
+            handle.seekDoneAt - askedAt
+        }
+        delay(PRINT_AFTER_MS)
+        val change = printChange(before, surfacePrint(view))
+        val at = runCatching { handle.player?.currentPosition?.toLong() }.getOrNull()
+        dev.niccc2007.filet.log.FiletLog.i("frames") {
+            "step $from -> $to ms: " +
+                (if (took != null) "seek done in $took ms" else "no seek-complete in 1.5 s") +
+                ", player at $at ms, picture " +
+                when {
+                    change == null -> "unreadable"
+                    change < 0.5f -> "unchanged (%.2f/255)".format(change)
+                    else -> "changed (%.2f/255)".format(change)
+                } +
+                ", list " + (frameList?.let { "${it.size} frames" } ?: "not read")
+        }
+    }
+
+    /**
+     * [by] frames back or on, paused there.
+     *
+     * On the file's own frames once their list is read, on the rate's grid until then. Not
+     * waking the chrome: a step is a look at the picture, and the chrome would come back over it.
+     */
+    suspend fun stepFrames(by: Int, first: Boolean) {
+        val v = handle.view ?: return
+        if (playing) v.pause()
+        playing = false
+        val from = livePosition()
+        val to = frameList?.step(from, by) ?: FrameStep.target(from, duration, fps, by)
+        val before = if (first && measuredSteps < MEASURED_STEPS) surfacePrint(v) else null
+        steppedAt = System.currentTimeMillis()
+        seekTo(to)
+        if (before != null) {
+            measuredSteps++
+            val askedAt = handle.seekAskedAt
+            scope.launch { reportStep(v, before, from, to, askedAt) }
+        }
+    }
+
+    /** A second either way, to the frame nearest it. Playing or paused stays as it was. */
+    fun jumpFrames(direction: Int) {
+        val from = livePosition()
+        val by = direction * FrameStep.JUMP_MS
+        val to = frameList?.jump(from, by) ?: FrameStep.jump(from, duration, by)
+        steppedAt = System.currentTimeMillis()
+        seekTo(to)
+    }
+
+    /** Hand the sound to the music player and let the picture go. Asked once; see `handingOver`. */
+    fun playAsMusic() {
+        if (handingOver) return
+        handingOver = true
+        // The position is NOT captured here. It is read back out of this still-running player
+        // immediately before the audio decoder starts, so the two meet at the same instant of the
+        // file rather than a prepare apart. See handOffFromVideo.
+        vm.playback.handOffFromVideo(
+            track = dev.niccc2007.filet.playback.tracksOf(listOf(node)).first(),
+            positionNow = {
+                runCatching { handle.player?.currentPosition?.toLong() }.getOrNull() ?: position
+            },
+            // The cue to let go, and the start of everything that looks like a hand-off.
+            whenPlaying = { handedOver = true },
+            whenFailed = { handingOver = false },
+        )
+    }
+
+    /**
      * Where to start, when this video is the one playing in the background.
      *
      * The other half of the hand-off contract in the `DisposableEffect` above. Opening the
@@ -497,6 +674,11 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
         }
     }
 
+    // A dialogue or menu holds the controls (see OverlayHold); closing it restarts the idle clock,
+    // so the controls do not vanish the instant something read for a while is put away.
+    val overlayOpen = dev.niccc2007.filet.ui.dialogs.OverlayHold.held
+    LaunchedEffect(overlayOpen) { if (!overlayOpen) chromeTouchedAt = System.currentTimeMillis() }
+
     // Position ticker, and the auto-hide clock, on one loop. Two loops would be two clocks to
     // keep in step for no gain.
     LaunchedEffect(playing, ready, node.path) {
@@ -504,15 +686,18 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
         // about being touched rather than about playback, so it has to tick when paused.
         while (ready) {
             val v = handle.view
-            if (v != null && scrubTo == null) position = v.currentPosition.toLong().coerceAtLeast(0L)
+            if (v != null && scrubTo == null && System.currentTimeMillis() - steppedAt > STEP_SETTLE_MS) {
+                position = v.currentPosition.toLong().coerceAtLeast(0L)
+            }
             if (v != null) buffered = v.bufferPercentage
             if (chromeVisible &&
                 ViewerChrome.shouldRetract(
                     now = System.currentTimeMillis(),
                     lastTouchedAt = chromeTouchedAt,
                     // A drag on the picture or the scrubber holds them open; letting go starts
-                    // the clock from there rather than from the touch that began the drag.
-                    interacting = scrubTo != null,
+                    // the clock from there rather than from the touch that began the drag. So
+                    // does the open menu, which lives inside the bar and would go with it.
+                    interacting = scrubTo != null || overflow || dev.niccc2007.filet.ui.dialogs.OverlayHold.held,
                     idleMs = CHROME_MS,
                 )
             ) {
@@ -536,8 +721,23 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     LaunchedEffect(uri, duration, node.path) {
         val source = uri ?: return@LaunchedEffect
         val plan = Storyboard.plan(duration)
-        if (plan.isEmpty()) return@LaunchedEffect
         withContext(Dispatchers.IO) {
+            // The frame rate, from the same retriever. Read here because this is the one place
+            // that touches it, and a retriever is not safe on two threads at once.
+            runCatching {
+                val r = previewSource.get(context, source) ?: return@runCatching
+                val count = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT)
+                } else {
+                    null
+                }
+                fps = FrameStep.fpsOf(
+                    count,
+                    r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION),
+                    r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE),
+                )
+            }
+            if (plan.isEmpty()) return@withContext
             for (index in Storyboard.fillOrder(plan.size)) {
                 if (!isActive) return@withContext
                 val at = plan[index]
@@ -573,6 +773,26 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                     withContext(Dispatchers.Main) { storyboard[at] = image }
                 }
             }
+        }
+    }
+
+    // The frame list, read once the bar is up and kept for as long as this video is open. Not
+    // read for a video nobody steps through: it reads the whole video track once.
+    LaunchedEffect(uri, frameBarUp) {
+        val source = uri ?: return@LaunchedEffect
+        if (!frameBarUp || frameList != null) return@LaunchedEffect
+        framesReading = 0f
+        val started = android.os.SystemClock.uptimeMillis()
+        try {
+            val list = readFrames(context, source) { framesReading = it }
+            frameList = list
+            dev.niccc2007.filet.log.FiletLog.i("frames") {
+                (if (list != null) "${list.size} frames" else "no frame list") +
+                    " in ${android.os.SystemClock.uptimeMillis() - started} ms; the header's rate is " +
+                    "%.2f".format(fps)
+            }
+        } finally {
+            framesReading = null
         }
     }
 
@@ -638,6 +858,8 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
             // rotation therefore needs no special case at all: it disposes, rebuilds, and
             // reopens the video, which is what turning a phone sideways should do.
             runCatching {
+                handle.sound?.close()
+                handle.sound = null
                 handle.view?.stopPlayback()
                 handle.view = null
                 handle.player = null
@@ -680,6 +902,9 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                 // none of them inherits the transform and none of them needs to opt out of it.
                 modifier = Modifier
                     .fillMaxSize()
+                    // Above the frame bar, not under it: a frame looked at one at a time is the
+                    // one picture that must not lose its bottom fifth to a control.
+                    .padding(bottom = if (frameBarUp) with(LocalDensity.current) { frameBarPx.toDp() } else 0.dp)
                     .graphicsLayer {
                         scaleX = picture.scale; scaleY = picture.scale
                         translationX = picture.offsetX; translationY = picture.offsetY
@@ -690,6 +915,14 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                         // No setMediaController: the whole point of this rewrite.
                         setOnPreparedListener { mp ->
                             handle.player = mp
+                            // VideoView sets no seek listener of its own, so this one is free.
+                            mp.setOnSeekCompleteListener { handle.seekDoneAt = android.os.SystemClock.uptimeMillis() }
+                            // Linked per prepare: a prepare is a new player on the session, and
+                            // effects are remade for it rather than trusted to have survived.
+                            handle.sound = dev.niccc2007.filet.playback.Sound.of(ctx)
+                                .link(mp.audioSessionId, dev.niccc2007.filet.playback.SoundTarget.VIDEO) { soundLevel = it }
+                            val v = if (muted) 0f else handle.sound?.level ?: 1f
+                            runCatching { mp.setVolume(v, v) }
                             mp.isLooping = repeating
                             duration = mp.duration.toLong().coerceAtLeast(0L)
                             ready = true
@@ -711,6 +944,9 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                                 resumeAt = 0L
                             }
                             mp.start()
+                            // And once more now that it is playing: an effect made before the
+                            // session's first start is dropped by some phones. See `SoundLink`.
+                            handle.sound?.reattach()
                             playing = true
                         }
                         setOnCompletionListener {
@@ -758,32 +994,43 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                     // empty space beside the clock and where a mode belongs anyway; the
                     // three that are neither modes nor frequent are behind the overflow.
                     OverlayAction(FiletIcons.Back, "Close") { vm.closeHandler() }
-                    Text(
+                    // A name, so never dotted: it gives up size, then fades before its extension. See ListName.
+                    dev.niccc2007.filet.browser.ListNameText(
                         node.name,
-                        color = Color.White,
-                        fontSize = 12.5.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        Color.White,
+                        startSp = 12.5f,
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                     )
+                    // In a run, where this is among the list's photos and videos, and the way
+                    // to the next: a playing video's sideways drag seeks, so a swipe cannot be it.
+                    LocalViewerRun.current?.let { runPage ->
+                        Text(runPage.label, color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp, maxLines = 1)
+                        if (runPage.hasPrevious) OverlayAction(FiletIcons.Prev, "Previous") { runPage.step(-1); wake() }
+                        if (runPage.hasNext) OverlayAction(FiletIcons.Next, "Next") { runPage.step(1); wake() }
+                    }
                     Box {
                         OverlayAction(FiletIcons.More, "More") { overflow = true; wake() }
-                        DropdownMenu(
-                            expanded = overflow,
-                            onDismissRequest = { overflow = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Open in another app", fontSize = 13.sp) },
-                                onClick = { overflow = false; vm.openExternally(node, force = true) },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Share", fontSize = 13.sp) },
-                                onClick = { overflow = false; vm.share(node) },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Properties", fontSize = 13.sp) },
-                                onClick = { overflow = false; vm.showProperties(node) },
-                            )
+                        // On the app's own menu kit rather than Material's dropdown, which was the
+                        // one menu in Filet drawn in the platform's shape and colours.
+                        dev.niccc2007.filet.ui.dialogs.PopMenu(expanded = overflow, onDismiss = { overflow = false }) {
+                            // Here and not on the transport: a headphones glyph beside the speaker
+                            // read as a second volume control, and nothing on it said it would
+                            // carry on with the screen off. A row can say so in words.
+                            dev.niccc2007.filet.ui.dialogs.PopRow(
+                                FiletIcons.Audio,
+                                "Play as music",
+                                detail = "Keeps the sound going with the screen off or in another app.",
+                            ) { overflow = false; playAsMusic() }
+                            dev.niccc2007.filet.ui.dialogs.PopSeparator()
+                            dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Link, "Open in another app") {
+                                overflow = false
+                                vm.openExternally(node, force = true)
+                            }
+                            dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Share, "Share") { overflow = false; vm.share(node) }
+                            dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Info, "Properties") {
+                                overflow = false
+                                vm.showProperties(node)
+                            }
                         }
                     }
                 }
@@ -824,15 +1071,23 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                     // whichever ran first would eat the others.
                     .pointerInput(node.path, duration) {
                         var startX = 0f
-                        var startY = 0f
+                        var startHeight = 0f
                         var startPosition = 0L
                         var startLevel = 0f
                         var kind = PlayerGesture.Drag.NONE
+                        // The finger's travel, summed per event and NOT read as "position now
+                        // minus position at the start": wake() below brings the top bar back,
+                        // which pushes this box down under a still finger. See
+                        // PlayerGesture.Travel for the bug that made.
+                        val travel = PlayerGesture.Travel()
                         detectDragGestures(
                             onDragStart = { at ->
                                 startX = at.x
-                                startY = at.y
+                                // Taken now, before the chrome coming back shrinks the box: the
+                                // sweep of a level drag is a fraction of the height it started on.
+                                startHeight = size.height.toFloat()
                                 startPosition = position
+                                travel.reset()
                                 kind = PlayerGesture.Drag.NONE
                                 wake()
                             },
@@ -848,10 +1103,11 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                                 kind = PlayerGesture.Drag.NONE
                                 levelKind = PlayerGesture.Drag.NONE
                             },
-                        ) { change, _ ->
+                        ) { change, moved ->
                             change.consume()
-                            val dx = change.position.x - startX
-                            val dy = change.position.y - startY
+                            travel.add(moved.x, moved.y)
+                            val dx = travel.dx
+                            val dy = travel.dy
                             // Decided once, from the travel so far, then held for the rest of
                             // the gesture. Deciding again every frame is what makes a slightly
                             // diagonal drag flicker between seeking and changing the volume.
@@ -880,13 +1136,13 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                                     )
                                 }
                                 PlayerGesture.Drag.BRIGHTNESS -> {
-                                    val level = PlayerGesture.levelAfter(startLevel, dy, size.height.toFloat())
+                                    val level = PlayerGesture.levelAfter(startLevel, dy, startHeight)
                                     applyBrightness(level)
                                     levelKind = PlayerGesture.Drag.BRIGHTNESS
                                     levelShown = level
                                 }
                                 PlayerGesture.Drag.VOLUME -> {
-                                    val level = PlayerGesture.levelAfter(startLevel, dy, size.height.toFloat())
+                                    val level = PlayerGesture.levelAfter(startLevel, dy, startHeight)
                                     runCatching {
                                         audio?.setStreamVolume(
                                             AudioManager.STREAM_MUSIC,
@@ -1088,8 +1344,9 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                         // touch there as a back or home gesture before the app ever sees it.
                         // The chrome used to end with the clock and had padding to spare; the
                         // modes row went in below it and landed in exactly that strip, which
-                        // is why its buttons needed two or three goes.
-                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        // is why its buttons needed two or three goes. With the frame bar up,
+                        // the bar is the bottom edge and keeps out of the strip itself.
+                        .then(if (frameBarUp) Modifier else Modifier.windowInsetsPadding(WindowInsets.navigationBars))
                         .padding(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 10.dp)
                 ) {
                     ScrubBar(
@@ -1134,15 +1391,15 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                         ) { repeating = !repeating; wake() }
                         OverlayAction(
                             FiletIcons.Speed,
-                            "Playback speed",
-                            active = speed != 1f,
+                            "Speed and sound",
+                            active = soundChipLit(speed, soundNow),
                         ) { speedOpen = true; wake() }
-                        // Said in words whenever it is not 1x, for the same reason the shield
-                        // is: a lit glyph is a state somebody has to learn, and a speed is a
-                        // number you want to be able to read rather than infer.
-                        if (speed != 1f) {
+                        // Said in words whenever anything in the sheet is off its default, for
+                        // the same reason the shield is: a lit glyph is a state somebody has to
+                        // learn, and a speed or a volume is a number to read rather than infer.
+                        if (soundChipLit(speed, soundNow)) {
                             Text(
-                                speedLabel(speed),
+                                soundChipLabel(speed, soundNow),
                                 color = Filet.colors.accent,
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -1153,9 +1410,9 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                         OverlayAction(
                             FiletIcons.Shield,
                             if (uninterrupted) {
-                                "Uninterrupted - nothing will pause this"
+                                "Uninterruptible - nothing will pause this"
                             } else {
-                                "Uninterrupted playback is off"
+                                "Uninterruptible playback is off"
                             },
                             active = uninterrupted,
                         ) { vm.prefs.setUninterrupted(!uninterrupted); wake() }
@@ -1164,7 +1421,7 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                         // a call can take the sound away.
                         if (uninterrupted) {
                             Text(
-                                "Uninterrupted",
+                                "Uninterruptible",
                                 color = Filet.colors.accent,
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -1173,28 +1430,7 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                             )
                         }
                         Spacer(Modifier.weight(1f))
-                        OverlayAction(FiletIcons.Audio, "Play as audio") {
-                            if (!handingOver) {
-                                handingOver = true
-                                // The position is NOT captured here. It is read back out of
-                                // this still-running player immediately before the audio
-                                // decoder starts, so the two meet at the same instant of the
-                                // file rather than a prepare apart. See handOffFromVideo.
-                                vm.playback.handOffFromVideo(
-                                    track = dev.niccc2007.filet.playback.tracksOf(listOf(node))
-                                        .first(),
-                                    positionNow = {
-                                        runCatching {
-                                            handle.player?.currentPosition?.toLong()
-                                        }.getOrNull() ?: position
-                                    },
-                                    // The cue to let go, and the start of everything that
-                                    // looks like a hand-off.
-                                    whenPlaying = { handedOver = true },
-                                    whenFailed = { handingOver = false },
-                                )
-                            }
-                        }
+                        // Play as music moved to the overflow menu - see `playAsMusic`.
                         OverlayAction(
                             if (muted) FiletIcons.VolumeOff else FiletIcons.Volume,
                             if (muted) "Sound off - tap for sound" else "Mute",
@@ -1210,10 +1446,38 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                     }
                 }
             }
+
+            // Below the chrome and not inside it: the chrome comes and goes with a touch, and
+            // this stays put until it is switched off in the sheet. Out of the gesture band, so
+            // a press on it is never also a tap on the picture.
+            if (frameBarUp) {
+                val list = frameList
+                val readout = if (list != null) {
+                    val i = list.at(shownPosition)
+                    FrameStep.readout(i + 1L, list.timeOf(i), exact = true)
+                } else {
+                    FrameStep.readout(FrameStep.numberAt(shownPosition, fps), shownPosition, exact = false)
+                }
+                FrameBar(
+                    readout = readout,
+                    reading = framesReading,
+                    playing = playing,
+                    onStep = { by, first -> stepFrames(by, first) },
+                    onJump = { jumpFrames(it) },
+                    settle = { settled() },
+                    onToggle = {
+                        handle.view?.let { v ->
+                            if (playing) v.pause() else v.start()
+                            playing = !playing
+                        }
+                    },
+                    modifier = Modifier.onSizeChanged { frameBarPx = it.height },
+                )
+            }
         }
 
         if (speedOpen) {
-            SpeedSheet(
+            SoundSheet(
                 speed = speed,
                 maxSpeed = speedCeiling,
                 pitch = pitchMode,
@@ -1221,9 +1485,21 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                 // a picture on it and has no ground to take a colour from.
                 tint = Filet.colors.accent,
                 onTint = MaterialTheme.colorScheme.onPrimary,
-                onSpeed = { speed = it; wake() },
+                onSpeed = { v ->
+                    // Kept with the video while it is remembered; its own for this viewing otherwise.
+                    soundState.editPlayback(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { it.copy(speed = v) }
+                    speed = v
+                    wake()
+                },
                 onPitch = { vm.prefs.setPitchMode(it.id) },
                 onDismiss = { speedOpen = false; wake() },
+                target = dev.niccc2007.filet.playback.SoundTarget.VIDEO,
+                equaliser = false,
+                // Switching it on closes the sheet, so the bar is seen at once and over nothing.
+                frames = FrameBarSwitch(FrameBarState.on) { on ->
+                    FrameBarState.on = on
+                    if (on) speedOpen = false
+                },
             )
         }
 

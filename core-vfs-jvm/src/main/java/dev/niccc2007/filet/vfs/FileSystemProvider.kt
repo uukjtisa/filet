@@ -19,6 +19,27 @@ interface FileSystemProvider {
     val capabilities: Set<Capability>
 
     /**
+     * What [path] in particular allows, for a backend where the answer differs by path. An
+     * archive is the one: a zip can be written into and a RAR cannot, under the same scheme.
+     */
+    fun capabilitiesFor(path: VPath): Set<Capability> = capabilities
+
+    /**
+     * Why [path] cannot be written, in a sentence naming the cause, or null when it can - or
+     * when the backend has nothing more useful to say than that it is read-only.
+     */
+    fun writeRefusal(path: VPath): String? = null
+
+    /**
+     * Run [block] as one change to whatever [path] lives in, written when it ends.
+     *
+     * For a backend where every write is a rewrite - an archive - so a paste of forty files is
+     * one rewrite rather than forty, and all of them land or none do. [onCommit] hears how far
+     * that final write has got, 0 to 1. Everywhere else this is just [block].
+     */
+    suspend fun <T> batch(path: VPath, onCommit: (Float) -> Unit, block: suspend () -> T): T = block()
+
+    /**
      * Whether this backend's files live on another device.
      *
      * Not a capability: it changes nothing about what may be done, only what a refusal MEANS and

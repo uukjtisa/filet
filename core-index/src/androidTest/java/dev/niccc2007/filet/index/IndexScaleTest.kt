@@ -135,7 +135,7 @@ class IndexScaleTest {
     private fun timeSearch(query: String): Pair<Long, Int> {
         val started = System.nanoTime()
         val hits = runBlocking {
-            source.search(SearchRequest(query, SearchScope.DEVICE, origin = null, limit = 500)).toList()
+            source.search(SearchRequest(query, Reach.Everywhere, origin = null, limit = 500)).toList()
         }
         return (System.nanoTime() - started) / 1_000_000 to hits.size
     }
@@ -215,7 +215,7 @@ class IndexScaleTest {
     /** Fast and wrong is not a pass. The corpus must actually be findable. */
     @Test fun the_needle_is_found_in_the_haystack() {
         val hits = runBlocking {
-            source.search(SearchRequest("quarterly recon", SearchScope.DEVICE, origin = null, limit = 500)).toList()
+            source.search(SearchRequest("quarterly recon", Reach.Everywhere, origin = null, limit = 500)).toList()
         }
         assertTrue(
             "expected the distinctive file, got ${hits.take(5).map { it.node.name }}",
@@ -228,7 +228,7 @@ class IndexScaleTest {
         val victim = File(needleDir, NEEDLE)
         assertTrue(victim.delete())
         val hits = runBlocking {
-            source.search(SearchRequest("quarterly recon", SearchScope.DEVICE, origin = null, limit = 500)).toList()
+            source.search(SearchRequest("quarterly recon", Reach.Everywhere, origin = null, limit = 500)).toList()
         }
         assertTrue(
             "a deleted file was painted from the index: ${hits.map { it.node.name }}",

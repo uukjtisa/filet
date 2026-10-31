@@ -65,12 +65,15 @@ import dev.niccc2007.filet.ui.theme.Filet
 @Composable
 fun ScriptsScreen(vm: BrowserViewModel) {
     val colors = Filet.colors
-    val scripts by vm.scripts.scripts.collectAsState()
+    val all by vm.scripts.scripts.collectAsState()
+    // Narrowed by the pane's search box, by name.
+    val query = dev.niccc2007.filet.ui.LocalPaneQuery.current
+    val scripts = remember(all, query) { all.filter { dev.niccc2007.filet.ui.TextMatch.matches(query, it.name) } }
     val running by vm.scriptRunning.collectAsState()
     val result by vm.scriptResult.collectAsState()
     var pendingApproval by remember { mutableStateOf<Script?>(null) }
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("scripts")) {
         item {
             TabHeader("Scripts") {
                 TabButton("New script", FiletIcons.Script, primary = true) { vm.newScript() }
@@ -83,7 +86,8 @@ fun ScriptsScreen(vm: BrowserViewModel) {
             }
         }
 
-        if (scripts.isEmpty()) {
+        if (scripts.isEmpty() && all.isNotEmpty()) item { dev.niccc2007.filet.ui.NoMatch(query) }
+        if (all.isEmpty()) {
             item {
                 EmptyTab(
                     FiletIcons.Script,
@@ -170,7 +174,17 @@ private fun ScriptRow(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(FiletIcons.Script, null, tint = colors.accent, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(10.dp))
-            Text(script.name, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val query = dev.niccc2007.filet.ui.LocalPaneQuery.current
+            dev.niccc2007.filet.browser.ListNameText(
+                text = remember(script.name, query, colors.accent) {
+                    dev.niccc2007.filet.ui.highlighted(script.name, query, colors.accent)
+                },
+                color = androidx.compose.material3.LocalContentColor.current,
+                startSp = 13f,
+                lines = 1,
+                isDir = true,
+                modifier = Modifier.weight(1f),
+            )
             if (approved) {
                 Text("approved", fontSize = 9.sp, color = colors.good)
                 Spacer(Modifier.width(6.dp))

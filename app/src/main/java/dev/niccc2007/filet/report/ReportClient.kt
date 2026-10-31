@@ -43,6 +43,15 @@ object ReportClient {
                     retryable = false,
                 )
             }
+            // A report is somebody's words and their phone's details: never over plain HTTP to
+            // the internet. Loopback is the one exception, for a test server reached through
+            // `adb reverse`, where the bytes never leave the cable.
+            if (!ReportForm.endpointIsSafe(ReportForm.ENDPOINT)) {
+                return@withContext ReportForm.Outcome.Failed(
+                    "This build's report address is not HTTPS, so nothing was sent.",
+                    retryable = false,
+                )
+            }
             val body = ReportForm.requestJson(draft, installId(context), submissionId) {
                 Base64.encodeToString(it, Base64.NO_WRAP)
             }.toByteArray(Charsets.UTF_8)
@@ -65,25 +74,17 @@ object ReportClient {
                     ?.use { it.readBytes().toString(Charsets.UTF_8) }
                     .orEmpty()
                 val json = runCatching { org.json.JSONObject(text) }.getOrNull()
-                if (status in 200..299) {
-                    val url = json?.optString("url").orEmpty()
-                    if (url.startsWith("https://github.com/")) {
-                        ReportForm.Outcome.Filed(url)
-                    } else {
-                        ReportForm.Outcome.Failed(
-                            "The server answered without a link to the issue. It may have been filed - " +
-                                "check the project's issues before sending again.",
-                            retryable = false,
-                        )
-                    }
-                } else {
-                    val err = json?.optJSONObject("error")
-                    ReportForm.failureText(
-                        err?.optString("code")?.ifEmpty { null },
-                        status,
-                        err?.optString("message")?.ifEmpty { null },
-                    )
-                }
+                val err = json?.optJSONObject("error")
+                // The fields are read here and the meaning is decided in ReportForm.outcomeOf,
+                // which has a test for every row of the server's table.
+                ReportForm.outcomeOf(
+                    httpStatus = status,
+                    issueUrl = json?.optJSONObject("issue")?.optString("url")?.ifEmpty { null },
+                    code = err?.optString("code")?.ifEmpty { null },
+                    serverMessage = err?.optString("message")?.ifEmpty { null },
+                    retryAfter = err?.optLong("retryAfter", -1L)?.takeIf { it > 0 }
+                        ?: conn.getHeaderField("Retry-After")?.trim()?.toLongOrNull(),
+                )
             } catch (_: java.io.IOException) {
                 ReportForm.failureText(null, 0, null)
             } finally {

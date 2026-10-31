@@ -64,10 +64,41 @@ class BeatMap(
      * that were hardest to look at.
      */
     val biasMs: Long
-        get() {
-            val hop = (rate * BUCKET_MS / 1000).coerceAtLeast(1)
-            return ((WINDOW - hop / 2) * 1000L / rate.coerceAtLeast(1))
-        }
+        get() = ((WINDOW - hopSamples / 2) * 1000L / rate.coerceAtLeast(1))
+
+    /**
+     * The hop the measurement actually used, in samples. The SAME arithmetic as the builder.
+     *
+     * `rate * BUCKET_MS / 1000` is integer division, so it truncates whenever the rate is not
+     * a multiple of fifty - and the builder's hop is what the buckets were really cut at.
+     */
+    private val hopSamples: Int get() = (rate * BUCKET_MS / 1000).toInt().coerceAtLeast(1)
+
+    /**
+     * How long a bucket really is, in milliseconds. Rarely exactly [BUCKET_MS].
+     *
+     * ## The drift that made long tracks feel late
+     *
+     * Bug identified here: every lookup read `ms / BUCKET_MS`, i.e. it assumed a bucket is
+     * exactly 20ms. The buckets are cut at [hopSamples], and that is `rate / 50` TRUNCATED.
+     *
+     * At the full rate it comes out even - 22050 / 50 is 441 - and nothing is wrong. But
+     * `TrackPcm.rateFor` halves the rate on a long track to fit the memory budget, and
+     * 11025 / 50 is 220.5, which truncates to 220. A bucket is then 19.9546ms and was being
+     * read as 20ms, so the index ran 0.2275% ahead of the music - and being a percentage of
+     * the POSITION, the error grows as the track plays: about 400ms three minutes in, 800ms at
+     * six, 1.2 seconds at nine. Past about eight and a half minutes the rate is not even a
+     * halving but `MAX_BYTES / 2 / seconds`, an arbitrary number almost never a multiple of
+     * fifty.
+     *
+     * That is exactly the shape that was observed - fine on most songs, plainly late on long
+     * ones, and getting worse the further in it played. It is also why it could never be a latency
+     * setting: a fixed offset cannot correct an error that grows with position.
+     */
+    private val bucketMs: Double get() = hopSamples * 1000.0 / rate.coerceAtLeast(1)
+
+    /** Which bucket covers [ms], by the duration the buckets were really cut at. */
+    private fun bucketFor(ms: Long): Int = kotlin.math.floor(ms / bucketMs).toInt()
 
     /**
      * How LOUD the music is at [ms], 0 to 1 - which is a different question from how hard
@@ -84,7 +115,7 @@ class BeatMap(
      */
     fun levelAt(ms: Long): Float {
         if (levels.isEmpty()) return 0f
-        val i = (ms / BUCKET_MS).toInt()
+        val i = bucketFor(ms)
         if (i < 0 || i >= levels.size) return 0f
         return levels[i]
     }
@@ -107,7 +138,7 @@ class BeatMap(
      */
     fun strengthAt(ms: Long): Float {
         if (onsets.isEmpty()) return 0f
-        val i = (ms / BUCKET_MS).toInt()
+        val i = bucketFor(ms)
         if (i < 0 || i >= onsets.size) return 0f
         var best = onsets[i]
         if (i + 1 < onsets.size) best = max(best, onsets[i + 1] * FADE)
@@ -131,13 +162,64 @@ class BeatMap(
      * With the coverage known, a reader past the end can hold what it had instead of being told
      * the music stopped. See `rememberBeatSignal`.
      */
-    val coveredMs: Long get() = onsets.size * BUCKET_MS
+    val coveredMs: Long get() = (onsets.size * bucketMs).toLong()
 
     /** Where the measurement is fine enough to be worth drawing, see `AudioCache`. */
     internal val onsetArray: FloatArray get() = onsets
     internal val levelArray: FloatArray get() = levels
 
     companion object {
+
+        /**
+         * Which position in the track the wave should actually be driven from.
+         *
+         * ## The defect this fixes: a visibly late wave on a long track
+         *
+         * A map is measured from the start of the track forward and arrives in partials, so
+         * while it is being built [coveredMs] trails the playhead. A reader past the covered
+         * region used to be clamped to the LAST MEASURED BUCKET, on the reasoning that briefly
+         * pulsing to the wrong part of the track is better than a light that plainly stops.
+         *
+         * That reasoning holds for the hundred milliseconds it was written for and fails
+         * completely at length. On a ten-minute track the measurement is behind the playhead
+         * for a long time, and the clamp means the wave spends all of it answering the drums of
+         * an earlier part of the song - reported as the wave being delayed, which is exactly
+         * what it is. Worse, it is delayed by an amount that shrinks as the measurement catches
+         * up, so it never looks like a fixed offset anybody could tune out.
+         *
+         * So the clamp is BOUNDED. Inside [STALE_GRACE_MS] of the covered edge it still
+         * applies, which covers the real case it was written for - the playhead crossing the
+         * edge of a partial between two emissions. Past that the map has nothing truthful to
+         * say about what is in the room, and this returns null: the wave sits at its resting
+         * shape and the progress bar says why, rather than beating confidently to the wrong
+         * music.
+         *
+         * @param earMs where the sound currently leaving the speaker sits in the track, already
+         *   corrected for the window bias (the output is in the position already).
+         * @return the position to read the map at, or null when the map cannot answer honestly.
+         */
+        fun readPosition(earMs: Long, coveredMs: Long): Long? {
+            if (earMs < 0L) return null
+            // Nothing measured at all: there is no bucket to clamp to.
+            if (coveredMs <= 0L) return null
+            if (earMs < coveredMs) return earMs
+            if (earMs - coveredMs > STALE_GRACE_MS) return null
+            // The nominal bucket is right here. This steps back ONE bucket from the
+            // measured edge rather than indexing into the array, so the truncation that
+            // matters for `bucketFor` - where the error accumulates with position -
+            // amounts to a twentieth of a millisecond once.
+            return coveredMs - BUCKET_MS
+        }
+
+        /**
+         * How far past the measured edge the last bucket may still be used.
+         *
+         * A quarter of a second. Long enough to bridge the gap between two partial emissions -
+         * which is what the clamp is for - and short enough that nobody can see the wave
+         * answering a beat that happened a moment ago. At a second it was already visible; at
+         * the old unbounded value it was the whole complaint.
+         */
+        const val STALE_GRACE_MS = 250L
         /**
          * How finely the track is measured.
          *
@@ -262,7 +344,14 @@ class BeatMap(
                 }
             }
             onProgress?.invoke(frames, frames)
-            return BeatMap(onsetsOf(flux), levelsOf(energy), pcm.rate)
+            // The finished map is moved onto the beat grid; the partials above are not. A grid
+            // needs the whole track - BeatRoot follows tempo hypotheses through all of it - and
+            // one tracked over the first few seconds would be re-placed on every partial, with
+            // the pulse jumping between grids while somebody watched. See BeatGrid.
+            val onsets = onsetsOf(flux)
+            val levels = levelsOf(energy)
+            val bucketSec = hop / pcm.rate.toDouble()
+            return BeatMap(BeatGrid.place(onsets, levels, BeatGrid.beats(flux, bucketSec), bucketSec), levels, pcm.rate)
         }
 
         /**

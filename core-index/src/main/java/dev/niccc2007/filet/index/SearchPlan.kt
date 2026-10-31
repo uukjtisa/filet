@@ -1,5 +1,7 @@
 package dev.niccc2007.filet.index
 
+import dev.niccc2007.filet.vfs.VPath
+
 /**
  * Which sources answer a search, and why more than one of them has to.
  *
@@ -39,13 +41,15 @@ enum class SourceKind {
  */
 fun sourcePlan(
     indexUsable: Boolean,
-    scope: SearchScope,
+    reach: Reach,
     nativeOnly: Boolean,
+    provenance: Boolean = false,
 ): List<SourceKind> {
     // Provenance is a question about where a file came from, which is recorded in the index
     // and is not written on the filesystem anywhere. A walk cannot answer it at all, so this
-    // is the one scope the toggle cannot override.
-    if (scope == SearchScope.PROVENANCE) {
+    // is the one query the toggle cannot override. It is a property of the QUERY and not of
+    // the reach - `from:youtube` narrows a column, not a set of drives (SEARCH.md §13.4).
+    if (provenance) {
         return if (indexUsable) listOf(SourceKind.INDEX) else emptyList()
     }
     if (nativeOnly) return listOf(SourceKind.WALK)
@@ -62,8 +66,8 @@ fun sourcePlan(
  * Kept as a named thing because it is exactly the set of cases that were broken, and a test
  * asserting they now also walk is more honest than a test asserting a list literal.
  */
-fun wasIndexOnly(scope: SearchScope): Boolean =
-    scope == SearchScope.SUBFOLDERS || scope == SearchScope.DEVICE || scope == SearchScope.PROVENANCE
+fun wasIndexOnly(reach: Reach, provenance: Boolean = false): Boolean =
+    provenance || reach != Reach.Folder
 
 /**
  * Whether turning on a native-only search could change the answer at all.
@@ -74,11 +78,11 @@ fun wasIndexOnly(scope: SearchScope): Boolean =
  * move. A control that cannot change the outcome is a dead switch (PLAN.md R1), and the honest
  * fix is not to hide the control but to say when it is already the only thing running.
  */
-fun nativeToggleMatters(indexUsable: Boolean, scope: SearchScope): Boolean {
+fun nativeToggleMatters(indexUsable: Boolean, reach: Reach, provenance: Boolean = false): Boolean {
     if (!indexUsable) return false
-    if (scope == SearchScope.PROVENANCE) return false
-    // FOLDER is declined by the index, so the walk is already the only source.
-    return scope != SearchScope.FOLDER
+    if (provenance) return false
+    // Folder is declined by the index, so the walk is already the only source.
+    return reach != Reach.Folder
 }
 
 /**
@@ -93,4 +97,31 @@ fun originLine(sources: List<SourceKind>): String = when {
     sources.size > 1 -> "Index, and reading the folders"
     sources.first() == SourceKind.INDEX -> "Index only"
     else -> "Reading the folders"
+}
+
+/**
+ * The roots a walk still has to read while the index answers beside it. SEARCH.md §14.2,
+ * decision 15.
+ *
+ * Bug identified here: with the index usable, the walk ran beside it over every drive in reach,
+ * so a whole-phone search re-read all of internal storage on every keystroke to find what the
+ * index had already answered in a millisecond. That walk is where the scattered-letter junk came
+ * from, and it is what kept the progress line up for seconds after the answer was on screen.
+ *
+ * A drive the index has walked completely is the index's to answer. The walk keeps the drives
+ * it has not - a card never crawled, a share with no complete index - and every tree-shaped
+ * reach, which is one folder or one subtree and cheap to read.
+ *
+ * @param covered the `volume.uuid` of each drive with a complete pass. See
+ *   `FileIndex.completeVolumes`.
+ */
+fun walkGaps(roots: List<VPath>, covered: Set<String>, reach: Reach): List<VPath> = when (reach) {
+    Reach.Folder, Reach.Subtree -> roots
+    Reach.Everywhere, is Reach.Drives -> roots.filter { it.toString() !in covered }
+}
+
+/** Whether [reach] is answered from the drives list rather than from the folder being stood in. */
+fun spansDrives(reach: Reach): Boolean = when (reach) {
+    Reach.Folder, Reach.Subtree -> false
+    Reach.Everywhere, is Reach.Drives -> true
 }

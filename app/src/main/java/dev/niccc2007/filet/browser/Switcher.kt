@@ -1,9 +1,11 @@
 package dev.niccc2007.filet.browser
 
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -63,16 +66,15 @@ import dev.niccc2007.filet.ui.theme.Filet
  * to", never "how to get there".
  */
 @Composable
-fun Switcher(vm: BrowserViewModel, tabs: List<PaneController>) {
+fun Switcher(
+    vm: BrowserViewModel,
+    tabs: List<PaneController>,
+    widthDp: Float,
+    /** The drag handle on the drawer's edge; see SideEdge. */
+    edge: @Composable () -> Unit,
+) {
     val colors = Filet.colors
     val app by vm.state.collectAsState()
-    val bookmarks by vm.bookmarks.items.collectAsState()
-    val jobs by vm.ledger.jobs.collectAsState()
-    val recents by vm.recents.items.collectAsState()
-    val openStorage by vm.prefs.drawerStorage.collectAsState()
-    val openRecent by vm.prefs.drawerRecent.collectAsState()
-    val openPlaces by vm.prefs.drawerPlaces.collectAsState()
-    val trawl = remember { vm.trawlInstalled() }
     val reduced = reduceMotion()
 
     val reach by vm.prefs.reachMode.collectAsState()
@@ -84,230 +86,183 @@ fun Switcher(vm: BrowserViewModel, tabs: List<PaneController>) {
     //
     // Bottom-anchoring inside a scrolling column needs a minimum height: a scrolling column is
     // measured unbounded, so `Arrangement.Bottom` on its own has no bottom to push towards.
-    BoxWithConstraints(
-        Modifier
-            .fillMaxHeight()
-            .width(236.dp)
-            .background(MaterialTheme.colorScheme.background)
-            .windowInsetsPadding(WindowInsets.statusBars),
-    ) {
-        val tall = maxHeight
-        Column(
+    Row(Modifier.fillMaxHeight()) {
+        BoxWithConstraints(
             Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .heightIn(min = tall)
-                .padding(vertical = 10.dp),
-            verticalArrangement = if (reach) Arrangement.Bottom else Arrangement.Top,
+                .fillMaxHeight()
+                .width(widthDp.dp)
+                .background(MaterialTheme.colorScheme.background)
+                .windowInsetsPadding(WindowInsets.statusBars),
         ) {
-            Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                // The APP icon, not the maker's mark. `FiletIcons.Mark` is the author's signature - it
-                // belongs on About, where it means "who made this", and nowhere else.
-                Icon(
-                    appIcon(body = colors.fg2, flap = colors.accent),
-                    null,
-                    tint = Color.Unspecified,
-                    modifier = Modifier.size(24.dp),
-                )
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Filet", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "${BuildConfig.VERSION_NAME} · ${BuildConfig.FLAVOR_LABEL}",
-                        fontSize = 10.sp,
-                        color = colors.fg3,
+            val tall = maxHeight
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(min = tall)
+                    .padding(vertical = 10.dp),
+                verticalArrangement = if (reach) Arrangement.Bottom else Arrangement.Top,
+            ) {
+                Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // The APP icon, not the maker's mark. `FiletIcons.Mark` is the author's signature - it
+                    // belongs on About, where it means "who made this", and nowhere else.
+                    Icon(
+                        appIcon(body = colors.fg2, flap = colors.accent),
+                        null,
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Filet", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "${BuildConfig.VERSION_NAME} · ${BuildConfig.FLAVOR_LABEL}",
+                            fontSize = 10.sp,
+                            color = colors.fg3,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    // Closing a drawer by tapping outside it is a thing you have to know; a button is
+                    // a thing you can see.
+                    Icon(
+                        FiletIcons.Close, "Close", tint = colors.fg2,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .clickable { vm.openSwitcher(false) }
+                            .padding(6.dp),
                     )
                 }
-                // Closing a drawer by tapping outside it is a thing you have to know; a button is
-                // a thing you can see.
-                Icon(
-                    FiletIcons.Close, "Close", tint = colors.fg2,
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(7.dp))
-                        .clickable { vm.openSwitcher(false) }
-                        .padding(6.dp),
-                )
-            }
-            Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(6.dp))
 
-            // The stagger index. Shared across the groups so the rows animate in reading order
-            // rather than each group starting its own wave.
-            var i = 0
+                // Shared with the landscape rail, the Filet card included - see SideFolds.
+                androidx.compose.runtime.CompositionLocalProvider(LocalSideBarWidth provides widthDp) {
+                    SideFolds(vm, app, reduced) { vm.openSwitcher(false) }
+                }
 
-            // ── grouped, and most of it folded away ──
-            //
-            // Every destination used to be a flat column of a dozen identical rows: four volumes,
-            // Home, eight places, Activity, Settings, About. Reported as crowded, and it was - a
-            // list that long is read by scanning rather than by looking, which is the opposite of
-            // what a navigation drawer is for.
-            //
-            // Three groups, each folded on its own. The states persist, so the drawer somebody
-            // arranged stays arranged; and the group holding what they use is the one they leave
-            // open, which is a thing only they can know.
-            SwitcherGroup(
-                "Storage",
-                open = openStorage,
-                onToggle = { vm.prefs.setDrawerStorage(!openStorage) },
-            ) {
-                app.volumes.forEach { v ->
-                    SwitcherRow(FiletIcons.Storage, v.label, i++, reduced) {
-                        // Arriving from outside the pane. A volume is its own root, so today this
-                        // lands exactly where navigating would - but the drawer does not get to
-                        // decide that, and the day it offers anything below a root it opens the
-                        // trunk instead of re-rooting the tree.
-                        vm.focusedPane()?.jumpTo(v.node.path); vm.openSwitcher(false)
-                    }
-                }
+                Spacer(Modifier.height(10.dp))
             }
-
-            // The recent files themselves, not a row that leads to them. This is the one list in
-            // the app somebody opens the drawer FOR - asked for by name - and a link to it is one
-            // more tap than the thing it links to is worth.
-            SwitcherGroup(
-                "Recent",
-                open = openRecent,
-                onToggle = { vm.prefs.setDrawerRecent(!openRecent) },
-            ) {
-                if (recents.isEmpty()) {
-                    Text(
-                        "Nothing yet",
-                        fontSize = 11.sp,
-                        color = colors.fg3,
-                        modifier = Modifier.padding(start = 34.dp, top = 2.dp, bottom = 6.dp),
-                    )
-                }
-                for (entry in recents.take(RECENT_IN_DRAWER)) {
-                    SwitcherRow(
-                        if (entry.isDir) FiletIcons.Folder else FiletIcons.File,
-                        entry.label,
-                        i++,
-                        reduced,
-                    ) {
-                        vm.openRecent(entry)
-                        vm.openSwitcher(false)
-                    }
-                }
-            }
-
-            // Built from SpecialPanes, not from a copy of it. The switcher is the only route to
-            // a special pane on a PHONE and the rail is the only route on a tablet, so two
-            // hand-maintained lists meant a destination could exist on one and not the other -
-            // which is exactly how the Apps tab shipped unreachable on a phone.
-            SwitcherGroup(
-                "Places and tools",
-                open = openPlaces,
-                onToggle = { vm.prefs.setDrawerPlaces(!openPlaces) },
-            ) {
-                for (d in SpecialPanes.DESTINATIONS) {
-                    if (d.kind == PaneKind.HISTORY) continue
-                    SwitcherRow(
-                        d.icon,
-                        d.label,
-                        i++,
-                        reduced,
-                        count = if (d.kind == PaneKind.BOOKMARKS) {
-                            bookmarks.size.takeIf { it > 0 }?.toString()
-                        } else {
-                            null
-                        },
-                    ) {
-                        vm.focusedPane()?.openSpecial(d.kind, d.label); vm.openSwitcher(false)
-                    }
-                }
-                // Trawl is a different APP, so it sits with the tools rather than among Filet's
-                // own destinations - a row that leaves the app should not look like a row that
-                // changes the pane. It only appears when it is actually installed; an entry that
-                // opens a store page is an advertisement, and this is a file manager.
-                if (trawl) {
-                    SwitcherRow(FiletIcons.Trawl, "Trawl", i++, reduced) {
-                        vm.openTrawl(); vm.openSwitcher(false)
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(4.dp))
-            // Down here with Activity, Settings and About rather than at the top. These are the
-            // two somebody reaches for without reading, so they belong where the thumb already
-            // is on a phone - which is the bottom of a drawer, not the top of it.
-            SwitcherRow(FiletIcons.Home, "Home", i++, reduced) {
-                vm.focusedPane()?.openHome(); vm.openSwitcher(false)
-            }
-            SwitcherRow(FiletIcons.Download, "New files", i++, reduced) {
-                vm.focusedPane()?.openSpecial(
-                    PaneKind.HISTORY,
-                    dev.niccc2007.filet.home.HomeSections.ARRIVED_TAB,
-                )
-                vm.openSwitcher(false)
-            }
-            SwitcherRow(
-                FiletIcons.Jobs, "Activity", i++, reduced,
-                count = jobs.count { it.running }.takeIf { it > 0 }?.toString(),
-            ) {
-                vm.openActivity(true); vm.openSwitcher(false)
-            }
-            SwitcherRow(FiletIcons.Cog, "Settings", i++, reduced) {
-                vm.focusedPane()?.openSpecial(PaneKind.SETTINGS, "Settings"); vm.openSwitcher(false)
-            }
-            SwitcherRow(FiletIcons.Info, "About", i++, reduced) {
-                vm.focusedPane()?.openSpecial(PaneKind.ABOUT, "About"); vm.openSwitcher(false)
-            }
-            Spacer(Modifier.height(10.dp))
         }
+        edge()
     }
 }
 
-/** How many recent files the drawer shows before it would become the thing it replaced. */
-private const val RECENT_IN_DRAWER = 6
 
 /**
  * A foldable group of rows.
  *
  * The heading is the control - a separate chevron to hit beside a label that does nothing is
  * two targets for one action, and the smaller of them is the one that works.
+ *
+ * ## Why it looks like the APK inspector's folds now
+ *
+ * It was an 8.5sp uppercase micro-label with a chevron, floating on the drawer's own ground.
+ * At that weight a heading is a caption: it reads as a label ABOVE a list rather than as the
+ * lid ON one, so a shut group looked like a heading whose contents had failed to load, and
+ * there was nothing to tell the eye where one group ended and the next began.
+ *
+ * The inspector solved the same problem on a screen with four of these, and the answer there is
+ * a card: a sunken ground, a hairline border, a title at reading size and a detail line beside
+ * it. The frame is what says "this is a container", and [detail] is what makes a SHUT one still
+ * worth having - a group that answers "how many" without being opened is a group most people
+ * never need to open.
+ *
+ * @param foldable false for a card that is always open: a title and a frame with no chevron and
+ *   no tap on the heading. For rows that must never be one tap further away than they look.
+ * @param trailing a control at the end of the heading, before the chevron - a mode switch that
+ *   belongs to the group rather than taking a row of its own inside it. It takes its own taps;
+ *   the rest of the heading still folds the card.
+ * @param onLongClick a hold on the heading: the card's own menu, see [SectionMenu]. The rows
+ *   inside keep their own holds.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun SwitcherGroup(
+internal fun SwitcherGroup(
     title: String,
+    detail: String,
     open: Boolean,
     onToggle: () -> Unit,
+    foldable: Boolean = true,
+    trailing: (@Composable RowScope.() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = Filet.colors
     val turn by animateFloatAsState(if (open) 0f else -90f, label = "chevron")
-    Row(
+    val shape = RoundedCornerShape(12.dp)
+    Column(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onToggle)
-            .padding(start = 14.dp, end = 10.dp, top = 9.dp, bottom = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .clip(shape)
+            .background(colors.sunken)
+            .border(1.dp, colors.lineSoft, shape),
     ) {
-        Text(
-            title.uppercase(),
-            fontSize = 8.5.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.1.sp,
-            color = colors.fg3,
-            modifier = Modifier.weight(1f),
-        )
-        Icon(
-            FiletIcons.Down, null,
-            tint = colors.fg3,
-            modifier = Modifier.size(13.dp).graphicsLayer { rotationZ = turn },
-        )
-    }
-    AnimatedVisibility(visible = open) {
-        Column(content = content)
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .then(
+                    when {
+                        onLongClick != null -> Modifier.combinedClickable(
+                            onClick = if (foldable) onToggle else ({}),
+                            onLongClick = onLongClick,
+                        )
+                        foldable -> Modifier.clickable(onClick = onToggle)
+                        else -> Modifier
+                    },
+                )
+                .padding(horizontal = 13.dp, vertical = if (foldable) 12.dp else 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                title,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                // One line at any width the bar can be dragged to: a heading that wraps pushes
+                // every fold below it down by a line, which reads as the bar jumping.
+                maxLines = 1,
+                softWrap = false,
+            )
+            Spacer(Modifier.width(9.dp))
+            Text(
+                detail,
+                fontSize = 10.5.sp,
+                color = colors.fg3,
+                maxLines = 1,
+                modifier = Modifier.weight(1f),
+            )
+            trailing?.invoke(this)
+            if (foldable) {
+                Icon(
+                    FiletIcons.Down, if (open) "Collapse" else "Expand",
+                    tint = colors.fg3,
+                    modifier = Modifier.size(14.dp).graphicsLayer { rotationZ = turn },
+                )
+            }
+        }
+        AnimatedVisibility(visible = open || !foldable) {
+            Column(Modifier.padding(bottom = 6.dp), content = content)
+        }
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun SwitcherRow(
+internal fun SwitcherRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     index: Int,
     reduced: Boolean,
     count: String? = null,
+    /** A quiet note at the end of the row - when a recent file was opened. */
+    trailing: String? = null,
+    /** Dimmer, for a fold's last "see all" row, so it reads as a way out rather than an item. */
+    quiet: Boolean = false,
+    /** A file to show its own preview in place of [icon]: the photo, the video frame, the cover. */
+    thumb: dev.niccc2007.filet.vfs.VNode? = null,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
@@ -325,13 +280,35 @@ private fun SwitcherRow(
             .fillMaxWidth()
             .graphicsLayer { translationX = -30f * (1f - enter) }
             .alpha(enter)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = colors.fg2, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(11.dp))
-        Text(label, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        if (thumb != null) {
+            FileThumb(
+                thumb,
+                size = 20.dp,
+                fallbackTint = colors.fg2,
+                glyphSize = 16.dp,
+                modifier = Modifier.clip(RoundedCornerShape(4.dp)),
+            )
+            Spacer(Modifier.width(7.dp))
+        } else {
+            Icon(icon, null, tint = if (quiet) colors.fg3 else colors.fg2, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(11.dp))
+        }
+        // Whole, never dotted: it gives up size down to 11sp, then fades. See ListName.
+        ListNameText(
+            name = label,
+            color = if (quiet) colors.fg2 else androidx.compose.material3.LocalContentColor.current,
+            startSp = if (quiet) 12f else 13f,
+            isDir = thumb == null,
+            modifier = Modifier.weight(1f),
+        )
+        if (trailing != null) {
+            Spacer(Modifier.width(6.dp))
+            Text(trailing, fontSize = 10.sp, color = colors.fg3, maxLines = 1)
+        }
         if (count != null) {
             Text(
                 count, fontSize = 9.5.sp, color = MaterialTheme.colorScheme.onPrimary,

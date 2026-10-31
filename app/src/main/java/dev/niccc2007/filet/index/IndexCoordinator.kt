@@ -42,10 +42,12 @@ import java.util.concurrent.TimeUnit
  * The tiers, cheapest first:
  *
  * 1. **inotify** on hot directories ([HotWatcher]) - instant, narrow, free while alive.
- * 2. **Wake-on-change** via `JobInfo.TriggerContentUri` on MediaStore - the OS wakes us when
- *    media changes, at no standing cost. Almost nobody uses this and it is the best-value
- *    tier on the list.
- * 3. **WorkManager** maintenance - a deferrable periodic sweep, charging and idle.
+ * 2. **The media store's change record** ([MediaWatch]) - an observer inside the running
+ *    process, for as long as Filet is open and the minutes after set in Settings, answering
+ *    each change with one folder read. It replaced a JobScheduler trigger that woke the app for
+ *    every media change on the phone; see [rearmMediaTrigger] for what that cost.
+ * 3. **WorkManager** maintenance - a deferrable periodic sweep, charging and idle. Shares that
+ *    asked for a complete index get their own, on charge and on Wi-Fi ([ShareIndexWorker]).
  * 4. A **short foreground service**, only for a user-initiated full rebuild.
  * 5. Nothing. Cold reads still answer; they just walk.
  */
@@ -67,6 +69,34 @@ class IndexCoordinator(
     fun attachWatcher(w: HotWatcher) { watcher = w }
 
     /**
+     * The `volume.uuid` of every share that has been opted in to indexing by hand.
+     *
+     * Read on every crawl rather than captured, so turning a share on or off takes effect at the
+     * next pass instead of the next process. Empty until somebody opts a share in - see
+     * [Indexable], where a share not in this set is never walked.
+     */
+    var indexedShares: () -> Set<String> = { emptySet() }
+
+    /**
+     * A first build from the media store, for an index holding nothing - see [MediaWatch.seed].
+     * Set by the graph; a no-op until then.
+     */
+    var seedFromMedia: suspend (List<VPath>) -> Unit = {}
+
+    /** [roots] reduced to what a crawl may walk. The single place every entry point narrows. */
+    private fun crawlable(roots: List<VPath>): List<VPath> = Indexable.volumes(roots, indexedShares())
+
+    /**
+     * What an UNASKED pass may walk: the phone's own drives, never a share.
+     *
+     * SEARCH.md §14.7. A share that asked for a complete index is walked on charge and on Wi-Fi
+     * by [ShareIndexWorker], and nowhere else unasked. Before this the bounded pass on open
+     * crawled opted-in shares too, in the same queue as internal storage - a NAS read over
+     * mobile data, on battery, on every launch.
+     */
+    private fun unaskedLocal(roots: List<VPath>): List<VPath> = Indexable.volumes(roots)
+
+    /**
      * Called at startup. Cheap: it schedules, it does not crawl.
      *
      * A first crawl is deliberately deferred rather than run here - the first frame after
@@ -74,8 +104,49 @@ class IndexCoordinator(
      */
     fun onStart(roots: List<VPath>) {
         if (!prefs.indexEnabled.value) return
-        scheduleMaintenance()
         cancelWakeOnMediaChange(context)
+        // Manual: nothing scheduled, nothing on launch. Cancelled rather than merely skipped, so
+        // a sweep armed while the setting was Smart does not keep firing after it was changed.
+        if (!prefs.indexAuto.value) {
+            WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+            WorkManager.getInstance(context).cancelUniqueWork(SHARE_WORK_NAME)
+            return
+        }
+        scheduleMaintenance()
+        decideAndCrawl(roots)
+    }
+
+    /**
+     * Called when the browser opens - every time, from any activity hosting it.
+     *
+     * Bug identified here, and it was the largest battery cost the app has had: this used to be
+     * `crawlFully(roots)`, unconditionally, from `BrowserViewModel.start()`. Unbounded, over every
+     * volume `vfs.roots()` returns - two network shares totalling 340 GB and the root mounts on
+     * the phone it was measured on - and it raised the foreground service with its persistent
+     * notification. `start()` runs in the file picker too, so every app that asked Filet for a
+     * photo started a full crawl of two NAS boxes. It showed as 46% of a day's battery.
+     *
+     * The careful decision already existed - [onStart] has always asked [crawlKind] - and the
+     * open path simply never used it. Now both paths ask the same question, of the same local
+     * volumes, and neither can raise the service: that is reserved for Index now.
+     */
+    fun onOpen(roots: List<VPath>) {
+        if (!prefs.indexEnabled.value) return
+        if (!prefs.indexAuto.value) return
+        decideAndCrawl(roots)
+    }
+
+    /**
+     * The one decision about whether a pass runs unasked, and how big it is.
+     *
+     * Bounded in every case. A BUILD used to be handed to [crawlFully], which is unbounded and
+     * starts the service, so a fresh install's first open put a persistent notification up and
+     * walked everything. It is the same bounded tier as an update now: the first passes build
+     * the hot end of the disk quietly, and Index now is there for whoever wants the rest at once.
+     */
+    private fun decideAndCrawl(roots: List<VPath>) {
+        val local = unaskedLocal(roots)
+        if (local.isEmpty()) return
         scope.launch {
             // Let the UI settle before touching the disk at all.
             delay(2_500)
@@ -99,11 +170,15 @@ class IndexCoordinator(
                     retryAfterMs = RETRY_AFTER_MS,
                 )
             ) {
-                // Nothing held, so there is nothing to update. This is the only case that
-                // reads the whole tree, and it is not given a budget it cannot meet.
-                CrawlKind.BUILD -> crawlFully(roots)
+                // Nothing held. The media store's table first - one query, seconds, and search
+                // answers from it at once - then bounded passes like any other unasked work,
+                // never with the service, which is the person's to start.
+                CrawlKind.BUILD -> {
+                    runCatching { seedFromMedia(local) }
+                    crawl(local, budgetMs = BACKGROUND_BUDGET_MS)
+                }
                 // Rows are held. Visit what may have changed and leave the rest alone.
-                CrawlKind.UPDATE -> crawl(roots, budgetMs = 25_000)
+                CrawlKind.UPDATE -> crawl(local, budgetMs = BACKGROUND_BUDGET_MS)
                 CrawlKind.NONE -> Unit
             }
         }
@@ -130,6 +205,8 @@ class IndexCoordinator(
      */
     fun indexFolderNow(path: VPath) {
         if (!index.status.value.enabled || !index.status.value.available) return
+        // Automatic, so Manual turns it off along with the rest.
+        if (!prefs.indexAuto.value) return
         if (running?.isActive == true) return
         if (path.scheme != "local") return
         running = scope.launch {
@@ -140,12 +217,21 @@ class IndexCoordinator(
     fun crawl(roots: List<VPath>, budgetMs: Long) {
         if (running?.isActive == true) return
         running = scope.launch {
-            val jobId = ledger.start("Indexing storage", "${roots.size} volume(s)")
+            val jobId = ledger.start(
+                "Indexing storage", "${roots.size} volume(s)",
+                cancel = coroutineContext[kotlinx.coroutines.Job],
+                kind = dev.niccc2007.filet.jobs.JobKind.INDEX,
+                pausable = true,
+                runAgain = { crawl(roots, budgetMs) },
+            )
             val result = runCatching {
                 // The path as well as the count: a number moving in thousands looks exactly
                 // like a number that has stopped, and that is what made a long crawl read as
                 // a hung app.
                 index.crawl(roots, budgetMs) { seen, at ->
+                    // Reported between folders and outside any transaction, so a pause held here
+                    // holds no lock anything else is waiting on.
+                    ledger.holdIfPaused(jobId)
                     ledger.progress(jobId, null, IndexRun.readingLine(seen, at?.path))
                 }
             }
@@ -174,8 +260,12 @@ class IndexCoordinator(
      * Two things can end it besides finishing: the user, and a flat battery. Both are named
      * in [IndexRun.endedBecause] rather than left as a mystery.
      */
-    fun crawlFully(roots: List<VPath>) {
+    /** @param runAgain what Run again on the activity row does: Index now, from the person who asked. */
+    fun crawlFully(rootsIn: List<VPath>, runAgain: (() -> Unit)? = null) {
         if (running?.isActive == true) return
+        // Narrowed here as well as by the caller. Index now is the one crawl the person asked
+        // for, and "everything" still means local drives and opted-in shares - not `/data`.
+        val roots = crawlable(rootsIn)
         if (roots.isEmpty()) return
         endedBy = null
         IndexService.start(context)
@@ -191,7 +281,15 @@ class IndexCoordinator(
                 phase = if (known > 0) IndexPhase.UPDATE else IndexPhase.BUILD,
                 known = known,
             )
-            val jobId = ledger.start("Indexing storage", "${roots.size} volume(s)")
+            // Stop on the activity row is the same as Stop in Settings: a cancel with no other
+            // reason set reads as STOPPED below.
+            val jobId = ledger.start(
+                "Indexing storage", "${roots.size} volume(s)",
+                cancel = coroutineContext[kotlinx.coroutines.Job],
+                kind = dev.niccc2007.filet.jobs.JobKind.INDEX,
+                pausable = true,
+                runAgain = runAgain,
+            )
 
             // The battery limit is a *limit*, not a schedule: checked while the crawl runs so
             // it can stop one that started at 80% and is still going at 14%.
@@ -211,10 +309,23 @@ class IndexCoordinator(
                     endedBy = CrawlEnd.BATTERY
                     null
                 } else {
-                    index.crawl(roots, budgetMs = 0) { seen, at ->
-                        _run.value = _run.value.copy(seen = seen, reading = at?.path ?: "")
-                        ledger.progress(jobId, null, IndexRun.readingLine(seen, at?.path))
+                    // The phone in one pass, then each share in a pass of its own: a share's pass
+                    // keeps its frontier only when it is alone (SEARCH.md §14.7), and a share
+                    // that is asleep must not stop the phone's pass from completing.
+                    val local = roots.filter { it.scheme !in VolumeKey.REMOTE_SCHEMES }
+                    val shares = roots.filter { it.scheme in VolumeKey.REMOTE_SCHEMES }
+                    val passes = buildList {
+                        if (local.isNotEmpty()) add(local)
+                        for (s in shares) add(listOf(s))
                     }
+                    var seenBefore = 0L
+                    passes.map { pass ->
+                        index.crawl(pass, budgetMs = 0) { seen, at ->
+                            ledger.holdIfPaused(jobId)
+                            _run.value = _run.value.copy(seen = seenBefore + seen, reading = at?.path ?: "")
+                            ledger.progress(jobId, null, IndexRun.readingLine(seenBefore + seen, at?.path))
+                        }.also { seenBefore += it.seenFiles }
+                    }.reduceOrNull(::combine)
                 }
             }
             watchdog.cancel()
@@ -245,6 +356,19 @@ class IndexCoordinator(
             IndexService.stop(context)
         }
     }
+
+    /** Several passes reported as one run. Complete only if every one of them completed. */
+    private fun combine(a: CrawlResult, b: CrawlResult) = CrawlResult(
+        a.visitedDirs + b.visitedDirs,
+        a.seenFiles + b.seenFiles,
+        a.changedDirs + b.changedDirs,
+        a.complete && b.complete,
+        a.elapsedMs + b.elapsedMs,
+        a.movedFiles + b.movedFiles,
+        a.factsWritten + b.factsWritten,
+        removedFiles = a.removedFiles + b.removedFiles,
+        addedFiles = a.addedFiles + b.addedFiles,
+    )
 
     /** The user's Stop. Named, so the readout can say the user did it rather than guessing. */
     fun stopCrawl() {
@@ -279,14 +403,29 @@ class IndexCoordinator(
         watcher?.stopAll()
     }
 
+    /** Smart or Manual. See `Prefs.indexAuto`. */
+    fun setAuto(auto: Boolean) {
+        if (!prefs.indexEnabled.value) return
+        if (auto) {
+            scheduleMaintenance()
+        } else {
+            WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+            WorkManager.getInstance(context).cancelUniqueWork(SHARE_WORK_NAME)
+            // A pass already running unasked is stopped too: Manual has to mean that nothing is
+            // happening on its own, from the moment it is chosen.
+            if (_run.value.active.not()) running?.cancel()
+        }
+    }
+
     fun setEnabled(enabled: Boolean, roots: List<VPath>) {
         if (enabled) {
-            scheduleMaintenance()
+            if (prefs.indexAuto.value) scheduleMaintenance()
             // Tier 2 is retired, and an install that armed it still has it armed - so
             // turning the index on is also a chance to cancel it. See MediaChangeJobService.
             cancelWakeOnMediaChange(context)
         } else {
             WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+            WorkManager.getInstance(context).cancelUniqueWork(SHARE_WORK_NAME)
             cancelWakeOnMediaChange(context)
             stop()
         }
@@ -311,6 +450,21 @@ class IndexCoordinator(
             .build()
         WorkManager.getInstance(context)
             .enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, req)
+        // Scheduled whether or not a share has asked yet, and a no-op until one does: the
+        // worker reads the opted-in set when it runs, so turning a share on needs no rescheduling.
+        val shares = PeriodicWorkRequestBuilder<ShareIndexWorker>(12, TimeUnit.HOURS)
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiresBatteryNotLow(true)
+                    .setRequiresCharging(true)
+                    // Wi-Fi, or anything else unmetered. A complete index of a NAS is hundreds of
+                    // listings, and on mobile data each one is somebody's allowance.
+                    .setRequiredNetworkType(NetworkType.UNMETERED)
+                    .build()
+            )
+            .build()
+        WorkManager.getInstance(context)
+            .enqueueUniquePeriodicWork(SHARE_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, shares)
     }
 
     /**
@@ -365,7 +519,24 @@ class IndexCoordinator(
          */
         private const val FOLDER_BUDGET_MS = 6_000L
 
+        /**
+         * How long an unasked pass may run, on launch or on open.
+         *
+         * The same for a build and an update, because the distinction that matters is who
+         * asked, not how much is held. Anything longer is Index now's job.
+         */
+        private const val BACKGROUND_BUDGET_MS = 25_000L
+
         const val WORK_NAME = "filet.index.maintenance"
+        const val SHARE_WORK_NAME = "filet.index.shares"
+
+        /**
+         * How long one run of the share worker may walk, across every share.
+         *
+         * Under WorkManager's ten minutes with room to write the frontier. A share bigger than
+         * this resumes at the next run from where it stopped - the reason it has a frontier.
+         */
+        const val SHARE_BUDGET_MS = 8L * 60 * 1000
         const val JOB_MEDIA_CHANGE = 4101
         private const val STALE_AFTER_MS = 6L * 60 * 60 * 1000
 
@@ -395,9 +566,43 @@ class IndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
     override suspend fun doWork(): Result {
         val graph = FiletApp.graphOf(applicationContext)
         if (!graph.prefs.indexEnabled.value) return Result.success()
-        val roots = runCatching { graph.vfs.roots().map { it.path } }.getOrElse { emptyList() }
+        // A sweep that was armed while Smart and fires after Manual was chosen does nothing.
+        if (!graph.prefs.indexAuto.value) return Result.success()
+        val all = runCatching { graph.vfs.roots().map { it.path } }.getOrElse { emptyList() }
+        // Local drives and opted-in shares only. This tier walked every root, shares included,
+        // for two minutes every twelve hours - on charge, but over Wi-Fi to a NAS that may be
+        // asleep, which is a cost the charger does not pay.
+        // Not even opted-in shares any more: those are ShareIndexWorker's, on Wi-Fi.
+        val roots = Indexable.volumes(all)
         if (roots.isEmpty()) return Result.success()
         runCatching { graph.index.crawl(roots, budgetMs = 120_000) }
+        return Result.success()
+    }
+}
+
+/**
+ * The complete index a share asked for. SEARCH.md §14.7.
+ *
+ * On charge and on an unmetered network, one pass per share so each keeps its own frontier: a
+ * share that is not finished when the budget runs out continues from that point next time,
+ * rather than from its root. A share that is asleep or off the network ends its pass at the
+ * first listing it refuses and costs nothing more.
+ */
+class ShareIndexWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val graph = FiletApp.graphOf(applicationContext)
+        if (!graph.prefs.indexEnabled.value) return Result.success()
+        if (!graph.prefs.indexAuto.value) return Result.success()
+        val asked = graph.indexCoordinator.indexedShares()
+        if (asked.isEmpty()) return Result.success()
+        val all = runCatching { graph.vfs.roots().map { it.path } }.getOrElse { emptyList() }
+        val shares = Indexable.volumes(all, asked).filter { it.scheme in VolumeKey.REMOTE_SCHEMES }
+        val deadline = System.currentTimeMillis() + IndexCoordinator.SHARE_BUDGET_MS
+        for (share in shares) {
+            val left = deadline - System.currentTimeMillis()
+            if (left <= 0) break
+            runCatching { graph.index.crawl(listOf(share), budgetMs = left) }
+        }
         return Result.success()
     }
 }

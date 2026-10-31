@@ -13,19 +13,19 @@ package dev.niccc2007.filet.index
 enum class CrawlEnd(val label: String, val explanation: String) {
     DONE(
         "Finished",
-        "The whole tree was walked. Files added or removed since are picked up by the watcher.",
+        "Later changes are picked up automatically.",
     ),
     STOPPED(
-        "Stopped by you",
-        "It had not finished. Starting again walks the tree from the top — the index is never left in a half-state.",
+        "Stopped",
+        "Didn't finish; the next run starts from the top.",
     ),
     BATTERY(
-        "Paused — battery low",
-        "Below 15% and not charging. Plug in and start it again; a full crawl is the most expensive thing Filet does.",
+        "Paused · low battery",
+        "Below 15% and not charging; plug in and run it again.",
     ),
     FAILED(
-        "Stopped — error",
-        "Something under the crawl threw. Whatever was indexed before it threw is kept.",
+        "Failed",
+        "An error stopped it; files indexed so far are kept.",
     ),
 }
 
@@ -105,17 +105,17 @@ data class IndexRun(
     val line: String
         get() = when {
             active && phase == IndexPhase.BUILD && seen > 0 ->
-                "Building the index — ${count(seen)} files so far"
-            active && phase == IndexPhase.BUILD -> "Building the index — starting"
+                "Building index · ${count(seen)} files"
+            active && phase == IndexPhase.BUILD -> "Building index…"
             // The "of" is the whole fix: the number that was already there stays visible.
-            active && known > 0 -> "Updating — checked ${count(seen)} of ${count(known)}"
-            active -> "Updating — starting"
+            active && known > 0 -> "Updating · ${count(seen)} of ${count(known)}"
+            active -> "Updating…"
             endedBecause == null -> ""
-            note.isNotEmpty() -> "${endedBecause.label} — $note"
+            note.isNotEmpty() -> "${endedBecause.label} · $note"
             endedBecause != CrawlEnd.DONE -> endedBecause.label
-            phase == IndexPhase.BUILD -> "Finished — ${count(known + added)} files indexed"
-            added == 0 && removed == 0 -> "Up to date — nothing had changed"
-            else -> "Updated — " + changes()
+            phase == IndexPhase.BUILD -> "Indexed ${count(known + added)} files"
+            added == 0 && removed == 0 -> "Up to date"
+            else -> "Updated · " + changes()
         }
 
     /** What the button that starts this should say right now. */
@@ -129,7 +129,7 @@ data class IndexRun(
     private fun changes(): String {
         val parts = buildList {
             if (added > 0) add("${count(added.toLong())} new")
-            if (removed > 0) add("${count(removed.toLong())} gone")
+            if (removed > 0) add("${count(removed.toLong())} removed")
         }
         return parts.joinToString(", ")
     }
@@ -157,7 +157,7 @@ data class IndexRun(
         fun readingLine(seen: Long, at: String?): String {
             val files = "$seen files"
             val where = at?.takeIf { it.isNotBlank() }?.let { shortPath(it) } ?: return files
-            return "$files  -  $where"
+            return "$files · $where"
         }
 
         /**

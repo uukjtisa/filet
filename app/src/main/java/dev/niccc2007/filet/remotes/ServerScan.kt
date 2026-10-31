@@ -4,10 +4,13 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import dev.niccc2007.filet.vfs.provider.net.NetProtocol
+import dev.niccc2007.filet.webdav.DavDiscovery
+import dev.niccc2007.filet.webdav.DavHost
 import java.net.Inet4Address
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.Socket
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -18,41 +21,47 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
- * Finding servers on this network that are not Filet.
+ * Finding things on this network that Filet can mount - including other Filets.
  *
- * ## Why this is not the beacon
+ * ## The three directions, which is the whole requirement
  *
- * Filet already discovers other Filets, over its own mDNS advertisement, and that is the whole
- * of what the Remotes screen could find. But the thing most people are trying to reach from a
- * phone is a Windows PC, a NAS, or a Raspberry Pi running Samba - none of which advertise
- * anything Filet publishes, and all of which were therefore invisible. Adding one meant
- * knowing its IP address, which is the question somebody comes to this screen unable to answer.
+ * **Others to Filet.** A NAS, a Mac or a Linux box announces `_smb._tcp`, `_sftp-ssh._tcp` or
+ * `_webdav._tcp`, and asking costs one multicast packet. A Windows PC announces none of them -
+ * it uses WS-Discovery and NetBIOS - so mDNS alone misses the single most common case, which is
+ * what the port sweep is for.
  *
- * ## Two ways of looking, because neither finds everything
+ * **Filet to Filet.** Another phone hosting a drive announces [DavDiscovery.SERVICE_TYPE], and
+ * `DavBeacon` is the one thing in the process that listens for it. Its resolved hosts are folded
+ * into this list by [combine], so they share one section and one row with everything else.
  *
- * **mDNS** is the polite way: a NAS, a Mac and most Linux boxes announce `_smb._tcp`,
- * `_sftp-ssh._tcp` or `_webdav._tcp`, and asking costs one multicast packet. A Windows PC
- * announces none of them - Windows uses WS-Discovery and NetBIOS instead - so mDNS alone
- * misses the single most common case.
+ * This file must NOT open its own listener for that type. It did, for one round, and it broke
+ * Filet-to-Filet discovery completely - two resolvers competing for the single resolve slot the
+ * platform allows per process. [SERVICES] has the whole account.
  *
- * **A port sweep** finds the rest: 254 addresses, one short connect each. It is the only thing
- * that finds a Windows machine, and it is deliberately narrow about what it looks for - see
- * [PORTS]. This is not a port scanner: it checks four ports that correspond to four things this
- * app can actually mount, on the local subnet only, and it reports them to the person holding
- * the phone.
+ * **Filet to others.** Not this file's half. The beacon advertises `_webdav._tcp` alongside its
+ * own type, so a client that has never heard of Filet can still find the phone.
  *
  * ## What it will not do
  *
- * It does not try to log in. A service answering on 445 proves something is there; whether
- * these credentials work is what the Test button is for, and a scan that tried guest
- * credentials against every host on a network would be doing something nobody asked for.
+ * It does not try to log in. A service answering on 445 proves something is there; whether these
+ * credentials work is what the Test button is for, and a scan that tried guest credentials
+ * against every host on a network would be doing something nobody asked for.
  *
  * It does not leave the subnet. The sweep is built from this device's own interface address and
- * its prefix length, and it refuses anything that is not a /24 or smaller - see [sweepFor].
- * Walking a /16 would be 65,000 connects, which is both useless and indistinguishable from an
- * attack.
+ * its prefix length, and it refuses anything wider than a /24 - see [sweepFor]. Walking a /16
+ * would be 65,000 connects, which is both useless and indistinguishable from an attack.
+ *
+ * ## What is kept, and for how long
+ *
+ * This object lives as long as the process, which is the bug the forgetting rules below exist
+ * for. A found list that only ever grows shows a host from another network hours later, with a
+ * Test button that can never succeed - and it is indistinguishable from discovery working,
+ * because something is in the list. So: a withdrawn announcement is removed, a sweep onto a
+ * different subnet drops what the last subnet found, and a network move drops the lot. See
+ * [merge], [prune] and [onNetworkMoved].
  */
 class ServerScan(private val context: Context, private val scope: CoroutineScope) {
 
@@ -62,6 +71,8 @@ class ServerScan(private val context: Context, private val scope: CoroutineScope
      * @param protocol what Filet would mount it as.
      * @param port the port it answered on.
      * @param byName true when it announced itself, false when it was swept up.
+     * @param path the base path an announcement carried, for a share that is not at the root.
+     * @param deviceId the announcing install's own id, where it published one.
      */
     data class Found(
         val host: String,
@@ -69,9 +80,25 @@ class ServerScan(private val context: Context, private val scope: CoroutineScope
         val protocol: NetProtocol,
         val port: Int,
         val byName: Boolean,
+        val path: String? = null,
+        val deviceId: String = "",
     ) {
-        /** One row per address and protocol: a NAS answers on several and each is a choice. */
-        val key: String get() = "$host/$protocol"
+        /**
+         * One mountable thing.
+         *
+         * The path is part of it because a phone hosting three shares on one port is offering
+         * three different drives - different roots and different permissions - and a key that
+         * stopped at the port would collapse them into one row.
+         */
+        val key: String get() = "$host/$protocol/$port/" + path.orEmpty()
+
+        /**
+         * The same thing as a sweep could ever know it: an address, a protocol and a port.
+         *
+         * What [merge] matches on when deciding whether an announcement supersedes a swept-up
+         * row, because a sweep cannot discover a path and so can never produce a matching [key].
+         */
+        val socket: String get() = "$host/$protocol/$port"
     }
 
     data class State(
@@ -88,6 +115,9 @@ class ServerScan(private val context: Context, private val scope: CoroutineScope
     private var sweepJob: Job? = null
     private val listeners = ArrayList<Pair<String, NsdManager.DiscoveryListener>>()
 
+    /** The subnet the rows in [state] were collected on, for noticing that it has changed. */
+    private var sweptSubnet: String? = null
+
     private val nsd: NsdManager?
         get() = runCatching {
             context.getSystemService(Context.NSD_SERVICE) as? NsdManager
@@ -103,7 +133,6 @@ class ServerScan(private val context: Context, private val scope: CoroutineScope
                 override fun onDiscoveryStopped(t: String) = Unit
                 override fun onStartDiscoveryFailed(t: String, code: Int) = Unit
                 override fun onStopDiscoveryFailed(t: String, code: Int) = Unit
-                override fun onServiceLost(info: NsdServiceInfo) = Unit
 
                 override fun onServiceFound(info: NsdServiceInfo) {
                     @Suppress("DEPRECATION")
@@ -113,20 +142,25 @@ class ServerScan(private val context: Context, private val scope: CoroutineScope
                             object : NsdManager.ResolveListener {
                                 override fun onResolveFailed(i: NsdServiceInfo, code: Int) = Unit
                                 override fun onServiceResolved(resolved: NsdServiceInfo) {
-                                    val host = resolved.host?.hostAddress ?: return
-                                    add(
-                                        Found(
-                                            host = host,
-                                            name = resolved.serviceName.ifBlank { host },
-                                            protocol = protocol,
-                                            port = resolved.port.takeIf { it > 0 }
-                                                ?: protocol.defaultPort,
-                                            byName = true,
-                                        ),
-                                    )
+                                    onResolved(resolved, protocol)
                                 }
                             },
                         )
+                    }
+                }
+
+                /**
+                 * An announcement withdrawn is a row removed.
+                 *
+                 * This was `= Unit`, and that is half of why a host nobody can reach sat in the
+                 * list for the life of the process. Matched on the advertised NAME, because that
+                 * is all a lost notice carries - the address and port are only known after a
+                 * resolve that will now never happen.
+                 */
+                override fun onServiceLost(info: NsdServiceInfo) {
+                    val gone = info.serviceName ?: return
+                    _state.update { s ->
+                        s.copy(found = s.found.filterNot { it.byName && it.name == gone })
                     }
                 }
             }
@@ -135,86 +169,183 @@ class ServerScan(private val context: Context, private val scope: CoroutineScope
                 listeners.add(type to listener)
             }
         }
+        // Without it the answers to these queries can be filtered out before the responder
+        // sees them. See [dev.niccc2007.filet.nearby.MulticastHold].
+        if (listeners.isNotEmpty()) dev.niccc2007.filet.nearby.MulticastHold.hold(context, "serverscan", true)
     }
 
+    private fun onResolved(resolved: NsdServiceInfo, protocol: NetProtocol) {
+        val host = pickAddress(resolved) ?: return
+        // Our own `_webdav._tcp` announcement comes straight back to us while hosting, and
+        // offering yourself as something to mount is the first thing every implementation of
+        // this gets wrong. By ADDRESS, which is what is actually unique per device on a
+        // network - the announced name is built from `Build.MODEL` and is not.
+        if (isOwn(host, localAddresses().map { it.first }.toSet())) return
+        add(
+            Found(
+                host = host,
+                name = resolved.serviceName.orEmpty().ifBlank { host },
+                protocol = protocol,
+                port = resolved.port.takeIf { it > 0 } ?: protocol.defaultPort,
+                byName = true,
+                // A third-party announcement says nothing about where a share starts, so the
+                // root is the only thing that can be assumed and the form is where it gets
+                // corrected. Filet hosts arrive through [combine] and DO carry a path.
+                path = null,
+            ),
+        )
+    }
+
+    /**
+     * Stop the sweep, and keep listening.
+     *
+     * The distinction this file was missing, and the reason the Remotes screen stopped finding
+     * Filets at all: "Stop looking" was wired to [stop], which unregisters every mDNS listener
+     * as well - and nothing re-registers them while the screen stays open. One press ended
+     * announcement discovery for as long as the screen lived, which looks exactly like the
+     * network having gone quiet.
+     */
+    fun stopSweep() {
+        sweepJob?.cancel()
+        sweepJob = null
+        _state.update { it.copy(sweeping = false, progress = 0f) }
+    }
+
+    /** Stop everything. For leaving the screen, not for a button. */
     fun stop() {
         val manager = nsd
         for ((_, listener) in listeners) {
             runCatching { manager?.stopServiceDiscovery(listener) }
         }
         listeners.clear()
-        sweepJob?.cancel()
-        sweepJob = null
-        _state.value = _state.value.copy(sweeping = false, progress = 0f)
+        dev.niccc2007.filet.nearby.MulticastHold.hold(context, "serverscan", false)
+        stopSweep()
     }
 
     /**
-     * Walk the subnet looking for the four things Filet can mount.
+     * Start over, because this device moved and nothing in the list is about this network.
+     *
+     * Every row was an address on the old subnet: the swept ones cannot answer, and the
+     * announced ones were resolved through an interface that has gone. A listener carries the
+     * view it built there too, and mDNS does not re-announce on request - so the listeners are
+     * rebuilt rather than reused. The beacon already did this; the server scan was left out of
+     * the same collector, which is why its rows outlived every network they belonged to.
+     */
+    fun onNetworkMoved() {
+        val wasListening = listeners.isNotEmpty()
+        stop()
+        sweptSubnet = null
+        _state.value = State()
+        if (wasListening) listen()
+    }
+
+    /**
+     * Walk the subnet looking for the things Filet can mount.
      *
      * Deliberately a button rather than something that happens on arrival: it is 254 connects,
-     * it takes a few seconds, and a screen that does it unasked every time it opens is a screen
-     * that wakes the Wi-Fi radio for nothing most of the time.
+     * it takes a few seconds, and a screen that does it unasked every time it opens wakes the
+     * Wi-Fi radio for nothing most of the time.
      */
     fun sweep() {
         if (sweepJob?.isActive == true) return
-        val plan = sweepFor(localAddresses())
+        val locals = localAddresses()
+        val plan = sweepFor(locals)
         if (plan == null) {
-            _state.value = _state.value.copy(
-                note = "Filet could not work out this network's shape. A hotspot or a VPN " +
-                    "often has no ordinary subnet to walk.",
-            )
+            _state.update {
+                it.copy(
+                    note = "Filet could not work out this network's shape. A hotspot or a VPN " +
+                        "often has no ordinary subnet to walk.",
+                )
+            }
             return
         }
-        _state.value = _state.value.copy(sweeping = true, progress = 0f, note = null)
+        // Rows from a subnet this device is no longer on are dropped before new ones arrive, so
+        // the list describes one network rather than every network the process has seen.
+        val subnet = subnetOf(plan.first())
+        val mine = locals.map { it.first }.toSet()
+        _state.update {
+            it.copy(
+                found = prune(it.found, subnet, sweptSubnet),
+                sweeping = true,
+                progress = 0f,
+                note = null,
+            )
+        }
+        sweptSubnet = subnet
         sweepJob = scope.launch {
-            // Bounded concurrency. Unbounded, this is 254 x 4 sockets at once, which on a
-            // phone exhausts the file-descriptor limit and starts failing connects that would
-            // otherwise have succeeded - so the scan would report fewer servers the better the
+            // Bounded concurrency. Unbounded, this is 254 x 4 sockets at once, which on a phone
+            // exhausts the file-descriptor limit and starts failing connects that would
+            // otherwise have succeeded - so the scan would report FEWER servers the better the
             // network was.
             val gate = Semaphore(PARALLEL)
-            var done = 0
+            // Atomic because PARALLEL coroutines report through it. `done++` on a plain Int lost
+            // increments, which is a progress bar that never reaches the end.
+            val done = AtomicInteger(0)
             val total = plan.size * PORTS.size
+            // What this run actually reached, so the end of the run can retire what it did not.
+            val confirmed = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
             withContext(Dispatchers.IO) {
                 for (host in plan) {
                     for ((port, protocol) in PORTS) {
                         launch {
                             gate.withPermit {
-                                if (reachable(host, port)) {
-                                    add(
-                                        Found(
-                                            host = host,
-                                            name = host,
-                                            protocol = protocol,
-                                            port = port,
-                                            byName = false,
-                                        ),
+                                if (!isOwn(host, mine) && reachable(host, port)) {
+                                    val hit = Found(
+                                        host = host,
+                                        // Asked for by name, because a row reading
+                                        // `smb://192.168.5.13:445` is unidentifiable - it reads
+                                        // as something unknown sitting on the network when it is
+                                        // usually the person's own PC. Windows answers a reverse
+                                        // lookup over NetBIOS, so this is the difference between
+                                        // a scary address and "DESKTOP-whatever".
+                                        name = nameOf(host),
+                                        protocol = protocol,
+                                        port = port,
+                                        byName = false,
                                     )
+                                    confirmed.add(hit.socket)
+                                    add(hit)
                                 }
                             }
-                            done++
-                            _state.value = _state.value.copy(
-                                progress = (done.toFloat() / total).coerceIn(0f, 1f),
-                            )
+                            val at = done.incrementAndGet()
+                            _state.update {
+                                it.copy(progress = (at.toFloat() / total).coerceIn(0f, 1f))
+                            }
                         }
                     }
                 }
             }
-            _state.value = _state.value.copy(sweeping = false, progress = 1f)
+            // Only reached when the sweep RAN TO THE END - a cancelled one throws out of the
+            // block above, which is the point: a sweep stopped half way has not tested the
+            // addresses it never got to, and retiring their rows would delete working servers.
+            _state.update {
+                it.copy(found = settle(it.found, confirmed), sweeping = false, progress = 1f)
+            }
         }
     }
 
     private fun add(found: Found) {
-        val existing = _state.value.found
-        // A host that ANNOUNCED itself replaces the swept-up row for the same service: it
-        // carries a name, and a name is the whole reason somebody wanted discovery.
-        val without = existing.filterNot { it.key == found.key && (!it.byName || found.byName) }
-        if (without.size == existing.size && existing.any { it.key == found.key }) return
-        _state.value = _state.value.copy(
-            found = (without + found).sortedWith(
-                compareByDescending<Found> { it.byName }.thenBy { it.host }.thenBy { it.port },
-            ),
-        )
+        // `update` rather than read-copy-write: PARALLEL sweep coroutines and the resolver
+        // callbacks all land here, and the plain version silently dropped whichever row lost the
+        // race - a server found and not listed, which reads as the scan having missed it.
+        _state.update { it.copy(found = merge(it.found, found)) }
     }
+
+    /**
+     * What a host calls itself, or its address when it will not say.
+     *
+     * Only ever called for an address that already ANSWERED. A reverse lookup has no timeout
+     * argument and blocks until the resolver gives up, so doing this for all 254 addresses
+     * would add that wait to every quiet one - which is most of them. For the handful that
+     * answered it is worth the wait, because an unnamed row is the one complaint this whole
+     * sweep generates: the address of the person's own desktop, listed as if it were a stranger.
+     */
+    private fun nameOf(host: String): String = runCatching {
+        val found = java.net.InetAddress.getByName(host).hostName
+        // `getHostName` hands the address straight back when nothing answers, which is not a
+        // name - and a "name" that is a dotted quad would defeat the dedup in `merge`.
+        if (found.isNullOrBlank() || found == host) host else found
+    }.getOrDefault(host)
 
     private fun reachable(host: String, port: Int): Boolean = runCatching {
         Socket().use { socket ->
@@ -222,6 +353,27 @@ class ServerScan(private val context: Context, private val scope: CoroutineScope
             true
         }
     }.getOrDefault(false)
+
+    private fun attr(info: NsdServiceInfo, key: String): String? =
+        runCatching { info.attributes[key]?.toString(Charsets.UTF_8) }.getOrNull()
+            ?.takeIf { it.isNotBlank() }
+
+    /**
+     * Every address a resolved service offered, narrowed by the rule both ends share.
+     *
+     * `hostAddresses` is the full list and arrived in API 34; the deprecated single `host` is
+     * what everything below that has. Both are collected so the rule sees whatever this device
+     * could offer - see [DavDiscovery.pickAddress] for why the choice is not the resolver's.
+     */
+    private fun pickAddress(info: NsdServiceInfo): String? {
+        val candidates = mutableListOf<java.net.InetAddress>()
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            runCatching { candidates.addAll(info.hostAddresses) }
+        }
+        @Suppress("DEPRECATION")
+        runCatching { info.host?.let { candidates.add(it) } }
+        return DavDiscovery.pickAddress(candidates)
+    }
 
     /** This device's own IPv4 addresses and their prefix lengths. */
     private fun localAddresses(): List<Pair<String, Short>> = runCatching {
@@ -244,9 +396,9 @@ class ServerScan(private val context: Context, private val scope: CoroutineScope
         /**
          * The ports worth asking about, and what each one means.
          *
-         * Four, and each corresponds to a provider Filet has. 445 is SMB, which is a Windows
-         * share or a NAS; 22 is SSH and therefore SFTP; 21 is FTP; 5005 is the port Filet's own
-         * WebDAV host defaults to, which also catches a second phone whose beacon was missed.
+         * Each corresponds to a provider Filet has. 445 is SMB, which is a Windows share or a
+         * NAS; 22 is SSH and therefore SFTP; 21 is FTP; 5005 is the port Filet's own WebDAV host
+         * defaults to, which also catches a second phone whose announcement was missed.
          *
          * NOT 80 or 443. A WebDAV server can be on either, but so can every router admin page,
          * printer, smart plug and television on the network - so sweeping them produces a list
@@ -260,7 +412,25 @@ class ServerScan(private val context: Context, private val scope: CoroutineScope
             5005 to NetProtocol.WEBDAV,
         )
 
-        /** The mDNS service types for the same four, as the rest of the world advertises them. */
+        /**
+         * The service types asked about, as the rest of the world advertises them.
+         *
+         * **Filet's own type is deliberately NOT here, and must not be added.**
+         *
+         * It was, for one round, to get other Filets into this list - and it broke Filet-to-Filet
+         * discovery outright. `NsdManager` serves ONE resolve at a time per process: that is why
+         * `DavBeacon.resolve` carries a four-try backoff for `FAILURE_ALREADY_ACTIVE`. A second
+         * listener on the same type in the same process meant two resolvers competing for that
+         * one slot, and this one had no retry at all - so it took the slot, failed silently, and
+         * left the beacon's resolve backing off until it gave up. The host then appeared in
+         * NEITHER list.
+         *
+         * The symptom was perfectly asymmetric and that is what identified it: a build with one
+         * listener could see a build with two, and the build with two could see nothing.
+         *
+         * One discovery per service type per process. Other Filets reach this screen through
+         * [combine], which folds the beacon's ALREADY-RESOLVED hosts into the same list.
+         */
         private val SERVICES = listOf(
             "_smb._tcp." to NetProtocol.SMB,
             "_sftp-ssh._tcp." to NetProtocol.SFTP,
@@ -281,13 +451,125 @@ class ServerScan(private val context: Context, private val scope: CoroutineScope
         private const val PARALLEL = 32
 
         /**
+         * A Filet host the beacon has already resolved, as a row in this list.
+         *
+         * The Filet-to-Filet half, and it goes through the beacon rather than through a second
+         * discovery of the same type - see [SERVICES] for the outage that taught us why. The
+         * beacon has already done the resolve and has the TXT records, so this is a mapping and
+         * not a lookup.
+         */
+        fun fromHost(host: DavHost): Found = Found(
+            host = host.host,
+            name = host.name.ifBlank { host.host },
+            protocol = NetProtocol.WEBDAV,
+            port = host.port,
+            byName = true,
+            path = host.basePath.trim('/').takeIf { it.isNotEmpty() },
+            deviceId = host.deviceId,
+        )
+
+        /**
+         * One list: what the scan turned up, plus the Filet hosts the beacon heard.
+         *
+         * Folded through [merge] rather than concatenated, so a Filet phone the sweep also found
+         * on port 5005 collapses into the named row instead of appearing twice - once as itself
+         * and once as a bare address.
+         *
+         * Pure, and it is the reason the screen no longer has two discovery sections. Two lists
+         * that could each contain the same phone is not a layout problem, it is the screen
+         * asking somebody to work out whether two rows are one device.
+         */
+        fun combine(servers: List<Found>, hosts: List<DavHost>): List<Found> {
+            var out = servers
+            for (h in hosts) out = merge(out, fromHost(h))
+            return out
+        }
+
+        /**
+         * Whether [host] is this device.
+         *
+         * Pure, and it replaces a service-NAME test that could not work: the announced name is
+         * built from `Build.MODEL`, so two phones of the same model each decided the other's
+         * announcement was its own and discarded it. An address is the thing that is actually
+         * unique per device on a network.
+         */
+        fun isOwn(host: String, locals: Set<String>): Boolean = host in locals
+
+        /** The /24 an address sits on, as a string to compare. */
+        fun subnetOf(address: String): String? {
+            val parts = address.split('.')
+            if (parts.size != 4) return null
+            if (parts.any { it.toIntOrNull() == null }) return null
+            return parts.take(3).joinToString(".")
+        }
+
+        /**
+         * What survives a sweep that is starting on [subnet].
+         *
+         * Swept rows are addresses and nothing else, so one from another subnet is a row whose
+         * Test button can never succeed. Announced rows are kept whatever subnet they name: an
+         * announcement is live by definition - it is withdrawn through `onServiceLost` - and a
+         * phone reachable across two interfaces legitimately announces an address that is not on
+         * the one being swept.
+         *
+         * Pure, because "drop the stale rows" is one line away from "drop the list", and that is
+         * the failure nobody notices until discovery looks broken.
+         */
+        fun prune(found: List<Found>, subnet: String?, previous: String?): List<Found> {
+            if (subnet == null || subnet == previous) return found
+            return found.filter { it.byName || subnetOf(it.host) == subnet }
+        }
+
+        /**
+         * What survives a sweep that has just finished, given the sockets it reached.
+         *
+         * A sweep re-establishes every swept row by definition, so one it did not reach this
+         * time is a server that has gone - and leaving it there is the other half of the bug
+         * where a host nobody can connect to sits in the list for the life of the process. The
+         * subnet rule in [prune] cannot catch this one: the dead host is on the subnet being
+         * swept, which is exactly why it looked like a legitimate row.
+         *
+         * Announced rows are untouched. A sweep tests four ports and knows nothing about what
+         * announced itself on a fifth, so treating silence here as absence would delete the
+         * named hosts - the ones somebody actually wanted - on every sweep.
+         */
+        fun settle(found: List<Found>, confirmed: Set<String>): List<Found> =
+            found.filter { it.byName || it.socket in confirmed }
+
+        /**
+         * How an announcement and a swept-up row for the same thing become one row.
+         *
+         * A host that ANNOUNCED itself wins: it carries a name, and a name is the whole reason
+         * somebody wanted discovery. Matched on [Found.socket] rather than [Found.key] because a
+         * sweep cannot discover a path, so the keys never agree and both rows would show - one
+         * phone listed twice, once as itself and once as a bare IP address.
+         *
+         * Pure, so the replacement rule can be stated in a test. The version this replaces
+         * returned early on a condition that also held for a row it had not yet stored, which
+         * dropped announcements arriving after a sweep had already found the same socket.
+         */
+        fun merge(existing: List<Found>, found: Found): List<Found> {
+            if (existing.any { it.key == found.key && it.byName == found.byName }) return existing
+            // A swept row adds nothing to a socket something has already announced by name.
+            if (!found.byName && existing.any { it.byName && it.socket == found.socket }) {
+                return existing
+            }
+            val kept = existing.filterNot {
+                it.key == found.key || (found.byName && !it.byName && it.socket == found.socket)
+            }
+            return (kept + found).sortedWith(
+                compareByDescending<Found> { it.byName }.thenBy { it.host }.thenBy { it.port },
+            )
+        }
+
+        /**
          * The addresses to try, from this device's own.
          *
          * ## The two refusals here are the point
          *
          * A prefix shorter than [MIN_PREFIX] is refused rather than walked. A /16 is 65,000
-         * connects: useless, slow, and indistinguishable from a scan somebody should be
-         * annoyed about. A /24 is 254, which is a few seconds.
+         * connects: useless, slow, and indistinguishable from a scan somebody should be annoyed
+         * about. A /24 is 254, which is a few seconds.
          *
          * A link-local address - 169.254.x.x, which is what a phone has when DHCP has not
          * answered - is skipped, because sweeping it finds nothing and costs the same.

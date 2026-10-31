@@ -216,7 +216,27 @@ object ExtractPlanner {
 
         val paths = usable.map { it.path }
         val chain = redundantParents(paths)
-        val strip = (options.stripLevels ?: chain.size).coerceIn(0, chain.size)
+        // ── how many wrappers come off by default: NONE ───────────────────────────────────
+        //
+        // The archive is extracted exactly as its author laid it out. `firms/firmware/stuff.txt`
+        // arrives as `firms/firmware/stuff.txt`.
+        //
+        // This has been wrong twice, in the same direction both times. It began as `chain.size`
+        // - lift EVERY redundant level - which turned that archive into a bare `stuff.txt`, the
+        // folders that said what the file was simply gone. Narrowing it to one level was the
+        // same mistake made smaller: it still threw away a folder somebody put there, still
+        // without being asked, and the one case it was defending against is not a defect at all.
+        //
+        // The case was `Photos.zip` holding a single `Photos/` folder, extracted into a folder
+        // already called `Photos`. That is what every other extractor on every platform does,
+        // and somebody who did not want the nesting can see it in the preview before confirming
+        // and lift it with one tap. Guessing on their behalf cannot be undone from the preview,
+        // because by then the folders are gone and nothing on screen ever said they existed.
+        //
+        // So: structure is preserved unless it is explicitly lifted. [strippableLevels] still
+        // reports the whole chain, so the preview can offer however many levels there are to
+        // take off, and an explicit `stripLevels` is obeyed as given.
+        val strip = (options.stripLevels ?: 0).coerceIn(0, chain.size)
         val stripped = chain.take(strip)
         val prefix = if (stripped.isEmpty()) "" else stripped.joinToString("/") + "/"
 
@@ -233,9 +253,29 @@ object ExtractPlanner {
         val wrap = when (options.wrap) {
             WrapChoice.FORCE_ON -> true
             WrapChoice.FORCE_OFF -> false
-            // Stripping and wrapping are opposites, so AUTO never does both. Nothing was
-            // stripped AND more than one thing is loose at the top: that is the bomb.
-            WrapChoice.AUTO -> stripped.isEmpty() && topLevelCount(afterStrip.map { it.path }) > 1
+            // ── AUTO INVENTS NOTHING ──────────────────────────────────────────────────────
+            //
+            // It used to read `stripped.isEmpty() && topLevelCount(...) > 1`: wrap loose files
+            // in a folder named after the archive, to stop an archive of forty files spraying
+            // them into the folder you were standing in.
+            //
+            // Two reasons it is gone. The first is a regression this created: the strip no
+            // longer removes anything by default, so `stripped.isEmpty()` became ALWAYS true
+            // and the wrap started firing on archives it never used to touch. `this.zip`
+            // holding two loose files extracted as `this/` - a folder that exists in nobody's
+            // archive, invented without being asked.
+            //
+            // The second is why it is not worth repairing. The spray was only ever a problem
+            // because it was INVISIBLE: you found out afterwards, with the mess made. The
+            // ghosts now draw every entry into the destination's own listing before anything
+            // is written, so the thing the guess was protecting against is on screen. A guess
+            // that is sometimes wrong is worse than no guess once the truth is already shown -
+            // and "Put in a folder" is one tap away for the times it is wanted.
+            //
+            // So both transforms rest at nothing: the archive is extracted exactly as its
+            // author laid it out, and the two controls move it from there. See the strip
+            // default above, which is the same decision in the other direction.
+            WrapChoice.AUTO -> false
         }
         val wrapFolder = if (wrap) Archives.baseName(archiveName).ifBlank { "extracted" } else null
 

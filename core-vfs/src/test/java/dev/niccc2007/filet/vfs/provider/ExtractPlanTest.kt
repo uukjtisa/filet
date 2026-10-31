@@ -28,13 +28,42 @@ class ExtractPlanTest {
 
     // ── the chain: how far "move content out" goes ──
 
-    @Test fun his_exact_case_lifts_every_redundant_level() {
-        // archive.zip/archive/archivehere/archive.txt -> archive.txt
+    @Test fun nothing_comes_off_by_default_and_the_whole_chain_is_offered() {
+        // archive.zip/archive/archivehere/archive.txt
+        //
+        // Both levels are redundant by the chain rule and NEITHER is lifted. No planner can
+        // tell `archive/archivehere/` - two meaningless wrappers - from `firms/firmware/`,
+        // which is two folders that say what the file is; the two are structurally identical.
+        // Since they cannot be told apart, the reading that destroys nothing wins by default,
+        // and the whole chain is reported so the preview can offer to lift it.
         val entries = listOf(d("archive"), d("archive/archivehere"), f("archive/archivehere/archive.txt"))
         val plan = ExtractPlanner.plan("archive.zip", entries)
+        assertTrue(plan.strippedFolders.isEmpty())
+        assertEquals(2, plan.strippableLevels)
+        assertEquals(
+            listOf("archive", "archive/archivehere", "archive/archivehere/archive.txt"),
+            paths(plan),
+        )
+        assertNull("nothing was scattered, so nothing needs wrapping", plan.wrapFolder)
+    }
+
+    @Test fun every_level_still_comes_off_when_it_is_asked_for() {
+        // The old default, now a choice. The control that reaches it is in `ExtractSheet`.
+        val entries = listOf(d("archive"), d("archive/archivehere"), f("archive/archivehere/archive.txt"))
+        val plan = ExtractPlanner.plan(
+            "archive.zip", entries, options = ExtractOptions(stripLevels = 2),
+        )
         assertEquals(listOf("archive", "archivehere"), plan.strippedFolders)
         assertEquals(listOf("archive.txt"), paths(plan))
-        assertNull("nothing was scattered, so nothing needs wrapping", plan.wrapFolder)
+    }
+
+    @Test fun keeping_every_wrapper_is_also_reachable() {
+        val entries = listOf(d("archive"), d("archive/archivehere"), f("archive/archivehere/archive.txt"))
+        val plan = ExtractPlanner.plan(
+            "archive.zip", entries, options = ExtractOptions(stripLevels = 0),
+        )
+        assertTrue(plan.strippedFolders.isEmpty())
+        assertEquals(listOf("archive", "archive/archivehere", "archive/archivehere/archive.txt"), paths(plan))
     }
 
     @Test fun the_chain_stops_at_the_first_level_holding_two_things() {
@@ -44,8 +73,14 @@ class ExtractPlanTest {
             d("archive"), f("archive/readme.txt"), d("archive/inner"), f("archive/inner/a.txt"),
         )
         val plan = ExtractPlanner.plan("archive.zip", entries)
-        assertEquals(listOf("archive"), plan.strippedFolders)
-        assertEquals(listOf("inner", "inner/a.txt", "readme.txt"), paths(plan))
+        // One level is redundant and no more - that is what this pins. Nothing is lifted by
+        // default, so the assertion is on what COULD be.
+        assertEquals(1, plan.strippableLevels)
+        assertTrue(plan.strippedFolders.isEmpty())
+        assertEquals(
+            listOf("archive", "archive/inner", "archive/inner/a.txt", "archive/readme.txt"),
+            paths(plan),
+        )
     }
 
     @Test fun a_lone_file_at_the_top_is_not_a_folder_to_lift() {
@@ -61,19 +96,31 @@ class ExtractPlanTest {
         assertEquals(listOf("stuff"), paths(plan))
     }
 
-    @Test fun a_chain_is_walked_to_a_real_depth_not_just_one_level() {
+    @Test fun a_deep_chain_is_measured_in_full_and_none_of_it_comes_off() {
+        // The whole chain is FOUND - that is what the control is offered from - and none of it
+        // is taken. A five-deep archive flattened to a bare file by default is how
+        // `firms/firmware/stuff.txt` became `stuff.txt`.
         val entries = listOf(f("a/b/c/d/e/deep.txt"))
         val plan = ExtractPlanner.plan("a.zip", entries)
-        assertEquals(listOf("a", "b", "c", "d", "e"), plan.strippedFolders)
-        assertEquals(listOf("deep.txt"), paths(plan))
+        assertEquals(5, plan.strippableLevels)
+        assertTrue(plan.strippedFolders.isEmpty())
+        // Every wrapper the author chose survives. Asserted on the file rather than on the
+        // whole list, because whether a writer's missing folder records are re-invented as
+        // entries is a separate decision with its own tests.
+        assertTrue(paths(plan).toString(), paths(plan).contains("a/b/c/d/e/deep.txt"))
     }
 
-    @Test fun an_archive_that_stores_no_folder_records_is_still_unwrapped() {
-        // Plenty of writers store only file entries. The top level has to come from the paths.
+    @Test fun a_chain_is_found_even_when_the_archive_stores_no_folder_records() {
+        // Plenty of writers store only file entries, so the top level has to come from the
+        // paths. It is found - it is simply not taken off unless somebody asks for it.
         val entries = listOf(f("proj/a.txt"), f("proj/b.txt"))
         val plan = ExtractPlanner.plan("proj.zip", entries)
-        assertEquals(listOf("proj"), plan.strippedFolders)
-        assertEquals(listOf("a.txt", "b.txt"), paths(plan))
+        assertEquals(1, plan.strippableLevels)
+        assertTrue(plan.strippedFolders.isEmpty())
+        assertEquals(listOf("proj/a.txt", "proj/b.txt"), paths(plan))
+        val lifted = ExtractPlanner.plan("proj.zip", entries, options = ExtractOptions(stripLevels = 1))
+        assertEquals(listOf("proj"), lifted.strippedFolders)
+        assertEquals(listOf("a.txt", "b.txt"), paths(lifted))
     }
 
     @Test fun the_plan_reports_how_many_levels_could_be_lifted_even_when_it_did_not() {
@@ -100,9 +147,15 @@ class ExtractPlanTest {
 
     // ── wrapping: the bomb was reported ──
 
-    @Test fun loose_files_at_the_top_are_wrapped_in_a_folder_named_after_the_archive() {
+    @Test fun loose_files_are_wrapped_in_a_folder_named_after_the_archive_when_asked() {
+        // Automatic once, and no longer. The wrap existed to stop an archive of loose files
+        // spraying into the folder you were standing in - a problem only because you found
+        // out afterwards. The ghosts draw every entry into the destination before anything is
+        // written, so the guess is unnecessary and "Put in a folder" is one tap. The CAPABILITY
+        // is unchanged; only who decides.
         val entries = listOf(f("sunset.jpg"), f("harbour.jpg"), f("readme.txt"))
-        val plan = ExtractPlanner.plan("photos.rar", entries)
+        assertNull("nothing is invented by default", ExtractPlanner.plan("photos.rar", entries).wrapFolder)
+        val plan = ExtractPlanner.plan("photos.rar", entries, options = ExtractOptions(wrap = WrapChoice.FORCE_ON))
         assertEquals("photos", plan.wrapFolder)
         assertEquals(
             listOf("photos", "photos/harbour.jpg", "photos/readme.txt", "photos/sunset.jpg"),
@@ -114,7 +167,9 @@ class ExtractPlanTest {
     @Test fun the_wrapping_folder_drops_a_double_extension_whole() {
         // `backup.tar.gz` must give `backup`, not `backup.tar`, or the folder reads as a step
         // in unwrapping rather than as the contents.
-        val plan = ExtractPlanner.plan("backup.tar.gz", listOf(f("a.txt"), f("b.txt")))
+        val plan = ExtractPlanner.plan(
+            "backup.tar.gz", listOf(f("a.txt"), f("b.txt")), options = ExtractOptions(wrap = WrapChoice.FORCE_ON),
+        )
         assertEquals("backup", plan.wrapFolder)
     }
 
@@ -128,7 +183,17 @@ class ExtractPlanTest {
         // thing he was complaining about in the other direction.
         val plan = ExtractPlanner.plan("backup.zip", listOf(d("backup"), f("backup/a.txt"), f("backup/b.txt")))
         assertNull(plan.wrapFolder)
-        assertEquals(listOf("backup"), plan.strippedFolders)
+        // Nothing is lifted by default now, so there is nothing to double up WITH - but the
+        // guarantee still has to hold when a lift IS asked for, which is the case that could
+        // otherwise produce `backup/backup/`.
+        assertTrue(plan.strippedFolders.isEmpty())
+        val lifted = ExtractPlanner.plan(
+            "backup.zip",
+            listOf(d("backup"), f("backup/a.txt"), f("backup/b.txt")),
+            options = ExtractOptions(stripLevels = 1),
+        )
+        assertNull(lifted.wrapFolder)
+        assertEquals(listOf("backup"), lifted.strippedFolders)
     }
 
     @Test fun auto_applies_at_most_one_of_the_two_transforms_whatever_the_archive() {
@@ -247,6 +312,7 @@ class ExtractPlanTest {
     @Test fun the_wrapping_folder_itself_can_collide_and_says_so() {
         val plan = ExtractPlanner.plan(
             "photos.zip", listOf(f("a.jpg"), f("b.jpg")), existingPaths = setOf("photos"),
+            options = ExtractOptions(wrap = WrapChoice.FORCE_ON),
         )
         assertNotNull(plan.items.first().collides)
     }
@@ -329,20 +395,22 @@ class ExtractPlanTest {
         val entries = listOf(
             d("archive"), d("archive/inner"), f("archive/inner/a.txt"), f("archive/readme.txt"),
         )
-        val plan = ExtractPlanner.plan("archive.zip", entries)
+        // Asked WITH a lift, because the point is that `source` and `path` differ - and with
+        // nothing lifted they are identical and this would prove nothing.
+        val plan = ExtractPlanner.plan("archive.zip", entries, options = ExtractOptions(stripLevels = 1))
         assertEquals(listOf("archive"), plan.strippedFolders)
         val item = plan.items.first { it.path == "inner/a.txt" }
         assertEquals("archive/inner/a.txt", item.source)
     }
 
     @Test fun wrapping_changes_where_a_file_lands_and_not_where_it_comes_from() {
-        val plan = ExtractPlanner.plan("photos.zip", listOf(f("a.jpg"), f("b.jpg")))
+        val plan = ExtractPlanner.plan("photos.zip", listOf(f("a.jpg"), f("b.jpg")), options = ExtractOptions(wrap = WrapChoice.FORCE_ON))
         val item = plan.items.first { it.path == "photos/a.jpg" }
         assertEquals("a.jpg", item.source)
     }
 
     @Test fun an_invented_folder_has_no_source_because_nothing_is_read_for_it() {
-        val plan = ExtractPlanner.plan("photos.zip", listOf(f("a.jpg"), f("b.jpg")))
+        val plan = ExtractPlanner.plan("photos.zip", listOf(f("a.jpg"), f("b.jpg")), options = ExtractOptions(wrap = WrapChoice.FORCE_ON))
         assertEquals("", plan.items.first { it.added }.source)
     }
 

@@ -3,87 +3,61 @@ package dev.niccc2007.filet.browser
 import dev.niccc2007.filet.vfs.VPath
 
 /**
- * What goes in the navigation pane's Quick access, and in what order.
+ * What the side bar's Quick access lists under Home, and in what order.
  *
- * ## The shape this copies, and why
+ * Bookmarked folders only. A bookmarked file is not a place to go, and a folder that was never
+ * bookmarked is not something anybody asked to keep - the earlier version ranked every visited
+ * folder, which filled the fold with whatever had been walked through last.
  *
- * Windows Explorer's left pane leads with Quick access: the folders you pinned, then the ones
- * you keep going back to. It works because a file manager's navigation is overwhelmingly
- * repetitive - the same four or five folders, over and over - and a tree that makes you walk
- * down to them every time is making you re-derive something it already knows.
+ * Two kinds of entry, in this order:
  *
- * ## Ranking is a decision, so it is a function with a test
+ * 1. **Added by hand**, from the Bookmarks list, in the order they were added. Never cut: a
+ *    folder somebody put here on purpose does not drop out because the list is long.
+ * 2. **The most-used bookmarked folders**, filling whatever is left of [SLOTS]. Recency breaks
+ *    a tie, and an unused bookmark still fills an empty slot in bookmark order, so a phone with
+ *    three bookmarks shows all three without anything being added by hand.
  *
- * Three rules, and each one has a failure it exists to prevent:
- *
- * 1. **Pinned first, always, in the order they were pinned.** A pin is an explicit statement
- *    and a frequency count is an inference; letting the inference reorder the statement means
- *    somebody's pinned folder moves because they used a different one this morning.
- * 2. **A pinned folder never appears twice.** It is in Quick access because it was pinned, and
- *    it will also be near the top of the frequent list by definition.
- * 3. **Folders only.** A file in a navigation pane is a destination you cannot navigate INTO,
- *    and the pane's whole job is going somewhere.
- *
- * Ties break on recency, because two folders with three visits each are not equally interesting
- * if one of them was last week.
+ * Use is counted by [usedBy] and [workedIn], and stored in `FolderVisits`.
  */
 object QuickAccess {
 
-    /** How many frequent entries the pane shows under the pinned ones. */
-    const val FREQUENT = 6
-
-    /** How many recent folders the Recent group shows. */
-    const val RECENT = 8
+    /** Folders under Home, before anything added by hand pushes past it. */
+    const val SLOTS = 6
 
     /**
-     * A folder that earned its place, with the numbers it earned it by.
+     * A bookmarked folder and what it is ranked by.
      *
-     * [pinned] is carried rather than inferred at the call site so the pane can draw the pin
-     * without asking a second source and risking a different answer.
+     * @param addedAt when it was added to Quick access by hand, or 0 for never.
      */
     data class Entry(
         val path: VPath,
         val label: String,
-        val pinned: Boolean,
+        val addedAt: Long,
         val visits: Int,
         val lastAt: Long,
     )
 
-    /**
-     * @param pinned bookmarked folders, in the order they were pinned.
-     * @param visited every folder seen, with how many times it was opened and when it was last
-     *   opened. Files are filtered out here rather than by the caller, because "only folders" is
-     *   part of the rule and a caller that forgets it produces a pane with dead rows in it.
-     */
-    fun quick(
-        pinned: List<Entry>,
-        visited: List<Entry>,
-        limit: Int = FREQUENT,
-    ): List<Entry> {
-        val pinnedPaths = pinned.map { it.path }.toSet()
-        val frequent = visited
-            .filterNot { it.path in pinnedPaths }
+    fun quick(bookmarked: List<Entry>, limit: Int = SLOTS): List<Entry> {
+        val byHand = bookmarked.filter { it.addedAt > 0 }.sortedBy { it.addedAt }
+        val rest = bookmarked.filter { it.addedAt <= 0 }
             .sortedWith(compareByDescending<Entry> { it.visits }.thenByDescending { it.lastAt })
-            .take(limit)
-        return pinned.map { it.copy(pinned = true) } + frequent
+        return byHand + rest.take((limit - byHand.size).coerceAtLeast(0))
     }
 
     /**
-     * The Recent group: most recent first, folders only, and never repeating Quick access.
-     *
-     * The overlap matters. Without it the pane shows the same folder twice, a few rows apart,
-     * under two headings that both claim to be about it - which reads as a bug rather than as
-     * two views of one fact.
+     * The folder an open counts as use of: the folder a file was opened from. Opening or walking
+     * into a folder counts for nothing - every trip to `Android/data` passes through `Android`,
+     * which would otherwise climb the list for being in the way.
      */
-    fun recent(
-        visited: List<Entry>,
-        alreadyShown: List<Entry>,
-        limit: Int = RECENT,
-    ): List<Entry> {
-        val shown = alreadyShown.map { it.path }.toSet()
-        return visited
-            .filterNot { it.path in shown }
-            .sortedByDescending { it.lastAt }
-            .take(limit)
-    }
+    fun usedBy(opened: VPath, isDir: Boolean): VPath? =
+        if (isDir) null else opened.parent?.let(::workedIn)
+
+    /**
+     * A folder that work was done in - a paste, a new folder, a rename, a delete, an extract -
+     * or null where it cannot be kept: inside an archive or an APK, which are mounts that last
+     * the session, so a Quick access row into one would open onto nothing next time.
+     */
+    fun workedIn(folder: VPath): VPath? = folder.takeUnless { it.scheme in TRANSIENT }
+
+    private val TRANSIENT = setOf("zip", "apk")
 }

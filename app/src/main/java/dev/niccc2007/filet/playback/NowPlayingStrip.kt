@@ -131,7 +131,9 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
         onFallback = MaterialTheme.colorScheme.onPrimary,
     )
 
-    val glow by vm.prefs.livingGlow.collectAsStateWithLifecycle()
+    // No switch over it any more. The strip's coloured band IS the strip - with it gone the
+    // row was a grey panel - so the question is how much, which `glowStrength` answers.
+    val glow = true
     val strength by vm.prefs.glowStrength.collectAsStateWithLifecycle()
     val spill by vm.prefs.glowSpill.collectAsStateWithLifecycle()
 
@@ -266,12 +268,11 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
                     )
                     val subtitle = PlaybackNotice.strip(state)
                     if (subtitle.isNotEmpty()) {
-                        Text(
-                            subtitle,
-                            fontSize = 10.5.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                        dev.niccc2007.filet.browser.ListNameText(
+                            name = subtitle,
                             color = colors.fg3,
+                            startSp = 10.5f,
+                            isDir = true,
                         )
                     }
                 }
@@ -391,16 +392,10 @@ private fun GlowMenu(
     Box {
         StripButton(
             FiletIcons.Brightness,
-            if (glow) "Background glow: ${level.label}" else "Background glow: off",
-            // Dimmed when the glow is off rather than removed. The first version hid this
-            // button whenever the glow was off - so the one item in its own panel that turns
-            // the glow off also took away the only way back, leaving the switch three taps
-            // deep in Settings and no sign of where it had gone.
-            ink = if (glow) {
-                tint.copy(alpha = 0.45f + 0.275f * GlowLevel.entries.indexOf(level))
-            } else {
-                colors.fg3.copy(alpha = 0.6f)
-            },
+            "Background glow: ${level.label}",
+            // The button's own brightness tracks the level it sets, which is the only state it
+            // has left to show now that the glow cannot be off.
+            ink = tint.copy(alpha = 0.45f + 0.275f * GlowLevel.entries.indexOf(level)),
             size = 32.dp,
             glyph = 15.dp,
         ) { open = true }
@@ -428,22 +423,12 @@ private fun GlowMenu(
                         color = colors.fg3,
                         modifier = Modifier.padding(start = 17.dp, bottom = 11.dp),
                     )
-                    if (glow) {
-                        LevelPill(level, tint) { vm.prefs.setGlowLevel(it.id) }
-                        PanelRule()
-                        PanelRow("Spill past the strip", tint, on = spill) {
-                            vm.prefs.setGlowSpill(!spill)
-                        }
-                        PanelRule()
-                        PanelRow("Turn it off", tint, on = null) {
-                            open = false
-                            vm.prefs.setLivingGlow(false)
-                        }
-                    } else {
-                        PanelRow("Turn it on", tint, on = null) {
-                            open = false
-                            vm.prefs.setLivingGlow(true)
-                        }
+                    // "Turn it off" used to be the last row here and it is gone with the
+                    // preference: how much and how far are settings, whether is not.
+                    LevelPill(level, tint) { vm.prefs.setGlowLevel(it.id) }
+                    PanelRule()
+                    PanelRow("Spill past the strip", tint, on = spill) {
+                        vm.prefs.setGlowSpill(!spill)
                     }
                 }
             }

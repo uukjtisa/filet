@@ -120,8 +120,9 @@ object PairedPeers {
 /**
  * mDNS discovery, on Android's own `NsdManager`.
  *
- * `NsdManager` rather than jmdns: it is in the platform, it holds the multicast lock itself,
- * and a bundled mDNS stack on Android is a well-known source of battery complaints.
+ * `NsdManager` rather than jmdns: it is in the platform, and a bundled mDNS stack on Android is
+ * a well-known source of battery complaints. It does NOT reliably hold the multicast lock, which
+ * this comment once claimed; [MulticastHold] does that, only while scanning or announcing.
  *
  * This finds peers on a shared network. It does **not** work through AP client isolation -
  * which most hotel and many hotspot networks enable - and that failure is diagnosable rather
@@ -166,6 +167,7 @@ class NearbyDiscovery(private val context: Context) {
             override fun onUnregistrationFailed(info: NsdServiceInfo, code: Int) = Unit
         }
         registrationListener = listener
+        MulticastHold.hold(context, "nearby.ads", true)
         runCatching { manager.registerService(info, NsdManager.PROTOCOL_DNS_SD, listener) }
     }
 
@@ -173,6 +175,7 @@ class NearbyDiscovery(private val context: Context) {
         val manager = nsd ?: return
         registrationListener?.let { runCatching { manager.unregisterService(it) } }
         registrationListener = null
+        MulticastHold.hold(context, "nearby.ads", false)
         _state.value = _state.value.copy(advertising = false)
     }
 
@@ -208,6 +211,7 @@ class NearbyDiscovery(private val context: Context) {
             }
         }
         discoveryListener = listener
+        MulticastHold.hold(context, "nearby.scan", true)
         runCatching { manager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener) }
     }
 
@@ -215,6 +219,7 @@ class NearbyDiscovery(private val context: Context) {
         val manager = nsd ?: return
         discoveryListener?.let { runCatching { manager.stopServiceDiscovery(it) } }
         discoveryListener = null
+        MulticastHold.hold(context, "nearby.scan", false)
         _state.value = _state.value.copy(scanning = false)
     }
 

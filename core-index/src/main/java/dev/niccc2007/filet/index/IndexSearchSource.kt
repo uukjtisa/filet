@@ -33,20 +33,16 @@ class IndexSearchSource(
 
     override fun handles(req: SearchRequest): Boolean {
         if (!index.status.value.enabled || !index.status.value.available) return false
-        return req.scope == SearchScope.DEVICE ||
-            req.scope == SearchScope.PROVENANCE ||
-            req.scope == SearchScope.SUBFOLDERS
+        // Everything but a single folder, which is one `readdir` against an index lookup plus
+        // a verification pass - slower, and able to be stale, for no gain. The exception is a
+        // provenance query, which the filesystem cannot answer at any reach.
+        if (req.reach == Reach.Folder) return QueryParser.parse(req.query).needsProvenance
+        return true
     }
 
     override fun search(req: SearchRequest): Flow<SearchHit> = flow {
         val parsed = QueryParser.parse(req.query)
         val rows = index.candidates(req, parsed)
-        // Read once for the whole page rather than per row: a pass that ends mid-page would
-        // otherwise label the first half differently from the second for no reason a reader
-        // could explain.
-        val st = index.status.value
-        val crawlRunning = st.running
-        val writingGen = st.writingGen
         // One needle per word, not one needle for the whole query.
         //
         // The scorer looks for its needle as a subsequence of the name, so a query with a
@@ -54,35 +50,23 @@ class IndexSearchSource(
         // score zero against `quarterly-reconciliation-2026.xlsx` and be dropped - after SQL
         // had correctly retrieved it. Every word must match; the score is their sum, so more
         // of the query matching ranks higher.
-        val needles = Fuzzy.fold(parsed.free).split(' ', '\t')
-            .filter { it.isNotEmpty() }
-            .map { it.toCharArray() }
+        val words = Relevance.wordsOf(parsed.free)
+        val needles = words.map { it.toCharArray() }
         val now = System.currentTimeMillis()
         val originPrefix = req.origin?.path
 
-        val scored = ArrayList<Pair<IndexRow, Double>>(rows.size)
+        val scored = ArrayList<Triple<IndexRow, Double, List<IntRange>>>(rows.size)
         for (row in rows) {
             currentCoroutineContext().ensureActive()
-            if (row.isDir && req.scope == SearchScope.PROVENANCE) continue
+            // A directory has no origin of its own, so it can never satisfy `from:`.
+            if (row.isDir && parsed.needsProvenance) continue
             if (!req.showHidden && row.name.startsWith(".")) continue
 
-            val fold = row.nameFold.toCharArray()
-            val raw = row.name.toCharArray()
-            val ext = extOf(row.name)
-
-            var base = 0
-            var rejected = false
-            for (needle in needles) {
-                var s = Fuzzy.score(needle, fold, raw, true, ext)
-                if (s == Fuzzy.NO_MATCH) {
-                    val budget = Fuzzy.typoBudget(needle.size)
-                    val d = Fuzzy.editDistance(needle, fold, budget)
-                    if (d > budget) { rejected = true; break }
-                    s = 200 - d * 60
-                }
-                base += s
-            }
-            if (rejected) continue
+            // The same gate the walk uses, so a query cannot answer differently depending on
+            // which source reached a file first. SQL has already narrowed to contiguous pieces;
+            // this ranks them and carries the matched span to the row.
+            val verdict = Relevance.judge(words, row.name) ?: continue
+            var base = relevanceScore(verdict, needles, row.name, extOf(row.name))
             if (base <= 0) base = 1
 
             val boost = Frecency.boost(
@@ -92,32 +76,39 @@ class IndexSearchSource(
                 // "What you are looking at is what you probably mean" beats any clever
                 // relevance maths, so the subtree boost is applied before anything else.
                 inCurrentSubtree = false,
-                inTrackedFolder = false,
                 pinned = row.pinned,
             )
-            scored += row to base * boost
+            scored += Triple(row, base * boost, verdict.spans)
         }
 
         scored.sortByDescending { it.second }
 
         var emitted = 0
-        for ((row, score) in scored) {
+        for ((row, score, spans) in scored) {
             currentCoroutineContext().ensureActive()
             val path = index.pathFor(row.id) ?: continue
-            if (originPrefix != null && req.scope == SearchScope.SUBFOLDERS &&
+            if (originPrefix != null && req.reach == Reach.Subtree &&
                 !path.path.startsWith(originPrefix)
             ) continue
-            // Verify before display. A row the index still believes in but the filesystem
-            // has dropped is exactly the stale result this whole design exists to prevent -
-            // and it is why there is no third state for "might be gone". It is dropped, not
-            // labelled. See showable().
-            val live = runCatching { vfs.stat(path) }.getOrNull() ?: continue
-            if (!showable(existsOnDisk = true)) continue
+            // A row's own name is not the only way to be hidden. Inside `.hwthumbnails` a file
+            // called `7_6M_views…jpg` is as hidden as the folder, and testing the name alone is
+            // how a thumbnail cache became the first answer to a search. SEARCH.md §14.5.
+            if (!req.showHidden && underHidden(path)) continue
+            // Emitted unchecked, as Confirming. SEARCH.md §14.3.
+            //
+            // This used to stat every row before emitting it, one after another, so the first
+            // paint waited on the filesystem and the label on top of that waited on a crawl -
+            // which with an unbounded crawl on every open meant Confirming for minutes. The
+            // check now runs beside the search in the pane, top rows first, and a row cannot be
+            // opened until it has passed. What is shown here is what the index believes; what
+            // can be acted on is what the filesystem confirmed.
             emit(
                 SearchHit(
-                    live, score.toInt(), path.parent?.path ?: "",
-                    state = hitState(crawlRunning, row.gen, writingGen),
+                    VNode(path, row.isDir, row.size, row.mtime),
+                    score.toInt(), path.parent?.path ?: "",
+                    state = HitState.CONFIRMING,
                     gen = row.gen,
+                    spans = spans,
                 ),
             )
             if (++emitted >= 200) break

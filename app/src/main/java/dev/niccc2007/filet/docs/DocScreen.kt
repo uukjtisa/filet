@@ -1,9 +1,12 @@
 package dev.niccc2007.filet.docs
 
+import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -13,60 +16,73 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableFloatState
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.BaselineShift
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import dev.niccc2007.filet.FiletApp
+import dev.niccc2007.filet.browser.FiletIcons
+import dev.niccc2007.filet.handlers.ViewerAction
+import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgFooter
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgSection
+import dev.niccc2007.filet.ui.dialogs.DlgSpacer
+import dev.niccc2007.filet.ui.dialogs.DlgTick
 import dev.niccc2007.filet.ui.theme.Filet
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -87,19 +103,31 @@ import kotlinx.coroutines.withContext
  * scrolling - which is what every "document viewer" that tries this feels like. Reflowed text
  * in the app's own type is readable, and being honestly a reader beats being a bad renderer.
  *
- * The one thing that does NOT reflow is code, which is wrapped in a horizontal scroller
- * instead: a wrapped line of code is worse than a scrolled one.
+ * What does NOT reflow is code and wide tables, which scroll sideways in their own scrollers: a
+ * wrapped line of code is worse than a scrolled one.
  *
- * ## What it does draw from the file
+ * ## What it draws from the file
  *
- * Everything the model carries, which is everything the readers find: heading sizes, inline
- * emphasis, colour where it reads on the theme, alignment, indentation, list markers as the file
- * defines them, tables as a ruled grid with merged cells, pictures at the size they are placed
- * at, and a deck as one card per slide with its notes folded at the foot. A `Doc` from a reader
- * that sets none of the newer fields draws exactly as it did before they existed.
+ * Everything the model carries: heading sizes with GitHub's rules under the first two levels,
+ * inline emphasis, colour where it reads on the theme, alignment, quotes and alerts as rules
+ * down the edge, lists with bullets by depth and right-aligned numbers, task boxes, tables set
+ * to fit, highlighted code, pictures inside the text, folds, front matter as a card, and a deck
+ * as one card per slide with its notes folded at the foot. A `Doc` from a reader that sets none
+ * of the newer fields draws exactly as it did before they existed.
+ *
+ * ## How it is read
+ *
+ * By the reading settings, which are the same for every document - see [ReadingSettings]: a
+ * text size that IS the pinch, a readable column, a table mode and whether web pictures load.
  */
 @Composable
-fun DocReader(doc: Doc, modifier: Modifier = Modifier, key: Any? = null) {
+fun DocReader(
+    doc: Doc,
+    modifier: Modifier = Modifier,
+    key: Any? = null,
+    place: DocPlace? = null,
+    page: DocPageState? = null,
+) {
     val colors = Filet.colors
     if (doc.empty && doc.note == null) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -107,21 +135,126 @@ fun DocReader(doc: Doc, modifier: Modifier = Modifier, key: Any? = null) {
         }
         return
     }
+    val state = page ?: remember(key) { DocPageState() }
+    val context = LocalContext.current
+    val prefs = remember { FiletApp.graphOf(context).prefs }
+    val reading by prefs.reading.collectAsState()
     val frames = remember(doc) { DocLayout.slideFrames(doc.blocks) }
-    val page = MaterialTheme.colorScheme.background
+    val background = MaterialTheme.colorScheme.background
     // The raised ground is too close to the page in the light palettes to read as a card edge.
     val card = colors.high
-    // Held here rather than per block, so scrolling and moving between slides never reset it;
-    // keyed on [key] so a different file starts at 1. See [DocZoom].
-    val zoom = remember(key) { mutableFloatStateOf(1f) }
-    val list = rememberLazyListState()
+    val dark = background.luminance() < 0.5f
+    val list = state.list
     val scope = rememberCoroutineScope()
     val base = LocalDensity.current
-    val scaled = Density(base.density * zoom.floatValue, base.fontScale)
-    Box(modifier.fillMaxSize().docZoom(zoom, list, scope)) {
+
+    // The zoom is the reading size, so it is the same number for every document and outlives
+    // this screen. Held as its own state, read only inside the items, so a pinch recomposes the
+    // blocks on screen and nothing else. See [PinchFrame] for why it moves once a frame.
+    val zoom = remember { mutableFloatStateOf(reading.zoom) }
+    val pinch = remember { PinchFrame() }
+    val ticks = remember { Channel<Unit>(Channel.CONFLATED) }
+    LaunchedEffect(reading.size) {
+        if (!pinch.active && Reading.sizeOf(zoom.floatValue) != reading.size) zoom.floatValue = reading.zoom
+    }
+    LaunchedEffect(list) {
+        for (tick in ticks) {
+            withFrameNanos { }
+            pinch.take(zoom.floatValue)?.let { step ->
+                zoom.floatValue = step.zoom
+                keepUnder(list, step.focalY, step.ratio)
+            }
+            if (pinch.settled()) prefs.setReadSize(Reading.sizeOf(zoom.floatValue))
+        }
+    }
+
+    // Folds open as their `<details open>` says, and stay as tapped while the document is up.
+    var openFolds by remember(doc) {
+        mutableStateOf(doc.blocks.filterIsInstance<Block.Fold>().filter { it.open }.map { it.id }.toSet())
+    }
+    val visible = remember(doc, openFolds) {
+        doc.blocks.indices.filter { i -> doc.nestOf(i).folds.all { it in openFolds } }
+    }
+    val lead = if (doc.note != null) 1 else 0
+    val visibleNow by rememberUpdatedState(visible)
+    state.attach(doc, visible, lead)
+
+    var sheet by remember { mutableStateOf<String?>(null) }
+    // To a block, and [within] of the way into it. The folds it is inside open first, and the
+    // scroll waits a frame for the list to have the rows they hold.
+    val goTo: (Int, Float) -> Unit = { index, within ->
+        val inside = doc.nestOf(index).folds
+        if (!openFolds.containsAll(inside)) openFolds = openFolds + inside
+        scope.launch {
+            withFrameNanos { }
+            val at = visibleNow.indexOf(index)
+            if (at >= 0) {
+                list.scrollToItem(lead + at)
+                if (within > 0f) {
+                    val size = list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == lead + at }?.size ?: 0
+                    if (size > 0) list.scrollToItem(lead + at, (size * within).toInt())
+                }
+            }
+        }
+    }
+    val jump: (Int) -> Unit = { goTo(it, 0f) }
+    state.jump = jump
+
+    // The reading spot: offered once for this page, saved when it is left. See [ReadingSpots].
+    val offer = remember(state) { (!state.spotOffered).also { state.spotOffered = true } }
+    val saved = rememberSavedSpot(place?.file?.toString(), SpotKind.DOC, offer)
+    SaveSpotOnLeave(place?.file) {
+        val file = place?.file ?: return@SaveSpotOnLeave
+        val info = list.layoutInfo
+        val shown = info.visibleItemsInfo
+        if (shown.isEmpty()) return@SaveSpotOnLeave
+        val first = shown.first()
+        val top = first.index == 0 && list.firstVisibleItemScrollOffset < info.viewportSize.height / 2
+        val end = shown.last().index == info.totalItemsCount - 1
+        ReadingSpots.of(context).left(file.toString(), SpotKind.DOC, top, end) {
+            val block = state.topBlock
+            val heading = state.outline.lastOrNull { it.index <= block }
+            ReadingSpot(
+                path = file.toString(),
+                kind = SpotKind.DOC,
+                item = block,
+                within = if (first.index < lead || first.size <= 0) 0f
+                else (list.firstVisibleItemScrollOffset.toFloat() / first.size).coerceIn(0f, 1f),
+                label = heading?.text?.takeIf { it.isNotBlank() }
+                    ?: "${block * 100 / doc.blocks.size.coerceAtLeast(1)}% in",
+                anchor = heading?.slug.orEmpty(),
+                stamp = place.stamp,
+            )
+        }
+    }
+    val say: (String) -> Unit = { msg -> place?.say?.invoke(msg) }
+    val onLink: (String) -> Unit = { href ->
+        when (val ref = DocRefs.link(href, place?.file)) {
+            is Ref.Anchor -> DocOutline.find(doc.anchors, ref.fragment)?.let(jump)
+                ?: say("Nothing in this document is called #${ref.fragment}.")
+            is Ref.Web -> sheet = ref.url
+            is Ref.Mail -> sheet = "mailto:${ref.address}"
+            is Ref.Local -> {
+                val fragment = href.substringAfter('#', "")
+                if (ref.path == place?.file) {
+                    if (fragment.isEmpty()) jump(0) else DocOutline.find(doc.anchors, fragment)?.let(jump)
+                } else if (place != null) {
+                    scope.launch {
+                        val vfs = FiletApp.graphOf(context).vfs
+                        val target = withContext(Dispatchers.IO) { localTarget(vfs, ref.path, ref.fromRoot, place.file) }
+                        place.open(target)
+                    }
+                }
+            }
+            Ref.None -> say("This link does not lead anywhere Filet can follow.")
+        }
+    }
+    val env = remember(place, reading, dark, base, doc) { DocEnv(place, reading, dark, onLink, base) }
+
+    Box(modifier.fillMaxSize().docZoom(zoom, list, pinch, ticks)) {
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), state = list) {
             doc.note?.let { note ->
-                item {
+                item(key = "note") {
                     // At the TOP, and not as a toast. A document that is partly unread is a fact
                     // about what is on screen for as long as it is on screen, and a message that
                     // disappears after two seconds is not where that belongs.
@@ -138,18 +271,179 @@ fun DocReader(doc: Doc, modifier: Modifier = Modifier, key: Any? = null) {
                     )
                 }
             }
-            items(doc.blocks.size) { i ->
+            items(visible.size, key = { visible[it] }) { v ->
+                val i = visible[v]
+                val block = doc.blocks[i]
                 val frame = frames[i]
-                val ground = if (frame == DocLayout.Frame.NONE) page else card
+                val ground = if (frame == DocLayout.Frame.NONE) background else card
+                val nest = effectiveNest(doc, i)
+                val before = visible.getOrNull(v - 1)?.let { effectiveNest(doc, it) } ?: Nest.NONE
+                val shared = sharedFrames(nest.frames, before.frames)
                 // The zoom is a density, so every dp and sp inside a block scales together:
                 // type, picture sizes, table column widths, row heights and padding.
-                CompositionLocalProvider(LocalDensity provides scaled) {
-                    Box(Modifier.fillMaxWidth().slideFrame(frame, card)) {
-                        BlockView(doc.blocks[i], ground)
+                val scaled = Density(base.density * zoom.floatValue, base.fontScale)
+                CompositionLocalProvider(LocalDensity provides scaled, LocalDocEnv provides env) {
+                    val wide = block is Block.Table || block is Block.Code || frame != DocLayout.Frame.NONE
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                        Box(
+                            Modifier
+                                .then(if (reading.column && !wide) Modifier.widthIn(max = READABLE) else Modifier)
+                                .fillMaxWidth()
+                                .slideFrame(frame, card),
+                        ) {
+                            Framed(nest.frames, shared, gapOf(block, doc.blocks.getOrNull(visible.getOrNull(v - 1) ?: -1)), dark) {
+                                BlockView(
+                                    block = block,
+                                    nest = nest,
+                                    ground = ground,
+                                    env = env,
+                                    open = (block as? Block.Fold)?.id in openFolds,
+                                    onFold = { id -> openFolds = if (id in openFolds) openFolds - id else openFolds + id },
+                                )
+                            }
+                        }
                     }
                 }
             }
-            item { Spacer(Modifier.height(40.dp)) }
+            item(key = "end") { Spacer(Modifier.height(40.dp)) }
+        }
+        SpotCard(saved, Modifier.align(Alignment.TopEnd)) { s ->
+            val goal = ReadingSpots.goal(s, place?.stamp ?: 0L, doc.blocks.size, doc.anchors)
+            goTo(goal.item, goal.within)
+        }
+    }
+
+    if (state.contentsOpen) ContentsSheet(state, onDismiss = { state.contentsOpen = false })
+    if (state.textOpen) ReadingSheet(reading, prefs, onDismiss = { state.textOpen = false }) { size ->
+        zoom.floatValue = size / 100f
+    }
+    sheet?.let { url -> LinkSheet(url, onDismiss = { sheet = null }, say = say) }
+}
+
+/** A text column held to about seventy characters, which is where reading speed peaks. */
+private val READABLE = 540.dp
+
+/**
+ * The page's state that the bar above it reaches: its list, its outline, and the sheets the bar
+ * opens. Hoisted out of [DocReader] so the Contents and Aa buttons on a viewer bar act on the
+ * page below them.
+ */
+@Stable
+class DocPageState internal constructor() {
+    internal val list = LazyListState()
+    internal var contentsOpen by mutableStateOf(false)
+    internal var textOpen by mutableStateOf(false)
+    internal var jump: (Int) -> Unit = {}
+    /** The saved reading spot has been offered for this page; a reader composed again over it does not. */
+    internal var spotOffered = false
+    internal var outline by mutableStateOf<List<Heading>>(emptyList())
+    private var visible: List<Int> = emptyList()
+    private var lead = 0
+
+    internal fun attach(doc: Doc, visible: List<Int>, lead: Int) {
+        val o = doc.outline.ifEmpty {
+            // A reader that keeps no outline still marks its headings; the sheet lists those.
+            doc.blocks.withIndex().mapNotNull { (i, b) ->
+                (b as? Block.Para)?.takeIf { it.level in 1..6 }?.let { Heading(it.level, it.text.replace("￼", "").trim(), i, "") }
+            }
+        }
+        if (o != outline) outline = o
+        this.visible = visible
+        this.lead = lead
+    }
+
+    /** The block at the top of the screen, for the Contents sheet's "you are here". */
+    internal val topBlock: Int
+        get() = visible.getOrNull((list.firstVisibleItemIndex - lead).coerceAtLeast(0)) ?: 0
+}
+
+@Composable
+fun rememberDocPageState(key: Any?): DocPageState = remember(key) { DocPageState() }
+
+/**
+ * The page's own controls, for the bar of whatever screen is showing a document: the Contents
+ * sheet and the reading settings.
+ */
+@Composable
+fun RowScope.DocPageActions(page: DocPageState) {
+    ViewerAction(DocIcons.Contents, "Contents") { page.contentsOpen = true }
+    ViewerAction(DocIcons.TextSize, "Reading") { page.textOpen = true }
+}
+
+/** A plain quote from a reader with no frames - a Word quote - drawn as one rule like the rest. */
+private fun effectiveNest(doc: Doc, i: Int): Nest {
+    val n = doc.nestOf(i)
+    val b = doc.blocks[i]
+    return if (n.frames.isEmpty() && b is Block.Para && b.quote) n.copy(frames = listOf(Frame.QUOTE)) else n
+}
+
+/** How many of [frames] the block above is also inside, from the outside in. */
+private fun sharedFrames(frames: List<Frame>, above: List<Frame>): Int {
+    var n = 0
+    while (n < frames.size && n < above.size && frames[n] == above[n]) n++
+    return n
+}
+
+/** The space above a block, by what it is and what it follows. */
+private fun gapOf(block: Block, above: Block?): Dp = when (block) {
+    is Block.Para -> when {
+        block.level == 1 -> if (above == null) 4.dp else 24.dp
+        block.level == 2 -> if (above == null) 4.dp else 20.dp
+        block.level == 3 -> 16.dp
+        block.level > 3 -> 13.dp
+        above is Block.AlertHead -> 4.dp
+        else -> 9.dp
+    }
+    is Block.Item -> if (block.tight && above is Block.Item) 3.dp else 8.dp
+    is Block.Code -> 10.dp
+    is Block.Table -> 12.dp
+    Block.Rule -> 14.dp
+    is Block.AlertHead -> 10.dp
+    is Block.Fold -> 9.dp
+    is Block.Meta -> 6.dp
+    is Block.Slide -> 12.dp
+    is Block.Image -> 10.dp
+    is Block.SlideNotes -> 12.dp
+    is Block.Note -> 8.dp
+}
+
+private fun frameWidth(f: Frame): Dp = if (f == Frame.INDENT) DocLists.INDENT else 14.dp
+
+/**
+ * A block inside its frames: the gap above it, then the block, with each quote's or alert's rule
+ * drawn down the start edge.
+ *
+ * A rule this block shares with the one above runs through the gap, so a quote reads as one
+ * container; a rule that starts here starts below the gap, so it does not reach up toward the
+ * paragraph before the quote.
+ */
+@Composable
+private fun Framed(frames: List<Frame>, shared: Int, gap: Dp, dark: Boolean, content: @Composable () -> Unit) {
+    val quote = Filet.colors.fg3.copy(alpha = 0.45f)
+    val inset = frames.fold(0.dp) { acc, f -> acc + frameWidth(f) }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .then(
+                if (frames.isEmpty()) Modifier else Modifier.drawBehind {
+                    var x = 0f
+                    val gapPx = gap.toPx()
+                    val stroke = 3.dp.toPx()
+                    for ((k, f) in frames.withIndex()) {
+                        val w = frameWidth(f).toPx()
+                        if (f != Frame.INDENT) {
+                            val color = if (f == Frame.QUOTE) quote else DocAlerts.accent(f, dark)
+                            val top = if (k < shared) 0f else gapPx
+                            drawLine(color, Offset(x + stroke / 2, top), Offset(x + stroke / 2, size.height), stroke)
+                        }
+                        x += w
+                    }
+                },
+            ),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(start = inset)) {
+            Spacer(Modifier.height(gap))
+            content()
         }
     }
 }
@@ -170,34 +464,50 @@ fun DocReader(doc: Doc, modifier: Modifier = Modifier, key: Any? = null) {
  *
  * The list is a child and would otherwise take a two-finger drag as a scroll. With two or more
  * pointers down the gesture is consumed before the list sees it; with one, nothing is touched,
- * so ordinary scrolling and taps on notes inside the reader are unaffected.
+ * so ordinary scrolling and taps on links inside the reader are unaffected.
+ *
+ * ## One update a frame
+ *
+ * A touch event only gathers its ratio into [pinch]; the reader applies it once a frame - see
+ * [PinchFrame] for the freeze that per-event scrolling caused. A double tap is a pinch of one
+ * step and goes the same way, so one place moves the zoom and the scroll together and saves the
+ * size once it has landed.
  */
-private fun Modifier.docZoom(zoom: MutableFloatState, list: LazyListState, scope: CoroutineScope): Modifier =
+private fun Modifier.docZoom(
+    zoom: MutableFloatState,
+    list: LazyListState,
+    pinch: PinchFrame,
+    ticks: Channel<Unit>,
+): Modifier =
     this
         .pointerInput(zoom, list) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    if (event.changes.none { it.pressed }) break
-                    if (event.changes.count { it.pressed } < 2) continue
-                    val before = zoom.floatValue
-                    val after = DocZoom.pinch(before, event.calculateZoom())
-                    if (after != before) {
-                        val focal = event.calculateCentroid(useCurrent = true)
-                        zoom.floatValue = after
-                        scope.launch { keepUnder(list, focal.y, after / before) }
+                try {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.none { it.pressed }) break
+                        if (event.changes.count { it.pressed } < 2) continue
+                        pinch.begin()
+                        pinch.add(event.calculateZoom(), event.calculateCentroid(useCurrent = true).y)
+                        ticks.trySend(Unit)
+                        event.changes.forEach { it.consume() }
                     }
-                    event.changes.forEach { it.consume() }
+                } finally {
+                    if (pinch.active) {
+                        pinch.end()
+                        ticks.trySend(Unit)
+                    }
                 }
             }
         }
         .pointerInput(zoom, list) {
             detectTapGestures(onDoubleTap = { at ->
                 val before = zoom.floatValue
-                val after = DocZoom.doubleTap(before)
-                zoom.floatValue = after
-                scope.launch { keepUnder(list, at.y, after / before) }
+                pinch.begin()
+                pinch.add(DocZoom.doubleTap(before) / before, at.y)
+                pinch.end()
+                ticks.trySend(Unit)
             })
         }
 
@@ -242,173 +552,142 @@ private fun Modifier.slideFrame(frame: DocLayout.Frame, card: Color): Modifier {
 }
 
 @Composable
-private fun BlockView(block: Block, ground: Color) {
+private fun BlockView(block: Block, nest: Nest, ground: Color, env: DocEnv, open: Boolean, onFold: (Int) -> Unit) {
     val colors = Filet.colors
+    val ink = MaterialTheme.colorScheme.onSurface
     when (block) {
         is Block.Para -> {
             val size = headingSize(block.level)
-            Spacer(Modifier.height(if (block.level > 0) 16.dp else 8.dp))
-            Row(Modifier.padding(start = indentDp(block.indent).dp)) {
-                if (block.quote) {
-                    // A rule down the side, which is what a quote looks like everywhere. An
-                    // indent alone reads as a list item.
-                    Box(
-                        Modifier
-                            .width(2.dp)
-                            .height((size.value * 1.5f).dp)
-                            .background(colors.accent.copy(alpha = 0.5f)),
-                    )
-                    Spacer(Modifier.width(10.dp))
+            Column(Modifier.fillMaxWidth().padding(start = indentDp(block.indent).dp)) {
+                RichText(
+                    text = block.text,
+                    spans = block.spans,
+                    pictures = block.pictures,
+                    size = size,
+                    line = size * 1.5f,
+                    weight = if (block.level > 0) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (nest.quoted) colors.fg2 else ink,
+                    align = block.align,
+                    ground = ground,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                // GitHub's rule under the first two heading levels, which is what makes a long
+                // README's sections findable while scrolling.
+                if (block.level in 1..2 && nest.frames.isEmpty()) {
+                    Spacer(Modifier.height(5.dp))
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(colors.lineSoft))
                 }
-                Text(
-                    annotate(block.text, block.spans, ground),
-                    fontSize = size,
-                    lineHeight = size * 1.5f,
-                    fontWeight = if (block.level > 0) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (block.quote) colors.fg2 else MaterialTheme.colorScheme.onSurface,
-                    textAlign = textAlignOf(block.align),
-                    // The rest of the row, so an alignment has a width to align within.
+            }
+        }
+
+        is Block.Item -> {
+            // A Word item carries its depth and no frames; a Markdown one's frames already draw it.
+            val extra = (block.depth - nest.indents).coerceAtLeast(0)
+            Row(Modifier.fillMaxWidth().padding(start = (extra * 16).dp)) {
+                val width = DocLists.markerWidth(block)
+                val task = block.task
+                if (task != null) {
+                    Box(Modifier.width(width).height(19.dp), contentAlignment = Alignment.CenterStart) { TaskBox(task) }
+                } else {
+                    Text(
+                        DocLists.marker(block),
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                        color = colors.fg3,
+                        textAlign = if (block.ordered) androidx.compose.ui.text.style.TextAlign.End else null,
+                        modifier = Modifier
+                            .width(width)
+                            .padding(end = if (block.ordered) 6.dp else 0.dp),
+                    )
+                }
+                RichText(
+                    text = block.text,
+                    spans = block.spans,
+                    pictures = block.pictures,
+                    size = 13.sp,
+                    line = 19.sp,
+                    weight = FontWeight.Normal,
+                    color = if (nest.quoted) colors.fg2 else ink,
+                    align = Align.START,
+                    ground = ground,
                     modifier = Modifier.weight(1f),
                 )
             }
         }
 
-        is Block.Item -> {
-            Spacer(Modifier.height(4.dp))
-            Row(Modifier.padding(start = (block.depth * 16).dp)) {
-                val marker = block.marker.ifEmpty {
-                    if (block.ordered && block.number > 0) "${block.number}." else "•"
-                }
-                Text(
-                    marker,
-                    fontSize = 13.sp,
-                    lineHeight = 19.sp,
-                    color = colors.fg3,
-                    // A floor rather than a fixed width, so `iv.` and `2.3.` are not clipped and
-                    // a bullet does not sit a numbered list's width away from its text.
-                    modifier = Modifier
-                        .widthIn(min = if (block.ordered) 22.dp else 14.dp)
-                        .padding(end = 6.dp),
-                )
-                Text(
-                    annotate(block.text, block.spans, ground),
-                    fontSize = 13.sp,
-                    lineHeight = 19.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+        is Block.Code -> CodeView(block, env.dark)
+
+        is Block.Table -> TableView(block, env)
+
+        Block.Rule -> Box(Modifier.fillMaxWidth().height(2.dp).clip(RoundedCornerShape(1.dp)).background(colors.lineSoft))
+
+        is Block.AlertHead -> {
+            val accent = DocAlerts.accent(block.frame, env.dark)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                DocAlerts.icon(block.frame)?.let { Icon(it, null, tint = accent, modifier = Modifier.size(16.dp)) }
+                Spacer(Modifier.width(7.dp))
+                Text(DocAlerts.title(block.frame), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = accent)
             }
         }
 
-        is Block.Code -> {
-            Spacer(Modifier.height(10.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(colors.sunken),
-            ) {
-                // Scrolled, not wrapped. A wrapped line of code is harder to read than a
-                // scrolled one, and this is the one place reflowing is the wrong answer.
-                //
-                // Through `HScroll` rather than a bare `horizontalScroll`, so the edge says
-                // there is more - which on a block of code with no visible right-hand edge is
-                // the difference between a long line and a truncated one.
-                dev.niccc2007.filet.ui.HScroll(
-                    ground = colors.sunken,
-                    contentPadding = 10.dp,
-                ) {
-                    Text(
-                        block.text,
-                        fontSize = 11.5.sp,
-                        lineHeight = 17.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-        }
-
-        is Block.Table -> {
-            Spacer(Modifier.height(12.dp))
-            TableView(block)
-        }
-
-        Block.Rule -> {
-            Spacer(Modifier.height(14.dp))
-            Box(Modifier.fillMaxWidth().height(1.dp).background(colors.lineSoft))
-        }
-
-        is Block.Slide -> {
-            Spacer(Modifier.height(12.dp))
-            Text(
-                if (block.hidden) "SLIDE ${block.number}  ·  HIDDEN" else "SLIDE ${block.number}",
-                fontSize = 9.sp,
-                letterSpacing = 1.2.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (block.hidden) colors.fg3 else colors.accent,
+        is Block.Fold -> Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .clickable { onFold(block.id) }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(if (open) "▾" else "▸", fontSize = 13.sp, color = colors.accent, modifier = Modifier.width(18.dp))
+            RichText(
+                text = block.text,
+                spans = block.spans,
+                pictures = emptyList(),
+                size = 13.sp,
+                line = 19.sp,
+                weight = FontWeight.Medium,
+                color = ink,
+                align = Align.START,
+                ground = ground,
+                modifier = Modifier.weight(1f),
             )
         }
 
-        is Block.Image -> {
-            Spacer(Modifier.height(10.dp))
-            PictureView(block)
-        }
-
-        is Block.SlideNotes -> {
-            Spacer(Modifier.height(12.dp))
-            NotesView(block)
-        }
-
-        is Block.Note -> {
-            Spacer(Modifier.height(8.dp))
-            Text(block.text, fontSize = 10.5.sp, color = colors.fg3, fontStyle = FontStyle.Italic)
-        }
-    }
-}
-
-/**
- * A table as a ruled grid.
- *
- * Every cell carries its own hairline, so the grid reads as a grid at any row height; the row is
- * measured at its tallest cell (`IntrinsicSize.Min`) so the lines meet rather than stopping where
- * each cell's text does. A merged cell is as wide as the columns it covers.
- */
-@Composable
-private fun TableView(block: Block.Table) {
-    val colors = Filet.colors
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(colors.sunken),
-    ) {
-        // One scroller for the WHOLE table, so the columns stay lined up. A scroller per row is
-        // what a Column of scrollable Rows gives and it comes apart the moment it is touched.
-        dev.niccc2007.filet.ui.HScroll(ground = colors.sunken, contentPadding = 0.dp) {
-            Column(Modifier.border(0.5.dp, colors.lineSoft)) {
-                for ((r, row) in block.rows.withIndex()) {
-                    val head = block.header && r == 0
-                    Row(Modifier.height(IntrinsicSize.Min)) {
-                        for ((c, cellText) in row.withIndex()) {
-                            val span = block.colSpans.getOrNull(r)?.getOrNull(c)?.coerceAtLeast(1) ?: 1
-                            Text(
-                                cellText,
-                                fontSize = 11.5.sp,
-                                lineHeight = 16.sp,
-                                fontWeight = if (head) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (head) MaterialTheme.colorScheme.onSurface else colors.fg2,
-                                modifier = Modifier
-                                    .width(TABLE_CELL * span)
-                                    .fillMaxHeight()
-                                    .background(if (head) colors.accent.copy(alpha = 0.08f) else Color.Transparent)
-                                    .border(0.5.dp, colors.lineSoft)
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                            )
-                        }
-                    }
+        is Block.Meta -> Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(colors.sunken)
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+        ) {
+            for ((k, value) in block.entries) {
+                Row(Modifier.padding(vertical = 2.dp)) {
+                    Text(
+                        k.uppercase(),
+                        fontSize = 9.5.sp,
+                        letterSpacing = 0.8.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.fg3,
+                        modifier = Modifier.width(92.dp).padding(top = 2.dp),
+                    )
+                    Text(value, fontSize = 12.sp, lineHeight = 17.sp, color = colors.fg2, modifier = Modifier.weight(1f))
                 }
             }
         }
+
+        is Block.Slide -> Text(
+            if (block.hidden) "SLIDE ${block.number}  ·  HIDDEN" else "SLIDE ${block.number}",
+            fontSize = 9.sp,
+            letterSpacing = 1.2.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (block.hidden) colors.fg3 else colors.accent,
+        )
+
+        is Block.Image -> PictureView(block)
+
+        is Block.SlideNotes -> NotesView(block)
+
+        is Block.Note -> Text(block.text, fontSize = 10.5.sp, color = colors.fg3, fontStyle = FontStyle.Italic)
     }
 }
 
@@ -517,96 +796,173 @@ private fun NotesView(block: Block.SlideNotes) {
     }
 }
 
-/** How wide a table cell is. Fixed, because a measured column pass is a layout engine. */
-private val TABLE_CELL = 124.dp
-
 private fun headingSize(level: Int) = when (level) {
-    1 -> 20.sp
-    2 -> 17.sp
+    1 -> 21.sp
+    2 -> 17.5.sp
     3 -> 15.sp
-    4, 5, 6 -> 13.5.sp
+    4 -> 13.5.sp
+    5 -> 13.sp
+    6 -> 12.5.sp
     else -> 13.sp
 }
 
 /** Points of indent into dp, damped and capped: a two-inch Word indent is half a phone. */
 private fun indentDp(points: Int): Float = (points * 0.5f).coerceIn(0f, 40f)
 
-private fun textAlignOf(align: Align): TextAlign = when (align) {
-    Align.START -> TextAlign.Start
-    Align.CENTER -> TextAlign.Center
-    Align.END -> TextAlign.End
-    Align.JUSTIFY -> TextAlign.Justify
-}
+// ── the sheets the bar opens ──
 
-/**
- * Text plus marks into an `AnnotatedString`.
- *
- * Every span is range-checked against the text, and an out-of-range one is dropped. Not
- * defensiveness for its own sake: these offsets come out of several readers walking different
- * trees, and `AnnotatedString` THROWS on a range past the end rather than clamping - so one
- * arithmetic slip in a reader would be a crash on opening a document rather than a word in the
- * wrong weight.
- */
-fun annotate(text: String, spans: List<Span>): AnnotatedString = annotate(text, spans, null)
-
-/**
- * The same, knowing what it is drawn on, so a document colour that would vanish on the theme is
- * dropped. See [DocLayout.readable].
- */
-fun annotate(text: String, spans: List<Span>, ground: Color?): AnnotatedString {
-    if (spans.isEmpty()) return AnnotatedString(text)
-    val groundArgb = ground?.toArgb()?.toLong()?.and(0xFFFFFFFFL)
-    return buildAnnotatedString {
-        append(text)
-        for (span in spans) {
-            if (span.from < 0 || span.to > text.length || span.to <= span.from) continue
-            val style = styleOf(span, spans, groundArgb) ?: continue
-            addStyle(style, span.from, span.to)
+/** The headings, by level, with the one on screen marked. A tap goes there. */
+@Composable
+private fun ContentsSheet(page: DocPageState, onDismiss: () -> Unit) {
+    val colors = Filet.colors
+    val outline = page.outline
+    val top = page.topBlock
+    val here = outline.lastOrNull { it.index <= top }
+    val least = outline.minOfOrNull { it.level } ?: 1
+    Dlg(onDismiss = onDismiss) {
+        DlgHeader(DocIcons.Contents, "Contents", sub = if (outline.isEmpty()) null else "${outline.size} headings", onClose = onDismiss)
+        DlgBody {
+            if (outline.isEmpty()) {
+                Text("This document has no headings to list.", fontSize = 12.5.sp, color = colors.fg3)
+            }
+            for (h in outline) {
+                val current = h == here
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (current) colors.sel else Color.Transparent)
+                        .clickable {
+                            onDismiss()
+                            page.jump(h.index)
+                        }
+                        .padding(start = (8 + (h.level - least) * 14).dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        h.text.ifBlank { "(untitled)" },
+                        fontSize = if (h.level == least) 13.sp else 12.5.sp,
+                        fontWeight = if (h.level == least) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (current) colors.accent else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (current) Text("here", fontSize = 10.sp, color = colors.accent)
+                }
+            }
         }
     }
 }
 
-private fun styleOf(span: Span, all: List<Span>, ground: Long?): SpanStyle? = when (span.style) {
-    Mark.BOLD -> SpanStyle(fontWeight = FontWeight.Bold)
-    Mark.ITALIC -> SpanStyle(fontStyle = FontStyle.Italic)
-    Mark.CODE -> SpanStyle(fontFamily = FontFamily.Monospace, background = Color(0x22808080))
-    // Underline and strike are both a text decoration, and two decoration spans over one range
-    // REPLACE each other rather than adding up. Where both cover a run, each draws both.
-    Mark.STRIKE, Mark.UNDERLINE -> SpanStyle(textDecoration = decorationFor(span, all))
-    // Underlined and in the accent, but NOT clickable. A tap that opens a browser from
-    // inside a document reader is an outbound network request somebody did not ask for, and
-    // the link's target is visible as text anyway.
-    Mark.LINK -> SpanStyle(
-        textDecoration = TextDecoration.Underline,
-        color = Color(0xFF6AA9FF),
-    )
-    Mark.COLOR -> if (span.argb == 0L || (ground != null && !DocLayout.readable(span.argb, ground))) {
-        null
-    } else {
-        SpanStyle(color = Color(span.argb.toInt()))
+/** Aa: the reading settings, the same ones Settings, Reading holds. */
+@Composable
+private fun ReadingSheet(
+    reading: ReadingSettings,
+    prefs: dev.niccc2007.filet.data.Prefs,
+    onDismiss: () -> Unit,
+    onSize: (Int) -> Unit,
+) {
+    val colors = Filet.colors
+    fun size(to: Int) {
+        prefs.setReadSize(to)
+        onSize(Reading.clampSize(to))
     }
-    // A highlighter's ink is chosen for the highlighter, not for the page: black on yellow
-    // reads, the theme's pale text on yellow does not.
-    Mark.HIGHLIGHT -> if (span.argb == 0L) {
-        null
-    } else {
-        SpanStyle(
-            background = Color(span.argb.toInt()).copy(alpha = 0.85f),
-            color = Color(DocLayout.inkOn(span.argb).toInt()),
-        )
+    Dlg(onDismiss = onDismiss) {
+        DlgHeader(DocIcons.TextSize, "Reading", sub = "For every document", onClose = onDismiss)
+        DlgBody {
+            DlgSection("Text size")
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                val smaller = Reading.smaller(reading.size)
+                val larger = Reading.larger(reading.size)
+                StepButton("A−", enabled = smaller != null) { smaller?.let(::size) }
+                Text(
+                    "${reading.size}%",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                StepButton("A+", enabled = larger != null) { larger?.let(::size) }
+            }
+            Text("Pinching the page moves this too.", fontSize = 10.5.sp, color = colors.fg3)
+            Spacer(Modifier.height(8.dp))
+            DlgTick(reading.column, "Readable column", sub = "Hold text to about seventy characters a line") {
+                prefs.setReadColumn(!reading.column)
+            }
+            DlgSection("Tables")
+            for (mode in TableMode.entries) {
+                DlgTick(reading.tables == mode, mode.label, sub = tableHint(mode)) { prefs.setReadTables(mode) }
+            }
+            DlgSection("Pictures")
+            DlgTick(reading.webPictures, "Load web pictures automatically", sub = "Off: each shows its name and loads when tapped") {
+                prefs.setReadWebPictures(!reading.webPictures)
+            }
+        }
     }
-    Mark.SIZE -> if (span.scale <= 0f) null else SpanStyle(fontSize = span.scale.em)
-    Mark.SUPERSCRIPT -> SpanStyle(baselineShift = BaselineShift.Superscript, fontSize = 0.75.em)
-    Mark.SUBSCRIPT -> SpanStyle(baselineShift = BaselineShift.Subscript, fontSize = 0.75.em)
 }
 
-private fun decorationFor(span: Span, all: List<Span>): TextDecoration {
-    val other = if (span.style == Mark.UNDERLINE) Mark.STRIKE else Mark.UNDERLINE
-    val own = if (span.style == Mark.UNDERLINE) TextDecoration.Underline else TextDecoration.LineThrough
-    val overlaps = all.any { it.style == other && it.from < span.to && it.to > span.from }
-    return if (overlaps) {
-        TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
-    } else {
-        own
+internal fun tableHint(mode: TableMode): String = when (mode) {
+    TableMode.FIT -> "Wrap to fit the width; scroll only when it cannot"
+    TableMode.COMFORTABLE -> "One line a cell, scrolled sideways"
+    TableMode.COMPACT -> "Fitted, in smaller type"
+}
+
+@Composable
+private fun StepButton(label: String, enabled: Boolean, onClick: () -> Unit) {
+    val colors = Filet.colors
+    Text(
+        label,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = if (enabled) colors.accent else colors.fg3.copy(alpha = 0.45f),
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(colors.sunken)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 9.dp),
+    )
+}
+
+/**
+ * A web or mail link, shown before anything opens.
+ *
+ * Asked rather than followed, because a tap on a word in a document is not the same as deciding
+ * to leave the app for an address nobody has read yet. The address is shown in full.
+ */
+@Composable
+private fun LinkSheet(url: String, onDismiss: () -> Unit, say: (String) -> Unit) {
+    val context = LocalContext.current
+    val mail = url.startsWith("mailto:")
+    Dlg(onDismiss = onDismiss) {
+        DlgHeader(FiletIcons.Link, if (mail) "Mail address" else "Web link", onClose = onDismiss)
+        DlgBody {
+            Text(
+                if (mail) url.removePrefix("mailto:") else url,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        DlgFooter {
+            DlgSpacer()
+            DlgBtn("Copy") {
+                context.getSystemService(ClipboardManager::class.java)
+                    ?.setPrimaryClip(ClipData.newPlainText("link", if (mail) url.removePrefix("mailto:") else url))
+                say("Link copied")
+                onDismiss()
+            }
+            DlgBtn(if (mail) "Open in mail app" else "Open in browser", kind = BtnKind.PRIMARY) {
+                onDismiss()
+                try {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                } catch (_: ActivityNotFoundException) {
+                    say(if (mail) "No app here sends mail." else "No app here opens web links.")
+                }
+            }
+        }
     }
 }

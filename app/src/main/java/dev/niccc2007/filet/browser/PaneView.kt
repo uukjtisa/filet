@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -44,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -71,13 +71,16 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.niccc2007.filet.media.Thumbnails
+import dev.niccc2007.filet.ui.WarmAhead
 import dev.niccc2007.filet.about.AboutPage
 import dev.niccc2007.filet.data.ViewStep
 import dev.niccc2007.filet.home.HomeOverview
 import dev.niccc2007.filet.index.IndexStatus
-import dev.niccc2007.filet.index.SearchScope
+import dev.niccc2007.filet.index.Reach
 import dev.niccc2007.filet.settings.SettingsPage
 import dev.niccc2007.filet.ui.HScroll
 import dev.niccc2007.filet.ui.theme.Filet
@@ -107,6 +110,9 @@ fun PaneView(
     val s by remember(pane) {
         pane.state.map(SelectionReads::forPane).distinctUntilChanged()
     }.collectAsState(SelectionReads.forPane(pane.state.value))
+    // Taken off the screen with the pane standing still: the next showing is a return, and comes
+    // back where it was. See PaneController.markReturn.
+    androidx.compose.runtime.DisposableEffect(pane) { onDispose { pane.markReturn() } }
     val app by vm.state.collectAsState()
     val viewStep by vm.prefs.viewStep.collectAsState()
     val treeWanted by vm.prefs.treeView.collectAsState()
@@ -175,15 +181,38 @@ fun PaneView(
             val chips: @Composable () -> Unit = {
                 if (s.search.open) {
                     val index = vm.indexStatus.collectAsState().value
+                    var reachSheet by remember { mutableStateOf(false) }
+                    val currentReach = ReachLadder.resolve(s.search.reach, s.cwd, pane.reachDrives)
+                    if (reachSheet) {
+                        ReachSheet(
+                            drives = pane.reachDrives,
+                            current = currentReach,
+                            onPick = { pane.setReach(it); reachSheet = false },
+                            onDismiss = { reachSheet = false },
+                        )
+                    }
                     ScopeChips(
-                        // Only the scopes this pane can answer. All four were drawn on every pane,
-                        // so Home opened with "This folder" ticked and no folder to stand in.
-                        offered = SearchReach.scopesFor(s.cwd),
-                        current = SearchReach.resolve(s.search.scope, s.cwd),
+                        // The ladder this pane can actually climb. All four of the old scopes
+                        // were drawn on every pane, so Home opened with "This folder" ticked
+                        // and no folder to stand in - and the rung above it named a set nobody
+                        // could point at. See ReachLadder.
+                        offered = ReachLadder.rungsFor(s.cwd, pane.reachDrives),
+                        current = currentReach,
+                        // Only worth offering with something to choose between.
+                        canChoose = pane.reachDrives.size > 1,
+                        onChoose = { reachSheet = true },
                         nativeOnly = s.search.nativeOnly,
                         nativeMatters = s.search.nativeMatters,
-                        origin = s.search.origin,
-                        onPick = { pane.setScope(it) },
+                        origin = SearchReach.statusLine(
+                            origin = s.search.origin,
+                            running = s.search.running,
+                            checking = s.search.checking,
+                            walked = s.search.walked,
+                            drives = pane.reachDrives,
+                        ),
+                        hidden = vm.prefs.searchHidden.collectAsState().value,
+                        onHidden = { pane.setSearchHidden(it) },
+                        onPick = { pane.setReach(it) },
                         onNative = { pane.setNativeOnly(it) },
                     )
                     FieldChips(
@@ -199,6 +228,23 @@ fun PaneView(
             }
 
             Box(Modifier.weight(1f)) {
+                // Measured once here and read by both the listing underneath and the dock
+                // beside it, so neither has to guess how much of the pane the pick card is
+                // sitting on. See `LocalPickInset`.
+                // TWO numbers, summed, not one shared by both cards.
+                //
+                // Sharing one was a bug: the pick card reports zero on its way out through a
+                // DisposableEffect, and the extract card reports nothing at all when it leaves
+                // composition - so after an extraction finished the listing kept padding the
+                // bottom for a card that was no longer on screen. Separate states make the
+                // dispose of each one unambiguous and remove the ordering question between
+                // them entirely.
+                var pickHeight by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+                var extractHeight by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+                val pickInset = with(androidx.compose.ui.platform.LocalDensity.current) {
+                    (pickHeight + extractHeight).toDp()
+                }
+                androidx.compose.runtime.CompositionLocalProvider(LocalPickInset provides pickInset) {
                 when {
                     s.loading && s.entries.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                         CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp)
@@ -215,10 +261,69 @@ fun PaneView(
                         FolderBody(pane, vm, s, app, metrics, side, registry, onGhost, reach)
                     else -> SpecialBody(pane, vm, s, widthDp)
                 }
+                }
                 // Floating, and in EVERY pane rather than only the focused one. The
                 // per-pane part is what makes split view unambiguous: "Paste" then means
                 // THIS side and there is nothing to work out.
-                Dock(pane, vm, s, app)
+                // Lifted clear of the pick card when one is up, so the two floating things do
+                // not land on top of each other. New folder stays reachable while choosing a
+                // destination, which is exactly when somebody wants it.
+                Dock(pane, vm, s, app, liftBy = pickInset)
+                // The pick, as a floating card in the listing it is asking about rather than a
+                // band of chrome above it. It reports its own height so the dock clears it
+                // exactly. See `PickDock`.
+                PickDock(vm, pane) { pickHeight = it }
+                // The extraction's settings, in the same place and measured the same way. Only
+                // in the pane it is about: in split view the other side is an ordinary browser
+                // and a card there would describe a folder it is not changing.
+                val pendingExtract by vm.extractPlan.collectAsState()
+                pendingExtract?.let { p ->
+                    if (pane === vm.focusedPane()) {
+                        // Reported back to zero when the card goes, so the listing stops
+                        // reserving room for it.
+                        androidx.compose.runtime.DisposableEffect(Unit) {
+                            onDispose { extractHeight = 0 }
+                        }
+                        ExtractCard(
+                            plan = p.plan,
+                            destinationName = p.into.path,
+                            busy = p.busy,
+                            onWrap = {
+                                vm.adjustExtract {
+                                    it.copy(
+                                        wrap = if (p.plan.wrapFolder != null) {
+                                            dev.niccc2007.filet.vfs.provider.WrapChoice.FORCE_OFF
+                                        } else {
+                                            dev.niccc2007.filet.vfs.provider.WrapChoice.FORCE_ON
+                                        },
+                                    )
+                                }
+                            },
+                            // One level at a time, either way. Both are explicit numbers rather
+                            // than a toggle, because the answer is "how many", not "yes or no".
+                            onStripLess = {
+                                vm.adjustExtract {
+                                    it.copy(stripLevels = (p.plan.strippedFolders.size - 1).coerceAtLeast(0))
+                                }
+                            },
+                            onStripMore = {
+                                vm.adjustExtract {
+                                    it.copy(
+                                        stripLevels = (p.plan.strippedFolders.size + 1)
+                                            .coerceAtMost(p.plan.strippableLevels),
+                                    )
+                                }
+                            },
+                            onCollision = { c -> vm.adjustExtract { it.copy(onCollision = c) } },
+                            onConfirm = vm::confirmExtract,
+                            onDismiss = vm::cancelExtract,
+                            // Asked of the DESTINATION, not of the archive's own folder.
+                            // Extracting OUT of a read-only volume into a writable one is the
+                            // case the merge had to keep working.
+                            readOnly = vm.writeBlockReason(p.into),
+                        ) { extractHeight = it }
+                    }
+                }
                 // Only when there are two panes: alone on screen there is nowhere to drag
                 // between, so a drop target for "this pane's own folder" is a control with
                 // nothing to do.
@@ -410,10 +515,11 @@ private fun PaneHeader(
                         modifier = Modifier.padding(horizontal = 6.dp),
                     )
                 }
-                // Not on Home, which draws a full search field as its first card. Both open
-                // the same search, so the glyph above it was the same control twice - and the
-                // one that loses is the one that has to be guessed at.
-                if (s.kind != PaneKind.HOME) {
+                // On every tab that searches, Home included. Home used to draw a full search
+                // card instead, and the card cost a row of drives to say what this glyph says.
+                // Gated on the plan rather than on a list of kinds: a glyph on a tab with
+                // nothing to search is a control that does nothing, and About is one.
+                if (searchOffered(s.kind)) {
                     Icon(
                         FiletIcons.Search, "Search this pane", tint = colors.fg2,
                         modifier = Modifier.size(26.dp).clip(RoundedCornerShape(6.dp))
@@ -431,13 +537,15 @@ private fun PaneSearchField(pane: PaneController, s: PaneState, modifier: Modifi
     val colors = Filet.colors
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+    Column(modifier) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(FiletIcons.Search, null, tint = colors.accent, modifier = Modifier.size(14.dp))
         Spacer(Modifier.width(6.dp))
         Box(Modifier.weight(1f)) {
             if (s.search.query.isEmpty()) {
                 Text(
-                    "search ${s.title} — or from:youtube",
+                    // Home has no folder to name; what it searches is the whole device.
+                    if (s.kind == PaneKind.HOME) searchHint(s.kind) else "search ${s.title} — or from:youtube",
                     fontSize = 13.sp, color = colors.fg3,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
@@ -451,10 +559,9 @@ private fun PaneSearchField(pane: PaneController, s: PaneState, modifier: Modifi
                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
             )
         }
-        if (s.search.running) {
-            CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp, color = colors.accent)
-            Spacer(Modifier.width(6.dp))
-        } else if (s.search.query.isNotBlank()) {
+        // The count is always shown once there is a query; whether it is final is the line
+        // below's job. A spinner in its place hid the number while it was the thing changing.
+        if (s.search.query.isNotBlank()) {
             Text("${s.search.hits.size}", fontSize = 10.sp, color = colors.fg3)
             Spacer(Modifier.width(6.dp))
         }
@@ -463,6 +570,20 @@ private fun PaneSearchField(pane: PaneController, s: PaneState, modifier: Modifi
             modifier = Modifier.size(22.dp).clip(RoundedCornerShape(5.dp))
                 .clickable { pane.openSearch(false) }.padding(3.dp),
         )
+    }
+    // One thin line while ANYTHING is still working - the sources, the walkers, the checker.
+    // SEARCH.md §14.8. The old spinner followed the sources alone, so it stopped while rows were
+    // still arriving and the answer looked final when it was not. A spacer of the same height
+    // when idle, so the field does not jump as the line comes and goes.
+    if (s.search.busy) {
+        androidx.compose.material3.LinearProgressIndicator(
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(1.5.dp),
+            color = colors.accent,
+            trackColor = colors.lineSoft,
+        )
+    } else {
+        Spacer(Modifier.padding(top = 4.dp).height(1.5.dp))
+    }
     }
 }
 
@@ -504,19 +625,24 @@ private fun CrawlNotice(index: dev.niccc2007.filet.index.IndexStatus) {
 }
 
 /**
- * The scope chips are not decoration: tapping one is how the query language gets discovered
- * (SEARCH.md §6.2). Scope is explicit rather than guessed, because the second ambiguity
- * after "which pane" is "how far".
+ * The reach chips are not decoration: tapping one is how the query language gets discovered
+ * (SEARCH.md §6.2). Reach is explicit rather than guessed, because the second ambiguity after
+ * "which pane" is "how far" - and the chips are in ladder order, each one strictly wider than
+ * the last, so widening a search is always the next chip to the right.
  */
 @Composable
 private fun ScopeChips(
-    current: SearchScope,
+    current: Reach,
     nativeOnly: Boolean,
     nativeMatters: Boolean,
     origin: String,
-    offered: List<SearchScope>,
-    onPick: (SearchScope) -> Unit,
+    offered: List<Rung>,
+    onPick: (Reach) -> Unit,
     onNative: (Boolean) -> Unit,
+    canChoose: Boolean = false,
+    onChoose: () -> Unit = {},
+    hidden: Boolean = false,
+    onHidden: (Boolean) -> Unit = {},
 ) {
     val colors = Filet.colors
     HScroll(
@@ -525,20 +651,52 @@ private fun ScopeChips(
         contentPadding = 8.dp,
         spacing = 5.dp,
     ) {
-        for (scope in offered) {
-            val on = scope == current
+        for (rung in offered) {
+            val on = rung.reach == current
             Text(
-                text = scope.label,
+                text = rung.label,
                 fontSize = 10.sp,
                 color = if (on) colors.accent else colors.fg2,
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
                     .background(if (on) colors.sel else Color.Transparent)
                     .border(1.dp, if (on) colors.accent else colors.lineSoft, RoundedCornerShape(20.dp))
-                    .clickable { onPick(scope) }
+                    .clickable { onPick(rung.reach) }
                     .padding(horizontal = 9.dp, vertical = 3.dp),
             )
         }
+        // The precise path, after the fast one. Lit when the reach in force is a set of drives
+        // no rung names - otherwise nothing in the row would be ticked and the chips would read
+        // as having lost track of what is being searched.
+        if (canChoose) {
+            val custom = offered.none { it.reach == current }
+            Text(
+                text = if (custom) driveCount(current) else "Drives…",
+                fontSize = 10.sp,
+                color = if (custom) colors.accent else colors.fg2,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(if (custom) colors.sel else Color.Transparent)
+                    .border(1.dp, if (custom) colors.accent else colors.lineSoft, RoundedCornerShape(20.dp))
+                    .clickable { onChoose() }
+                    .padding(horizontal = 9.dp, vertical = 3.dp),
+            )
+        }
+        // Hidden folders, in the search bar itself and saved on its own. SEARCH.md §14.5. With
+        // the browser's show-hidden on, the first answer to "minecraft" was a thumbnail inside
+        // .hwthumbnails; whether to SEE dot-folders while browsing is not whether a cache belongs
+        // in an answer, so the two are separate switches.
+        Text(
+            text = "Hidden folders",
+            fontSize = 10.sp,
+            color = if (hidden) colors.accent else colors.fg2,
+            modifier = Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(if (hidden) colors.sel else Color.Transparent)
+                .border(1.dp, if (hidden) colors.accent else colors.lineSoft, RoundedCornerShape(20.dp))
+                .clickable { onHidden(!hidden) }
+                .padding(horizontal = 9.dp, vertical = 3.dp),
+        )
         // The native switch sits with the scopes because it answers the same question they do:
         // how hard to look. An index can be cold and nobody can see that from the outside, so
         // "look again properly" is a control rather than something to be guessed at.
@@ -621,6 +779,7 @@ private fun appendToken(query: String, token: String): String {
 }
 
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private fun FolderBody(
     pane: PaneController,
     vm: BrowserViewModel,
@@ -645,15 +804,39 @@ private fun FolderBody(
     // dismissing without choosing then puts the selection back how it was.
     var menuSelectedIt by remember { mutableStateOf(false) }
 
-    val onHeldStill: (VNode, Offset) -> Unit = { node, at ->
-        val current = pane.state.value
-        when (longPressAction(current.selected.size, node.path in current.selected)) {
+    // `action` is what the press found when it STARTED. Read here instead, it always saw the
+    // row the press had just selected, and the menu opened on every long press - covering the
+    // rows somebody was about to select next, which is how it was reported.
+    val onHeldStill: (VNode, Offset, LongPressAction) -> Unit = { node, at, action ->
+        when (action) {
             // A range extension is its own feedback: the rows light up and the bar counts them.
             // Opening a menu on top of that would bury the thing the gesture just did.
             LongPressAction.EXTEND -> Unit
-            LongPressAction.MENU -> { menuSelectedIt = true; menuAt = node to at }
+            // A press on something unselected selects it, and that is all. The menu would cover
+            // the next rows to pick; it is a double tap, or a press on the selection, away.
+            LongPressAction.MENU -> Unit
+            // Pressing what is already selected is asking about it: the menu, for all of them.
             LongPressAction.MENU_FOR_SELECTION -> { menuSelectedIt = false; menuAt = node to at }
         }
+    }
+
+    // A double tap selects the row - adding it to a running selection, or starting one - and
+    // opens the menu on it. The selection stays after the menu closes: it was asked for.
+    val onDoubleTapRow: (VNode, Offset) -> Unit = { node, at ->
+        vm.focusSide(side)
+        val current = pane.state.value
+        if (node.path !in current.selected) {
+            if (current.selected.isEmpty()) pane.selectOnly(node) else pane.toggleSelect(node)
+        }
+        menuSelectedIt = false
+        menuAt = node to at
+    }
+
+    // The icon, and a grid tile's corner circle: a tap there toggles the selection whether or
+    // not one is running. The rest of the row keeps meaning open.
+    val onIconTap: (VNode) -> Unit = { node ->
+        vm.focusSide(side)
+        pane.toggleSelect(node)
     }
 
     menuAt?.let { (node, at) ->
@@ -669,6 +852,35 @@ private fun FolderBody(
         )
     }
 
+    // A grid tile held still, lifted. Select comes first: it is what the hold used to do, now
+    // one tap further away rather than gone. Delete only where the folder can be written.
+    var peekFor by remember { mutableStateOf<VNode?>(null) }
+    peekFor?.let { node ->
+        val writable = vm.writeBlockReason(s.cwd ?: node.path.parent) == null
+        dev.niccc2007.filet.handlers.TilePeek(
+            vm = vm,
+            node = node,
+            actions = listOfNotNull(
+                dev.niccc2007.filet.handlers.PeekAction(FiletIcons.Check, "Select") {
+                    vm.focusSide(side)
+                    pane.selectOnly(node)
+                },
+                dev.niccc2007.filet.handlers.PeekAction(FiletIcons.Open, "Open") { rowClick(pane, vm, side, node) },
+                dev.niccc2007.filet.handlers.PeekAction(FiletIcons.Share, "Share") { vm.share(node) },
+                if (writable) {
+                    dev.niccc2007.filet.handlers.PeekAction(FiletIcons.Delete, "Delete", danger = true) {
+                        vm.confirmDeleteOf(listOf(node))
+                    }
+                } else {
+                    null
+                },
+            ),
+            onDismiss = { peekFor = null },
+        )
+    }
+    val peekTile: (VNode) -> Unit = { peekFor = it }
+    val unpeekTile: () -> Unit = { peekFor = null }
+
     val rows = s.visible
     // The tree is the same list with the opened folders spliced into it, and only when the
     // view is on and nothing is being searched - a search result's row already says where it
@@ -678,6 +890,9 @@ private fun FolderBody(
     val treeRows = remember(rows, s.open, s.branches, tree) {
         if (tree) TreeRows.flatten(rows, s.open, s.branches) else emptyList()
     }
+    val listKeys = remember(tree, rows, treeRows) { rowKeys(tree, rows, treeRows) }
+    // Which folder a drop on each tree row lands in. See `TreeDrop`.
+    val treeHomes = remember(treeRows, s.cwd) { TreeDrop.homes(treeRows, s.cwd) }
     // The run of rows the working folder's outline goes round: the folder itself, then
     // everything under it, which in a flattened tree is always one contiguous block.
     //
@@ -686,8 +901,8 @@ private fun FolderBody(
     // at the row saying "Reading…" and leave the branch being read outside the frame.
     val frame = remember(treeRows, s.active) {
         val at = s.active
-        val first = if (at == null) -1 else treeRows.indexOfFirst {
-            it.node.path == at && !it.loading
+        val first = if (at == null) -1 else with(TreeRows) {
+            treeRows.indexOfFirst { it.isRowOf(at) && !it.loading }
         }
         if (first < 0 || at == null) {
             null
@@ -696,7 +911,8 @@ private fun FolderBody(
             var i = first + 1
             while (i < treeRows.size) {
                 val row = treeRows[i]
-                if (!row.loading && !row.node.path.path.startsWith(at.path + "/")) break
+                // TreeBranch.under, so the rail runs on through an archive open inside it.
+                if (!row.loading && (row.node.path == at || !TreeBranch.under(at, row.node.path))) break
                 last = i
                 i++
             }
@@ -711,68 +927,137 @@ private fun FolderBody(
     }
     if (rows.isEmpty()) {
         EmptyNote(
-            if (s.search.active) emptySearchNote(s.search.scope, vm.indexStatus.collectAsState().value)
+            if (s.search.active) {
+                val current = ReachLadder.resolve(s.search.reach, s.cwd, pane.reachDrives)
+                val rungs = ReachLadder.rungsFor(s.cwd, pane.reachDrives)
+                emptySearchNote(
+                    reach = current,
+                    wider = rungs.dropWhile { it.reach != current }.drop(1).firstOrNull()?.label,
+                    index = vm.indexStatus.collectAsState().value,
+                )
+            }
             else "This folder is empty",
             Modifier.fillMaxSize(),
         )
         return
     }
 
-    // One scroll position per TAB, not one per screen position.
+    // One scroll position per TAB and per FOLDER, kept by the pane.
     //
-    // Bug identified here: the list state was remembered by this composable, and the composable
-    // is the same one whichever tab it is drawing - so switching tabs handed tab 2 the scroll
-    // state of tab 1, and the effect below then scrolled it to the top because the folder had
-    // changed. A tree worked deep into one tab came back at its first row every time another
-    // tab was visited, which is exactly the several-tabs-of-tree work this view is for.
+    // Bug identified here, twice. The list state was first remembered by this composable, which
+    // is the same one whichever tab it is drawing, so tab 2 inherited tab 1's scroll; it was then
+    // parked per pane, but only for the folder the pane was in, so Back put the folder being
+    // returned to at its first row. The pane now files a position for every folder it has been
+    // in (see ScrollMemory), and a folder RETURNED to - Back, Forward, Up, or a tab put back at
+    // launch - is scrolled back to it. See `PaneState.resume`.
     //
-    // Keyed on the pane, and the position is parked in [PaneScroll] while the tab is off
-    // screen. A parked position is only used if the tab is still in the same folder it was
-    // parked in; anywhere else the index means nothing.
-    val listMark = remember(pane.id) { PaneScroll.list[pane.id]?.takeIf { it.cwd == s.cwd } }
-    val gridMark = remember(pane.id) { PaneScroll.grid[pane.id]?.takeIf { it.cwd == s.cwd } }
+    // Put back AS THE STATE IS MADE only for a return whose row is already here - a tab shown
+    // again, whose rows never left - so it is drawn in place with no jump.
+    //
+    // Bug identified here, twice over. These states are made again every time a folder starts
+    // loading, because the listing returns early while it has no rows. They used to take the
+    // folder's last position unconditionally: so a folder opened FRESH, from Home or the side
+    // bar, came up wherever it was left some earlier time; and a long folder returned to by Back
+    // was handed an index its first chunk of rows did not reach yet, was clamped short of it, and
+    // was then marked as handled - so the effect below that waits for the row never ran, and Back
+    // out of an archive landed near the top. A return whose row has not arrived starts at the top
+    // and leaves the position to that effect.
+    val place = pane.placeOf(s)
+    val parked = remember(pane.id) {
+        if (!s.resume) return@remember null
+        val marks = place?.let { pane.scroll.at(it) } ?: return@remember null
+        val grid = metrics.step.isGrid
+        val mark = (if (grid) marks.grid else marks.list) ?: return@remember null
+        val settled = !s.loading && (!tree || s.cwd == null || TreeRows.foldsRead(s.cwd, s.open, s.branches))
+        val keys: List<Any> = if (grid) rows.map { it.path.toString() } else listKeys
+        (ScrollMemory.resolve(mark, keys, settled) as? ScrollMemory.Outcome.Scroll)?.let { grid to it }
+    }
     val listState = remember(pane.id) {
-        androidx.compose.foundation.lazy.LazyListState(listMark?.index ?: 0, listMark?.offset ?: 0)
+        val at = parked?.takeIf { !it.first }?.second
+        androidx.compose.foundation.lazy.LazyListState(at?.index ?: 0, at?.offset ?: 0)
     }
     val gridState = remember(pane.id) {
-        androidx.compose.foundation.lazy.grid.LazyGridState(gridMark?.index ?: 0, gridMark?.offset ?: 0)
+        val at = parked?.takeIf { it.first }?.second
+        androidx.compose.foundation.lazy.grid.LazyGridState(at?.index ?: 0, at?.offset ?: 0)
     }
-    // Parked under the folder these positions were scrolled IN, captured when the effect starts
-    // rather than read when it ends. Read at the end it is wrong both ways out: leaving on a
-    // navigation, the pane's folder is already the new one by then, and leaving on a tab switch,
-    // anything that tracks the current composition already holds the NEXT tab's folder. Either
-    // way the position would be parked under a folder it was never scrolled in.
-    DisposableEffect(pane.id, s.cwd) {
-        val id = pane.id
-        val cwd = s.cwd
-        val ls = listState
-        val gs = gridState
-        onDispose {
-            PaneScroll.list[id] = PaneScroll.Mark(cwd, ls.firstVisibleItemIndex, ls.firstVisibleItemScrollOffset)
-            PaneScroll.grid[id] = PaneScroll.Mark(cwd, gs.firstVisibleItemIndex, gs.firstVisibleItemScrollOffset)
+    // The folder a parked position was put back for by being remembered above. The "new folder
+    // starts at the top" effect skips exactly that one landing.
+    var resumedIn by remember(pane.id) { mutableStateOf(if (parked != null) s.cwd else null) }
+
+    // Filed as it changes, so leaving the folder by any route - a tap, Back, a tab switch, the
+    // app closing - finds its position already written. The first value is dropped: it is the
+    // position the folder arrived at, which is either the top, the one just put back, or for a
+    // moment the PREVIOUS folder's, since the list state is the pane's and not the folder's.
+    LaunchedEffect(pane.id, s.cwd, s.resume) {
+        val at = place ?: return@LaunchedEffect
+        if (s.resume) return@LaunchedEffect
+        snapshotFlow {
+            val moving = listState.isScrollInProgress || gridState.isScrollInProgress
+            moving to ScrollMemory.Marks(list = markOf(listState), grid = markOf(gridState))
         }
+            .drop(1)
+            .collect { (moving, marks) -> if (!moving) pane.parkScroll(at, marks) }
     }
-    // The folder a parked position was restored for. The "new folder starts at the top" effect
-    // skips exactly one landing on it - the re-entry - and behaves as before from then on.
-    var resumedIn by remember(pane.id) { mutableStateOf((listMark ?: gridMark)?.cwd) }
 
     // The row a long press in the search results opened a menu for. The same sheet every other
     // list uses, so the actions do not differ by which screen you found the file on.
     var searchMenuFor by remember { mutableStateOf<VNode?>(null) }
 
-    // Whether an index pass is in flight. Decides whether a result carries a state badge at
-    // all - see showBadge.
-    val crawlRunning = vm.indexStatus.collectAsState().value.running
 
     // A new folder starts at the top - unless something asked to be revealed in it, in which
-    // case scrolling to the top is exactly what would undo the reveal.
+    // case scrolling to the top is exactly what would undo the reveal, or it is being returned
+    // to, which the effect after this one answers.
     LaunchedEffect(pane.id, s.cwd) {
         val resumed = resumedIn != null && resumedIn == s.cwd
         resumedIn = null
-        if (resumed) return@LaunchedEffect
+        if (resumed) {
+            pane.resumeHandled()
+            return@LaunchedEffect
+        }
+        if (s.resume) return@LaunchedEffect
         if (s.revealTarget == null) {
             listState.scrollToItem(0)
             gridState.scrollToItem(0)
+            // Filed as well: the position kept for this folder is the one it was last SEEN at,
+            // so a later return comes back to the top it was opened at rather than to a visit
+            // before that.
+            place?.let { pane.parkScroll(it, ScrollMemory.Marks(list = ScrollMemory.Mark(0, 0), grid = ScrollMemory.Mark(0, 0))) }
+        }
+    }
+
+    // A folder returned to goes back to the row it was scrolled to.
+    //
+    // Waited for the way a reveal is: a folder arrives in chunks and a tree's branches after it,
+    // so the row a position names may not be there yet, and scrolling early lands on whichever
+    // file happens to be at that index so far. ScrollMemory.resolve says scroll or wait.
+    LaunchedEffect(pane.id, s.cwd, s.resume, listKeys, s.loading, s.branches) {
+        if (!s.resume) return@LaunchedEffect
+        val grid = metrics.step.isGrid
+        val marks = place?.let { pane.scroll.at(it) }
+        val mark = if (grid) marks?.grid else marks?.list
+        // Nothing to go back to, or something else owns the scroll: a reveal, or a search whose
+        // rows are not the folder's.
+        if (mark == null || s.revealTarget != null || s.search.active) {
+            if (s.revealTarget == null) {
+                listState.scrollToItem(0)
+                gridState.scrollToItem(0)
+            }
+            pane.resumeHandled()
+            return@LaunchedEffect
+        }
+        // A drag on the list means they are reading it themselves now.
+        if (listState.isScrollInProgress || gridState.isScrollInProgress) {
+            pane.resumeHandled()
+            return@LaunchedEffect
+        }
+        val treeRead = !tree || s.cwd == null || TreeRows.foldsRead(s.cwd, s.open, s.branches)
+        val keysNow: List<Any> = if (grid) rows.map { it.path.toString() } else listKeys
+        when (val o = ScrollMemory.resolve(mark, keysNow, settled = !s.loading && treeRead)) {
+            ScrollMemory.Outcome.Wait -> return@LaunchedEffect
+            is ScrollMemory.Outcome.Scroll -> {
+                if (grid) gridState.scrollToItem(o.index, o.offset) else listState.scrollToItem(o.index, o.offset)
+                pane.resumeHandled()
+            }
         }
     }
 
@@ -793,6 +1078,16 @@ private fun FolderBody(
         val index = if (tree) TreeRows.revealIndex(treeRows, target) else rows.indexOfFirst { it.path == target }
         val count = if (tree) treeRows.size else rows.size
         val treeRead = !tree || s.cwd == null || TreeRows.foldsRead(s.cwd, s.open, s.branches)
+        // A focus put back by Back or Forward scrolls only when its row is off screen: the
+        // rail moving is the whole answer otherwise.
+        if (s.revealIfHidden && index >= 0) {
+            val shown = if (metrics.step.isGrid) gridState.layoutInfo.visibleItemsInfo.map { it.index }
+            else listState.layoutInfo.visibleItemsInfo.map { it.index }
+            if (index in shown) {
+                pane.revealHandled()
+                return@LaunchedEffect
+            }
+        }
         val act = RevealScroll.act(
             settled = !s.loading && treeRead,
             rowCount = count,
@@ -856,7 +1151,7 @@ private fun FolderBody(
     // alternatives were worse.
     val padEnd = PaneInsets.end(app.split != SplitMode.OFF).dp
 
-    // Reach mode's empty top. See `Reach` for why this is a gap and not a reversed list.
+    // Reach mode's empty top. See `ThumbReach` for why this is a gap and not a reversed list.
     //
     // LATCHED, per folder and per width: it is computed once from the viewport the folder was
     // first drawn in and then held. The viewport changes height under a reader all the time - a
@@ -869,7 +1164,7 @@ private fun FolderBody(
     val density = androidx.compose.ui.platform.LocalDensity.current.density
     var viewportDp by remember { mutableFloatStateOf(0f) }
     val gap = remember(pane.id, s.cwd, metrics.widthDp, reach, viewportDp > 0f) {
-        Reach.gapDp(viewportDp, reach)
+        ThumbReach.gapDp(viewportDp, reach)
     }.dp
     val measure = Modifier.onGloballyPositioned { c ->
         if (viewportDp == 0f) viewportDp = c.size.height / density
@@ -880,8 +1175,22 @@ private fun FolderBody(
     val anchor = if (reach) Arrangement.Bottom else Arrangement.Top
 
     if (metrics.step.isGrid) {
+        // A tile asks for a picture several times the area of a row's and a grid shows three
+        // times as many at once, so the pre-render matters more here than in the list.
+        val warmCtx = LocalContext.current
+        val warmPx = (metrics.step.icon * 2.5f).toInt().coerceIn(48, 320)
+        WarmAhead(state = gridState, count = rows.size) { i ->
+            val node = rows.getOrNull(i)
+            if (node != null && !node.isDir && Thumbnails.canPreview(node.extension)) {
+                runCatching {
+                    Thumbnails.load(
+                        warmCtx, vm.vfs, node.path, node.size, node.mtime, warmPx, ahead = true,
+                    )
+                }
+            }
+        }
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(metrics.step.tile!!.dp),
+            columns = TileGrid.cells(metrics.step.tile!!.dp),
             modifier = Modifier.fillMaxSize().then(measure).then(pull),
             state = gridState,
             verticalArrangement = anchor,
@@ -898,14 +1207,17 @@ private fun FolderBody(
                     metrics = metrics,
                     selected = rowSelected(node.path, selection),
                     dropTarget = (app.drag?.over as? DropTarget.Folder)?.path == node.path,
-                    modifier = dragModifier(node, pane, vm, side, registry, onGhost, onHeldStill).then(pickDim(vm, node)),
+                    modifier = dragModifier(node, pane, vm, side, registry, onGhost, onHeldStill, peekTile, unpeekTile)
+                        .then(pickDim(vm, node)),
                     thumbnails = metrics.step.icon >= 20,
+                    selecting = s.selecting,
+                    onIconClick = { onIconTap(node) },
                     onClick = { rowClick(pane, vm, side, node) },
                     // No long-click here on purpose: the drag detector in `dragModifier` owns
-                    // the long press and selects in its onDragStart. Two long-press detectors
-                    // on one tile means the loser never runs.
+                    // the long press - a peek here with nothing selected, otherwise it selects -
+                    // and two long-press detectors on one tile means the loser never runs.
                     onLongClick = {},
-                    onDoubleClick = { vm.openChooser(node) },
+                    onDoubleClick = { at -> onDoubleTapRow(node, at) },
                 )
             }
         }
@@ -934,24 +1246,152 @@ private fun FolderBody(
                 }
         }
 
+        // ── what the fling costs, precomputed ──────────────────────────────────────────────
+        //
+        // Reported as the list being choppy when scrolled fast, and these are the two things
+        // that were being done per row per frame rather than once per listing.
+        //
+        // The KEYS. `VPath.toString()` concatenates a scheme and a path into a new String, and
+        // the key lambda is called for every item that enters or leaves the viewport - which
+        // during a hard fling is most of the list, repeatedly. That is a few thousand
+        // short-lived strings a second handed to the collector, and a collection in the middle
+        // of a fling is exactly the stutter being described. Built once per listing instead,
+        // where it is one pass over a list that just changed anyway.
+        val keys = listKeys
+        // And the search hits. The row looked its own hit up with `firstOrNull` over every hit
+        // in the result set, TWICE - once for the location and once for the state - so drawing
+        // a screenful of a thousand-hit search was a million comparisons per frame.
+        val hits = remember(s.search.hits) { s.search.hits.associateBy { it.node.path } }
+
+        // One flat list unless a share is in reach, and then a header per drive. See
+        // ResultGroups for why local drives are never split from each other.
+        val reachNow = ReachLadder.resolve(s.search.reach, s.cwd, pane.reachDrives)
+        val groups = if (s.search.active && !tree) {
+            remember(rows, pane.reachDrives, reachNow, s.search.running, s.search.unreachable, s.search.walked) {
+                ResultGroups.of(
+                    rows, pane.reachDrives, reachNow, s.search.running, s.search.unreachable,
+                    walked = s.search.walked.mapKeys { (root, _) -> dev.niccc2007.filet.index.VolumeKey(root) },
+                )
+            }
+        } else {
+            null
+        }
+
+        // One description of a result row, used by the flat list and the grouped one alike,
+        // so the two cannot drift into rows that behave differently depending on whether a
+        // share happened to be in reach.
+        val hitRow: @Composable (VNode) -> Unit = { node ->
+            val hit = hits[node.path]
+            SearchResultRow(
+                node = node,
+                where = hit?.where ?: "",
+                state = hit?.state ?: dev.niccc2007.filet.index.HitState.AVAILABLE,
+                spans = hit?.spans.orEmpty(),
+                metrics = metrics,
+                selected = rowSelected(node.path, selection),
+                onClick = { rowClick(pane, vm, side, node) },
+                // Bug identified: a long press here only selected the row, so the one
+                // action a search result needs more than any other - go to where this
+                // actually is - was reachable from every list in the app except the
+                // one whose whole point is that the file is somewhere else.
+                onLongClick = { searchMenuFor = node },
+            )
+        }
+
+        // What a pick is about to put HERE, drawn at the top of this folder's own listing.
+        // Only in the pick's own pane: the preview belongs to the folder being chosen, and
+        // showing it in the pane somebody picked FROM would describe a different place.
+        val livePick = vm.inAppPick.collectAsState().value
+        // During a pick the ghosts belong to the pick's own pane. For an extraction there is
+        // no pick at all and they belong to the pane that is about to receive them, which is
+        // the focused one.
+        val preview = vm.pickPreview.collectAsState().value
+            .takeIf { if (livePick != null) livePick.pane === pane else pane === vm.focusedPane() }
+        // Scrolled to, the moment they appear. They are inserted at the TOP of the listing, and
+        // a listing somebody has scrolled down is a listing where the whole preview lands off
+        // screen - so the one thing the preview exists to show would need hunting for.
+        LaunchedEffect(preview != null) {
+            if (preview != null) runCatching { listState.animateScrollToItem(0) }
+        }
+
+        // The rows just outside the screen, warmed once the list stops moving. This is the LOW
+        // tier of the same queue the visible rows use, so a pre-render can never delay a row
+        // somebody is looking at - see LoadQueue. Skipped at the two compact steps, where the
+        // glyph is a few pixels wide and a decoded picture would not be visible in it.
+        if (metrics.step.icon >= 20) {
+            val warmCtx = LocalContext.current
+            val warmPx = (metrics.step.icon * 2.5f).toInt().coerceIn(48, 320)
+            val ghosts = if (preview == null) 0 else {
+                preview.entries.size + if (preview.extra > 0) 1 else 0
+            }
+            WarmAhead(
+                state = listState,
+                count = if (tree) treeRows.size else rows.size,
+                offset = ghosts,
+            ) { i ->
+                val node = if (tree) treeRows.getOrNull(i)?.node else rows.getOrNull(i)
+                if (node != null && !node.isDir && Thumbnails.canPreview(node.extension)) {
+                    runCatching {
+                        Thumbnails.load(
+                            warmCtx, vm.vfs, node.path, node.size, node.mtime, warmPx,
+                            ahead = true,
+                        )
+                    }
+                }
+            }
+        }
+
         LazyColumn(
             Modifier.fillMaxSize().then(measure).then(pull),
             state = listState,
             verticalArrangement = anchor,
-            contentPadding = PaddingValues(top = gap, end = padEnd, bottom = padBottom),
+            // The pick card's height is added to the bottom inset rather than drawn over the
+            // list. Reported as the last row being barely tappable while choosing a
+            // destination - the card floats above the listing, so without this the rows it
+            // covers simply cannot be reached.
+            //
+            // Padding rather than a draggable card. A panel somebody has to move is a control
+            // to discover, a place to park it uselessly, and a gesture arbitrating against
+            // every tap in the list beneath it; the actual problem is only that the list did
+            // not know something was sitting on it.
+            contentPadding = PaddingValues(
+                top = gap, end = padEnd, bottom = padBottom + LocalPickInset.current,
+            ),
         ) {
+            if (preview != null) {
+                items(preview.entries.size, key = { "ghost:" + preview.entries[it].name }) { g ->
+                    GhostRow(preview.entries[g])
+                }
+                if (preview.extra > 0) {
+                    item(key = "ghost:more") {
+                        Text(
+                            "and ${preview.extra} more",
+                            fontSize = 10.5.sp,
+                            color = Filet.colors.accent,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 56.dp, top = 2.dp, bottom = 8.dp),
+                        )
+                    }
+                }
+            }
+            if (groups != null) {
+                for (g in groups) {
+                    // Sticky, so which drive a result belongs to is answerable at every scroll
+                    // position without going back up for it.
+                    stickyHeader(key = "drive:" + g.key) { DriveHeader(g) }
+                    items(
+                        count = g.nodes.size,
+                        key = { j -> "hit:" + g.key + ":" + g.nodes[j].path },
+                    ) { j -> hitRow(g.nodes[j]) }
+                }
+            }
             items(
-                count = if (tree) treeRows.size else rows.size,
+                // Empty while grouped: the groups above have drawn every row already.
+                count = if (groups != null) 0 else if (tree) treeRows.size else rows.size,
                 // A tree repeats a path only as a "still reading" placeholder under the
                 // folder it belongs to, so the depth goes in the key as well.
-                key = { i ->
-                    if (tree) {
-                        val r = treeRows[i]
-                        "${r.node.path}@${r.depth}${if (r.loading) "?" else ""}"
-                    } else {
-                        rows[i].path.toString()
-                    }
-                },
+                key = { i -> keys.getOrElse(i) { i } },
             ) { i ->
                 val row = if (tree) treeRows[i] else null
                 val node = row?.node ?: rows[i]
@@ -959,44 +1399,44 @@ private fun FolderBody(
                 // not used and the read would be waste.
                 val emptyFolder = tree && node.isDir &&
                     rememberFolderPeek(vm.folderPeek, node.path, node.mtime, true).value.empty
+                // What this row opens into in a tree: a folder, or an archive's mount.
+                val branch = if (tree) TreeBranch.keyOf(node) else null
                 if (row?.loading == true) {
-                    BranchLoading(row.depth, steps)
+                    BranchLoading(row.depth, steps, dropZone(registry, "branch-${row.node.path}", branch ?: row.node.path))
                 } else if (row?.empty == true) {
-                    BranchEmpty(row.depth, steps)
+                    BranchEmpty(row.depth, steps, dropZone(registry, "branch-${row.node.path}", branch ?: row.node.path))
                 } else if (s.search.active) {
-                    SearchResultRow(
-                        node = node,
-                        where = s.search.hits.firstOrNull { it.node.path == node.path }?.where ?: "",
-                        state = s.search.hits.firstOrNull { it.node.path == node.path }?.state
-                            ?: dev.niccc2007.filet.index.HitState.AVAILABLE,
-                        crawlRunning = crawlRunning,
-                        metrics = metrics,
-                        selected = rowSelected(node.path, selection),
-                        onClick = { rowClick(pane, vm, side, node) },
-                        // Bug identified: a long press here only selected the row, so the one
-                        // action a search result needs more than any other - go to where this
-                        // actually is - was reachable from every list in the app except the
-                        // one whose whole point is that the file is somewhere else.
-                        onLongClick = { searchMenuFor = node },
-                    )
+                    hitRow(node)
                 } else {
                     FileRow(
                         node = node,
                         metrics = metrics,
                         selected = rowSelected(node.path, selection),
-                        dropTarget = (app.drag?.over as? DropTarget.Folder)?.path == node.path,
-                        modifier = dragModifier(node, pane, vm, side, registry, onGhost, onHeldStill).then(pickDim(vm, node)),
+                        included = rowIncluded(node.path, selection),
+                        dropTarget = (app.drag?.over as? DropTarget.Folder)?.path == (branch ?: node.path),
+                        modifier = dragModifier(
+                            node, pane, vm, side, registry, onGhost, onHeldStill,
+                            into = if (row != null) treeHomes.getOrNull(i) else node.path.takeIf { node.isDir },
+                        ).then(pickDim(vm, node)),
                         // Below ~20 dp the glyph is a few pixels across and a photo in it is
                         // an unreadable smear; the icon says more at that size.
                         thumbnails = metrics.step.icon >= 20,
                         display = display,
-                        // Only folders, and only when the column is on. Asking for a file's
-                        // child count would be a directory read per file in the list.
+                        // Only folders, and only when something on the row asks for the figure.
+                        // Asking for a file's child count would be a directory read per file in
+                        // the list.
+                        //
+                        // Bug identified here: the gate was `display.measure`, the old right-hand
+                        // column's own switch. So "Item count" on the line under the name was
+                        // fetched only while that column happened to be on - a part somebody had
+                        // deliberately added rendered empty for a reason with no visible
+                        // connection to it, and nothing failed. `RowDetails.needsCount` asks the
+                        // whole configuration instead, which is the only thing that can answer.
                         count = rememberFolderCount(
                             vfs = vm.vfs,
                             path = node.path,
                             mtime = node.mtime,
-                            enabled = node.isDir && display.measure && metrics.showSize,
+                            enabled = node.isDir && RowDetails.needsCount(display),
                         ),
                         treeRow = tree,
                         steps = steps,
@@ -1018,51 +1458,30 @@ private fun FolderBody(
                         // this costs nothing extra - and an arrow that cannot do anything is
                         // worse here than usual: you tap it, nothing moves, and you cannot
                         // tell whether the folder is empty or the app is broken.
-                        openInPlace = if (tree && node.isDir && !emptyFolder) {
-                            node.path in s.open
+                        openInPlace = if (branch != null && !emptyFolder) {
+                            branch in s.open
                         } else {
                             null
                         },
-                        onOpenInPlace = if (tree && node.isDir && !emptyFolder) {
-                            // Closing goes through `collapseBranch`, which keeps the folder
-                            // in view: a LazyColumn anchors on its first VISIBLE row, so
-                            // folding away a branch you are reading INSIDE takes the anchor
-                            // with it and the list lands somewhere unrelated.
-                            ({
-                                if (node.path in s.open) pane.collapseBranch(node.path)
-                                else pane.toggleBranch(node.path)
-                            })
+                        onOpenInPlace = if (branch != null && !emptyFolder) {
+                            // Decided by the pane when tapped, not here: a lambda that read
+                            // `s.open` was a new lambda every time the state moved, and a new
+                            // lambda is a row that cannot skip - see `flipBranch`.
+                            ({ pane.flipBranch(branch) })
                         } else {
                             null
                         },
-                        // In a tree, tapping a folder OPENS IT WHERE IT IS.
-                        //
-                        // It used to navigate into it, with the chevron doing the expanding,
-                        // on the reasoning that this kept the path bar meaning what it
-                        // always meant. That reasoning was wrong in the way that matters:
-                        // a list where tapping a folder replaces the screen is the ordinary
-                        // list with decorations on it, which is exactly how it was reported.
-                        // Going INTO a folder is still there - the breadcrumb, the chevron's
-                        // own row, and the long-press menu - but the tap belongs to the tree.
-                        onClick = {
-                            // NOT while something is selected.
-                            //
-                            // The tree took the tap for itself unconditionally, so once a
-                            // long press had selected a folder there was no way to unselect
-                            // it: tapping it expanded it instead, and tapping another one
-                            // expanded that. Selection outranks the tree for the same reason
-                            // it outranks opening a file everywhere else in the list - while
-                            // a selection is live, a tap is about the selection. The chevron
-                            // is its own target and still expands, so nothing is lost.
-                            if (tree && node.isDir && !s.selecting) {
-                                if (node.path in s.open) pane.collapseBranch(node.path)
-                                else pane.toggleBranch(node.path)
-                            }
-                            else rowClick(pane, vm, side, node)
+                        // In a tree, a tap on a row FOCUSES its branch - see `treeRowClick`.
+                        onClick = if (tree) {
+                            ({ treeRowClick(pane, vm, side, node) })
+                        } else {
+                            ({ rowClick(pane, vm, side, node) })
                         },
                         // See the tile above: the drag detector owns the long press.
                         onLongClick = {},
-                        onDoubleClick = { vm.openChooser(node) },
+                        selecting = s.selecting,
+                        onIconClick = { onIconTap(node) },
+                        onDoubleClick = { at -> onDoubleTapRow(node, at) },
                     )
                 }
             }
@@ -1112,8 +1531,28 @@ private fun FolderBody(
  */
 @Composable
 private fun SpecialBody(pane: PaneController, vm: BrowserViewModel, s: PaneState, widthDp: Int) {
-    CompositionLocalProvider(dev.niccc2007.filet.ui.LocalPaneWidth provides widthDp) {
-        SpecialBodyContent(pane, vm, s)
+    // The same pull, and the same indicator, the folder list has - once, here, for every tab,
+    // rather than inside each screen. Whatever list a screen draws dispatches its leftover
+    // scroll up through this box, and only a delta the list could NOT consume reaches it, so
+    // "at the end" is already decided by the list itself: both edge questions are answered by
+    // the delta's direction. A screen that does not scroll never sends any, and never pulls.
+    val pull = if (pullsToRefresh(s.kind)) {
+        Modifier.edgePullRefresh(
+            atTop = { true },
+            atBottom = { true },
+            onRefresh = { vm.refreshPane(pane) },
+        )
+    } else {
+        Modifier
+    }
+    CompositionLocalProvider(
+        dev.niccc2007.filet.ui.LocalPaneWidth provides widthDp,
+        // What this pane's search box holds, for the screens that narrow their own rows.
+        dev.niccc2007.filet.ui.LocalPaneQuery provides if (s.search.open) s.search.query.trim() else "",
+        // Where every screen in this tab keeps its scroll and its own view. See PaneMemory.
+        LocalPaneMemory provides pane,
+    ) {
+        Box(Modifier.fillMaxSize().then(pull)) { SpecialBodyContent(pane, vm, s) }
     }
 }
 
@@ -1157,7 +1596,20 @@ private fun SpecialBodyContent(pane: PaneController, vm: BrowserViewModel, s: Pa
         PaneKind.NEARBY -> dev.niccc2007.filet.nearby.NearbyScreen(vm)
         PaneKind.REMOTES -> dev.niccc2007.filet.remotes.RemotesScreen(vm)
         PaneKind.SHORTCUTS -> dev.niccc2007.filet.shortcuts.ShortcutsScreen(vm)
-        PaneKind.ACTIVITY -> dev.niccc2007.filet.jobs.ActivityBody(vm.ledger)
+        PaneKind.SCAN -> dev.niccc2007.filet.qr.ScanScreen(vm, pane)
+        // Tapping a finished job goes where its work landed - the folder an archive was
+        // extracted into, the archive that was written. See `JobLedger.Job.opened`.
+        PaneKind.ACTIVITY -> dev.niccc2007.filet.jobs.ActivityBody(
+            vm.ledger,
+            remember(vm) {
+                dev.niccc2007.filet.jobs.ActivityActions(
+                    go = vm::openJobDestination,
+                    open = vm::openJobResult,
+                    showInFolder = vm::showJobInFolder,
+                    copy = { vm.copyText(it, "Details copied") },
+                )
+            },
+        )
         else -> EmptyNote("Nothing here yet", Modifier.fillMaxSize())
     }
 }
@@ -1165,29 +1617,75 @@ private fun SpecialBodyContent(pane: PaneController, vm: BrowserViewModel, s: Pa
 /**
  * What an empty result list should actually say.
  *
- * The old text was one sentence for every case, and in the case that matters it was wrong:
- * standing on Whole device with a half-built index, it said "Try Subfolders or Whole device"
- * - advice to do the thing you are already doing, on a search that returned nothing for a
- * reason the app knew and did not mention.
+ * The old text was one sentence for every case, and in the case that matters it was wrong: at
+ * the widest reach with a half-built index, it said "Try Subfolders or Whole device" - advice
+ * to do the thing you are already doing, on a search that returned nothing for a reason the app
+ * knew and did not mention.
  *
  * `lastRunAt` is only stamped after a crawl that RAN TO COMPLETION, so it is exactly the
  * "has the index ever seen the whole device" flag this needs.
+ *
+ * @param wider the label of the next rung up, or null at the top of the ladder. Named rather
+ *   than hardcoded, because the rung above "this folder" is a different drive on every device
+ *   and advice that names the wrong one is worse than no advice.
  */
-private fun emptySearchNote(scope: SearchScope, index: IndexStatus): String = when {
-    scope == SearchScope.FOLDER -> "No match here.\nTry Subfolders or Whole device."
+/** What the drives chip says when it is the reach in force. */
+private fun driveCount(reach: Reach): String {
+    val n = reach.volumes()?.size ?: return "Drives…"
+    return if (n == 1) "1 drive" else "$n drives"
+}
+
+private fun emptySearchNote(reach: Reach, wider: String?, index: IndexStatus): String = when {
+    // Every drive this reach named has gone - a card pulled, a share deleted. Saying "no match"
+    // would blame the query for it, which is the §13.3 requirement that a narrowed reach is
+    // visible rather than silent.
+    reach.isEmpty -> "That drive is not here any more.\nPick a wider reach above."
+    reach == Reach.Folder && wider != null -> "No match here.\nTry $wider."
     !index.enabled ->
         "No match.\nSearch is walking the filesystem — the index is off in Settings."
     index.running ->
         "No match yet.\nThe index is still building; results appear as it goes."
     index.lastRunAt == 0L ->
-        "No match.\nThe index has never finished a full pass, so it does not know " +
-            "about everything on the device yet.\nSettings ▸ Index now."
+        "No match.\nThe index hasn't finished a full pass yet.\nSettings ▸ Search ▸ Build index."
+    wider != null -> "No match.\nTry $wider."
     else -> "No match."
 }
 
 private fun rowClick(pane: PaneController, vm: BrowserViewModel, side: Side, node: VNode) {
     vm.focusSide(side)
     if (pane.state.value.selecting) pane.toggleSelect(node) else pane.open(node)
+}
+
+/**
+ * A tap on a tree row: stand in its branch. A folder row is focused and nothing else - it is
+ * neither opened nor closed, which is the chevron's job alone. A file row focuses the folder it
+ * is in and then opens as it always did.
+ *
+ * Bug identified here: the tap on a folder row opened or CLOSED it, and opening was the only
+ * thing that moved the focus. So pointing New folder or Paste at a folder that was already open
+ * meant tapping it shut and open again, and tapping a folder just to aim at it folded away
+ * everything that was being looked at inside it.
+ *
+ * While something is selected, a tap is about the selection, here as everywhere: it toggles the
+ * row and moves nothing.
+ */
+private fun treeRowClick(pane: PaneController, vm: BrowserViewModel, side: Side, node: VNode) {
+    if (pane.state.value.selecting) {
+        rowClick(pane, vm, side, node)
+        return
+    }
+    vm.focusSide(side)
+    // A tap on the folder already focused opens or closes it, and keeps it focused: closing a
+    // branch otherwise hands the focus back to the root, and the next tap would only re-focus.
+    // An archive is a folder here, so the same: a tap stands in it and the next one opens it.
+    val branch = TreeBranch.keyOf(node)
+    if (branch != null && pane.state.value.active == branch) {
+        pane.flipBranch(branch)
+        pane.focusPath(branch, record = false)
+        return
+    }
+    pane.focusRow(node)
+    if (branch == null) pane.open(node)
 }
 
 /**
@@ -1208,7 +1706,20 @@ private fun dragModifier(
     side: Side,
     registry: DropRegistry,
     onGhost: (Offset?) -> Unit,
-    onHeldStill: (VNode, Offset) -> Unit,
+    onHeldStill: (VNode, Offset, LongPressAction) -> Unit,
+    /**
+     * A grid tile's peek: a hold with nothing selected lifts the tile (see `TilePeek`) instead of
+     * selecting it. Null for list rows, whose hold still selects. The finger moving after the
+     * peek has opened puts it away and becomes the drag it always was, so dragging out of a grid
+     * still works; with a selection running, a hold does exactly what it did.
+     */
+    peek: ((VNode) -> Unit)? = null,
+    unpeek: () -> Unit = {},
+    /**
+     * The folder a drop on this row goes into, or null for none. A folder row is its own; in a
+     * tree a file row is its branch's, which is worked out by `TreeDrop`.
+     */
+    into: VPath? = node.path.takeIf { node.isDir },
 ): Modifier {
     // Read live. A row's `pointerInput` is keyed on `node.path`, so scrolling a list recycles
     // the composable and hands it new callbacks while the launched block keeps the old ones -
@@ -1216,6 +1727,9 @@ private fun dragModifier(
     // tools/check-deadswitch.mjs rather than by anybody noticing a misplaced drag ghost.
     val liveGhost = rememberUpdatedState(onGhost)
     val liveHeldStill = rememberUpdatedState(onHeldStill)
+    val livePeek = rememberUpdatedState(peek)
+    val liveUnpeek = rememberUpdatedState(unpeek)
+    var peeking by remember(node.path) { mutableStateOf(false) }
     var origin by remember(node.path) { mutableStateOf(Offset.Zero) }
     var pointer by remember(node.path) { mutableStateOf(Offset.Zero) }
     /**
@@ -1231,6 +1745,7 @@ private fun dragModifier(
      * still is the menu, going somewhere is a drag.
      */
     var travelled by remember(node.path) { mutableFloatStateOf(0f) }
+    var pressAction by remember(node.path) { mutableStateOf(LongPressAction.MENU) }
     val rowKey = "row-${node.path}"
 
     DisposableEffect(rowKey) { onDispose { registry.remove(rowKey) } }
@@ -1238,13 +1753,16 @@ private fun dragModifier(
     return Modifier
         .onGloballyPositioned { c ->
             origin = c.positionInRoot()
-            if (node.isDir) {
+            if (into != null) {
                 registry.put(
                     key = rowKey,
                     rect = Rect(origin, Size(c.size.width.toFloat(), c.size.height.toFloat())),
-                    target = DropTarget.Folder(node.path),
+                    target = DropTarget.Folder(into),
                     depth = 1,
                 )
+            } else {
+                // A recycled row whose node no longer takes drops must not keep the last one's.
+                registry.remove(rowKey)
             }
         }
         .pointerInput(node.path) {
@@ -1256,24 +1774,50 @@ private fun dragModifier(
                     val current = pane.state.value
                     // What a long press means depends on what is already selected. Decided by
                     // `longPressAction` rather than inline, because a press that quietly does
-                    // the other thing reads as the app ignoring you.
-                    when (longPressAction(current.selected.size, node.path in current.selected)) {
-                        LongPressAction.EXTEND -> pane.extendSelectionTo(node)
-                        LongPressAction.MENU -> pane.selectOnly(node)
-                        LongPressAction.MENU_FOR_SELECTION -> Unit
+                    // the other thing reads as the app ignoring you. Kept for the release,
+                    // which must judge by what the press FOUND rather than what it changed.
+                    pressAction = longPressAction(current.selected.size, node.path in current.selected)
+                    val lift = livePeek.value
+                    if (lift != null && pressAction == LongPressAction.MENU) {
+                        // A grid tile with nothing selected: the peek, and no drag yet.
+                        peeking = true
+                        lift(node)
+                    } else {
+                        when (pressAction) {
+                            LongPressAction.EXTEND -> pane.extendSelectionTo(node)
+                            LongPressAction.MENU -> pane.selectOnly(node)
+                            LongPressAction.MENU_FOR_SELECTION -> Unit
+                        }
+                        val items = pane.selectedNodes().ifEmpty { listOf(node) }
+                        vm.beginDrag(items, pane.id)
+                        liveGhost.value(pointer)
                     }
-                    val items = pane.selectedNodes().ifEmpty { listOf(node) }
-                    vm.beginDrag(items, pane.id)
-                    liveGhost.value(pointer)
                 },
                 onDrag = { change, delta ->
                     change.consume()
                     travelled += kotlin.math.hypot(delta.x, delta.y)
                     pointer += delta
-                    liveGhost.value(pointer)
-                    vm.dragOver(registry.hitTest(pointer))
+                    if (peeking) {
+                        // Moving after the peek opened is a drag after all: put the peek away
+                        // and pick the tile up, the way the hold did before it peeked.
+                        if (travelled > viewConfiguration.touchSlop * 2f) {
+                            peeking = false
+                            liveUnpeek.value()
+                            pane.selectOnly(node)
+                            vm.beginDrag(listOf(node), pane.id)
+                            liveGhost.value(pointer)
+                        }
+                    } else {
+                        liveGhost.value(pointer)
+                        vm.dragOver(registry.hitTest(pointer))
+                    }
                 },
                 onDragEnd = {
+                    // Lifted without going anywhere: the peek stays up with its menu.
+                    if (peeking) {
+                        peeking = false
+                        return@detectDragGesturesAfterLongPress
+                    }
                     liveGhost.value(null)
                     // Move or copy is the plan's call, not the caller's - same volume moves,
                     // a different one copies, exactly as a desktop file manager does.
@@ -1290,10 +1834,17 @@ private fun dragModifier(
                         // the menu - which is what press-and-hold means everywhere else on a
                         // touchscreen.
                         vm.cancelDrag()
-                        liveHeldStill.value(node, pointer)
+                        liveHeldStill.value(node, pointer, pressAction)
                     }
                 },
-                onDragCancel = { liveGhost.value(null); vm.cancelDrag() },
+                onDragCancel = {
+                    if (peeking) {
+                        peeking = false
+                    } else {
+                        liveGhost.value(null)
+                        vm.cancelDrag()
+                    }
+                },
             )
         }
 }
@@ -1336,6 +1887,7 @@ private fun PaneContextMenu(
             wifi = FiletIcons.Wifi, home = FiletIcons.Home,
             apk = FiletIcons.Apk, cog = FiletIcons.Cog,
             audio = FiletIcons.Audio, rows = FiletIcons.Rows,
+            folder = FiletIcons.FolderOpen, invert = FiletIcons.Check,
         ),
         on = SelectionCallbacks(
             copy = { vm.copySelection() },
@@ -1352,11 +1904,14 @@ private fun PaneContextMenu(
             install = { vm.installSelection() },
             metadata = { vm.metadataForSelection() },
             extractHere = { vm.extractSelection() },
-            extractTo = { vm.extractSelectionToPicked() },
             extractToOtherPane = { vm.extractSelectionToOtherPane() },
             addToPlaylist = { vm.addToPlaylistSelection() },
+            makeBeatMaps = { vm.makeBeatMapsForSelection() },
             enqueue = { vm.enqueueSelection() },
             announce = { vm.announceSelectionToMedia() },
+            copyPath = { vm.copyPathsOfSelection() },
+            invert = { pane.invertSelection() },
+            reveal = { vm.revealSelection() },
         ),
         archive = vm.selectionIsArchive(),
         otherPane = vm.isSplit(),
@@ -1367,6 +1922,7 @@ private fun PaneContextMenu(
         // gallery" - which exists only when it applies - never appeared in this menu.
         announceable = vm.selectionIsOnThisDevice(),
         shape = SelectionShape.of(pane.selectedNodes()),
+        elsewhere = vm.selectionIsElsewhere(),
     )
 
     // "Select" is gone, and it had to go for two reasons rather than one. It was asked to be
@@ -1374,10 +1930,13 @@ private fun PaneContextMenu(
     // menu and did nothing else. The comment that used to sit here claimed it "keeps the row
     // selected instead of clearing it on dismiss" - which the long press had already done, so
     // the row described a side effect of doing nothing (R1).
-    val extras = listOf(
-        menuAction("copypath", "Copy path", FiletIcons.Copy) { vm.copyPathsOfSelection() },
-    )
-    val (quick, rest) = splitForContextMenu(base)
+    // Copy path was an extra here, written out beside the list; it is in the list now, so the
+    // selection bar has it too.
+    val extras = emptyList<SelectionAction>()
+    // The icon row follows the selection bar once that has been arranged - see
+    // SelectionBarConfig.contextQuick for why one order, not two.
+    val storedBar by vm.prefs.selectionBar.collectAsState()
+    val (quick, rest) = splitForContextMenu(base, SelectionBarConfig.contextQuick(storedBar))
 
     ContextMenu(
         title = if (state.selected.size > 1) "${state.selected.size} items" else node.name,
@@ -1402,11 +1961,28 @@ private fun PaneContextMenu(
     )
 }
 
+/**
+ * A row that takes a drop without being a file: the notes under an opened branch, which drop
+ * into that branch. See `TreeDrop`.
+ */
+@Composable
+private fun dropZone(registry: DropRegistry, key: String, into: VPath): Modifier {
+    DisposableEffect(key) { onDispose { registry.remove(key) } }
+    return Modifier.onGloballyPositioned { c ->
+        registry.put(
+            key = key,
+            rect = Rect(c.positionInRoot(), Size(c.size.width.toFloat(), c.size.height.toFloat())),
+            target = DropTarget.Folder(into),
+            depth = 1,
+        )
+    }
+}
+
 /** A branch that has been opened and is still being read. */
 @Composable
-private fun BranchLoading(depth: Int, steps: TreeScale.Steps) {
+private fun BranchLoading(depth: Int, steps: TreeScale.Steps, modifier: Modifier = Modifier) {
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .padding(
                 start = (steps.startDp + depth * steps.indentDp).dp,
@@ -1436,9 +2012,9 @@ private fun BranchLoading(depth: Int, steps: TreeScale.Steps) {
  * recognise the other without reading it.
  */
 @Composable
-private fun BranchEmpty(depth: Int, steps: TreeScale.Steps) {
+private fun BranchEmpty(depth: Int, steps: TreeScale.Steps, modifier: Modifier = Modifier) {
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .padding(
                 start = (steps.startDp + depth * steps.indentDp).dp,
@@ -1468,11 +2044,31 @@ private const val TREE_MAX_STEP = 2
  * closed tab's entry is a few bytes that nothing will ask for again. Not written to disk: a
  * tab restored after the process died lands at the top of its folder, with its folds open.
  */
-private object PaneScroll {
-    class Mark(val cwd: VPath?, val index: Int, val offset: Int)
+/**
+ * The list's row keys, in order. One function, because the list draws with them and a scroll
+ * position is put back by them, and two copies of the formula would drift.
+ *
+ * A tree repeats a path only as a "still reading" placeholder under the folder it belongs to, so
+ * the depth goes in the key as well.
+ */
+private fun rowKeys(tree: Boolean, rows: List<VNode>, treeRows: List<TreeRow>): List<String> =
+    if (tree) {
+        treeRows.map { "${it.node.path}@${it.depth}${if (it.loading) "?" else ""}" }
+    } else {
+        rows.map { it.path.toString() }
+    }
 
-    val list = HashMap<Int, Mark>()
-    val grid = HashMap<Int, Mark>()
+/** The first row on screen, named by its key so it can be found again in a list that moved. */
+private fun markOf(state: androidx.compose.foundation.lazy.LazyListState): ScrollMemory.Mark {
+    val i = state.firstVisibleItemIndex
+    val key = state.layoutInfo.visibleItemsInfo.firstOrNull { it.index == i }?.key as? String
+    return ScrollMemory.Mark(i, state.firstVisibleItemScrollOffset, key)
+}
+
+private fun markOf(state: androidx.compose.foundation.lazy.grid.LazyGridState): ScrollMemory.Mark {
+    val i = state.firstVisibleItemIndex
+    val key = state.layoutInfo.visibleItemsInfo.firstOrNull { it.index == i }?.key as? String
+    return ScrollMemory.Mark(i, state.firstVisibleItemScrollOffset, key)
 }
 
 /**
@@ -1506,13 +2102,14 @@ private fun ReachTitle(
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.Bottom,
     ) {
-        Text(
+        // The folder's name, so never dotted. See ListName.
+        ListNameText(
             title,
-            fontSize = 26.sp,
+            MaterialTheme.colorScheme.onSurface,
+            startSp = 26f,
+            lines = 2,
+            isDir = true,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
         )
         if (sub.isNotEmpty()) {
             Text(sub, fontSize = 12.sp, color = colors.fg3)
@@ -1541,10 +2138,24 @@ private fun pickDim(vm: BrowserViewModel, node: VNode): Modifier =
  * A derived boolean per row: the set changes on every tap, but each row's answer changes only for
  * the row that was tapped (or the rows a range or select-all touched), and `derivedStateOf` only
  * invalidates a reader when its answer changes. So one tap recomposes one row.
+ *
+ * A file taken by the live pick counts as selected HERE, in the one place the listing asks, so
+ * the row that was tapped to answer a pick looks the same as a row tapped to select it. Those
+ * were the same set until the pick's chosen list moved off the pane - see [LocalPickChosen] -
+ * and the point of saying it here is that nothing downstream has to know which of the two it is
+ * drawing.
  */
+/** Taken in by a selected folder above it. See `TreeSelection`. */
+@Composable
+private fun rowIncluded(path: dev.niccc2007.filet.vfs.VPath, selection: State<Set<dev.niccc2007.filet.vfs.VPath>>): Boolean {
+    val included by remember(path, selection) {
+        derivedStateOf { TreeSelection.includedBy(selection.value, path) != null }
+    }
+    return included
+}
+
 @Composable
 private fun rowSelected(path: dev.niccc2007.filet.vfs.VPath, selection: State<Set<dev.niccc2007.filet.vfs.VPath>>): Boolean {
     val selected by remember(path, selection) { derivedStateOf { path in selection.value } }
-    return selected
+    return selected || isChosenForPick(path)
 }
-

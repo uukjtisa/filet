@@ -31,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -88,16 +89,29 @@ import java.util.TimeZone
 @Composable
 fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
     val colors = Filet.colors
-    val all by vm.home.all.collectAsState()
+    val everything by vm.home.all.collectAsState()
+    // Narrowed by the pane's search box - name, where it came from, its folder - before it is
+    // grouped, so the days and the counts are the narrowed list's own.
+    val query = dev.niccc2007.filet.ui.LocalPaneQuery.current
+    val all = remember(everything, query) {
+        if (query.isBlank()) everything
+        else everything.filter {
+            dev.niccc2007.filet.ui.TextMatch.matches(query, it.node.name, it.origin, it.node.path.parent?.path)
+        }
+    }
     val scanning by vm.home.loading.collectAsState()
     val outcome by vm.home.outcome.collectAsState()
     val capped by vm.home.capped.collectAsState()
     val windowFrom by vm.home.windowFrom.collectAsState()
 
-    var sort by remember { mutableStateOf(HistorySort.FIRST_SEEN) }
-    var grouped by remember { mutableStateOf(true) }
-    var shown by remember { mutableIntStateOf(PAGE) }
-    var collapsed by remember { mutableStateOf(setOf<String>()) }
+    // A setting, not screen state: the Home card is cut from the same list, so the choice made
+    // here decides what the card shows too, and it survives leaving the tab.
+    val sort by vm.prefs.newFilesOrder.collectAsState()
+    // Kept with the tab, the paging included: a position forty pages down can only be put back
+    // into a list that has loaded forty pages.
+    var grouped by dev.niccc2007.filet.browser.rememberKept("history.grouped", true, save = { it.toString() }, load = { it.toBooleanStrictOrNull() })
+    var shown by dev.niccc2007.filet.browser.rememberKept("history.shown", PAGE, save = { it.toString() }, load = { it.toIntOrNull()?.coerceAtLeast(PAGE) })
+    var collapsed by dev.niccc2007.filet.browser.rememberKeptSet("history.collapsed")
     var picking by remember { mutableStateOf(false) }
     // The same sheet the Home overview opens, from the same rows. One definition, not two -
     // a row that answers a long press differently depending on which screen it is on is worse
@@ -135,31 +149,38 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
         }
     }
 
-    val entries = remember(all) {
-        all.map {
-            HistoryEntry(
-                path = it.node.path.toString(),
-                name = it.node.name,
-                bytes = it.node.size.coerceAtLeast(0L),
-                firstSeen = it.added,
-                lastChanged = it.at,
-                origin = it.origin ?: it.node.path.parent?.name,
-            )
-        }
-    }
-
-    val now = System.currentTimeMillis()
+    // Read once per list, not per frame: `now` feeds the day labels and the today tint, and a
+    // fresh clock on every recomposition re-derived both for nothing.
+    val now = remember(all) { System.currentTimeMillis() }
     val zone = remember { TimeZone.getDefault() }
     // Which key counts as today, so a row can be tinted without re-deriving the day per row.
     val todayKey = remember(now, zone) { FileHistory.dayKey(now, zone) }
-    val groups = remember(entries, sort, grouped) {
-        if (grouped) FileHistory.group(entries, sort, now, zone) else emptyList()
-    }
-    val flat = remember(entries, sort, grouped) {
-        if (grouped) emptyList() else FileHistory.flat(entries, sort)
-    }
 
-    val listState = rememberLazyListState()
+    // Off the main thread, like the categories, and that is the whole lag fix. Opening this tab
+    // from the Home card arrives with the full first page already held - two thousand rows and
+    // more - and grouping them (a Calendar and a formatted key per row) ran inside composition,
+    // so the tab could not draw its first frame until every day had been built. The first
+    // QUICK rows are built in place, which fills the screen, and the rest is grouped behind it.
+    val quick = remember(all, sort, grouped) {
+        dev.niccc2007.filet.log.FiletLog.span("newfiles", "quick ${minOf(all.size, QUICK)}") {
+            NewFilesView.of(all.take(QUICK), sort, grouped, now, zone)
+        }
+    }
+    val view by produceState(quick, all, sort, grouped, now) {
+        value = withContext(Dispatchers.Default) {
+            dev.niccc2007.filet.log.FiletLog.span("newfiles", "group ${all.size}") {
+                NewFilesView.of(all, sort, grouped, now, zone)
+            }
+        }
+    }
+    // A view built for the other mode is never drawn: a sort or By day/Flat flip shows the quick
+    // build of the new mode until the full one lands, rather than a frame of the wrong list.
+    val current = if (view.sort == sort && view.grouped == grouped) view else quick
+    val entries = current.entries
+    val groups = current.groups
+    val flat = current.flat
+
+    val listState = dev.niccc2007.filet.browser.rememberKeptListState("history")
 
     // Load as you scroll, chosen over a row of buttons. The count of what is left
     // is on screen either way - it is the thing that tells you whether to keep scrolling.
@@ -214,10 +235,15 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
             if (scanning) HomeSections.ARRIVED_TAB + "  ·  looking" else HomeSections.ARRIVED_TAB,
         ) {
             SortPair(
-                listOf(FIRST_SEEN_LABEL, LAST_CHANGED_LABEL),
-                if (sort == HistorySort.FIRST_SEEN) FIRST_SEEN_LABEL else LAST_CHANGED_LABEL,
+                listOf(ADDED_LABEL, MODIFIED_LABEL),
+                if (sort == HistorySort.DATE_ADDED) ADDED_LABEL else MODIFIED_LABEL,
             ) {
-                sort = if (it == FIRST_SEEN_LABEL) HistorySort.FIRST_SEEN else HistorySort.LAST_CHANGED
+                val next = if (it == ADDED_LABEL) HistorySort.DATE_ADDED else HistorySort.DATE_MODIFIED
+                if (next != sort) {
+                    vm.prefs.setNewFilesOrder(next)
+                    // A different list, not a re-sort of this one: it is read again.
+                    vm.home.refresh()
+                }
             }
             // Only offered while the list is grouped: jumping to a day in a flat list would
             // land somewhere with nothing on screen to say which day you had reached.
@@ -228,6 +254,19 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
                 primary = true,
             ) { grouped = !grouped }
         }
+
+        // Says where each list's dates come from, so the two orders are not a mystery pair.
+        // Date added is corrected by Filet's memory; date modified is the system's alone.
+        Text(
+            if (sort == HistorySort.DATE_ADDED) {
+                "Uses Filet's memory of when each file first arrived, so edits don't make it new."
+            } else {
+                "Uses the system's last-modified date, so edited files come back to the top."
+            },
+            fontSize = 10.5.sp,
+            color = colors.fg3,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+        )
 
         if (windowFrom != null) {
             Text(
@@ -241,6 +280,10 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
             )
         }
 
+        if (entries.isEmpty() && query.isNotBlank() && everything.isNotEmpty()) {
+            dev.niccc2007.filet.ui.NoMatch(query)
+            return@Column
+        }
         if (entries.isEmpty()) {
             when (val r = outcome) {
                 // Three different answers, drawn as three. See `CategoryResult`.
@@ -261,6 +304,11 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
             return@Column
         }
 
+        // What a viewer opened from a row swipes through: the rows in the order they are drawn,
+        // without the days folded away. Built on the tap, not on every frame.
+        val openedFrom = {
+            (if (grouped) groups.filter { it.key !in collapsed }.flatMap { it.entries } else flat).asNodes()
+        }
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             if (grouped) {
                 var drawn = 0
@@ -276,7 +324,7 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
                     drawn += take.size
                     val isToday = g.key == todayKey
                     items(take.size, key = { "e:${g.key}:${take[it].path}" }) { i ->
-                        HistoryRow(take[i], sort, vm, isToday) { menuFor = it }
+                        HistoryRow(take[i], sort, vm, isToday, from = openedFrom) { menuFor = it }
                     }
                 }
             } else {
@@ -285,6 +333,7 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
                     HistoryRow(
                         take[i], sort, vm,
                         FileHistory.dayKey(take[i].timeFor(sort), zone) == todayKey,
+                        from = openedFrom,
                     ) { menuFor = it }
                 }
             }
@@ -324,6 +373,8 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
             onBookmark = { menuFor = null; vm.bookmarkOne(node) },
             onShortcut = { menuFor = null; vm.shortcutOne(node) },
             onForget = { menuFor = null; vm.forgetHomeEntry(node) },
+            // Offered here and nowhere else: this is the list a folder gets blocked out of.
+            onBlockFolder = { menuFor = null; vm.blockHomeFolder(node) },
         )
     }
 }
@@ -378,6 +429,8 @@ internal fun HistoryRow(
     sort: HistorySort,
     vm: BrowserViewModel,
     today: Boolean,
+    /** The rows this one sits among, for the viewer to swipe through. See `ViewerRun`. */
+    from: (() -> List<dev.niccc2007.filet.vfs.VNode>)? = null,
     onLongPress: (dev.niccc2007.filet.vfs.VNode) -> Unit,
 ) {
     val node = remember(entry.path) {
@@ -385,7 +438,7 @@ internal fun HistoryRow(
             dev.niccc2007.filet.vfs.VPath.parse(entry.path),
             false,
             entry.bytes,
-            entry.lastChanged,
+            entry.modified,
         )
     }
     // The size moves onto the subtitle beside where the file came from, which is how the row
@@ -404,10 +457,17 @@ internal fun HistoryRow(
         // on the Home overview answer a long press with a sheet. The actions that exist
         // everywhere else in the app were missing exactly where a new file is most likely to
         // need them.
-        onClick = { vm.openHomeEntry(node) },
+        onClick = { vm.openHomeEntry(node, from?.invoke()) },
         onLongClick = { onLongPress(node) },
         trailing = { Trailing(clock(entry.timeFor(sort))) },
     )
+}
+
+/** These entries as the files they name, for a viewer's run. */
+internal fun List<HistoryEntry>.asNodes(): List<dev.niccc2007.filet.vfs.VNode> = mapNotNull { e ->
+    runCatching {
+        dev.niccc2007.filet.vfs.VNode(dev.niccc2007.filet.vfs.VPath.parse(e.path), false, e.bytes, e.modified)
+    }.getOrNull()
 }
 
 /** `9:43pm`, so a row says the time and the header says the day. */
@@ -427,9 +487,41 @@ private fun bytes(n: Long): String = when {
  * Constants because [SortPair] selects on the label it was handed: a string typed twice is a
  * control that silently stops selecting anything the moment one of them is edited.
  */
-private const val FIRST_SEEN_LABEL = "First seen"
-private const val LAST_CHANGED_LABEL = "Last changed"
+private const val ADDED_LABEL = "By date added"
+private const val MODIFIED_LABEL = "By date modified"
 
 /** How many rows arrive at a time, and how close to the end to fetch the next lot. */
 private const val PAGE = 80
+
+/** Rows grouped in place for the first frame; the rest are grouped off the main thread. */
+private const val QUICK = 120
+
+/** One grouping of the held rows, for one sort and one mode. Built off the main thread. */
+private class NewFilesView(
+    val sort: HistorySort,
+    val grouped: Boolean,
+    val entries: List<HistoryEntry>,
+    val groups: List<DayGroup>,
+    val flat: List<HistoryEntry>,
+) {
+    companion object {
+        fun of(all: List<FeedItem>, sort: HistorySort, grouped: Boolean, now: Long, zone: TimeZone): NewFilesView {
+            val entries = all.map {
+                HistoryEntry(
+                    path = it.node.path.toString(),
+                    name = it.node.name,
+                    bytes = it.node.size.coerceAtLeast(0L),
+                    added = it.arrived,
+                    modified = it.at,
+                    origin = it.origin ?: it.node.path.parent?.name,
+                )
+            }
+            return NewFilesView(
+                sort, grouped, entries,
+                if (grouped) FileHistory.group(entries, sort, now, zone) else emptyList(),
+                if (grouped) emptyList() else FileHistory.flat(entries, sort),
+            )
+        }
+    }
+}
 private const val LOAD_AHEAD = 20

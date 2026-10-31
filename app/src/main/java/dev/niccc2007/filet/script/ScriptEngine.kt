@@ -4,6 +4,7 @@ import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -49,6 +50,10 @@ class ScriptEngine(private val vfs: Vfs) {
         val started = System.currentTimeMillis()
 
         val deadline = started + permissions.timeoutMs
+        // The coroutine this runs in, so Stop on the activity row reaches a running script. A
+        // Lua loop never suspends, so cancelling the coroutine alone would mark the row stopped
+        // and leave the script running to its deadline; the instruction hook asks it instead.
+        val job = currentCoroutineContext()[kotlinx.coroutines.Job]
 
         // Two timeouts, because they catch different things. The deadline hook stops a
         // runaway Lua loop - `withTimeoutOrNull` alone cannot, since a tight `while true do
@@ -56,7 +61,7 @@ class ScriptEngine(private val vfs: Vfs) {
         // covers the blocking IO a script can start inside one call.
         val result = withTimeoutOrNull(permissions.timeoutMs + 2_000) {
             runCatching {
-                val globals = sandbox(guarded, out, args, deadline)
+                val globals = sandbox(guarded, out, args, deadline) { job?.isCancelled == true }
                 val chunk = globals.load(source, "filet-script")
                 chunk.call()
             }
@@ -94,13 +99,14 @@ class ScriptEngine(private val vfs: Vfs) {
         out: StringBuilder,
         args: List<String>,
         deadline: Long,
+        stopped: () -> Boolean,
     ): Globals {
         val g: Globals = JsePlatform.standardGlobals()
 
         // The instruction hook is what makes the time limit real. Installing DebugLib routes
         // every VM instruction through onInstruction; the `debug` table itself is then hidden,
         // because `debug.sethook` would let a script remove its own leash.
-        g.load(Deadline(deadline))
+        g.load(Deadline(deadline, stopped))
         g.set("debug", LuaValue.NIL)
 
         // Remove every route to the filesystem that bypasses GuardedVfs. Without this the
@@ -316,18 +322,20 @@ class ScriptEngine(private val vfs: Vfs) {
      * the runtime of an ordinary script for no benefit, and 1024 instructions is far below
      * human-perceptible time.
      */
-    private class Deadline(private val until: Long) : org.luaj.vm2.lib.DebugLib() {
+    private class Deadline(private val until: Long, private val stopped: () -> Boolean) : org.luaj.vm2.lib.DebugLib() {
         private var counter = 0
         override fun onInstruction(pc: Int, v: Varargs, top: Int) {
             super.onInstruction(pc, v, top)
-            if ((++counter and 0x3FF) == 0 && System.currentTimeMillis() > until) {
-                throw LuaError(TIMEOUT_MARKER)
+            if ((++counter and 0x3FF) == 0) {
+                if (stopped()) throw LuaError(STOP_MARKER)
+                if (System.currentTimeMillis() > until) throw LuaError(TIMEOUT_MARKER)
             }
         }
     }
 
     private companion object {
         const val TIMEOUT_MARKER = "filet:script-timeout"
+        const val STOP_MARKER = "filet:script-stopped"
         const val OUTPUT_CAP = 256 * 1024
         const val READ_CAP = 8 * 1024 * 1024
         const val WALK_CAP = 50_000

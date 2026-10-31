@@ -137,3 +137,70 @@ internal object DocZoom {
      */
     fun anchoredTop(focalY: Float, itemTop: Float, ratio: Float): Float = focalY - (focalY - itemTop) * ratio
 }
+
+/**
+ * A pinch, gathered between frames and applied once per frame.
+ *
+ * ## The freeze this replaces
+ *
+ * Bug identified here: the pinch wrote the zoom and launched a scroll for EVERY touch event, and a
+ * phone sends several per frame. Each scroll is a `scrollToItem` and a `scrollBy`, and each of
+ * those forces the list to measure again on the spot, at the new density - so one frame paid for
+ * three or four full layouts of every visible block and the main thread fell behind the fingers.
+ * The pinch felt stuck, then jumped.
+ *
+ * Now a touch event only multiplies its ratio in here. Once a frame the reader [take]s what has
+ * gathered, sets the zoom once and scrolls once. Ratios multiply, so nothing is lost by gathering
+ * them, and the focal point is the latest one, which is where the fingers are now.
+ */
+internal class PinchFrame {
+    private var ratio = 1f
+    private var focal = Float.NaN
+    private var pending = false
+    private var moved = false
+
+    /** Two fingers are down. */
+    var active = false
+        private set
+
+    fun begin() { active = true }
+
+    fun end() { active = false }
+
+    /**
+     * True once, after a pinch that changed the zoom has ended and its last frame is applied:
+     * the moment to remember the size. Saving on every frame would write the settings sixty
+     * times a second; saving on lift alone would miss the frame still gathering.
+     */
+    fun settled(): Boolean {
+        if (active || pending || !moved) return false
+        moved = false
+        return true
+    }
+
+    /** One touch event's zoom ratio, around [focalY]. */
+    fun add(eventRatio: Float, focalY: Float) {
+        if (eventRatio.isNaN() || eventRatio <= 0f) return
+        ratio *= eventRatio
+        focal = focalY
+        pending = true
+    }
+
+    /**
+     * What gathered since the last frame, applied to [current]: the new zoom and the ratio it
+     * actually moved by, which the clamp can make smaller than what the fingers did. Null when
+     * nothing gathered, or when the zoom is pinned at a bound and the fingers push against it.
+     */
+    fun take(current: Float): Step? {
+        if (!pending) return null
+        val after = DocZoom.pinch(current, ratio)
+        val f = focal
+        ratio = 1f
+        pending = false
+        if (after == current) return null
+        moved = true
+        return Step(after, after / current, f)
+    }
+
+    data class Step(val zoom: Float, val ratio: Float, val focalY: Float)
+}

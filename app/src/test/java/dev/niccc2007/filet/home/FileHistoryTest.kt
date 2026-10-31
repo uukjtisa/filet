@@ -116,7 +116,7 @@ class FileHistoryTest {
             entry("c", at(2026, 9, 14, 18)),
             entry("d", at(2026, 9, 13, 9)),
         )
-        val groups = FileHistory.group(entries, HistorySort.FIRST_SEEN, now, zone, locale)
+        val groups = FileHistory.group(entries, HistorySort.DATE_ADDED, now, zone, locale)
         assertEquals(listOf("2026-09-14", "2026-09-13", "2026-09-12"), groups.map { it.key })
         assertEquals(listOf("Today", "Yesterday"), groups.take(2).map { it.label })
         assertTrue(groups[2].label, groups[2].label.startsWith("Sat "))
@@ -131,7 +131,7 @@ class FileHistoryTest {
             entry("b", at(2026, 9, 14, 10), bytes = 2500),
             entry("c", at(2026, 9, 12, 9), bytes = 7),
         )
-        val groups = FileHistory.group(entries, HistorySort.FIRST_SEEN, now, zone, locale)
+        val groups = FileHistory.group(entries, HistorySort.DATE_ADDED, now, zone, locale)
         assertEquals(2, groups[0].count)
         assertEquals(3500, groups[0].bytes)
         assertEquals(1, groups[1].count)
@@ -141,13 +141,13 @@ class FileHistoryTest {
     @Test fun a_group_is_keyed_by_its_date_and_not_by_its_label() {
         // "Today" is a different day tomorrow. A collapsed group keyed by its label reopens
         // itself at midnight, which reads as the app forgetting what you did.
-        val groups = FileHistory.group(listOf(entry("a", at(2026, 9, 14, 9))), HistorySort.FIRST_SEEN, now, zone, locale)
+        val groups = FileHistory.group(listOf(entry("a", at(2026, 9, 14, 9))), HistorySort.DATE_ADDED, now, zone, locale)
         assertEquals("2026-09-14", groups.single().key)
         assertNotEquals(groups.single().label, groups.single().key)
     }
 
     @Test fun an_empty_history_produces_no_groups_rather_than_an_empty_today() {
-        assertTrue(FileHistory.group(emptyList(), HistorySort.FIRST_SEEN, now, zone, locale).isEmpty())
+        assertTrue(FileHistory.group(emptyList(), HistorySort.DATE_ADDED, now, zone, locale).isEmpty())
     }
 
     // ── the two orderings ──
@@ -156,8 +156,8 @@ class FileHistoryTest {
         // The assertion that proves the switch does something. A download that turned up today
         // carrying last year's timestamp is the case, and it is extremely common.
         val old = entry("reviewer.pdf", seen = at(2026, 9, 14, 10), changed = at(2025, 4, 2, 10))
-        val bySeen = FileHistory.group(listOf(old), HistorySort.FIRST_SEEN, now, zone, locale)
-        val byChanged = FileHistory.group(listOf(old), HistorySort.LAST_CHANGED, now, zone, locale)
+        val bySeen = FileHistory.group(listOf(old), HistorySort.DATE_ADDED, now, zone, locale)
+        val byChanged = FileHistory.group(listOf(old), HistorySort.DATE_MODIFIED, now, zone, locale)
         assertEquals("Today", bySeen.single().label)
         assertTrue(byChanged.single().label.contains("2025"))
     }
@@ -165,15 +165,15 @@ class FileHistoryTest {
     @Test fun the_two_orderings_can_reverse_the_list() {
         val a = entry("a", seen = at(2026, 9, 14, 10), changed = at(2020, 1, 1))
         val b = entry("b", seen = at(2026, 9, 10, 10), changed = at(2026, 9, 14, 10))
-        assertEquals(listOf("a", "b"), FileHistory.flat(listOf(a, b), HistorySort.FIRST_SEEN).map { it.name })
-        assertEquals(listOf("b", "a"), FileHistory.flat(listOf(a, b), HistorySort.LAST_CHANGED).map { it.name })
+        assertEquals(listOf("a", "b"), FileHistory.flat(listOf(a, b), HistorySort.DATE_ADDED).map { it.name })
+        assertEquals(listOf("b", "a"), FileHistory.flat(listOf(a, b), HistorySort.DATE_MODIFIED).map { it.name })
     }
 
     @Test fun the_flat_list_holds_everything_the_groups_do() {
         // The "no special segregation" switch must not also be a filter.
         val entries = (1..20).map { entry("f$it", at(2026, 9, (it % 14) + 1, 9)) }
-        val grouped = FileHistory.group(entries, HistorySort.FIRST_SEEN, now, zone, locale).flatMap { it.entries }
-        val flat = FileHistory.flat(entries, HistorySort.FIRST_SEEN)
+        val grouped = FileHistory.group(entries, HistorySort.DATE_ADDED, now, zone, locale).flatMap { it.entries }
+        val flat = FileHistory.flat(entries, HistorySort.DATE_ADDED)
         assertEquals(flat.map { it.name }.toSet(), grouped.map { it.name }.toSet())
         assertEquals(entries.size, flat.size)
     }
@@ -186,7 +186,7 @@ class FileHistoryTest {
             entry("b", at(2026, 9, 12, 9)),
             entry("c", at(2026, 9, 10, 9)),
         )
-        val groups = FileHistory.group(entries, HistorySort.FIRST_SEEN, now, zone, locale)
+        val groups = FileHistory.group(entries, HistorySort.DATE_ADDED, now, zone, locale)
         // header + 1 row for Today, then the 12th's header.
         assertEquals(0, FileHistory.jumpIndex(groups, "2026-09-14"))
         assertEquals(2, FileHistory.jumpIndex(groups, "2026-09-12"))
@@ -198,14 +198,14 @@ class FileHistoryTest {
         // broken; landing between the days either side is an answer.
         val groups = FileHistory.group(
             listOf(entry("a", at(2026, 9, 14, 9)), entry("c", at(2026, 9, 10, 9))),
-            HistorySort.FIRST_SEEN, now, zone, locale,
+            HistorySort.DATE_ADDED, now, zone, locale,
         )
         val i = FileHistory.jumpIndex(groups, "2026-09-12")
         assertEquals(2, i)
     }
 
     @Test fun picking_a_day_older_than_everything_lands_at_the_end() {
-        val groups = FileHistory.group(listOf(entry("a", at(2026, 9, 14, 9))), HistorySort.FIRST_SEEN, now, zone, locale)
+        val groups = FileHistory.group(listOf(entry("a", at(2026, 9, 14, 9))), HistorySort.DATE_ADDED, now, zone, locale)
         assertEquals(2, FileHistory.jumpIndex(groups, "2019-01-01"))
     }
 

@@ -53,6 +53,7 @@ import dev.niccc2007.filet.ui.dialogs.DlgFooter
 import dev.niccc2007.filet.ui.dialogs.DlgHeader
 import dev.niccc2007.filet.ui.dialogs.DlgPick
 import dev.niccc2007.filet.ui.dialogs.DlgSpacer
+import dev.niccc2007.filet.ui.dialogs.DlgTick
 import dev.niccc2007.filet.ui.tabs.EmptyTab
 import dev.niccc2007.filet.ui.tabs.NLead
 import dev.niccc2007.filet.ui.tabs.NRow
@@ -86,11 +87,16 @@ fun RemotesScreen(vm: BrowserViewModel) {
     // On a list of six, the one wanted is almost always the one used last. The tail is sorted
     // by name rather than left in storage order, so a fresh install is not in the arbitrary
     // order entries were created in.
-    val list = remember(revision) {
+    val saved = remember(revision) {
         vm.connections.all().sortedWith(
             compareByDescending<NetConnection> { it.lastUsedAt }
                 .thenBy { it.label.ifEmpty { it.host }.lowercase() },
         )
+    }
+    // Narrowed by the pane's search box, by name or address - saved and found alike.
+    val query = dev.niccc2007.filet.ui.LocalPaneQuery.current
+    val list = remember(saved, query) {
+        saved.filter { dev.niccc2007.filet.ui.TextMatch.matches(query, it.label, it.host, it.share, it.protocol.scheme) }
     }
     val tests by vm.remoteTests.collectAsState()
     val testing by vm.remoteTesting.collectAsState()
@@ -106,6 +112,13 @@ fun RemotesScreen(vm: BrowserViewModel) {
     val found by beacon.state.collectAsState()
     DisposableEffect(Unit) {
         beacon.startScan()
+        // And ask again, now. `startScan` is refcounted, so when the app-wide scan is already
+        // running this call returns without sending anything - leaving the screen showing
+        // whatever a listener happened to have heard, which may have been minutes ago. mDNS
+        // does not re-announce on request, so the only way to get a fresh round is a new
+        // listener. This is the "it takes a while to appear" complaint: the hosts were not slow
+        // to arrive, nothing had asked for them since the app came to the foreground.
+        beacon.restartScan(forget = false)
         onDispose { beacon.stopScan() }
     }
 
@@ -154,6 +167,18 @@ fun RemotesScreen(vm: BrowserViewModel) {
                     menuFor = null
                     forgetting = c
                 }
+                // Off for every share unless turned on here - SEARCH.md §13.6. The sub-line says
+                // what it buys and what it costs, and does not promise the share is watched: it
+                // is not, and an index as fresh as its last pass is the honest description.
+                DlgTick(
+                    on = c.indexed,
+                    label = "Keep an index of this share",
+                    sub = "Faster search here. Costs a full walk of it, kept until the next pass.",
+                ) {
+                    val next = c.copy(indexed = !c.indexed)
+                    vm.saveConnection(next)
+                    menuFor = next
+                }
             }
             DlgFooter { DlgBtn("Close", BtnKind.PLAIN) { menuFor = null } }
         }
@@ -172,7 +197,7 @@ fun RemotesScreen(vm: BrowserViewModel) {
             DlgBody {
                 DlgCaption(
                     "Nothing on the other device is touched. Only what Filet remembers about " +
-                        "how to reach it.",
+                        "how to reach it, and anything it had indexed there.",
                 )
             }
             DlgFooter {
@@ -185,49 +210,23 @@ fun RemotesScreen(vm: BrowserViewModel) {
         }
     }
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("remotes")) {
         item { TabHeader("Network and root") }
 
-        // Other phones running Filet and hosting right now. Above the saved list on purpose:
-        // adding one is the thing somebody is on this screen to do, and it used to mean reading
-        // an address off the other phone and typing it in here by hand.
-        if (found.hosts.isNotEmpty()) {
-            item { SectionRow("Phones on this network") }
-            items(found.hosts.size) { i ->
-                val h = found.hosts[i]
-                // A host that is already one of the saved remotes is not something to add, and
-                // offering it as new is how one tablet ends up with four entries. The address it
-                // is announced at may be one the entry has only just learned, so this is read
-                // against the saved list rather than compared by eye.
-                val already = remember(revision, h.key) { vm.savedRemoteFor(h) }
-                NRow(
-                    title = h.name,
-                    sub = "${h.host}:${h.port}${if (h.scope.isNotEmpty()) "  ·  " + h.scope else ""}",
-                    lead = NLead.Glyph(FiletIcons.Wifi),
-                    mono = true,
-                    trailing = {
-                        if (already != null) {
-                            Pill("saved", PillTone.Good)
-                            SmallBtn("Open") { vm.openConnection(already) }
-                        } else {
-                            // Opens the form already filled in, so the only field left is the
-                            // code - which is not broadcast, because a password that travels
-                            // with the address is not a password.
-                            SmallBtn("Add") { editing = vm.connectionFromHost(h) }
-                            // For the one case learning cannot reach on its own: an entry with
-                            // no device id whose address has already changed has nothing left to
-                            // match on. Hidden when there is nothing to link to.
-                            if (linkable.isNotEmpty()) SmallBtn("Link") { linking = h }
-                        }
-                    },
-                )
-            }
-        }
-
-        // ── servers on this network that are not Filet ──────────────────────────────
+        // ── everything on this network, in ONE list ─────────────────────────────────
+        //
+        // This was two sections - "Phones on this network" from the beacon and "Servers on this
+        // network" from the scan - and they could each hold the same device. A Filet phone also
+        // answering the sweep on 5005 appeared twice, once named and once as a bare address,
+        // which asks the reader to work out whether two rows are one machine. Worse, with the
+        // beacon list empty the second section's caption said nothing had announced itself while
+        // a phone on the same network was announcing.
+        //
+        // `ServerScan.combine` folds the beacon's resolved hosts through the same merge rule, so
+        // one device is one row whichever way it was found.
         item {
             SectionRow(
-                "Servers on this network",
+                "Found on this network",
                 note = if (servers.sweeping) {
                     "looking… ${(servers.progress * 100).toInt()}%"
                 } else {
@@ -235,19 +234,33 @@ fun RemotesScreen(vm: BrowserViewModel) {
                 },
             )
         }
-        items(servers.found.size) { i ->
-            val s = servers.found[i]
-            // Already saved is not something to add, and offering it as new is how one NAS
-            // becomes four entries. Matched on host and protocol, which is what an entry
-            // actually addresses.
-            val already = remember(revision, s.key) {
-                list.firstOrNull { it.host == s.host && it.protocol == s.protocol }
+        val onNetwork = ServerScan.combine(servers.found, found.hosts).filter {
+            dev.niccc2007.filet.ui.TextMatch.matches(query, it.name, it.host, it.protocol.scheme + "://" + it.host + ":" + it.port)
+        }
+        items(onNetwork.size) { i ->
+            val s = onNetwork[i]
+            // A Filet host carries the id of the install that announced it; nothing else does.
+            // That is what decides whether this row can be linked to an existing entry, and
+            // which of the two "already saved" questions to ask.
+            val host = remember(found.hosts, s.key) {
+                found.hosts.firstOrNull { it.host == s.host && it.port == s.port }
+            }
+            val already = remember(revision, s.key, host) {
+                if (host != null) {
+                    vm.savedRemoteFor(host)
+                } else {
+                    list.firstOrNull { it.host == s.host && it.protocol == s.protocol }
+                }
             }
             NRow(
                 title = s.name,
-                sub = "${s.protocol.scheme}://${s.host}:${s.port}" +
-                    if (s.byName) "  ·  announced itself" else "",
-                lead = NLead.Glyph(iconFor(s.protocol)),
+                sub = buildString {
+                    append(s.protocol.scheme).append("://").append(s.host).append(':').append(s.port)
+                    s.path?.let { if (it.isNotEmpty()) append('/').append(it) }
+                    host?.scope?.takeIf { it.isNotEmpty() }?.let { append("  ·  ").append(it) }
+                    if (s.byName) append("  ·  announced itself")
+                },
+                lead = NLead.Glyph(if (host != null) FiletIcons.Wifi else iconFor(s.protocol)),
                 mono = true,
                 trailing = {
                     if (already != null) {
@@ -255,10 +268,18 @@ fun RemotesScreen(vm: BrowserViewModel) {
                         SmallBtn("Open") { vm.openConnection(already) }
                     } else {
                         Pill(s.protocol.name, PillTone.Plain)
-                        // The form opens with the protocol, host and port filled in, so the
-                        // only thing left is the sign-in - which is the whole difference
-                        // between discovery and writing an IP address on a hand.
+                        // The form opens with protocol, host, port and - for a Filet host - the
+                        // announced base path already filled in, so the only thing left is the
+                        // sign-in. For a Filet share that is the access code, which is
+                        // deliberately never broadcast.
                         SmallBtn("Add") { editing = vm.connectionFromFound(s) }
+                        // For the one case learning cannot reach on its own: an entry with no
+                        // device id whose address has already changed has nothing left to match
+                        // on. Only offered for a Filet host, and only when there is something
+                        // to link to.
+                        if (host != null && linkable.isNotEmpty()) {
+                            SmallBtn("Link") { linking = host }
+                        }
                     }
                 },
             )
@@ -267,7 +288,7 @@ fun RemotesScreen(vm: BrowserViewModel) {
             Column(
                 Modifier.fillMaxWidth().padding(start = 15.dp, end = 15.dp, top = 2.dp, bottom = 6.dp),
             ) {
-                if (servers.found.isEmpty() && !servers.sweeping) {
+                if (onNetwork.isEmpty() && !servers.sweeping) {
                     DlgCaption(
                         "Nothing has announced itself. A Windows PC does not - it uses a " +
                             "different protocol for that - so look for it by sweeping the " +
@@ -280,15 +301,19 @@ fun RemotesScreen(vm: BrowserViewModel) {
                     Spacer(Modifier.height(6.dp))
                 }
                 if (servers.sweeping) {
-                    SmallButton("Stop looking") { scan.stop() }
+                    SmallButton("Stop looking") { scan.stopSweep() }
                 } else {
                     SmallButton("Look for servers") { scan.sweep() }
                 }
             }
         }
 
-        item { SectionRow("Network") }
-        if (list.isEmpty()) {
+        // Named for what it holds, not for the subject it is about. It read "Network", directly
+        // under "Servers on this network" - two headings a reader has to disambiguate by
+        // guessing, when one is a list of things found and the other a list of things kept.
+        item { SectionRow("Saved shares") }
+        if (list.isEmpty() && saved.isNotEmpty()) item { dev.niccc2007.filet.ui.NoMatch(query) }
+        if (saved.isEmpty()) {
             item {
                 EmptyTab(
                     FiletIcons.Device,

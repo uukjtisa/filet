@@ -1,7 +1,11 @@
 package dev.niccc2007.filet.browser
 
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -27,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.animation.core.tween
@@ -34,20 +39,26 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.data.ViewStep
+import dev.niccc2007.filet.ui.LocalRowPulse
 import dev.niccc2007.filet.ui.Motion
+import dev.niccc2007.filet.ui.RowPulse
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -60,9 +71,10 @@ import java.util.Locale
  * six steps need room a narrow pane does not have.
  */
 /**
- * @param showDate whether there is ROOM for a separate date column. Whether one is WANTED is
- *   [EntryDisplay.dateColumn], and both have to agree - width is a constraint, the setting is a
- *   choice, and collapsing them into one flag is how a preference became unreachable on a phone.
+ * @param showDate whether there is ROOM for a date in the side column. Whether one is WANTED is
+ *   [EntryDisplay.sideFile] or [EntryDisplay.sideFolder], and both have to agree - width is a
+ *   constraint, the setting is a choice, and collapsing them into one flag is how a preference
+ *   became unreachable on a phone. [SideColumn.fits] is where they meet.
  */
 /**
  * @param oneLineName whether a name that does not fit should be cut rather than wrapped. The
@@ -138,20 +150,83 @@ fun FileRow(
     /** Null for a row that cannot open: a file, or the tree view being off. */
     openInPlace: Boolean? = null,
     onOpenInPlace: (() -> Unit)? = null,
+    /** Whether a selection is live in this pane. Taps are timed differently - see [RowTaps]. */
+    selecting: Boolean = false,
+    /**
+     * Tapping the icon itself toggles the row's selection, ZArchiver's way - null where the row
+     * cannot be selected. A target of its own, so the first selection is a tap, not a press.
+     */
+    onIconClick: (() -> Unit)? = null,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    onDoubleClick: () -> Unit = {},
+    /** Where the second tap landed, in root coordinates, for the menu it opens. */
+    onDoubleClick: (Offset) -> Unit = {},
+    /**
+     * Taken in by a selected folder above it, so acted on with that folder rather than on its
+     * own - see `TreeSelection`. Drawn as a fainter selection: it IS going to be copied or
+     * deleted, and a row that looked unselected would hide that.
+     */
+    included: Boolean = false,
+) {
+    // The rows' own long-press timing - see RowTaps. Provided here so the drag detector that
+    // arrives in `modifier` reads it too, which is the press that starts every selection.
+    val base = LocalViewConfiguration.current
+    val quick = remember(base) { RowTaps.QuickPress(base) }
+    CompositionLocalProvider(LocalViewConfiguration provides quick) {
+        FileRowBody(
+            node, metrics, selected, dropTarget, modifier, thumbnails, display, count, depth, spines,
+            lastOfSiblings, treeRow, edge, steps, openInPlace, onOpenInPlace, selecting, onIconClick,
+            onClick, onLongClick, onDoubleClick, included,
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FileRowBody(
+    node: VNode,
+    metrics: PaneMetrics,
+    selected: Boolean,
+    dropTarget: Boolean,
+    modifier: Modifier,
+    thumbnails: Boolean,
+    display: EntryDisplay,
+    count: Int?,
+    depth: Int,
+    spines: List<Boolean>,
+    lastOfSiblings: Boolean,
+    treeRow: Boolean,
+    edge: ActiveEdge?,
+    steps: TreeScale.Steps,
+    openInPlace: Boolean?,
+    onOpenInPlace: (() -> Unit)?,
+    selecting: Boolean,
+    onIconClick: (() -> Unit)?,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onDoubleClick: (Offset) -> Unit,
+    included: Boolean,
 ) {
     val colors = Filet.colors
     val accent = colors.accent
     val kind = FileKind.of(node)
-    val bg by animateColorAsState(
+    // Held as the State object, NOT delegated with `by`, and that is the whole point.
+    //
+    // `by` unwraps an animation in the COMPOSITION scope, so the row that reads it recomposes on
+    // every frame of the fade. Read instead inside `drawBehind` below, the same fade invalidates
+    // only the draw phase - one rectangle - and the row's composition is left alone. With a
+    // screenful of rows each running its own colour animation, that is the difference between a
+    // fling that recomposes the list continuously and one that does not.
+    val bg = animateColorAsState(
         targetValue = when {
             dropTarget -> colors.drop
             selected -> colors.sel
+            included -> colors.sel.copy(alpha = colors.sel.alpha * INCLUDED_ALPHA)
             else -> Color.Transparent
         },
-        animationSpec = Motion.fast(),
+        // In at once, out with the fade. A highlight that eases in reads as the tap having been
+        // slow to register, which is what selecting was reported as.
+        animationSpec = if (selected || dropTarget || included) snap() else Motion.fast(),
         label = "rowBackground",
     )
     val step = metrics.step
@@ -166,7 +241,8 @@ fun FileRow(
     // the instant it stopped being in it and the outline would come apart before it faded.
     var heldEdge by remember { mutableStateOf(edge) }
     if (edge != null) heldEdge = edge
-    val framed by animateFloatAsState(
+    // Draw-phase read, for the reason given on `bg`.
+    val framed = animateFloatAsState(
         if (edge != null) 1f else 0f,
         animationSpec = tween(FRAME_IN_MS, easing = FastOutSlowInEasing),
         label = "workingFrame",
@@ -187,16 +263,17 @@ fun FileRow(
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = step.rowHeight.dp)
-            .background(bg)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick,
-                onDoubleClick = onDoubleClick,
-            )
+            .rowTaps(selecting, onTap = onClick, onLongClick = onLongClick, onDoubleTap = onDoubleClick)
             .then(modifier)
             .drawBehind {
+                // The row's own background, drawn rather than composed - see the note on `bg`.
+                // Still first in the block, so it stays underneath the guides and the outline
+                // exactly as `.background()` did.
+                val fill = bg.value
+                if (fill != Color.Transparent) drawRect(fill)
                 if (treeRow) treeGuides(depth, spines, lastOfSiblings, openInPlace, steps, accent)
-                heldEdge?.takeIf { framed > 0.01f }?.let { activeFrame(it, accent, framed) }
+                val lit = framed.value
+                heldEdge?.takeIf { lit > 0.01f }?.let { activeRail(it, accent, lit) }
             }
             .padding(
                 start = (steps.startDp + depth * steps.indentDp).dp,
@@ -212,7 +289,9 @@ fun FileRow(
         // meant. A tree where the only way in is a chevron is a tree that has quietly
         // replaced the browser instead of sitting inside it.
         if (openInPlace != null && onOpenInPlace != null) {
-            val turn by animateFloatAsState(
+            // Draw-phase read, for the reason given on `bg`: a chevron turning must not
+            // recompose the row it sits in.
+            val turn = animateFloatAsState(
                 if (openInPlace) 0f else -90f,
                 animationSpec = Motion.fast(),
                 label = "branch",
@@ -225,7 +304,7 @@ fun FileRow(
                     .clip(RoundedCornerShape(6.dp))
                     .clickable(onClick = onOpenInPlace)
                     .padding(7.dp)
-                    .graphicsLayer { rotationZ = turn },
+                    .graphicsLayer { rotationZ = turn.value },
             )
         } else if (treeRow || depth > 0) {
             // The chevron's width is reserved whether or not there is one. Without this a
@@ -234,72 +313,340 @@ fun FileRow(
             // different.
             Spacer(Modifier.width(26.dp))
         }
-        FileThumb(
-            node = node,
-            size = step.icon.dp,
-            fallbackTint = iconTint(kind, colors.accent, MaterialTheme.colorScheme.onSurfaceVariant, colors.fg2),
-            enabled = thumbnails,
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = node.name,
-                fontSize = step.nameSize.sp,
-                lineHeight = (step.nameSize + 4).sp,
-                maxLines = nameLineCount(step.twoLine, metrics.oneLineName, metrics.nameLines),
-                overflow = TextOverflow.Ellipsis,
-                fontWeight = if (node.isDir) FontWeight.Medium else FontWeight.Normal,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            if (step.twoLine && display.subtitle) {
-                Text(
-                    text = EntryFormat.subtitle(node.isDir, node.size, node.mtime, display),
-                    fontSize = step.metaSize.sp,
-                    color = colors.fg3,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        // ONE column for "how big is this". A file answers in bytes and a folder in items, which
-        // is the same question in different units - and the folder half is what used to be a
-        // permanent dash.
-        if (metrics.showSize && display.measure) {
-            val measure = EntryFormat.measure(node.isDir, node.size, count)
-            if (measure.isNotEmpty()) {
-                Text(
-                    text = measure,
-                    fontSize = step.metaSize.sp,
-                    // The list face with tabular figures, not Cascadia Mono. A code font in a
-                    // list of documents was the complaint; what the column actually needs is
-                    // digits that line up, which is a font FEATURE rather than a whole family.
-                    fontFamily = null,
-                    style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
-                    color = colors.fg3,
-                    textAlign = TextAlign.End,
-                    maxLines = 1,
-                    modifier = Modifier.width(if (node.isDir) 68.dp else 62.dp),
-                )
+        // The icon is its own target when the row can be selected: a tap on it toggles the
+        // selection, and the tick on its corner says so.
+        Box(
+            if (onIconClick != null) {
+                Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onIconClick)
             } else {
-                Spacer(Modifier.width(if (node.isDir) 68.dp else 62.dp))
+                Modifier
+            },
+        ) {
+            FileThumb(
+                node = node,
+                size = step.icon.dp,
+                fallbackTint = iconTint(kind, colors.accent, MaterialTheme.colorScheme.onSurfaceVariant, colors.fg2),
+                enabled = thumbnails,
+            )
+            SelectMark(
+                (selected || included) && onIconClick != null,
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .graphicsLayer { if (included && !selected) alpha = INCLUDED_ALPHA },
+                side = (step.icon * 0.5f).coerceIn(12f, 18f).dp,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        // ── everything inside this folder, if anything already knows it ───────────────────
+        //
+        // Hoisted above both surfaces that can ask for it. The line under the name and the
+        // column beside it are configured separately and either can carry `Folder total`, so
+        // the lookup belongs to the ROW rather than to one of them - two lookups for one figure
+        // would double the work and let the two surfaces disagree while they settle.
+        //
+        // Read, never measured; see `FolderBytes`. The suspend read is cheap after the first
+        // one per crawl generation, which is what `FolderMeasure.indexTally` is for.
+        val bytes = LocalFolderBytes.current
+        val side = SideColumn.slotFor(display, node.isDir)
+        val sideFits = SideColumn.fits(side, metrics)
+        val wantsTotal = node.isDir && bytes != null && (
+            (step.twoLine && DetailPart.TOTAL in display.parts) ||
+                (side == DetailPart.TOTAL && sideFits)
+            )
+        // Polled until it stops moving, not read once.
+        //
+        // A one-shot read was enough while the only outcome was a figure or nothing. It is not
+        // enough now that the row says WHICH of three things is true: a total that arrives as
+        // Confirming would keep its spinner turning for as long as the row stayed on screen,
+        // because nothing would ever ask again - and a spinner that never stops is a worse
+        // claim than no spinner, since it reads as the app being stuck rather than as a figure
+        // settling.
+        //
+        // Stops on its own three ways: the moment the answer is Settled, after [SETTLE_TRIES]
+        // attempts so a device with indexing switched off is not polled for ever, and when the
+        // row leaves the list, which cancels the coroutine. Every attempt after the first is a
+        // map lookup, so the cost of watching is a timer rather than work.
+        val total by produceState<FolderTotal>(FolderTotal.Unknown, node.path, wantsTotal, bytes) {
+            if (!wantsTotal) {
+                value = FolderTotal.Unknown
+                return@produceState
+            }
+            var tries = 0
+            while (tries < SETTLE_TRIES) {
+                val next = runCatching { bytes.of(node.path) }.getOrDefault(FolderTotal.Unknown)
+                value = next
+                if (next is FolderTotal.Settled) return@produceState
+                // Ask for the real thing. The index can only ever offer a floor, so without
+                // this the row would show "703 MB+" for ever and never the 39 GB that is
+                // actually there. The request is de-duplicated and queued one at a time, so
+                // asking again on every tick costs a set lookup.
+                if (next.wantsWalk()) bytes.measure(node.path)
+                tries++
+                delay(SETTLE_POLL_MS)
             }
         }
-        // Only when there is room AND it was asked for. Off by default: with the subtitle on it
-        // prints the same date again a few pixels to the right, which is the duplication reported.
-        if (metrics.showDate && display.dateColumn) {
+        Column(Modifier.weight(1f)) {
+            // Whole, never dotted: it gives up size down to 11sp, then fades before its
+            // extension. See ListName.
+            ListNameText(
+                name = node.name,
+                color = MaterialTheme.colorScheme.onSurface,
+                startSp = step.nameSize.toFloat(),
+                lines = nameLineCount(step.twoLine, metrics.oneLineName, metrics.nameLines),
+                isDir = node.isDir,
+                fontWeight = if (node.isDir) FontWeight.Medium else FontWeight.Normal,
+            )
+            if (step.twoLine && display.parts.isNotEmpty()) {
+                // Remembered, not recomputed. Formatting a date is cheap once and expensive four
+                // hundred times a second: this is a list row, so the body below runs for every
+                // visible row on every recomposition, and a fling recomposes constantly. The
+                // keys are everything the line is derived from, so a row whose file has not
+                // changed formats its line exactly once.
+                val pieces = remember(node.isDir, node.size, node.mtime, display, count, node.name, total) {
+                    RowDetails.pieces(
+                        parts = display.parts,
+                        isDir = node.isDir,
+                        size = node.size,
+                        at = node.mtime,
+                        count = count,
+                        name = node.name,
+                        display = display,
+                        total = total,
+                    )
+                }
+                DetailLine(pieces = pieces, total = total, size = step.metaSize, colour = colors.fg3)
+            }
+        }
+        // The column beside the name: one thing, or nothing. See `SideColumn` for why it is one
+        // slot rather than the two independent booleans it replaced, and why a file and a folder
+        // choose separately.
+        if (side != null && sideFits) {
+            val text = remember(side, node.isDir, node.size, node.mtime, count, node.name, display, total) {
+                RowDetails.one(
+                    part = side,
+                    isDir = node.isDir,
+                    size = node.size,
+                    at = node.mtime,
+                    count = count,
+                    name = node.name,
+                    display = display,
+                    total = total,
+                )
+            }
             Spacer(Modifier.width(8.dp))
-            Text(
-                text = EntryFormat.date(node.mtime, display),
-                fontSize = step.metaSize.sp,
-                fontFamily = null,
-                style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
-                color = colors.fg3,
-                maxLines = 1,
-                modifier = Modifier.width(92.dp),
+            SideCell(
+                text = text,
+                pending = side == DetailPart.TOTAL,
+                total = total,
+                widthDp = SideColumn.widthDp(side, node.isDir),
+                size = step.metaSize,
+                colour = colors.fg3,
             )
         }
     }
 }
+
+/**
+ * The line under a name, which stays ONE Text whenever it can.
+ *
+ * ## Two paths, and why the cheap one has to stay cheap
+ *
+ * A settled row draws one Text holding the whole joined line, exactly as it always did. That is
+ * the overwhelming majority of rows - every file, and every folder whose total is known and not
+ * being re-derived - so the common case pays nothing for a feature it is not using. Splitting
+ * every line into a Text per part would put three or four text nodes on every row in the list to
+ * serve the few that are pending, which is the sort of trade a fling notices.
+ *
+ * The pending path splits, because it has to. The alternative is applying the pulse to the whole
+ * line, and that would say "this may change" about the parts beside the total - a settled date is
+ * not provisional, and dimming it to describe the uncertainty of the figure next to it is a claim
+ * about the wrong field. A line that misreports which of its own parts is firm is worse than one
+ * that costs an extra text node while it settles.
+ *
+ * ## Where the clock is read
+ *
+ * Inside `graphicsLayer`, which runs after composition, so the breath invalidates the draw phase
+ * alone. Read with `by` in this function's body instead and every pending row in the list
+ * recomposes on every frame of the animation - see `RowPulse` for the whole rule, and the row
+ * background in `FileRow` for the same decision taken for the same reason.
+ */
+@Composable
+private fun DetailLine(
+    pieces: List<RowDetails.Piece>,
+    total: FolderTotal,
+    size: Int,
+    colour: Color,
+) {
+    if (pieces.isEmpty()) return
+    val pulse = LocalRowPulse.current
+    val hasTotal = pieces.any { it.part == DetailPart.TOTAL }
+    // Pending means: this line carries a folder total, and that total is either missing or on
+    // its way to being replaced. Anything else draws the one-Text path.
+    val pending = hasTotal && (total.busy() || !total.known())
+    if (!pending) {
+        // Nothing to say is nothing drawn. A configuration can be legitimate and still produce
+        // an empty line for a given entry - "kind" on a folder, "file size" on a folder - and an
+        // empty Text still reserves a line's height, which would leave a ragged list where some
+        // rows are taller than others for no visible reason.
+        Text(
+            text = pieces.joinToString(RowDetails.JOIN) { it.text },
+            fontSize = size.sp,
+            color = colour,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        return
+    }
+    val known = total.known()
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        for ((i, piece) in pieces.withIndex()) {
+            if (i > 0) {
+                Text(RowDetails.JOIN, fontSize = size.sp, color = colour, maxLines = 1)
+            }
+            val isTotal = piece.part == DetailPart.TOTAL
+            Text(
+                text = piece.text,
+                fontSize = size.sp,
+                color = colour,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = if (!isTotal) {
+                    Modifier
+                } else {
+                    Modifier.graphicsLayer {
+                        alpha = if (known) {
+                            RowPulse.figure(pulse.phase.value)
+                        } else {
+                            RowPulse.dash(pulse.phase.value)
+                        }
+                    }
+                },
+            )
+        }
+        // Only when a figure is actually being re-derived. The missing-figure state gets the
+        // breathing dash and NO spinner: there is nothing in flight for this row to be busy
+        // about, and an arc turning over a row that holds no number promises an answer that may
+        // never come.
+        if (total.busy()) {
+            Spacer(Modifier.width(5.dp))
+            ConfirmSpinner(size = (size + 1).dp, colour = colour)
+        }
+    }
+}
+
+/**
+ * One fixed-width cell on the right of a row.
+ *
+ * Fixed width, and right-aligned inside it, because the entire value of this column is that it
+ * lines up down the list - digits that do not share a right edge cannot be compared at a glance,
+ * which is why the size lives here as well as being offered on the line.
+ *
+ * **The spinner goes on the LEFT of the figure here**, which is the opposite of the line under
+ * the name, and the reason is that right edge. A spinner appended after the number would push
+ * the number left by its own width for exactly as long as the figure was unsettled, so a list of
+ * folders mid-crawl would have a ragged column that straightened itself out one row at a time.
+ * On the line under the name there is no edge to hold, so the arc trails the text, where it
+ * reads more naturally.
+ */
+@Composable
+private fun SideCell(
+    text: String,
+    pending: Boolean,
+    total: FolderTotal,
+    widthDp: Int,
+    size: Int,
+    colour: Color,
+) {
+    val pulse = LocalRowPulse.current
+    if (text.isEmpty()) {
+        // Still takes the width. A folder with no count yet must not let the rows around it
+        // shift sideways when its figure lands.
+        Spacer(Modifier.width(widthDp.dp))
+        return
+    }
+    val breathing = pending && (total.busy() || !total.known())
+    Row(
+        modifier = Modifier.width(widthDp.dp),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (pending && total.busy()) {
+            ConfirmSpinner(size = (size + 1).dp, colour = colour)
+            Spacer(Modifier.width(4.dp))
+        }
+        Text(
+            text = text,
+            fontSize = size.sp,
+            // The list face with tabular figures, not Cascadia Mono. A code font in a list of
+            // documents was the fault; what the column actually needs is digits that line
+            // up, which is a font FEATURE rather than a whole family.
+            fontFamily = null,
+            style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
+            color = colour,
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .then(
+                    if (!breathing) {
+                        Modifier
+                    } else {
+                        Modifier.graphicsLayer {
+                            alpha = if (total.known()) {
+                                RowPulse.figure(pulse.phase.value)
+                            } else {
+                                RowPulse.dash(pulse.phase.value)
+                            }
+                        }
+                    },
+                ),
+        )
+    }
+}
+
+/**
+ * The small turning arc that means "this figure is being re-derived".
+ *
+ * A `Canvas` rather than a `CircularProgressIndicator`: the Material one is 40dp at its smallest
+ * without surgery, animates on its own clock - which is the per-row animation `RowPulse` exists
+ * to avoid - and carries a determinate/indeterminate API this has no use for. An arc is four
+ * numbers and reads at 12dp, which is the size that fits beside a row's metadata.
+ *
+ * The phase is read inside the draw lambda, so the turn costs a redraw of one small square and
+ * never a recomposition. Under reduce-motion the clock is parked and this is a static arc, which
+ * still says "in progress" without moving - see `RowPulse.STILL`.
+ */
+@Composable
+private fun ConfirmSpinner(size: Dp, colour: Color) {
+    val pulse = LocalRowPulse.current
+    Canvas(Modifier.size(size)) {
+        val stroke = this.size.minDimension * 0.16f
+        drawArc(
+            color = colour,
+            startAngle = RowPulse.sweep(pulse.phase.value),
+            // A quarter of the circle left open. A full ring cannot be seen to turn.
+            sweepAngle = 270f,
+            useCenter = false,
+            style = Stroke(width = stroke, cap = StrokeCap.Round),
+            topLeft = Offset(stroke / 2f, stroke / 2f),
+            size = Size(this.size.width - stroke, this.size.height - stroke),
+        )
+    }
+}
+
+/** How long a row waits between asking whether a pending total has settled. */
+private const val SETTLE_POLL_MS = 1_200L
+
+/**
+ * How many times it asks before giving up.
+ *
+ * Bounded because a row whose total is never going to arrive - indexing switched off, a remote
+ * folder nothing has walked - would otherwise hold a timer for as long as it was on screen.
+ * Twenty-five attempts is half a minute of watching, which covers a crawl passing the folder,
+ * and scrolling the row away and back starts a fresh watch.
+ */
+private const val SETTLE_TRIES = 25
+
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -311,30 +658,71 @@ fun FileTile(
     modifier: Modifier = Modifier,
     /** Off in the two compact list steps, where the glyph is only a few pixels wide. */
     thumbnails: Boolean = true,
+    /** Whether a selection is live. See [RowTaps]. */
+    selecting: Boolean = false,
+    /** The corner circle's tap, offered only while [selecting]. Null hides the circle. */
+    onIconClick: (() -> Unit)? = null,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    onDoubleClick: () -> Unit = {},
+    onDoubleClick: (Offset) -> Unit = {},
+) {
+    val base = LocalViewConfiguration.current
+    val quick = remember(base) { RowTaps.QuickPress(base) }
+    CompositionLocalProvider(LocalViewConfiguration provides quick) {
+        Box {
+            FileTileBody(node, metrics, selected, dropTarget, modifier, thumbnails, selecting, onClick, onLongClick, onDoubleClick)
+            // Only while selecting, as in Photos and Files. On every tile at rest it read as a
+            // pick already in progress.
+            if (onIconClick != null && selecting) {
+                CornerSelect(selected, onIconClick, Modifier.align(Alignment.TopStart))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FileTileBody(
+    node: VNode,
+    metrics: PaneMetrics,
+    selected: Boolean,
+    dropTarget: Boolean,
+    modifier: Modifier,
+    thumbnails: Boolean,
+    selecting: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onDoubleClick: (Offset) -> Unit,
 ) {
     val colors = Filet.colors
     val kind = FileKind.of(node)
     val step = metrics.step
-    val bg by animateColorAsState(
+    // Draw-phase read, for the reason given in FileRow: a selection fade must cost a redraw
+    // rather than a recomposition of every tile on screen.
+    val bg = animateColorAsState(
         targetValue = when {
             dropTarget -> colors.drop
             selected -> colors.sel
             else -> Color.Transparent
         },
-        animationSpec = Motion.fast(),
+        // In at once, out with the fade - see FileRow.
+        animationSpec = if (selected || dropTarget) snap() else Motion.fast(),
         label = "tileBackground",
     )
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
         // The drag detector goes last - see the note in FileRow. Same trap, same fix.
+        // The whole cell, not the name's width: a short name otherwise sat its icon at the
+        // cell's left edge while a long one centred it, so icons landed anywhere along a row.
         modifier = Modifier
+            .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(bg)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick, onDoubleClick = onDoubleClick)
+            .drawBehind {
+                val fill = bg.value
+                if (fill != Color.Transparent) drawRect(fill)
+            }
+            .rowTaps(selecting, onTap = onClick, onLongClick = onLongClick, onDoubleTap = onDoubleClick)
             .then(modifier)
             .padding(vertical = 10.dp, horizontal = 6.dp),
     ) {
@@ -345,19 +733,25 @@ fun FileTile(
             enabled = thumbnails,
         )
         Spacer(Modifier.height(7.dp))
-        Text(
-            text = node.name,
-            fontSize = step.nameSize.sp,
-            lineHeight = (step.nameSize + 3).sp,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
+        // Whole, at whatever size it fits, in an area the same height on every tile - see
+        // TileName. Five or more across is a wide screen, which keeps a higher floor.
+        TileNameText(
+            name = node.name,
+            isDir = node.isDir,
+            startSp = TileName.startFor(step),
             color = MaterialTheme.colorScheme.onSurface,
+            wide = step.tile != null &&
+                TileGrid.columns(metrics.widthDp - 12f, step.tile.toFloat()) >= 5,
+            modifier = Modifier.fillMaxWidth(),
         )
         // Folders deliberately print nothing here: a bare em dash where a size would be
         // reads as a failed lookup rather than as "not applicable".
         if (!node.isDir && metrics.showSize) {
-            Text(humanSize(node.size), fontSize = step.metaSize.sp, color = colors.fg3)
+            Text(
+                remember(node.size) { humanSize(node.size) },
+                fontSize = step.metaSize.sp,
+                color = colors.fg3,
+            )
         }
     }
 }
@@ -368,14 +762,14 @@ fun SearchResultRow(
     node: VNode,
     where: String,
     /**
-     * Whether the index has been re-checked for this entry by the pass that is running.
+     * Whether this row's own check has come back. SEARCH.md §14.3.
      *
-     * Two states and no more. A row that cannot be justified is dropped from the list rather
-     * than labelled - see HitState, where the rejected third state is written down.
+     * Two states and no more. A row whose check fails is dropped from the list rather than
+     * labelled - see HitState, where the rejected third state is written down.
      */
     state: dev.niccc2007.filet.index.HitState = dev.niccc2007.filet.index.HitState.AVAILABLE,
-    /** Whether a pass is running. Between passes no row carries a badge. See showBadge. */
-    crawlRunning: Boolean = false,
+    /** The characters of the name that matched the query, lit so why a row is here is visible. */
+    spans: List<IntRange> = emptyList(),
     metrics: PaneMetrics,
     selected: Boolean,
     modifier: Modifier = Modifier,
@@ -399,16 +793,18 @@ fun SearchResultRow(
         )
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(node.name, fontSize = metrics.step.nameSize.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
+            // The matched letters lit. `Microsoft.MinecraftUWP_8wekyb3d8bbwe` reads as an
+            // unrelated answer to "minecraft" until the piece that matched is visible.
+            val ink = colors.accent
+            val label = remember(node.name, spans, ink) { matchedName(node.name, spans, ink) }
+            ListNameText(label, MaterialTheme.colorScheme.onSurface, metrics.step.nameSize.toFloat(), lines = 1, isDir = node.isDir)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // While a pass is running, every row says which it is: only drawing the
-                // cautious half made the confident half indistinguishable from a feature that
-                // was not there - and on a FIRST index nothing can be cautious, because the
-                // database was empty when the pass began. That is why the screen was blank.
-                // Between passes nothing is drawn; everything is available then.
-                if (dev.niccc2007.filet.index.showBadge(crawlRunning)) {
-                    val confirming = state == dev.niccc2007.filet.index.HitState.CONFIRMING
-                    val tint = if (confirming) colors.warn else colors.good
+                // Only while this row's own check is outstanding. Once it passes there is
+                // nothing left to say, and a badge on every row saying so is noise. It used to
+                // follow whether a crawl was running, which is how checked rows came to read
+                // Confirming for minutes - see showBadge.
+                if (dev.niccc2007.filet.index.showBadge(state)) {
+                    val tint = colors.warn
                     Text(
                         state.label,
                         fontSize = (metrics.step.metaSize - 0.5f).sp,
@@ -432,6 +828,34 @@ fun SearchResultRow(
         }
         if (!node.isDir && metrics.showSize) {
             Text(humanSize(node.size), fontSize = metrics.step.metaSize.sp, fontFamily = FontFamily.Monospace, color = colors.fg3)
+        }
+    }
+}
+
+/**
+ * A name with the characters a search matched drawn in the accent and a heavier weight.
+ *
+ * Spans out of range are clamped rather than trusted: they were computed on the case-folded name,
+ * and the rare name that folding changes the length of must not throw from inside a list.
+ */
+internal fun matchedName(
+    name: String,
+    spans: List<IntRange>,
+    ink: Color,
+): androidx.compose.ui.text.AnnotatedString = androidx.compose.ui.text.buildAnnotatedString {
+    append(name)
+    for (r in spans) {
+        val start = r.first.coerceIn(0, name.length)
+        val end = (r.last + 1).coerceIn(start, name.length)
+        if (end > start) {
+            addStyle(
+                androidx.compose.ui.text.SpanStyle(
+                    color = ink,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                ),
+                start,
+                end,
+            )
         }
     }
 }
@@ -470,72 +894,70 @@ fun EmptyNote(text: String, modifier: Modifier = Modifier) {
  * the levels overlap their own guides.
  */
 
+/** How strongly a row a selected folder takes in is drawn, against a selected row. */
+private const val INCLUDED_ALPHA = 0.45f
+
 /**
- * Which part of the outline round the working folder a row is responsible for.
+ * Which part of the rail beside the focused branch a row is responsible for.
  *
- * A lazy list cannot draw one box across several of its items - there is no "several of its
+ * A lazy list cannot draw one shape across several of its items - there is no "several of its
  * items" to hang a modifier on, and an overlay computed from item offsets is a frame wrong
- * every time anything scrolls, resizes or is inserted. So the box is drawn in pieces: every
- * row in the block draws its own two sides, the first adds the top and its corners, the
- * last adds the bottom and its corners, and because the rows are adjacent the pieces meet.
- * It then scrolls, recycles and clips for free, and a block whose top has scrolled off
- * shows an open-topped box - which is the right picture rather than a bug.
+ * every time anything scrolls, resizes or is inserted. So the rail is drawn in pieces: every
+ * row in the block draws its own length of it, the first rounds the top, the last rounds the
+ * bottom, and because the rows are adjacent the pieces meet. It then scrolls, recycles and
+ * clips for free, and a block whose top has scrolled off shows a rail running off the top -
+ * which is the right picture rather than a bug.
  */
 enum class ActiveEdge { TOP, MIDDLE, BOTTOM, ONLY }
 
 /**
- * The outline round the folder being worked in, and everything inside it.
+ * The rail down the side of the focused branch: the folder new things go into, and everything
+ * shown inside it.
  *
- * A border, not a wash. A filled tint was built first and it reads as a SELECTION, which is
- * a different and already-taken meaning in this list. A box says "this is the area you are
- * in", which is the thing being said - and is what X-plore draws for the same reason.
+ * A rail, not the box it replaces. The box went round the whole block, so a long branch was a
+ * frame bigger than the screen whose only visible parts were two hairlines at the far edges,
+ * and the folder's own row looked no different from its contents. One accent bar down the
+ * leading edge says the same thing - this run of rows is where you are - in the column the eye
+ * already scans, and it never crosses the names or the guide lines.
  *
- * Three strokes, widest and faintest first, so the edge carries a glow instead of being a
- * hairline rectangle sitting on top of the list. At that alpha the outer pass is barely a
- * colour; it is the whole difference between a drawn border and a stuck-on one.
+ * Two passes, a wide faint one under the bar, so it carries a glow instead of being a stripe
+ * stuck on the list. It slides in from the edge as it arrives.
  */
-private fun DrawScope.activeFrame(edge: ActiveEdge, accent: Color, at: Float) {
-    // From a little outside to its resting place. A box that only fades in reads as a
-    // transparency change; one that also closes reads as something arriving.
-    val inset = (3f + 5f * (1f - at)).dp.toPx()
-    val r = 12.dp.toPx()
-    val left = inset
-    val right = size.width - inset
+private fun DrawScope.activeRail(edge: ActiveEdge, accent: Color, at: Float) {
     val capTop = edge == ActiveEdge.TOP || edge == ActiveEdge.ONLY
     val capBottom = edge == ActiveEdge.BOTTOM || edge == ActiveEdge.ONLY
+    val inset = 4.dp.toPx()
     val top = if (capTop) inset else 0f
     val bottom = if (capBottom) size.height - inset else size.height
-    // The sides stop short of whichever end turns a corner, and run to the row's own edge
-    // at the other - that butt join with the next row's side is what makes the pieces read
-    // as one continuous line.
-    val sideTop = if (capTop) top + r else top
-    val sideBottom = if (capBottom) bottom - r else bottom
-    val box = androidx.compose.ui.geometry.Size(r * 2f, r * 2f)
-
-    for ((width, alpha) in FRAME_PASSES) {
-        val colour = accent.copy(alpha = alpha * at)
+    val x = RAIL_X.dp.toPx() - 4.dp.toPx() * (1f - at)
+    for ((width, alpha) in RAIL_PASSES) {
         val w = width.dp.toPx()
-        val stroke = Stroke(width = w)
-        drawLine(colour, Offset(left, sideTop), Offset(left, sideBottom), w)
-        drawLine(colour, Offset(right, sideTop), Offset(right, sideBottom), w)
-        if (capTop) {
-            drawLine(colour, Offset(left + r, top), Offset(right - r, top), w)
-            drawArc(colour, 180f, 90f, false, Offset(left, top), box, style = stroke)
-            drawArc(colour, 270f, 90f, false, Offset(right - r * 2f, top), box, style = stroke)
-        }
-        if (capBottom) {
-            drawLine(colour, Offset(left + r, bottom), Offset(right - r, bottom), w)
-            drawArc(colour, 0f, 90f, false, Offset(right - r * 2f, bottom - r * 2f), box, style = stroke)
-            drawArc(colour, 90f, 90f, false, Offset(left, bottom - r * 2f), box, style = stroke)
-        }
+        val r = androidx.compose.ui.geometry.CornerRadius(w / 2f)
+        val none = androidx.compose.ui.geometry.CornerRadius.Zero
+        // Rounded only at the ends of the block. A butt join where the rows meet is what lets
+        // the pieces read as one bar; a rounded end on every row would bead it.
+        val shape = androidx.compose.ui.geometry.RoundRect(
+            left = x - w / 2f,
+            top = top,
+            right = x + w / 2f,
+            bottom = bottom,
+            topLeftCornerRadius = if (capTop) r else none,
+            topRightCornerRadius = if (capTop) r else none,
+            bottomRightCornerRadius = if (capBottom) r else none,
+            bottomLeftCornerRadius = if (capBottom) r else none,
+        )
+        drawPath(androidx.compose.ui.graphics.Path().apply { addRoundRect(shape) }, accent.copy(alpha = alpha * at))
     }
 }
 
-/** Stroke widths and alphas, outside in. The first two are the glow; the last is the line. */
-private val FRAME_PASSES = listOf(6f to 0.07f, 3f to 0.16f, 1.4f to 0.72f)
+/** Where the rail's centre sits, in dp from the row's leading edge: inside the tree's start. */
+private const val RAIL_X = 4.5f
+
+/** Bar widths and alphas, outside in: the glow, then the bar. */
+private val RAIL_PASSES = listOf(7f to 0.12f, 3f to 0.9f)
 
 /**
- * How long the outline takes to arrive.
+ * How long the rail takes to arrive.
  *
  * Short. It is confirming something that has already happened - the branch is open, the rows
  * are there - so anything long enough to watch is an animation for its own sake.
@@ -563,7 +985,7 @@ private const val ARROW_INSET = 7
  *
  * ## Why indentation alone was not enough
  *
- * Reported as confusing, and it is: four rows at the same indent could be children of four
+ * Bug identified here: four rows at the same indent could be children of four
  * different folders, and nothing on screen says which parent each one belongs to once its
  * header has scrolled away. A line running down from a folder to its own children answers
  * that without reading anything, which is what every tree in every file manager does.
@@ -744,7 +1166,7 @@ private const val FADE_PER_LEVEL = 0.05f
  *
  * **A very narrow pane stays one line too.** In a split pane under 300dp, two lines of a long
  * name is most of the row's height and the list stops being scannable - which is the thing
- * wrapping was asked for in service of.
+ * wrapping exists to serve.
  *
  * Pure, because it is three booleans and an integer arguing, and that is exactly the shape that
  * is wrong in a composable and provable in a test.
@@ -786,7 +1208,7 @@ fun nameLineCount(stepWraps: Boolean, narrow: Boolean, wanted: Int): Int {
  * along the top is still a two-handed screen. The pane header moves to the bottom of the pane
  * in the same mode, and the app's own bars move under the listing.
  */
-object Reach {
+object ThumbReach {
 
     /**
      * How much of the viewport is left empty above the first row.

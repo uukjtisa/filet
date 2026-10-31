@@ -87,7 +87,13 @@ class ExtractOpsTest {
         )
         val (destFile, destPath) = dest("out1")
 
-        val plan = ops.plan(archive, destPath, label)
+        // Wrapping is asked for, not guessed. The point of this test is that the plan and
+        // the extractor agree, so it wants a plan that TRANSFORMS something - with both
+        // transforms at rest the two would agree trivially and prove nothing.
+        val plan = ops.plan(
+            archive, destPath, label,
+            options = ExtractOptions(wrap = WrapChoice.FORCE_ON),
+        )
         assertEquals("photos", plan.wrapFolder)
 
         val result = ops.run(archive, destPath, plan, label)
@@ -98,30 +104,62 @@ class ExtractOpsTest {
         assertEquals(plan.items.map { it.path }.sorted(), treeOf(destFile))
     }
 
-    @Test fun a_loose_archive_lands_in_a_folder_named_after_it() = runTest {
-        // The bomb, from the other side: three files where one folder was expected.
-        val (archive, label) = makeZip("bomb.zip", listOf(src("a.txt", "1"), src("b.txt", "2")))
+    @Test fun loose_files_land_loose_unless_a_folder_is_asked_for() = runTest {
+        // This used to assert the opposite, because the wrap was automatic: loose files were
+        // gathered into a folder named after the archive to stop them spraying into the
+        // destination. The ghosts now draw every entry into that folder's own listing before
+        // anything is written, so the spray is visible in advance and the guess is not worth
+        // what it costs - it invented a folder that exists in nobody's archive.
+        val entries = listOf(src("a.txt", "1"), src("b.txt", "2"))
+        val (archive, label) = makeZip("bomb.zip", entries)
+
         val (destFile, destPath) = dest("out2")
         val plan = ops.plan(archive, destPath, label)
-        ops.run(archive, destPath, plan, label)
-        assertEquals(listOf("bomb", "bomb/a.txt", "bomb/b.txt"), treeOf(destFile))
-    }
-
-    @Test fun a_redundant_parent_is_lifted_away_on_disk_too() = runTest {
-        val (archive, label) = makeZip(
-            "backup.zip",
-            listOf(dir("backup"), src("backup/one.txt", "1"), src("backup/two.txt", "2")),
-        )
-        val (destFile, destPath) = dest("out3")
-        val plan = ops.plan(archive, destPath, label)
-        assertEquals(listOf("backup"), plan.strippedFolders)
         assertNull(plan.wrapFolder)
         ops.run(archive, destPath, plan, label)
-        assertEquals(listOf("one.txt", "two.txt"), treeOf(destFile))
+        assertEquals(listOf("a.txt", "b.txt"), treeOf(destFile))
+
+        // And the folder is still one option away, on disk as well as in the plan.
+        val (wrapFile, wrapPath) = dest("out2b")
+        val wrapped = ops.plan(
+            archive, wrapPath, label,
+            options = ExtractOptions(wrap = WrapChoice.FORCE_ON),
+        )
+        assertEquals("bomb", wrapped.wrapFolder)
+        ops.run(archive, wrapPath, wrapped, label)
+        assertEquals(listOf("bomb", "bomb/a.txt", "bomb/b.txt"), treeOf(wrapFile))
     }
 
-    @Test fun his_nested_chain_extracts_to_the_bare_file() = runTest {
-        // archive.zip/archive/archivehere/archive.txt -> archive.txt, on disk.
+    @Test fun a_redundant_parent_is_kept_on_disk_unless_the_lift_is_asked_for() = runTest {
+        val entries = listOf(dir("backup"), src("backup/one.txt", "1"), src("backup/two.txt", "2"))
+        val (archive, label) = makeZip("backup.zip", entries)
+
+        // Default: the archive arrives exactly as its author laid it out.
+        val (destFile, destPath) = dest("out3")
+        val plan = ops.plan(archive, destPath, label)
+        assertTrue(plan.strippedFolders.isEmpty())
+        assertNull(plan.wrapFolder)
+        ops.run(archive, destPath, plan, label)
+        assertEquals(listOf("backup", "backup/one.txt", "backup/two.txt"), treeOf(destFile))
+
+        // And the lift still works on disk, which is what the sheet's pill reaches.
+        val (liftFile, liftPath) = dest("out3b")
+        val lifted = ops.plan(
+            archive, liftPath, label,
+            options = ExtractOptions(stripLevels = 1),
+        )
+        assertEquals(listOf("backup"), lifted.strippedFolders)
+        ops.run(archive, liftPath, lifted, label)
+        assertEquals(listOf("one.txt", "two.txt"), treeOf(liftFile))
+    }
+
+    @Test fun a_nested_chain_keeps_every_wrapper_by_default_and_flattens_on_request() = runTest {
+        // archive.zip/archive/archivehere/archive.txt, on disk, both ways.
+        //
+        // The default lifts NOTHING: two single-child folders are indistinguishable from two
+        // folders that mean something, so lifting any of them destroys structure nobody was
+        // asked about. The preview shows the nesting and offers to lift it. See
+        // `ExtractPlanner.plan`.
         val (archive, label) = makeZip(
             "archive.zip",
             listOf(
@@ -132,8 +170,21 @@ class ExtractOpsTest {
         val (destFile, destPath) = dest("out4")
         val plan = ops.plan(archive, destPath, label)
         ops.run(archive, destPath, plan, label)
-        assertEquals(listOf("archive.txt"), treeOf(destFile))
-        assertEquals("deep", File(destFile, "archive.txt").readText())
+        assertEquals(
+            listOf("archive", "archive/archivehere", "archive/archivehere/archive.txt"),
+            treeOf(destFile),
+        )
+        assertEquals("deep", File(destFile, "archive/archivehere/archive.txt").readText())
+
+        // And all the way down, which is what the sheet's "Lift one more" reaches.
+        val (deepFile, deepPath) = dest("out4b")
+        val flat = ops.plan(
+            archive, deepPath, label,
+            dev.niccc2007.filet.vfs.provider.ExtractOptions(stripLevels = 2),
+        )
+        ops.run(archive, deepPath, flat, label)
+        assertEquals(listOf("archive.txt"), treeOf(deepFile))
+        assertEquals("deep", File(deepFile, "archive.txt").readText())
     }
 
     @Test fun the_contents_come_out_of_the_right_entries() = runTest {
@@ -148,8 +199,10 @@ class ExtractOpsTest {
                 src("proj/top.txt", "top"),
             ),
         )
+        // Planned WITH a lift, because the point is that destination paths differ from source
+        // paths - with nothing lifted they are identical and this would prove nothing.
         val (destFile, destPath) = dest("out5")
-        val plan = ops.plan(archive, destPath, label)
+        val plan = ops.plan(archive, destPath, label, options = ExtractOptions(stripLevels = 1))
         ops.run(archive, destPath, plan, label)
         assertEquals("alpha", File(destFile, "docs/a.txt").readText())
         assertEquals("beta", File(destFile, "docs/b.txt").readText())

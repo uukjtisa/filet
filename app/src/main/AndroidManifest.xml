@@ -8,6 +8,10 @@
         android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The QR scanner, and nothing else. Asked for on the scanner's first open, never at
+         launch, and optional: a device without a camera still installs and scans pictures. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <!-- Nearby (M9): a LAN server and mDNS discovery. No INTERNET-only feature uses these. -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -109,56 +113,13 @@
             </intent-filter>
 
             <!--
-              The types Filet actually has a screen for, declared one by one.
-
-              ## Why this is not redundant with the */* filter above
-
-              A catch-all does put Filet in the chooser, and that is all it does. Android
-              ranks a handler that matches a SPECIFIC mime type above one that matched
-              everything, and "always open .apk with Filet" can only be set against a filter
-              that names the type - a default chosen against */* would make Filet the default
-              for every file on the phone, which no sane person wants and Android therefore
-              will not offer. So the wide filter is what gets Filet listed, and these are what
-              get it listed FIRST and let it be chosen permanently.
-
-              Each one here has a viewer or an inspector behind it. Nothing is claimed that
-              opens to an error, which is the one rule that matters in a list like this.
+              The types Filet has a screen for are NOT declared here any more: each viewer is
+              its own activity-alias below, named for what it is ("Filet Video Player"), so
+              the chooser can list it by name and "always" can be set against it. See
+              open/InboundViewers.kt for why, and tools/check-viewers.mjs for what holds the
+              two lists together. Specific types still rank above this catch-all, which is
+              what lets a named viewer be chosen permanently.
             -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="content" />
-                <data android:scheme="file" />
-                <!-- Packages: the APK inspector and the bundle tools. -->
-                <data android:mimeType="application/vnd.android.package-archive" />
-                <!-- Archives, which the archive browser mounts and walks into. -->
-                <data android:mimeType="application/zip" />
-                <data android:mimeType="application/x-zip-compressed" />
-                <data android:mimeType="application/java-archive" />
-                <data android:mimeType="application/x-tar" />
-                <data android:mimeType="application/gzip" />
-                <data android:mimeType="application/x-gzip" />
-                <data android:mimeType="application/x-bzip2" />
-                <data android:mimeType="application/x-xz" />
-                <data android:mimeType="application/x-7z-compressed" />
-                <data android:mimeType="application/vnd.rar" />
-                <data android:mimeType="application/x-rar-compressed" />
-                <!-- Documents, which now have readers of their own. -->
-                <data android:mimeType="application/pdf" />
-                <data android:mimeType="text/markdown" />
-                <data android:mimeType="text/x-markdown" />
-                <data android:mimeType="text/html" />
-                <data
-                    android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
-                <data
-                    android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
-                <!-- Text and code, which is the editor. -->
-                <data android:mimeType="text/plain" />
-                <data android:mimeType="text/xml" />
-                <data android:mimeType="application/xml" />
-                <data android:mimeType="application/json" />
-            </intent-filter>
 
             <!--
               The extensions Android has NO mime type for at all.
@@ -194,24 +155,6 @@
                 <data android:pathPattern=".*\\.markdown" />
             </intent-filter>
 
-            <!--
-              "Edit this" from another app, as opposed to "look at this".
-
-              Filet has one editor and several ways into it (see `HandlerRegistry`), so the
-              types here are the ones that editor can actually save: text, markdown, HTML and
-              XML. A document format it can only READ is deliberately absent - answering
-              ACTION_EDIT for a .docx would promise a save that cannot happen.
-            -->
-            <intent-filter>
-                <action android:name="android.intent.action.EDIT" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="content" />
-                <data android:scheme="file" />
-                <data android:mimeType="text/*" />
-                <data android:mimeType="application/xml" />
-                <data android:mimeType="application/json" />
-            </intent-filter>
-
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -224,6 +167,171 @@
             </intent-filter>
 
         </activity>
+
+
+        <!--
+          Filet's viewers, offered to other apps by name. Each is MainActivity under another
+          label with its own types, and the alias that was chosen picks the viewer - see
+          open/InboundViewers.kt. tools/check-viewers.mjs fails the build if this list and that
+          table disagree.
+        -->
+        <activity-alias
+            android:name=".open.VideoPlayer"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="Filet Video Player">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".open.MusicPlayer"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="Filet Music Player">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".open.ImageViewer"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="Filet Image Viewer">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".open.PdfReader"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="Filet PDF Reader">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".open.DocumentReader"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="Filet Document Reader">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/x-markdown" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".open.WebPageViewer"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="Filet Web Page Viewer">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="text/html" />
+                <data android:mimeType="application/xhtml+xml" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".open.ArchiveViewer"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="Filet Archive Viewer">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/java-archive" />
+                <data android:mimeType="application/x-tar" />
+                <data android:mimeType="application/gzip" />
+                <data android:mimeType="application/x-gzip" />
+                <data android:mimeType="application/x-bzip2" />
+                <data android:mimeType="application/x-xz" />
+                <data android:mimeType="application/x-7z-compressed" />
+                <data android:mimeType="application/vnd.rar" />
+                <data android:mimeType="application/x-rar-compressed" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".open.ApkInspector"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="Filet APK Inspector">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/vnd.android.package-archive" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".open.CodeEditor"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="Filet Code Editor">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/xml" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="application/json" />
+            </intent-filter>
+            <!--
+              "Edit this" from another app, as opposed to "look at this". Only the types the
+              editor can actually save: answering EDIT for a .docx would promise a save that
+              cannot happen.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="application/json" />
+            </intent-filter>
+        </activity-alias>
 
         <!--
           Filet answering "choose a file" for another app.
@@ -276,6 +384,31 @@
             android:excludeFromRecents="true"
             android:process=":crash"
             android:launchMode="singleInstance"
+            android:theme="@style/Theme.Filet" />
+
+        <!--
+          Report a problem, from About. Never declared, so the first tap on the About row threw
+          ActivityNotFoundException and took the app down - the report form crashing the app it
+          reports on. tools/check-activities.mjs now fails the build if either of these two goes
+          missing again. Not exported: it posts to a public issue tracker, and no other app gets
+          to open it with a title of its choosing.
+        -->
+        <activity
+            android:name=".report.ReportActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.Filet" />
+
+        <!--
+          The same form from the crash screen, in the crash's own process, so a crash during
+          startup cannot take the report down with it. See ReportActivity.
+        -->
+        <activity
+            android:name=".report.CrashReportActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:process=":crash"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Filet" />
 
         <!--
@@ -347,6 +480,30 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </service>
+
+        <!--
+          Asks the app to write a diagnostics dump, from a terminal:
+
+              adb shell am broadcast -a dev.niccc2007.filet.DIAG -n dev.niccc2007.filet/.log.DiagReceiver
+
+          Exported, because adb is a different uid and an unexported receiver cannot be reached
+          from a shell. That is safe here only because of what it does: it writes the app's own
+          log file and returns nothing to the caller, so the worst another app on the device can
+          do with it is make Filet write a file it already writes. It carries no data in and
+          hands no data out - see `FiletLog.requestDump`, and `Redact` for what never reaches
+          the file in the first place.
+
+          The receiver was written and never declared, which left the dump reachable only from
+          the About page. On a phone that is hot right now, "open the app, find the page, press
+          the button" is three interactions that all change what is being measured.
+        -->
+        <receiver
+            android:name=".log.DiagReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="dev.niccc2007.filet.DIAG" />
+            </intent-filter>
+        </receiver>
 
         <!-- Shortcut launcher (M4): resolves a stable file ID to its current path. -->
         <activity

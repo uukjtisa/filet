@@ -444,12 +444,11 @@ private fun FileRow(path: VPath, picked: Boolean, onToggle: () -> Unit, onDrop: 
             }
         }
         Spacer(Modifier.width(9.dp))
-        Text(
+        // A name, so never dotted: it gives up size, then fades before its extension. See ListName.
+        ListNameText(
             path.name,
-            fontSize = 11.5.sp,
-            color = if (picked) colors.fg2 else colors.fg3,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            if (picked) colors.fg2 else colors.fg3,
+            startSp = 11.5f,
             modifier = Modifier.weight(1f),
         )
         Box(

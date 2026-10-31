@@ -68,7 +68,7 @@ fun AppsScreen(vm: BrowserViewModel, pane: dev.niccc2007.filet.browser.PaneContr
     val colors = Filet.colors
     val context = LocalContext.current
     var apps by remember { mutableStateOf<List<InstalledApp>?>(null) }
-    var showSystem by remember { mutableStateOf(false) }
+    var showSystem by dev.niccc2007.filet.browser.rememberKept("apps.system", false, save = { it.toString() }, load = { it.toBooleanStrictOrNull() })
 
     // Keyed on the revision the refresh bumps, so pulling to refresh re-reads the list rather
     // than redrawing the same one.
@@ -137,6 +137,7 @@ fun AppsScreen(vm: BrowserViewModel, pane: dev.niccc2007.filet.browser.PaneContr
 
             else -> LazyColumn(
                 Modifier.fillMaxSize(),
+                state = dev.niccc2007.filet.browser.rememberKeptListState(if (showSystem) "apps:system" else "apps"),
                 contentPadding = PaddingValues(bottom = PaneInsets.bottom(false).dp),
             ) {
                 items(shown, key = { it.packageName }) { app ->
@@ -200,21 +201,23 @@ private fun AppRow(app: InstalledApp, context: android.content.Context, onExtrac
         }
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
-            Text(
-                app.label,
-                fontSize = 13.sp,
+            // Lit where the pane's search box matched, name or package.
+            val query = dev.niccc2007.filet.ui.LocalPaneQuery.current
+            dev.niccc2007.filet.browser.ListNameText(
+                text = dev.niccc2007.filet.ui.highlighted(app.label, query, colors.accent),
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                startSp = 13f,
+                lines = 1,
+                isDir = true,
             )
             Spacer(Modifier.height(2.dp))
-            Text(
-                app.packageName,
-                fontSize = 10.sp,
+            dev.niccc2007.filet.browser.ListNameText(
+                text = dev.niccc2007.filet.ui.highlighted(app.packageName, query, colors.accent),
                 color = colors.fg3,
+                startSp = 10f,
+                lines = 1,
+                isDir = true,
                 fontFamily = FontFamily.Monospace,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
         }
         Spacer(Modifier.width(8.dp))

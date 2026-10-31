@@ -29,7 +29,15 @@ import java.io.File
 class RemoteStaging(
     private val vfs: Vfs,
     private val ledger: JobLedger,
-    private val cacheDir: File,
+    /**
+     * Where staged copies go.
+     *
+     * A folder rather than a cache ROOT, and a lambda rather than a File: the folder is
+     * `FiletStore`'s to decide and the setting that decides it can change while the app is
+     * running, so resolving it once at construction would pin the staging area to wherever the
+     * setting happened to be when the object graph was built.
+     */
+    private val dirOf: () -> File,
 ) {
 
     /**
@@ -58,7 +66,17 @@ class RemoteStaging(
 
         // Announced only when the wait is long enough to wonder about. A small file arriving in
         // under a second produces a job row that appears and vanishes, which reads as a glitch.
-        val id = if (size >= ANNOUNCE_ABOVE) ledger.start("Fetching ${path.name}") else null
+        // With its coroutine, so a slow fetch from a share can be stopped from Activity.
+        val id = if (size >= ANNOUNCE_ABOVE) {
+            ledger.start(
+                "Fetching ${path.name}",
+                cancel = currentCoroutineContext()[kotlinx.coroutines.Job],
+                kind = dev.niccc2007.filet.jobs.JobKind.FETCH,
+                from = path.toString(),
+            )
+        } else {
+            null
+        }
 
         // Written beside the target and moved into place, so an interrupted fetch can never be
         // mistaken for a complete copy by the length check above.
@@ -76,7 +94,7 @@ class RemoteStaging(
                         out.write(buf, 0, n)
                         done += n
                         if (id != null && size > 0) {
-                            ledger.progress(id, done.toFloat() / size, path.name)
+                            ledger.progress(id, done.toFloat() / size, path.name, doneBytes = done, totalBytes = size)
                         }
                     }
                 }
@@ -117,7 +135,7 @@ class RemoteStaging(
         return if (ext.isEmpty()) digest else "$digest.$ext"
     }
 
-    private fun dir(): File = File(cacheDir, "remote").apply { mkdirs() }
+    private fun dir(): File = dirOf().apply { mkdirs() }
 
     /**
      * Keep the cache under its ceiling, oldest first.

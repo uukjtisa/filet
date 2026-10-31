@@ -73,10 +73,41 @@ class FiletGraph(context: Context) {
     val playlists = dev.niccc2007.filet.playback.Playlists(prefs)
     /** Tags for list rows. Lazy: a phone that never opens a playlist never builds it. */
     val trackCards by lazy { dev.niccc2007.filet.playback.TrackCards(app, vfs) }
+
+    /**
+     * Beat maps, measured away from any screen.
+     *
+     * On the graph rather than in the player, which is the whole fix: the measurement used to
+     * belong to the composition that started it, so leaving the player threw away everything
+     * it had done. This scope outlives every screen.
+     */
+    val beatMaker by lazy {
+        dev.niccc2007.filet.playback.BeatMaker(app, ledger, scope) {
+            files.vpath(
+                dev.niccc2007.filet.data.FiletStore.dir(
+                    app, dev.niccc2007.filet.data.FiletStore.Area.BEATS,
+                ),
+            ).toString()
+        }
+    }
     val folderPeek by lazy { dev.niccc2007.filet.browser.FolderPeek(vfs) }
     val recents = Recents(prefs)
-    val ledger = JobLedger()
+    val folderVisits = dev.niccc2007.filet.data.FolderVisits(prefs) { recents.items.value }
+    val ledger = JobLedger(dev.niccc2007.filet.jobs.PrefsJobStore(app), keepDays = { prefs.jobsKeepDays.value })
     val registry = dev.niccc2007.filet.handlers.HandlerRegistry(prefs)
+
+    /** filet.json and the two list files, both ways. See `ConfigSync`. */
+    val configSync: dev.niccc2007.filet.data.ConfigSync by lazy {
+        dev.niccc2007.filet.data.ConfigSync(
+            app, prefs, scope, bookmarks, playlists,
+            afterApply = { registry.reload() },
+            report = { message ->
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    android.widget.Toast.makeText(app, message, android.widget.Toast.LENGTH_LONG).show()
+                }
+            },
+        )
+    }
 
     val connections = NetConnections(app)
 
@@ -87,10 +118,19 @@ class FiletGraph(context: Context) {
      * keeps PLAN.md R1 honest: the UI asks the provider whether it can work rather than
      * offering a scheme that silently fails.
      */
+    /**
+     * Where staged copies of remote archives live: everything under Filet's cache. Changing an
+     * archive there would change the copy and leave the real one as it was, so the browser's
+     * writes and the editor's save both refuse it.
+     */
+    val stagedArchiveDirs: () -> List<String> = {
+        listOf(dev.niccc2007.filet.data.FiletStore.cacheRoot(app).absolutePath, app.cacheDir.absolutePath)
+    }
+
     private val providers: MutableList<FileSystemProvider> = mutableListOf(
         AndroidStorage.localProvider(app),
         SafProvider(app),
-        ArchiveProvider(),
+        ArchiveProvider(stagedUnder = { stagedArchiveDirs() }),
         ApkProvider(),
         RootProvider(),
         SmbProvider(connections),
@@ -101,7 +141,7 @@ class FiletGraph(context: Context) {
     )
 
     val vfs = Vfs(providers.toList())
-    val ops = FileOperations(vfs, ledger) { touched ->
+    val ops = FileOperations(vfs, ledger, relaunch = { block -> scope.launch { block() } }) { touched ->
         // Everything Filet writes or removes is announced to the media index. Without it a
         // file is on the disk and invisible to every gallery on the phone.
         dev.niccc2007.filet.media.MediaAnnounce.announce(app, touched)
@@ -109,14 +149,16 @@ class FiletGraph(context: Context) {
 
     // Extraction is its own object because it is two operations - work out what will happen,
     // then carry out exactly that - and the preview reads the first without the second.
-    val extractOps = dev.niccc2007.filet.ops.ExtractOperations(vfs, ledger) { touched ->
+    val extractOps = dev.niccc2007.filet.ops.ExtractOperations(vfs, ledger, relaunch = { block -> scope.launch { block() } }) { touched ->
         dev.niccc2007.filet.media.MediaAnnounce.announce(app, touched)
     }
     val scripts = dev.niccc2007.filet.script.ScriptStore(app, prefs)
     val scriptEngine = dev.niccc2007.filet.script.ScriptEngine(vfs)
     val signingKeys = dev.niccc2007.filet.apk.SigningKeys(app, prefs)
     /** Local copies of remote files, for the operations that cannot take a stream. */
-    val staging = dev.niccc2007.filet.ops.RemoteStaging(vfs, ledger, app.cacheDir)
+    val staging = dev.niccc2007.filet.ops.RemoteStaging(vfs, ledger) {
+        dev.niccc2007.filet.data.FiletStore.dir(app, dev.niccc2007.filet.data.FiletStore.Area.REMOTE)
+    }
 
     /** Reads and writes a file's own metadata. The screen that reaches it is MetadataScreen. */
     val metadata = dev.niccc2007.filet.metadata.MetadataStore(vfs)
@@ -175,7 +217,8 @@ class FiletGraph(context: Context) {
      * Process-wide for the same reason the beacon is: a sweep takes a few seconds and somebody
      * who starts one and taps into a folder should not have thrown it away.
      */
-    val serverScan by lazy { dev.niccc2007.filet.remotes.ServerScan(app, scope) }
+    private val serverScanLazy = lazy { dev.niccc2007.filet.remotes.ServerScan(app, scope) }
+    val serverScan by serverScanLazy
 
     /** Local copies for the readers that need a seekable file. See `LocalCopy`. */
     val localCopy = dev.niccc2007.filet.ops.LocalCopy(app, vfs, staging)
@@ -245,7 +288,7 @@ class FiletGraph(context: Context) {
                         index.candidates(
                             dev.niccc2007.filet.index.SearchRequest(
                                 query = "",
-                                scope = dev.niccc2007.filet.index.SearchScope.DEVICE,
+                                reach = dev.niccc2007.filet.index.Reach.Everywhere,
                                 origin = null,
                                 limit = 4000,
                             ),
@@ -353,6 +396,13 @@ class FiletGraph(context: Context) {
             runCatching { davBeacon.restartScan(forget = true) }
             // Peer discovery has the same staleness for the same reason.
             runCatching { nearby.startScan() }
+            // And the server scan, which was missing from this list - which is why its rows
+            // outlived the networks they were found on. Only when it already exists: it is lazy,
+            // and building it here to reset a list nobody has ever filled would be work done
+            // because the Wi-Fi changed.
+            if (serverScanLazy.isInitialized()) {
+                runCatching { serverScanLazy.value.onNetworkMoved() }
+            }
             // Only when something is hosting: the server is lazy, and building it here to ask for
             // a state nobody is showing would open its socket as a side effect of a Wi-Fi change.
             if (davState.value.running) runCatching { davState.value = webdav.state() }
@@ -386,6 +436,20 @@ class FiletGraph(context: Context) {
                 // :app dependencies - L1 must not reach up for them (PLAN.md R3).
                 dev.niccc2007.filet.apk.ApkFacts(vfs, apkTools),
                 dev.niccc2007.filet.index.ArchiveFacts(vfs),
+            ),
+            // The index is derived, so it lives with the rest of the derived files and moves
+            // with the one setting that governs them. A path rather than a File: R3 counts a
+            // storage handle in a signature. See `FiletStore.dirPath`.
+            dbDir = dev.niccc2007.filet.data.FiletStore.dirPath(
+                app, dev.niccc2007.filet.data.FiletStore.Area.INDEX,
+            ),
+            // What Filet remembers, as opposed to what it worked out. A different folder and a
+            // different file because it obeys different rules: `Area.MEMORY` is not disposable,
+            // so the cache setting never moves it and no Clear button ever offers it. Nothing
+            // else on the phone records when a file first appeared here, so losing it is
+            // permanent in a way losing the index is not.
+            memoryDir = dev.niccc2007.filet.data.FiletStore.dirPath(
+                app, dev.niccc2007.filet.data.FiletStore.Area.MEMORY,
             ),
         )
     }.getOrElse { NullIndex() }
@@ -433,7 +497,14 @@ class FiletGraph(context: Context) {
             kotlinx.coroutines.delay(watchSettleMs)
             watchPending.remove(changed)
             onFolderChanged?.invoke(changed)
-            if (dev.niccc2007.filet.media.MediaAnnounce.visible()) {
+            // The same gates as walking into a folder: an index, kept up to date on its own, that
+            // already holds something. Manual means nothing writes the index unasked - this
+            // included - and on an index holding nothing there is no volume for the folder to
+            // belong to.
+            val st = index.status.value
+            if (dev.niccc2007.filet.media.MediaAnnounce.visible() &&
+                st.enabled && st.available && prefs.indexEnabled.value && prefs.indexAuto.value
+            ) {
                 runCatching { index.crawl(listOf(changed), budgetMs = 4_000) }
             }
         } to names
@@ -441,6 +512,92 @@ class FiletGraph(context: Context) {
 
     val indexCoordinator = IndexCoordinator(app, index, prefs, ledger, scope)
         .also { it.attachWatcher(watcher) }
+        .also { c ->
+            // SEARCH.md §13.6: a share reaches the crawl only when somebody opted it in. The uuid
+            // is the provider's own root, built by RemoteIdentity rather than by hand, so it
+            // matches the volume row exactly.
+            c.indexedShares = {
+                dev.niccc2007.filet.vfs.provider.net.RemoteIdentity.indexedUuids(connections.all())
+            }
+            c.seedFromMedia = { roots -> mediaWatch.seed(roots) }
+        }
+
+    /** SEARCH.md §14.6: the index kept current by the media store's own change record. */
+    val mediaWatch: dev.niccc2007.filet.index.MediaWatch by lazy {
+        dev.niccc2007.filet.index.MediaWatch(app, index, prefs, scope) {
+            scope.launch { indexCoordinator.onOpen(runCatching { vfs.roots().map { it.path } }.getOrElse { emptyList() }) }
+        }
+    }
+
+    /**
+     * The drives the index has walked completely - the ones a walk beside it leaves alone.
+     * SEARCH.md §14.2, decision 15. Re-read whenever a pass ends, which is the only time it can
+     * change; read on every keystroke, it would be a query per letter typed.
+     */
+    @Volatile var coveredVolumes: Set<String> = emptySet()
+        private set
+
+    init {
+        scope.launch {
+            index.status
+                .map { it.running to it.lastRunAt }
+                .distinctUntilChanged()
+                .collect { (running, _) ->
+                    if (!running) coveredVolumes = runCatching { index.completeVolumes() }.getOrDefault(emptySet())
+                }
+        }
+    }
+
+    /** A result whose check found nothing there, forgotten so it is not offered again. */
+    fun forgetGone(path: dev.niccc2007.filet.vfs.VPath) {
+        scope.launch { runCatching { index.forget(path) } }
+    }
+
+    /**
+     * Folders a search walk read on a share, on their way into the index. SEARCH.md §14.7.
+     *
+     * A queue rather than a write on the walker's coroutine: a walk over a NAS lists hundreds of
+     * folders, and a transaction per folder on the walker would slow the search the index is
+     * meant to speed up. Dropped rather than waited on when it backs up - a listing not written
+     * is a folder the next walk writes instead.
+     */
+    private val shareListings = kotlinx.coroutines.channels.Channel<Pair<dev.niccc2007.filet.vfs.VPath, List<dev.niccc2007.filet.vfs.VNode>>>(
+        capacity = 256,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+    )
+
+    init {
+        scope.launch {
+            for ((dir, children) in shareListings) {
+                // The share's own root, built by RemoteIdentity - never the folder the walk began
+                // at. A Folder or Subtree search walks from where it stands, and registering that
+                // as a volume is the defect CrawlScope exists for.
+                val root = connections.all()
+                    .map(dev.niccc2007.filet.vfs.provider.net.RemoteIdentity::rootOf)
+                    .firstOrNull { dev.niccc2007.filet.index.VolumeOwner.owns(it.toString(), dir.toString()) }
+                    ?: continue
+                runCatching {
+                    index.putListing(root, dir, children) {
+                        connections.all().any { dev.niccc2007.filet.vfs.provider.net.RemoteIdentity.rootOf(it) == root }
+                    }
+                }
+            }
+        }
+    }
+
+    init {
+        // SEARCH.md §13.7. A share deleted, re-pointed at another share, or switched off
+        // indexing loses its rows here - the store reports it, the index owns the delete.
+        connections.onRowsLost = { uuid -> scope.launch { runCatching { index.forgetVolumes { it != uuid } } } }
+        // And the leak from before the sweep existed: volume rows for shares deleted long
+        // ago. Local volumes are never this sweep's to judge - see RemoteIdentity.isOrphan.
+        scope.launch {
+            runCatching {
+                val saved = connections.all()
+                index.forgetVolumes { uuid -> !dev.niccc2007.filet.vfs.provider.net.RemoteIdentity.isOrphan(uuid, saved) }
+            }
+        }
+    }
 
     /**
      * Ordered by preference: the index answers whole-device and provenance queries, the walk
@@ -448,7 +605,12 @@ class FiletGraph(context: Context) {
      * so the user never sees which one replied.
      */
     val searchSources: List<SearchSource> =
-        listOf(IndexSearchSource(index, vfs), WalkSearchSource(vfs))
+        listOf(
+            IndexSearchSource(index, vfs),
+            WalkSearchSource(vfs) { dir, children ->
+                if (dir.scheme in dev.niccc2007.filet.index.VolumeKey.REMOTE_SCHEMES) shareListings.trySend(dir to children)
+            },
+        )
 
     fun onFirstScreen() {
         scope.launch {
@@ -459,6 +621,24 @@ class FiletGraph(context: Context) {
             // Once, and harmless after: the retired tracked-folder list and its first-seen
             // store, so a phone that used them does not carry state nothing reads.
             dev.niccc2007.filet.home.HomeFeed.forgetRetired(prefs)
+            // Read live, so blocking a folder takes effect on the next page rather than on the
+            // next launch.
+            home.blockedFolders = { prefs.blockedFolders.value }
+            home.feedPrefixes = { prefs.feedPrefixes.value }
+            // Filet's own folders and files, always. Not a stored preference, because it is not
+            // a judgement anybody made - a file manager listing its own cache writes under
+            // "what is new on your phone" is the app talking about itself. See
+            // `FeedExclusions.ownPaths`, and note that Shared and Received are excluded
+            // from the exclusion: files that arrived from elsewhere are the point of the tab.
+            home.ownPaths = {
+                dev.niccc2007.filet.home.FeedExclusions.ownPaths(
+                    dev.niccc2007.filet.data.FiletStore.rootPath(app),
+                )
+            }
+            home.order = { prefs.newFilesOrder.value }
+            dev.niccc2007.filet.log.FiletLog.span("launch", "config.start") { configSync.start() }
+            // One query per page, never one per row: see HomeFeed.corrected.
+            home.firstSeenLookup = { paths -> index.firstSeenOf(paths) }
             dev.niccc2007.filet.log.FiletLog.span("launch", "scripts.seedExamples") { scripts.seedExamples() }
             dev.niccc2007.filet.log.FiletLog.span("launch", "home.refresh") { home.refresh() }
             index.status.value.let {
@@ -475,7 +655,11 @@ class FiletGraph(context: Context) {
             (app as? android.app.Application)?.registerActivityLifecycleCallbacks(
                 object : android.app.Application.ActivityLifecycleCallbacks {
                     override fun onActivityStarted(a: android.app.Activity) {
-                        if (activitiesStarted++ == 0) watcher.watch(watchedFolders.value)
+                        if (activitiesStarted++ == 0) {
+                            watcher.watch(watchedFolders.value)
+                            mediaWatch.onForeground()
+                            configSync.onForeground()
+                        }
                     }
 
                     override fun onActivityStopped(a: android.app.Activity) {
@@ -484,6 +668,10 @@ class FiletGraph(context: Context) {
                         if (--activitiesStarted <= 0) {
                             activitiesStarted = 0
                             watcher.stopAll()
+                            // Not stopped with the watches: it keeps going for the minutes in
+                            // Settings, and then lets go. SEARCH.md §14.6.
+                            mediaWatch.onBackground()
+                            configSync.onBackground()
                         }
                     }
 
@@ -596,6 +784,8 @@ class FiletApp : Application() {
         //
         // Not in the crash process, which has its own job and must not write into the log of the
         // run it is reporting on.
+        // Before the first preference is read. See `restoreSettingsIfLost`.
+        val restored = if (isCrashProcess()) 0 else restoreSettingsIfLost()
         if (!isCrashProcess()) {
             val verbose = runCatching {
                 getSharedPreferences("filet", MODE_PRIVATE)
@@ -603,6 +793,14 @@ class FiletApp : Application() {
             }.getOrDefault(true)
             dev.niccc2007.filet.log.FiletLog.open(this, verbose)
             dev.niccc2007.filet.log.FiletLog.i("launch", "process start")
+            // Reported AFTER the session is open, not when it happened. The restore has to run
+            // before the first preference read and the logger is not up that early, so saying
+            // it here is the difference between a recorded event and a silent one.
+            if (restored > 0) {
+                dev.niccc2007.filet.log.FiletLog.i(
+                    "settings", "restored " + restored + " preference store(s) from the Filet folder",
+                )
+            }
         }
         // Installed before anything else touches the graph, so a crash *while building the
         // graph* is caught too. No analytics, ever: a file manager's stack traces carry
@@ -613,6 +811,164 @@ class FiletApp : Application() {
         if (!isCrashProcess()) dev.niccc2007.filet.crash.CrashReport.install(this)
         if (!isCrashProcess()) registerSplitInstallReceiver()
         if (!isCrashProcess()) watchInstalledApps()
+        if (!isCrashProcess()) moveIntoTheStore()
+        // Leave a note in the folder saying what it is.
+        //
+        // The reminder was meant for uninstall time, which Android does not allow - nothing can
+        // be added to the system's uninstall dialogue. This is the version that still works
+        // when the app is gone: whoever finds the folder later finds it explaining itself. See
+        // `FiletStore.folderNote`.
+        if (!isCrashProcess()) {
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                runCatching { dev.niccc2007.filet.data.FiletStore.describeFolder(this@FiletApp) }
+            }
+        }
+        // A line a minute about heat, CPU and dropped frames, while detailed logging is on.
+        //
+        // Started here rather than from a screen, because the question it answers - what was the
+        // phone doing while it got hot - is usually about a minute nobody was looking at. It
+        // checks the detailed-logging switch itself, so turning that on mid-run starts the
+        // record without anything being restarted. Not in `:crash`, which exists to show one
+        // screen and then die.
+        if (!isCrashProcess()) {
+            // Its own scope, deliberately. `graph.scope` would do, and reading it here would
+            // build the entire object graph before the first frame - the cold-start cost the
+            // note on `moveIntoTheStore` is about.
+            runCatching {
+                dev.niccc2007.filet.log.Heartbeat.start(
+                    this,
+                    CoroutineScope(SupervisorJob() + Dispatchers.IO),
+                )
+            }
+        }
+    }
+
+    /**
+     * The one-time move of the old scattered working files into the visible folder.
+     *
+     * Off the main thread and after everything else in `onCreate`, because it walks directories
+     * and the first frame must not wait for it. Nothing in the app depends on it having
+     * finished: a file not yet moved is read from neither place and measured again, which is a
+     * cache miss rather than a fault.
+     *
+     * Gated on a flag AND idempotent - see `FiletStore.migrate` for why both.
+     */
+    /**
+     * Put the configuration back when the app has lost it and a copy is reachable.
+     *
+     * ## Why it runs before anything else
+     *
+     * Copying preference files underneath a running app does nothing visible: `Prefs` builds
+     * its StateFlows from the stored values when it is constructed, so a restore after that
+     * point is not seen until the process restarts. Called from the top of `onCreate` nothing
+     * has read anything yet, so a restore simply becomes the state the app starts in. It is
+     * ahead of the logger for the same reason, which is why its result is reported afterwards
+     * rather than where it happens.
+     *
+     * Silent, and that is deliberate: there is nothing to decide. The app has no settings, a
+     * snapshot of its settings is sitting in the Filet folder, and the alternative to using it
+     * is starting empty. A prompt here would be asking somebody to confirm that they would
+     * like their playlists back.
+     *
+     * Only when the preference store is genuinely ABSENT. Not "looks sparse", not "seems
+     * older" - absent. Restoring over settings somebody is actually using would be the
+     * opposite failure, and it is the worse one, because it destroys current state to recover
+     * old state.
+     *
+     * This covers a cleared app whose All-files access survived. A fresh install has no
+     * permission yet and cannot read shared storage at all, so that case is offered in
+     * Settings instead, with a restart - see `SettingsHome.restore`.
+     */
+    private fun restoreSettingsIfLost(): Int = runCatching {
+        if (dev.niccc2007.filet.data.SettingsHome.stores(this).isNotEmpty()) return@runCatching 0
+        if (!dev.niccc2007.filet.data.FiletStore.reachable()) return@runCatching 0
+        dev.niccc2007.filet.data.SettingsHome.restore(this)
+    }.getOrDefault(0)
+
+    /**
+     * Write the configuration out, off the main thread.
+     *
+     * Called when the app goes to the background, which is both the moment somebody has
+     * finished changing things and a moment nothing is waiting on the main thread.
+     */
+    fun keepSettingsSafe() {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching {
+                // Connections go in as their own export, never as the encrypted store: its key
+                // is destroyed by an uninstall, so the bytes would restore as undecryptable
+                // ciphertext. Without secrets, so the hosts, ports, shares and usernames all
+                // survive and only the passwords have to be retyped - shared storage is
+                // readable by anything holding storage permission, and a saved password there
+                // would be a worse problem than the one this solves.
+                val remotes = runCatching {
+                    org.json.JSONArray(graph.connections.exportAll(plainSecrets = false)).toString()
+                }.getOrNull()
+                dev.niccc2007.filet.data.SettingsHome.snapshot(this@FiletApp, remotes)
+            }
+        }
+    }
+
+    /** So rotation does not re-run the restore. See [restoreConnectionsIfLost]. */
+    private val remotesRestoreTried = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * Put the saved remotes back, once there is a graph to put them in.
+     *
+     * A second restore phase, and it has to be: decoding a connection needs the connection
+     * store, which belongs to the object graph, so this cannot happen in the window where the
+     * raw preference files go back. Only when there are none - importing over connections
+     * somebody is already using would be the opposite fault, and the worse one.
+     *
+     * Called from the Activity, NOT from `onCreate`. `graph` is a `by lazy`, so touching it
+     * here would build the entire object graph before the first frame, which is the cold-start
+     * cost `moveIntoTheStore` is written to avoid. By the time an Activity exists the graph is
+     * being built anyway, so this costs nothing.
+     *
+     * Once per process, and the guard lives here rather than at the call site: the Activity is
+     * recreated on every rotation and theme change, and the caller cannot be expected to
+     * remember that.
+     */
+    fun restoreConnectionsIfLost() {
+        if (!remotesRestoreTried.compareAndSet(false, true)) return
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching {
+                if (graph.connections.all().isNotEmpty()) return@runCatching
+                val raw = dev.niccc2007.filet.data.SettingsHome.pendingConnections(this@FiletApp)
+                    ?: return@runCatching
+                val array = org.json.JSONArray(raw)
+                val entries = (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+                if (entries.isEmpty()) return@runCatching
+                val put = graph.connections.importAll(entries)
+                dev.niccc2007.filet.log.FiletLog.i(
+                    "settings", "restored " + put + " saved connection(s), without passwords",
+                )
+            }
+        }
+    }
+
+    private fun moveIntoTheStore() {
+        // Deliberately NOT through the graph.
+        //
+        // `graph` is a `by lazy`, so reading it here would build the whole object graph on the
+        // main thread inside `onCreate` - which is the cold-start cost the comment at the top
+        // of this method warns about, paid to find out whether a flag is set. One boolean out
+        // of SharedPreferences costs nothing and reaches the same answer; `Prefs` reads the
+        // same file under the same key.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching {
+                val sp = getSharedPreferences(
+                    dev.niccc2007.filet.data.PrefKeys.FILE, MODE_PRIVATE,
+                )
+                if (sp.getBoolean(dev.niccc2007.filet.data.PrefKeys.STORE_MIGRATED, false)) {
+                    return@runCatching
+                }
+                val moved = dev.niccc2007.filet.data.FiletStore.migrate(this@FiletApp)
+                sp.edit().putBoolean(dev.niccc2007.filet.data.PrefKeys.STORE_MIGRATED, true).apply()
+                dev.niccc2007.filet.log.FiletLog.i(
+                    "store", "moved " + moved + " file(s) into the Filet folder",
+                )
+            }
+        }
     }
 
     /**

@@ -25,6 +25,7 @@ package dev.niccc2007.filet.desktop
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
 import dev.niccc2007.filet.vfs.provider.LocalProvider
+import dev.niccc2007.filet.webdav.DavAnnouncer
 import dev.niccc2007.filet.webdav.DavShare
 import dev.niccc2007.filet.webdav.DavState
 import dev.niccc2007.filet.webdav.WebDavServer
@@ -80,6 +81,18 @@ class HostService(
     )
 
     val beacon: MdnsBeacon? = mdns?.let { MdnsBeacon(it, selfName, config.deviceId) }
+
+    init {
+        // Bug identified here: the beacon was built and never handed to the server, so
+        // `WebDavServer.announce` met a null announcer and returned on its first line. Every
+        // share served, and none was ever announced - the responder was up and answering for the
+        // machine's name while no phone could find a single share on it. The phone wires its
+        // beacon the same way in FiletApp; the desktop simply never did.
+        server.beacon = beacon
+    }
+
+    /** What the server announces through. Exposed so a test can keep the two wired. */
+    internal val announcer: DavAnnouncer? get() = server.beacon
 
     /** server-side id -> the share it was built from, as of the last [start]. */
     @Volatile private var byId: Map<Long, Share> = emptyMap()

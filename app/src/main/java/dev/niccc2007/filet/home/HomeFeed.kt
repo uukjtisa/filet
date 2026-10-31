@@ -18,12 +18,27 @@ import kotlinx.coroutines.sync.withLock
  * A row on the Home overview and in New files.
  *
  * @param at when the file last CHANGED, from its modification time.
- * @param added when the file first APPEARED on the phone - see [HomeFeed] for where that comes
- *   from and what it is not.
+ * @param added when the file first APPEARED on the phone, as the media index says - see
+ *   [HomeFeed] for where that comes from and what it is not.
  * @param origin the provenance chip (PLAN.md §5.1), null until something has written a biography
  *   record. Rendering "unknown" there would be worse than rendering nothing.
  */
-data class FeedItem(val node: VNode, val at: Long, val origin: String? = null, val added: Long = at)
+data class FeedItem(
+    val node: VNode,
+    val at: Long,
+    val origin: String? = null,
+    val added: Long = at,
+    /** Filet's earlier first-seen, when [HomeFeed.firstSeenLookup] found one; see [arrived]. */
+    val remembered: Long? = null,
+    /** Which list this row was read for, so [listedAt] means the same thing as the list. */
+    val by: HistorySort = HistorySort.DATE_ADDED,
+) {
+    /** When it arrived, corrected by Filet's memory if that applied. */
+    val arrived: Long get() = remembered ?: added
+
+    /** The date the row is listed under: the one the list is ordered by. */
+    val listedAt: Long get() = if (by == HistorySort.DATE_MODIFIED) at else arrived
+}
 
 /**
  * New files: every file on the phone's own storage, by when it first appeared.
@@ -52,7 +67,7 @@ data class FeedItem(val node: VNode, val at: Long, val origin: String? = null, v
  *   arriving at install time.
  * - **Restored or migrated:** a backup restore or a phone-to-phone transfer writes every file
  *   at once, so they all appeared that day and are listed under it. That is true and unhelpful;
- *   the "Last changed" ordering is the way out, and stays.
+ *   the "By date modified" list is the way out, and stays.
  * - **Not covered:** remote folders, app-private storage, anything reached only through a
  *   document provider, and the inside of archives - none of it is in the media index. A
  *   remote folder that used to be tracked by hand no longer has a new-files feed.
@@ -71,6 +86,32 @@ data class FeedItem(val node: VNode, val at: Long, val origin: String? = null, v
  * on screen, and only then, a MediaStore observer brings in other apps' files: [watchIndex].
  */
 class HomeFeed(private val context: Context, private val scope: CoroutineScope) {
+
+    /**
+     * Folders whose files are left out of the feed, read live from the preferences.
+     *
+     * A lambda rather than a stored set so a block takes effect on the next page rather than on
+     * the next launch - the moment somebody blocks a folder is the moment they want it gone.
+     */
+    var blockedFolders: () -> Set<String> = { emptySet() }
+
+    /**
+     * Name prefixes to leave out, with everything under a folder that matches one.
+     *
+     * A lambda like [blockedFolders] beside it, for the same reason: this is read at the
+     * moment a page is fetched, so changing the rule takes effect on the next page rather
+     * than needing the feed to be rebuilt.
+     */
+    var feedPrefixes: () -> Set<String> = { emptySet() }
+
+    /**
+     * Filet's own folders and root files, always excluded and not a preference. See
+     * `FeedExclusions.ownPaths`.
+     *
+     * Separate from [blockedFolders] so a user clearing their own blocked list cannot
+     * accidentally start seeing Filet's cache writes reported as new files on their phone.
+     */
+    var ownPaths: () -> Set<String> = { emptySet() }
 
     private val _recent = MutableStateFlow<List<FeedItem>>(emptyList())
 
@@ -106,9 +147,36 @@ class HomeFeed(private val context: Context, private val scope: CoroutineScope) 
     /** Supplies the Source chip once provenance exists. */
     var originLookup: (suspend (VPath) -> String?)? = null
 
+    /**
+     * Which list this is: arrivals by date added, or the whole phone by date modified.
+     *
+     * Read at the moment a first page is fetched, like [blockedFolders], so switching the tab's
+     * control and refreshing is all a change takes - and the Home card follows, because it is
+     * cut from the same first page.
+     */
+    var order: () -> HistorySort = { HistorySort.DATE_ADDED }
+
+    /**
+     * Filet's first-seen for a whole page of paths in one query.
+     *
+     * An editor that saves by deleting and recreating gets a fresh `DATE_ADDED`, so a file that
+     * arrived on the 7th and was edited on the 10th would otherwise move to the 10th in the
+     * date-added list. The earlier of the two is used. Only ever moves a date EARLIER, and only
+     * in the date-added list: every source proves "it was here by then", so the earliest is the
+     * truest, and the date-modified list is the system's alone.
+     *
+     * Null is the ONLY thing that turns this off, and it does so silently: a date-added list
+     * with no lookup wired is the plain media index, indistinguishable from the feature not
+     * existing. FiletApp wires it at startup; keep it that way.
+     */
+    var firstSeenLookup: (suspend (List<VPath>) -> Map<VPath, Long>)? = null
+
     private val lock = Mutex()
     private var exhausted = false
     private var pendingChange: Job? = null
+
+    /** The order the rows now held were read in. Paging must continue in the same one. */
+    private var loadedBy: HistorySort = HistorySort.DATE_ADDED
 
     /** The newest page, replacing whatever is loaded. */
     fun refresh() {
@@ -124,10 +192,7 @@ class HomeFeed(private val context: Context, private val scope: CoroutineScope) 
             lock.withLock {
                 val at = NewFilesPaging.nextOffset(_all.value.size, exhausted, MAX_HELD) ?: return@withLock
                 _loading.value = true
-                val (_, page) = CategoryQuery.readNew(context, at, PAGE, _windowFrom.value)
-                exhausted = page.size < PAGE
-                _all.value = NewFilesPaging.merge(_all.value, page.map(::item))
-                _capped.value = !exhausted && _all.value.size >= MAX_HELD
+                appendPage(at, PAGE)
                 _loading.value = false
             }
         }
@@ -143,7 +208,9 @@ class HomeFeed(private val context: Context, private val scope: CoroutineScope) 
     suspend fun reach(dayStartMs: Long, dayEndMs: Long) {
         lock.withLock {
             while (true) {
-                val oldest = _all.value.lastOrNull()?.added ?: return@withLock
+                // The DATABASE's date for the order in use, never a corrected one: this decides
+                // what the next query asks for, and the query knows only the column.
+                val oldest = _all.value.lastOrNull()?.let { NewFilesPaging.dbTime(it, loadedBy) } ?: return@withLock
                 if (oldest <= dayStartMs || exhausted) return@withLock
                 val at = NewFilesPaging.nextOffset(_all.value.size, exhausted, MAX_HELD)
                 if (at == null) {
@@ -151,10 +218,7 @@ class HomeFeed(private val context: Context, private val scope: CoroutineScope) 
                     return@withLock
                 }
                 _loading.value = true
-                val (_, page) = CategoryQuery.readNew(context, at, PAGE, _windowFrom.value)
-                exhausted = page.size < PAGE
-                _all.value = NewFilesPaging.merge(_all.value, page.map(::item))
-                _capped.value = !exhausted && _all.value.size >= MAX_HELD
+                appendPage(at, PAGE)
                 _loading.value = false
             }
         }
@@ -183,22 +247,62 @@ class HomeFeed(private val context: Context, private val scope: CoroutineScope) 
      */
     fun watchIndex(): AutoCloseable = CategoryQuery.observe(context) { changed() }
 
-    /** Must hold [lock]. */
+    /**
+     * Must hold [lock].
+     *
+     * Two reads, and the split is the fix for a tab that showed nothing on first open: the old
+     * first page was [PAGE] rows, so nothing appeared until two thousand rows had been read,
+     * converted and grouped. Now [FIRST_PAGE] rows are read and PUBLISHED - enough to fill the
+     * screen and the Home card - and the rest of the first page follows behind them.
+     */
     private suspend fun firstPage(before: Long?) {
         _loading.value = true
-        val (result, page) = CategoryQuery.readNew(context, 0, PAGE, before)
+        loadedBy = order()
+        val (result, page) = read(0, FIRST_PAGE, before)
         _outcome.value = result
-        val items = page.map(::item)
-        exhausted = page.size < PAGE
+        val items = corrected(page.map(::item))
+        exhausted = page.size < FIRST_PAGE
         _all.value = items
         _capped.value = false
         _windowFrom.value = before
-        if (before == null) publishRecent(items.take(SHOWN))
+        if (before == null) publishRecent(NewFilesPaging.cardRows(items, SHOWN))
+        if (!exhausted) appendPage(items.size, PAGE - FIRST_PAGE)
         _loading.value = false
     }
 
+    /** Must hold [lock]. Reads [count] rows from [offset] in the loaded order and appends them. */
+    private suspend fun appendPage(offset: Int, count: Int) {
+        val (_, page) = read(offset, count, _windowFrom.value)
+        exhausted = page.size < count
+        _all.value = NewFilesPaging.merge(_all.value, corrected(page.map(::item)))
+        _capped.value = !exhausted && _all.value.size >= MAX_HELD
+    }
+
+    private suspend fun read(offset: Int, limit: Int, before: Long?) =
+        CategoryQuery.readNew(
+            context, offset, limit, before,
+            // Filet's own folders are added here rather than stored among the user's blocked
+            // ones, so clearing that list cannot start reporting the app's cache writes as
+            // new files on the phone.
+            blockedFolders() + ownPaths(),
+            feedPrefixes(),
+            loadedBy,
+        )
+
+    /**
+     * Filet's memory applied to a date-added page: one batch lookup for the whole page, never one
+     * per row. Always on - the date-added list exists to be the one edits cannot reorder.
+     */
+    private suspend fun corrected(items: List<FeedItem>): List<FeedItem> {
+        if (loadedBy != HistorySort.DATE_ADDED) return items
+        val lookup = firstSeenLookup ?: return items
+        val seen = runCatching { lookup(items.map { it.node.path }) }.getOrDefault(emptyMap())
+        if (seen.isEmpty()) return items
+        return items.map { NewFilesPaging.remember(it, seen[it.node.path]) }
+    }
+
     private fun item(r: CategoryQuery.NewRow) =
-        FeedItem(node = r.node, at = r.node.mtime, added = r.addedAtMs)
+        FeedItem(node = r.node, at = r.node.mtime, added = r.addedAtMs, by = loadedBy)
 
     private fun publishRecent(top: List<FeedItem>) {
         _recent.value = top
@@ -212,11 +316,20 @@ class HomeFeed(private val context: Context, private val scope: CoroutineScope) 
     }
 
     companion object {
-        /** The Home card's rows. */
-        const val SHOWN = 8
+        /**
+         * Rows published for the Home card: as many as any card can be set to show. Each card
+         * takes its own count from these - see [FeedCard].
+         */
+        const val SHOWN = FeedCard.MAX_COUNT
 
         /** One query's worth. Two thousand rows of a sorted, indexed column is milliseconds. */
         const val PAGE = 2_000
+
+        /**
+         * The rows read and shown before the rest of the first page: a screenful and the Home
+         * card. The same split the categories use - see CategoryScreen.
+         */
+        const val FIRST_PAGE = 120
 
         /**
          * At most this many rows held. Ten thousand rows is a few megabytes; past it the date
@@ -234,6 +347,8 @@ class HomeFeed(private val context: Context, private val scope: CoroutineScope) 
         val RETIRED_KEYS = listOf(
             "tracked.folders", "tracked.seeded", "tracked.prunedRemotes", "tracked.seededCommon",
             "home.firstSeen.v4", "home.feed.v1",
+            // The switch the date-added correction once sat behind; it is always on now.
+            "home.keepAddedThroughEdits",
         )
 
         fun forgetRetired(prefs: Prefs) {
@@ -246,6 +361,30 @@ class HomeFeed(private val context: Context, private val scope: CoroutineScope) 
 
 /** The paging decisions, pure, so the order and the cap are tests rather than hopes. */
 object NewFilesPaging {
+
+    /**
+     * The date the DATABASE ordered [item] by: what the next query has to continue from. Never
+     * the memory-corrected one, which the query cannot know about.
+     */
+    fun dbTime(item: FeedItem, by: HistorySort): Long =
+        if (by == HistorySort.DATE_MODIFIED) item.at else item.added
+
+    /**
+     * [item] with Filet's first-seen applied: kept only when it is EARLIER than what the system
+     * says. A later one proves nothing - the system already knew it was here before then.
+     */
+    fun remember(item: FeedItem, firstSeen: Long?): FeedItem =
+        if (firstSeen != null && firstSeen > 0 && firstSeen < item.added) item.copy(remembered = firstSeen) else item
+
+    /**
+     * The Home card's rows: the newest by the date the list is listed under.
+     *
+     * Not simply the first rows of the page. With Filet's memory applied, a file the system
+     * re-dated to today but that Filet knows arrived last month sits at the top of the query and
+     * is not new - the card would otherwise show an old file as the newest thing on the phone.
+     */
+    fun cardRows(items: List<FeedItem>, n: Int): List<FeedItem> =
+        items.sortedByDescending { it.listedAt }.take(n)
 
     /** Where the next page starts, or null when there is none to load. */
     fun nextOffset(loaded: Int, exhausted: Boolean, cap: Int): Int? =

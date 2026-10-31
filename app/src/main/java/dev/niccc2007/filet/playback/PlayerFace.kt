@@ -26,7 +26,7 @@ enum class PlayerFace(val id: String, val label: String, val about: String) {
     /** Flat, centred, no artwork bleed. What the player looked like before. */
     CLASSIC(
         "classic", "Classic",
-        "Flat background, artwork in a box, everything centred.",
+        "Flat background with the artwork boxed and centred.",
     ),
 
     /**
@@ -37,7 +37,7 @@ enum class PlayerFace(val id: String, val label: String, val about: String) {
      */
     AMBIENT(
         "ambient", "Ambient",
-        "The artwork lights the screen behind itself. Big art, scrolling title.",
+        "Large artwork that tints the background.",
     ),
 
     /**
@@ -48,7 +48,7 @@ enum class PlayerFace(val id: String, val label: String, val about: String) {
      */
     EDITORIAL(
         "editorial", "Editorial",
-        "Small art beside the title. More on screen, less impact.",
+        "Small artwork beside the title.",
     ),
 
     /**
@@ -60,7 +60,7 @@ enum class PlayerFace(val id: String, val label: String, val about: String) {
      */
     IMMERSIVE(
         "immersive", "Immersive",
-        "Full-bleed artwork. Small controls that tap away.",
+        "Full-screen artwork; tap to hide the controls.",
     ),
 
     /**
@@ -76,7 +76,7 @@ enum class PlayerFace(val id: String, val label: String, val about: String) {
      */
     HALO(
         "halo", "Halo",
-        "The artwork as a turning disc, ringed with light that bursts with the beat.",
+        "Artwork on a spinning disc, ringed with light.",
     );
 
     /** Everything but Classic takes its colour from the artwork and lights the background. */
@@ -135,6 +135,25 @@ enum class PlayerFace(val id: String, val label: String, val about: String) {
 
     /** Whether there is a record to turn - which is what makes the drag controls mean anything. */
     val hasDisc: Boolean
+        get() = when (this) {
+            HALO -> true
+            CLASSIC, AMBIENT, EDITORIAL, IMMERSIVE -> false
+        }
+
+    /**
+     * Whether the disc throws a glow of its own, over and above the background's.
+     *
+     * The record's own light: a coloured mist radiating off it, the same light the minimised
+     * strip spills past its edges, plus the rim on its border.
+     *
+     * Only a face with a disc has one, which is why this exists as a capability rather than as
+     * a free-standing setting. The switch over it used to be called "Living background" and
+     * governed the background wash on every face as well, so asking for the disc's glow and
+     * getting a grey player - or the reverse - was one switch doing two jobs. Every other face
+     * has the background's drift and nothing to ring, so the row is absent there rather than
+     * present and inert.
+     */
+    val hasDiscGlow: Boolean
         get() = when (this) {
             HALO -> true
             CLASSIC, AMBIENT, EDITORIAL, IMMERSIVE -> false

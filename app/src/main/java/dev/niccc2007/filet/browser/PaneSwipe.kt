@@ -24,10 +24,9 @@ package dev.niccc2007.filet.browser
  *
  * Two things keep them apart:
  *
- *  1. **A drag starts with a LONG PRESS**, and the platform's is 500ms. A swipe has to have
- *     STARTED MOVING within [GRACE_MS] of touching down - less than half of that - so a
- *     finger that is about to pick something up has not begun swiping, and a finger that is
- *     swiping is long gone before the press would have fired.
+ *  1. **A drag starts with a LONG PRESS**, and a press that has started one consumes the
+ *     movement, which [owner] reads as the drag belonging to the row. [GRACE_MS] is the
+ *     backstop behind that: a swipe has to have started moving within it.
  *  2. **It has to be mostly sideways.** [RATIO] of horizontal to vertical, or it is a scroll.
  *     A list being flicked up at a slight angle must never change tab.
  *
@@ -176,11 +175,14 @@ object PaneSwipe {
     /**
      * How long after touching down a swipe can still begin.
      *
-     * The file list's drag needs a long press, and the platform's is 500ms. This is under
-     * half of that, so a finger that is about to pick something up has not started swiping
-     * and a finger that is swiping is long gone before the press would have fired.
+     * It was 220ms, under half the platform's 500ms long press, because the window was the only
+     * thing keeping a swipe off a file being picked up - and a thumb that settled for a quarter
+     * of a second before moving was simply ignored, which is much of why the gesture felt
+     * unresponsive. Ownership does that job now: a press that has started a drag consumes the
+     * movement, [owner] reads that as the child's, and the tabs never see it. So the window is
+     * only a backstop, and can be the length of a hesitation rather than a reflex.
      */
-    const val GRACE_MS = 220L
+    const val GRACE_MS = 350L
 
     /** How much more sideways than up-and-down it has to be. */
     const val RATIO = 1.8f

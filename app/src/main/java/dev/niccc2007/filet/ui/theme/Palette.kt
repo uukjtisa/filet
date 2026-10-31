@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import dev.niccc2007.filet.data.AccentChoice
 import dev.niccc2007.filet.data.ThemeChoice
@@ -41,6 +42,10 @@ data class FiletColors(
 
 val LocalFiletColors: ProvidableCompositionLocal<FiletColors> =
     compositionLocalOf { PaletteSpec.SLATE.dark.extras }
+
+/** The palette in use, both sides of it, so a surface can be dark whatever the theme is. */
+val LocalPaletteSpec: ProvidableCompositionLocal<PaletteSpec> =
+    staticCompositionLocalOf { PaletteSpec.SLATE }
 
 /** A full palette: the M3 scheme plus the extras above, for one light/dark side. */
 class PaletteSide(val scheme: ColorScheme, val extras: FiletColors)
@@ -197,9 +202,30 @@ fun FiletTheme(
     }
     val spec = PaletteSpec.of(accent)
     val palette = if (dark) spec.dark else spec.light
-    CompositionLocalProvider(LocalFiletColors provides palette.extras) {
+    CompositionLocalProvider(LocalFiletColors provides palette.extras, LocalPaletteSpec provides spec) {
         MaterialTheme(
             colorScheme = palette.scheme,
+            typography = FiletTypography,
+            content = content,
+        )
+    }
+}
+
+/**
+ * The dark side of the palette in use, standing on [ground], for what is drawn inside it.
+ *
+ * For the viewers. A photograph is looked at on dark whatever the app's theme is, and the
+ * viewer's chrome is a scrim made of its ground colour: in the light theme that scrim was white,
+ * so the controls stood on a white mist laid over the bottom of every picture. Dark text, dark
+ * mist and a dark ground have to change together, and the theme is the one thing that changes
+ * all three at once.
+ */
+@Composable
+fun DarkGround(ground: Color, content: @Composable () -> Unit) {
+    val side = LocalPaletteSpec.current.dark
+    CompositionLocalProvider(LocalFiletColors provides side.extras) {
+        MaterialTheme(
+            colorScheme = side.scheme.copy(background = ground),
             typography = FiletTypography,
             content = content,
         )

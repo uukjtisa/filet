@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.drawscope.withTransform
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -70,14 +71,19 @@ fun BeatRing(
     /** How far a beat may move it. See `Prefs.pulseDepth`. */
     pulseDepth: Float = 1f,
     /**
-     * Whether the living glow is on.
+     * Whether the disc wears a glow of its own. See `Prefs.discGlow`.
      *
-     * It was not asked, and this is a light: a ring of colour plus a radial halo thrown
-     * outward from the artwork. So turning the glow off removed the background wash and left a
-     * second glow sitting round the disc with nothing governing it. Off, what remains is the
-     * hairline the artwork needs in order to have an edge.
+     * Off, what remains is the hairline the artwork needs in order to have an edge.
      */
     glow: Boolean = true,
+    /**
+     * How much glow is painted, from the same control as the background's. See `glowScale`.
+     *
+     * Bug identified here: the mist ignored this entirely, so a control named "Glow strength"
+     * changed the backdrop and left the brightest glow on the screen alone. One slider has to
+     * mean one thing, and the thing it means is how much light this face throws.
+     */
+    glowScale: Float = 1f,
     modifier: Modifier = Modifier,
 ) {
     val running = rememberStatus(playback).value.playing
@@ -120,20 +126,57 @@ fun BeatRing(
             // 26-27 the same strokes draw unblurred, as a bright double rim. That is a platform
             // floor, not a defect: a software blur here would run on the CPU every beat frame.
             val r0 = size.minDimension / 2f
-            val bloom = Paint().asFrameworkPaint().apply {
-                isAntiAlias = true
-                style = android.graphics.Paint.Style.STROKE
-                maskFilter = android.graphics.BlurMaskFilter(
-                    (r0 * RIM_BLOOM_BLUR).coerceAtLeast(1f), android.graphics.BlurMaskFilter.Blur.NORMAL,
-                )
-            }
-            val core = Paint().asFrameworkPaint().apply {
-                isAntiAlias = true
-                style = android.graphics.Paint.Style.STROKE
-                maskFilter = android.graphics.BlurMaskFilter(
-                    (r0 * RIM_CORE_BLUR).coerceAtLeast(1f), android.graphics.BlurMaskFilter.Blur.NORMAL,
-                )
-            }
+            // The rim, as two gradients rather than two blurred strokes.
+            //
+            // Same reasoning as the mist above, and the same measurement behind it: a
+            // `BlurMaskFilter` is a real blur over the stroked area and it is recomputed on
+            // every draw, which here means `PlayerDials.pulseFps` times a second - sixty, on a
+            // capable phone - over a circle the width of the screen. Three CPU blurs a frame
+            // for as long as the player is open is most of why the maximised player ran hot.
+            //
+            // The widths are baked into the stops, so a beat no longer thickens the rim; it
+            // brightens it, throws the ring outward (`RING_KICK`) and pushes the mist. Those
+            // were always the parts that read, and none of them costs a blur.
+            val bloom = ringBrush(tint, RIM_BLOOM_HALF)
+            // The mist: a very wide, very soft stroke sitting ON the disc's edge.
+            //
+            // ## The shape this had to be, and the one it was
+            //
+            // It was three radial gradients centred on the disc. That is the obvious way to
+            // make a glow and it cannot work here, for a reason that is only obvious once it
+            // is on a phone: a centred radial has its bright core at the CENTRE, and the
+            // centre of this disc is covered by opaque album art. Everything worth seeing was
+            // painted underneath the picture, and the only part that escaped past the rim was
+            // the dying tail of the gradient - which arrived at about seven percent alpha, in
+            // the same hue as the backdrop it was drawn on, and was therefore invisible.
+            //
+            // A rim glow is light leaving an edge, so it is drawn as an edge: a stroke on the
+            // ring, blurred by a large fraction of the radius. The blur spreads it outward
+            // into the background and inward under the art, where the art hides the half that
+            // would have been wasted anyway. That is the same shape the minimised strip's
+            // light has, which is the one being asked for.
+            // Built ONCE per size and colour, and drawn per frame as a scaled circle.
+            //
+            // The first version of this was two `BlurMaskFilter` strokes, which is the obvious
+            // way to blur a ring and the wrong way to do it sixty times a second: a mask filter
+            // is a real blur over the stroke's area, it runs on the CPU, and the stroke here is
+            // a quarter of the radius wide on a circle that fills the screen. It was measurably
+            // hot in the hand within a minute of opening the player.
+            //
+            // A radial gradient is the same picture and costs a shader. The stops are what make
+            // it a RING rather than a disc: transparent through the middle, peaking just
+            // outside the artwork's edge, then a long tail into the background. That tail is
+            // the mist; the peak is the edge it comes off.
+            val mist = Brush.radialGradient(
+                0.00f to Color.Transparent,
+                MIST_INNER to Color.Transparent,
+                MIST_PEAK to tint.copy(alpha = MIST_NEAR_ALPHA),
+                MIST_TAIL to tint.copy(alpha = MIST_WIDE_ALPHA),
+                1.00f to Color.Transparent,
+                center = Offset.Zero,
+                radius = UNIT_RADIUS,
+            )
+            val core = ringBrush(tint, RIM_CORE_HALF)
             onDrawBehind {
                 // Read in the draw lambda. See `livingGlow` for what reading it above costs. The
                 // beat goes the same way, and reading it here is also what invalidates the draw
@@ -174,8 +217,52 @@ fun BeatRing(
                 // outward, and brightens and thickens with the hit. At rest it still glows,
                 // softly, so the disc keeps its edge of light through a quiet passage.
                 val rimLit = (0.25f + 0.75f * turning) * (RIM_REST + (1f - RIM_REST) * hit.coerceAtMost(1f))
-                drawRim(bloom, centre, ring, r * (RIM_BLOOM_WIDTH + RIM_BLOOM_KICK * hit), tint, rimLit * 0.55f)
-                drawRim(core, centre, ring, r * (RIM_CORE_WIDTH + RIM_CORE_KICK * hit), tint, rimLit)
+
+                // ── the mist: the disc's own light, thrown OUTWARD into the space round it ──
+                //
+                // This is the part that was missing, and the rim is why it was not noticed
+                // missing: a rim is an EDGE - two blurred strokes a few percent of the radius
+                // wide - so the disc had a bright border and no light coming off it. What the
+                // face is meant to look like is the minimised strip's spill, colour leaving
+                // the artwork and fading into the background, so the record sits IN something
+                // rather than on top of it.
+                //
+                // Two passes, under the rim: a wide faint one that reaches into the backdrop
+                // and a narrower brighter one that keeps the edge itself hot. Both breathe on
+                // the slow clock and widen on a beat - the reach grows as well as the
+                // brightness, because at this size a change of alpha alone is a flicker and a
+                // change of size is the thing the eye catches.
+                //
+                // Held WELL ABOVE the rim's resting level. The backdrop behind this face is
+                // the same colour the mist is, so a glow scaled down like a highlight simply
+                // dissolves into it - the brightness here is doing the work the hue cannot.
+                // Scaled by the strength control, and bounded. Unbounded, the top of the
+                // slider would blow the mist out to a flat disc of colour - this is light in
+                // air, and past a point more of it stops looking like more.
+                val mistLit = (0.45f + 0.55f * turning) *
+                    (MIST_REST + (1f - MIST_REST) * hit.coerceAtMost(1f)) *
+                    glowScale.coerceIn(MIST_SCALE_MIN, MIST_SCALE_MAX)
+                // One circle. The gradient already holds the shape; the beat moves how far it
+                // reaches and how bright it is, both of which are a transform and an alpha
+                // rather than a new brush - see the note on `GlowLamps` for why that matters.
+                val reach = ring / MIST_PEAK * (1f + MIST_BREATH * swell + MIST_LIFT * hit)
+                val k = reach / UNIT_RADIUS
+                if (k > 0f && mistLit > 0.002f) {
+                    withTransform({
+                        translate(centre.x, centre.y)
+                        scale(k, k, pivot = Offset.Zero)
+                    }) {
+                        drawCircle(
+                            brush = mist,
+                            radius = UNIT_RADIUS,
+                            center = Offset.Zero,
+                            alpha = mistLit.coerceIn(0f, 1f),
+                        )
+                    }
+                }
+
+                drawRing(bloom, centre, ring, rimLit * 0.55f)
+                drawRing(core, centre, ring, rimLit)
 
                 // ── the wave ───────────────────────────────────────────────────────────────
                 //
@@ -361,39 +448,96 @@ private class WaveBrushes(private val tint: Color, private val centre: Offset) {
 }
 
 /** One soft ring of light through a blurred framework paint. Allocates nothing. */
-private fun DrawScope.drawRim(
-    paint: android.graphics.Paint,
-    centre: Offset,
-    radius: Float,
-    width: Float,
-    tint: Color,
-    alpha: Float,
-) {
+/**
+ * A band of light at [half] either side of [RING_PEAK], as a unit-radius gradient.
+ *
+ * Built once per size and colour and scaled into place by [drawRing], so the band's shape costs
+ * a shader rather than a blur. The peak is at a fixed position along the gradient, which is why
+ * the draw scales by `radius / RING_PEAK` rather than by `radius`.
+ */
+private fun ringBrush(tint: Color, half: Float): Brush = Brush.radialGradient(
+    0f to Color.Transparent,
+    (RING_PEAK - half).coerceAtLeast(0.001f) to Color.Transparent,
+    RING_PEAK to tint.copy(alpha = 1f),
+    (RING_PEAK + half).coerceAtMost(0.999f) to Color.Transparent,
+    1f to Color.Transparent,
+    center = Offset.Zero,
+    radius = UNIT_RADIUS,
+)
+
+/** One band from [ringBrush], centred on [centre], peaking at [radius]. */
+private fun DrawScope.drawRing(brush: Brush, centre: Offset, radius: Float, alpha: Float) {
     val a = alpha.coerceIn(0f, 1f)
-    if (a <= 0f || radius <= 0f) return
-    paint.color = android.graphics.Color.argb(
-        (a * 255f + 0.5f).toInt(),
-        (tint.red * 255f + 0.5f).toInt(),
-        (tint.green * 255f + 0.5f).toInt(),
-        (tint.blue * 255f + 0.5f).toInt(),
-    )
-    paint.strokeWidth = width
-    drawIntoCanvas { it.nativeCanvas.drawCircle(centre.x, centre.y, radius, paint) }
+    if (a <= 0.002f || radius <= 0f) return
+    val k = radius / RING_PEAK / UNIT_RADIUS
+    withTransform({
+        translate(centre.x, centre.y)
+        scale(k, k, pivot = Offset.Zero)
+    }) {
+        drawCircle(brush = brush, radius = UNIT_RADIUS, center = Offset.Zero, alpha = a)
+    }
 }
 
+/** Where every band's peak sits along its gradient. One value, so the scale maths is shared. */
+private const val RING_PEAK = 0.72f
+
 /**
- * The rim glow's shape, as fractions of the disc's radius.
+ * The disc's mist, as positions along its gradient and fractions of the disc's radius.
  *
- * The bloom is wide and soft, the core narrow and bright - two passes are what make a stroke
- * read as light rather than as paint. [RIM_REST] is how much of it shows with no beat, so the
- * edge never goes dark between hits; the kicks are how much wider each pass gets on a full one.
+ * - [MIST_INNER] where the light starts to exist at all, inside the artwork's edge so there is
+ *   no seam where the picture stops.
+ * - [MIST_PEAK] where it is brightest. The ring is placed here, so this is also what decides
+ *   how far the whole figure is scaled - see the draw.
+ * - [MIST_TAIL] where the long faint reach into the background begins.
+ * - [MIST_BREATH] and [MIST_LIFT] push it outward on the slow clock and on a hit.
+ * - [MIST_REST] how much of it shows with no beat at all. Far higher than the rim's resting
+ *   level on purpose: the mist is what the disc looks like, not an accent on a drum.
  */
-private const val RIM_BLOOM_BLUR = 0.10f
-private const val RIM_CORE_BLUR = 0.025f
-private const val RIM_BLOOM_WIDTH = 0.06f
-private const val RIM_BLOOM_KICK = 0.10f
-private const val RIM_CORE_WIDTH = 0.018f
-private const val RIM_CORE_KICK = 0.03f
+private const val MIST_INNER = 0.56f
+private const val MIST_PEAK = 0.70f
+private const val MIST_TAIL = 0.82f
+private const val MIST_BREATH = 0.020f
+private const val MIST_LIFT = 0.07f
+private const val MIST_REST = 0.72f
+
+/**
+ * How much of each pass reaches the screen.
+ *
+ * Measured against this face's own backdrop rather than picked. The background behind Halo is
+ * the track's colour at the living glow's strength, so the mist is being drawn green on green -
+ * at the fractions a highlight would use it disappeared completely, which is what "there is no
+ * radiant glow around the disc" was. These are the values at which the light is visibly
+ * brighter than what it sits on.
+ */
+private const val MIST_WIDE_ALPHA = 0.34f
+private const val MIST_NEAR_ALPHA = 0.46f
+
+/**
+ * How far the strength control may push the mist.
+ *
+ * Narrower than the control's own range. The background is a wash over a whole screen and can
+ * take a multiple of two without becoming anything; a glow this bright already is at the very
+ * limit of being light rather than paint, so the top of the slider lifts it by a third and the
+ * bottom never takes it below half - a mist that can be dimmed to nothing is the off switch
+ * coming back through the strength control.
+ */
+private const val MIST_SCALE_MIN = 0.55f
+private const val MIST_SCALE_MAX = 1.35f
+
+/**
+ * The rim glow's shape, as half-widths along the band gradient.
+ *
+ * The bloom is wide and soft, the core narrow and bright - two passes are what make an edge
+ * read as light rather than as paint. [RIM_REST] is how much of it shows with no beat, so the
+ * edge never goes dark between hits.
+ *
+ * These are the blurred strokes' resting extents converted to gradient stops: a stroke `w` wide
+ * under a blur of `b` reaches about `w/2 + b` either side of its centre, taken against
+ * [RING_PEAK]. The picture is the one that was there; the cost is a shader instead of three
+ * CPU blurs a frame.
+ */
+private const val RIM_BLOOM_HALF = 0.094f
+private const val RIM_CORE_HALF = 0.024f
 private const val RIM_REST = 0.35f
 
 /**

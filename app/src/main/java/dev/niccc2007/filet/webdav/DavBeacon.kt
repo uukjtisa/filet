@@ -47,6 +47,21 @@ class DavBeacon(private val context: Context) : DavAnnouncer {
     private val registrations = ConcurrentHashMap<Long, NsdManager.RegistrationListener>()
 
     /**
+     * The same shares announced again under the standard type, by share id.
+     *
+     * This is the Filet-to-others direction, and it was missing: the phone announced only
+     * `_filet-dav._tcp`, which nothing but Filet has ever heard of. A Mac, a Linux file manager
+     * or any ordinary WebDAV client looks for `_webdav._tcp` and therefore could not see a
+     * phone that was hosting - the address had to be read off one screen and typed into another,
+     * which is the exact problem the beacon exists to remove.
+     *
+     * Two registrations rather than one of a different type: Filet's own type carries the TXT
+     * records the app relies on and other Filets listen for it, so replacing it would fix this
+     * direction by breaking the one that worked.
+     */
+    private val openRegistrations = ConcurrentHashMap<Long, NsdManager.RegistrationListener>()
+
+    /**
      * What each live share announced, kept so it can be announced again.
      *
      * The registration listener alone is not enough to re-register: the platform needs the whole
@@ -112,7 +127,42 @@ class DavBeacon(private val context: Context) : DavAnnouncer {
         registrations[id] = listener
         ads[id] = Ad(id, label, port, basePath, scope, writable)
         runCatching { manager.registerService(info, NsdManager.PROTOCOL_DNS_SD, listener) }
+        advertiseOpenly(manager, id, label, port, basePath)
         refreshAdvertising()
+    }
+
+    /**
+     * Announce the same share under `_webdav._tcp`, for clients that are not Filet.
+     *
+     * Failure here is deliberately quiet and deliberately separate from the registration above.
+     * This one is a courtesy to other software; Filet-to-Filet discovery rides the other type
+     * and must not be reported as broken because a second registration of the same port was
+     * refused. `path` is the TXT key ordinary WebDAV clients already read, which is why
+     * [DavDiscovery.ATTR_PATH] spells it the way it does.
+     */
+    private fun advertiseOpenly(
+        manager: NsdManager,
+        id: Long,
+        label: String,
+        port: Int,
+        basePath: String,
+    ) {
+        val info = NsdServiceInfo().apply {
+            serviceName = DavDiscovery.serviceName(selfName(), label)
+            serviceType = OPEN_SERVICE_TYPE
+            this.port = port
+            setAttribute(DavDiscovery.ATTR_PATH, basePath)
+        }
+        val listener = object : NsdManager.RegistrationListener {
+            override fun onServiceRegistered(i: NsdServiceInfo) = Unit
+            override fun onRegistrationFailed(i: NsdServiceInfo, code: Int) {
+                openRegistrations.remove(id)
+            }
+            override fun onServiceUnregistered(i: NsdServiceInfo) = Unit
+            override fun onUnregistrationFailed(i: NsdServiceInfo, code: Int) = Unit
+        }
+        openRegistrations[id] = listener
+        runCatching { manager.registerService(info, NsdManager.PROTOCOL_DNS_SD, listener) }
     }
 
     /**
@@ -137,6 +187,7 @@ class DavBeacon(private val context: Context) : DavAnnouncer {
         // being called as the first half of a re-announcement.
         ads.remove(id)
         registrations.remove(id)?.let { runCatching { manager.unregisterService(it) } }
+        openRegistrations.remove(id)?.let { runCatching { manager.unregisterService(it) } }
         refreshAdvertising()
     }
 
@@ -147,11 +198,18 @@ class DavBeacon(private val context: Context) : DavAnnouncer {
         for (id in registrations.keys.toList()) {
             registrations.remove(id)?.let { runCatching { manager.unregisterService(it) } }
         }
+        for (id in openRegistrations.keys.toList()) {
+            openRegistrations.remove(id)?.let { runCatching { manager.unregisterService(it) } }
+        }
         refreshAdvertising()
     }
 
     private fun refreshAdvertising() {
-        _state.value = _state.value.copy(advertising = registrations.isNotEmpty())
+        val on = registrations.isNotEmpty()
+        // Held while announcing too: a host answers queries, and a query is multicast. Without
+        // the lock a PC that starts looking after this phone's announcement never hears back.
+        dev.niccc2007.filet.nearby.MulticastHold.hold(context, "beacon.ads", on)
+        _state.value = _state.value.copy(advertising = on)
     }
 
     /**
@@ -174,6 +232,9 @@ class DavBeacon(private val context: Context) : DavAnnouncer {
      */
     fun startScan() {
         if (scanners.incrementAndGet() != 1) return
+        // Held across heals and restarts, released only when the last caller stops: the heal
+        // rebuilds the listener every 45 s and has no reason to drop the lock in between.
+        dev.niccc2007.filet.nearby.MulticastHold.hold(context, "beacon.scan", true)
         beginScan()
     }
 
@@ -181,6 +242,7 @@ class DavBeacon(private val context: Context) : DavAnnouncer {
     fun stopScan() {
         if (scanners.updateAndGet { (it - 1).coerceAtLeast(0) } > 0) return
         endScan()
+        dev.niccc2007.filet.nearby.MulticastHold.hold(context, "beacon.scan", false)
     }
 
     /**
@@ -246,7 +308,14 @@ class DavBeacon(private val context: Context) : DavAnnouncer {
             override fun onServiceFound(info: NsdServiceInfo) {
                 // This phone's own advertisement comes straight back to it, and listing yourself
                 // as something to mount is the first thing every implementation gets wrong.
-                if (info.serviceName.contains(selfName())) return
+                //
+                // Against what this beacon ACTUALLY advertised, rather than `contains(selfName())`
+                // as it was. The self name is `Build.MODEL`, so on two phones of the same model
+                // every announcement contained the listener's own name and the one host somebody
+                // wanted was thrown away before it was ever resolved. The platform also renames
+                // on a collision, so this test can still miss - which is why the real guard is
+                // the device id, checked after the resolve in [resolve].
+                if (isOwnAd(info.serviceName)) return
                 resolve(manager, info)
             }
 
@@ -296,6 +365,10 @@ class DavBeacon(private val context: Context) : DavAnnouncer {
                     )
                 }
                 override fun onServiceResolved(i: NsdServiceInfo) {
+                    // The authority on "is this me", and the reason the name test above is
+                    // allowed to be imperfect: the id is minted once per install, so it is the
+                    // only field that is actually unique per device.
+                    if (attr(i, DavDiscovery.ATTR_ID) == deviceId(context)) return
                     val address = pickAddress(i) ?: return
                     val found = DavHost(
                         name = DavDiscovery.displayName(i.serviceName),
@@ -339,10 +412,25 @@ class DavBeacon(private val context: Context) : DavAnnouncer {
         runCatching { info.attributes[key]?.toString(Charsets.UTF_8) }.getOrNull()
             ?.takeIf { it.isNotBlank() }
 
+    /** Whether [name] is one of the names this beacon is currently announcing. */
+    private fun isOwnAd(name: String?): Boolean {
+        if (name.isNullOrBlank()) return false
+        val self = selfName()
+        return ads.values.any { DavDiscovery.serviceName(self, it.label) == name }
+    }
+
     private fun selfName(): String =
         runCatching { dev.niccc2007.filet.nearby.PairedPeers.selfName(context) }.getOrDefault("phone")
 
     private companion object {
+
+        /**
+         * The service type every other WebDAV client in the world looks for.
+         *
+         * Announced alongside Filet's own type, not instead of it - see [openRegistrations].
+         */
+        const val OPEN_SERVICE_TYPE = "_webdav._tcp."
+
         /**
          * How often the listener is rebuilt while scanning.
          *

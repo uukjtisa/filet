@@ -1,6 +1,7 @@
 package dev.niccc2007.filet.playback
 
 import android.content.Context
+import dev.niccc2007.filet.data.FiletStore
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -42,6 +43,16 @@ object AudioCache {
     private const val VERSION = 2
 
     /**
+     * Three for the beat maps alone: a version 3 map's hits are on the tracked beat grid rather
+     * than on every onset (see BeatGrid). A version 2 map is not wrong to read, only measured
+     * the old way, and serving it would keep the off-beat pulses on every track already heard -
+     * so it is rejected and measured again once. The decoded samples are untouched, which is
+     * why this is not [VERSION]: bumping that would throw away eighty megabytes of decodes to
+     * change a file of seventy kilobytes.
+     */
+    private const val BEAT_VERSION = 3
+
+    /**
      * How much disk the samples may use.
      *
      * Eighty megabytes, which is seven or eight tracks - comfortably the album somebody is
@@ -51,8 +62,31 @@ object AudioCache {
      */
     private const val CAP = 80L * 1024 * 1024
 
-    private fun dir(context: Context): File? = runCatching {
-        File(context.cacheDir, "audio").apply { mkdirs() }
+    /**
+     * The samples. Large, derived, and evicted here under [CAP].
+     *
+     * In shared storage rather than `cacheDir` so that the eviction is OURS and visible rather
+     * than the system's and silent - see [FiletStore].
+     */
+    private fun pcmDir(context: Context): File? = runCatching {
+        FiletStore.dir(context, FiletStore.Area.AUDIO)
+    }.getOrNull()?.takeIf { it.isDirectory }
+
+    /**
+     * The beat maps. A separate folder, and that separation is the point.
+     *
+     * Bug identified here: both lived in `cacheDir`, which Android empties whenever the device
+     * wants the space - so a map produced by two seconds of spectrum analysis survived only
+     * until the next time the phone was short of room, and a track measured on Monday was
+     * measured again on Friday. Worse, [trim] deleted a track's map along with its samples, so
+     * the permanent half of the cache was evicted on the schedule of the disposable half.
+     *
+     * Seventy kilobytes for three minutes. A thousand tracks is seventy megabytes and nobody
+     * has a thousand, so there is no eviction here at all - the folder is visible and somebody
+     * who wants the space can empty it.
+     */
+    private fun beatDir(context: Context): File? = runCatching {
+        FiletStore.dir(context, FiletStore.Area.BEATS)
     }.getOrNull()?.takeIf { it.isDirectory }
 
     /**
@@ -83,7 +117,7 @@ object AudioCache {
     // ── samples ───────────────────────────────────────────────────────────────────
 
     fun readPcm(context: Context, key: String): TrackPcm? = runCatching {
-        val file = File(dir(context) ?: return null, "$key.pcm")
+        val file = File(pcmDir(context) ?: return null, "$key.pcm")
         if (!file.isFile) return null
         val bytes = file.readBytes()
         if (bytes.size < 12) return null
@@ -99,7 +133,7 @@ object AudioCache {
 
     fun writePcm(context: Context, key: String, pcm: TrackPcm) {
         runCatching {
-            val folder = dir(context) ?: return
+            val folder = pcmDir(context) ?: return
             val buffer = ByteBuffer.allocate(12 + pcm.samples.size * 2)
                 .order(ByteOrder.LITTLE_ENDIAN)
             buffer.putInt(PCM_MAGIC).putInt(VERSION).putInt(pcm.rate)
@@ -116,12 +150,12 @@ object AudioCache {
     // ── beat maps ─────────────────────────────────────────────────────────────────
 
     fun readBeats(context: Context, key: String): BeatMap? = runCatching {
-        val file = File(dir(context) ?: return null, "$key.beat")
+        val file = File(beatDir(context) ?: return null, "$key.beat")
         if (!file.isFile) return null
         val bytes = file.readBytes()
         if (bytes.size < 12) return null
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        if (buffer.int != BEAT_MAGIC || buffer.int != VERSION) return null
+        if (buffer.int != BEAT_MAGIC || buffer.int != BEAT_VERSION) return null
         val n = buffer.int
         val rate = buffer.int
         if (n <= 0 || bytes.size != 16 + n * 8) return null
@@ -144,9 +178,9 @@ object AudioCache {
     ) {
         runCatching {
             if (onsets.isEmpty() || onsets.size != levels.size) return
-            val folder = dir(context) ?: return
+            val folder = beatDir(context) ?: return
             val buffer = ByteBuffer.allocate(16 + onsets.size * 8).order(ByteOrder.LITTLE_ENDIAN)
-            buffer.putInt(BEAT_MAGIC).putInt(VERSION).putInt(onsets.size).putInt(rate)
+            buffer.putInt(BEAT_MAGIC).putInt(BEAT_VERSION).putInt(onsets.size).putInt(rate)
             val floats = buffer.asFloatBuffer()
             floats.put(onsets)
             floats.put(levels)
@@ -156,7 +190,15 @@ object AudioCache {
         }
     }
 
-    /** Least recently read goes first, which for a music cache is the right order. */
+    /**
+     * Least recently read goes first, which for a music cache is the right order.
+     *
+     * Samples ONLY. It used to delete each evicted track's beat map alongside its samples,
+     * which threw away the expensive half to reclaim space taken by the cheap half: the map is
+     * seventy kilobytes and two seconds of analysis, the samples are ten megabytes and one
+     * second of decoding. The map now outlives the samples it was measured from, which is the
+     * whole reason a track is only ever analysed once.
+     */
     private fun trim(folder: File) {
         val pcm = folder.listFiles { f -> f.name.endsWith(".pcm") }?.toMutableList() ?: return
         var total = pcm.sumOf { it.length() }
@@ -166,7 +208,6 @@ object AudioCache {
             if (total <= CAP) break
             total -= f.length()
             f.delete()
-            File(folder, f.name.removeSuffix(".pcm") + ".beat").delete()
         }
     }
 }

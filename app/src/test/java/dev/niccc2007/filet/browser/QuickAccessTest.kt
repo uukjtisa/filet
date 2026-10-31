@@ -2,93 +2,70 @@ package dev.niccc2007.filet.browser
 
 import dev.niccc2007.filet.vfs.VPath
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class QuickAccessTest {
 
-    private fun e(name: String, visits: Int = 0, at: Long = 0, pinned: Boolean = false) =
-        QuickAccess.Entry(VPath.of("local", "/storage/emulated/0/$name"), name, pinned, visits, at)
+    private fun e(name: String, visits: Int = 0, at: Long = 0, added: Long = 0) =
+        QuickAccess.Entry(VPath.of("local", "/storage/emulated/0/$name"), name, added, visits, at)
 
     @Test
-    fun `a pin outranks any frequency`() {
-        // A pin is a statement, a count is an inference. If the inference could reorder the
-        // statement, somebody's pinned folder moves because they used another one this morning.
+    fun `added by hand comes first, in the order added, whatever the counts`() {
         val out = QuickAccess.quick(
-            pinned = listOf(e("Pinned")),
-            visited = listOf(e("Downloads", visits = 900, at = 99)),
+            listOf(e("busy", visits = 900), e("second", added = 20), e("first", added = 10)),
         )
-        assertEquals("Pinned", out.first().label)
-        assertTrue(out.first().pinned)
+        assertEquals(listOf("first", "second", "busy"), out.map { it.label })
     }
 
     @Test
-    fun `pinned order is the order they were pinned, not their counts`() {
+    fun `the rest are ranked by use, and recency breaks a tie`() {
         val out = QuickAccess.quick(
-            pinned = listOf(e("First", visits = 1), e("Second", visits = 500)),
-            visited = emptyList(),
-        )
-        assertEquals(listOf("First", "Second"), out.map { it.label })
-    }
-
-    @Test
-    fun `a pinned folder is never listed twice`() {
-        val dl = e("Downloads", visits = 40, at = 10)
-        val out = QuickAccess.quick(pinned = listOf(dl), visited = listOf(dl))
-        assertEquals(1, out.count { it.label == "Downloads" })
-    }
-
-    @Test
-    fun `frequency decides, and recency breaks the tie`() {
-        val out = QuickAccess.quick(
-            pinned = emptyList(),
-            visited = listOf(
-                e("older", visits = 3, at = 100),
-                e("newer", visits = 3, at = 900),
-                e("most", visits = 9, at = 1),
-            ),
+            listOf(e("older", visits = 3, at = 100), e("newer", visits = 3, at = 900), e("most", visits = 9, at = 1)),
         )
         assertEquals(listOf("most", "newer", "older"), out.map { it.label })
     }
 
     @Test
-    fun `the frequent list is capped`() {
+    fun `used folders fill the slots and stop there`() {
         val many = (1..30).map { e("f$it", visits = it, at = it.toLong()) }
-        val out = QuickAccess.quick(pinned = emptyList(), visited = many)
-        assertEquals(QuickAccess.FREQUENT, out.size)
+        val out = QuickAccess.quick(many)
+        assertEquals(QuickAccess.SLOTS, out.size)
+        assertEquals("f30", out.first().label)
     }
 
     @Test
-    fun `a pin never counts against the frequent cap`() {
-        // Pinning two folders must not silently drop two frequent ones - the two groups answer
-        // different questions and one should not eat the other's room.
-        val many = (1..30).map { e("f$it", visits = it, at = it.toLong()) }
-        val out = QuickAccess.quick(pinned = listOf(e("a"), e("b")), visited = many)
-        assertEquals(2 + QuickAccess.FREQUENT, out.size)
+    fun `added by hand is never cut, and takes slots from the used ones`() {
+        val hand = (1..8).map { e("h$it", added = it.toLong()) }
+        val used = (1..5).map { e("u$it", visits = it) }
+        assertEquals(hand.map { it.label }, QuickAccess.quick(hand + used).map { it.label })
+        val two = QuickAccess.quick(hand.take(2) + used)
+        assertEquals(QuickAccess.SLOTS, two.size)
+        assertEquals(listOf("h1", "h2", "u5", "u4", "u3", "u2"), two.map { it.label })
     }
 
     @Test
-    fun `recent never repeats what quick access already shows`() {
-        // The same folder twice, a few rows apart, under two headings that both claim it,
-        // reads as a bug rather than as two views of one fact.
-        val dl = e("Downloads", visits = 40, at = 900)
-        val doc = e("Documents", visits = 2, at = 800)
-        val quick = QuickAccess.quick(pinned = emptyList(), visited = listOf(dl, doc))
-        val recent = QuickAccess.recent(listOf(dl, doc), alreadyShown = quick)
-        assertTrue(recent.isEmpty())
+    fun `an unused bookmark still fills an empty slot, in bookmark order`() {
+        val out = QuickAccess.quick(listOf(e("a"), e("b"), e("c")))
+        assertEquals(listOf("a", "b", "c"), out.map { it.label })
     }
 
     @Test
-    fun `recent is newest first and capped`() {
-        val many = (1..30).map { e("r$it", at = it.toLong()) }
-        val out = QuickAccess.recent(many, alreadyShown = emptyList())
-        assertEquals(QuickAccess.RECENT, out.size)
-        assertEquals("r30", out.first().label)
+    fun `opening a file counts for its folder, opening a folder counts for nothing`() {
+        val photo = VPath.of("local", "/storage/emulated/0/DCIM/Camera/a.jpg")
+        assertEquals(VPath.of("local", "/storage/emulated/0/DCIM/Camera"), QuickAccess.usedBy(photo, isDir = false))
+        assertNull(QuickAccess.usedBy(VPath.of("local", "/storage/emulated/0/Android"), isDir = true))
     }
 
     @Test
-    fun `nothing visited is an empty pane, not a crash`() {
-        assertEquals(emptyList<QuickAccess.Entry>(), QuickAccess.quick(emptyList(), emptyList()))
-        assertEquals(emptyList<QuickAccess.Entry>(), QuickAccess.recent(emptyList(), emptyList()))
+    fun `nothing inside an archive or an APK is counted`() {
+        assertNull(QuickAccess.usedBy(VPath.of("zip", "/a/b.txt"), isDir = false))
+        assertNull(QuickAccess.workedIn(VPath.of("apk", "/res")))
+        assertEquals(VPath.of("local", "/x"), QuickAccess.workedIn(VPath.of("local", "/x")))
+    }
+
+    @Test
+    fun `no bookmarks is an empty list`() {
+        assertEquals(emptyList<QuickAccess.Entry>(), QuickAccess.quick(emptyList()))
     }
 }

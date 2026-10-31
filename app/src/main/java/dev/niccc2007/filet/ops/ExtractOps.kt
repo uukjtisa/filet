@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.ops
 
+import dev.niccc2007.filet.jobs.JobKind
 import dev.niccc2007.filet.jobs.JobLedger
 import dev.niccc2007.filet.vfs.ActionGate
 import dev.niccc2007.filet.vfs.Denial
@@ -35,6 +36,8 @@ import kotlinx.coroutines.ensureActive
 class ExtractOperations(
     private val vfs: Vfs,
     private val ledger: JobLedger,
+    /** Starts Retry outside the screen that asked. See [FileOperations]. Null in tests. */
+    private val relaunch: ((suspend () -> Unit) -> Unit)? = null,
     /**
      * Files this has written, handed to whatever tells Android's media index about them.
      *
@@ -125,16 +128,34 @@ class ExtractOperations(
         vfs.permit(FileAction.CREATE_FILE, into)?.let {
             return OpResult(0, listOf(into to it.short), listOf(it))
         }
-        val id = ledger.start("Extracting", label)
+        // The coroutine goes in with it, which is what puts a Stop on the activity row. The
+        // extractor already checks for cancellation between entries, so stopping leaves the
+        // entries written so far and reports them rather than rolling back - a half-extracted
+        // folder somebody can see and delete beats a silent undo of work they watched happen.
+        val total = plan.items.count { !it.isDir }
+        val id = ledger.start(
+            "Extracting", label,
+            cancel = currentCoroutineContext()[kotlinx.coroutines.Job],
+            opened = into.toString(),
+            kind = JobKind.EXTRACT,
+            from = archiveRoot.toString(),
+            to = into.toString(),
+            totalItems = total,
+            pausable = true,
+        )
         val failed = ArrayList<Pair<VPath, String>>()
         val denials = ArrayList<Denial>()
         val written = ArrayList<VPath>()
         var done = 0
-        val total = plan.items.count { !it.isDir }
+        // Retry runs the same plan: entries already written collide and follow the plan's own
+        // choice for a collision, which is what the person picked the first time.
+        val retry: () -> Unit = {
+            relaunch?.let { r -> ledger.runAgainWith(id) { r { run(archiveRoot, into, plan, label) } } }
+        }
 
         try {
             for (item in plan.items.sortedWith(compareByDescending(PlannedItem::isDir).thenBy(PlannedItem::path))) {
-                currentCoroutineContext().ensureActive()
+                ledger.checkpoint(id)
                 val dest = childOf(into, item.path)
 
                 if (item.isDir) {
@@ -148,7 +169,7 @@ class ExtractOperations(
                 // why there is no second decision here.
                 if (item.collides == CollisionChoice.SKIP) continue
 
-                ledger.progress(id, if (total > 0) done.toFloat() / total else null, item.path)
+                ledger.progress(id, if (total > 0) done.toFloat() / total else null, item.path, doneItems = done + failed.size)
                 runCatching {
                     // The parent may be implicit: plenty of archives store no folder records.
                     dest.parent?.let { if (vfs.stat(it) == null) vfs.create(it, isDir = true) }
@@ -171,6 +192,7 @@ class ExtractOperations(
             // would leave exactly the files a person is most likely to go looking for invisible.
             announce(written)
             ledger.fail(id, FileOperations.readable(e))
+            retry()
             return OpResult(done, failed + (archiveRoot to FileOperations.readable(e)), denials)
         }
 
@@ -179,8 +201,12 @@ class ExtractOperations(
         // it is about to be told about anyway.
         announce(written)
 
-        if (failed.isEmpty()) ledger.finish(id, "$done file(s)")
-        else ledger.fail(id, "${failed.size} failed, $done succeeded")
+        if (failed.isEmpty()) {
+            ledger.finish(id, "$done file(s)")
+        } else {
+            ledger.fail(id, "${failed.size} failed, $done succeeded")
+            retry()
+        }
         return OpResult(done, failed, denials)
     }
 

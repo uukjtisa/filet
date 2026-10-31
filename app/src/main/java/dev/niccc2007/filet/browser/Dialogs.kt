@@ -73,16 +73,54 @@ sealed interface Dialog {
     data object NewFile : Dialog
     data class Rename(val node: VNode) : Dialog
     data object Compress : Dialog
-    data class ConfirmDelete(val count: Int, val sample: String) : Dialog
+    /**
+     * @param items what to delete when it is not the focused pane's selection - a gallery tile
+     *   held for its peek, where there is no selection. Carried on the dialogue itself, so a
+     *   dismissed one leaves nothing behind for the next delete to pick up.
+     */
+    data class ConfirmDelete(
+        val count: Int,
+        val sample: String,
+        val items: List<VNode>? = null,
+        /** After the delete is under way - a viewer moving off the file it was showing. */
+        val then: (() -> Unit)? = null,
+    ) : Dialog
     data class Properties(val node: VNode) : Dialog
+    /** A Wi-Fi network from a code turned out to be saved already. See `WifiSavedDialog`. */
+    data class WifiSaved(val ssid: String, val password: String) : Dialog
 }
 
 @Composable
 fun FiletDialogs(vm: BrowserViewModel) {
+    // ── nothing is drawn over the browser while a pick is live ────────────────────────────
+    //
+    // Bug identified here, and it is why the whole picking system read as dead.
+    //
+    // A pick DRIVES THE BROWSER: it opens a tab, puts a band across the top naming the
+    // operation, and takes its answer from the folder being looked at. Almost every caller,
+    // though, is itself a sheet - the metadata writer, the archive-save prompt, the settings
+    // export and import sheets. Those sheets are drawn from their own state by this function,
+    // and nothing ever took them off the screen. So asking the metadata writer for a picture
+    // opened the pick tab correctly, drew the band correctly, and then drew the metadata sheet
+    // on top of all of it: a dialogue that would not close, a browser nobody could reach, and
+    // a tab per attempt piling up behind it.
+    //
+    // The state is NOT cleared, only not drawn. The sheet is exactly as it was when the pick
+    // ends, with the answer applied - which is the behaviour a caller wants anyway, and the
+    // reason this is a drawing rule rather than seven callers remembering to hide themselves.
+    //
+    // Refined after it was too blunt: it hid EVERY dialogue, including a New folder opened
+    // from the dock while choosing a destination - which then sprang up when the pick was
+    // cancelled, as a stale dialogue for an action taken minutes earlier. Only the SHEETS are
+    // hidden, because those are the pick's callers. The `Dialog` family below - new folder,
+    // new file, rename, properties - is what somebody legitimately does while standing in a
+    // destination, and it draws normally.
+    val picking = vm.inAppPick.collectAsState().value != null
+
     // The shortcut sheet is its own flow rather than a `Dialog` case: it carries a node and
     // two settings, and folding it into the name-only dialog family would mean a dialog type
     // with three unused fields for everyone else.
-    vm.shortcutFor.collectAsState().value?.let { node ->
+    vm.shortcutFor.collectAsState().value?.takeUnless { picking }?.let { node ->
         dev.niccc2007.filet.shortcuts.ShortcutSheet(
             node = node,
             onDismiss = { vm.dismissShortcutSheet() },
@@ -93,7 +131,7 @@ fun FiletDialogs(vm: BrowserViewModel) {
     // The prompt for a file edited inside an archive. Same reason again: it carries the edited
     // text and a callback, which no value-type dialog case can hold.
     val archiveSave by vm.archiveSave.collectAsState()
-    archiveSave?.let { p ->
+    archiveSave?.takeUnless { picking }?.let { p ->
         ArchiveSaveSheet(
             fileName = p.node.name,
             archiveName = p.archiveName,
@@ -108,14 +146,14 @@ fun FiletDialogs(vm: BrowserViewModel) {
 
     // Carrying a setup to another phone. Flows of their own for the same reason as the
     // sheets above: one holds counts read from storage, the other a parsed file.
-    vm.exportPlan.collectAsState().value?.let { counts ->
+    vm.exportPlan.collectAsState().value?.takeUnless { picking }?.let { counts ->
         dev.niccc2007.filet.settings.ExportSheet(
             counts = counts,
             onExport = vm::exportSettings,
             onDismiss = vm::dismissTransfer,
         )
     }
-    vm.importOffer.collectAsState().value?.let { offer ->
+    vm.importOffer.collectAsState().value?.takeUnless { picking }?.let { offer ->
         dev.niccc2007.filet.settings.ImportSheet(
             from = offer.from,
             reading = offer.reading,
@@ -124,30 +162,10 @@ fun FiletDialogs(vm: BrowserViewModel) {
         )
     }
 
-    // Not one of the `Dialog` cases: an extraction is a pending OPERATION with a plan attached
-    // that re-plans as the options change, which a one-shot dialog state cannot hold.
-    val pendingExtract by vm.extractPlan.collectAsState()
-    pendingExtract?.let { p ->
-        ExtractSheet(
-            plan = p.plan,
-            destinationName = p.into.path,
-            busy = p.busy,
-            onWrap = {
-                vm.adjustExtract {
-                    it.copy(
-                        wrap = if (p.plan.wrapFolder != null) WrapChoice.FORCE_OFF else WrapChoice.FORCE_ON,
-                    )
-                }
-            },
-            // One level back at a time, which is the undo for "all the way down".
-            onStripLess = {
-                vm.adjustExtract { it.copy(stripLevels = (p.plan.strippedFolders.size - 1).coerceAtLeast(0)) }
-            },
-            onCollision = { c -> vm.adjustExtract { it.copy(onCollision = c) } },
-            onConfirm = vm::confirmExtract,
-            onDismiss = vm::cancelExtract,
-        )
-    }
+    // The extraction's settings are NOT a dialogue any more. They are a card over the folder
+    // being changed, rendered beside the ghosts that show the result - see `ExtractCard`, and
+    // `PaneView` for where it is hosted. A modal here covered the one drawing worth looking at
+    // and made the folder underneath unreachable.
 
     // A drop waiting to be told what it is. Not a `Dialog` case: it is a pending OPERATION
     // holding the paths it will act on, and it lives on the browser state beside the drag it
@@ -156,6 +174,16 @@ fun FiletDialogs(vm: BrowserViewModel) {
     browser.dropAsk?.let { DropDialog(it, vm::answerDrop, vm::cancelDrop) }
     browser.denied?.let { DeniedDialog(it, vm::dismissDenial) }
     browser.duplicateAsk?.let { DuplicateDialog(it, vm::confirmDuplicate, vm::cancelDuplicate) }
+    browser.stopAsk?.let { items ->
+        val askAgain by vm.prefs.stopConfirm.collectAsState()
+        StopDialog(
+            items = items,
+            askAgain = askAgain,
+            onAskAgain = vm.prefs::setStopConfirm,
+            onStop = vm::stopFilet,
+            onDismiss = vm::cancelStop,
+        )
+    }
 
     val dialog by vm.dialog.collectAsState()
     when (val d = dialog) {
@@ -175,8 +203,12 @@ fun FiletDialogs(vm: BrowserViewModel) {
             confirm = "Delete",
             destructive = true,
             onDismiss = vm::dismissDialog,
-        ) { vm.deleteSelection() }
+        ) {
+            vm.deleteSelection(d.items)
+            d.then?.invoke()
+        }
         is Dialog.Properties -> PropertiesDialog(vm, d.node, vm::dismissDialog)
+        is Dialog.WifiSaved -> dev.niccc2007.filet.qr.WifiSavedDialog(d.ssid, d.password, vm, vm::dismissDialog)
     }
 }
 
@@ -431,6 +463,8 @@ private fun PropertiesDialog(vm: BrowserViewModel, node: VNode, onDismiss: () ->
         DlgBody {
             DlgKv("Type", if (node.isDir) "Folder" else FileKind.of(node).name.lowercase())
             DlgKv("Volume", node.path.scheme, mono = true)
+            DlgKv("Path", node.path.path, mono = true)
+            if (node.isDir) FolderFacts(node)
             // A negative size means nobody has stat'd this node, not a file of minus one
             // byte. It reached the screen as "(-1 bytes)" from the player, whose nodes are
             // rebuilt from a track id - fixed at the source, and refused here as well,
@@ -447,6 +481,7 @@ private fun PropertiesDialog(vm: BrowserViewModel, node: VNode, onDismiss: () ->
             DlgKv("Readable", if (node.readable) "yes" else "no")
             DlgKv("Writable", if (node.writable) "yes" else "no")
             if (node.hidden) DlgKv("Hidden", "yes")
+            MemoryFacts(node)
 
             // The Source block, kept whole and kept last.
             //

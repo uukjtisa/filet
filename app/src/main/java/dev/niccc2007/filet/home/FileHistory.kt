@@ -20,20 +20,37 @@ import java.util.TimeZone
  * function with a test on them rather than inside a composable.
  */
 
-/** Which timestamp to sort and group by. They are genuinely different questions. */
+/**
+ * Which date the list is ordered by. Two different LISTS, not two orderings of one.
+ *
+ * Named the way Finder and the media index name them, because the earlier pair ("First seen",
+ * "Last changed") read as two sorts of one list, which is what they were - and that was the
+ * fault: "Last changed" re-sorted the newest ARRIVALS by their mtime, so a file that arrived in
+ * September and was edited today never appeared in it at all. Each value now has its own query
+ * against the whole phone (`CategoryQuery.readNew` with `by`).
+ */
 enum class HistorySort {
     /**
-     * When the file first appeared on the phone: the media index's `DATE_ADDED`, see `HomeFeed`.
-     * The filesystem cannot answer this - a file copied in today can carry any mtime at all.
+     * When the file arrived on the phone: the media index's `DATE_ADDED`, corrected
+     * by Filet's memory (`HomeFeed.firstSeenLookup`). The filesystem cannot answer this - a file
+     * copied in today can carry any mtime at all.
      */
-    FIRST_SEEN,
+    DATE_ADDED,
 
     /**
-     * The file's own modification time.
-     * A download written last year sits at last year here and at today under FIRST_SEEN, which
-     * is exactly why both exist.
+     * When the file's contents last changed, across the whole phone: the media index's
+     * `DATE_MODIFIED`. A file that arrived months ago and was edited today is at the top here
+     * and in its own month under [DATE_ADDED], which is exactly why both exist.
      */
-    LAST_CHANGED,
+    DATE_MODIFIED,
+    ;
+
+    /** What a preference stores. Stable words, never the enum's name. */
+    val key: String get() = if (this == DATE_ADDED) "added" else "modified"
+
+    companion object {
+        fun of(key: String?): HistorySort = if (key == "modified") DATE_MODIFIED else DATE_ADDED
+    }
 }
 
 /** One file on the history screen. */
@@ -41,13 +58,14 @@ data class HistoryEntry(
     val path: String,
     val name: String,
     val bytes: Long,
-    val firstSeen: Long,
-    val lastChanged: Long,
+    /** When it arrived, corrected by Filet's memory in the date-added list. */
+    val added: Long,
+    val modified: Long,
     /** The folder it is in, or its provenance when known, for the row's second line. */
     val origin: String? = null,
 ) {
     fun timeFor(sort: HistorySort): Long =
-        if (sort == HistorySort.FIRST_SEEN) firstSeen else lastChanged
+        if (sort == HistorySort.DATE_ADDED) added else modified
 }
 
 /**

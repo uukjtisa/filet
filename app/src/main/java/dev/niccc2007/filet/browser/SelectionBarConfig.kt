@@ -50,6 +50,8 @@ object SelectionBarConfig {
         "install" to "Install",
         "metadata" to "Metadata",
         "gallery" to "Add to gallery",
+        "copypath" to "Copy as path",
+        "invert" to "Invert selection",
     )
 
     val IDS: List<String> = CHOOSABLE.map { it.first }
@@ -102,6 +104,39 @@ object SelectionBarConfig {
     }
 
     fun full(ids: List<String>): Boolean = ids.size >= MAX_ON_BAR
+
+    /**
+     * Move one entry, for the up and down buttons in Settings.
+     *
+     * The bar's order used to be the order things were switched on in, which is an order
+     * nobody chose: putting Delete first meant switching off everything ahead of it and on
+     * again. Out of range is a no-op rather than a clamp, as for the bottom bar - a top
+     * button that silently swaps the first two is worse than a dead one.
+     */
+    fun moved(ids: List<String>, from: Int, to: Int): List<String> {
+        if (from !in ids.indices || to !in ids.indices || from == to) return ids
+        val list = ids.toMutableList()
+        list.add(to, list.removeAt(from))
+        return list
+    }
+
+    /**
+     * The icon row across the top of the long-press menu, for a stored bar.
+     *
+     * The same verbs in the same order as the bar, once the bar has been arranged: the setting
+     * says which actions are worth one tap, and two surfaces holding those verbs in two orders
+     * means neither position is ever learnt. Topped up from [QUICK_IDS] to its length, because
+     * the row is a fixed width and a bar of two would otherwise leave it mostly empty.
+     *
+     * Never arranged - the key absent - is the row exactly as it was. "Never configured" is
+     * the absence of the key, as for the bottom bar, so nobody's Delete moves under their
+     * thumb unless they moved it.
+     */
+    fun contextQuick(stored: String?): List<String> {
+        if (stored.isNullOrBlank()) return QUICK_IDS
+        val bar = normalise(stored)
+        return (bar + QUICK_IDS.filterNot { it in bar }).take(maxOf(QUICK_IDS.size, bar.size))
+    }
 
     /**
      * Partition [all] into the ones on the bar and the ones behind More.

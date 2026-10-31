@@ -209,6 +209,16 @@ class HandlerRegistry(private val prefs: Prefs) {
         save()
     }
 
+    /**
+     * Read both maps from the store again, after something other than this class wrote them - an
+     * import, or an edit of `filet.json`. Without it the openers on screen are the ones from
+     * startup until the next one is changed here, which then writes the old map back over the new.
+     */
+    fun reload() {
+        _overrides.value = load()
+        _externals.value = loadExternals()
+    }
+
     private fun load(): Map<String, HandlerId> {
         val raw = prefs.getString(KEY) ?: return emptyMap()
         return runCatching {

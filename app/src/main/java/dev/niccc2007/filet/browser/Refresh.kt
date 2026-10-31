@@ -76,6 +76,17 @@ enum class RefreshTarget {
      * the index until the scanner notices, so the stale direction happens too.
      */
     CATEGORY,
+
+    /**
+     * Start the scanner's camera again.
+     *
+     * Not a re-read - there is nothing stored - but not nothing either. A camera session can
+     * stall with the preview frozen on its last frame: another app took the camera and handed it
+     * back, or the camera service restarted underneath. Rebinding is the one thing that recovers
+     * it short of leaving the tab, and a refresh button that did nothing on this one screen
+     * would be the dead button the table exists to prevent.
+     */
+    CAMERA,
 }
 
 /**
@@ -84,6 +95,16 @@ enum class RefreshTarget {
  *   every refresh says what it just re-read.
  */
 data class RefreshPlan(val targets: Set<RefreshTarget>, val label: String)
+
+/**
+ * Whether pulling past either end of [kind]'s pane refreshes it, with the indicator.
+ *
+ * Read off [refreshPlan] rather than listed again, so the plan is the one registry: a pane kind
+ * cannot be added without a plan (the `when` is exhaustive), and a pane with something to
+ * re-read cannot end up with the button but not the gesture. That is how the gesture was lost
+ * the first time - it was attached to the folder list alone and every other tab went without.
+ */
+fun pullsToRefresh(kind: PaneKind): Boolean = refreshPlan(kind).targets.isNotEmpty()
 
 fun refreshPlan(kind: PaneKind): RefreshPlan = when (kind) {
     PaneKind.FOLDER -> RefreshPlan(setOf(RefreshTarget.LISTING), "Folder")
@@ -115,6 +136,7 @@ fun refreshPlan(kind: PaneKind): RefreshPlan = when (kind) {
     PaneKind.PLAYLISTS -> RefreshPlan(setOf(RefreshTarget.PLAYLISTS), "Playlists")
     PaneKind.RESUME -> RefreshPlan(setOf(RefreshTarget.RESUME_POINTS), "Carry on")
     PaneKind.CATEGORY -> RefreshPlan(setOf(RefreshTarget.CATEGORY), "Category")
+    PaneKind.SCAN -> RefreshPlan(setOf(RefreshTarget.CAMERA), "Scanner")
     PaneKind.RECENT -> RefreshPlan(setOf(RefreshTarget.RECENTS), "Opened")
 
     // The expanded new-files history is the same feed the home card shows, so refreshing it

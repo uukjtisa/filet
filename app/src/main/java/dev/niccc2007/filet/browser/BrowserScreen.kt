@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.browser
 
+import androidx.compose.ui.draw.clipToBounds
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
@@ -32,6 +33,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -43,14 +46,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -74,6 +77,8 @@ import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -86,7 +91,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import dev.niccc2007.filet.data.TabSize
 import dev.niccc2007.filet.data.ViewStep
-import dev.niccc2007.filet.jobs.ActivitySheet
 import dev.niccc2007.filet.ui.HScroll
 import dev.niccc2007.filet.ui.Motion
 import dev.niccc2007.filet.ui.dialogs.BtnKind
@@ -100,6 +104,8 @@ import dev.niccc2007.filet.ui.dialogs.DlgSection
 import dev.niccc2007.filet.ui.dialogs.DlgSpacer
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VPath
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /** Below this, the rail is a drawer rather than a permanent column. */
@@ -108,8 +114,25 @@ private const val RAIL_AT_DP = 720
 /** A pane narrower than this stops being a pane (mock round 5). */
 private const val MIN_PANE_DP = 132
 
+/**
+ * The browser, with the pick's chosen set published around all of it.
+ *
+ * The provider is here rather than in the pane because a pick is answerable from anywhere a
+ * file can be seen - Home, a category, the gallery, the history screen, a dialogue - and every
+ * one of those is drawn somewhere under this. See [LocalPickChosen].
+ */
 @Composable
 fun BrowserScreen(vm: BrowserViewModel) {
+    val paths = remember(vm) {
+        vm.pickChosen.map { chosen -> chosen.map { it.path }.toSet() }
+    }.collectAsState(emptySet())
+    androidx.compose.runtime.CompositionLocalProvider(LocalPickChosen provides paths) {
+        BrowserBody(vm)
+    }
+}
+
+@Composable
+private fun BrowserBody(vm: BrowserViewModel) {
     val app by vm.state.collectAsState()
     val tabs by vm.tabs.collectAsState()
     val colors = Filet.colors
@@ -147,13 +170,19 @@ fun BrowserScreen(vm: BrowserViewModel) {
     BackHandler(enabled = true) {
         when {
             app.switcherOpen -> vm.openSwitcher(false)
-            app.activityOpen -> vm.openActivity(false)
+            // A screen INSIDE the pane that has a level to close gets the press before the
+            // pane's own history does. See `BrowserViewModel.claimInnerBack` - without this,
+            // backing out of an open playlist left the Playlists tab altogether.
+            vm.consumeInnerBack() -> Unit
             activeState?.search?.open == true -> active.openSearch(false)
             activeState?.selecting == true -> active.clearSelection()
             // BEFORE the history, and before going up. In a tree, the innermost thing a back
             // press can undo is an open branch - issue #12 - and a tree four deep otherwise
             // takes four taps on four chevrons to put away while the one gesture a thumb
             // reaches for without looking leaves the folder entirely.
+            // The focus a tap moved comes back first - the smallest undo there is. See
+            // PaneController.stepFocusBack.
+            active?.stepFocusBack() == true -> Unit
             active?.collapseDeepest() == true -> Unit
             active?.goBack() == true -> Unit
             // push = false: see PaneController.goUp. Pushing here makes back and up fight each
@@ -166,25 +195,46 @@ fun BrowserScreen(vm: BrowserViewModel) {
     BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         val wide = maxWidth.value >= RAIL_AT_DP
         val pushed = app.switcherOpen
+        val windowDp = maxWidth.value
 
-        // The switcher pushes the whole app card away: translate 50%, scale .78, radius 26,
-        // 500 ms on Trawl's PushEasing. No 3D rotation - upstream rejected it, and the
-        // comment in TrawlSwitcher.kt says why.
+        // Each surface's width as drawn: the live one while its edge is being dragged, else the
+        // stored one, clamped to this window either way. See SideWidth.
+        val drawerStored by vm.prefs.drawerWidth.collectAsState()
+        var drawerLive by remember { mutableStateOf<Float?>(null) }
+        val drawerDp = SideWidth.clamp(drawerLive ?: drawerStored.toFloat(), SideWidth.Surface.DRAWER, windowDp)
+        val railStored by vm.prefs.railWidth.collectAsState()
+        var railLive by remember { mutableStateOf<Float?>(null) }
+        val railDp = SideWidth.clamp(railLive ?: railStored.toFloat(), SideWidth.Surface.RAIL, windowDp)
+
+        // The switcher pushes the whole app card away: scale .78, radius 26, 500 ms on Trawl's
+        // PushEasing, its left edge ending a fixed gap past the drawer. No 3D rotation - upstream
+        // rejected it, and the comment in TrawlSwitcher.kt says why.
         val push by animateFloatAsState(
             targetValue = if (pushed) 1f else 0f,
             animationSpec = androidx.compose.animation.core.tween(Motion.SWITCHER, easing = Motion.Push),
             label = "switcherPush",
         )
 
-        if (push > 0f) Switcher(vm, tabs)
+        if (push > 0f) {
+            Switcher(vm, tabs, drawerDp) {
+                SideEdge(
+                    widthDp = drawerDp,
+                    bounds = { SideWidth.clamp(it, SideWidth.Surface.DRAWER, windowDp) },
+                    onLive = { drawerLive = it },
+                    onCommit = { vm.prefs.setDrawerWidth(it) },
+                    onReset = { drawerLive = null; vm.prefs.setDrawerWidth(SideWidth.DEFAULT_DP) },
+                    line = false,
+                )
+            }
+        }
 
         Box(
             Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    translationX = size.width * 0.5f * push
-                    scaleX = 1f - 0.22f * push
-                    scaleY = 1f - 0.22f * push
+                    translationX = SideWidth.cardShift(push, drawerDp, windowDp).dp.toPx()
+                    scaleX = SideWidth.cardScale(push)
+                    scaleY = SideWidth.cardScale(push)
                     shape = RoundedCornerShape((26 * push).dp)
                     clip = push > 0f
                 }
@@ -193,7 +243,7 @@ fun BrowserScreen(vm: BrowserViewModel) {
             // Reach mode moves the app's own bars UNDER the listing. A list that starts low
             // while the tabs, back, up and the path bar stay along the top is still a
             // two-handed screen, so moving the rows alone would have been half an answer.
-            // See `Reach` in RowViews.kt for why the rows move by a gap rather than by
+            // See `ThumbReach` in RowViews.kt for why the rows move by a gap rather than by
             // reversing the list.
             val reach by vm.prefs.reachMode.collectAsState()
             Column(Modifier.fillMaxSize()) {
@@ -203,18 +253,37 @@ fun BrowserScreen(vm: BrowserViewModel) {
                     HorizontalDivider(color = colors.lineSoft)
                 }
 
-                // Below the tabs and the toolbar on purpose. It sat ABOVE both at first and
-                // a strip over the top of the whole app looks like
-                // a system dialog wrapped around Filet rather than like Filet doing something.
-                // Down here it is one of the app's own bars, and the action that completes the
-                // pick lives in the selection bar with every other action.
+                // The pick's chrome is NOT a bar here any more.
+                //
+                // It was a strip under the toolbar, which is a LAYER OVER the browser - and
+                // most callers that ask for a file are themselves a sheet or a full-screen
+                // handler, so the real stack was a bar, under a sheet, over a browser, with
+                // nothing reachable. It is a floating card inside the pane now, belonging to
+                // the listing it is asking about the way the dock's paste pill does. See
+                // `PickDock`, drawn by `PaneView`.
+                //
+                // Logged at both ends because every fault in this subsystem presents as "a tab
+                // opened and nothing happened", whether the pick never started, started and
+                // was replaced, or started and was never drawn.
                 val livePick = vm.inAppPick.collectAsState().value
-                if (vm.picking || livePick != null) PickNotice(vm, livePick, activeState?.selected?.size ?: 0)
+                androidx.compose.runtime.LaunchedEffect(livePick, vm.picking) {
+                    dev.niccc2007.filet.log.FiletLog.i(
+                        "pick",
+                        "browser sees live=${livePick != null} external=${vm.picking}",
+                    )
+                }
 
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     if (wide) {
-                        Rail(vm, app)
-                        androidx.compose.material3.VerticalDivider(color = colors.lineSoft)
+                        Rail(vm, app, railDp)
+                        SideEdge(
+                            widthDp = railDp,
+                            bounds = { SideWidth.clamp(it, SideWidth.Surface.RAIL, windowDp) },
+                            onLive = { railLive = it },
+                            onCommit = { vm.prefs.setRailWidth(it) },
+                            onReset = { railLive = null; vm.prefs.setRailWidth(SideWidth.DEFAULT_DP) },
+                            line = true,
+                        )
                     }
                     Body(vm, app, paneA, paneB, registry) { ghost = it }
                 }
@@ -228,7 +297,11 @@ fun BrowserScreen(vm: BrowserViewModel) {
                 // Under the moved bars in reach mode as well, and that ordering is deliberate:
                 // in a selection the action bar is what a thumb needs most, so it stays
                 // nearest it in both modes.
-                if (activeState?.selecting == true) {
+                // Not during a pick. The pick card is the bottom control then and it carries
+                // the confirm; drawing the selection bar as well put two bars over each other,
+                // both claiming the same gesture, and the one on top was the one for the
+                // operation nobody was doing.
+                if (activeState?.selecting == true && livePick == null && !vm.picking) {
                     SelectionBar(
                         vm,
                         activeState.selected.size,
@@ -279,10 +352,6 @@ fun BrowserScreen(vm: BrowserViewModel) {
 
         // Overlays ride above the pushed card so a sheet is never sliced by the transform.
         ghost?.let { pos -> DragGhost(vm, pos) }
-
-        if (app.activityOpen) {
-            ActivitySheet(vm.ledger, onClose = { vm.openActivity(false) })
-        }
 
         app.toast?.let { msg ->
             Toast(msg) { vm.consumeToast() }
@@ -342,54 +411,74 @@ private fun TabStripContent(vm: BrowserViewModel, tabs: List<PaneController>, ap
     var dragging by remember { mutableStateOf(-1) }
     var dragX by remember { mutableFloatStateOf(0f) }
     val target = if (dragging < 0) -1 else dragTarget(dragging, dragX, (0 until tabs.size).map { centres[it] ?: 0f })
+    // True for the frame a drop is committed. See `settle` below.
+    var landing by remember { mutableStateOf(false) }
+    LaunchedEffect(landing) {
+        if (landing) {
+            withFrameNanos { }
+            landing = false
+        }
+    }
 
     run {
         tabs.forEachIndexed { i, pane ->
-            val s by pane.state.collectAsState()
-            val onA = i == app.activeA
-            val onB = app.split != SplitMode.OFF && i == app.activeB
-            TabChip(
-                title = s.title,
-                icon = tabIcon(s),
-                active = onA || onB,
-                side = when {
-                    app.split == SplitMode.OFF -> null
-                    onA -> "A"
-                    onB -> "B"
-                    else -> null
-                },
-                size = size,
-                dragging = i == dragging,
-                insertHere = target == i && dragging >= 0 && dragging != i,
-                // How far this chip is from where it lives. The one being dragged follows
-                // the finger; the ones it is passing step aside to open the gap it will land
-                // in, so the order is settled on screen before anybody lifts their thumb.
-                //
-                // It all worked before this and none of it was visible: the chip stayed put,
-                // changed colour, and the tabs reordered on lift. Reported as "dragging a tab
-                // should change its ordering" by somebody who could not tell that it already
-                // did.
-                offsetX = when {
-                    dragging < 0 -> 0f
-                    i == dragging -> dragX - (centres[i] ?: dragX)
-                    target < 0 -> 0f
-                    dragging < target && i > dragging && i <= target -> -(widths[dragging] ?: 0f)
-                    dragging > target && i >= target && i < dragging -> widths[dragging] ?: 0f
-                    else -> 0f
-                },
-                settle = i != dragging,
-                onClick = { vm.focusTab(i) },
-                onClose = { vm.closeTab(i) },
-                onCentre = { c, w -> centres[i] = c; widths[i] = w },
-                onDragStart = { dragging = i; dragX = centres[i] ?: 0f },
-                onDrag = { dx -> dragX += dx },
-                onDragEnd = {
-                    // Committed on lift rather than per frame: rebuilding the list sixty times
-                    // a second re-keys every chip and makes the drag stutter.
-                    if (dragging >= 0 && target >= 0) vm.moveTab(dragging, target)
-                    dragging = -1
-                },
-            )
+            // Keyed by the tab, not the slot. Bug identified here: the chips were positional, so
+            // on a drop the reorder handed every slot a different tab while each slot kept the
+            // step-aside offset it had animated to - and every chip then slid back from where
+            // the previous occupant had been. The order had already been shown during the drag;
+            // the second slide read as the tabs being reordered again.
+            key(pane) {
+                val s by pane.state.collectAsState()
+                val onA = i == app.activeA
+                val onB = app.split != SplitMode.OFF && i == app.activeB
+                TabChip(
+                    title = s.title,
+                    icon = tabIcon(s),
+                    active = onA || onB,
+                    side = when {
+                        app.split == SplitMode.OFF -> null
+                        onA -> "A"
+                        onB -> "B"
+                        else -> null
+                    },
+                    size = size,
+                    dragging = i == dragging,
+                    insertHere = target == i && dragging >= 0 && dragging != i,
+                    // How far this chip is from where it lives. The one being dragged follows
+                    // the finger; the ones it is passing step aside to open the gap it will land
+                    // in, so the order is settled on screen before anybody lifts their thumb.
+                    //
+                    // It all worked before this and none of it was visible: the chip stayed put,
+                    // changed colour, and the tabs reordered on lift. Reported as "dragging a tab
+                    // should change its ordering" by somebody who could not tell that it already
+                    // did.
+                    offsetX = when {
+                        dragging < 0 -> 0f
+                        i == dragging -> dragX - (centres[i] ?: dragX)
+                        target < 0 -> 0f
+                        dragging < target && i > dragging && i <= target -> -(widths[dragging] ?: 0f)
+                        dragging > target && i >= target && i < dragging -> widths[dragging] ?: 0f
+                        else -> 0f
+                    },
+                    // Not on the frame the drop lands: the reorder moves each chip exactly as far as
+                    // its step-aside offset had, so the offsets snap to zero and nothing visibly moves.
+                    settle = i != dragging && !landing,
+                    onClick = { vm.focusTab(i) },
+                    onClose = { vm.closeTab(i) },
+                    onCentre = { c, w -> centres[i] = c; widths[i] = w },
+                    onDragStart = { dragging = i; dragX = centres[i] ?: 0f },
+                    onDrag = { dx -> dragX += dx },
+                    onDragEnd = {
+                        // Committed on lift rather than per frame: rebuilding the list sixty times
+                        // a second re-keys every chip and makes the drag stutter.
+                        if (dragging >= 0 && target >= 0 && target != dragging) {
+                            landing = true
+                            vm.moveTab(dragging, target)
+                        }
+                        dragging = -1
+                    },
+                )
+            }
         }
         // The new-tab button scales with the tabs. Leaving it at one size is how a Huge strip
         // ends up with a target beside it that is harder to hit than the tabs were before.
@@ -544,6 +633,7 @@ private fun tabIcon(s: PaneState) = when (s.kind) {
     PaneKind.APPS -> FiletIcons.Apk
     PaneKind.NEARBY -> FiletIcons.Wifi
     PaneKind.REMOTES -> FiletIcons.Device
+    PaneKind.SCAN -> FiletIcons.Scan
     PaneKind.FOLDER -> if (s.cwd?.scheme == "zip") FiletIcons.Zip else FiletIcons.Folder
 }
 
@@ -620,8 +710,16 @@ private fun NavCluster(
         FiletIcons.Up, "Up one folder", size,
         enabled = folder && s?.cwd?.parent != null,
     ) { active?.goUp() }
-    NavButton(FiletIcons.Refresh, "Refresh", size, enabled = active != null) {
+    // One turn per press: the acknowledgement the refresh toast used to give, given by the
+    // thing that was pressed. The same turn the pull's indicator makes when it fires.
+    val turn = remember { androidx.compose.animation.core.Animatable(0f) }
+    val spinScope = androidx.compose.runtime.rememberCoroutineScope()
+    NavButton(FiletIcons.Refresh, "Refresh", size, enabled = active != null, turn = { turn.value }) {
         active?.let { vm.refreshPane(it) }
+        spinScope.launch {
+            turn.snapTo(0f)
+            turn.animateTo(360f, androidx.compose.animation.core.tween(450))
+        }
     }
     Spacer(Modifier.width(2.dp))
 }
@@ -632,6 +730,8 @@ private fun NavButton(
     label: String,
     size: androidx.compose.ui.unit.Dp,
     enabled: Boolean,
+    /** Degrees, read in the draw phase so a spinning icon does not recompose the bar. */
+    turn: (() -> Float)? = null,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
@@ -642,7 +742,8 @@ private fun NavButton(
             .size(size)
             .clip(RoundedCornerShape(8.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(size * 0.22f),
+            .padding(size * 0.22f)
+            .then(if (turn != null) Modifier.graphicsLayer { rotationZ = turn() } else Modifier),
     )
 }
 
@@ -725,10 +826,11 @@ private fun PathBar(vm: BrowserViewModel, active: PaneController?, s: PaneState?
             )
         } else {
             // walking: a breadcrumb is a step back up the pane's own path.
-            Breadcrumb(s, vm, Modifier.weight(1f)) { active?.navigateTo(it) }
+            Breadcrumb(s, vm, Modifier.weight(1f)) { active?.crumbTo(it) }
             Icon(
                 FiletIcons.Copy, "Copy path", tint = colors.fg3,
-                modifier = Modifier.size(21.dp).clickable { vm.copyPathToClipboard(s.cwd) }.padding(4.dp),
+                // The path the bar names, which in a tree is the focused branch.
+                modifier = Modifier.size(21.dp).clickable { vm.copyPathToClipboard(s.target) }.padding(4.dp),
             )
             Icon(
                 FiletIcons.Rename, "Edit path", tint = colors.fg3,
@@ -752,8 +854,25 @@ private class Crumb(val label: String, val target: VPath?)
  *
  * Those outer crumbs therefore navigate with the **host** scheme, and the archive's own name
  * is a crumb that returns to its root.
+ *
+ * A drive somebody has renamed is one crumb under its name: everything up to and including
+ * its root folds into it, so a card reads `My SD / DCIM` rather than `storage / 1234-ABCD /
+ * DCIM`. [rootName] answers for renamed roots only - an unrenamed drive keeps its segments.
  */
-private fun crumbsOf(cwd: VPath, nameForId: (String, String) -> String? = { _, _ -> null }): List<Crumb> {
+private fun crumbsOf(
+    cwd: VPath,
+    nameForId: (String, String) -> String? = { _, _ -> null },
+    rootName: (VPath) -> String? = { null },
+): List<Crumb> {
+    val crumbs = segmentCrumbs(cwd, nameForId)
+    // The deepest renamed root, so a drive mounted inside another drive is named by its own.
+    val at = crumbs.indexOfLast { c -> c.target?.let(rootName) != null }
+    if (at < 0) return crumbs
+    val root = crumbs[at].target!!
+    return listOf(Crumb(rootName(root)!!, root)) + crumbs.drop(at + 1)
+}
+
+private fun segmentCrumbs(cwd: VPath, nameForId: (String, String) -> String?): List<Crumb> {
     val cut = cwd.path.indexOf('!')
     if (cut < 0) {
         val segs = cwd.segments
@@ -826,9 +945,29 @@ private fun Breadcrumb(
         Text(s.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = modifier)
         return
     }
-    val crumbs = remember(cwd) { crumbsOf(cwd) { scheme, id -> vm.connectionName(scheme, id) } }
+    // Read through a derived state, so the bar recomposes when a drive is renamed and not on
+    // every other change to the app's state.
+    val app = vm.state.collectAsState()
+    val renamed by remember {
+        androidx.compose.runtime.derivedStateOf(androidx.compose.runtime.structuralEqualityPolicy()) {
+            app.value.volumes.filter { it.label != it.systemLabel }
+                .associate { dev.niccc2007.filet.data.DriveNames.idOf(it.node.path) to it.label }
+        }
+    }
+    // The focused branch, in a tree: the bar names where New folder and Paste will land, which
+    // is what it is read for. It named the tree's root before, four levels above the branch
+    // being worked in. Crumbs inside the tree move the focus rather than re-rooting it - see
+    // `PaneController.crumbTo`.
+    val shown = s.target ?: cwd
+    val crumbs = remember(shown, renamed) {
+        crumbsOf(
+            shown,
+            nameForId = { scheme, id -> vm.connectionName(scheme, id) },
+            rootName = { renamed[dev.niccc2007.filet.data.DriveNames.idOf(it)] },
+        )
+    }
     val scroll = rememberScrollState()
-    LaunchedEffect(cwd) { scroll.scrollTo(scroll.maxValue) }
+    LaunchedEffect(shown) { scroll.scrollTo(scroll.maxValue) }
     // Deliberately NOT HScroll, and this is the exception the checker records. Rejected:
     // the scroll cue here specifically and asked for the plain version back. He is right -
     // the breadcrumb already auto-scrolls to the deepest crumb on every navigation, so a
@@ -888,13 +1027,8 @@ private fun Body(
 
     val swipeOn by vm.prefs.paneSwipe.collectAsState()
     val swipeAt = PaneSwipe.Sensitivity.of(vm.prefs.paneSwipeAt.collectAsState().value)
-    // 0 while nothing is happening, 1 when a lift would switch. Drives the label.
-    var swipeHint by remember { mutableFloatStateOf(0f) }
-    // What the label says: the tab a lift would land on, or null when there is none that
-    // way. Null is worth showing - running out of strip is the one reason the gesture can
-    // do nothing while working perfectly, and in silence that is indistinguishable from
-    // being broken.
-    var swipeTo by remember { mutableStateOf<String?>(null) }
+    // Where the swiping pane is and which tab it would land on. See TabSwipe.kt.
+    val motion = rememberSwipeMotion()
 
     // Single pane gets the gesture too.
     //
@@ -906,15 +1040,12 @@ private fun Body(
         Box(
             Modifier
                 .fillMaxSize()
-                .then(
-                    tabSwipe(vm, app, swipeOn, swipeAt, splitAt = null) { at, to ->
-                        swipeHint = at
-                        swipeTo = to
-                    },
-                ),
+                .clipToBounds()
+                .then(tabSwipe(vm, app, swipeOn, swipeAt, splitAt = null, motion)),
         ) {
-            PaneView(paneA, vm, Side.A, true, registry, onGhost, Modifier.fillMaxSize())
-            SwipeHint(swipeHint, swipeTo)
+            SwipePanes(motion, Side.A, vm, paneA) { p, current, m ->
+                PaneView(p, vm, Side.A, current, registry, if (current) onGhost else ({}), m)
+            }
         }
         return
     }
@@ -971,156 +1102,40 @@ private fun Body(
             detectTapGestures(onDoubleTap = { live = 0.5f; vm.prefs.setSplitRatio(0.5f) })
         }
 
-        val paneSwipe = tabSwipe(vm, app, swipeOn, swipeAt, splitAt = f) { at, to ->
-            swipeHint = at
-            swipeTo = to
-        }
+        val paneSwipe = tabSwipe(vm, app, swipeOn, swipeAt, splitAt = f, motion)
 
+        // Bug identified here: SplitFitted was written, tested and offered in Settings, and no
+        // pane was ever drawn inside it, so "Shrink to fit" was a switch connected to nothing and
+        // a split pane laid a phone-width design into half a phone. Each half is now drawn at the
+        // density its own width calls for. See SplitFit.
+        val fitMode = vm.prefs.splitFit.collectAsState().value
+            .let { id -> SplitFit.Mode.entries.firstOrNull { it.id == id } ?: SplitFit.Mode.SHRINK }
+        val panesDp = totalDp - DIVIDER_DP
+
+        // Each pane in its own clipped box, so the one being swiped slides inside its half and
+        // never over the divider or the other pane.
         Row(Modifier.fillMaxSize().then(paneSwipe)) {
-            PaneView(paneA, vm, Side.A, app.focused == Side.A, registry, onGhost, Modifier.weight(f))
-            Divider(vertical = true, modifier = dividerDrag)
-            PaneView(paneB, vm, Side.B, app.focused == Side.B, registry, onGhost, Modifier.weight(1f - f))
-        }
-
-        SwipeHint(swipeHint, swipeTo)
-    }
-}
-
-/**
- * The sideways swipe that moves one pane along the tab strip.
- *
- * Observed on the INITIAL pass and never consumed, so the file list keeps every gesture this
- * one turns down - a scroll stays a scroll, and a long press still picks a file up. See
- * [PaneSwipe] for what each guard is holding off.
- *
- * @param splitAt where the divider is, as a fraction of the width, or null in single pane.
- *   It is what decides WHICH pane the gesture belongs to: the one the finger came down in.
- */
-@Composable
-private fun tabSwipe(
-    vm: BrowserViewModel,
-    app: AppState,
-    enabled: Boolean,
-    at: PaneSwipe.Sensitivity,
-    splitAt: Float?,
-    onHint: (Float, String?) -> Unit,
-): Modifier {
-    val density = LocalDensity.current
-    // Read through holders rather than captured directly: `pointerInput` keys on the
-    // sensitivity alone, so a gesture loop started an hour ago is still the live one and a
-    // plain capture of the split ratio or the active tabs would be whatever they were then.
-    val split = rememberUpdatedState(splitAt)
-    val state = rememberUpdatedState(app)
-    val hint = rememberUpdatedState(onHint)
-    if (!enabled) return Modifier
-    return Modifier.pointerInput(at) {
-        awaitEachGesture {
-            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            val downAt = System.currentTimeMillis()
-            val from = down.position
-            // Which pane this gesture is in, fixed at touch-down. Taking it at lift instead
-            // would hand a swipe that crossed the divider to the pane it arrived in, which
-            // is the opposite of what the gesture means.
-            val frac = split.value
-            val side = when {
-                frac == null || size.width <= 0 -> Side.A
-                from.x < size.width * frac -> Side.A
-                else -> Side.B
-            }
-            val slop = with(density) { 6.dp.toPx() }
-            var travel = Offset.Zero
-            // When it first moved for real, which is what the grace window is about. The
-            // old code passed the time of the LAST move event instead - the length of the
-            // whole gesture - so every swipe slower than 220ms in total was thrown away
-            // before any of the other tests ran. That is why it never once fired.
-            var movedAt = 0L
-            while (true) {
-                val event = awaitPointerEvent(PointerEventPass.Initial)
-                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                if (change.changedToUp()) break
-                travel = change.position - from
-                if (movedAt == 0L && travel.getDistance() > slop) {
-                    movedAt = System.currentTimeMillis()
+            Box(Modifier.weight(f).fillMaxHeight().clipToBounds()) {
+                SplitFitted((panesDp * f).dp, fitMode) {
+                    SwipePanes(motion, Side.A, vm, paneA) { p, current, m ->
+                        PaneView(p, vm, Side.A, current && app.focused == Side.A, registry, if (current) onGhost else ({}), m)
+                    }
                 }
-                val dxNow = with(density) { travel.x.toDp().value }
-                val progress = PaneSwipe.progress(
-                    dxNow,
-                    with(density) { travel.y.toDp().value },
-                    at,
-                )
-                hint.value(
-                    progress,
-                    if (progress <= 0f) {
-                        null
-                    } else {
-                        val s = state.value
-                        val onSide = if (s.split == SplitMode.OFF) Side.A else side
-                        val current = if (onSide == Side.A) s.activeA else s.activeB
-                        PaneSwipe.nextTab(current, PaneSwipe.stepFor(dxNow), vm.tabCount())
-                            ?.let { vm.tabTitleAt(it) }
-                    },
-                )
             }
-            val upAt = System.currentTimeMillis()
-            val dx = with(density) { travel.x.toDp().value }
-            val dy = with(density) { travel.y.toDp().value }
-            hint.value(0f, null)
-            // AVERAGE speed over the movement, not the speed of the last event. A flick's
-            // final sample is often one pixel over one millisecond, which reads either as
-            // standing still or as infinity depending on which way it rounds.
-            val began = if (movedAt == 0L) downAt else movedAt
-            val speed = dx * 1000f / (upAt - began).coerceAtLeast(1L)
-            if (PaneSwipe.fires(dx, dy, speed, began - downAt, at)) {
-                vm.stepTab(side, PaneSwipe.stepFor(dx))
+            Divider(vertical = true, modifier = dividerDrag)
+            Box(Modifier.weight(1f - f).fillMaxHeight().clipToBounds()) {
+                SplitFitted((panesDp * (1f - f)).dp, fitMode) {
+                    SwipePanes(motion, Side.B, vm, paneB) { p, current, m ->
+                        PaneView(p, vm, Side.B, current && app.focused == Side.B, registry, if (current) onGhost else ({}), m)
+                    }
+                }
             }
         }
     }
 }
 
-/**
- * The label that appears while you are still pushing.
- *
- * A gesture nobody is told about is a gesture nobody finds, and this is the part that makes
- * it work: the first accidental half-swipe teaches it. It names the tab it would land on,
- * so the swipe is a choice rather than a guess - and says when there is none that way,
- * because an ignored swipe and a swipe that has run out of strip look identical otherwise.
- */
-@Composable
-private fun SwipeHint(progress: Float, to: String?) {
-    if (progress <= 0f) return
-    val colors = Filet.colors
-    val ready = progress >= 1f && to != null
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Row(
-            Modifier
-                .graphicsLayer { alpha = progress }
-                .clip(RoundedCornerShape(50))
-                .background(MaterialTheme.colorScheme.background.copy(alpha = 0.92f))
-                .border(
-                    1.dp,
-                    if (ready) colors.accent.copy(alpha = 0.5f) else colors.lineSoft,
-                    RoundedCornerShape(50),
-                )
-                .padding(horizontal = 16.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                if (to == null) FiletIcons.Close else FiletIcons.Folder, null,
-                tint = if (ready) colors.accent else colors.fg3,
-                modifier = Modifier.size(14.dp),
-            )
-            Spacer(Modifier.width(9.dp))
-            Text(
-                to ?: "No tab that way",
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontWeight = FontWeight.SemiBold,
-                color = if (ready) colors.accent else colors.fg2,
-            )
-        }
-    }
-}
+/** The divider's thickness. The panes share what is left, which is what [SplitFitted] is given. */
+private const val DIVIDER_DP = 6f
 
 /** The grip is always faintly visible: a drag handle nobody can see is not a drag handle. */
 @Composable
@@ -1128,7 +1143,7 @@ private fun Divider(vertical: Boolean, modifier: Modifier) {
     val colors = Filet.colors
     Box(
         modifier
-            .then(if (vertical) Modifier.width(6.dp).fillMaxHeight() else Modifier.height(6.dp).fillMaxWidth())
+            .then(if (vertical) Modifier.width(DIVIDER_DP.dp).fillMaxHeight() else Modifier.height(DIVIDER_DP.dp).fillMaxWidth())
             .background(colors.lineSoft),
         contentAlignment = Alignment.Center,
     ) {
@@ -1144,116 +1159,28 @@ private fun Divider(vertical: Boolean, modifier: Modifier) {
 // ────────────────────────────────── chrome ──────────────────────────────────
 
 @Composable
-private fun Rail(vm: BrowserViewModel, app: AppState) {
+private fun Rail(vm: BrowserViewModel, app: AppState, widthDp: Float) {
     val colors = Filet.colors
-    val bookmarks by vm.bookmarks.items.collectAsState()
-    val recents by vm.recents.items.collectAsState()
-    val jobs by vm.ledger.jobs.collectAsState()
-    val remotesRevision by vm.remotesRevision.collectAsState()
-    val connections = remember(remotesRevision) { vm.connections.all() }
-    val here = vm.focusedPane()?.state?.collectAsState()?.value?.cwd
 
-    // Folders only, and the count is what makes Quick access mean anything - see QuickAccess
-    // for why a pin outranks a count and why the two groups never repeat each other.
-    val visited = recents.filter { it.isDir }.map {
-        QuickAccess.Entry(it.path, it.label, pinned = false, visits = it.visits, lastAt = it.at)
-    }
-    val pinned = bookmarks.map {
-        QuickAccess.Entry(it.path, it.label, pinned = true, visits = 0, lastAt = 0)
-    }
-    val quick = QuickAccess.quick(pinned, visited)
-    val recent = QuickAccess.recent(visited, quick)
-
+    // The portrait drawer's folds, not a second design of them. The rail used to be flat
+    // sections of its own - on a phone with no history yet, three plain headings that looked
+    // nothing like the drawer it is the landscape version of. See SideFolds.
     Column(
         Modifier
-            .width(212.dp)
+            .width(widthDp.dp)
             .fillMaxHeight()
-            .background(colors.raised)
-            .verticalScroll(rememberScrollState()),
+            .background(colors.raised),
     ) {
-        // Quick access leads, the way Explorer's pane does, because navigation in a file
-        // manager is overwhelmingly repetitive - the same few folders, over and over - and
-        // making somebody walk down to them every time re-derives what the app already knows.
-        if (quick.isNotEmpty()) {
-            SectionLabel("Quick access")
-            quick.forEach { q ->
-                RailItem(
-                    if (q.pinned) FiletIcons.Star else FiletIcons.Folder,
-                    q.label,
-                    current = here == q.path,
-                ) { vm.focusedPane()?.jumpTo(q.path) }
+        Column(
+            Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 8.dp),
+        ) {
+            // The Filet card is the last fold, inside the scroll - see SideFolds.
+            androidx.compose.runtime.CompositionLocalProvider(LocalSideBarWidth provides widthDp) {
+                SideFolds(vm, app, reduced = true) {}
             }
-        }
-
-        if (recent.isNotEmpty()) {
-            SectionLabel("Opened")
-            recent.forEach { r ->
-                RailItem(FiletIcons.Clock, r.label, current = here == r.path) {
-                    vm.focusedPane()?.jumpTo(r.path)
-                }
-            }
-        }
-
-        SectionLabel("This device")
-        app.volumes.forEach { v ->
-            RailItem(FiletIcons.Storage, v.label, current = here == v.node.path) {
-                vm.focusedPane()?.jumpTo(v.node.path)
-            }
-        }
-
-        // Saved remotes by name, rather than one row reading "Remotes" that costs a tap to find
-        // out what is behind it. The list is short by nature and this is the pane where a
-        // network location is supposed to be as reachable as a local one.
-        if (connections.isNotEmpty()) {
-            SectionLabel("Network")
-            connections.take(8).forEach { c ->
-                RailItem(FiletIcons.Device, c.label.ifEmpty { c.host }) { vm.openConnection(c) }
-            }
-        }
-
-        SectionLabel("Places")
-        RailItem(FiletIcons.Home, "Home") { vm.focusedPane()?.openHome() }
-        // The same list the switcher draws. See SpecialPanes for why this is one declaration.
-        SpecialPanes.DESTINATIONS.forEach { d ->
-            RailItem(d.icon, d.label) { vm.focusedPane()?.openSpecial(d.kind, d.label) }
-        }
-
-        Spacer(Modifier.weight(1f))
-        RailItem(FiletIcons.Jobs, "Activity", badge = jobs.count { it.running }) { vm.openActivity(true) }
-        RailItem(FiletIcons.Cog, "Settings") { vm.focusedPane()?.openSpecial(PaneKind.SETTINGS, "Settings") }
-        RailItem(FiletIcons.Info, "About") { vm.focusedPane()?.openSpecial(PaneKind.ABOUT, "About") }
-    }
-}
-
-@Composable
-private fun RailItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    badge: Int = 0,
-    indent: Boolean = false,
-    /** The pane is showing this place right now, so the row says so. */
-    current: Boolean = false,
-    onClick: () -> Unit,
-) {
-    val colors = Filet.colors
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 6.dp, vertical = 1.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (current) colors.sel else Color.Transparent)
-            .clickable(onClick = onClick)
-            .padding(start = if (indent) 20.dp else 6.dp, end = 10.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, tint = colors.fg2, modifier = Modifier.size(15.dp))
-        Spacer(Modifier.width(9.dp))
-        Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        if (badge > 0) {
-            Text(
-                "$badge", fontSize = 9.sp, color = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.clip(RoundedCornerShape(9.dp)).background(colors.accent).padding(horizontal = 5.dp, vertical = 1.dp),
-            )
         }
     }
 }
@@ -1273,8 +1200,10 @@ private fun BottomNav(
 
     val row: @Composable () -> Unit = {
         for (item in items) {
-            val badge = if (item == BarItem.ACTIVITY) jobs.count { it.running } else 0
-            NavItem(barIcon(item), item.label, badge, compact) { runBarItem(item, vm, active) }
+            val activity = item == BarItem.ACTIVITY
+            val badge = if (activity) jobs.count { it.running } else 0
+            val ring = if (activity) dev.niccc2007.filet.jobs.JobRate.overall(jobs) else null
+            NavItem(barIcon(item), item.label, badge, compact, ring) { runBarItem(item, vm, active) }
         }
     }
 
@@ -1311,6 +1240,7 @@ private fun barIcon(item: BarItem) = when (item) {
     BarItem.SHORTCUTS -> FiletIcons.Pin
     BarItem.SPLIT -> FiletIcons.SplitV
     BarItem.NEW_TAB -> FiletIcons.Plus
+    BarItem.CLOSE_TABS -> FiletIcons.CloseAll
     BarItem.SETTINGS -> FiletIcons.Cog
 }
 
@@ -1325,7 +1255,7 @@ private fun runBarItem(item: BarItem, vm: BrowserViewModel, active: PaneControll
         BarItem.FILES -> vm.goToFiles()
         // R1: offering search on a pane where it can do nothing is a dead control.
         BarItem.SEARCH -> active?.let { if (searchOffered(it.state.value.kind)) it.openSearch(true) }
-        BarItem.ACTIVITY -> vm.openActivity(true)
+        BarItem.ACTIVITY -> vm.openActivity()
         BarItem.BOOKMARKS -> active?.openSpecial(PaneKind.BOOKMARKS, "Bookmarks")
         BarItem.PLAYLISTS -> active?.openSpecial(PaneKind.PLAYLISTS, "Playlists")
         BarItem.RESUME -> active?.openSpecial(PaneKind.RESUME, "Carry on")
@@ -1341,6 +1271,7 @@ private fun runBarItem(item: BarItem, vm: BrowserViewModel, active: PaneControll
         BarItem.SHORTCUTS -> active?.openSpecial(PaneKind.SHORTCUTS, "Shortcuts")
         BarItem.SPLIT -> vm.cycleSplit()
         BarItem.NEW_TAB -> vm.addTab()
+        BarItem.CLOSE_TABS -> vm.closeAllTabs()
         BarItem.SETTINGS -> active?.openSpecial(PaneKind.SETTINGS, "Settings")
     }
 }
@@ -1356,9 +1287,24 @@ private fun NavItem(
      * reader - the caption is what gets dropped, not the name.
      */
     compact: Boolean = false,
+    /**
+     * How far the running work has got, drawn as a ring round the icon: 0..1, a negative number
+     * for work that cannot say, null for nothing running. See `JobRate.overall`.
+     */
+    ring: Float? = null,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
+    // Turns only while there is work that cannot say how far it has got.
+    val spin = if (ring != null && ring < 0f) {
+        androidx.compose.animation.core.rememberInfiniteTransition(label = "ring").animateFloat(
+            0f, 360f,
+            androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1_100, easing = androidx.compose.animation.core.LinearEasing)),
+            label = "ring",
+        ).value
+    } else {
+        0f
+    }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -1371,11 +1317,37 @@ private fun NavItem(
                 icon,
                 if (compact) label else null,
                 tint = colors.fg2,
-                modifier = Modifier.size(19.dp),
+                modifier = Modifier
+                    .size(19.dp)
+                    // Behind the icon and outside its bounds, inside the item's padding, so a
+                    // job starting never changes the bar's height.
+                    .drawBehind {
+                        val r = ring ?: return@drawBehind
+                        val stroke = 2.dp.toPx()
+                        val radius = size.minDimension / 2f + 2.5.dp.toPx()
+                        val topLeft = androidx.compose.ui.geometry.Offset(center.x - radius, center.y - radius)
+                        val arc = androidx.compose.ui.geometry.Size(radius * 2, radius * 2)
+                        val style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                        drawArc(colors.lineSoft, 0f, 360f, false, topLeft, arc, style = style)
+                        if (r < 0f) drawArc(colors.accent, spin - 90f, 90f, false, topLeft, arc, style = style)
+                        else drawArc(colors.accent, -90f, 360f * r, false, topLeft, arc, style = style)
+                    },
             )
             if (badge > 0) {
-                Box(
-                    Modifier.align(Alignment.TopEnd).size(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.accent)
+                // The number, not a dot: "two things running" and "one" are different answers
+                // to whether the phone can be put down.
+                Text(
+                    badge.toString(),
+                    fontSize = 8.sp,
+                    lineHeight = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 7.dp, y = (-5).dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(colors.accent)
+                        .padding(horizontal = 3.5.dp, vertical = 0.5.dp),
                 )
             }
         }
@@ -1396,7 +1368,6 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
     val colors = Filet.colors
     val onBar = SelectionBarConfig.normalise(vm.prefs.selectionBar.collectAsState().value)
     var moreOpen by remember { mutableStateOf(false) }
-    val single = count == 1
 
     val actions = selectionActions(
         count = count,
@@ -1408,6 +1379,7 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
             wifi = FiletIcons.Wifi, home = FiletIcons.Home,
             apk = FiletIcons.Apk, cog = FiletIcons.Cog,
             audio = FiletIcons.Audio, rows = FiletIcons.Rows,
+            folder = FiletIcons.FolderOpen, invert = FiletIcons.Check,
         ),
         on = SelectionCallbacks(
             copy = { vm.copySelection() },
@@ -1425,10 +1397,13 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
             metadata = { vm.metadataForSelection() },
             announce = { vm.announceSelectionToMedia() },
             extractHere = { vm.extractSelection() },
-            extractTo = { vm.extractSelectionToPicked() },
             extractToOtherPane = { vm.extractSelectionToOtherPane() },
             addToPlaylist = { vm.addToPlaylistSelection() },
+            makeBeatMaps = { vm.makeBeatMapsForSelection() },
             enqueue = { vm.enqueueSelection() },
+            copyPath = { vm.copyPathsOfSelection() },
+            invert = { vm.focusedPane()?.invertSelection() },
+            reveal = { vm.revealSelection() },
         ),
         archive = vm.selectionIsArchive(),
         otherPane = vm.isSplit(),
@@ -1437,47 +1412,55 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
         hasMetadata = vm.selectionHasMetadata(),
         shape = SelectionShape.of(vm.focusedPane()?.selectedNodes().orEmpty()),
         announceable = vm.selectionIsOnThisDevice(),
+        elsewhere = vm.selectionIsElsewhere(),
     )
 
     Column(Modifier.fillMaxWidth().background(colors.raised)) {
         HorizontalDivider(color = colors.lineSoft)
+        // Everything not on the bar, behind one button. The bar cannot hold fifteen actions and
+        // a menu puts the four anybody uses two taps away, so the split is the answer and WHICH
+        // four is the setting. Taken out here because the trailing group needs it too: More is
+        // drawn only when there is something behind it.
+        val (barActions, more) = SelectionBarConfig.split(actions, onBar)
+        // There was a "Use these" here while a pick was live, and it had to go.
+        //
+        // Bug identified here: it confirmed the PICK while standing in the bar that counts
+        // the SELECTION, and those are two different sets now that a pick can be answered
+        // from a surface with no selection. So a long press during a pick put "Use these"
+        // above three highlighted rows, and pressing it answered "choose a file first" -
+        // about the three files it was sitting on top of.
+        //
+        // One confirm, on the card, which is on screen for the whole of the pick and
+        // follows the pane being looked at. See `PickDock`.
+        // Three groups, in the order Android's contextual bars use everywhere: the way out and
+        // the count at the start, what can be done in the middle, and More at the very edge of
+        // the screen, which is where a thumb goes looking for an overflow.
+        //
+        // Bug identified here: More sat INSIDE the bar, between "All" and the cross, so the
+        // three dots were in the one place nobody looks for them, and the cross at the edge was
+        // where More should have been. Clear and More used to be pinned together on the right
+        // because both had to stay reachable; they still are, one at each end.
+        //
+        // Decision: the count is the number alone, never "12 selected". The highlighted rows and
+        // the bar being there at all already say that something is selected, so the word only
+        // added width - and it was most of what pushed the actions into scrolling.
         Row(
-            Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
+            Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 5.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            BarGlyph(FiletIcons.Close, "Clear selection") { vm.focusedPane()?.clearSelection() }
             Text(
-                if (single) "1 selected" else "$count selected",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
+                count.toString(),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = colors.accent,
-                // Never wraps. See the comment on the scrolling group below - a squeezed Text
-                // with no line limit breaks WITHIN the word, one glyph per line.
                 maxLines = 1,
                 softWrap = false,
+                modifier = Modifier
+                    .padding(end = 8.dp)
+                    // Read out as what it means, not as a bare number.
+                    .semantics { contentDescription = "$count selected" },
             )
-            Spacer(Modifier.width(8.dp))
-            // While picking, the thing that finishes the job sits with the other actions
-            // rather than in a bar of its own, and it is the emphasised one because it is the
-            // only reason this screen is open.
-            val inAppPick = vm.inAppPick.collectAsState().value
-            if (vm.picking || inAppPick != null) {
-                Text(
-                    if (count > 1) "Use these" else "Use this",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.accent,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colors.sel)
-                        .clickable { vm.confirmPicking() }
-                        .padding(horizontal = 14.dp, vertical = 7.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-            }
-            // Everything not on the bar, behind one button. The bar cannot hold fifteen
-            // actions and a menu puts the four anybody uses two taps away, so the split is the
-            // answer and WHICH four is the setting.
-            val (barActions, more) = SelectionBarConfig.split(actions, onBar)
             /**
              * The actions SCROLL. They used to be inflexible children of a `fillMaxWidth` Row,
              * and that is the whole of the reported fault.
@@ -1490,42 +1473,35 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
              * a wider phone with more of them reaches the same place.
              *
              * `HScroll` is the house component for this and carries the edge cue that
-             * `check-scrollcue.mjs` requires, so the row says there is more of it.
+             * `check-scrollcue.mjs` requires, so the row says there is more of it. It takes
+             * what the two ends leave, and the ends are never squeezed: they hold the way out.
              */
-            dev.niccc2007.filet.ui.HScroll(
-                modifier = Modifier.weight(1f),
-                ground = colors.raised,
-                spacing = 6.dp,
-            ) {
-                for (action in barActions) {
-                    FootButton(
-                        action.icon,
-                        action.label,
-                        if (action.danger) colors.bad else colors.fg2,
-                        blocked = action.blocked,
-                        onBlocked = vm::toast,
-                        onClick = action.run,
-                    )
+            Box(Modifier.weight(1f)) {
+                dev.niccc2007.filet.ui.HScroll(
+                    ground = colors.raised,
+                    spacing = 6.dp,
+                ) {
+                    for (action in barActions) {
+                        FootButton(
+                            action.icon,
+                            action.label,
+                            if (action.danger) colors.bad else colors.fg2,
+                            blocked = action.blocked,
+                            onBlocked = vm::toast,
+                            onClick = action.run,
+                        )
+                    }
                 }
             }
-            // More and Clear stay OUTSIDE the scroller, pinned.
+            // Select all, pinned beside More rather than mixed into the actions.
             //
-            // They are the two that must never be unreachable: one opens everything the bar
-            // could not hold, and the other is how you get out. Putting them in the scroll
-            // area would mean the escape hatch is the thing that scrolls away.
-            // Select all, pinned on the right with Clear rather than mixed into the actions.
+            // Having picked one file you often want the lot, and the only way to say so was the
+            // toolbar overflow - a menu that is not where you are looking, in a bar that exists
+            // because a selection is running. Copy and Delete act on the selection; All and the
+            // cross CHANGE it.
             //
-            // Asked for directly: having picked one file you often want the lot, and the only
-            // way to say so was the toolbar overflow - a menu that is not where you are
-            // looking, in a bar that exists because a selection is running.
-            //
-            // It belongs with Clear, not with Copy and Delete. Those act on the selection;
-            // these two CHANGE it, and together they are the pair - take everything, take
-            // nothing. So the left of the bar says how many, and the right changes how many.
-            //
-            // Gone once everything is already in, because then it does nothing and Clear is
-            // the only move left. A control that is present and inert teaches people to stop
-            // reading the bar.
+            // Gone once everything is already in, because then it does nothing. A control that
+            // is present and inert teaches people to stop reading the bar.
             if (count < total) {
                 Text(
                     "All",
@@ -1540,31 +1516,10 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
                         .padding(horizontal = 9.dp, vertical = 6.dp),
                 )
             }
+            // Drawn only when there is something behind it.
             if (more.isNotEmpty()) {
-                Text(
-                    "More",
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = colors.fg2,
-                    maxLines = 1,
-                    softWrap = false,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { moreOpen = true }
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                )
+                BarGlyph(FiletIcons.More, "More actions") { moreOpen = true }
             }
-            Text(
-                "Clear",
-                fontSize = 11.5.sp,
-                color = colors.fg2,
-                maxLines = 1,
-                softWrap = false,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(7.dp))
-                    .clickable { vm.focusedPane()?.clearSelection() }
-                    .padding(horizontal = 9.dp, vertical = 6.dp),
-            )
         }
     }
 
@@ -1576,6 +1531,25 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
             onDismiss = { moreOpen = false },
         )
     }
+}
+
+/** A glyph button at either end of the selection bar: Clear at the start, More at the edge. */
+@Composable
+private fun BarGlyph(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Icon(
+        icon,
+        label,
+        tint = Filet.colors.fg2,
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+            .padding(9.dp),
+    )
 }
 
 @Composable
@@ -1629,7 +1603,7 @@ private fun FootButton(
     // original was a 30dp circle over a 9.5sp caption at about 56dp, and it was too thick -
     // but only because a full-height nav bar sat underneath it, two bands over the list at
     // the moment you most want to see the list. Replacing it with a side-by-side pill got
-    // the bar to 39dp and lost the captions, which is what he actually valued.
+    // the bar to 39dp and lost the captions, which were the part worth keeping.
     //
     // So: the stack returns, the circle does not. A bare 19dp glyph with the chip's rounding
     // doing the work the circle used to do, 10sp of caption, and tighter padding, which
@@ -1713,108 +1687,4 @@ private fun Toast(message: String, onDone: () -> Unit) {
                 .padding(horizontal = 14.dp, vertical = 7.dp),
         )
     }
-}
-
-/**
- * The strip that says a file is being chosen - for another app, or for Filet itself.
- *
- * The only thing on screen explaining why the browser is in this state, so it is always visible
- * while picking - but it is a line of the app's own chrome rather than a lid over it. It carries
- * the count as it changes, so "nothing chosen yet" and "2 chosen" are the same sentence moving
- * rather than a bar appearing from nowhere.
- *
- * Cancel lives here because there has to be a way out that is not the back button. A file
- * confirm deliberately does NOT: it belongs with the other actions in the selection bar, where
- * somebody looks after choosing something. A FOLDER pick is the exception, because the answer
- * is the open folder and nothing is ever selected - its confirm has nowhere else to be.
- */
-@Composable
-private fun PickNotice(vm: BrowserViewModel, live: BrowserViewModel.LivePick?, count: Int) {
-    val colors = Filet.colors
-    val request = vm.pickRequest
-    if (live == null && request == null) return
-    // Back walks up the pick tab's folders first - the pane's own handler is composed after this
-    // one and wins while it has somewhere to go - and cancels the pick once it has none.
-    if (live != null) BackHandler(enabled = true) { vm.cancelPicking() }
-    val want = live?.spec?.want
-    // The folder a FOLDER pick will take, read live from the pick tab. Named on the button
-    // because in tree view the path bar shows the volume root, not the folder being looked at.
-    val standing = if (live != null) {
-        val s = live.pane.state.collectAsState().value
-        live.spec.folderOf(s.cwd, s.active)
-    } else {
-        null
-    }
-    val title = when {
-        live != null -> live.spec.title
-        else -> vm.pickCaller?.let { "Choosing ${request!!.what} for $it" } ?: "Choosing ${request!!.what}"
-    }
-    val multiple = want == dev.niccc2007.filet.pick.PickSpec.Want.FILES || (live == null && request?.allowMultiple == true)
-    val hint = when {
-        want == dev.niccc2007.filet.pick.PickSpec.Want.FOLDER -> "Takes the folder you are in"
-        want == dev.niccc2007.filet.pick.PickSpec.Want.FILE && count == 0 -> "Tap ${live?.spec?.accept?.what ?: "a file"}"
-        count == 0 && multiple -> "Hold a file to select — one or more"
-        count == 0 -> "Hold a file to select it"
-        count == 1 -> "1 chosen — Use this, below"
-        else -> "$count chosen — Use these, below"
-    }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(colors.high)
-            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            FiletIcons.Check,
-            contentDescription = null,
-            tint = colors.accent,
-            modifier = Modifier.size(13.dp),
-        )
-        Spacer(Modifier.width(8.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                hint,
-                fontSize = 9.5.sp,
-                color = colors.fg3,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Text(
-            "Cancel",
-            fontSize = 11.5.sp,
-            color = colors.fg2,
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .clickable { vm.cancelPicking() }
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-        )
-        if (want == dev.niccc2007.filet.pick.PickSpec.Want.FOLDER) {
-            Text(
-                live?.spec?.confirmLabel.orEmpty().ifEmpty { "Use this folder" } +
-                    (standing?.let { " · " + it.name.ifBlank { it.path } } ?: ""),
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = colors.accent,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .widthIn(max = 200.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(colors.sel)
-                    .clickable { vm.confirmPicking() }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-            )
-        }
-    }
-    HorizontalDivider(color = colors.lineSoft)
 }

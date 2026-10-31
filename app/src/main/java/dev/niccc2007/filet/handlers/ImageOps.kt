@@ -24,6 +24,17 @@ class Pixels(val width: Int, val height: Int, val argb: IntArray) {
 
     operator fun get(x: Int, y: Int): Int = argb[y * width + x]
 
+    /**
+     * Whether every pixel is fully opaque - so whether saving as JPEG would lose anything.
+     *
+     * Bug identified here: the editor asked the BITMAP whether it had transparency, and a bitmap
+     * built from a pixel array in ARGB_8888 always says it does, whatever the pixels hold. Every
+     * edited JPEG therefore counted as transparent: it was to be saved as a PNG, "Replace
+     * original" was withheld because a PNG cannot stand in for a JPEG, and "Save as new" said
+     * Android could not write JPEG. Asked of the pixels instead, which are the only honest answer.
+     */
+    fun isOpaque(): Boolean = argb.all { it ushr 24 == 0xFF }
+
     companion object {
         /** A buffer filled by a function of the coordinates. Used by the tests and by stretch. */
         fun of(width: Int, height: Int, pixel: (x: Int, y: Int) -> Int): Pixels {

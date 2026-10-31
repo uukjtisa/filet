@@ -92,7 +92,29 @@ class Vfs(providers: List<FileSystemProvider>) {
         p(path).readRange(path, from, until)
     suspend fun create(path: VPath, isDir: Boolean): VNode = p(path).create(path, isDir)
     suspend fun delete(path: VPath, recursive: Boolean = false) = p(path).delete(path, recursive)
-    suspend fun rename(path: VPath, newName: String): VNode = p(path).rename(path, newName)
+    suspend fun rename(path: VPath, newName: String): VNode =
+        p(path).rename(path, newName).also { relocated(path, it.path, it.isDir) }
+
+    /**
+     * Told when something is renamed or moved through the VFS, after it succeeded.
+     *
+     * For the file memory's history: every rename and move Filet makes passes through here,
+     * and these are CERTAIN, unlike a move a crawl has to infer. A copy never reports - the
+     * original is still where it was, and the copy is a new file with a history of its own.
+     *
+     * A listener that throws is ignored; a history that cannot be written must not fail the
+     * rename the user asked for.
+     */
+    fun onRelocated(listener: (from: VPath, to: VPath, isDir: Boolean) -> Unit) {
+        relocationListeners += listener
+    }
+
+    private val relocationListeners = java.util.concurrent.CopyOnWriteArrayList<(VPath, VPath, Boolean) -> Unit>()
+
+    private fun relocated(from: VPath, to: VPath, isDir: Boolean) {
+        if (from == to) return
+        for (l in relocationListeners) runCatching { l(from, to, isDir) }
+    }
     suspend fun freeSpace(path: VPath): Long? = p(path).freeSpace(path)
     suspend fun totalSpace(path: VPath): Long? = p(path).totalSpace(path)
 
@@ -107,7 +129,14 @@ class Vfs(providers: List<FileSystemProvider>) {
      * capability *declaration*, not a permission check - a writable provider can refuse an
      * individual file, so callers must still handle the failure.
      */
-    fun capabilities(path: VPath): Set<Capability> = p(path).capabilities
+    fun capabilities(path: VPath): Set<Capability> = p(path).capabilitiesFor(path)
+
+    /** Why [path] cannot be written, naming the cause, or null. See [FileSystemProvider.writeRefusal]. */
+    fun writeRefusal(path: VPath): String? = p(path).writeRefusal(path)
+
+    /** [block] as one change to what [path] lives in. See [FileSystemProvider.batch]. */
+    suspend fun <T> batch(path: VPath, onCommit: (Float) -> Unit = {}, block: suspend () -> T): T =
+        p(path).batch(path, onCommit, block)
 
     /** Shorthand for the question every write action asks. */
     fun canWrite(path: VPath): Boolean = Capability.WRITE in capabilities(path)
@@ -129,6 +158,10 @@ class Vfs(providers: List<FileSystemProvider>) {
     /**
      * Copy [from] to [into], recursing through directories.
      *
+     * One [batch] for the destination: a folder copied into an archive is one rewrite of it, and
+     * a copy that fails part way - a read error on file nine of twenty - leaves nothing of itself
+     * there, where a file-by-file write would have left the first eight and a cut-off ninth.
+     *
      * @param into the destination *directory*.
      * @return the created node.
      */
@@ -137,13 +170,13 @@ class Vfs(providers: List<FileSystemProvider>) {
         into: VPath,
         rename: String? = null,
         onProgress: ((Progress) -> Unit)? = null,
-    ): VNode {
+    ): VNode = batch(into) {
         val src = stat(from) ?: throw VfsException.NotFound(from)
         val dest = into.child(rename ?: from.name)
         guardNotIntoItself(from, dest)
         val total = if (src.isDir) -1L else src.size
         val counter = ByteCounter(total, onProgress)
-        return copyNode(src, dest, counter)
+        copyNode(src, dest, counter)
     }
 
     /**
@@ -152,6 +185,10 @@ class Vfs(providers: List<FileSystemProvider>) {
      * Uses the provider's own relocation when both sides share a scheme and it supports it;
      * otherwise copies then deletes. The delete only runs after the copy has fully succeeded,
      * so a failure mid-way never destroys the source.
+     *
+     * Not inside a [batch] for [into]: there the copy is only written when the batch ends, and
+     * the delete here would run before it. A caller batching moves into an archive copies inside
+     * the batch and removes the originals after it - see FileOperations.move.
      */
     suspend fun move(
         from: VPath,
@@ -162,10 +199,11 @@ class Vfs(providers: List<FileSystemProvider>) {
         val dest = into.child(rename ?: from.name)
         guardNotIntoItself(from, dest)
         if (from.scheme == into.scheme) {
-            p(from).moveWithin(from, dest)?.let { return it }
+            p(from).moveWithin(from, dest)?.let { relocated(from, it.path, it.isDir); return it }
         }
         val copied = copy(from, into, rename, onProgress)
         delete(from, recursive = true)
+        relocated(from, copied.path, copied.isDir)
         return copied
     }
 

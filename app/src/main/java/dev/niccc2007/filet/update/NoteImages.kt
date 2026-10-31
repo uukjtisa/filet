@@ -96,7 +96,9 @@ object NoteImages {
     // ── wire ──
 
     private fun cacheFile(context: Context, url: String): File {
-        val dir = File(context.cacheDir, DIR).apply { mkdirs() }
+        val dir = dev.niccc2007.filet.data.FiletStore.dir(
+            context, dev.niccc2007.filet.data.FiletStore.Area.NOTES,
+        )
         // Hashed rather than sanitised: a URL is not a filename, and every attempt to turn one
         // into a filename by replacing characters eventually collides or escapes the directory.
         val digest = MessageDigest.getInstance("SHA-256").digest(url.toByteArray())

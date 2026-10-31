@@ -96,7 +96,8 @@ class IndexService : Service() {
         ensureChannel(this)
         val open = PendingIntent.getActivity(
             this, 0,
-            Intent(this, MainActivity::class.java).setAction(Intent.ACTION_MAIN),
+            Intent(this, MainActivity::class.java).setAction(Intent.ACTION_MAIN)
+                .putExtra(dev.niccc2007.filet.jobs.EXTRA_OPEN_ACTIVITY, true),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val stop = PendingIntent.getService(

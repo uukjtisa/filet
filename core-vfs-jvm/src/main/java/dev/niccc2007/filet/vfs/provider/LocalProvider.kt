@@ -57,6 +57,23 @@ class LocalProvider(
         rootDirs.filter { it.exists() }.map { it.toNode() }
     }
 
+    /**
+     * Turn an entry into a row, or null when it cannot be described.
+     *
+     * The case this exists for is a DRIVE ROOT. `C:\` holds `$Recycle.Bin`,
+     * `System Volume Information`, `pagefile.sys` and `hiberfil.sys`, and a stat on several of
+     * those throws even from an administrator shell. A loop that lets the first one escape dies
+     * part way through building the listing, so the drive root fails while every folder inside
+     * it lists perfectly - which reads as "the share is broken" rather than "four entries are
+     * not mine to describe".
+     *
+     * Leaving the entry out is the right answer rather than a compromise. A row the caller
+     * cannot open, size, or read is not information, and three such rows are not worth losing
+     * the other nine hundred.
+     */
+    private fun File.toNodeOrNull(perms: PermProbe): VNode? =
+        runCatching { toNode(perms) }.getOrNull()
+
     override suspend fun list(path: VPath): List<VNode> = withContext(Dispatchers.IO) {
         val f = path.toFile()
         if (!f.exists()) throw VfsException.NotFound(path)
@@ -69,7 +86,7 @@ class LocalProvider(
         // listing is the largest span where both are certainly unchanged. Holding it longer
         // would trade a correct padlock for a syscall nobody would have noticed.
         val perms = PermProbe { p -> File(p).let { Perm(it.canRead(), it.canWrite()) } }
-        kids.map { it.toNode(perms) }
+        kids.mapNotNull { it.toNodeOrNull(perms) }
     }
 
     /**
@@ -103,7 +120,7 @@ class LocalProvider(
                 // The stat storm, and the reason every chunk hops to IO rather than the whole
                 // loop once: yielding the thread between chunks is what lets the frame that
                 // draws the previous chunk actually run.
-                (at until at + size).map { kids[it].toNode(perms) }
+                (at until at + size).mapNotNull { kids[it].toNodeOrNull(perms) }
             }
             at += size
             onChunk(slice)

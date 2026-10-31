@@ -3,6 +3,7 @@ package dev.niccc2007.filet.playback
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class ArtPaletteTest {
@@ -150,5 +151,27 @@ class ArtPaletteTest {
         val b = screaming.colour and 0xFF
         // Not pure red: something is always mixed in by the clamp and the lightening.
         assertTrue("got a fully saturated primary", minOf(g, b) > 10 || r < 250)
+    }
+
+    @Test
+    fun `a dark but coloured cover still yields its own hue`() {
+        // The defect: a night-lit sleeve drove every weight towards zero through the lightness
+        // term, the sample was declared colourless, and the player fell back to the theme
+        // accent - so a deep red cover and a deep blue one came out identical.
+        val deepRed = IntArray(576) { 0x2A0A0C }
+        val deepBlue = IntArray(576) { 0x0A0C2A }
+        val red = ArtPalette.of(deepRed)
+        val blue = ArtPalette.of(deepBlue)
+        assertTrue("a dark red cover was read as colourless", red.usable)
+        assertTrue("a dark blue cover was read as colourless", blue.usable)
+        assertNotEquals("two dark covers of different hues came out the same", red.colour, blue.colour)
+    }
+
+    @Test
+    fun `a grey cover has no colour to borrow and says so`() {
+        // The other side of the same gate. Black and white artwork genuinely has no hue, and
+        // inventing one from rounding noise would be worse than the theme accent.
+        assertFalse(ArtPalette.of(IntArray(576) { 0x1E1E1E }).usable)
+        assertFalse(ArtPalette.of(IntArray(576) { 0x000000 }).usable)
     }
 }

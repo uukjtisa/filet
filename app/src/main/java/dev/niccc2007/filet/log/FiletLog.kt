@@ -428,8 +428,14 @@ object FiletLog {
         "diagnostics failed: " + Failure.typeName(t)
     }
 
-    /** This process's threads from `/proc/self/task`, empty when the kernel will not say. */
-    private fun threads(): List<ProcStat.Thread> = try {
+    /**
+     * This process's threads from `/proc/self/task`, empty when the kernel will not say.
+     *
+     * Internal rather than private so [Heartbeat] can sample it too. Deliberately not copied
+     * into that file: reading `/proc` is a storage API, R3 keeps those in the few places that
+     * are allowed them, and one reader of this path is easier to reason about than two.
+     */
+    internal fun threads(): List<ProcStat.Thread> = try {
         File("/proc/self/task").listFiles().orEmpty().mapNotNull { task ->
             runCatching { ProcStat.parse(File(task, "stat").readText()) }.getOrNull()
         }

@@ -9,6 +9,17 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import dev.niccc2007.filet.ui.highlightPulse
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,10 +56,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.niccc2007.filet.browser.chosenForPick
 import dev.niccc2007.filet.ui.theme.Capacity
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 import java.util.Locale
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 
 /**
  * The pieces every redesigned tab is built from.
@@ -464,6 +479,9 @@ fun TRow(
     Row(
         Modifier
             .fillMaxWidth()
+            // The file this row stands for is also what a live pick would take, so the row
+            // says so the way a selected row in the file list does. See `chosenForPick`.
+            .chosenForPick(thumbOf?.path)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 15.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -491,12 +509,15 @@ fun TRow(
             }
         }
         Column(Modifier.weight(1f)) {
-            Text(
-                name,
-                fontSize = 12.5.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            // Lit where the pane's search box matched it, in any list that narrows by it.
+            val query = dev.niccc2007.filet.ui.LocalPaneQuery.current
+            val ink = colors.accent
+            dev.niccc2007.filet.browser.ListNameText(
+                text = remember(name, query, ink) { dev.niccc2007.filet.ui.highlighted(name, query, ink) },
                 color = MaterialTheme.colorScheme.onSurface,
+                startSp = 12.5f,
+                lines = 1,
+                isDir = thumbOf?.isDir ?: false,
             )
             if (!sub.isNullOrEmpty()) {
                 Spacer(Modifier.height(2.dp))
@@ -617,23 +638,25 @@ fun NRow(
             NLead.None -> Unit
         }
         Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                fontSize = 12.5.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontFamily = if (titleMono) FontFamily.Monospace else FontFamily.Default,
+            // Lit where the pane's search box matched, name or address.
+            val query = dev.niccc2007.filet.ui.LocalPaneQuery.current
+            dev.niccc2007.filet.browser.ListNameText(
+                text = dev.niccc2007.filet.ui.highlighted(title, query, colors.accent),
                 color = MaterialTheme.colorScheme.onSurface,
+                startSp = 12.5f,
+                lines = 1,
+                isDir = true,
+                fontFamily = if (titleMono) FontFamily.Monospace else FontFamily.Default,
             )
             if (sub.isNotEmpty()) {
                 Spacer(Modifier.height(2.dp))
-                Text(
-                    sub,
-                    fontSize = if (mono) 9.5.sp else 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default,
+                dev.niccc2007.filet.browser.ListNameText(
+                    text = dev.niccc2007.filet.ui.highlighted(sub, query, colors.accent),
                     color = colors.fg3,
+                    startSp = if (mono) 9.5f else 10f,
+                    lines = 1,
+                    isDir = true,
+                    fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default,
                 )
             }
         }
@@ -701,7 +724,13 @@ fun PickRow(label: String, desc: String, warn: Boolean = false, onAdd: () -> Uni
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Column(Modifier.weight(1f)) {
-            Text(label, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            dev.niccc2007.filet.browser.ListNameText(
+                text = dev.niccc2007.filet.ui.highlighted(label, dev.niccc2007.filet.ui.LocalPaneQuery.current, colors.accent),
+                color = androidx.compose.material3.LocalContentColor.current,
+                startSp = 13f,
+                lines = 1,
+                isDir = true,
+            )
             Spacer(Modifier.height(2.dp))
             Text(
                 desc,
@@ -862,67 +891,6 @@ fun EmptyTab(icon: ImageVector, title: String, line: String? = null) {
     }
 }
 
-/**
- * `.hsearch`. Home's header, which is the search field.
- *
- * It replaces a title that said "Home" on the Home tab - a label with nothing to tell anyone
- * who had already tapped Home to get here. The row is a button rather than a live text field:
- * typing belongs to the search surface that owns the scope chip, the history and the results,
- * and a second input that hands off on the first keystroke is two places to type one query.
- */
-@Composable
-fun HomeSearchBar(placeholder: String, scope: String, onClick: () -> Unit) {
-    val colors = Filet.colors
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.background)
-                )
-            )
-            .padding(15.dp),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-                .background(colors.sunken)
-                .clickable(onClick = onClick)
-                .padding(horizontal = 13.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp),
-        ) {
-            Icon(
-                dev.niccc2007.filet.browser.FiletIcons.Search,
-                null,
-                tint = colors.fg3,
-                modifier = Modifier.size(15.dp),
-            )
-            Text(
-                placeholder,
-                fontSize = 13.5.sp,
-                color = colors.fg3,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                scope,
-                fontSize = 9.5.sp,
-                color = colors.fg3,
-                maxLines = 1,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 7.dp, vertical = 3.dp),
-            )
-        }
-    }
-    Box(Modifier.fillMaxWidth().height(1.dp).background(colors.lineSoft))
-}
-
 // ── tiles ───────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -945,11 +913,18 @@ fun Tiles(content: @Composable TileScope.() -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 class TileScope(private val scope: androidx.compose.foundation.layout.FlowRowScope) {
-    /** One tile. The 150.dp floor is the wrap point; the weight is what fills the last row. */
+    /**
+     * One tile. [min] is the wrap point; the weight is what fills the last row.
+     *
+     * The floor is a parameter because the same layout serves tiles of two sizes: a storage
+     * card carries a heading, a figure and a caption and needs 150dp to say them, while a
+     * category is an icon and one word and fits three to a phone's width. One flow row with a
+     * floor per caller beats a second grid that would drift from this one.
+     */
     @Composable
-    fun tile(content: @Composable () -> Unit) {
+    fun tile(min: androidx.compose.ui.unit.Dp = 150.dp, content: @Composable () -> Unit) {
         with(scope) {
-            Box(Modifier.weight(1f).widthIn(min = 150.dp)) { content() }
+            Box(Modifier.weight(1f).widthIn(min = min)) { content() }
         }
     }
 }
@@ -975,6 +950,7 @@ fun shortVolumeLabel(label: String): String {
 }
 
 /** A storage tile: a heading, a big number, a caption and an optional capacity bar. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun StorageTile(
     icon: ImageVector,
@@ -991,6 +967,8 @@ fun StorageTile(
      * the eye already is.
      */
     live: Boolean? = null,
+    /** A hold on the tile. Null leaves it a plain tap target. */
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
@@ -1000,7 +978,7 @@ fun StorageTile(
             .clip(RoundedCornerShape(13.dp))
             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(13.dp))
             .background(MaterialTheme.colorScheme.surface)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 11.dp),
     ) {
         Row(
@@ -1151,5 +1129,202 @@ fun DayHeading(label: String, count: Int, collapsed: Boolean, onToggle: () -> Un
         Text(label, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = colors.fg2)
         Spacer(Modifier.weight(1f))
         Text("$count file${if (count == 1) "" else "s"}", fontSize = 10.sp, color = colors.fg3)
+    }
+}
+
+// ── hold-to-show hints ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Called when an opened hint closes, so a screen can retire its "hold for hints" line. On close
+ * rather than on open: the line sits above the list, and taking it away while a bubble is up
+ * would move the held row out from under the bubble. Provided by the screen; a no-op elsewhere.
+ */
+val LocalHintOpened = androidx.compose.runtime.staticCompositionLocalOf<() -> Unit> { {} }
+
+/**
+ * What a row does, shown when it is held - and on hover with a mouse - instead of printed
+ * under it.
+ *
+ * Settings printed every row's description under its title, which turned a screen of controls
+ * into a screen of prose. The description is still there for whoever wants it, one hold away,
+ * and the row is one line for everyone else.
+ *
+ * The bubble sits above the row: the thumb comes from below and would cover anything under it.
+ * It moves below only when there is no room above. It stays after the finger lifts and goes on
+ * the next touch anywhere else, scrolling included.
+ *
+ * The hold is this composable's own, not the tooltip's. M3's waits in the Initial pass and only
+ * asks whether the finger left the row - and in a scrolling list the row moves WITH the finger,
+ * so half a second of slow scrolling counted as a hold. It opened a hint, swallowed the scroll's
+ * next event, which stopped the list dead, and its popup took focus, so the fling after it was
+ * spent dismissing the bubble instead of moving the list. That was the jump at the end of a
+ * Settings tab. So a hold here is half a second with nothing having consumed the pointer -
+ * a scroll consumes, so a scroll is never a hold - and the bubble never takes focus, so the
+ * touch that dismisses it also scrolls. The release that ends a real hold is swallowed, so a
+ * hold never also flips the switch or picks a chip, and an ordinary tap is untouched.
+ *
+ * For a screen reader the hint is the content description of the held area, so it is read
+ * rather than lost, and the hold is offered as the long-press action.
+ *
+ * A hold is invisible until somebody is told about it, so a row can also put a [HintInfo] after
+ * its name: a small circle that opens the same bubble on a tap.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun HoldHint(hint: String?, key: String? = null, content: @Composable () -> Unit) {
+    // The mark a search result leaves on the row it brought into view. See LocalSettingPulse.
+    val pulse = LocalSettingPulse.current?.takeIf { key != null && it.first == key }?.second
+    if (hint.isNullOrBlank()) {
+        if (key == null) content() else Box(Modifier.highlightPulse(pulse)) { content() }
+        return
+    }
+    val colors = Filet.colors
+    val state = androidx.compose.material3.rememberTooltipState(isPersistent = true)
+    val opened = androidx.compose.runtime.rememberUpdatedState(LocalHintOpened.current)
+    var shown by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(state.isVisible) {
+        if (state.isVisible) shown = true else if (shown) opened.value()
+    }
+    androidx.compose.material3.TooltipBox(
+        positionProvider = androidx.compose.material3.TooltipDefaults.rememberTooltipPositionProvider(
+            androidx.compose.material3.TooltipAnchorPosition.Above,
+            6.dp,
+        ),
+        // Both off, and both on purpose - see above. The gestures are [holdToShow]'s.
+        focusable = false,
+        enableUserInput = false,
+        tooltip = {
+            PlainTooltip(
+                caretShape = androidx.compose.material3.TooltipDefaults.caretShape(),
+                maxWidth = 260.dp,
+                shape = RoundedCornerShape(10.dp),
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                containerColor = colors.raised,
+                shadowElevation = 6.dp,
+            ) {
+                Column {
+                    Text(hint, fontSize = 12.sp, lineHeight = 16.sp)
+                    // The setting's own name in the settings file, last and small: what to
+                    // look for in filet.json, and what a search for it will match.
+                    if (key != null) {
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            key,
+                            fontSize = 10.sp,
+                            lineHeight = 13.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = colors.fg3,
+                        )
+                    }
+                }
+            }
+        },
+        state = state,
+    ) {
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        val show = androidx.compose.runtime.remember(state, scope) { { scope.launch { state.show() }; Unit } }
+        val hide = androidx.compose.runtime.remember(state) { { state.dismiss() } }
+        Box(
+            Modifier
+                .highlightPulse(pulse)
+                .holdToShow(show, hide)
+                .semantics {
+                    contentDescription = hint
+                    onLongClick(label = "Show details") { show(); true }
+                },
+        ) {
+            androidx.compose.runtime.CompositionLocalProvider(LocalHintShow provides show) { content() }
+        }
+    }
+}
+
+/**
+ * Half a second's hold opens the hint; a mouse resting on it opens it too, and leaving closes it.
+ *
+ * The hold is watched on the Final pass, after the row's own children have had the event. A
+ * list that starts scrolling consumes it there, and a consumed pointer ends the wait, so no
+ * amount of slow scrolling can turn into a hold. Once a hold has fired the rest of the gesture
+ * is consumed on the Initial pass, ahead of the row, which is what keeps it from also clicking.
+ */
+private fun Modifier.holdToShow(show: () -> Unit, hide: () -> Unit): Modifier = this
+    .pointerInput(show) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            if (down.type == PointerType.Mouse) return@awaitEachGesture
+            val ended = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                while (true) {
+                    val change = awaitPointerEvent(PointerEventPass.Final).changes
+                        .firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull true
+                    if (!change.pressed || change.isConsumed) return@withTimeoutOrNull true
+                }
+                @Suppress("UNREACHABLE_CODE")
+                true
+            }
+            if (ended != null) return@awaitEachGesture
+            show()
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                event.changes.forEach { it.consume() }
+                if (event.changes.none { it.pressed }) break
+            }
+        }
+    }
+    .pointerInput(show) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Main)
+                if (event.changes.firstOrNull()?.type != PointerType.Mouse) continue
+                when (event.type) {
+                    PointerEventType.Enter -> show()
+                    PointerEventType.Exit -> hide()
+                }
+            }
+        }
+    }
+
+/**
+ * The setting a search result just went to, by key, with a fresh tick per visit. A settings row
+ * whose key it is - every row passes its key through [HoldHint] - washes briefly so the eye
+ * lands on it. Null everywhere else.
+ */
+val LocalSettingPulse = androidx.compose.runtime.compositionLocalOf<Pair<String, Long>?> { null }
+
+/** Opens the enclosing [HoldHint]'s bubble. Null outside one, where [HintInfo] draws nothing. */
+private val LocalHintShow = androidx.compose.runtime.staticCompositionLocalOf<(() -> Unit)?> { null }
+
+/**
+ * The circle after a setting's name that opens its hint on a tap.
+ *
+ * 14dp on the glass and 40dp under the finger. The layout reports only the glyph's own room, so
+ * a row's height does not grow by a target nobody can see; the rest of the 40dp hangs over the
+ * row, which nothing clips, and takes the tap before the row does. Hidden from a screen reader,
+ * which already reads the hint as the row's description.
+ */
+@Composable
+fun HintInfo() {
+    val show = LocalHintShow.current ?: return
+    Box(
+        Modifier
+            .layout { measurable, _ ->
+                val target = 40.dp.roundToPx()
+                val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(target, target))
+                val w = 22.dp.roundToPx()
+                val h = 14.dp.roundToPx()
+                layout(w, h) { placeable.place((w - target) / 2, (h - target) / 2) }
+            }
+            .clearAndSetSemantics {}
+            .clickable(
+                interactionSource = null,
+                indication = null,
+                onClick = show,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            dev.niccc2007.filet.browser.FiletIcons.Info,
+            contentDescription = null,
+            tint = Filet.colors.fg3,
+            modifier = Modifier.size(14.dp),
+        )
     }
 }

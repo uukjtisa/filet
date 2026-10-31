@@ -368,18 +368,16 @@ object HtmlOrigin {
  *
  * The Source toggle shows the text read-only; editing goes to `TextEditorScreen` through the
  * handler registry, which is the editor the whole app uses. A format gets a pipeline into it,
- * never a copy of it.
+ * never a copy of it. The other way round, the editor's Render shows its unsaved text through
+ * [HtmlPage], this screen's own page, so a preview is what opening the file shows: scripts,
+ * sandbox and all.
  */
 @Composable
 fun HtmlScreen(vm: BrowserViewModel, node: VNode) {
     val colors = Filet.colors
-    val context = LocalContext.current
     var source by remember(node.path) { mutableStateOf<String?>(null) }
     var error by remember(node.path) { mutableStateOf<String?>(null) }
     var showSource by remember(node.path) { mutableStateOf(false) }
-    // The outside address a tapped link asked to open, waiting on the reader's answer.
-    val leaving = remember(node.path) { mutableStateOf<String?>(null) }
-    val folder = remember(node.path) { node.path.parent ?: node.path }
 
     // The source is only read when it is asked for: the preview no longer needs the text,
     // since the page is served by request like any of its assets.
@@ -430,25 +428,7 @@ fun HtmlScreen(vm: BrowserViewModel, node: VNode) {
         // reloaded the page and lost its zoom, its scroll position and whatever its scripts had
         // built. INVISIBLE rather than removed keeps all three and takes no touches.
         Box(Modifier.fillMaxSize()) {
-            // Keyed on the file: a different file is a new WebView, which is what resets the zoom.
-            // Without the key the factory ran once per slot and a second file opened in the same
-            // place would have kept showing the first.
-            key(node.path) {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    // Loaded once, here. Bug identified in the version this replaces: the load was
-                    // in `update`, which runs on every recomposition, so any recomposition of the
-                    // screen reloaded the page and threw away its script state.
-                    factory = { ctx ->
-                        pageView(ctx, vm.vfs, folder, leaving).also { it.loadUrl(HtmlOrigin.entryUrl(node.path)) }
-                    },
-                    update = { view -> view.visibility = if (showSource) View.INVISIBLE else View.VISIBLE },
-                    onRelease = { view ->
-                        view.stopLoading()
-                        view.destroy()
-                    },
-                )
-            }
+            HtmlPage(vm.vfs, node.path, Modifier.fillMaxSize(), hidden = showSource)
             if (showSource) {
                 Box(Modifier.fillMaxSize().background(androidx.compose.material3.MaterialTheme.colorScheme.background)) {
                     when {
@@ -465,6 +445,50 @@ fun HtmlScreen(vm: BrowserViewModel, node: VNode) {
                 }
             }
         }
+    }
+
+}
+
+/** The extensions [HtmlScreen] renders, which are the ones the editor offers a page for. */
+val HTML_EXTENSIONS: Set<String> = setOf("html", "htm", "xhtml")
+
+/**
+ * One local page in its sandbox: the WebView, the folder it is served from, and the question a
+ * link away from it asks. Everything in the note on [HtmlScreen] holds for it - it IS that
+ * screen's page, shared with the editor's Render so the two cannot drift apart.
+ *
+ * The WebView goes when this leaves the composition: stopped and destroyed, so a page's timers
+ * and media do not keep running behind whatever replaced it.
+ *
+ * @param buffer the text to show for [file] in place of what is stored - the editor's unsaved
+ *   edit. Only the request for [file] itself is answered from it; every other request is the
+ *   folder's, as ever. Null serves the file as stored.
+ * @param hidden alive but not shown and not touched, for the viewer's Source toggle.
+ */
+@Composable
+fun HtmlPage(vfs: Vfs, file: VPath, modifier: Modifier = Modifier, buffer: String? = null, hidden: Boolean = false) {
+    val context = LocalContext.current
+    // The outside address a tapped link asked to open, waiting on the reader's answer.
+    val leaving = remember(file) { mutableStateOf<String?>(null) }
+    val folder = remember(file) { file.parent ?: file }
+    // Keyed on the file: a different file is a new WebView, which is what resets the zoom.
+    // Without the key the factory ran once per slot and a second file opened in the same place
+    // would have kept showing the first. And on the buffer: a new edit is a new page.
+    key(file, buffer) {
+        AndroidView(
+            modifier = modifier,
+            // Loaded once, here. Bug identified in the version this replaces: the load was in
+            // `update`, which runs on every recomposition, so any recomposition of the screen
+            // reloaded the page and threw away its script state.
+            factory = { ctx ->
+                pageView(ctx, vfs, folder, leaving, file, buffer).also { it.loadUrl(HtmlOrigin.entryUrl(file)) }
+            },
+            update = { view -> view.visibility = if (hidden) View.INVISIBLE else View.VISIBLE },
+            onRelease = { view ->
+                view.stopLoading()
+                view.destroy()
+            },
+        )
     }
 
     leaving.value?.let { url ->
@@ -500,7 +524,14 @@ fun HtmlScreen(vm: BrowserViewModel, node: VNode) {
  * because a default can change between WebView releases and this list is the contract.
  */
 @SuppressLint("SetJavaScriptEnabled")
-private fun pageView(context: Context, vfs: Vfs, folder: VPath, leaving: MutableState<String?>): WebView =
+private fun pageView(
+    context: Context,
+    vfs: Vfs,
+    folder: VPath,
+    leaving: MutableState<String?>,
+    entry: VPath,
+    buffer: String?,
+): WebView =
     WebView(context).apply {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
@@ -532,15 +563,22 @@ private fun pageView(context: Context, vfs: Vfs, folder: VPath, leaving: Mutable
         // one case where reflow is impossible - the author fixed the width. Pages that declare
         // device width, or that `HtmlOrigin.forReader` gives it to, reflow and need no help.
         settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
-        webViewClient = PageClient(vfs, folder, leaving)
+        webViewClient = PageClient(vfs, folder, leaving, entry, buffer)
         webChromeClient = PageChrome()
     }
 
-/** Serves the page's folder, refuses everything else, and decides what a navigation may do. */
+/**
+ * Serves the page's folder, refuses everything else, and decides what a navigation may do.
+ *
+ * [buffer], when there is one, is served for [entry] in place of the stored file - see
+ * [HtmlPage]. It changes what one file reads as, never which files can be read.
+ */
 private class PageClient(
     private val vfs: Vfs,
     private val folder: VPath,
     private val leaving: MutableState<String?>,
+    private val entry: VPath,
+    private val buffer: String?,
 ) : WebViewClient() {
 
     /**
@@ -553,12 +591,16 @@ private class PageClient(
         if (HtmlOrigin.isSelfContained(url)) return null
         if (!HtmlOrigin.isOurs(folder, url)) return refuse(403, "Forbidden")
         val path = HtmlOrigin.resolve(folder, url) ?: return refuse(404, "Not Found")
-        val stream = runCatching {
-            runBlocking(Dispatchers.IO) {
-                val node = vfs.stat(path)
-                if (node == null || node.isDir) null else vfs.openRead(path)
-            }
-        }.getOrNull() ?: return refuse(404, "Not Found")
+        val stream = if (buffer != null && path == entry) {
+            ByteArrayInputStream(buffer.toByteArray(Charsets.UTF_8))
+        } else {
+            runCatching {
+                runBlocking(Dispatchers.IO) {
+                    val node = vfs.stat(path)
+                    if (node == null || node.isDir) null else vfs.openRead(path)
+                }
+            }.getOrNull() ?: return refuse(404, "Not Found")
+        }
         val mime = HtmlOrigin.mimeOf(path.name)
         return WebResourceResponse(
             mime,

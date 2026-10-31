@@ -88,7 +88,7 @@ object ShareTrace {
     /**
      * Point the trace at a file.
      *
-     * `getExternalFilesDir` reaches the storage manager and can create a directory, so it is
+     * Resolving the folder reaches the storage manager and can create a directory, so it is
      * not something to do on a button press. Posted, like everything else here.
      */
     fun attach(context: Context) {
@@ -97,7 +97,10 @@ object ShareTrace {
         val app = context.applicationContext
         io.execute {
             if (file != null) return@execute
-            file = runCatching { File(app.getExternalFilesDir(null), "share-trace.txt") }.getOrNull()
+            file = runCatching {
+                // With the rest of the logs. A trace nobody can reach answers no question.
+                File(dev.niccc2007.filet.data.FiletStore.dir(app, dev.niccc2007.filet.data.FiletStore.Area.LOGS), "share-trace.txt")
+            }.getOrNull()
             count = runCatching { file?.readLines()?.size ?: 0 }.getOrDefault(0)
         }
     }

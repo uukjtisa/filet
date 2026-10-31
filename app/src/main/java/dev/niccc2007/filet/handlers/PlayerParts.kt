@@ -18,9 +18,18 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.runtime.CompositionLocalProvider
+import dev.niccc2007.filet.playback.FaceShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -36,8 +45,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -47,6 +54,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -96,6 +104,11 @@ import dev.niccc2007.filet.ui.dialogs.DlgFooter
 import dev.niccc2007.filet.ui.dialogs.DlgHeader
 import dev.niccc2007.filet.ui.dialogs.DlgSpacer
 import dev.niccc2007.filet.ui.theme.Filet
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import kotlinx.coroutines.launch
 
 /**
  * The pieces every player face is built from.
@@ -128,7 +141,7 @@ import dev.niccc2007.filet.ui.theme.Filet
  *
  * `.pltop{display:flex;align-items:center;gap:10px;padding:12px 12px 2px}` with 36dp icons.
  *
- * @param eyebrow the small upper line. The word "Uninterrupted" when that is on, because a lit
+ * @param eyebrow the small upper line. The word "Uninterruptible" when that is on, because a lit
  *   glyph is a state somebody has to learn, and otherwise what the queue is.
  * @param context the line under it: the folder, as a path tail.
  */
@@ -179,7 +192,7 @@ fun PlayerTopBar(
         // not trivia: it is the switch that decides whether a phone call takes the sound away.
         BarIcon(
             FiletIcons.Shield,
-            if (uninterrupted) "Uninterrupted — nothing will pause this" else "Uninterrupted playback",
+            if (uninterrupted) "Uninterruptible — nothing will pause this" else "Uninterruptible playback",
             lit = uninterrupted,
             tint = tint,
             onClick = onUninterrupted,
@@ -247,12 +260,28 @@ fun PlayerOverflow(
     /** The background glow, which every face has. */
     glow: Boolean? = null,
     onGlow: (() -> Unit)? = null,
-    /** How bright the glow is at all, 0 to 1. Null when the glow is off. */
+    /** How bright the mist round the DISC is, 0 to 1. Null on a face with no disc. */
     glowStrength: Float? = null,
     onGlowStrength: ((Float) -> Unit)? = null,
+    /**
+     * How vibrant the coloured background is, 0 to 1. Null on Classic, which has none.
+     *
+     * A separate control from [glowStrength] on purpose - see `Prefs.vibrancy`. They were one
+     * number, and that is why a slider called "glow strength" appeared on looks where nothing
+     * it changed was visible.
+     */
+    vibrancy: Float? = null,
+    onVibrancy: ((Float) -> Unit)? = null,
     /** The glow answering the music. Null when the glow is off - it is its sub-switch. */
     pulse: Boolean? = null,
     onPulse: (() -> Unit)? = null,
+    /**
+     * This track's own beat correction in ms, positive is later, with its step and its reset.
+     * Null when there is no pulse to correct. See `BeatNudge`.
+     */
+    nudge: Int? = null,
+    onNudge: ((Int) -> Unit)? = null,
+    onNudgeReset: (() -> Unit)? = null,
     /** What counts as a beat, 0 to 1 across the allowed gain. Null when the pulse is off. */
     sense: Float? = null,
     onSense: ((Float) -> Unit)? = null,
@@ -328,26 +357,47 @@ fun PlayerOverflow(
                         // costs no new concept, and the front page is now six rows.
                         PanelPage.GLOW -> {
                             PanelBack("GLOW AND BEAT") { page = PanelPage.MAIN }
+                            // Three independent things, drawn as three. They were nested
+                            // under one switch, which is how the strength control came to be
+                            // hidden on four of the five faces and to disappear on the fifth
+                            // whenever the disc's glow was turned off - the backdrop it
+                            // governs is on every face and has no switch at all.
+                            // The background first: it is the thing the whole player sits
+                            // on, and it is the one every look here has.
+                            if (vibrancy != null && onVibrancy != null) {
+                                PanelSlider(
+                                    "Background colour", vibrancy, onChange = onVibrancy,
+                                )
+                            }
+                            // Then the disc's own light - switch, then how strong it is,
+                            // in that order so the slider reads as belonging to the switch
+                            // above it rather than to the background above that.
                             if (glow != null && onGlow != null) {
-                                PanelSwitch("Living glow", glow, onGlow)
-                                if (glow && glowStrength != null && onGlowStrength != null) {
-                                    PanelSlider(
-                                        "Glow strength", glowStrength, onChange = onGlowStrength,
-                                    )
+                                PanelSwitch("Glow around the disc", glow, onGlow)
+                            }
+                            if (glowStrength != null && onGlowStrength != null) {
+                                PanelSlider(
+                                    "How far the disc glows", glowStrength,
+                                    onChange = onGlowStrength,
+                                )
+                            }
+                            if (pulse != null && onPulse != null) {
+                                PanelSwitch("Pulse on the beat", pulse, onPulse)
+                                // First under the switch: it is the one row here that is about
+                                // this record rather than every record.
+                                if (pulse && nudge != null && onNudge != null && onNudgeReset != null) {
+                                    PanelNudge(nudge, onNudge, onNudgeReset)
                                 }
-                                if (glow && pulse != null && onPulse != null) {
-                                    PanelSwitch("Pulse on the beat", pulse, onPulse, sub = true)
-                                    if (pulse && sense != null && onSense != null) {
-                                        // Which beats fire, as against how far they move.
-                                        // Both exist because neither can do the other's job.
-                                        PanelSlider("Sensitivity", sense, onChange = onSense)
-                                    }
-                                    if (pulse && depth != null && onDepth != null) {
-                                        PanelSlider("How much it reacts", depth, onChange = onDepth)
-                                    }
-                                    if (pulse && waveGap != null && onWaveGap != null) {
-                                        PanelSlider("Wave distance", waveGap, onChange = onWaveGap)
-                                    }
+                                if (pulse && sense != null && onSense != null) {
+                                    // Which beats fire, as against how far they move.
+                                    // Both exist because neither can do the other's job.
+                                    PanelSlider("Sensitivity", sense, onChange = onSense)
+                                }
+                                if (pulse && depth != null && onDepth != null) {
+                                    PanelSlider("How much it reacts", depth, onChange = onDepth)
+                                }
+                                if (pulse && waveGap != null && onWaveGap != null) {
+                                    PanelSlider("Wave distance", waveGap, onChange = onWaveGap)
                                 }
                             }
                         }
@@ -397,14 +447,23 @@ fun PlayerOverflow(
                             // One row each for the two groups of settings, with the state in
                             // the trailing label so the panel still says what is on without
                             // being opened.
-                            if (glow != null) {
+                            // Reachable whenever the page has anything on it, which is not
+                            // the same as "this face has a disc glow".
+                            //
+                            // Bug identified here: the switch on this page became the DISC's
+                            // glow, which only Halo has, and the row was gated on that switch
+                            // being offered - so on Ambient, Editorial and Immersive the whole
+                            // page vanished, taking the pulse, the sensitivity and the
+                            // strength with it. Those faces all pulse; they simply have no
+                            // disc to ring. Strength applies to every face there is.
+                            if (glow != null || pulse != null || onGlowStrength != null || onVibrancy != null) {
                                 PanelRule()
                                 PanelAction(
                                     "Glow and beat",
                                     FiletIcons.Eye,
                                     trailing = when {
-                                        !glow -> "off"
                                         pulse == true -> "beat"
+                                        glow == false -> "no disc glow"
                                         else -> "on"
                                     },
                                 ) { page = PanelPage.GLOW }
@@ -585,12 +644,97 @@ private fun PanelBeatMap(p: dev.niccc2007.filet.playback.BeatProgress, onBuild: 
         }
         if (p.working) {
             Text(
-                "One build at a time. This one finishes or stops with the track.",
+                "This process can be canceled in the activity list.",
                 fontSize = 9.5.sp,
                 color = colors.fg3,
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
+    }
+}
+
+/**
+ * "This song · − +30 ms later + · ↺": the pulse earlier or later for this record alone.
+ *
+ * 10 ms a tap, quicker the longer a button is held ([BeatNudge.holdDelay]). The reset is drawn
+ * only when there is something to reset. Steps are handed on as a difference rather than a new
+ * value, so a held button stepping faster than the panel redraws still counts every step.
+ */
+@Composable
+private fun PanelNudge(nudge: Int, onNudge: (Int) -> Unit, onReset: () -> Unit) {
+    val colors = Filet.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 31.dp, end = 13.dp, top = 2.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("This song", fontSize = 10.5.sp, color = colors.fg3, maxLines = 1, modifier = Modifier.weight(1f))
+        NudgeButton("−", "Pulse 10 ms earlier") { onNudge(-dev.niccc2007.filet.playback.BeatNudge.STEP_MS) }
+        Text(
+            dev.niccc2007.filet.playback.BeatNudge.label(nudge),
+            fontSize = 10.sp,
+            color = if (nudge != 0) colors.accent else colors.fg3,
+            maxLines = 1,
+            softWrap = false,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.width(80.dp),
+        )
+        NudgeButton("+", "Pulse 10 ms later") { onNudge(dev.niccc2007.filet.playback.BeatNudge.STEP_MS) }
+        Box(Modifier.size(26.dp), contentAlignment = Alignment.Center) {
+            if (nudge != 0) {
+                Icon(
+                    FiletIcons.Undo,
+                    "Back to 0 ms for this song",
+                    tint = colors.fg3,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(onClick = onReset)
+                        .padding(5.dp),
+                )
+            }
+        }
+    }
+}
+
+/** A step button for [PanelNudge] that repeats while held, faster the longer it is. */
+@Composable
+private fun NudgeButton(glyph: String, label: String, onStep: () -> Unit) {
+    val colors = Filet.colors
+    val step by rememberUpdatedState(onStep)
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var down by remember { mutableStateOf(false) }
+    Box(
+        Modifier
+            .size(26.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .background(if (down) colors.accent.copy(alpha = 0.24f) else colors.sunken)
+            .semantics {
+                contentDescription = label
+                role = androidx.compose.ui.semantics.Role.Button
+                onClick(label) { step(); true }
+            }
+            .pointerInput(Unit) {
+                detectTapGestures(onPress = {
+                    down = true
+                    step()
+                    val run = scope.launch {
+                        var repeat = 0
+                        while (true) {
+                            kotlinx.coroutines.delay(dev.niccc2007.filet.playback.BeatNudge.holdDelay(repeat))
+                            step()
+                            repeat++
+                        }
+                    }
+                    tryAwaitRelease()
+                    run.cancel()
+                    down = false
+                })
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(glyph, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.fg2)
     }
 }
 
@@ -745,6 +889,141 @@ private class BelowPositionProvider(private val gap: Int) : PopupPositionProvide
  * `.art{border-radius:20px;box-shadow:0 22px 50px rgba(0,0,0,.6)}`,
  * `.art.paused{transform:scale(.885)}`.
  */
+/**
+ * The outer column of a player face: measures the screen once and tells everything inside it
+ * what shape it is.
+ *
+ * ## Why the measuring is here and not in [FaceLayout]
+ *
+ * Three groups need the answer and only one of them is the art-and-controls pair: the bar at the
+ * top drops a label sideways, the queue handle at the bottom is dropped entirely because the
+ * strip of height it needs is the room the transport is using, and [artSizing] caps the picture
+ * on the axis that is scarce. Measured inside the layout, the parts outside it would have to
+ * measure for themselves, from a different box, and could disagree. One measurement, one local.
+ */
+@Composable
+fun FaceFrame(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    BoxWithConstraints(modifier.fillMaxSize()) {
+        CompositionLocalProvider(
+            LocalFaceLandscape provides FaceShape.sideBySide(maxWidth.value, maxHeight.value),
+        ) {
+            Column(Modifier.fillMaxSize(), content = content)
+        }
+    }
+}
+
+/**
+ * The two halves of a player - the picture, and everything done to it - arranged for the shape
+ * of the screen.
+ *
+ * ## Why one primitive and not five landscape layouts
+ *
+ * There are five faces and each was a single vertical `Column`, so sideways each of them broke
+ * the same way and would have been fixed the same way five times. Written once, a sixth face
+ * gets a working landscape layout by construction rather than by somebody remembering. The
+ * decision itself is not here - [FaceShape] owns it and is tested - so the five faces cannot
+ * disagree about when to switch.
+ *
+ * ## What each face still decides
+ *
+ * Everything that makes it that face. This only says where the two groups GO: the artwork block
+ * is whatever that face draws for a picture, halo and pulse and all, and the controls block is
+ * its own title, scrubber, transport and chips in its own order. Nothing here draws anything.
+ *
+ * In two columns the artwork is sized by HEIGHT rather than width - `fillMaxHeight` with a
+ * square ratio - because in landscape height is the scarce axis, and sizing a square by the
+ * wide axis is what made the picture overflow the screen it was meant to fit inside.
+ *
+ * Reads the shape rather than measuring it. [FaceFrame] measures once, at the top of the face,
+ * so the bar and the queue handle outside this layout get the same answer - measuring again
+ * here would give a second answer from a smaller box and the parts would disagree.
+ */
+@Composable
+fun FaceLayout(
+    modifier: Modifier = Modifier,
+    /** Padding inside the controls half, so a face keeps its own margins. */
+    controlsPadding: Dp = 0.dp,
+    art: @Composable () -> Unit,
+    controls: @Composable ColumnScope.() -> Unit,
+) {
+    if (!LocalFaceLandscape.current) {
+        Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+            // WEIGHTED, and that is the load-bearing part.
+            //
+            // Compose measures the unweighted children first, so the controls below claim the
+            // height they need and the artwork is handed whatever is left. Without this the
+            // picture sizes itself against the full screen and the controls are pushed off the
+            // bottom - which is precisely the fault this layout was written to fix, reproduced
+            // in the other orientation.
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { art() }
+            controls()
+        }
+        return
+    }
+    // Clear of the navigation bar, which sideways is a strip along the bottom (gestures) or the
+    // side (buttons). Without it the picture was centred in a box that ran under the gesture
+    // bar, so it sat low - touching the bottom edge with the top bar's height free above it.
+    Row(
+        modifier.windowInsetsPadding(WindowInsets.navigationBars),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.weight(FaceShape.ART_SHARE).fillMaxHeight(),
+            contentAlignment = Alignment.Center,
+        ) { art() }
+        Box(
+            Modifier
+                .weight(1f - FaceShape.ART_SHARE)
+                .fillMaxHeight()
+                .padding(horizontal = controlsPadding),
+            contentAlignment = Alignment.Center,
+        ) {
+            // Capped, so on a tablet the scrubber is a length a thumb can travel rather than the
+            // width of half the screen.
+            Column(
+                Modifier.widthIn(max = FaceShape.CONTROLS_MAX_DP.dp).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                content = controls,
+            )
+        }
+    }
+}
+
+/**
+ * The artwork's own modifier: the largest square that fits, whichever way up the screen is.
+ *
+ * ## Why it names no axis
+ *
+ * The first cut of this said `fillMaxWidth().aspectRatio(1f)` stacked and `fillMaxHeight(...)`
+ * side by side. The stacked half is the shape the faces already had and it is WRONG, which is
+ * how a round of "landscape support" broke portrait: `fillMaxWidth` pins the width to the
+ * maximum, so the square's height becomes the full width of the screen, and on a tall phone
+ * that pushed the title, the scrubber, the transport and the chips off the bottom. The
+ * original faces got away with it only because each one also carried a `weight(1f, fill =
+ * false)` in the same modifier chain, which is the part that bounded it - and that is exactly
+ * what was dropped when the chains were replaced.
+ *
+ * `aspectRatio` on its own is the whole answer. Given a container that bounds both axes it
+ * tries the full width first and falls back to the full height when that would not fit, which
+ * is "the largest square that fits" in one call and in either orientation. Nothing here has to
+ * know which way up the screen is; [FaceLayout] bounds the container and this fills it.
+ */
+@Composable
+fun artSizing(inset: Dp = 0.dp): Modifier = Modifier.padding(inset).aspectRatio(1f)
+
+/**
+ * Whether the face being drawn is in its two-column arrangement.
+ *
+ * A composition local rather than a parameter threaded through every part, because the parts
+ * that need to know are several layers down - the artwork, and whichever of the chips a face
+ * drops for room - and most of the layers in between have no business carrying it.
+ */
+val LocalFaceLandscape = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 @Composable
 fun PlayerArt(
     art: android.graphics.Bitmap?,
@@ -1084,11 +1363,12 @@ fun PlayerTransport(
 // ── the chip row ──────────────────────────────────────────────────────────────
 
 /**
- * Speed and the sleep timer.
+ * The sound sheet and the sleep timer.
  *
  * The genuinely secondary switches, and the row exists so they are not in the transport. Both
- * are real: the speed is `MediaPlayer.playbackParams` on the shared player, and the timer
- * pauses it. A chip that only looks like a control is worse than no chip.
+ * are real: the speed is `MediaPlayer.playbackParams` on the shared player, the volume and the
+ * equaliser are `Sound`, and the timer pauses it. A chip that only looks like a control is
+ * worse than no chip.
  *
  * `.chip{font-size:10.5px;padding:6px 11px;border-radius:50px}`.
  */
@@ -1113,6 +1393,10 @@ fun PlayerChips(
     onPitch: (dev.niccc2007.filet.playback.PitchMode) -> Unit,
 ) {
     var speedOpen by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val sound by remember {
+        dev.niccc2007.filet.playback.SoundState.of(context).sound(dev.niccc2007.filet.playback.SoundTarget.MUSIC)
+    }.collectAsStateWithLifecycle()
     Row(
         modifier = if (centred) Modifier.fillMaxWidth() else Modifier,
         horizontalArrangement = if (centred) {
@@ -1123,16 +1407,16 @@ fun PlayerChips(
     ) {
         PlayerChip(
             FiletIcons.Speed,
-            speedLabel(speed),
-            lit = speed != 1f,
+            soundChipLabel(speed, sound),
+            lit = soundChipLit(speed, sound),
             tint = tint,
         ) {
-            // A sheet with a slider, not a cycle.
+            // A sheet with sliders, not a cycle.
             //
-            // The first cut cycled through five presets on tap, on the reasoning that the
-            // values anybody uses fit in one button. Asked for directly: a slider, so a
-            // speed can be SET rather than arrived at - and tapping a chip four times to go
-            // from 1.0 to 0.75 is a control that makes you count.
+            // The first cut cycled through five speed presets on tap, on the reasoning that
+            // the values anybody uses fit in one button. Tapping a chip four times to go from
+            // 1.0 to 0.75 is a control that makes you count, so a speed is SET on a rail -
+            // and the volume and the equaliser joined it there, as the rest of "how it sounds".
             speedOpen = true
         }
         PlayerChip(
@@ -1157,7 +1441,7 @@ fun PlayerChips(
         // question ABOUT the speed and is meaningless without one, since at 1.0x all three
         // modes leave the audio untouched. Where the speed is set is also where somebody
         // notices the warble and goes looking for the reason.
-        SpeedSheet(
+        SoundSheet(
             speed = speed,
             maxSpeed = maxSpeed,
             pitch = pitch,
@@ -1166,6 +1450,8 @@ fun PlayerChips(
             onSpeed = { playback.setSpeed(it) },
             onPitch = onPitch,
             onDismiss = { speedOpen = false },
+            target = dev.niccc2007.filet.playback.SoundTarget.MUSIC,
+            equaliser = true,
         )
     }
 }
@@ -1486,13 +1772,11 @@ private fun QueueRows(
                 }
                 Spacer(Modifier.width(11.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(
+                    dev.niccc2007.filet.browser.ListNameText(
                         t.title,
-                        fontSize = 12.5.sp,
+                        if (here) tint else MaterialTheme.colorScheme.onSurface,
+                        startSp = 12.5f,
                         fontWeight = if (here) FontWeight.SemiBold else FontWeight.Normal,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = if (here) tint else MaterialTheme.colorScheme.onSurface,
                     )
                     // Which entry is the odd one out is the useful fact in a FOLDER queue, and
                     // a row of identical rows does not carry it.
@@ -1676,17 +1960,9 @@ fun MiniControls(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f).padding(end = 6.dp)) {
-                Text(
-                    title,
-                    fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
+                dev.niccc2007.filet.browser.ListNameText(title, Color.White, startSp = 12.5f, fontWeight = FontWeight.SemiBold)
                 if (sub.isNotEmpty()) {
-                    Text(
-                        sub,
-                        fontSize = 10.sp, color = Color.White.copy(alpha = 0.62f),
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
+                    dev.niccc2007.filet.browser.ListNameText(sub, Color.White.copy(alpha = 0.62f), startSp = 10f)
                 }
             }
             MiniButton(FiletIcons.Prev, "Previous") { playback.previous() }

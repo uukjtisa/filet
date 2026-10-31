@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.index
 
+import dev.niccc2007.filet.vfs.VPath
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -10,34 +11,34 @@ import org.junit.Test
  *
  * Reported: a file in a subfolder of Download, searched for with Subfolders selected, was not
  * found - and the same search from inside that subfolder found it at once. The pane ran the
- * first source that claimed the request, the index claims Subfolders, and a subtree the crawl
+ * first source that claimed the request, the index claims a subtree, and a subtree the crawl
  * had not reached yet simply returned nothing. The walk that would have found it never ran.
  */
 class SearchFallbackTest {
 
+    private val card = Reach.Drives(setOf(VolumeKey(VPath.of("local", "/storage/1A2B"))))
+    private val every = listOf(Reach.Folder, Reach.Subtree, card, Reach.Everywhere)
+
     // ── the report ──
 
     @Test
-    fun `subfolders is answered by the walk as well as the index`() {
+    fun `a subtree is answered by the walk as well as the index`() {
         // The exact case. Before the fix this was the index alone.
-        val plan = sourcePlan(indexUsable = true, scope = SearchScope.SUBFOLDERS, nativeOnly = false)
+        val plan = sourcePlan(indexUsable = true, reach = Reach.Subtree, nativeOnly = false)
         assertTrue("the walk has to run, or a cold subtree returns nothing", plan.contains(SourceKind.WALK))
     }
 
     @Test
-    fun `every scope that used to be index-only now also walks`() {
-        // Provenance is the exception and it is excluded deliberately - the filesystem does
-        // not record where a file came from, so a walk cannot answer it at all.
-        for (scope in SearchScope.entries) {
-            if (scope == SearchScope.PROVENANCE) continue
-            val plan = sourcePlan(indexUsable = true, scope = scope, nativeOnly = false)
-            assertTrue("$scope must reach the filesystem", plan.contains(SourceKind.WALK))
+    fun `every reach that used to be index-only now also walks`() {
+        for (reach in every) {
+            val plan = sourcePlan(indexUsable = true, reach = reach, nativeOnly = false)
+            assertTrue("$reach must reach the filesystem", plan.contains(SourceKind.WALK))
         }
     }
 
     @Test
     fun `the index still answers first, because it is the fast one`() {
-        val plan = sourcePlan(indexUsable = true, scope = SearchScope.DEVICE, nativeOnly = false)
+        val plan = sourcePlan(indexUsable = true, reach = Reach.Everywhere, nativeOnly = false)
         assertEquals(listOf(SourceKind.INDEX, SourceKind.WALK), plan)
     }
 
@@ -45,8 +46,8 @@ class SearchFallbackTest {
 
     @Test
     fun `no index at all still searches`() {
-        for (scope in listOf(SearchScope.FOLDER, SearchScope.SUBFOLDERS, SearchScope.DEVICE)) {
-            assertEquals("$scope", listOf(SourceKind.WALK), sourcePlan(false, scope, nativeOnly = false))
+        for (reach in every) {
+            assertEquals("$reach", listOf(SourceKind.WALK), sourcePlan(false, reach, nativeOnly = false))
         }
     }
 
@@ -54,15 +55,18 @@ class SearchFallbackTest {
     fun `provenance without an index answers nothing rather than something wrong`() {
         // Better to return no rows than to walk the device and present unrelated files as
         // though they carried provenance.
-        assertTrue(sourcePlan(indexUsable = false, scope = SearchScope.PROVENANCE, nativeOnly = false).isEmpty())
+        assertTrue(
+            sourcePlan(indexUsable = false, reach = Reach.Everywhere, nativeOnly = false, provenance = true)
+                .isEmpty(),
+        )
     }
 
     // ── the toggle ──
 
     @Test
     fun `native search uses the walk and nothing else`() {
-        for (scope in listOf(SearchScope.FOLDER, SearchScope.SUBFOLDERS, SearchScope.DEVICE)) {
-            assertEquals("$scope", listOf(SourceKind.WALK), sourcePlan(true, scope, nativeOnly = true))
+        for (reach in every) {
+            assertEquals("$reach", listOf(SourceKind.WALK), sourcePlan(true, reach, nativeOnly = true))
         }
     }
 
@@ -70,7 +74,7 @@ class SearchFallbackTest {
     fun `native search cannot turn off provenance, because a walk cannot answer it`() {
         assertEquals(
             listOf(SourceKind.INDEX),
-            sourcePlan(indexUsable = true, scope = SearchScope.PROVENANCE, nativeOnly = true),
+            sourcePlan(indexUsable = true, reach = Reach.Everywhere, nativeOnly = true, provenance = true),
         )
     }
 
@@ -78,26 +82,29 @@ class SearchFallbackTest {
 
     @Test
     fun `a plan never repeats a source`() {
-        for (u in listOf(true, false)) for (n in listOf(true, false)) for (s in SearchScope.entries) {
-            val plan = sourcePlan(u, s, n)
-            assertEquals("$u/$s/$n", plan.size, plan.distinct().size)
+        for (u in listOf(true, false)) for (n in listOf(true, false)) for (r in every) {
+            val plan = sourcePlan(u, r, n)
+            assertEquals("$u/$r/$n", plan.size, plan.distinct().size)
         }
     }
 
     @Test
-    fun `only provenance may plan nothing at all`() {
-        for (u in listOf(true, false)) for (n in listOf(true, false)) for (s in SearchScope.entries) {
-            if (s == SearchScope.PROVENANCE) continue
-            assertTrue("$u/$s/$n found no source", sourcePlan(u, s, n).isNotEmpty())
+    fun `only a provenance query may plan nothing at all`() {
+        for (u in listOf(true, false)) for (n in listOf(true, false)) for (r in every) {
+            assertTrue("$u/$r/$n found no source", sourcePlan(u, r, n).isNotEmpty())
         }
     }
 
     @Test
     fun `the broken set is named, and every member of it is fixed`() {
-        // wasIndexOnly records exactly which scopes the old code handed to the index alone.
-        assertTrue(wasIndexOnly(SearchScope.SUBFOLDERS))
-        assertTrue(wasIndexOnly(SearchScope.DEVICE))
-        assertFalse("a single folder always went to the walk, which is why that case worked",
-            wasIndexOnly(SearchScope.FOLDER))
+        // wasIndexOnly records exactly which reaches the old code handed to the index alone.
+        assertTrue(wasIndexOnly(Reach.Subtree))
+        assertTrue(wasIndexOnly(Reach.Everywhere))
+        assertTrue(wasIndexOnly(card))
+        assertTrue(wasIndexOnly(Reach.Folder, provenance = true))
+        assertFalse(
+            "a single folder always went to the walk, which is why that case worked",
+            wasIndexOnly(Reach.Folder),
+        )
     }
 }

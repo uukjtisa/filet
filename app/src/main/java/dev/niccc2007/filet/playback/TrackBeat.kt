@@ -179,6 +179,27 @@ fun rememberTrackBeat(source: Uri?, pulse: Boolean, record: Boolean): TrackBeat 
             // panel saying "measuring" or the dot lit. Nothing half-measured is cached: the
             // measuring loop throws on cancellation before `BeatMap.of` stores anything.
             BeatWork.ended(attempt)
+
+            // Handed over rather than abandoned.
+            //
+            // This is the reported flaw. Everything above belongs to this composition, so
+            // closing the player cancelled it - and because nothing half-measured is written,
+            // tens of seconds of spectrum analysis were discarded whole. Opening the track
+            // again started from nothing, which is exactly the case where somebody HAS waited
+            // for it once already.
+            //
+            // So on the way out, if a map was wanted and is not finished, the same measurement
+            // is asked for again from `BeatMaker`, whose scope outlives every screen. It
+            // deduplicates and checks the store first, so a track that did finish - or that
+            // another sweep is already working on - costs a map lookup here and nothing more.
+            // The result lands in the same cache under the same key, so the player finds it
+            // waiting the next time it opens.
+            if (source != null && ready != TrackReady.READY && (pulse || rebuild != askedAt)) {
+                runCatching {
+                    dev.niccc2007.filet.FiletApp.graphOf(context).beatMaker
+                        .make(source, source.lastPathSegment ?: "Track")
+                }
+            }
         }
     }
 

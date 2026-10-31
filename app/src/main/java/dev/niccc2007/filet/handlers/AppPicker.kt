@@ -134,11 +134,11 @@ fun AppPickerForExtension(
     onPick: (ExternalApp?) -> Unit,
 ) {
     AppPickerBody(
-        title = "Which app opens .$extension",
-        sub = if (apps.isEmpty()) "Nothing here declared this type."
-        else "A single tap goes straight here.",
+        title = "Open file type \".$extension\" with.",
+        sub = if (apps.isEmpty()) "Current list of apps doesn't know this file type."
+        else "Current list of apps that support the file type \".$extension\"",
         apps = apps,
-        emptyFirstTier = "Nothing on this phone claimed .$extension.",
+        emptyFirstTier = "Consider opening the full list of apps instead.",
         onDismiss = { onPick(null) },
         tick = null,
     ) { app -> onPick(app) }
@@ -169,10 +169,13 @@ private fun AppPickerBody(
     val context = LocalContext.current
     var showAll by remember(apps) { mutableStateOf(false) }
 
-    // produceState, not remember: building the second tier is a hundred-odd inter-process
-    // calls, and `remember` runs during composition on the main thread. See OpenerCatalog.
-    val catalog by produceState(OpenerCatalog.Catalog(), showAll, apps) {
-        value = if (showAll) OpenerCatalog.get(context, apps) else OpenerCatalog.Catalog()
+    // Started the moment the dialogue opens, not when "All apps" is tapped: by the time
+    // somebody has read the first tier and reached for the button, the second is usually built
+    // already, so the tap is instant. Null while building, and the tap then shows a spinner
+    // rather than an empty section that reads as "there are no other apps". produceState, not
+    // remember: the build is a hundred-odd inter-process calls. See OpenerCatalog.
+    val catalog by produceState<OpenerCatalog.Catalog?>(null, apps) {
+        value = OpenerCatalog.get(context, apps)
     }
 
     Dlg(onDismiss = onDismiss) {
@@ -182,8 +185,11 @@ private fun AppPickerBody(
             sub = sub,
             onClose = onDismiss,
         )
-        DlgBody {
-            if (apps.isEmpty()) {
+        // A lazy list, so only the rows on screen are built: the second tier is the whole phone,
+        // and composing every row of it at once is what made the tap take seconds.
+        DlgBody(scroll = false) {
+          androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f, fill = false)) {
+            if (apps.isEmpty()) item {
                 // Not a dead end. An extension nothing on the device DECLARES - `.mcaddon`,
                 // say - resolves to the wildcard mime, which the candidate query deliberately
                 // answers with nothing. Saying "no app for .mcaddon" states a fact Filet does
@@ -191,32 +197,58 @@ private fun AppPickerBody(
                 // type. So the empty tier is named and everything launchable is under it.
                 DlgCaption(emptyFirstTier)
             }
-            for (app in apps) {
-                AppRow(app, app.detail) { onPick(app) }
+            items(apps.size, key = { "a:$it:" + apps[it].component.flattenToString() }) { i ->
+                AppRow(apps[i], apps[i].detail) { onPick(apps[i]) }
             }
 
+            val built = catalog
             if (!showAll) {
-                DlgPick(
-                    icon = FiletIcons.More,
-                    label = "All apps on this phone",
-                    detail = "Including ones that did not claim this type",
-                ) { showAll = true }
+                item(key = "all") {
+                    DlgPick(
+                        icon = FiletIcons.More,
+                        label = "Show all apps on this phone",
+                        detail = "Open the full list of apps.",
+                    ) { showAll = true }
+                }
             } else {
-                DlgSection("Everything else")
-                DlgCaption(
-                    "These did not claim this file type. One may still open it, and one may " +
-                        "refuse — Filet drops the default if it does.",
-                )
-                for (app in catalog.launchable) {
-                    AppRow(
-                        app,
-                        catalog.declaredTypes[app.packageName]?.joinToString(", ")
-                            ?: "declares no file types",
-                    ) { onPick(app) }
+                item(key = "else") {
+                    Column {
+                        DlgSection("All apps")
+                        DlgCaption(
+                            "Choose an app for this file type."
+                        )
+                    }
+                }
+                if (built == null) {
+                    // Feedback that it is working rather than hung: the list of every app is
+                    // read from the system, and on a full phone that is not instant.
+                    item(key = "reading") {
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(22.dp),
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            DlgCaption("Reading every app on this phone. Please wait.")
+                        }
+                    }
+                } else {
+                    items(built.launchable.size, key = { "l:$it:" + built.launchable[it].component.flattenToString() }) { i ->
+                        val app = built.launchable[i]
+                        AppRow(
+                            app,
+                            built.declaredTypes[app.packageName]?.joinToString(", ")
+                                ?: "declares no file types",
+                        ) { onPick(app) }
+                    }
                 }
             }
 
-            if (tick != null) {
+            if (tick != null) item(key = "tick") { Column {
                 Spacer(Modifier.height(10.dp))
                 // The specific complaint about the old "always open with this" checkbox: it
                 // was a 17dp box floating beside a label, the two in different places and only
@@ -228,7 +260,8 @@ private fun AppPickerBody(
                     enabled = tick.onToggle != null,
                 ) { tick.onToggle?.invoke() }
                 DlgCaption(tick.note)
-            }
+            } }
+          }
         }
         DlgFooter {
             DlgBtn("Cancel", onClick = onDismiss)
@@ -256,7 +289,12 @@ private fun AppPickerBody(
 private fun AppRow(app: ExternalApp, note: String, onClick: () -> Unit) {
     val colors = Filet.colors
     val context = LocalContext.current
-    val icon = remember(app) { ExternalApps.icon(context, app) }
+    // Off the main thread and cached: decoding a launcher icon is a binder call and a bitmap
+    // draw, and doing it in composition for every row is the other half of the slow list. The
+    // glyph stands in for the frame or two it takes.
+    val icon by produceState(AppIcons.peek(app), app) {
+        if (value == null) value = AppIcons.load(context, app)
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -269,8 +307,9 @@ private fun AppRow(app: ExternalApp, note: String, onClick: () -> Unit) {
             Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).background(colors.sunken),
             contentAlignment = Alignment.Center,
         ) {
-            if (icon != null) {
-                Image(icon, null, modifier = Modifier.size(26.dp))
+            val bmp = icon
+            if (bmp != null) {
+                Image(bmp, null, modifier = Modifier.size(26.dp))
             } else {
                 Icon(FiletIcons.Open, null, tint = colors.fg2, modifier = Modifier.size(16.dp))
             }
@@ -296,4 +335,18 @@ private fun AppRow(app: ExternalApp, note: String, onClick: () -> Unit) {
             )
         }
     }
+}
+
+/** Launcher icons, decoded once per app per process, off the main thread. */
+internal object AppIcons {
+    private val cache = android.util.LruCache<String, androidx.compose.ui.graphics.ImageBitmap>(256)
+
+    private fun keyOf(app: ExternalApp) = app.component.flattenToString()
+
+    fun peek(app: ExternalApp): androidx.compose.ui.graphics.ImageBitmap? = cache.get(keyOf(app))
+
+    suspend fun load(context: android.content.Context, app: ExternalApp): androidx.compose.ui.graphics.ImageBitmap? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            peek(app) ?: ExternalApps.icon(context, app)?.also { cache.put(keyOf(app), it) }
+        }
 }

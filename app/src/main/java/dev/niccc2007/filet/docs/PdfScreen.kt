@@ -66,6 +66,7 @@ import dev.niccc2007.filet.ui.dialogs.DlgHeader
 import dev.niccc2007.filet.ui.dialogs.DlgSpacer
 import dev.niccc2007.filet.ui.dialogs.DlgWarn
 import dev.niccc2007.filet.ui.theme.Filet
+import androidx.compose.ui.platform.LocalContext
 import dev.niccc2007.filet.vfs.VNode
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.cancellation.CancellationException
@@ -154,7 +155,7 @@ fun PdfScreen(vm: BrowserViewModel, node: VNode) {
             CircularProgressIndicator(strokeWidth = 2.dp)
         }
 
-        current != null -> PdfPages(current)
+        current != null -> PdfPages(current, node)
 
         else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -263,8 +264,9 @@ private val PAGE_SIDE = 8.dp
 private const val SETTLE_MS = 140L
 
 @Composable
-private fun PdfPages(doc: PdfDoc) {
+private fun PdfPages(doc: PdfDoc, node: VNode) {
     val colors = Filet.colors
+    val context = LocalContext.current
     val state = rememberLazyListState()
     val density = LocalDensity.current
     val sidePx = with(density) { PAGE_SIDE.toPx() }
@@ -347,6 +349,29 @@ private fun PdfPages(doc: PdfDoc) {
 
     val bottomPad = with(density) {
         PdfPaging.bottomPad(view.value.scale, viewport.height.toFloat()).toDp()
+    }
+
+    // Which page the middle of the screen is on. One indicator over the document rather than
+    // a caption under every page: under a zoom the captions are scaled off the edge, and a
+    // label per page is a row of the same information repeated down the scroll.
+    val page by remember(doc) {
+        derivedStateOf {
+            val row = PdfPaging.middleRow(view.value, viewport.height.toFloat())
+            val items = state.layoutInfo.visibleItemsInfo
+            (items.firstOrNull { row >= it.offset && row < it.offset + it.size } ?: items.firstOrNull())
+                ?.index ?: 0
+        }
+    }
+
+    // The reading spot is the page the indicator names. See [ReadingSpots].
+    val saved = rememberSavedSpot(node.path.toString(), SpotKind.PAGE)
+    SaveSpotOnLeave(node.path) {
+        if (doc.pages <= 0) return@SaveSpotOnLeave
+        val at = page
+        val path = node.path.toString()
+        ReadingSpots.of(context).left(path, SpotKind.PAGE, top = at == 0, end = at >= doc.pages - 1) {
+            ReadingSpot(path, SpotKind.PAGE, item = at, label = "page ${at + 1} of ${doc.pages}", stamp = node.mtime)
+        }
     }
 
     Box(
@@ -465,17 +490,6 @@ private fun PdfPages(doc: PdfDoc) {
             }
         }
 
-        // Which page the middle of the screen is on. One indicator over the document rather than
-        // a caption under every page: under a zoom the captions are scaled off the edge, and a
-        // label per page is a row of the same information repeated down the scroll.
-        val page by remember(doc) {
-            derivedStateOf {
-                val row = PdfPaging.middleRow(view.value, viewport.height.toFloat())
-                val items = state.layoutInfo.visibleItemsInfo
-                (items.firstOrNull { row >= it.offset && row < it.offset + it.size } ?: items.firstOrNull())
-                    ?.index ?: 0
-            }
-        }
         if (doc.pages > 0) {
             // Tapping the indicator asks for a page. A three-hundred-page file read only by
             // scrolling is a minute of flinging to reach an index entry.
@@ -491,6 +505,9 @@ private fun PdfPages(doc: PdfDoc) {
                     .clickable { jumping = true }
                     .padding(horizontal = 11.dp, vertical = 5.dp),
             )
+        }
+        SpotCard(saved, Modifier.align(Alignment.TopEnd)) { s ->
+            scope.launch { state.scrollToItem(ReadingSpots.goal(s, node.mtime, doc.pages).item) }
         }
     }
 

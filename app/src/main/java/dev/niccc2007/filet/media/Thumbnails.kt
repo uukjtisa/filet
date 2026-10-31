@@ -28,18 +28,33 @@ import java.io.ByteArrayOutputStream
  */
 object Thumbnails {
 
-    /** Roughly 40 entries at 96 px ARGB, which is a screenful and a bit. */
-    private const val CACHE_BYTES = 6 * 1024 * 1024
+    /**
+     * An eighth of the heap, which is the usual share for an image cache.
+     *
+     * It was a flat 6 MB - about forty entries at 96 px, which the comment called "a screenful
+     * and a bit". That is true of a list and false of the grid, where a tile asks for up to
+     * 320 px and forty entries is less than one screen: scrolling a photo folder down and back
+     * up evicted everything on the way down and re-decoded all of it on the way back. Sized
+     * against the heap instead, a scroll-back is a cache hit.
+     */
+    private val CACHE_BYTES: Int = (Runtime.getRuntime().maxMemory() / 8)
+        .coerceIn(6L * 1024 * 1024, 48L * 1024 * 1024)
+        .toInt()
 
-    private val cache = object : LruCache<String, Holder>(CACHE_BYTES) {
-        override fun sizeOf(key: String, value: Holder): Int =
+    private val cache = object : LruCache<String, Answer>(CACHE_BYTES) {
+        override fun sizeOf(key: String, value: Answer): Int =
             value.bitmap?.byteCount ?: 1
     }
 
-    /** A null bitmap is a *remembered* failure, so it is not attempted again. */
-    private class Holder(val bitmap: Bitmap?)
+    /**
+     * A remembered answer. A null bitmap is a remembered FAILURE, so it is not attempted again -
+     * which is why this is a box around the bitmap rather than the bitmap itself: "no preview"
+     * and "not looked yet" are different states and a bare null cannot tell them apart.
+     */
+    class Answer internal constructor(val bitmap: Bitmap?)
 
     /** Extensions we will attempt. Asking is cheap; opening a 4 GB mkv to find out is not. */
+    private val JPEG = setOf("jpg", "jpeg", "jpe", "jfif")
     private val IMAGE = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif", "avif")
     private val VIDEO = setOf("mp4", "mkv", "webm", "3gp", "mov", "m4v", "avi", "ts")
 
@@ -57,6 +72,16 @@ object Thumbnails {
         return e in IMAGE || e in VIDEO || e in AUDIO || e == APK
     }
 
+    /**
+     * Drop every size held for [path]. For a file changed in place, so a list that still holds
+     * its old size and time does not find its old pixels - a photo turned and saved would
+     * otherwise keep its old thumbnail wherever the list had not been read again yet.
+     */
+    fun forget(path: VPath) {
+        val prefix = "$path|"
+        cache.snapshot().keys.filter { it.startsWith(prefix) }.forEach { cache.remove(it) }
+    }
+
     private fun keyOf(path: VPath, size: Long, mtime: Long, px: Int) =
         "$path|$size|$mtime|$px"
 
@@ -67,6 +92,47 @@ object Thumbnails {
      * Blocking. Call it off the main thread - the app does so through a `LaunchedEffect`, the
      * server from its own worker.
      */
+    /**
+     * The answer already held for this file, or null when it has never been attempted.
+     *
+     * Non-blocking - a map lookup and nothing else - so a composable can use it during
+     * composition and skip staging any work at all. This is what makes scrolling back up a
+     * folder free: without it, every row that returned to the screen started a coroutine to ask
+     * a question that was already answered.
+     */
+    fun peek(path: VPath, size: Long, mtime: Long, px: Int): Answer? =
+        cache.get(keyOf(path, size, mtime, px))
+
+    /**
+     * The same queue the playlist rows use, for the same three reasons: newest row first, work
+     * never thrown away when a row scrolls off, and a hard ceiling on how many decodes run at
+     * once. See [LoadQueue].
+     */
+    private val queue = LoadQueue(workers = 2)
+
+    /**
+     * Decode for a row on screen, or join a decode already running for the same file.
+     *
+     * Suspends until there is an answer. Cancelling the caller stops the waiting and not the
+     * work, so the next pass over the list finds it cached - which is the whole difference
+     * between a second scroll being free and being a repeat of the first.
+     */
+    suspend fun load(
+        context: Context,
+        vfs: Vfs,
+        path: VPath,
+        size: Long,
+        mtime: Long,
+        px: Int,
+        ahead: Boolean = false,
+    ): Bitmap? {
+        val key = keyOf(path, size, mtime, px)
+        cache.get(key)?.let { return it.bitmap }
+        val body = { get(context, vfs, path, size, mtime, px); Unit }
+        if (ahead) queue.ahead(key, body) else queue.join(key, body)
+        return cache.get(key)?.bitmap
+    }
+
     fun get(context: Context, vfs: Vfs, path: VPath, size: Long, mtime: Long, px: Int): Bitmap? {
         val key = keyOf(path, size, mtime, px)
         cache.get(key)?.let { return it.bitmap }
@@ -75,7 +141,7 @@ object Thumbnails {
         val os = vfs.osPath(path)
         val bitmap = runCatching {
             when {
-                ext in IMAGE -> fromImage(vfs, path, os, px)
+                ext in IMAGE -> fromImage(vfs, path, os, px, ext)
                 ext in VIDEO -> os?.let { fromVideo(it, px) }
                 ext in AUDIO -> os?.let { fromAudio(it, px) }
                 ext == APK -> os?.let { fromApk(context, it, px) }
@@ -83,13 +149,13 @@ object Thumbnails {
             }
         }.getOrNull()
 
-        cache.put(key, Holder(bitmap))
+        cache.put(key, Answer(bitmap))
         return bitmap
     }
 
     // ── images ──
 
-    private fun fromImage(vfs: Vfs, path: VPath, os: String?, px: Int): Bitmap? {
+    private fun fromImage(vfs: Vfs, path: VPath, os: String?, px: Int, ext: String): Bitmap? {
         // Two passes. The first reads only the header to learn the dimensions, which is why
         // `inJustDecodeBounds` exists and why this never allocates the full image.
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -109,7 +175,22 @@ object Thumbnails {
         } else {
             vfs.openReadBlocking(path).use { BitmapFactory.decodeStream(it, null, opts) }
         } ?: return null
-        return scaleTo(full, px)
+        return scaleTo(full, px).upright(orientationOf(vfs, path, ext))
+    }
+
+    /**
+     * Which way up a JPEG is meant to be seen. `BitmapFactory` does not apply it, and a camera
+     * that stores the turn as a tag rather than in the pixels gave every portrait photo a
+     * thumbnail lying on its side. See [JpegOrientation].
+     *
+     * JPEG names only: the read is a second open of the file, and nothing else this decodes
+     * carries the tag in a form BitmapFactory ignores.
+     */
+    private fun orientationOf(vfs: Vfs, path: VPath, ext: String): Int {
+        if (ext !in JPEG) return JpegOrientation.NORMAL
+        return runCatching {
+            vfs.openReadBlocking(path).use { JpegOrientation.read(JpegOrientation.head(it)) }
+        }.getOrDefault(JpegOrientation.NORMAL)
     }
 
     /**

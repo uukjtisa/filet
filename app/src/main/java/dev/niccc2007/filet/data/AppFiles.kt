@@ -23,18 +23,26 @@ import java.io.File
  */
 class AppFiles(private val context: Context) {
 
-    /** Where user scripts live. App-private, so uninstalling takes them with it. */
-    val scriptsDir: File get() = File(context.filesDir, "scripts").apply { mkdirs() }
+    /**
+     * Where user scripts live.
+     *
+     * In the visible `Filet` folder rather than app-private storage, and that is a deliberate
+     * change of behaviour: a script is somebody's WORK, and keeping it where uninstalling the
+     * app silently destroys it - and where it cannot be backed up, copied to another phone, or
+     * even looked at - was the wrong default for the one thing here that cannot be made again.
+     * See `FiletStore.Area.disposable`.
+     */
+    val scriptsDir: File get() = FiletStore.dir(context, FiletStore.Area.SCRIPTS)
 
     /** A decompiled APK's working copy, named after the APK. */
     fun apkWorkDir(apkName: String): File =
-        File(context.getExternalFilesDir(null) ?: context.filesDir, "apk/" + apkName.substringBeforeLast('.'))
+        File(FiletStore.dir(context, FiletStore.Area.APKWORK), apkName.substringBeforeLast('.'))
 
     /** A cached copy of a file that a seeking API refuses to read as a stream. */
-    fun playCache(name: String): File = File(context.cacheDir, "play").apply { mkdirs() }.let { File(it, name) }
+    fun playCache(name: String): File = File(FiletStore.dir(context, FiletStore.Area.PLAYBACK), name)
 
     /** Where a file shared INTO Filet lands before the user files it. */
-    fun inboxCache(name: String): File = File(context.cacheDir, "inbox").apply { mkdirs() }.let { File(it, name) }
+    fun inboxCache(name: String): File = File(FiletStore.dir(context, FiletStore.Area.RECEIVED), name)
 
     fun scriptFile(id: String): File = File(scriptsDir, "$id.lua")
 

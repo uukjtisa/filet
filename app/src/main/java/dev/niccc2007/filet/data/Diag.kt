@@ -31,7 +31,10 @@ object Diag {
     fun start(context: Context) {
         try {
             if (!dev.niccc2007.filet.BuildConfig.DEBUG) return
-            val f = File(context.filesDir, "diag.log")
+            // Beside the crash reports rather than in app-private storage: the whole point
+            // of this file is to be read by somebody who is not the app, on a phone whose
+            // vendor drops logcat for this package entirely.
+            val f = File(FiletStore.dir(context, FiletStore.Area.REPORTS), "diag.log")
             runCatching { if (f.exists() && f.length() > CAP) f.delete() }
             file = f
         } catch (_: Throwable) {

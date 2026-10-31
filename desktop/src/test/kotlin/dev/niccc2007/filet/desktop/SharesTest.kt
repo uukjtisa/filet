@@ -1,6 +1,7 @@
 package dev.niccc2007.filet.desktop
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -8,12 +9,28 @@ import org.junit.Test
 
 class SharesTest {
 
-    @Test fun `every spelling of a volume root is refused`() {
+    @Test fun `every spelling of a volume root is now accepted`() {
+        // Reversed deliberately. A whole drive is shareable, writable like any other share.
+        //
+        // The listing failure the old refusal was built on was never WebDAV handling drive
+        // roots badly: it was entries inside `C:\` that cannot be statted even from an
+        // administrator shell, so the listing died part way through. That is fixed where the
+        // fault is, in `LocalProvider.toNodeOrNull`.
+        //
+        // Every spelling here resolves to a root, including the `..` forms, so this still pins
+        // that the parser resolves before it judges.
         for (p in listOf(
             "C:\\", "C:", "c:/", "/", "\\\\server\\share", "\\\\server\\share\\", "\\\\server",
             "\\\\?\\C:\\", "\\\\?\\UNC\\server\\share", "D:\\Docs\\..", "/home/..", "/home/./..",
             "D:\\a\\b\\..\\..",
-        )) assertNotNull(p, ShareGuard.refusal(p))
+        )) assertNull(p, ShareGuard.refusal(p))
+    }
+
+    @Test fun `a root is still recognised as a root`() {
+        // `isRoot` keeps its meaning even though a root is no longer refused: a caller that
+        // wants to label a share "all of D:" rather than "D:\" still has to know.
+        for (p in listOf("C:\\", "c:/", "/", "D:\\Docs\\..")) assertTrue(p, ShareGuard.isRoot(p))
+        for (p in listOf("D:\\Docs", "/home/me")) assertFalse(p, ShareGuard.isRoot(p))
     }
 
     @Test fun `relative and blank paths are refused`() {
@@ -26,8 +43,8 @@ class SharesTest {
         }
     }
 
-    @Test fun `add refuses a root and a duplicate`() {
-        assertTrue(Shares.add(emptyList(), "D:\\", null, false) is Shares.Added.Refused)
+    @Test fun `add takes a root and still refuses a duplicate`() {
+        assertTrue(Shares.add(emptyList(), "D:\\", null, true) is Shares.Added.Ok)
         val one = (Shares.add(emptyList(), "D:\\Docs", null, false) as Shares.Added.Ok).shares
         assertTrue(Shares.add(one, "d:/docs/", null, true) is Shares.Added.Refused)
     }

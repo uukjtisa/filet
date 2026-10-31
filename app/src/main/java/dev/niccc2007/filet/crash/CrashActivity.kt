@@ -88,6 +88,13 @@ class CrashActivity : ComponentActivity() {
                             finishAffinity()
                         },
                         onClose = { finishAffinity() },
+                        // The form, filled in and waiting. Nothing is sent from here: the crash
+                        // is offered as an attachment, unticked, for somebody to read first.
+                        onReport = {
+                            runCatching {
+                                startActivity(dev.niccc2007.filet.report.ReportActivity.forCrash(this, report))
+                            }
+                        },
                     )
                 }
             }
@@ -130,6 +137,7 @@ private fun CrashScreen(
     onOpenFile: () -> Unit,
     onRestart: () -> Unit,
     onClose: () -> Unit,
+    onReport: () -> Unit,
 ) {
     val colors = Filet.colors
     Column(
@@ -201,6 +209,8 @@ private fun CrashScreen(
             CrashButton("Restart Filet", primary = false, onClick = onRestart)
             CrashButton("Close", primary = false, onClick = onClose)
         }
+        Spacer(Modifier.height(8.dp))
+        CrashButton("Report this crash", primary = false, onClick = onReport)
 
         Spacer(Modifier.height(14.dp))
         Column(

@@ -2,113 +2,56 @@ package dev.niccc2007.filet.index
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * A result says whether it is known to be there or is still being checked, and says nothing
- * else - because there is nothing else it is allowed to be.
+ * What a result's label means. SEARCH.md §14.3.
  *
- * The rejected third state is the interesting part of this design. A "stale" or "might be
- * gone" label reads as the app admitting it does not know, and the reader then has to tap the
- * row to find out. An entry that cannot be justified is removed instead.
+ * The defect: Confirming was tied to whether an index pass had re-read the row, so a row already
+ * checked against the filesystem still read Confirming for as long as a crawl ran - minutes, with
+ * a crawl started on every open.
  */
 class HitStateTest {
 
     @Test
-    fun `between passes everything is available`() {
-        // Nothing running means the last complete pass is the authority, and it reached
-        // everything by definition.
-        for (gen in 1L..5L) {
-            assertEquals(HitState.AVAILABLE, hitState(crawlRunning = false, rowGen = gen, currentGen = 5))
-        }
+    fun `a row that passes its check becomes available`() {
+        assertEquals(HitState.AVAILABLE, afterCheck(exists = true))
     }
 
     @Test
-    fun `a row the running pass has reached is available`() {
-        assertEquals(HitState.AVAILABLE, hitState(crawlRunning = true, rowGen = 7, currentGen = 7))
+    fun `a row whose file is gone is removed, not relabelled`() {
+        // A third state for "might be gone" is the reader doing the checking. The row leaves.
+        assertNull(afterCheck(exists = false))
     }
 
     @Test
-    fun `a row the running pass has not reached yet is confirming`() {
-        assertEquals(HitState.CONFIRMING, hitState(crawlRunning = true, rowGen = 6, currentGen = 7))
-    }
-
-    @Test
-    fun `an old row is still served rather than withheld`() {
-        // The whole point: it appears in the list, carrying a label. Withholding it is what
-        // made a running update look like an index that had been wiped.
-        val state = hitState(crawlRunning = true, rowGen = 1, currentGen = 9)
-        assertTrue("it has a state at all, so it is shown", state in HitState.entries)
-        assertEquals(HitState.CONFIRMING, state)
-    }
-
-    @Test
-    fun `nothing is left confirming once a pass ends`() {
-        // The failure this prevents: a label that sticks after the thing it described is over.
-        for (gen in 0L..9L) {
-            assertEquals("gen=$gen", HitState.AVAILABLE, hitState(false, gen, 9))
-        }
+    fun `only a checked row can be acted on`() {
+        assertTrue(actionable(HitState.AVAILABLE))
+        assertFalse(actionable(HitState.CONFIRMING))
     }
 
     @Test
     fun `there are exactly two states`() {
-        // Guards the decision rather than the code. Adding a third is a design change and
-        // should have to break a test to happen.
         assertEquals(2, HitState.entries.size)
-        assertEquals(setOf("Available", "Confirming"), HitState.entries.map { it.label }.toSet())
-    }
-
-    @Test
-    fun `a file that is gone is not shown at any state`() {
-        assertFalse(showable(existsOnDisk = false))
-        assertTrue(showable(existsOnDisk = true))
-    }
-
-    @Test
-    fun `a future generation is never confirming`() {
-        // Defensive about the arithmetic rather than about the world: a row stamped ahead of
-        // the current generation would mean the counter went backwards, and treating that as
-        // "not reached yet" would label every row in the database.
-        assertEquals(HitState.AVAILABLE, hitState(true, rowGen = 12, currentGen = 7))
-    }
-}
-
-/**
- * When the badge is drawn, which is a separate decision from what it says.
- *
- * Reported as there being no indicator on the screen at all, during an index pass. The badge
- * was drawn only for CONFIRMING - and on a first index nothing can be confirming, because the
- * database was empty when the pass started and every row in it was written by that pass.
- */
-class HitBadgeTest {
-
-    @Test
-    fun `during a pass every row says which it is`() {
-        assertTrue(showBadge(crawlRunning = true))
-    }
-
-    @Test
-    fun `between passes nothing is labelled`() {
-        // Everything is available then, and a badge on every row is the noise that teaches
-        // people to stop reading badges.
-        assertFalse(showBadge(crawlRunning = false))
-    }
-
-    @Test
-    fun `a first index still shows something`() {
-        // The case that produced the report: an empty database, so every row is written by the
-        // running pass and is AVAILABLE. If only CONFIRMING were drawn, the screen would carry
-        // no indicator at all while indexing - which is exactly what was seen.
-        val firstIndex = hitState(crawlRunning = true, rowGen = 1, currentGen = 1)
-        assertEquals(HitState.AVAILABLE, firstIndex)
-        assertTrue("a first index must still show a state", showBadge(crawlRunning = true))
     }
 
     @Test
     fun `both states are drawable`() {
-        for (state in HitState.entries) {
-            assertTrue("$state has no label", state.label.isNotEmpty())
+        for (s in HitState.entries) assertTrue(s.name, s.label.isNotBlank())
+    }
+
+    @Test
+    fun `the old rule kept a checked row confirming for as long as a crawl ran`() {
+        // The negative control, written as the rule that was there. A row the pane had already
+        // checked - generation behind the running pass - still read Confirming under it, and
+        // nothing about the row could change that until the crawl reached it.
+        val old = { crawlRunning: Boolean, rowGen: Long, currentGen: Long ->
+            if (crawlRunning && rowGen < currentGen) HitState.CONFIRMING else HitState.AVAILABLE
         }
+        assertEquals(HitState.CONFIRMING, old(true, 6, 7))
+        // Under the new rule the same row's own check decides it, crawl or no crawl.
+        assertEquals(HitState.AVAILABLE, afterCheck(exists = true))
     }
 }

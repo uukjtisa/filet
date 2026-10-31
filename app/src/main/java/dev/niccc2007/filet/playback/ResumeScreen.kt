@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -49,6 +47,9 @@ import dev.niccc2007.filet.ui.dialogs.DlgBtn
 import dev.niccc2007.filet.ui.dialogs.DlgCaption
 import dev.niccc2007.filet.ui.dialogs.DlgFooter
 import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.PopMenu
+import dev.niccc2007.filet.ui.dialogs.PopRow
+import dev.niccc2007.filet.ui.dialogs.PopSeparator
 import dev.niccc2007.filet.ui.tabs.EmptyTab
 import dev.niccc2007.filet.ui.tabs.Pill
 import dev.niccc2007.filet.ui.tabs.PillTone
@@ -91,9 +92,13 @@ fun ResumeScreen(vm: BrowserViewModel) {
     // refresh. Neither is a poll: both move only when something did.
     val revision by vm.resumeRevision.collectAsStateWithLifecycle()
     val changed by store.changes.collectAsStateWithLifecycle()
-    var filter by remember { mutableStateOf(ResumeFilter.ALL) }
+    var filter by dev.niccc2007.filet.browser.rememberKeptEnum("resume.filter", ResumeFilter.ALL)
     val all = remember(revision, changed) { store.all() }
-    val rows = remember(all, filter) { all.filter(filter::accepts) }
+    // The kind chips first, then the pane's search box: title or where it is.
+    val query = dev.niccc2007.filet.ui.LocalPaneQuery.current
+    val rows = remember(all, filter, query) {
+        all.filter(filter::accepts).filter { dev.niccc2007.filet.ui.TextMatch.matches(query, it.title, it.path) }
+    }
     // The row whose tap is being asked about. A question per tap, never remembered.
     var asking by remember { mutableStateOf<ResumeStore.Point?>(null) }
     asking?.let { point ->
@@ -105,7 +110,7 @@ fun ResumeScreen(vm: BrowserViewModel) {
         )
     }
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("resume")) {
         item { TabHeader("Carry on") }
         item {
             Row(
@@ -130,7 +135,9 @@ fun ResumeScreen(vm: BrowserViewModel) {
             }
         }
 
-        if (rows.isEmpty()) {
+        if (rows.isEmpty() && query.isNotBlank() && all.isNotEmpty()) {
+            item { dev.niccc2007.filet.ui.NoMatch(query) }
+        } else if (rows.isEmpty()) {
             item {
                 EmptyTab(
                     FiletIcons.Clock,
@@ -158,51 +165,47 @@ fun ResumeScreen(vm: BrowserViewModel) {
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // Anchored at the row's start, so the card opens under the thumbnail that was held;
+                // it turns upwards on its own for a row near the bottom of the screen.
                 Box {
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Carry on", fontSize = 13.sp) },
-                            onClick = { menu = false; vm.resumePoint(point) },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Start from the beginning", fontSize = 13.sp) },
-                            onClick = { menu = false; vm.resumePoint(point, fromStart = true) },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Open containing folder", fontSize = 13.sp) },
-                            onClick = {
-                                menu = false
-                                runCatching {
-                                    vm.revealPathInFolder(
-                                        dev.niccc2007.filet.vfs.VPath.parse(point.path),
-                                    )
-                                }
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Forget this one", fontSize = 13.sp) },
-                            onClick = { menu = false; store.forget(point.path); vm.bumpResume() },
-                        )
+                    PopMenu(expanded = menu, onDismiss = { menu = false }, below = 8.dp) {
+                        PopRow(FiletIcons.Play, "Carry on") { menu = false; vm.resumePoint(point) }
+                        PopRow(FiletIcons.Prev, "Start from the beginning") {
+                            menu = false
+                            vm.resumePoint(point, fromStart = true)
+                        }
+                        PopRow(FiletIcons.FolderOpen, "Open containing folder") {
+                            menu = false
+                            runCatching {
+                                vm.revealPathInFolder(
+                                    dev.niccc2007.filet.vfs.VPath.parse(point.path),
+                                )
+                            }
+                        }
+                        PopSeparator()
+                        PopRow(FiletIcons.Close, "Forget this one") {
+                            menu = false
+                            store.forget(point.path)
+                            vm.bumpResume()
+                        }
                     }
                 }
                 ResumeThumb(vm, point)
                 Spacer(Modifier.width(11.dp))
                 Column(Modifier.fillMaxWidth(0.72f)) {
-                    Text(
-                        point.title,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    dev.niccc2007.filet.browser.ListNameText(
+                        text = dev.niccc2007.filet.ui.highlighted(point.title, query, colors.accent),
                         color = MaterialTheme.colorScheme.onSurface,
+                        startSp = 13f,
+                        lines = 1,
+                        fontWeight = FontWeight.Medium,
                     )
-                    Text(
-                        resumeLine(point),
-                        fontSize = 10.5.sp,
-                        fontFamily = FontFamily.Monospace,
+                    dev.niccc2007.filet.browser.ListNameText(
+                        name = resumeLine(point),
                         color = colors.fg3,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        startSp = 10.5f,
+                        isDir = true,
+                        fontFamily = FontFamily.Monospace,
                     )
                 }
                 Spacer(Modifier.fillMaxWidth(0f))

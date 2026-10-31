@@ -39,7 +39,6 @@ class SelectionActionsTest {
         nearby = { ran = "nearby" },
         shortcut = { ran = "shortcut" },
         extractHere = { ran = "extractHere" },
-        extractTo = { ran = "extractTo" },
         extractToOtherPane = { ran = "extractToOtherPane" },
         addToPlaylist = { ran = "addToPlaylist" },
         enqueue = { ran = "enqueue" },
@@ -59,7 +58,7 @@ class SelectionActionsTest {
         shape = shape,
     )
 
-    private val extractIds = listOf("extracthere", "extractto", "extractother")
+    private val extractIds = listOf("extract", "extractother")
 
     @Test fun single_item_actions_are_absent_for_a_multi_selection_not_blocked() {
         // The rule since the menu review: a row that cannot act on this selection is not shown.
@@ -194,10 +193,14 @@ class SelectionActionsTest {
         for (id in extractIds) assertTrue("$id should not be offered", id !in ids)
     }
 
-    @Test fun an_archive_gets_here_and_to_but_the_other_pane_only_when_there_is_one() {
+    @Test fun an_archive_gets_one_extract_and_the_other_pane_only_when_there_is_one() {
         val single = actions(1, archive = true).map { it.id }
-        assertTrue("extracthere" in single)
-        assertTrue("extractto" in single)
+        assertTrue("extract" in single)
+        // "Extract here" and "Extract to..." were two rows differing only in where they
+        // aimed. The ghosts follow the folder now, so standing still is "here" and walking is
+        // "to", and a second row would describe a difference that no longer exists.
+        assertTrue("extracthere" !in single)
+        assertTrue("extractto" !in single)
         // No second pane on screen, so no row pointing at one.
         assertTrue("extractother" !in single)
 
@@ -205,13 +208,17 @@ class SelectionActionsTest {
         assertTrue("extractother" in split)
     }
 
-    @Test fun extracting_here_is_blocked_on_a_read_only_volume_and_extracting_elsewhere_is_not() {
+    @Test fun extract_is_offered_on_a_read_only_volume_because_the_destination_can_move() {
         val all = actions(1, readOnly = "This volume is read-only.", archive = true).associateBy { it.id }
-        // Writing into the current folder needs the current folder to be writable.
-        assertNotNull(all.getValue("extracthere").blocked)
-        // Picking a folder does not: the whole point of it is that the destination is elsewhere,
-        // and an archive being browsed inside a read-only volume is exactly when it is needed.
-        assertNull(all.getValue("extractto").blocked)
+        // The near-miss this pins. "Extract here" WAS blocked here and "Extract to..." was
+        // not, because the second put the files elsewhere. Merging them naively would have
+        // carried the block onto the only row left - so browsing an archive inside a
+        // read-only volume, which is precisely when extracting elsewhere is wanted, would
+        // have offered one greyed-out row and no way forward.
+        //
+        // The row always starts; the DESTINATION refuses. `ExtractCard` names the reason and
+        // goes live the moment somebody walks somewhere writable.
+        assertNull(all.getValue("extract").blocked)
     }
 
     @Test fun the_extract_rows_sit_with_compress_rather_than_among_the_places() {
@@ -232,8 +239,7 @@ class SelectionActionsTest {
     @Test fun each_extract_row_reaches_its_own_callback() {
         val all = actions(1, archive = true, otherPane = true).associateBy { it.id }
         for ((id, expected) in listOf(
-            "extracthere" to "extractHere",
-            "extractto" to "extractTo",
+            "extract" to "extractHere",
             "extractother" to "extractToOtherPane",
         )) {
             ran = ""

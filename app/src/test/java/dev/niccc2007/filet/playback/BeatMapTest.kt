@@ -1,6 +1,7 @@
 package dev.niccc2007.filet.playback
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -301,5 +302,90 @@ class BeatMapTest {
     fun `an empty map says so`() {
         assertTrue(BeatMap(FloatArray(0)).empty)
         assertEquals(0f, BeatMap(FloatArray(0)).strengthAt(100L), 0.001f)
+    }
+
+    // ── where the wave may be driven from while the map is still being measured ──
+
+    @Test
+    fun `inside the measured part, the position is read as it is`() {
+        assertEquals(0L, BeatMap.readPosition(0L, 10_000L))
+        assertEquals(4_321L, BeatMap.readPosition(4_321L, 10_000L))
+        assertEquals(9_999L, BeatMap.readPosition(9_999L, 10_000L))
+    }
+
+    @Test
+    fun `just past the measured edge still reads the last bucket`() {
+        // The case the clamp exists for: the playhead crosses the edge of a partial between
+        // two emissions, and the wave should ride through it rather than blink out.
+        val covered = 10_000L
+        val last = covered - BeatMap.BUCKET_MS
+        assertEquals(last, BeatMap.readPosition(covered, covered))
+        assertEquals(last, BeatMap.readPosition(covered + BeatMap.STALE_GRACE_MS, covered))
+    }
+
+    @Test
+    fun `well past the measured edge refuses to answer`() {
+        // The defect, written down. On a long track the measurement trails the playhead by
+        // minutes, and the old unbounded clamp spent all of it pulsing to an earlier part of
+        // the song - which is what "the wave is delayed" was.
+        val covered = 10_000L
+        assertNull(BeatMap.readPosition(covered + BeatMap.STALE_GRACE_MS + 1, covered))
+        assertNull(BeatMap.readPosition(300_000L, covered))
+    }
+
+    @Test
+    fun `nothing measured and nothing before the track are both refusals`() {
+        assertNull(BeatMap.readPosition(1_000L, 0L))
+        assertNull(BeatMap.readPosition(-5L, 10_000L))
+    }
+
+    // -- the drift that made long tracks feel late --
+
+    @Test fun `a halved rate reads the bucket the music is actually in`() {
+        // `TrackPcm.rateFor` halves 22050 to 11025 on a long track to fit the memory budget,
+        // and the builder's hop is `rate * 20 / 1000` INTEGER-divided: 220, not 220.5. So a
+        // bucket is 19.954ms. Reading at a flat 20ms ran the index ahead of the music by
+        // 0.23%, which is nothing at the start and a quarter of a second four minutes in.
+        //
+        // One onset, placed far enough into the track that the old arithmetic missed it.
+        val at = 9_000
+        val onsets = FloatArray(12_000)
+        onsets[at] = 1f
+        val map = BeatMap(onsets, FloatArray(12_000), 11_025)
+
+        // Where that bucket genuinely sounds: 9000 buckets of 220 samples at 11025Hz, read
+        // from the MIDDLE of the bucket. Its leading edge is 179591.8ms, and asking at a
+        // truncated 179591 lands in the bucket before it - true of any bucket boundary and
+        // not what this test is about.
+        val trueMs = (at * 220 * 1000L) / 11_025 + 10
+        assertEquals(1f, map.strengthAt(trueMs), 0.001f)
+
+        // And the old reading - bucket index times a flat 20ms - lands somewhere else.
+        // The gap is 0.2275% of the position: about 400ms three minutes in, which is where
+        // bucket 9000 sits, and it keeps growing - 800ms at six minutes, 1.2s at nine.
+        val naiveMs = at * 20L
+        assertTrue(
+            "flat-20ms drifted by " + (naiveMs - trueMs) + "ms",
+            naiveMs - trueMs > 350L,
+        )
+        assertEquals(0f, map.strengthAt(naiveMs), 0.001f)
+    }
+
+    @Test fun `the full rate divides evenly and is unaffected`() {
+        // 22050 / 50 is 441 exactly, so there is no truncation and nothing to correct. This is
+        // why the fault was invisible on ordinary-length tracks.
+        val onsets = FloatArray(5_000)
+        onsets[4_000] = 1f
+        val map = BeatMap(onsets, FloatArray(5_000), 22_050)
+        assertEquals(1f, map.strengthAt(4_000 * 20L), 0.001f)
+    }
+
+    @Test fun `how much is covered is measured in real buckets too`() {
+        // `coveredMs` decides when the map stops being able to answer. Computed at a flat
+        // 20ms it claimed to cover more of the track than it had measured, so the edge of a
+        // partial map sat past the real data.
+        val map = BeatMap(FloatArray(1_000), FloatArray(1_000), 11_025)
+        assertEquals((1_000 * 220 * 1000L) / 11_025, map.coveredMs)
+        assertTrue("a flat 20ms would over-claim", map.coveredMs < 1_000 * 20L)
     }
 }

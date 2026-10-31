@@ -43,6 +43,15 @@ object ArtPalette {
     /** Below this the sample is not a colour, it is noise, and the theme accent is better. */
     const val MIN_WEIGHT = 0.004
 
+    /**
+     * And the floor for the second, lightness-blind pass.
+     *
+     * Far lower, because that pass exists for images whose colour is real but dim. What it has
+     * to separate is "dark and coloured" from "grey", and grey pixels contribute a saturation
+     * of nearly nothing however many of them there are.
+     */
+    const val DARK_WEIGHT = 0.0004
+
     /** What the player's controls sit on, for the contrast test. */
     const val PANEL_R = 0x16
     const val PANEL_G = 0x16
@@ -67,23 +76,30 @@ object ArtPalette {
      */
     fun of(pixels: IntArray): Result {
         if (pixels.isEmpty()) return NONE
-        var x = 0.0
-        var y = 0.0
-        var satSum = 0.0
-        var weight = 0.0
-        for (p in pixels) {
-            val (h, sat, l) = hsl(p shr 16 and 0xFF, p shr 8 and 0xFF, p and 0xFF)
-            // Saturation decides how much a pixel counts, and lightness gates it, so the
-            // handful of lit pixels in a dark frame choose the hue instead of the shadows.
-            val w = sat.pow(1.4) * min(1.0, l * 2.4)
-            if (w <= 0.0) continue
-            val rad = Math.toRadians(h)
-            x += cos(rad) * w
-            y += sin(rad) * w
-            satSum += sat * w
-            weight += w
+        // Two passes, and the second one is the fix for dark artwork.
+        //
+        // The first weights by saturation AND lightness, so in an ordinary photograph the few
+        // lit, coloured pixels choose the hue instead of the shadows. On a cover that is almost
+        // entirely dark - a night shot, a black sleeve, a figure in a dim room - that same
+        // lightness term drives every weight towards zero, the total falls under [MIN_WEIGHT]
+        // and the whole image is declared colourless. The player then fell back to the THEME
+        // accent, so a deep red sleeve and a deep blue one both came out the same green, which
+        // is what "the colour coding is off for some covers" was.
+        //
+        // The second pass drops the lightness term and asks the simpler question: which hue is
+        // in this picture at all. It only runs when the first found nothing, so a normal cover
+        // is unaffected, and a genuinely grey image still reaches [NONE] through the much
+        // smaller floor below - a black-and-white photograph has no colour to borrow and the
+        // theme accent really is the right answer for it.
+        var sample = measure(pixels, lightGated = true)
+        if (sample.weight < MIN_WEIGHT * pixels.size) {
+            sample = measure(pixels, lightGated = false)
+            if (sample.weight < DARK_WEIGHT * pixels.size) return NONE
         }
-        if (weight < MIN_WEIGHT * pixels.size) return NONE
+        val x = sample.x
+        val y = sample.y
+        val satSum = sample.satSum
+        val weight = sample.weight
 
         var hue = Math.toDegrees(atan2(y / weight, x / weight))
         if (hue < 0) hue += 360.0
@@ -102,6 +118,42 @@ object ArtPalette {
         val on = if (contrast(rgb, 0x000000) >= contrast(rgb, 0xFFFFFF)) 0x12110F else 0xFFFFFF
         return Result(rgb, on, usable = true)
     }
+
+    private class Sample(val x: Double, val y: Double, val satSum: Double, val weight: Double)
+
+    /**
+     * One weighted circular mean over the pixels.
+     *
+     * Circular because hue wraps: the ordinary mean of 350 and 10 is 180, which is the exact
+     * opposite of the answer.
+     *
+     * @param lightGated true to let lightness decide how much a pixel counts, which is right
+     *   for an ordinary image and fatal for a dark one. See [of].
+     */
+    private fun measure(pixels: IntArray, lightGated: Boolean): Sample {
+        var x = 0.0
+        var y = 0.0
+        var satSum = 0.0
+        var weight = 0.0
+        for (p in pixels) {
+            val (h, sat, l) = hsl(p shr 16 and 0xFF, p shr 8 and 0xFF, p and 0xFF)
+            // Near-black is still excluded in both passes. A pixel at a lightness of two
+            // percent has a hue in the arithmetic and none to the eye, and there are tens of
+            // thousands of them in a dark frame.
+            if (l < FLOOR_LIGHT) continue
+            val w = if (lightGated) sat.pow(1.4) * min(1.0, l * 2.4) else sat.pow(1.4)
+            if (w <= 0.0) continue
+            val rad = Math.toRadians(h)
+            x += cos(rad) * w
+            y += sin(rad) * w
+            satSum += sat * w
+            weight += w
+        }
+        return Sample(x, y, satSum, weight)
+    }
+
+    /** Below this a pixel is black, whatever its hue says. */
+    private const val FLOOR_LIGHT = 0.04
 
     /**
      * The same hue, as a GROUND rather than as a control.

@@ -5,6 +5,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import kotlin.math.abs
 import kotlin.math.exp
@@ -54,9 +55,10 @@ class BeatSignal internal constructor(
  * calibrating by hand on every phone is a light that is wrong on every phone nobody has
  * calibrated. Each part of the lateness it was covering for is computable.
  *
- * - **The player reports the decoder, not the ear.** `MediaPlayer.getCurrentPosition` counts
- *   frames that have left the app. What is being HEARD left some milliseconds ago - the mixer
- *   buffer, a speaker DSP, a Bluetooth hop. [BeatLatency] derives that from the device.
+ * - **The player reports the ear already.** `MediaPlayer.getCurrentPosition` is the frame the
+ *   output is presenting, mixer and Bluetooth included, so nothing is taken off it for the
+ *   output. Taking it off a second time was a light 200 ms late on every track; [BeatLatency]
+ *   has the measurement that settled it.
  * - **An onset sits later inside its bucket than the bucket's index implies.** The window is
  *   1024 samples and the hop is 20 milliseconds, so the content that caused a rise is at the
  *   END of the window, not its start. [BeatMap.biasMs] is that offset in milliseconds, and it
@@ -65,9 +67,9 @@ class BeatSignal internal constructor(
  * - **The flow was two hundred milliseconds stale.** Asking the player costs one call. The
  *   flow is the fallback now, not the source.
  *
- * What remains genuinely unknowable is a Bluetooth earbud's own pipeline, and that is one
- * constant with its reasoning written beside it rather than a control. See
- * [BeatLatency.A2DP_MS].
+ * What remains genuinely unknowable is delay the platform is not told about, an earbud that
+ * under-reports its own, and that is not a control either (D-02). A record whose map is off is
+ * corrected for that record alone, by its [BeatNudge], 0 for every track nobody set one on.
  *
  * ## Cost model
  *
@@ -95,6 +97,11 @@ fun rememberBeatSignal(
     playing: Boolean,
     /** How readily a rise counts as a beat. Fixed at [PULSE_SENSE]. */
     sensitivity: Float = 1f,
+    /**
+     * This track's own correction, positive is later: see [BeatNudge]. Read live by the loop
+     * rather than restarting it, so a held button moving it 25 times a second is not 25 restarts.
+     */
+    nudgeMs: Int = 0,
 ): BeatSignal {
     val level = remember { mutableFloatStateOf(0f) }
     val swing = remember { mutableFloatStateOf(0f) }
@@ -119,6 +126,7 @@ fun rememberBeatSignal(
     val onScreen = rememberOnScreen()
     val fps = rememberPlayerDials().pulseFps
     val context = LocalContext.current
+    val nudge = rememberUpdatedState(nudgeMs)
     val wanted = on && beats != null && !beats.empty
     val live = wanted && shouldAnimate(onScreen, playing, animated)
 
@@ -137,15 +145,20 @@ fun rememberBeatSignal(
             return@LaunchedEffect
         }
         val map = beats!!
-        // Read per track rather than once for the process: earbuds go in halfway through a
-        // song, and the right answer changes under whoever did that.
-        val output = BeatLatency.outputMs(context)
         val bias = map.biasMs
         dev.niccc2007.filet.data.Diag.log(
             "beat",
             "map covers ${map.coveredMs}ms of ${playback.state.value.durationMs}ms, " +
-                "bias=${bias}ms output=${output}ms sense=$sensitivity",
+                "bias=${bias}ms sense=$sensitivity",
         )
+        // Always on, unlike the diagnostic line above: a lateness report is otherwise an
+        // adjective, and these are the numbers that say whether it is a fixed offset (an output
+        // delay counted wrongly) or one that grows (a clock that drifts from the music).
+        dev.niccc2007.filet.log.FiletLog.i(
+            "beat",
+            "start bias=${bias}ms nudge=${nudge.value}ms ${BeatLatency.describe(context)} covered=${map.coveredMs}ms",
+        )
+        var nextTimingLog = android.os.SystemClock.elapsedRealtime() + TIMING_LOG_MS
         var reported = -1L
         var stampedAt = android.os.SystemClock.elapsedRealtime()
         var at = stampedAt
@@ -175,23 +188,24 @@ fun rememberBeatSignal(
             // not ahead of it: the sound is delayed, so the light has to be delayed with it,
             // and the only way to delay a light is to drive it from an earlier part of the
             // track.
-            val ear = reported + (now - stampedAt) - output - bias
-            // ── a position past the end of a PARTIAL map is not silence ──
-            //
-            // The opening of a track is measured almost at once and the rest follows, so for
-            // the first moments the map covers only a few seconds of it - and `strengthAt`
-            // answered anything past that with 0, which is the same answer it gives for "no
-            // beat here". The light went out at the edge of the measured part and stayed out
-            // until the rest arrived. Clamped to the last bucket that exists instead: briefly
-            // it pulses on the wrong part of the track, which nobody can see, where the
-            // alternative is a light that plainly stops, which everybody can.
+            val ear = BeatLatency.earMs(reported, now - stampedAt, bias, nudge.value.toLong())
+            // Where the map may honestly be read, or null while it is too far behind the
+            // playhead to say anything about what is in the room. The bound is the fix for a
+            // wave that was visibly late on long tracks - see `BeatMap.readPosition`, which
+            // carries the whole argument and the test.
             val covered = map.coveredMs
-            val readAt =
-                if (covered > 0L && ear >= covered) covered - BeatMap.BUCKET_MS else ear
+            val readAt = BeatMap.readPosition(ear, covered)
+            if (now >= nextTimingLog && state.playing) {
+                nextTimingLog = now + TIMING_LOG_MS
+                dev.niccc2007.filet.log.FiletLog.i(
+                    "beat",
+                    "timing pos=${reported}ms age=${now - stampedAt}ms nudge=${nudge.value}ms ear=${ear}ms read=${readAt}ms covered=${covered}ms",
+                )
+            }
             val raw =
-                if (!state.playing) 0f
+                if (!state.playing || readAt == null) 0f
                 else (map.strengthAt(readAt) * sensitivity).coerceIn(0f, 1f)
-            val loudNow = if (!state.playing) 0f else map.levelAt(readAt)
+            val loudNow = if (!state.playing || readAt == null) 0f else map.levelAt(readAt)
 
             follower.step(raw, loudNow, gap)
             ticking.tick()
@@ -480,6 +494,9 @@ const val LOUD_MS = 260f
  * beat is its own burst with dark between them.
  */
 const val WAVE_RELEASE_MS = 160f
+
+/** How often the pulse writes where it is reading, while something plays. */
+private const val TIMING_LOG_MS = 10_000L
 
 /**
  * How much of the swing the wave takes.

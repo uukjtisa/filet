@@ -19,6 +19,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -63,6 +64,11 @@ class MainActivity : ComponentActivity() {
      * `takePersistableUriPermission` evaporates on the next process death, and the user
      * experiences that as the app forgetting their SD card.
      */
+    // Answers go to the ViewModel, which outlives this Activity and knows who asked.
+    private val forResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        vm?.deliverResult(r.resultCode, r.data)
+    }
+
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) return@registerForActivityResult
         runCatching {
@@ -78,11 +84,42 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val graph = FiletApp.graphOf(this)
+        // Here rather than in `Application.onCreate`: putting the saved remotes back needs the
+        // connection store, and touching the graph there would build the whole thing before the
+        // first frame. The graph is being built on this line anyway.
+        (application as? FiletApp)?.restoreConnectionsIfLost()
 
         setContent {
             val theme by graph.prefs.theme.collectAsState()
             val accent by graph.prefs.accent.collectAsState()
+            // The folder-total lookup the rows read, when "Folder total" is on the line under the
+            // name or in the column beside it.
+            //
+            // Reading is free and measuring is asked for separately - see `FolderBytes`. The
+            // read returns what is already known; the request puts the folder in a queue that
+            // walks ONE at a time, which is what makes a real folder size affordable from a
+            // list. Provided once here rather than threaded through every list, grid and pane
+            // signature to deliver one figure.
+            val folderBytes = remember {
+                val measure = dev.niccc2007.filet.browser.FolderMeasure.of(graph)
+                object : dev.niccc2007.filet.browser.FolderBytes {
+                    override suspend fun of(path: dev.niccc2007.filet.vfs.VPath) =
+                        runCatching { measure.total(path) }
+                            .getOrDefault(dev.niccc2007.filet.browser.FolderTotal.Unknown)
 
+                    override fun measure(path: dev.niccc2007.filet.vfs.VPath) {
+                        runCatching { measure.measure(path) }
+                    }
+                }
+            }
+            // ONE clock for every pending figure on screen, both panes included, so they breathe
+            // together instead of each row starting its own animation when it is composed. See
+            // `RowPulse` for why per-row clocks cost a frame budget and read as noise.
+            val rowPulse = dev.niccc2007.filet.ui.rememberRowPulse()
+            CompositionLocalProvider(
+                dev.niccc2007.filet.browser.LocalFolderBytes provides folderBytes,
+                dev.niccc2007.filet.ui.LocalRowPulse provides rowPulse,
+            ) {
             FiletTheme(theme = theme, accent = accent) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     val ctx = LocalContext.current
@@ -150,6 +187,19 @@ class MainActivity : ComponentActivity() {
                         HandlerHost(browser) { BrowserScreen(browser) }
                     }
                     FiletDialogs(browser)
+                    // Everything that appears without being asked for: the first-run welcome
+                    // and the update offer, one at a time through `Notices`.
+                    //
+                    // Bug identified here: this was never composed. Both ends of the chain
+                    // were built and tested - `FirstRun` decides whether it is a first run,
+                    // `checkForUpdatesQuietly` offers UPDATE to the queue, `Notices` ranks
+                    // them - and nothing drew the result, so every unsolicited dialogue in
+                    // the app silently did nothing. It presented as the update popup having
+                    // stopped appearing, and the version arithmetic (a 0.1.20 build against a
+                    // 0.1.19 release declines forever, correctly) hid it for longer: on a dev
+                    // install the queue was usually empty anyway, so an empty screen looked
+                    // like the right answer.
+                    dev.niccc2007.filet.notice.NoticeHost(browser)
 
                     DisposableEffect(Unit) {
                         graph.onFirstScreen()
@@ -157,10 +207,18 @@ class MainActivity : ComponentActivity() {
                         // The first resume has already happened by the time the observer
                         // above has a ViewModel to call, so the first visit asks here.
                         browser.checkForUpdatesQuietly()
+                        // And whether this launch is a genuinely new install. Here rather than
+                        // in `FiletApp`, because it queues a dialogue and a dialogue needs a
+                        // screen to be drawn on - see `FirstRun.check`.
+                        dev.niccc2007.filet.notice.FirstRun.check(
+                            this@MainActivity,
+                            dev.niccc2007.filet.BuildConfig.DEBUG,
+                        )
                         onDispose { }
                     }
 
                 }
+            }
             }
         }
     }
@@ -187,6 +245,36 @@ class MainActivity : ComponentActivity() {
         FiletApp.graphOf(this).davBeacon.stopScan()
     }
 
+    /**
+     * Frame timing, for the "it feels laggy" half of the diagnostics.
+     *
+     * Bug identified here: [FrameWatch] was built, it gates itself on detailed logging, the
+     * diagnostics dump has a `frames` section that reads it - and nothing ever attached it, so
+     * that section said "no frames measured" on every report ever produced. The one number
+     * that distinguishes "the phone is busy" from "this screen is dropping frames" was
+     * unobtainable.
+     *
+     * Attached on resume rather than on start: a window behind another Activity is not
+     * producing frames anybody is looking at, and metrics from it would dilute the only
+     * statistic that matters here.
+     */
+    override fun onResume() {
+        super.onResume()
+        dev.niccc2007.filet.log.FrameWatch.attach(this)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        dev.niccc2007.filet.log.FrameWatch.detach(this)
+        // The tabs as they are this moment. A scroll or a walk in the last half second is still
+        // waiting on its pause, and leaving the screen is when the process may be swiped away.
+        vm?.saveTabsNow()
+        // Leaving the app is both the moment somebody has finished changing things and a
+        // moment nothing is waiting on the main thread. The write itself is off-thread and
+        // refuses to replace a fuller snapshot with an emptier one - see `SettingsHome`.
+        (application as? FiletApp)?.keepSettingsSafe()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -196,11 +284,19 @@ class MainActivity : ComponentActivity() {
     private fun wire(browser: BrowserViewModel) {
         vm = browser
         browser.onIntent = { i -> runCatching { startActivity(i) }.onFailure { browser.toast("Nothing on this device can do that.") } }
+        browser.onIntentForResult = { i ->
+            runCatching { forResult.launch(i) }.onFailure {
+                // Never reached the other side, so nothing will answer: answer for it.
+                browser.deliverResult(RESULT_CANCELED, null)
+                browser.toast("Nothing on this device can do that.")
+            }
+        }
         browser.onPickFolder = { hint ->
             runCatching { pickFolder.launch(hint) }
                 .onFailure { browser.toast("No folder picker on this device.") }
         }
         browser.onExit = { finish() }
+        browser.onStopFilet = { finishAndRemoveTask() }
         browser.onShare = { nodes -> share(nodes, browser) }
         browser.onCheckUpdates = if (BuildConfig.UPDATER_ENABLED) {
             { browser.openUrl("https://github.com/uukjtisa/filet/releases/latest") }
@@ -229,6 +325,13 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // A job's notification: straight to the Activity tab, where the job is, rather than to
+        // whichever tab was last open.
+        if (intent?.getBooleanExtra(dev.niccc2007.filet.jobs.EXTRA_OPEN_ACTIVITY, false) == true) {
+            browser.openActivity()
+            return
+        }
+
         // A pinned shortcut or a widget row has already resolved an ID to a path, so it
         // arrives as a Filet target rather than as a content URI. An action shortcut carries
         // no path at all.
@@ -252,8 +355,13 @@ class MainActivity : ComponentActivity() {
             }
             is ShortcutRoute.Nothing -> Unit
         }
+        // Which named viewer the other app picked - "Filet Video Player" and the rest are aliases
+        // of this activity - or null for plain "Filet", which follows the routing table.
+        val viewer = dev.niccc2007.filet.open.InboundViewer.of(intent?.component?.className)
         when (intent?.action) {
-            Intent.ACTION_VIEW -> intent.data?.let { browser.openIncoming(it, intent.type) }
+            Intent.ACTION_VIEW -> intent.data?.let {
+                browser.openIncoming(it, intent.type, viewer = viewer?.handler)
+            }
             // EDIT is VIEW with an opinion about which handler. Routed to the same place so
             // there is one path for an incoming file, with a flag rather than a second copy
             // of the staging, the stat and the failure wording.

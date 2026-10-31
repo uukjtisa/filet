@@ -2,6 +2,7 @@ package dev.niccc2007.filet.report
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -21,16 +22,27 @@ class ReportFormTest {
     @Test
     fun `send waits for a title and a description`() {
         assertFalse(ReportForm.canSend(ReportForm.Draft()))
-        assertFalse(ReportForm.canSend(ReportForm.Draft(title = "x")))
-        assertFalse(ReportForm.canSend(ReportForm.Draft(title = "   ", description = "y")))
-        assertFalse(ReportForm.canSend(ReportForm.Draft(description = "y")))
-        assertTrue(ReportForm.canSend(ReportForm.Draft(title = "x", description = "y")))
+        assertFalse(ReportForm.canSend(ReportForm.Draft(title = "Crash")))
+        assertFalse(ReportForm.canSend(ReportForm.Draft(title = "   ", description = "It closes on open")))
+        assertFalse(ReportForm.canSend(ReportForm.Draft(description = "It closes on open")))
+        assertTrue(ReportForm.canSend(ReportForm.Draft(title = "Crash", description = "It closes on open")))
     }
 
     @Test
     fun `everything else is optional`() {
         // No steps, no device, no log, no pictures: still sendable.
-        assertNull(ReportForm.blocker(ReportForm.Draft(title = "x", description = "y")))
+        assertNull(ReportForm.blocker(ReportForm.Draft(title = "Crash", description = "It closes on open")))
+    }
+
+    @Test
+    fun `Send is never offered for a report the server would refuse`() {
+        // The server's minimums and maximums (report-api/lib/config.mjs), checked before sending.
+        assertNotNull("title under 3", ReportForm.blocker(ReportForm.Draft(title = "ab", description = "It closes on open")))
+        assertNotNull("title over 120", ReportForm.blocker(ReportForm.Draft(title = "x".repeat(121), description = "It closes on open")))
+        assertNotNull("body under 10", ReportForm.blocker(ReportForm.Draft(title = "Crash", description = "broken")))
+        assertNotNull("body over 10k", ReportForm.blocker(ReportForm.Draft(title = "Crash", description = "a".repeat(10_001))))
+        assertNotNull("device over 2k", ReportForm.blocker(ReportForm.Draft(title = "Crash", description = "It closes on open", device = "d".repeat(2_001))))
+        assertNull(ReportForm.blocker(ReportForm.Draft(title = "x".repeat(120), description = "It closes on open", device = "d".repeat(2_000))))
     }
 
     @Test
@@ -80,11 +92,35 @@ class ReportFormTest {
     }
 
     @Test
-    fun `the device text is what gets published, in the body and in its own field`() {
+    fun `the device text travels once, in its own field, and the GitHub page carries it in the body`() {
         val text = "Phone: Samsung SM-A125F"
-        val body = json(filled.copy(device = text))
+        val d = filled.copy(device = text)
+        val body = json(d)
         assertTrue(body.contains("\"device\":\"Phone: Samsung SM-A125F\""))
-        assertTrue(body.contains("### Device\\n\\n```\\nPhone: Samsung SM-A125F\\n```"))
+        // Not in `body` as well: the server lays it out under its own heading, and counting it
+        // against the description's limit refused long-device reports.
+        assertFalse(body, body.contains("### Device"))
+        assertFalse(ReportForm.requestBody(d).contains("SM-A125F"))
+        // The fallback page has no server to lay it out, so there it is in the body.
+        assertTrue(ReportForm.issueBody(d).contains("### Device\n\n```\nPhone: Samsung SM-A125F\n```"))
+    }
+
+    @Test
+    fun `the log travels as text, which is the only thing the server accepts`() {
+        val d = filled.copy(log = ReportForm.Log("run 3", "line one\nline two", 17))
+        val body = json(d)
+        assertTrue(body, body.contains("\"log\":\"[run 3]\\nline one\\nline two\""))
+        assertFalse("never an object", body.contains("\"log\":{"))
+    }
+
+    @Test
+    fun `the snapshot rides in the log, whole, ahead of a log cut to fit`() {
+        val big = "x".repeat(50_000)
+        val d = filled.copy(snapshot = "temp 41C", log = ReportForm.Log("run 3", big, big.length.toLong()))
+        val log = ReportForm.wireLog(d)!!
+        assertTrue(log.startsWith("[heat and lag snapshot]\ntemp 41C"))
+        assertTrue("within the server's 30,000", log.toByteArray().size <= ReportForm.LOG_MAX_BYTES)
+        assertNull(ReportForm.wireLog(filled))
     }
 
     @Test
@@ -121,12 +157,11 @@ class ReportFormTest {
 
     @Test
     fun `a picture is refused past the count, the per-picture cap and the total`() {
-        val mb = 1024L * 1024
-        assertEquals(ReportForm.ImageVerdict.Ok, ReportForm.imageVerdict(emptyList(), 1 * mb))
-        assertTrue(ReportForm.imageVerdict(List(5) { 100L }, 100) is ReportForm.ImageVerdict.No)
-        assertTrue(ReportForm.imageVerdict(emptyList(), 3 * mb) is ReportForm.ImageVerdict.No)
-        assertTrue(ReportForm.imageVerdict(listOf(2 * mb, 2 * mb, 2 * mb - 10), 20) is ReportForm.ImageVerdict.No)
-        assertEquals(ReportForm.ImageVerdict.Ok, ReportForm.imageVerdict(listOf(2 * mb, 2 * mb), 2 * mb))
+        // The server's: three pictures, one million bytes each.
+        assertEquals(ReportForm.ImageVerdict.Ok, ReportForm.imageVerdict(emptyList(), 1_000_000))
+        assertTrue(ReportForm.imageVerdict(List(3) { 100L }, 100) is ReportForm.ImageVerdict.No)
+        assertTrue(ReportForm.imageVerdict(emptyList(), 1_000_001) is ReportForm.ImageVerdict.No)
+        assertEquals(ReportForm.ImageVerdict.Ok, ReportForm.imageVerdict(listOf(1_000_000, 1_000_000), 1_000_000))
     }
 
     @Test
@@ -158,8 +193,62 @@ class ReportFormTest {
         assertTrue(net.retryable)
         assertTrue(net.message.contains("kept"))
         assertTrue(ReportForm.failureText("rate_limited", 429, null).retryable)
-        assertFalse(ReportForm.failureText("too_large", 413, null).retryable)
+        assertFalse(ReportForm.failureText("request_too_large", 413, null).retryable)
         assertTrue(ReportForm.failureText(null, 503, null).message.contains("kept"))
+    }
+
+    // ── the server's answers, one test per row of its table (report-api/README.md) ──
+
+    private fun out(status: Int, url: String? = null, code: String? = null, msg: String? = null, after: Long? = null) =
+        ReportForm.outcomeOf(status, url, code, msg, after)
+
+    @Test
+    fun `filed is issue url, and a replayed draft is the same success`() {
+        val url = "https://github.com/uukjtisa/filet/issues/42"
+        assertEquals(ReportForm.Outcome.Filed(url), out(201, url))
+        assertEquals(ReportForm.Outcome.Filed(url), out(200, url))
+        val noLink = out(201, null) as ReportForm.Outcome.Failed
+        assertFalse("never re-send something that may be filed", noLink.retryable)
+        assertTrue(out(201, "https://evil.example/x") is ReportForm.Outcome.Failed)
+    }
+
+    @Test
+    fun `every refusal the server can send gets the right retry`() {
+        val retry = mapOf(
+            "rate_limited" to true, "in_progress" to true, "limiter_unavailable" to true,
+            "upstream_busy" to true, "upstream_failed" to true,
+            "bad_json" to false, "invalid_field" to false, "duplicate" to false,
+            "request_too_large" to false, "too_many_images" to false, "image_too_large" to false,
+            "unsupported_media_type" to false, "image_type" to false, "image_corrupt" to false,
+            "not_configured" to false, "method_not_allowed" to true, "internal" to true,
+        )
+        for ((code, want) in retry) {
+            val f = out(400, code = code, msg = "m") as ReportForm.Outcome.Failed
+            assertEquals(code, want, f.retryable)
+        }
+    }
+
+    @Test
+    fun `the field the server named is shown when it refuses one`() {
+        val f = out(400, code = "invalid_field", msg = "The log must be text.") as ReportForm.Outcome.Failed
+        assertTrue(f.message.contains("The log must be text."))
+    }
+
+    @Test
+    fun `a rate limit says when to come back`() {
+        assertTrue((out(429, code = "rate_limited", after = 1800) as ReportForm.Outcome.Failed).message.contains("30 minutes"))
+        assertTrue((out(429, code = "rate_limited", after = 7200) as ReportForm.Outcome.Failed).message.contains("2 hours"))
+        assertTrue((out(429, code = "rate_limited") as ReportForm.Outcome.Failed).message.contains("later"))
+    }
+
+    @Test
+    fun `only https leaves the phone, loopback is the one exception`() {
+        assertTrue(ReportForm.endpointIsSafe("https://filet-report.vercel.app/api/report"))
+        assertTrue(ReportForm.endpointIsSafe("http://127.0.0.1:3000/api/report"))
+        assertTrue(ReportForm.endpointIsSafe("http://localhost:3000/api/report"))
+        assertFalse(ReportForm.endpointIsSafe("http://192.168.1.4:3000/api/report"))
+        assertFalse(ReportForm.endpointIsSafe("http://example.com/api/report"))
+        assertFalse(ReportForm.endpointIsSafe("ftp://x"))
     }
 
     @Test

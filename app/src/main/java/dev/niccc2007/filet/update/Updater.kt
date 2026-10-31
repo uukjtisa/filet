@@ -159,10 +159,11 @@ object Updater {
     /**
      * Fetch the APK, reporting progress.
      *
-     * Downloaded into `getExternalFilesDir("update")` rather than app-private internal
-     * storage: the package installer is a different process and has to be able to read the
-     * file through the FileProvider, and this location is the one already declared in
-     * `file_paths.xml`.
+     * Downloaded into the visible `Filet` folder rather than app-private storage. The
+     * package installer is a different process and has to read the file through the
+     * FileProvider, which `file_paths.xml` already covers for the whole external root - so
+     * being somewhere reachable costs nothing and means a download that then fails to install
+     * leaves a file somebody can find, check and delete instead of one they cannot.
      */
     fun download(context: Context, release: Release): Flow<Download> = flow {
         val url = release.apkUrl
@@ -170,7 +171,10 @@ object Updater {
             emit(Download.Failed("That release has no APK attached."))
             return@flow
         }
-        val target = File(context.getExternalFilesDir("update"), "filet-${release.tag}.apk")
+        val target = File(
+            dev.niccc2007.filet.data.FiletStore.dir(context, dev.niccc2007.filet.data.FiletStore.Area.UPDATES),
+            "filet-${release.tag}.apk",
+        )
         // A part-file from a previous attempt is worse than no file: the installer would
         // reject it with a parse error that reads like a corrupt release.
         target.delete()
@@ -224,7 +228,10 @@ object Updater {
     /** Clear anything left in the update folder. Called after a successful hand-off. */
     fun sweep(context: Context) {
         downloaded = null
-        runCatching { context.getExternalFilesDir("update")?.listFiles()?.forEach { it.delete() } }
+        runCatching {
+            dev.niccc2007.filet.data.FiletStore.dir(context, dev.niccc2007.filet.data.FiletStore.Area.UPDATES)
+                .listFiles()?.forEach { it.delete() }
+        }
     }
 
     // ── wire ──

@@ -414,21 +414,34 @@ class PlaybackService : Service() {
      */
     private suspend fun driftColour() {
         var wasOn = false
+        val ticking = dev.niccc2007.filet.log.FiletLog.loop("notification.drift", GLOW_TICK_MS)
         val power = getSystemService(android.os.PowerManager::class.java)
         while (true) {
-            val prefs = runCatching { FiletApp.graphOf(applicationContext).prefs }.getOrNull()
-            val on = prefs?.livingGlow?.value == true
+            // Always on now: the background's drift has no switch any more, because the
+            // coloured background is what the player looks like rather than an effect over it.
+            // See `Prefs.discGlow` for the switch that used to be here and what it means now.
+            val on = true
             val playing = lastState?.playing == true
             val interactive = power?.isInteractive != false
             if (PlaybackNotice.driftWanted(on, playing, interactive) || (wasOn && !on)) {
                 runCatching { post(lastState, lastArt) }
             }
             wasOn = on && playing
+            ticking.tick()
             delay(GLOW_TICK_MS)
         }
     }
 
     private fun post(state: NowPlaying?, art: android.graphics.Bitmap? = null) {
+        // Counted, because this is the call that cooked the phone.
+        //
+        // Every post is a binder call into system_server carrying a built notification and up
+        // to two bitmaps, and SystemUI redraws the shade on each one. It was being made on
+        // every state emission - five times a second off the position ticker, screen off
+        // included - which is what issue #8 actually was. The repost is throttled now, and a
+        // counter is how anybody confirms that from a phone that is warm rather than by
+        // reading the throttle and believing it.
+        dev.niccc2007.filet.log.FiletLog.count("notification.posted")
         val manager = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
@@ -520,9 +533,7 @@ class PlaybackService : Service() {
             // And the living glow's share of it: the hue a little further round the wheel on
             // each re-post, from the clock rather than from a counter, so the phase is right
             // whichever post this is. See ArtPalette.drift and driftColour.
-            val glowing = runCatching {
-                FiletApp.graphOf(applicationContext).prefs.livingGlow.value
-            }.getOrDefault(true) && state?.playing == true
+            val glowing = state?.playing == true
             val shade = if (glowing) ArtPalette.drift(ground, glowPhase()) else ground
             builder.setColor(0xFF000000.toInt() or shade)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

@@ -105,8 +105,25 @@ fun HaloBackdrop(
                     drawRect(base.copy(alpha = (FLAT * strength).coerceIn(0f, 0.5f)))
                     return@drawBehind
                 }
-                val grow = (1f + swing * BLOOM).coerceAtLeast(0.3f)
-                val lift = (1f + swing * FLARE).coerceAtLeast(0.2f)
+                // ONLY the positive half of the swing, and this is not a clamp for tidiness.
+                //
+                // Bug identified here: the background faded towards black while a track sat playing,
+                // and got worse the longer it sat. `swing` is `norm - mean`, and `mean` chases `norm`
+                // over a long window from a standing start of zero. `norm` spikes during a hit and
+                // rests near zero between them, so its TIME average is low - about a sixth - which
+                // means the resting swing starts at zero and sags to roughly -0.15 as the mean
+                // converges. Fed through `1f + swing * FLARE` that put the glow BELOW its resting
+                // brightness for most of every bar, sagging further over the first half-minute of the
+                // track until the coloured light had dropped out and the dark ground showed through.
+                //
+                // The measurement is untouched - the beat is still read against the track's own
+                // running average, which is D-01 and must not be undone. What changes is what the DRAW
+                // does with a trough: nothing at all. Rest is the floor, a beat rises from it, and the
+                // background is never dimmer than it is with the pulse switched off - which is the
+                // same guarantee D-01 was written to protect, now held at the other end.
+                val up = swing.coerceAtLeast(0f)
+                val grow = 1f + up * BLOOM
+                val lift = 1f + up * FLARE
                 val m = size.minDimension
                 glowBlob(lamps.brushes[0], lamps.alpha(0, lift), clock.phase(0), 0.62f, 0.34f, m * 1.25f * grow)
                 glowBlob(lamps.brushes[1], lamps.alpha(1, lift), clock.phase(1), 0.38f, 0.66f, m * 1.45f * grow)

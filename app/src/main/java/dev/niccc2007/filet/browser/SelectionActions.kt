@@ -48,6 +48,14 @@ data class SelectionShape(
     val playable: Int = 0,
     /** How many a gallery or music app could index: pictures, video and audio. */
     val media: Int = 0,
+    /**
+     * How many are AUDIO specifically.
+     *
+     * Distinct from [playable], which counts video too. A beat map is measured from a spectrum
+     * and means nothing for a film, so offering it over a selection of videos would be a row
+     * that runs and produces nothing anybody asked for.
+     */
+    val audio: Int = 0,
 ) {
     /** How many are files rather than folders. */
     val files: Int get() = count - folders
@@ -57,13 +65,15 @@ data class SelectionShape(
             var folders = 0
             var playable = 0
             var media = 0
+            var audio = 0
             for (n in nodes) {
                 val kind = FileKind.of(n)
                 if (kind == FileKind.FOLDER) folders++
+                if (kind == FileKind.AUDIO) audio++
                 if (kind == FileKind.AUDIO || kind == FileKind.VIDEO) playable++
                 if (kind == FileKind.AUDIO || kind == FileKind.VIDEO || kind == FileKind.IMAGE) media++
             }
-            return SelectionShape(nodes.size, folders, playable, media)
+            return SelectionShape(nodes.size, folders, playable, media, audio)
         }
 
         /** [count] plain files, none of them media. What a caller with no nodes in hand means. */
@@ -101,6 +111,9 @@ data class SelectionShape(
  * @param picking true while a pick is live. Delete is dropped: somebody who came to CHOOSE a file
  *   should not have a destructive action one tap from the one they meant.
  * @param announceable the selection is on this device's own storage, so the media index can hold it.
+ * @param elsewhere the one selected item lives somewhere other than the folder on screen - a
+ *   search hit, a category, New files - so Show in folder is a step somewhere rather than a
+ *   step to where it already is.
  */
 fun selectionActions(
     count: Int,
@@ -114,6 +127,7 @@ fun selectionActions(
     hasMetadata: Boolean = false,
     announceable: Boolean = false,
     shape: SelectionShape = SelectionShape.files(count),
+    elsewhere: Boolean = false,
 ): List<SelectionAction> {
     val single = shape.count == 1
     val oneFile = single && shape.files == 1
@@ -156,18 +170,27 @@ fun selectionActions(
                 blocked = readOnly, group = SelectionAction.Group.EDIT, run = on.compress,
             ),
         )
-        // The three extract destinations: one archive.
+        // One archive, one Extract.
+        //
+        // There were two rows, "Extract here" and "Extract to…", differing only in where the
+        // extraction pointed. The ghosts follow the folder now, so standing still is "here"
+        // and walking is "to" - the second row described a difference that no longer exists,
+        // and two rows for one action is two things to read before choosing.
         if (archive) {
+            // NOT blocked by this folder being read-only, and that is deliberate.
+            //
+            // "Extract here" was blocked and "Extract to..." was not, because the second one
+            // put the files somewhere else. Merging them naively would have taken that with
+            // it: browsing an archive inside a read-only volume - which is exactly when
+            // extracting elsewhere is wanted - would have left the only row greyed out.
+            //
+            // So the row always starts, and the DESTINATION decides. The card refuses, names
+            // the volume, and goes live the moment you walk somewhere writable. A refusal that
+            // can be answered by moving belongs where the moving happens.
             add(
                 SelectionAction(
-                    "extracthere", "Extract here", icons.zip,
-                    blocked = readOnly, group = SelectionAction.Group.EDIT, run = on.extractHere,
-                ),
-            )
-            add(
-                SelectionAction(
-                    "extractto", "Extract to…", icons.open,
-                    group = SelectionAction.Group.EDIT, run = on.extractTo,
+                    "extract", "Extract", icons.zip,
+                    group = SelectionAction.Group.EDIT, run = on.extractHere,
                 ),
             )
             if (otherPane) {
@@ -213,6 +236,21 @@ fun selectionActions(
                 ),
             )
         }
+        // Measuring the beat, for audio alone.
+        //
+        // Here rather than only inside the player, which is where it used to be reachable and
+        // only for the track already open: the useful moment is before anything is playing,
+        // over a folder of tracks, so the pulse is ready when they are opened rather than
+        // measured one at a time while somebody waits. It runs away from any screen - see
+        // `BeatMaker` - so this row starts it and nothing has to stay open.
+        if (shape.audio > 0) {
+            add(
+                SelectionAction(
+                    "beatmap", partOf("Make beat maps", shape.audio), icons.audio,
+                    group = SelectionAction.Group.EDIT, run = on.makeBeatMaps,
+                ),
+            )
+        }
         // Details describe one item, file or folder.
         if (single) {
             add(
@@ -221,6 +259,25 @@ fun selectionActions(
                     group = SelectionAction.Group.EDIT, run = on.details,
                 ),
             )
+        }
+        // Any number of files and folders, one path a line - what is wanted on the way to pasting
+        // them into a script.
+        on.copyPath?.let { run ->
+            add(SelectionAction("copypath", "Copy as path", icons.copy, group = SelectionAction.Group.EDIT, run = run))
+        }
+        // Here and not in the top bar's menu, which carried it, with Copy as path, Select all and
+        // the create rows, all through a selection. Bug identified here: the selection had two
+        // menus offering overlapping halves of one list, and the top one also offered New file
+        // in the middle of choosing files. The selection's actions are this list, wherever it
+        // is drawn.
+        on.invert?.let { run ->
+            add(SelectionAction("invert", "Invert selection", icons.invert, group = SelectionAction.Group.EDIT, run = run))
+        }
+        // Only where it goes somewhere: from a folder, the item is already in its folder.
+        if (single && elsewhere) {
+            on.reveal?.let { run ->
+                add(SelectionAction("reveal", "Show in folder", icons.folder, group = SelectionAction.Group.PLACE, run = run))
+            }
         }
         // Bookmark and Nearby take any number of files and folders.
         add(
@@ -275,6 +332,8 @@ data class SelectionIcons(
     val cog: ImageVector,
     val audio: ImageVector,
     val rows: ImageVector,
+    val folder: ImageVector = open,
+    val invert: ImageVector = rows,
 )
 
 /** What each action does. Separate from the list so the list can be built in a test. */
@@ -291,11 +350,16 @@ data class SelectionCallbacks(
     val nearby: () -> Unit,
     val shortcut: () -> Unit,
     val extractHere: () -> Unit = {},
-    val extractTo: () -> Unit = {},
     val extractToOtherPane: () -> Unit = {},
     val install: () -> Unit = {},
     val metadata: () -> Unit = {},
     val announce: () -> Unit = {},
     val addToPlaylist: () -> Unit = {},
+    val makeBeatMaps: () -> Unit = {},
     val enqueue: () -> Unit = {},
+    // Null where a surface does not offer the row at all, rather than an empty lambda that would
+    // draw a row which does nothing.
+    val copyPath: (() -> Unit)? = null,
+    val invert: (() -> Unit)? = null,
+    val reveal: (() -> Unit)? = null,
 )

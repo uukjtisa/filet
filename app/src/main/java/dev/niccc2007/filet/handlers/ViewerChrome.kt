@@ -72,7 +72,29 @@ object ViewerChrome {
  *
  * Restored on dispose rather than on a back press, so it is put right however the screen is left -
  * including by a gesture, a crash in a child composable, or the activity being recreated.
+ *
+ * **One owner in a run.** Inside [ViewerRunHost] the host holds the bars for the whole swipe and
+ * every viewer and poster in it stands down. Each page holding them itself was a flicker on every
+ * swipe: the page leaving put the bars back as it went, the page arriving hid them again a frame
+ * later, and the status bar was seen dropping in and out between the two. `owner` is how the host
+ * claims them past its own [LocalViewerRun].
  */
+/**
+ * What a picture is shown on.
+ *
+ * Black by default: it is what every gallery shows a photo on, it disappears around the picture,
+ * and on an OLED screen it is the screen switched off. Grey is the one alternative worth having:
+ * a neutral ground does not make a dark picture's shadows look lighter by contrast the way black
+ * does, which is why photo editors stand pictures on grey. Not the theme's own background - that
+ * is white in the light theme, and a photo on white has its edges swallowed by the glare.
+ */
+object ViewerGround {
+    val BLACK = androidx.compose.ui.graphics.Color(0xFF000000)
+    val GREY = androidx.compose.ui.graphics.Color(0xFF303030)
+
+    fun of(grey: Boolean) = if (grey) GREY else BLACK
+}
+
 @Composable
 fun ImmersiveViewer(
     active: Boolean = true,
@@ -86,7 +108,9 @@ fun ImmersiveViewer(
      * corner instead of stopping under a black bar.
      */
     statusOnly: Boolean = false,
+    owner: Boolean = false,
 ) {
+    if (!owner && LocalViewerRun.current != null) return
     val context = LocalContext.current
     DisposableEffect(active, statusOnly, context) {
         val window = (context as? Activity)?.window

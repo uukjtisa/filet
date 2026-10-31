@@ -119,7 +119,12 @@ class PrefsCoverageTest {
         // because it scales the onset BEFORE the detector and so decides WHICH beats fire,
         // while `pulseDepth` scales after and decides how far they move. One cannot stand in
         // for the other, which is what the collapse to a single slider got wrong.
-        val flows = listOf("navWhileSelecting", "hideTermux", "waveRest", "waveSize", "drag")
+        // `livingGlow` is here because the background glow stopped being switchable: the
+        // coloured background is what the player looks like, and "how much" - `glowStrength` -
+        // was always the real question. Its switch is now over the DISC's glow instead, under
+        // its own name, so a leftover read of the old flow would be a control nothing serves.
+        val flows =
+            listOf("navWhileSelecting", "hideTermux", "waveRest", "waveSize", "drag", "livingGlow")
         val types = listOf("NavDuringSelection", "setDragBehaviour", "settingsSummary")
         val prefs = prefsFile.readText()
         val rest = others()

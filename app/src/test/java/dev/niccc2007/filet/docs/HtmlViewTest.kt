@@ -168,4 +168,23 @@ class HtmlViewTest {
         val out = HtmlOrigin.forReader("<meta name=viewport content=\"width=device-width\">")
         assertEquals("<meta name=viewport content=\"width=device-width, user-scalable=yes\">", out)
     }
+
+    @Test
+    fun `a page's own address leads back to the page whatever its name, which is how the editor's text is found`() {
+        // The editor's Render serves its unsaved text for the request that resolves to the file,
+        // so a name that did not survive the trip would show the stored copy, or nothing.
+        for (name in listOf("my page (2).html", "é + ü%.htm", "100% #1?.xhtml", "a;b=c.html")) {
+            val page = folder.child(name)
+            assertEquals(name, page, HtmlOrigin.resolve(folder, HtmlOrigin.entryUrl(page)))
+        }
+    }
+
+    @Test
+    fun `the editor offers a page for exactly the kinds the viewer opens, each served as a page`() {
+        assertTrue(DocFormat.EXTENSIONS.containsAll(HTML_EXTENSIONS))
+        for (ext in HTML_EXTENSIONS) {
+            val mime = HtmlOrigin.mimeOf("x.$ext")
+            assertTrue("$ext as $mime", mime == "text/html" || mime == "application/xhtml+xml")
+        }
+    }
 }

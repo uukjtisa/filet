@@ -116,8 +116,8 @@ fun SupportCard(onOpen: (String) -> Unit) {
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                "Free and open source, always. Nothing is locked — this covers the test " +
-                    "devices and the hours.",
+                "Free and open source, always. Nothing is locked — Any value helps especially for a student like me. " +
+                    "You could help my daily: Public transportation, food, and school supplies/materials.",
                 fontSize = 10.5.sp,
                 lineHeight = 15.sp,
                 color = colors.fg2,

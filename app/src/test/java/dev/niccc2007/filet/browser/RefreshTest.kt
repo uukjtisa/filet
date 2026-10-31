@@ -23,6 +23,16 @@ class RefreshTest {
         }
     }
 
+    @Test fun every_pane_that_refreshes_also_pulls_to_refresh() {
+        // The gesture was attached to the folder list alone, so Home, the categories and New
+        // files had the button and not the pull. It is read off the plan now; this pins that
+        // nothing with something to re-read is left out of it.
+        for (kind in PaneKind.entries) {
+            assertEquals("$kind", refreshPlan(kind).targets.isNotEmpty(), pullsToRefresh(kind))
+            assertTrue("$kind refreshes but cannot be pulled", pullsToRefresh(kind))
+        }
+    }
+
     @Test fun a_folder_re_lists_itself() {
         assertEquals(setOf(RefreshTarget.LISTING), refreshPlan(PaneKind.FOLDER).targets)
     }

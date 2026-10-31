@@ -33,12 +33,34 @@ data class PullState(
 object EdgePull {
 
     /**
-     * How far past the end counts as asking, in density-independent pixels.
+     * How far past the end counts as asking, in density-independent pixels of FINGER travel.
      *
-     * Roughly a thumb's travel. Short enough to be easy on purpose, long enough that the
-     * rubber-banding at the end of a fast flick does not reach it.
+     * Was 72, with nothing drawn, and it fired on pulls nobody meant: 72dp of leftover scroll
+     * is reached by the tail of an ordinary flick that lands on an end. Now it is a deliberate
+     * pull the way Chrome's is - the indicator rides out at half the finger's speed
+     * ([indicatorOffset]) and fills as it goes, so the finger sees how far is left and can back
+     * off before it counts.
      */
-    const val THRESHOLD_DP = 72f
+    const val THRESHOLD_DP = 150f
+
+    /** How far the indicator may travel in from the edge, in dp. */
+    const val MAX_TRAVEL_DP = 96f
+
+    /** How full the pull is, 0 to 1. The indicator's arc and opacity are drawn from this. */
+    fun progress(distance: Float, threshold: Float): Float =
+        if (threshold <= 0f) 1f else (distance / threshold).coerceIn(0f, 1f)
+
+    /**
+     * Where the indicator sits, in px from the edge, for a finger [distance] past the end.
+     *
+     * Half the finger's travel, eased into [maxTravel] so it slows as it nears the cap instead
+     * of hitting a wall - the resistance that makes the pull feel like it is being stretched.
+     * Never decreases with distance, and never passes the cap.
+     */
+    fun indicatorOffset(distance: Float, maxTravel: Float): Float {
+        if (distance <= 0f || maxTravel <= 0f) return 0f
+        return maxTravel * (1f - kotlin.math.exp(-0.5f * distance / maxTravel))
+    }
 
     /**
      * Fold one scroll delta into the pull.

@@ -16,8 +16,8 @@ import java.io.InputStream
  *
  * Three questions, in the order a save asks them:
  *
- *  1. [refusalFor] - can this archive hold the edit at all? (encrypted, or a format Filet only
- *     reads.) A refusal here is not a failure to apologise for: it is the difference between
+ *  1. [refusalFor] - can this archive hold the edit at all? (encrypted, a format Filet only
+ *     reads, or a staged copy of one on a share.) A refusal here is not a failure to apologise for: it is the difference between
  *     saying no and destroying an archive.
  *  2. [costOf] - what will it cost? One entry, or all of them.
  *  3. [replace] - do it.
@@ -34,8 +34,17 @@ object ArchiveEdits {
     fun modeFor(member: VPath): EditMode =
         ArchiveCapabilities.editModeFor(File(archiveOf(member)).name)
 
-    /** Why the edit cannot be saved back, or null when it can. */
-    fun refusalFor(member: VPath): String? = EditCosts.refusalFor(File(archiveOf(member)))
+    /**
+     * Why the edit cannot be saved back, or null when it can.
+     *
+     * @param stagedUnder the folders staged copies of remote archives live in. Bug identified
+     *   here: a member of an archive opened from a share saved into the staged copy, reported
+     *   success, and left the archive on the share as it was.
+     */
+    fun refusalFor(member: VPath, stagedUnder: List<String> = emptyList()): String? {
+        val file = File(archiveOf(member))
+        return ArchiveWrites.stagedRefusal(file, stagedUnder) ?: EditCosts.refusalFor(file)
+    }
 
     /** How much of the archive gets rewritten. */
     @Throws(IOException::class)
@@ -53,11 +62,11 @@ object ArchiveEdits {
      * check is here and not only in the caller.
      */
     @Throws(IOException::class)
-    fun replace(member: VPath, open: () -> InputStream) {
+    fun replace(member: VPath, stagedUnder: List<String> = emptyList(), open: () -> InputStream) {
         val (archive, inner) = ArchiveProvider.split(member)
         if (inner.isEmpty()) throw IOException("that is the archive itself, not a file inside it")
         val file = File(archive)
-        EditCosts.refusalFor(file)?.let { throw IOException(it) }
+        (ArchiveWrites.stagedRefusal(file, stagedUnder) ?: EditCosts.refusalFor(file))?.let { throw IOException(it) }
         ArchiveEditor.replace(file, inner, open)
     }
 

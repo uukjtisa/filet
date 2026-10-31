@@ -22,7 +22,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +33,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.niccc2007.filet.data.Bookmark
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgPick
 import dev.niccc2007.filet.ui.tabs.DayBuckets
 import dev.niccc2007.filet.ui.tabs.DayLabel
 import dev.niccc2007.filet.ui.tabs.EmptyTab
@@ -52,10 +59,16 @@ import java.util.Locale
  */
 @Composable
 fun BookmarksBody(vm: BrowserViewModel, pane: PaneController) {
-    val items by vm.bookmarks.items.collectAsState()
-    LazyColumn(Modifier.fillMaxSize()) {
+    val all by vm.bookmarks.items.collectAsState()
+    // Narrowed by the pane's search box: name or where it is.
+    val query = dev.niccc2007.filet.ui.LocalPaneQuery.current
+    val items = remember(all, query) { all.filter { dev.niccc2007.filet.ui.TextMatch.matches(query, it.label, it.path.path) } }
+    var menuFor by remember { mutableStateOf<Bookmark?>(null) }
+    menuFor?.let { b -> BookmarkMenu(vm, b) { menuFor = null } }
+    LazyColumn(Modifier.fillMaxSize(), state = rememberKeptListState("bookmarks")) {
         item { TabHeader("Bookmarks") }
-        if (items.isEmpty()) {
+        if (items.isEmpty() && all.isNotEmpty()) item { dev.niccc2007.filet.ui.NoMatch(query) }
+        if (all.isEmpty()) {
             item {
                 EmptyTab(
                     FiletIcons.Star,
@@ -77,8 +90,45 @@ fun BookmarksBody(vm: BrowserViewModel, pane: PaneController) {
                 sub = b.path.path,
                 accent = b.isDir == true,
                 onClick = { vm.openPlace(b.path, b.isDir, pane) },
-                onLongClick = { vm.bookmarks.remove(b.path); vm.toast("Bookmark removed") },
+                onLongClick = { menuFor = b },
+                trailing = if (b.quickAt > 0) {
+                    { Icon(FiletIcons.Pin, "In Quick access", tint = Filet.colors.fg3, modifier = Modifier.size(14.dp)) }
+                } else {
+                    null
+                },
             )
+        }
+    }
+}
+
+/**
+ * Hold a bookmark: Quick access in or out, or remove it. A hold used to delete outright, which
+ * left no way to say anything else about a bookmark - and Quick access is managed here and
+ * nowhere else. Files are never offered Quick access; see `QuickAccess`.
+ */
+@Composable
+private fun BookmarkMenu(vm: BrowserViewModel, b: Bookmark, onClose: () -> Unit) {
+    Dlg(onDismiss = onClose) {
+        DlgHeader(
+            icon = if (b.isDir == false) FiletIcons.File else FiletIcons.Folder,
+            title = b.label,
+            sub = b.path.path,
+            onClose = onClose,
+        )
+        DlgBody {
+            if (b.isDir != false) {
+                val inQuick = b.quickAt > 0
+                DlgPick(FiletIcons.Pin, if (inQuick) "Remove from Quick access" else "Add to Quick access") {
+                    onClose()
+                    vm.bookmarks.setQuick(b.path, !inQuick)
+                    vm.toast(if (inQuick) "Removed from Quick access" else "Added to Quick access")
+                }
+            }
+            DlgPick(FiletIcons.Delete, "Remove bookmark") {
+                onClose()
+                vm.bookmarks.remove(b.path)
+                vm.toast("Bookmark removed")
+            }
         }
     }
 }
@@ -86,19 +136,24 @@ fun BookmarksBody(vm: BrowserViewModel, pane: PaneController) {
 /** Recently opened, newest first. Survives with no index at all, which is why it exists. */
 @Composable
 fun RecentBody(vm: BrowserViewModel, pane: PaneController) {
-    val items by vm.recents.items.collectAsState()
+    val all by vm.recents.items.collectAsState()
+    val query = dev.niccc2007.filet.ui.LocalPaneQuery.current
+    val items = remember(all, query) {
+        all.filter { dev.niccc2007.filet.ui.TextMatch.matches(query, it.label.ifEmpty { it.path.name }, it.path.path) }
+    }
     // Read once per list rather than per row, so a list that straddles midnight while it is on
     // screen cannot put two entries from the same minute under two different headings.
-    val now = remember(items) { System.currentTimeMillis() }
-    LazyColumn(Modifier.fillMaxSize()) {
+    val now = remember(all) { System.currentTimeMillis() }
+    LazyColumn(Modifier.fillMaxSize(), state = rememberKeptListState("recent")) {
         item {
             TabHeader("Recently opened") {
-                TabButton("Clear", FiletIcons.Delete, enabled = items.isNotEmpty()) {
+                TabButton("Clear", FiletIcons.Delete, enabled = all.isNotEmpty()) {
                     vm.recents.clear(); vm.toast("Recent list cleared")
                 }
             }
         }
-        if (items.isEmpty()) {
+        if (items.isEmpty() && all.isNotEmpty()) item { dev.niccc2007.filet.ui.NoMatch(query) }
+        if (all.isEmpty()) {
             item {
                 EmptyTab(
                     FiletIcons.Clock,
@@ -140,36 +195,6 @@ fun RecentBody(vm: BrowserViewModel, pane: PaneController) {
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-private fun PlaceRow(
-    title: String,
-    subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    trailing: String,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-) {
-    val colors = Filet.colors
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, tint = colors.accent, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(11.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
-            Text(subtitle, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = colors.fg3, fontFamily = FontFamily.Monospace)
-        }
-        if (trailing.isNotEmpty()) {
-            Text(trailing, fontSize = 10.sp, color = colors.fg3)
-        }
-    }
-}
-
 /**
  * A section heading used by the Home overview and the rail.
  *
@@ -191,32 +216,6 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/**
- * A capacity bar, coloured by how full it is.
- *
- * The same gauge the storage tiles draw, from the same spectrum, so a drive reads the same in
- * the places row as it does on the home screen. See [Capacity].
- */
-@Composable
-fun CapacityBar(fraction: Float, modifier: Modifier = Modifier) {
-    val colors = Filet.colors
-    val f = fraction.coerceIn(0f, 1f)
-    Box(
-        modifier
-            .fillMaxWidth()
-            .height(4.dp)
-            .clip(RoundedCornerShape(3.dp))
-            .background(colors.lineSoft),
-    ) {
-        Box(
-            Modifier
-                .fillMaxWidth(f)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(3.dp))
-                .background(Capacity.colourAt(f)),
-        )
-    }
-}
 
 private val STAMP = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
 

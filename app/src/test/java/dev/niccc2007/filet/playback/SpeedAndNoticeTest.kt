@@ -160,10 +160,10 @@ class SpeedAndNoticeTest {
     }
 
     @Test
-    fun `auto is the default, because it is the one that is never unintelligible`() {
-        assertEquals(PitchMode.AUTO, PitchMode.DEFAULT)
-        assertEquals(PitchMode.AUTO, PitchMode.of(null))
-        assertEquals(PitchMode.AUTO, PitchMode.of("nonsense"))
+    fun `follow is the default, because it is the one with no artefacts at any speed`() {
+        assertEquals(PitchMode.FOLLOW, PitchMode.DEFAULT)
+        assertEquals(PitchMode.FOLLOW, PitchMode.of(null))
+        assertEquals(PitchMode.FOLLOW, PitchMode.of("nonsense"))
         for (m in PitchMode.entries) assertEquals(m, PitchMode.of(m.id))
     }
 

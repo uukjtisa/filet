@@ -241,6 +241,12 @@ internal object MemberCache {
                 size > CAPACITY
         })
 
+    /** Drop every listing of [file], for an archive just rewritten. */
+    fun forget(file: File) {
+        val prefix = file.absolutePath + "|"
+        synchronized(map) { map.keys.removeAll { it.startsWith(prefix) } }
+    }
+
     fun get(file: File, build: () -> List<Member>): List<Member> {
         val key = "${file.absolutePath}|${file.length()}|${file.lastModified()}"
         map[key]?.let { return it }

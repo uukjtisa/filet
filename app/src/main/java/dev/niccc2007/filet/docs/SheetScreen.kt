@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -48,11 +49,14 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -125,17 +129,37 @@ fun SheetScreen(vm: BrowserViewModel, node: VNode) {
             onClose = vm::closeHandler,
         )
 
-        is SheetOpen.Ready -> WorkbookView(o.book, onElsewhere = { vm.openExternally(node, force = true) })
+        is SheetOpen.Ready -> WorkbookView(o.book, node, onElsewhere = { vm.openExternally(node, force = true) })
     }
 }
 
 @Composable
-private fun WorkbookView(book: Workbook, onElsewhere: () -> Unit) {
+private fun WorkbookView(book: Workbook, node: VNode, onElsewhere: () -> Unit) {
     val colors = Filet.colors
+    val context = LocalContext.current
     // The first tab a person would see. A hidden first sheet is common in exported workbooks
     // (lookup tables, macros) and is never the one the file was opened to read.
-    var index by remember(book) {
-        mutableIntStateOf(book.sheets.indexOfFirst { !it.hidden && !it.chart }.coerceAtLeast(0))
+    val opening = remember(book) { book.sheets.indexOfFirst { !it.hidden && !it.chart }.coerceAtLeast(0) }
+    var index by remember(book) { mutableIntStateOf(opening) }
+
+    // The reading spot: a sheet, a row and a column. The workbook saves it, because only the
+    // workbook knows the tab; the grid on screen says where it is, and goes where it is sent.
+    val place = remember(book) { SheetPlace() }
+    val saved = rememberSavedSpot(node.path.toString(), SpotKind.ROW)
+    SaveSpotOnLeave(node.path) {
+        val at = place.read?.invoke() ?: return@SaveSpotOnLeave
+        val path = node.path.toString()
+        val name = book.sheets.getOrNull(at.part)?.name ?: return@SaveSpotOnLeave
+        ReadingSpots.of(context).left(path, SpotKind.ROW, top = at.part == opening && at.top, end = false) {
+            ReadingSpot(
+                path, SpotKind.ROW,
+                item = at.row,
+                part = at.part,
+                column = at.column,
+                label = name + " · " + CellRef.name(at.column) + (at.row + 1),
+                stamp = node.mtime,
+            )
+        }
     }
     var sheet by remember(book) { mutableStateOf<Sheet?>(null) }
     // The workbook's, not the sheet's: switching tabs keeps it, and a new file is a new `book`
@@ -150,36 +174,43 @@ private fun WorkbookView(book: Workbook, onElsewhere: () -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        if (book.sheets.size > 1) {
-            SheetTabs(book.sheets, index) { index = it }
-        }
-        val current = sheet
-        when {
-            current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(strokeWidth = 2.dp)
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            if (book.sheets.size > 1) {
+                SheetTabs(book.sheets, index) { index = it }
             }
-
-            current.empty -> Column(
-                Modifier.fillMaxSize().padding(28.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    current.note ?: "This sheet is empty.",
-                    fontSize = 12.sp,
-                    color = colors.fg3,
-                    textAlign = TextAlign.Center,
-                )
-                if (book.sheets[index].chart) {
-                    Spacer(Modifier.height(14.dp))
-                    Pill("Open in another app", onElsewhere)
+            val current = sheet
+            when {
+                current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(strokeWidth = 2.dp)
                 }
-            }
 
-            // Keyed by sheet, so the scroll position and the selected cell belong to the sheet
-            // they were made on and do not carry over to the next tab.
-            else -> key(index) { SheetGrid(current, zoom) { zoom = it } }
+                current.empty -> Column(
+                    Modifier.fillMaxSize().padding(28.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        current.note ?: "This sheet is empty.",
+                        fontSize = 12.sp,
+                        color = colors.fg3,
+                        textAlign = TextAlign.Center,
+                    )
+                    if (book.sheets[index].chart) {
+                        Spacer(Modifier.height(14.dp))
+                        Pill("Open in another app", onElsewhere)
+                    }
+                }
+
+                // Keyed by sheet, so the scroll position and the selected cell belong to the sheet
+                // they were made on and do not carry over to the next tab.
+                else -> key(index) { SheetGrid(current, zoom, place, index) { zoom = it } }
+            }
+        }
+        SpotCard(saved, Modifier.align(Alignment.TopEnd)) { s ->
+            val part = s.part.coerceIn(0, book.sheets.size - 1)
+            place.go = SheetGo(part, s.item, s.column)
+            index = part
         }
     }
 }
@@ -288,10 +319,45 @@ private class GridPlan(sheet: Sheet) {
 private const val ROW_DP = 30f
 private const val HEAD_DP = 22f
 
-/** An offset waiting for the layout at a new scale, so it is applied against the new bounds. */
+/**
+ * Where a grid is, for the reading spot. [top] is the first row and column on screen.
+ *
+ * [part] is the grid's own sheet, not the tab the workbook has moved to: between a tab tap and
+ * the new sheet arriving, the grid on screen is still the old one, and a spot saved in that
+ * moment belongs to the sheet it was read from.
+ */
+private class SheetAt(val part: Int, val row: Int, val column: Int, val top: Boolean)
+
+/** A saved spot to scroll to once sheet [part] is on screen. */
+private class SheetGo(val part: Int, val row: Int, val column: Int)
+
+/** Between the workbook and the grid on screen: where the grid is, and where it is sent. */
+private class SheetPlace {
+    var read: (() -> SheetAt)? = null
+    var go by mutableStateOf<SheetGo?>(null)
+}
+
+/**
+ * A sideways offset waiting for the layout at a new scale. Only one past the old width waits:
+ * the scroll state cannot hold an offset its content does not reach yet.
+ */
 private class PendingScroll {
     var x = -1f
-    var y = -1f
+}
+
+/**
+ * The grid's size on screen, and the zoom a landing has asked for and the layout has not caught
+ * up with. Held, not state: the pinch reads them between frames and nothing draws from them.
+ */
+private class GridBox {
+    var width = 0
+    var height = 0
+
+    /** Set by a landing mid-pinch; the touch events before the new layout are held until then. */
+    var landingAt = -1f
+
+    /** Their ratios, multiplied, so the fingers lose none of what they did while held. */
+    var held = 1f
 }
 
 /**
@@ -303,6 +369,9 @@ private class PendingScroll {
  * header - because a spreadsheet zoomed by enlarging text inside fixed columns clips every cell
  * and reads worse than no zoom at all. Bounds and the double-tap cycle are [SheetZoom].
  *
+ * While the fingers are down the grid is a picture of itself being scaled, and it is laid out at
+ * the new size once, when they lift. Laying it out every frame is the lag [SheetPinch] records.
+ *
  * All four quadrants take their pixel positions from one [SheetGeometry] at one scale. The
  * frozen strips and the body each sizing themselves from dp would round differently, and the
  * letters would drift off their columns a pixel at a time.
@@ -313,7 +382,7 @@ private class PendingScroll {
  * here rather than by a detector that would have to own every tap to see the second one.
  */
 @Composable
-private fun SheetGrid(sheet: Sheet, zoom: Float, onZoom: (Float) -> Unit) {
+private fun SheetGrid(sheet: Sheet, zoom: Float, place: SheetPlace, part: Int, onZoom: (Float) -> Unit) {
     val colors = Filet.colors
     val density = LocalDensity.current
     val plan = remember(sheet) { GridPlan(sheet) }
@@ -336,41 +405,117 @@ private fun SheetGrid(sheet: Sheet, zoom: Float, onZoom: (Float) -> Unit) {
     }
     val freeze = colors.fg3.copy(alpha = 0.55f)
 
-    // Zooming about a point: the new offsets are worked out against the OLD scale and applied
-    // after the next layout, when the scroll states know the new extent. Applied at once, the
-    // horizontal one would be clamped to the old width and the zoom would jump.
+    // The pinch in flight. Read only by the grid's layer, so a pinch frame redraws the grid and
+    // composes nothing.
+    var live by remember { mutableStateOf(SheetPinch()) }
     val pending = remember { PendingScroll() }
+    val box = remember { GridBox() }
     val zoomRef = rememberUpdatedState(zoom)
     val geoRef = rememberUpdatedState(geo)
     val zoomChange = rememberUpdatedState(onZoom)
     val unscaledPx = remember(plan, density) {
         (plan.pinCols until plan.columns).sumOf { plan.widths[it].toDouble() }.toFloat() * density.density
     }
-    val zoomTo: (Float, Offset) -> Unit = { target, at ->
+    val ceiling = SheetZoom.clamp(SheetZoom.MAX, unscaledPx)
+
+    fun bandAt(scale: Float, g: SheetGeometry): Int =
+        Math.round(HEAD_DP * scale * density.density) + plan.pinRows * rowPxAt(scale) +
+            (if (plan.pinRows > 0) g.freeze else 0)
+
+    // Both directions of the grid as it is laid out now.
+    fun axes(): Pair<SheetAxis, SheetAxis> {
+        val z = zoomRef.value
+        val g = geoRef.value
+        val row = rowPxAt(z)
+        val scrollY = list.firstVisibleItemIndex.toFloat() * row + list.firstVisibleItemScrollOffset
+        return SheetAxis(h.value.toFloat(), g.movingLeft.toFloat(), g.total.toFloat(), box.width.toFloat()) to
+            SheetAxis(scrollY, bandAt(z, g).toFloat(), plan.body.size.toFloat() * row, box.height.toFloat())
+    }
+
+    // Landing: the zoom the picture showed, and the scroll that puts every cell where the
+    // picture had it, set together so the frame that lays out the new size draws it in place.
+    // The list takes its position at its next measure. The sideways one is set at once unless it
+    // is past the old width, which only the new layout makes room for; that one waits a frame.
+    val land: (SheetPinch) -> Unit = land@{ p ->
+        live = SheetPinch()
+        if (p.idle) return@land
         val from = zoomRef.value
-        val to = SheetZoom.clamp(target, unscaledPx)
+        val to = SheetZoom.clamp(from * p.scale, unscaledPx)
+        val (across, down) = axes()
+        val after = SheetGeometry(plan.widths, plan.gutter, plan.pinCols, to, density.density)
+        val row = rowPxAt(to)
+        val bandAfter = bandAt(to, after)
+        val s = p.copy(scale = to / from)
+        val farX = (after.total - (box.width - after.movingLeft)).coerceAtLeast(0)
+        val farY = (plan.body.size * row - (box.height - bandAfter)).coerceAtLeast(0)
+        val x = Math.round(s.lands(across, after.movingLeft.toFloat(), p.x)).coerceIn(0, farX)
+        val y = Math.round(s.lands(down, bandAfter.toFloat(), p.y)).coerceIn(0, farY)
         if (to != from) {
-            val g = geoRef.value
-            val band = Math.round(HEAD_DP * from * density.density) + plan.pinRows * rowPxAt(from) +
-                (if (plan.pinRows > 0) g.freeze else 0)
-            val scrollY = list.firstVisibleItemIndex.toFloat() * rowPxAt(from) + list.firstVisibleItemScrollOffset
-            pending.x = SheetZoom.offsetAbout(h.value.toFloat(), (at.x - g.movingLeft).coerceAtLeast(0f), from, to)
-            pending.y = SheetZoom.offsetAbout(scrollY, (at.y - band).coerceAtLeast(0f), from, to)
+            box.landingAt = to
             zoomChange.value(to)
         }
+        list.requestScrollToItem(y / row, y % row)
+        h.dispatchRawDelta((x - h.value).toFloat())
+        pending.x = if (h.value == x) -1f else x.toFloat()
     }
     LaunchedEffect(zoom) {
         if (pending.x < 0f) return@LaunchedEffect
         withFrameNanos { }
         h.scrollTo(Math.round(pending.x))
-        val y = Math.round(pending.y)
-        val row = rowPxAt(zoom)
-        list.scrollToItem(y / row, y % row)
         pending.x = -1f
-        pending.y = -1f
     }
-    val pinch = rememberUpdatedState { factor: Float, at: Offset -> zoomTo(zoomRef.value * factor, at) }
-    val doubleTap = rememberUpdatedState { at: Offset -> zoomTo(SheetZoom.doubleTap(zoomRef.value), at) }
+    // The reading spot. Read through held objects, so the workbook can ask after this has gone.
+    SideEffect {
+        place.read = {
+            val i = list.firstVisibleItemIndex
+            val row = when (val line = plan.body.getOrNull(i)) {
+                is Line.Data -> line.index
+                is Line.Gap -> line.from
+                null -> plan.pinRows
+            }
+            val starts = geoRef.value.starts
+            val k = starts.lastIndexAtOrBelow(h.value).coerceAtLeast(0)
+            SheetAt(part, row, if (h.value == 0) 0 else plan.pinCols + k, top = i == 0 && h.value == 0)
+        }
+    }
+    val go = place.go
+    LaunchedEffect(go) {
+        if (go == null || go.part != part) return@LaunchedEffect
+        // A frame first, so the scroll states know the grid's extent and nothing is clamped to 0.
+        withFrameNanos { }
+        val at = plan.body.indexOfFirst {
+            (it is Line.Data && it.index >= go.row) || (it is Line.Gap && go.row < it.from + it.count)
+        }
+        list.scrollToItem(if (at >= 0) at else (plan.body.size - 1).coerceAtLeast(0))
+        val starts = geoRef.value.starts
+        val k = go.column - plan.pinCols
+        h.scrollTo(if (k <= 0 || starts.isEmpty()) 0 else starts[k.coerceAtMost(starts.size - 1)])
+        // Cleared last: clearing it recomposes, which would cancel this before it had scrolled.
+        place.go = null
+    }
+    val pinch = rememberUpdatedState { factor: Float, at: Offset ->
+        // After a landing mid-pinch, the events before the new layout would be read against the
+        // old one. Their ratios are kept and spent on the first event that sees the new one.
+        if (box.landingAt >= 0f && zoomRef.value != box.landingAt) {
+            box.held *= factor
+        } else {
+            box.landingAt = -1f
+            val ratio = factor * box.held
+            box.held = 1f
+            val (across, down) = axes()
+            val next = live.by(ratio, at.x, at.y, zoomRef.value, SheetZoom.MIN, ceiling).held(across, down)
+            if (next.outOfRows) land(next) else live = next
+        }
+    }
+    val lift = rememberUpdatedState {
+        box.held = 1f
+        if (!live.idle) land(live)
+    }
+    val doubleTap = rememberUpdatedState { at: Offset ->
+        val from = zoomRef.value
+        val (across, down) = axes()
+        land(SheetPinch().by(SheetZoom.doubleTap(from) / from, at.x, at.y, from, SheetZoom.MIN, ceiling).held(across, down))
+    }
 
     val cellAt: @Composable (Line.Data, Int, Boolean) -> Unit = { line, col, pinned ->
         CellBox(
@@ -424,21 +569,31 @@ private fun SheetGrid(sheet: Sheet, zoom: Float, onZoom: (Float) -> Unit) {
                         var pinched = false
                         var moved = false
                         var upAt = down.uptimeMillis
-                        while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Initial)
-                            if (event.changes.count { it.pressed } >= 2) {
-                                pinched = true
-                                val factor = event.calculateZoom()
-                                if (factor != 1f) pinch.value(factor, event.calculateCentroid(useCurrent = true))
-                                event.changes.forEach { it.consume() }
-                            } else if (!moved) {
-                                val c = event.changes.firstOrNull { it.id == down.id }
-                                if (c != null && (c.position - down.position).getDistance() > slop) moved = true
+                        try {
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                if (event.changes.count { it.pressed } >= 2) {
+                                    pinched = true
+                                    val factor = event.calculateZoom()
+                                    if (factor != 1f) pinch.value(factor, event.calculateCentroid(useCurrent = true))
+                                    event.changes.forEach { it.consume() }
+                                } else {
+                                    // One finger lifted and one is left: the pinch is over, and the
+                                    // finger left scrolls a grid that is laid out, not a picture of one.
+                                    if (pinched) lift.value()
+                                    if (!moved) {
+                                        val c = event.changes.firstOrNull { it.id == down.id }
+                                        if (c != null && (c.position - down.position).getDistance() > slop) moved = true
+                                    }
+                                }
+                                if (event.changes.none { it.pressed }) {
+                                    upAt = event.changes.firstOrNull()?.uptimeMillis ?: upAt
+                                    break
+                                }
                             }
-                            if (event.changes.none { it.pressed }) {
-                                upAt = event.changes.firstOrNull()?.uptimeMillis ?: upAt
-                                break
-                            }
+                        } finally {
+                            // A gesture cut off half way still lands, or the grid stays a picture.
+                            if (pinched) lift.value()
                         }
                         if (pinched || moved || upAt - down.uptimeMillis > viewConfiguration.longPressTimeoutMillis) {
                             lastTapAt = 0L
@@ -455,7 +610,21 @@ private fun SheetGrid(sheet: Sheet, zoom: Float, onZoom: (Float) -> Unit) {
                 }
                 // A sideways drag anywhere on the grid moves the one shared offset. Vertical
                 // drags fall through to the LazyColumn; each axis claims only its own.
-                .scrollable(h, Orientation.Horizontal, reverseDirection = true),
+                .scrollable(h, Orientation.Horizontal, reverseDirection = true)
+                .onSizeChanged {
+                    box.width = it.width
+                    box.height = it.height
+                }
+                // The pinch in flight, about the grid's corner. After the input and the size
+                // above, so touches and the size are read in the grid's own untransformed space.
+                .graphicsLayer {
+                    val p = live
+                    transformOrigin = TransformOrigin(0f, 0f)
+                    scaleX = p.scale
+                    scaleY = p.scale
+                    translationX = p.x
+                    translationY = p.y
+                },
         ) {
             // Column letters. This strip owns the horizontal state - see the class note.
             Row(Modifier.fillMaxWidth().height(px(headPx)).background(colors.sunken)) {

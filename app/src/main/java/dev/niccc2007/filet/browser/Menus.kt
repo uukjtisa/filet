@@ -14,9 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -33,6 +30,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.data.SortKey
 import dev.niccc2007.filet.data.ViewStep
+import dev.niccc2007.filet.ui.dialogs.PopGroup
+import dev.niccc2007.filet.ui.dialogs.PopMenu
+import dev.niccc2007.filet.ui.dialogs.PopRow
+import dev.niccc2007.filet.ui.dialogs.PopSeparator
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.provider.ArchiveProvider
 
@@ -41,6 +42,10 @@ import dev.niccc2007.filet.vfs.provider.ArchiveProvider
  *
  * The slider used to live in the toolbar and crowded it to the point of being unreadable on
  * a phone (mock round 3). One button, one panel, everything view-shaped inside it.
+ *
+ * On the app's own card ([PopMenu]) like every other menu, with its switches as lit rows: a
+ * switch that is on is drawn in the accent, the way a mode is everywhere else, rather than by
+ * swapping its icon for a tick that says nothing about what it is.
  */
 @Composable
 fun ViewPopover(vm: BrowserViewModel, onDismiss: () -> Unit) {
@@ -50,13 +55,19 @@ fun ViewPopover(vm: BrowserViewModel, onDismiss: () -> Unit) {
     val hidden by vm.prefs.showHidden.collectAsState()
     val tree by vm.prefs.treeView.collectAsState()
 
-    DropdownMenu(expanded = true, onDismissRequest = onDismiss) {
-        Column(Modifier.width(248.dp).padding(horizontal = 12.dp, vertical = 6.dp)) {
+    PopMenu(expanded = true, onDismiss = onDismiss) {
+        Column(Modifier.width(248.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("View", fontSize = 11.sp, color = colors.fg3, modifier = Modifier.weight(1f))
-                Text(ViewStep.of(step).label, fontSize = 11.5.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                Box(Modifier.weight(1f)) { PopGroup("View") }
+                Text(
+                    ViewStep.of(step).label,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(end = 10.dp, top = 3.dp),
+                )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(FiletIcons.Rows, null, tint = colors.fg3, modifier = Modifier.size(15.dp))
                 Slider(
                     value = step.toFloat(),
@@ -68,12 +79,13 @@ fun ViewPopover(vm: BrowserViewModel, onDismiss: () -> Unit) {
                 Icon(FiletIcons.Grid, null, tint = colors.fg3, modifier = Modifier.size(15.dp))
             }
 
-            HorizontalDivider(color = colors.lineSoft)
-            Spacer(Modifier.height(6.dp))
-            Text("Sort by", fontSize = 11.sp, color = colors.fg3)
-            Spacer(Modifier.height(4.dp))
+            PopSeparator()
+            PopGroup("Sort by")
             Row(
-                Modifier.clip(RoundedCornerShape(7.dp)).border(1.dp, colors.lineSoft, RoundedCornerShape(7.dp)),
+                Modifier
+                    .padding(horizontal = 10.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .border(1.dp, colors.lineSoft, RoundedCornerShape(9.dp)),
             ) {
                 listOf("Name" to SortKey.NAME, "Date" to SortKey.MODIFIED, "Size" to SortKey.SIZE, "Type" to SortKey.TYPE)
                     .forEach { (label, key) ->
@@ -95,16 +107,9 @@ fun ViewPopover(vm: BrowserViewModel, onDismiss: () -> Unit) {
                         )
                     }
             }
-            Spacer(Modifier.height(6.dp))
-            Row(
-                Modifier.fillMaxWidth().clickable {
-                    vm.prefs.setSort(sort.copy(descending = !sort.descending))
-                }.padding(vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(FiletIcons.Sort, null, tint = colors.fg2, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(SortOrder.label(sort.key, sort.descending), fontSize = 12.sp)
+            Spacer(Modifier.height(4.dp))
+            PopRow(FiletIcons.Sort, SortOrder.label(sort.key, sort.descending)) {
+                vm.prefs.setSort(sort.copy(descending = !sort.descending))
             }
             // ── folders on their own key ──────────────────────────────────────────
             //
@@ -116,39 +121,28 @@ fun ViewPopover(vm: BrowserViewModel, onDismiss: () -> Unit) {
             // one sequence and a sequence cannot be in two orders at once. A visible control
             // that silently does nothing is the thing R1 exists to stop.
             if (sort.foldersFirst) {
-                Row(
-                    Modifier.fillMaxWidth().clickable {
-                        vm.prefs.setSort(
-                            // Turning it ON starts folders on Name, which is the order they
-                            // are wanted in nine times out of ten and is also where they
-                            // already were - so switching it on changes nothing until the
-                            // FILE key is moved, which is the point.
-                            if (sort.folderKey == null) {
-                                sort.copy(folderKey = SortKey.NAME, folderDescending = true)
-                            } else {
-                                sort.copy(folderKey = null, folderDescending = null)
-                            },
-                        )
-                    }.padding(vertical = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        if (sort.folderKey != null) FiletIcons.Check else FiletIcons.Folder,
-                        null,
-                        tint = colors.fg2,
-                        modifier = Modifier.size(14.dp),
+                PopRow(FiletIcons.Folder, "Sort folders separately", active = sort.folderKey != null) {
+                    vm.prefs.setSort(
+                        // Turning it ON starts folders on Name, which is the order they
+                        // are wanted in nine times out of ten and is also where they
+                        // already were - so switching it on changes nothing until the
+                        // FILE key is moved, which is the point.
+                        if (sort.folderKey == null) {
+                            sort.copy(folderKey = SortKey.NAME, folderDescending = true)
+                        } else {
+                            sort.copy(folderKey = null, folderDescending = null)
+                        },
                     )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Sort folders separately", fontSize = 12.sp)
                 }
                 val folderKey = sort.folderKey
                 if (folderKey != null) {
-                    Spacer(Modifier.height(2.dp))
+                    // Under the row's label rather than its icon: the row's padding, its icon
+                    // column and the gap after it.
                     Row(
                         Modifier
-                            .padding(start = 22.dp)
-                            .clip(RoundedCornerShape(7.dp))
-                            .border(1.dp, colors.lineSoft, RoundedCornerShape(7.dp)),
+                            .padding(start = 40.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .border(1.dp, colors.lineSoft, RoundedCornerShape(9.dp)),
                     ) {
                         listOf(
                             "Name" to SortKey.NAME,
@@ -185,37 +179,17 @@ fun ViewPopover(vm: BrowserViewModel, onDismiss: () -> Unit) {
                         ),
                         fontSize = 10.sp,
                         color = colors.fg3,
-                        modifier = Modifier.padding(start = 22.dp, bottom = 2.dp),
+                        modifier = Modifier.padding(start = 40.dp, top = 2.dp, bottom = 4.dp),
                     )
                 }
             }
-            Row(
-                Modifier.fillMaxWidth().clickable {
-                    vm.prefs.setShowHidden(!hidden)
-                }.padding(vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(if (hidden) FiletIcons.Check else FiletIcons.Eye, null, tint = colors.fg2, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Show hidden files", fontSize = 12.sp)
-            }
+            PopSeparator()
+            PopRow(FiletIcons.Eye, "Show hidden files", active = hidden) { vm.prefs.setShowHidden(!hidden) }
             // Here rather than in Settings. It is a way of looking at a folder, which is what
             // every other control in this panel is, and it is the kind of thing somebody
             // turns on for one folder and off again - three taps away in Settings is the
             // wrong distance for that.
-            Row(
-                Modifier.fillMaxWidth().clickable {
-                    vm.prefs.setTreeView(!tree)
-                }.padding(vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    if (tree) FiletIcons.Check else FiletIcons.Rows, null,
-                    tint = colors.fg2, modifier = Modifier.size(14.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("Tree view", fontSize = 12.sp)
-            }
+            PopRow(FiletIcons.Rows, "Tree view", active = tree) { vm.prefs.setTreeView(!tree) }
             // Only while the tree is on, and only when there is something to act on. A
             // greyed-out row is against R1, and both of these do nothing on a folded tree.
             //
@@ -226,53 +200,26 @@ fun ViewPopover(vm: BrowserViewModel, onDismiss: () -> Unit) {
             val paneState = pane?.state?.collectAsState()?.value
             if (tree && paneState != null) {
                 if (paneState.open.isNotEmpty()) {
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            pane.collapseTree()
-                        }.padding(vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            FiletIcons.Up, null,
-                            tint = colors.fg2, modifier = Modifier.size(14.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Fold everything away", fontSize = 12.sp)
-                    }
+                    PopRow(FiletIcons.Up, "Fold everything away") { pane.collapseTree() }
                 }
-                // The other direction, and the one that answers a trunkless tree: somebody
-                // deep in a flat list who turns the tree on gets a tree rooted where they
-                // stand, which is the same thing a shortcut used to do. See
-                // `PaneController.expandToHere`.
-                val here = paneState.cwd
-                val root = here?.let { at ->
-                    pane.rootsForDevice.firstOrNull { it.contains(at) && it != at }
-                }
-                if (root != null) {
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            pane.expandToHere(root)
-                        }.padding(vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            FiletIcons.Folder, null,
-                            tint = colors.fg2, modifier = Modifier.size(14.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Show where this is", fontSize = 12.sp)
-                    }
-                }
+                // No "Show where this is" any more. A tree is always rooted at its drive, so
+                // every folder in it already shows where it is - see `TreeShape`.
             }
         }
     }
 }
 
 /**
- * The overflow menu.
+ * The overflow menu: the folder and the app, never the selection.
  *
  * Entries appear only when they would do something: no greyed-out rows, per PLAN.md R1.
- * "Extract here" is absent unless the selection is actually an archive.
+ *
+ * Bug identified here: through a selection this menu carried Select all, Invert selection, New
+ * file, New folder and a copy of half the selection's own actions - so a selection had two menus,
+ * the top one offering to make a new file in the middle of choosing files. What acts on the
+ * selection is the selection bar's list (`selectionActions`), drawn by the bar, its More and the
+ * long-press menu; this one keeps to what is true of the folder whether anything is selected or
+ * not, and drops the create and select rows while a selection is open.
  */
 @Composable
 fun MoreMenu(
@@ -282,12 +229,8 @@ fun MoreMenu(
     expanded: Boolean,
     onDismiss: () -> Unit,
 ) {
-    if (!expanded || pane == null || s == null) {
-        DropdownMenu(expanded = false, onDismissRequest = onDismiss) {}
-        return
-    }
+    if (!expanded || pane == null || s == null) return
     val homeFolder by vm.prefs.homeFolder.collectAsState()
-    val colors = Filet.colors
     val selection = pane.selectedNodes()
     val inFolder = s.kind == PaneKind.FOLDER && s.cwd != null
     // "This folder" is the folder being acted in - the open branch in tree mode, else the path
@@ -302,60 +245,26 @@ fun MoreMenu(
     val readOnly = vm.writeBlockReason(s.cwd)
     val split = vm.state.collectAsState().value.split != SplitMode.OFF
 
-    DropdownMenu(expanded = true, onDismissRequest = onDismiss) {
+    val tabCount = vm.tabs.collectAsState().value.size
+
+    PopMenu(expanded = true, onDismiss = onDismiss) {
         if (inFolder) {
-            if (readOnly == null) {
+            if (readOnly == null && !s.selecting) {
                 Item(FiletIcons.NewFolder, "New folder") { onDismiss(); vm.askNewFolder() }
                 Item(FiletIcons.File, "New file") { onDismiss(); vm.askNewFile() }
             }
             Item(FiletIcons.Refresh, "Refresh") { onDismiss(); pane.refresh() }
-            HorizontalDivider(color = colors.lineSoft)
-            Item(FiletIcons.Check, "Select all") { onDismiss(); pane.selectAll() }
-            if (s.selecting) {
-                Item(FiletIcons.Check, "Invert selection") { onDismiss(); pane.invertSelection() }
+            // The way INTO a selection. Once one is open the bar's count does this.
+            if (!s.selecting) {
+                Item(FiletIcons.Check, "Select all") { onDismiss(); pane.selectAll() }
             }
-        }
-        if (selection.isNotEmpty()) {
-            HorizontalDivider(color = colors.lineSoft)
-            if (selection.size == 1) {
-                if (readOnly == null) {
-                    Item(FiletIcons.Rename, "Rename") { onDismiss(); vm.askRename(selection[0]) }
-                }
-                // Reachable from a search result too, which is where it matters most: finding
-                // a hit used to be the end of the road rather than the start of doing
-                // something with it.
-                Item(FiletIcons.FolderOpen, "Show in folder") { onDismiss(); vm.revealInFolder(selection[0]) }
-                Item(FiletIcons.Info, "Properties") { onDismiss(); vm.showProperties(selection[0]) }
-            }
-            // Works on a folder as well as a file, and on any number of them: several paths
-            // one per line is what you want when you are about to paste them into a script.
-            Item(FiletIcons.Copy, "Copy as path") { onDismiss(); vm.copyPathsOfSelection() }
-            if (readOnly == null) {
-                Item(FiletIcons.Zip, "Compress") { onDismiss(); vm.askCompress() }
-                if (selection.size == 1 && dev.niccc2007.filet.vfs.provider.Archives.canList(selection[0].name)) {
-                    // Three destinations, one code path: each opens the same preview, and the
-                    // only difference between them is where it is aimed. Identified in review:
-                    // a single "Extract here" makes the current folder the only answer,
-                    // so extracting anywhere else meant extracting then moving.
-                    Item(FiletIcons.Archive, "Extract here") { onDismiss(); vm.extract(selection[0]) }
-                    Item(FiletIcons.FolderOpen, "Extract to\u2026") { onDismiss(); vm.extractToPicked(selection[0]) }
-                    if (split) {
-                        // The one a two-pane file manager should always have had: the other
-                        // side is on screen, and it is usually where the files are going.
-                        Item(FiletIcons.Forward, "Extract to the other pane") {
-                            onDismiss(); vm.extractToOtherPane(selection[0])
-                        }
-                    }
-                }
-            }
-            Item(FiletIcons.Share, "Share") { onDismiss(); vm.shareSelection() }
         }
         if (inFolder && readOnly != null) {
-            HorizontalDivider(color = colors.lineSoft)
+            PopSeparator()
             Note(readOnly)
         }
         if (inFolder) {
-            HorizontalDivider(color = colors.lineSoft)
+            PopSeparator()
             Item(
                 if (bookmarked) FiletIcons.StarFilled else FiletIcons.Star,
                 if (bookmarked) "Remove bookmark" else "Bookmark this folder",
@@ -374,7 +283,13 @@ fun MoreMenu(
                 Item(FiletIcons.Paste, "Paste here") { onDismiss(); vm.paste() }
             }
         }
-        HorizontalDivider(color = colors.lineSoft)
+        if (inFolder) PopSeparator()
+        // Here, in the top corner's menu, beside the split switch: both decide how many panes
+        // there are. It was a side-bar row first, in a fold of tools, and then a button of its own
+        // on the busiest row in the app. Only with something to close.
+        if (tabCount > 1) {
+            Item(FiletIcons.CloseAll, "Close all tabs") { onDismiss(); vm.closeAllTabs() }
+        }
         Item(FiletIcons.Cog, "Settings") { onDismiss(); pane.openSpecial(PaneKind.SETTINGS, "Settings") }
         Item(FiletIcons.Info, "About") { onDismiss(); pane.openSpecial(PaneKind.ABOUT, "About") }
     }
@@ -388,15 +303,11 @@ private fun Note(text: String) {
         fontSize = 10.5.sp,
         lineHeight = 14.sp,
         color = Filet.colors.fg3,
-        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp).width(210.dp),
+        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp).width(210.dp),
     )
 }
 
 @Composable
 private fun Item(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    DropdownMenuItem(
-        text = { Text(label, fontSize = 12.5.sp) },
-        leadingIcon = { Icon(icon, null, modifier = Modifier.size(16.dp), tint = Filet.colors.fg2) },
-        onClick = onClick,
-    )
+    PopRow(icon, label, onClick = onClick)
 }

@@ -1,5 +1,9 @@
 package dev.niccc2007.filet.browser
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -57,71 +61,107 @@ import dev.niccc2007.filet.vfs.provider.ExtractPlan
  * tried to write outside the folder.
  */
 @Composable
-fun ExtractSheet(
+fun BoxScope.ExtractCard(
     plan: ExtractPlan,
     destinationName: String,
     busy: Boolean,
     onWrap: () -> Unit,
     onStripLess: () -> Unit,
+    /** Take one MORE wrapper off, up to `plan.strippableLevels`. */
+    onStripMore: () -> Unit,
     onCollision: (CollisionChoice) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    /** Why this destination cannot be written to, or null. See `writeBlockReason`. */
+    readOnly: String? = null,
+    onHeight: (Int) -> Unit = {},
 ) {
     val colors = Filet.colors
 
-    Dlg(onDismiss = onDismiss) {
-        // The destination moves into the subtitle. It is the one fact this dialogue exists to
-        // confirm - an archive that would spray forty files into the folder you are standing in
-        // should say where before it does it - so it belongs in the header rather than as the
-        // body's first line, where the tree pushes it off the top.
-        DlgHeader(
-            FiletIcons.Zip,
-            "Extract ${plan.archiveName}",
-            sub = "into $destinationName",
-            onClose = onDismiss,
-        )
-        DlgBody {
-
-                // ── the tree ──
-                LazyColumn(Modifier.heightIn(max = 250.dp)) {
-                    plan.strippedFolders.forEach { gone ->
-                        item(key = "s:$gone") {
-                            Text(
-                                "$gone/",
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = colors.fg3,
-                                // Struck through rather than absent: showing what was removed is
-                                // what makes "move content out" legible as a thing that happened.
-                                textDecoration = TextDecoration.LineThrough,
-                                modifier = Modifier.padding(vertical = 2.dp),
-                            )
-                        }
-                    }
-                    items(plan.items.size.coerceAtMost(PREVIEW_ROWS), key = { plan.items[it].path }) { i ->
-                        PlanRow(plan.items[i])
-                    }
-                    val hidden = plan.items.size - PREVIEW_ROWS
-                    if (hidden > 0) {
-                        item(key = "rest") {
-                            Text(
-                                "and $hidden more",
-                                fontSize = 10.sp,
-                                color = colors.fg3,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(10.dp))
+    Column(
+        Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 8.dp)
+            // Measured and reported so the listing can pad clear of it, exactly as the pick
+            // card does. See `LocalPickInset`.
+            .onSizeChanged { onHeight(it.height) },
+    ) {
+      Column(
+        Modifier
+            .fillMaxWidth()
+            .shadow(8.dp, RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(14.dp),
+      ) {
+        // The destination is the one fact worth stating in words. The ghosts show WHAT will
+        // be created; only the header can say WHERE, and an archive about to spray forty
+        // files into the folder you are standing in should say so before it does.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                // Both lines carry a name, so neither is dotted - see ListName. The archive's
+                // extension stays in sight past the fade, which is the part that says what it is.
+                ListNameText(
+                    "Extract ${plan.archiveName}",
+                    MaterialTheme.colorScheme.onSurface,
+                    startSp = 13.5f,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                ListNameText("into $destinationName", colors.fg3, startSp = 10.5f, isDir = true)
+            }
+            Icon(
+                FiletIcons.Close,
+                "Cancel",
+                tint = colors.fg2,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onDismiss)
+                    .padding(8.dp),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        run {
 
                 // ── the two buttons ──
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Pill(if (plan.wrapFolder != null) "Don't add a folder" else "Put in a folder", onWrap)
-                    if (plan.strippedFolders.isNotEmpty()) {
-                        Spacer(Modifier.width(6.dp))
-                        Pill("Keep ${plan.strippedFolders.last()}/", onStripLess)
+                }
+                // ── the wrappers, as a control rather than as a fait accompli ──────────────
+                //
+                // Both directions, and only when there is somewhere to go in that direction.
+                // One pill that could only put a folder BACK was the whole control, so an
+                // archive whose wrappers had all been lifted offered one step of undo and no
+                // way to see that more had been taken than you wanted - which is how
+                // `firms/firmware/stuff.txt` extracted as a bare `stuff.txt`.
+                if (plan.strippableLevels > 0) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            // Nothing is lifted by default, so the resting state says what IS
+                            // happening rather than counting what is not. "0 of 2" reads as a
+                            // setting that failed to apply; "kept as it is in the archive" is
+                            // the same fact stated as the decision it actually is.
+                            if (plan.strippedFolders.isEmpty()) {
+                                "Folders kept as they are in the archive"
+                            } else {
+                                "Folders lifted: ${plan.strippedFolders.size} of ${plan.strippableLevels}"
+                            },
+                            fontSize = 10.5.sp,
+                            color = colors.fg3,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (plan.strippedFolders.isNotEmpty()) {
+                            Pill("Keep ${plan.strippedFolders.last()}/", onStripLess)
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        if (plan.strippedFolders.size < plan.strippableLevels) {
+                            Pill(
+                                if (plan.strippedFolders.isEmpty()) "Lift the top folder"
+                                else "Lift one more",
+                                onStripMore,
+                            )
+                        }
                     }
                 }
 
@@ -156,15 +196,45 @@ fun ExtractSheet(
                     Warn("${plan.refused.size} entr${if (plan.refused.size == 1) "y" else "ies"} refused - they point outside this folder")
                 }
         }
-        DlgFooter {
-            DlgBtn("Cancel", onClick = onDismiss)
-            DlgBtn(
-                if (busy) "Working…" else "Extract",
-                kind = BtnKind.PRIMARY,
-                enabled = !busy && plan.items.isNotEmpty(),
-                onClick = onConfirm,
-            )
+        if (readOnly != null) {
+            Spacer(Modifier.height(6.dp))
+            // Said, not implied by a dead button. The answer is to walk somewhere writable,
+            // and somebody can only do that if they are told what is wrong.
+            Warn(readOnly)
         }
+        Spacer(Modifier.height(10.dp))
+        ExtractCardButton(
+            label = when {
+                busy -> "Working…"
+                readOnly != null -> "Cannot write here"
+                else -> "Extract"
+            },
+            enabled = !busy && readOnly == null && plan.items.isNotEmpty(),
+            onClick = onConfirm,
+        )
+      }
+    }
+}
+
+/** The one action. Cancel is the X in the header, as on the pick card. */
+@Composable
+private fun ExtractCardButton(label: String, enabled: Boolean, onClick: () -> Unit) {
+    val colors = Filet.colors
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (enabled) colors.accent else colors.fg3.copy(alpha = 0.35f))
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(vertical = 11.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onPrimary,
+        )
     }
 }
 

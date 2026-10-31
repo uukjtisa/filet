@@ -8,7 +8,7 @@ import dev.niccc2007.filet.FiletApp
 import dev.niccc2007.filet.bridge.BridgeContract
 import dev.niccc2007.filet.index.QueryParser
 import dev.niccc2007.filet.index.SearchRequest
-import dev.niccc2007.filet.index.SearchScope
+import dev.niccc2007.filet.index.Reach
 import dev.niccc2007.filet.vfs.VPath
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -116,7 +116,7 @@ class BridgeProvenanceTest {
 
         val rows = runBlocking {
             index.candidates(
-                SearchRequest("from:example.invalid", SearchScope.PROVENANCE, origin = null, limit = 200),
+                SearchRequest("from:example.invalid", Reach.Everywhere, origin = null, limit = 200),
                 QueryParser.parse("from:example.invalid"),
             )
         }

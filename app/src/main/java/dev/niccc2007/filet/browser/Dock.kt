@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -76,6 +77,8 @@ fun Dock(
     s: PaneState,
     app: AppState,
     modifier: Modifier = Modifier,
+    /** Pushed up by this much, to clear the pick card when one is up. See `PickDock`. */
+    liftBy: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     if (s.kind != PaneKind.FOLDER || s.cwd == null) return
 
@@ -86,7 +89,15 @@ fun Dock(
     val here = s.target ?: s.cwd ?: return
     // Out of the way while a selection is running: the selection bar owns the bottom of the
     // screen then, and its own Copy/Move/Delete are the actions in hand.
-    if (s.selecting) return
+    //
+    // Except during a pick, which is the one time the opposite is true. Choosing a destination
+    // is exactly when somebody needs a NEW FOLDER to put things in, and a pick for files leaves
+    // rows selected - so this rule was quietly removing the dock for the whole of every
+    // cover-art and multi-file pick, and for any pick where a row happened to be selected.
+    // There is no selection bar to clash with during a pick either: the card carries the
+    // confirm. See `PickDock`.
+    val picking = vm.inAppPick.collectAsState().value?.pane === pane || vm.pickRequest != null
+    if (s.selecting && !picking) return
 
     val colors = Filet.colors
     var open by remember { mutableStateOf(false) }
@@ -118,7 +129,7 @@ fun Dock(
         }
 
         Column(
-            Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp),
+            Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp + liftBy),
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {

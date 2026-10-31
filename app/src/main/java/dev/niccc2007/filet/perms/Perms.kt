@@ -74,6 +74,7 @@ object Perms {
 
     const val ALL_FILES = "android.permission.MANAGE_EXTERNAL_STORAGE"
     const val NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS"
+    const val CAMERA = "android.permission.CAMERA"
     const val INSTALL_APPS = "android.permission.REQUEST_INSTALL_PACKAGES"
     const val READ_STORAGE = "android.permission.READ_EXTERNAL_STORAGE"
     const val WRITE_STORAGE = "android.permission.WRITE_EXTERNAL_STORAGE"
@@ -84,57 +85,62 @@ object Perms {
     val CATALOGUE: List<Entry> = listOf(
         Entry(
             ALL_FILES, "All files access",
-            "Without it Filet can only see folders you grant one at a time.",
+            "Without it, only granted folders are visible.",
             Kind.SPECIAL, minSdk = 30,
         ),
         Entry(
-            BATTERY, "Run without battery limits",
-            "Without it Android may stop a share or a long copy once the screen is off.",
+            BATTERY, "Unrestricted battery",
+            "Without it, shares and long copies may stop with the screen off.",
             Kind.SPECIAL, minSdk = 23,
         ),
         Entry(
             NOTIFICATIONS, "Notifications",
-            "Without it there is no progress for a copy, no player controls and no update notice.",
+            "Without it, no copy progress, player controls or update notices.",
             Kind.RUNTIME, minSdk = 33,
         ),
         Entry(
+            CAMERA, "Camera",
+            "Without it, the scanner cannot read a code. A code in a picture still can.",
+            Kind.RUNTIME,
+        ),
+        Entry(
             INSTALL_APPS, "Install apps",
-            "Without it tapping an APK opens the inspector but cannot install it.",
+            "Without it, APKs can be inspected but not installed.",
             Kind.SPECIAL, minSdk = 26,
         ),
         Entry(
             READ_STORAGE, "Read storage",
-            "The old way of reaching shared storage. Superseded by all-files access.",
+            "Older storage access, replaced by All files access.",
             Kind.RUNTIME, maxSdk = 29,
         ),
         Entry(
             WRITE_STORAGE, "Write storage",
-            "The old way of writing to shared storage. Superseded by all-files access.",
+            "Older storage writing, replaced by All files access.",
             Kind.RUNTIME, maxSdk = 29,
         ),
         Entry(
             "android.permission.INTERNET", "Internet",
-            "Reaching a network drive, and looking for an update.",
+            "Network shares and update checks.",
             Kind.INSTALL, revocable = false,
         ),
         Entry(
             "android.permission.ACCESS_NETWORK_STATE", "Network state",
-            "Noticing that the network changed, so a share re-announces itself.",
+            "Re-announces shares when the network changes.",
             Kind.INSTALL, revocable = false,
         ),
         Entry(
             "android.permission.ACCESS_WIFI_STATE", "Wi-Fi state",
-            "Finding this phone's address to put on a share link.",
+            "Finds this phone's address for share links.",
             Kind.INSTALL, revocable = false,
         ),
         Entry(
             "android.permission.CHANGE_WIFI_MULTICAST_STATE", "Multicast",
-            "Discovering other Filets on the network.",
+            "Finds other phones running Filet on the network.",
             Kind.INSTALL, revocable = false,
         ),
         Entry(
             "android.permission.QUERY_ALL_PACKAGES", "See installed apps",
-            "Listing which app can open a file, and reading an APK you already have.",
+            "Lists apps that can open a file, and reads installed APKs.",
             Kind.INSTALL, revocable = false,
         ),
     )
@@ -167,9 +173,8 @@ object Perms {
         val have = askable.count { it.id in granted }
         return when {
             askable.isEmpty() -> "${shown.size} granted at install."
-            have == askable.size -> "All $have granted, plus ${shown.size - have} held since install."
-            else -> "$have of ${askable.size} granted. The rest are optional; what each one " +
-                "costs is below."
+            have == askable.size -> "All $have granted, plus ${shown.size - have} from install."
+            else -> "$have of ${askable.size} granted; the rest are optional."
         }
     }
 }

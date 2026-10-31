@@ -43,6 +43,7 @@ enum class BarItem(val id: String, val label: String) {
     SHORTCUTS("shortcuts", "Shortcuts"),
     SPLIT("split", "Split"),
     NEW_TAB("newtab", "New tab"),
+    CLOSE_TABS("closetabs", "Close all tabs"),
     SETTINGS("settings", "Settings");
 
     companion object {

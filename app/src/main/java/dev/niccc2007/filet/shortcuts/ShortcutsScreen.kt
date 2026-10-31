@@ -59,15 +59,24 @@ import dev.niccc2007.filet.ui.theme.Filet
 @Composable
 fun ShortcutsScreen(vm: BrowserViewModel) {
     val colors = Filet.colors
-    val records by vm.shortcuts.all.collectAsState()
-    val scripts by vm.scripts.scripts.collectAsState()
+    val allRecords by vm.shortcuts.all.collectAsState()
+    val allScripts by vm.scripts.scripts.collectAsState()
+    // Narrowed by the pane's search box: what is pinned, and what could be.
+    val query = dev.niccc2007.filet.ui.LocalPaneQuery.current
+    fun match(vararg f: String?) = dev.niccc2007.filet.ui.TextMatch.matches(query, *f)
+    val records = remember(allRecords, query) { allRecords.filter { match(it.label, it.kindLabel()) } }
+    val scripts = remember(allScripts, query) { allScripts.filter { match(it.name) } }
+    val actions = remember(query) { AppAction.entries.filter { match(it.label, it.description) } }
     val live = remember(records) { vm.shortcuts.livePinnedIds() }
     var renaming by remember { mutableStateOf<ShortcutRecord?>(null) }
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("shortcuts")) {
         item { TabHeader("Home screen shortcuts") }
 
-        if (records.isEmpty()) {
+        if (query.isNotBlank() && records.isEmpty() && scripts.isEmpty() && actions.isEmpty()) {
+            item { dev.niccc2007.filet.ui.NoMatch(query) }
+        }
+        if (allRecords.isEmpty() && query.isBlank()) {
             item {
                 // The standing paragraph that used to sit under the heading is gone with the
                 // other eight. The fact it carried is real and lives here instead, where it is
@@ -94,15 +103,17 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
 
         // Two catalogues, not two buttons. An action has no row in a folder to long-press,
         // so this list is the only way one gets made.
-        item { SectionRow("Add an action") }
-        item {
-            Text(
-                "Things worth one tap that are not files.",
-                fontSize = 11.sp, color = colors.fg3,
-                modifier = Modifier.padding(start = 15.dp, end = 15.dp, bottom = 6.dp),
-            )
+        if (actions.isNotEmpty()) {
+            item { SectionRow("Add an action") }
+            item {
+                Text(
+                    "Things worth one tap that are not files.",
+                    fontSize = 11.sp, color = colors.fg3,
+                    modifier = Modifier.padding(start = 15.dp, end = 15.dp, bottom = 6.dp),
+                )
+            }
         }
-        items(AppAction.entries.toList(), key = { "action-" + it.name }) { action ->
+        items(actions, key = { "action-" + it.name }) { action ->
             PickRow(action.label, action.description) { vm.shortcutForAction(action) }
         }
 

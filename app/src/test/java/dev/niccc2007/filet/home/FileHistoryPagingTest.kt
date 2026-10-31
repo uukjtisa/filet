@@ -24,8 +24,8 @@ class FileHistoryPagingTest {
             bytes = it * 97L,
             // Spread across about three months so the grouping has real day buckets to build
             // rather than one enormous group, which is the cheap case.
-            firstSeen = 1_700_000_000_000L + it * 3_600_000L,
-            lastChanged = 1_700_000_000_000L + it * 3_600_000L,
+            added = 1_700_000_000_000L + it * 3_600_000L,
+            modified = 1_700_000_000_000L + it * 3_600_000L,
             origin = "Download",
         )
     }
@@ -40,9 +40,9 @@ class FileHistoryPagingTest {
         // the behaviour that made a 1k list feel different from a 100 one.
         fun timeFor(n: Int): Long {
             val data = entries(n)
-            repeat(3) { FileHistory.group(data, HistorySort.FIRST_SEEN, 1_700_400_000_000L, zone) }
+            repeat(3) { FileHistory.group(data, HistorySort.DATE_ADDED, 1_700_400_000_000L, zone) }
             val t0 = System.nanoTime()
-            repeat(5) { FileHistory.group(data, HistorySort.FIRST_SEEN, 1_700_400_000_000L, zone) }
+            repeat(5) { FileHistory.group(data, HistorySort.DATE_ADDED, 1_700_400_000_000L, zone) }
             return System.nanoTime() - t0
         }
 
@@ -59,7 +59,7 @@ class FileHistoryPagingTest {
     @Test
     fun `every entry survives grouping, so paging cannot silently drop rows`() {
         val data = entries(1500)
-        val groups = FileHistory.group(data, HistorySort.FIRST_SEEN, 1_700_400_000_000L, zone)
+        val groups = FileHistory.group(data, HistorySort.DATE_ADDED, 1_700_400_000_000L, zone)
         assertEquals(data.size, groups.sumOf { it.entries.size })
     }
 }

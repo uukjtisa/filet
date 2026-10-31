@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.index
 
+import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import kotlinx.coroutines.flow.StateFlow
 
@@ -21,6 +22,22 @@ data class Provenance(
     /** Anything the writer wants to keep, as JSON. Never parsed by Filet. */
     val extra: String? = null,
 )
+
+/**
+ * One entry under a folder, streamed out of [FileIndex.subtree].
+ *
+ * Primitives rather than a row object: the measured folder can be the whole of internal
+ * storage, and a hundred thousand allocations to compute one sum is the slow version.
+ *
+ * @param top the name of the measured folder's direct child this entry sits under (its own
+ *   name when [direct]).
+ */
+/** One file or folder as the media store lists it, for [FileIndex.seed]. */
+data class SeedEntry(val path: VPath, val isDir: Boolean, val size: Long, val mtime: Long)
+
+fun interface SubtreeSink {
+    fun accept(top: String, direct: Boolean, isDir: Boolean, size: Long, inode: Long, mtime: Long)
+}
 
 /** A candidate row from the index. Deliberately flat: the reranker touches 500 of these. */
 data class IndexRow(
@@ -263,10 +280,16 @@ interface FileIndex {
      *
      *   **Zero or negative means no deadline** - run until the tree is walked, or until the
      *   coroutine is cancelled. That is the mode a user-initiated "Index now" uses, because a
-     *   truncated pass does NOT pick up where it left off: the walk restarts at the roots
-     *   every time, so a budget smaller than the whole tree indexes the same first N files
-     *   forever and never reaches the rest. A deadline is a background courtesy, not a
-     *   checkpoint.
+     *   truncated pass over the phone does NOT pick up where it left off: the walk restarts at
+     *   the roots, and only the directory-mtime skip lets the next one get further. A deadline
+     *   is a background courtesy, not a checkpoint.
+     *
+     *   The exception is a pass over ONE share, which keeps its frontier and resumes from it -
+     *   SEARCH.md §14.7. A NAS is the tree least able to be walked in one sitting.
+     *
+     * A root may be a whole volume or a folder inside one already held, and the two conclude
+     * different things: a folder pass deletes only under its folder and never marks a volume
+     * complete. See [CrawlScope].
      */
     /**
      * @param onProgress how many files have been seen, and the folder currently being read.
@@ -306,8 +329,87 @@ interface FileIndex {
      */
     suspend fun duplicates(scope: VPath? = null, minSize: Long = 4096, limitGroups: Int = 200): List<List<VPath>>
 
+    /**
+     * Everything the index holds under [path], one call to [sink] per entry, in no order.
+     *
+     * The Details sheet's last-known size and counts: the index already has every row, so the
+     * figure is a recursive query over `parent_id` rather than a walk. It is only as fresh as
+     * the last crawl and misses whatever the crawl was told to skip, which is why the sheet
+     * shows it as "last known" and confirms it with a walk.
+     *
+     * @return false when the folder is not in the index at all, so the caller can tell
+     *   "nothing indexed here" from "indexed, and empty".
+     */
+    suspend fun subtree(path: VPath, sink: SubtreeSink): Boolean = false
+
+    /**
+     * What Filet remembers about [path] - see [FileMemory]. Null when there is no memory at all
+     * (a test, the desktop, a memory that would not open) or the path is Filet's own storage.
+     */
+    suspend fun memoryOf(path: VPath): MemoryView? = null
+
+    /** First-seen from the memory for a whole page of paths at once. Empty without a memory. */
+    suspend fun firstSeenOf(paths: List<VPath>): Map<VPath, Long> = emptyMap()
+
     /** Forget one subtree, e.g. when a volume is unmounted or a folder is deleted. */
     suspend fun forget(path: VPath)
+
+    /**
+     * Drop every volume [keep] rejects, with every row under it. SEARCH.md §13.7: a deleted
+     * share, an edit that changed what its paths mean, or a share whose indexing was turned off.
+     *
+     * @return how many volumes went.
+     */
+    suspend fun forgetVolumes(keep: (uuid: String) -> Boolean): Int = 0
+
+    /**
+     * The `volume.uuid` of every volume a complete pass has been through.
+     *
+     * What lets the live walk stand down for a drive the index already answers - SEARCH.md
+     * §14.2, decision 15. A volume that has only ever had partial passes is not in it, and is
+     * walked as well as searched.
+     */
+    suspend fun completeVolumes(): Set<String> = emptySet()
+
+    /**
+     * Write one folder's listing, read by something that is not a crawl. SEARCH.md §14.7.
+     *
+     * A search walking a share has already listed the folder over the network; writing the names
+     * down costs nothing on the wire, and makes the next search of the same folder instant. The
+     * listing is the folder's whole content, so a row the index held under [dir] and the listing
+     * does not name is gone.
+     *
+     * Dropped rather than waited on while a crawl holds the index, and while [root] has a
+     * complete pass of its own unfinished.
+     *
+     * @param root the volume [dir] is on. A share is registered as a volume the first time.
+     * @param stillOwned asked at the moment of writing, so a share deleted since its folder was
+     *   listed is not registered again.
+     */
+    suspend fun putListing(root: VPath, dir: VPath, children: List<VNode>, stillOwned: () -> Boolean = { true }) {}
+
+    /**
+     * Re-read [dirs] and write what is in them. One `readdir` each, SEARCH.md §14.6.
+     *
+     * For the media store's change reports and the generation catch-up. A folder on no volume
+     * the index holds is skipped rather than registered, because a folder registered as a volume
+     * is the defect [CrawlScope] exists for.
+     *
+     * @return how many folders were read.
+     */
+    suspend fun refreshFolders(dirs: Collection<VPath>): Int = 0
+
+    /**
+     * A first build from the media store's own table, before any pass has been. SEARCH.md §14.2.
+     *
+     * Only adds, never deletes or overwrites, and only for volumes that have never completed a
+     * pass: what a crawl has read is better than what the media store believes. Written under the
+     * generation BEFORE the next pass, so the first complete pass sweeps whatever it listed that
+     * is not really there.
+     *
+     * @return how many rows were added.
+     */
+    suspend fun seed(roots: List<VPath>, entries: Sequence<SeedEntry>): Int = 0
 
     suspend fun clear()
 

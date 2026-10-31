@@ -19,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -85,6 +86,13 @@ fun HostingCard(vm: BrowserViewModel) {
     val dav by vm.davState.collectAsState()
     var editing by remember { mutableStateOf<DavShare?>(null) }
     var editingPort by remember { mutableStateOf<String?>(null) }
+    val returning by vm.shareDraft.collectAsState()
+    LaunchedEffect(returning) {
+        returning?.let {
+            editing = it
+            vm.shareDraftTaken()
+        }
+    }
 
     // Walked once per state change rather than on every recomposition: enumerating interfaces
     // is a syscall per interface and this card redraws on every request that arrives.
@@ -181,7 +189,7 @@ fun HostingCard(vm: BrowserViewModel) {
             share = share,
             existing = dav.shares.map { it.share },
             running = dav.shares.firstOrNull { it.id == share.id }?.running == true,
-            onPickFolder = { vm.pickShareFolder(share.id); editing = null },
+            onPickFolder = { draft -> vm.pickShareFolder(draft); editing = null },
             onDelete = { vm.deleteShare(share.id); editing = null },
             onSave = { vm.saveShare(it); editing = null },
             onDismiss = { editing = null },
@@ -364,7 +372,7 @@ private fun ShareDialog(
     share: DavShare,
     existing: List<DavShare>,
     running: Boolean,
-    onPickFolder: () -> Unit,
+    onPickFolder: (DavShare) -> Unit,
     onDelete: () -> Unit,
     onSave: (DavShare) -> Unit,
     onDismiss: () -> Unit,
@@ -374,6 +382,9 @@ private fun ShareDialog(
     val others = existing.filter { it.id != share.id }
     val codeTaken = code.isNotBlank() && !DavShares.codeAvailable(others, code)
     val isNew = existing.none { it.id == share.id }
+    // What leaves for the picker is everything typed so far, the code included, so the editor
+    // that comes back is this one with a folder in it.
+    val pickFolder = { onPickFolder(draft.copy(code = code.trim().takeIf { it.isNotEmpty() })) }
 
     Dlg(onDismiss = onDismiss) {
         DlgHeader(
@@ -395,7 +406,7 @@ private fun ShareDialog(
                     draft = draft.copy(scope = DavScope.entries.first { it.label == picked })
                 }
                 Spacer(Modifier.height(6.dp))
-                SmallBtn("Or pick a folder", onClick = onPickFolder)
+                SmallBtn("Or pick a folder", onClick = pickFolder)
             } else {
                 Text(
                     draft.customRoot.orEmpty(),
@@ -405,7 +416,7 @@ private fun ShareDialog(
                 )
                 Spacer(Modifier.height(6.dp))
                 Row {
-                    SmallBtn("Change", onClick = onPickFolder)
+                    SmallBtn("Change", onClick = pickFolder)
                     Spacer(Modifier.width(6.dp))
                     SmallBtn("Use a preset") { draft = draft.copy(customRoot = null) }
                 }

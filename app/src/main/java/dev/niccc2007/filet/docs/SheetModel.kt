@@ -186,18 +186,104 @@ object SheetZoom {
      * depends on how many times it has been made before cannot be done without looking.
      */
     fun doubleTap(scale: Float): Float = if (scale < 1.25f) DOUBLE_TAP else 1f
+}
+
+/**
+ * A pinch in flight on the grid, drawn rather than laid out: the grid as it was last laid out,
+ * scaled by [scale] about its top-left corner and moved by [x] and [y], in pixels. Pure.
+ *
+ * ## The lag this replaces
+ *
+ * Bug identified here: every pinch frame set the zoom, and the zoom is the font size of every
+ * cell, so every frame laid out the text of every cell on screen again at a new size - a couple
+ * of hundred text layouts a frame on a phone-sized sheet, which a phone cannot do in a frame.
+ * The scroll that kept the cell under the fingers was then applied a frame later still, so what
+ * did draw was drawn in the wrong place first. The pinch trailed the fingers and shook.
+ *
+ * Now the fingers move a transform, which costs no layout at all, and the grid is laid out again
+ * once, at the size the transform shows, when the pinch [lands]. The cost of a pinch is one
+ * layout instead of one per frame.
+ *
+ * ## Why the transform is not the whole answer
+ *
+ * A transform can only draw what was laid out. Growing, that is everything on screen and more.
+ * Shrinking, the rows and columns that come into view were never composed and show as empty
+ * ground, so a pinch that has shrunk the picture by [OUT] lands on the spot and carries on from
+ * a fresh layout. Growing never needs to.
+ */
+data class SheetPinch(val scale: Float = 1f, val x: Float = 0f, val y: Float = 0f) {
+
+    val idle: Boolean get() = scale == 1f && x == 0f && y == 0f
+
+    /** Shrunk far enough that the picture would show ground that was never laid out. */
+    val outOfRows: Boolean get() = scale < OUT
 
     /**
-     * The scroll offset that keeps the content under [focus] where it is when the scale goes
-     * from [from] to [to].
-     *
-     * The point under the fingers is at content position `(offset + focus) / from` in unscaled
-     * units; after the change it is at that times [to], and the offset that puts it back under
-     * [focus] is that minus [focus]. Without this a pinch zooms about the top-left corner and the
-     * cell being reached for slides away. Never negative; the far bound is the scroll state's.
+     * One touch event's [ratio] about ([cx], [cy]), on a grid laid out at [from]. The zoom it
+     * shows is held within [lo] and [hi], so the picture never promises a size that cannot land.
      */
-    fun offsetAbout(offset: Float, focus: Float, from: Float, to: Float): Float =
-        ((offset + focus) / from * to - focus).coerceAtLeast(0f)
+    fun by(ratio: Float, cx: Float, cy: Float, from: Float, lo: Float, hi: Float): SheetPinch {
+        if (ratio.isNaN() || ratio <= 0f) return this
+        val s = (from * scale * ratio).coerceIn(lo, hi) / from
+        val r = s / scale
+        // The point under the fingers stays under them: x -> c + (x - c) * r, on top of what
+        // the transform already does.
+        return SheetPinch(s, cx + (x - cx) * r, cy + (y - cy) * r)
+    }
+
+    /**
+     * Moved, if need be, so that it lands on a real scroll position: nothing before the first
+     * column or row, nothing past the last. Without this, shrinking at the top-left drags the
+     * sheet away from its corner, and the landing snaps it back.
+     *
+     * The size each frozen band will have after landing is taken as its present size times the
+     * scale. It is off by a pixel per frozen column for rounding, and [lands] works with the real
+     * one, so the most that rounding costs is a pixel of settle.
+     */
+    fun held(across: SheetAxis, down: SheetAxis): SheetPinch {
+        val nx = across.shiftWithin(scale, x)
+        val ny = down.shiftWithin(scale, y)
+        return if (nx == x && ny == y) this else copy(x = nx, y = ny)
+    }
+
+    /**
+     * The scroll offset along [axis] that shows, laid out at the new size, what this transform
+     * showed. [leadAfter] is the frozen band's real size at the new zoom.
+     *
+     * A point `u` of the old layout is drawn at `shift + scale * u`. In the moving area it shows
+     * content at `offset + u - lead`; laid out again, that content is `scale` times as far in and
+     * drawn at `leadAfter + content - newOffset`. Equal for every `u` when
+     * `newOffset = scale * (offset - lead) + leadAfter - shift` - one offset puts the whole moving
+     * area where the transform had it, not just the cell under the fingers.
+     */
+    fun lands(axis: SheetAxis, leadAfter: Float, shift: Float): Float =
+        scale * (axis.offset - axis.lead) + leadAfter - shift
+
+    companion object {
+        /** Shrinking past this lands mid-pinch. See the class note. */
+        const val OUT = 0.8f
+    }
+}
+
+/**
+ * One direction of the grid as last laid out, in pixels: how far it is scrolled, how big the
+ * frozen band before the moving area is, how long the moving content is, and how big the grid
+ * is on screen.
+ */
+data class SheetAxis(val offset: Float, val lead: Float, val content: Float, val size: Float) {
+
+    /** The farthest the moving area can scroll at [scale], with the band scaled too. */
+    fun farthest(scale: Float, leadAfter: Float = lead * scale): Float =
+        (content * scale - (size - leadAfter)).coerceAtLeast(0f)
+
+    /** [shift] moved so that landing at [scale] falls within 0 and [farthest]. */
+    fun shiftWithin(scale: Float, shift: Float): Float {
+        val leadAfter = lead * scale
+        // The shift that would land at offset 0; any larger and the landing is negative.
+        val atStart = scale * (offset - lead) + leadAfter
+        // Where the start wins over the end: a sheet narrower than the screen sits at its start.
+        return shift.coerceIn(atStart - farthest(scale, leadAfter), atStart)
+    }
 }
 
 /**

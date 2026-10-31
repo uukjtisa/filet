@@ -26,18 +26,26 @@ data class Share(
 )
 
 /**
- * The drive-root rule, as a pure function over the path string.
+ * What can be shared, as a pure function over the path string.
  *
- * Decision: a share is a folder and never the root of a volume. WebDAV stacks handle a drive root
- * badly - a listing of `C:\` answered 403 while every folder inside it listed fine, and the
- * distinction turned out to be that a junction to a FOLDER lists and a junction to a DRIVE ROOT
- * does not. Offering a whole drive means picking its top-level folders.
+ * **A whole drive CAN be shared, writable like any other share.** That is a reversal, and the
+ * reason the earlier rule existed is worth keeping because it was a misdiagnosis: a listing of
+ * `C:\` failed while every folder inside it listed fine, and that was read as WebDAV handling
+ * drive roots badly. It is not. `C:\` holds `$Recycle.Bin`, `System Volume Information`,
+ * `pagefile.sys` and `hiberfil.sys`, and a stat on several of those throws even from an
+ * administrator shell - so the listing died part way through and the root answered an error
+ * while its children were fine. The fix belongs where the fault is, in the listing, which now
+ * leaves out any entry it cannot describe. See `LocalProvider.toNodeOrNull`.
  *
- * Lexical rather than `Path.getParent() == null`, for two reasons. `Paths.get` parses with the
- * running OS's rules, so on Linux `C:\` is an ordinary relative name with a parent of null and
- * on Windows `/` means "the current drive" - the guard would answer differently per machine and
- * its tests would only prove one of them. And `..` is resolved here before asking: `D:\Docs\..`
- * IS a drive root, and a check that looks at the last segment alone lets it through.
+ * So this guard is now only about paths that are not usable at all. Sharing a drive exposes
+ * everything on it, read and write, to anyone with the address - which is the point, and is the
+ * caller's decision to make rather than this function's.
+ *
+ * Still lexical rather than `Path.getParent() == null`. `Paths.get` parses with the running OS's
+ * rules, so on Linux `C:\` is an ordinary relative name with a null parent and on Windows `/`
+ * means "the current drive" - a guard built on it would answer differently per machine and its
+ * tests would only prove one of them. `..` is still resolved before asking, so `D:\Docs\..` is
+ * recognised as the drive root it is.
  */
 object ShareGuard {
 
@@ -46,9 +54,6 @@ object ShareGuard {
         val p = raw.trim()
         if (p.isEmpty()) return "No folder was given."
         val parsed = parse(p) ?: return "Not a full path: $p"
-        if (parsed.segments.isEmpty()) {
-            return "A whole drive cannot be shared. Pick the folders inside it instead."
-        }
         return null
     }
 
@@ -164,9 +169,6 @@ object Shares {
         if (!Files.isDirectory(p)) return "Not a folder: $path"
         val real = runCatching { p.toRealPath() }.getOrNull()
             ?: return "That folder cannot be read: $path"
-        if (real.parent == null || ShareGuard.isRoot(real.toString())) {
-            return "That folder points at a whole drive. Pick the folders inside it instead."
-        }
         if (!Files.isReadable(real)) return "That folder cannot be read: $path"
         return null
     }

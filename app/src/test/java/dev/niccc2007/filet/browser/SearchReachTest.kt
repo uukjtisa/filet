@@ -1,7 +1,9 @@
 package dev.niccc2007.filet.browser
 
 import dev.niccc2007.filet.index.IndexStatus
-import dev.niccc2007.filet.index.SearchScope
+import dev.niccc2007.filet.index.Reach
+import dev.niccc2007.filet.index.VolumeKey
+import dev.niccc2007.filet.vfs.VPath
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -16,76 +18,245 @@ import org.junit.Test
  */
 class SearchReachTest {
 
-    private val someFolder = "local:///storage/emulated/0/Download"
+    private val internal = ReachDrive(
+        key = VolumeKey(VPath.of("local", "/storage/emulated/0")),
+        label = "Internal storage",
+        remote = false,
+        system = false,
+    )
+    private val card = ReachDrive(
+        key = VolumeKey(VPath.of("local", "/storage/1A2B-3C4D")),
+        label = "SD card",
+        remote = false,
+        system = false,
+    )
+    private val system = ReachDrive(
+        key = VolumeKey(VPath.of("root", "/")),
+        label = "System",
+        remote = false,
+        system = true,
+    )
+    private val nas = ReachDrive(
+        key = VolumeKey(VPath.of("smb", "/n1a2b3c")),
+        label = "Workshop NAS",
+        remote = true,
+        system = false,
+    )
 
-    // ── which scopes a pane offers ──
+    private val everything = listOf(internal, card, system, nas)
+    private val someFolder = VPath.of("local", "/storage/emulated/0/Download")
+    private val onTheNas = VPath.of("smb", "/n1a2b3c/Projects")
+
+    // ── the ladder ──
 
     @Test
-    fun `a folder pane offers all four`() {
-        val out = SearchReach.scopesFor(someFolder)
+    fun `a folder pane climbs from the folder to everywhere`() {
         assertEquals(
             listOf(
-                SearchScope.FOLDER,
-                SearchScope.SUBFOLDERS,
-                SearchScope.DEVICE,
-                SearchScope.PROVENANCE,
+                "This folder",
+                "Everything under here",
+                "Internal storage",
+                "This phone",
+                "Everywhere",
             ),
-            out,
+            ReachLadder.rungsFor(someFolder, everything).map { it.label },
         )
     }
 
     @Test
-    fun `home offers only the ones that mean something without a folder`() {
+    fun `the drive rung is named after the drive, not called this drive`() {
+        // The whole fault in one assertion. "Whole device" named a set nobody could point at;
+        // a rung that renders the volume's own label is a set that can be pointed at.
+        val rungs = ReachLadder.rungsFor(someFolder, everything)
+        assertTrue(rungs.any { it.label == "Internal storage" })
+        assertEquals(
+            Reach.Drives(setOf(internal.key)),
+            rungs.first { it.label == "Internal storage" }.reach,
+        )
+    }
+
+    @Test
+    fun `on a phone with one drive and no shares the ladder is three rungs`() {
+        // Strictness, which is not decoration: with only internal storage, "this drive", "this
+        // phone" and "everywhere" are the same set, and offering three chips for one answer is
+        // the dead-control rule three times over.
+        assertEquals(
+            listOf("This folder", "Everything under here", "Internal storage"),
+            ReachLadder.rungsFor(someFolder, listOf(internal)).map { it.label },
+        )
+    }
+
+    @Test
+    fun `everywhere is offered only when there is something out there`() {
+        assertFalse(
+            ReachLadder.rungsFor(someFolder, listOf(internal, card)).any { it.label == "Everywhere" },
+        )
+        assertTrue(
+            ReachLadder.rungsFor(someFolder, listOf(internal, card, nas)).any { it.label == "Everywhere" },
+        )
+    }
+
+    @Test
+    fun `this phone does not exist inside a share`() {
+        // "This phone" from a position on a NAS is either a lie or a jump, and both are worse
+        // than the rung being absent.
+        val rungs = ReachLadder.rungsFor(onTheNas, everything).map { it.label }
+        assertEquals(listOf("This folder", "Everything under here", "Workshop NAS", "Everywhere"), rungs)
+    }
+
+    @Test
+    fun `home offers only the rungs that mean something without a folder`() {
         // The reported state: the bar opened on Home with "This folder" ticked, and there is no
-        // folder. Both folder-shaped scopes are gone rather than shown and dead.
-        val out = SearchReach.scopesFor(null)
-        assertFalse(out.contains(SearchScope.FOLDER))
-        assertFalse(out.contains(SearchScope.SUBFOLDERS))
-        assertTrue(out.contains(SearchScope.DEVICE))
+        // folder. Both tree-shaped rungs are gone rather than shown and dead.
+        val rungs = ReachLadder.rungsFor(null, everything)
+        assertEquals(listOf("This phone", "Everywhere"), rungs.map { it.label })
     }
 
     @Test
-    fun `provenance is dropped when nothing has recorded an origin`() {
-        // A scope that can only ever return nothing is the same dead switch in miniature.
-        assertFalse(SearchReach.scopesFor(someFolder, provenance = false).contains(SearchScope.PROVENANCE))
-        assertTrue(SearchReach.scopesFor(someFolder, provenance = true).contains(SearchScope.PROVENANCE))
-    }
-
-    @Test
-    fun `every pane is offered at least the device`() {
-        for (cwd in listOf(someFolder, null)) {
-            for (prov in listOf(true, false)) {
-                assertTrue(
-                    "cwd=$cwd provenance=$prov",
-                    SearchReach.scopesFor(cwd, prov).contains(SearchScope.DEVICE),
+    fun `every rung is strictly wider than the one above it`() {
+        // The ladder's defining property, over every device shape that matters.
+        val shapes = listOf(
+            listOf(internal),
+            listOf(internal, card),
+            listOf(internal, system),
+            listOf(internal, nas),
+            everything,
+            emptyList(),
+        )
+        for (drives in shapes) {
+            for (cwd in listOf(someFolder, onTheNas, null)) {
+                val rungs = ReachLadder.rungsFor(cwd, drives)
+                // The tree rungs come first and in this order - a subtree contains its folder,
+                // and both sit inside whichever drive rung follows. From there on every rung is
+                // a set of drives, and those are compared as sets.
+                val tree = rungs.takeWhile { it.reach.isTreeShaped }.map { it.reach }
+                assertEquals(
+                    "$drives / $cwd",
+                    if (cwd == null) emptyList() else listOf(Reach.Folder, Reach.Subtree),
+                    tree,
                 )
+                val drivesOnly = rungs.drop(tree.size)
+                val sets = drivesOnly.map { keysOf(it.reach, drives) }
+                for (i in 1 until sets.size) {
+                    val wider = sets[i]
+                    val inner = sets[i - 1]
+                    assertTrue(
+                        "$drives / $cwd: ${drivesOnly[i].label} is not wider than ${drivesOnly[i - 1].label}",
+                        wider.containsAll(inner) && wider.size > inner.size,
+                    )
+                }
             }
         }
     }
 
-    // ── resolving a scope that cannot be honoured ──
+    @Test
+    fun `every drive a rung names is a drive that is actually there`() {
+        // Pointability, as a property. A rung naming a volume that is not mounted is the old
+        // "whatever the crawl reached" set with better manners.
+        val available = everything.map { it.key }.toSet()
+        for (rung in ReachLadder.rungsFor(someFolder, everything)) {
+            val named = rung.reach.volumes() ?: continue
+            assertTrue("${rung.label} names a volume that is not here", available.containsAll(named))
+        }
+    }
+
+    /** The drives a drive-shaped rung covers. Everywhere is every drive there is. */
+    private fun keysOf(reach: Reach, drives: List<ReachDrive>): Set<VolumeKey> =
+        reach.volumes() ?: drives.map { it.key }.toSet()
+
+    // ── resolving a reach that cannot be honoured ──
 
     @Test
-    fun `a folder scope with no folder becomes the device`() {
+    fun `a tree-shaped reach with no folder becomes the phone`() {
         // THE REPORTED BUG. This combination used to reach SearchRequest unchanged, match no
         // source, and return an empty list with no explanation - under a banner saying the index
         // was busy, which read as "still loading" rather than "this cannot work".
-        assertEquals(SearchScope.DEVICE, SearchReach.resolve(SearchScope.FOLDER, null))
-        assertEquals(SearchScope.DEVICE, SearchReach.resolve(SearchScope.SUBFOLDERS, null))
+        val phone = Reach.Drives(setOf(internal.key, card.key))
+        assertEquals(phone, ReachLadder.resolve(Reach.Folder, null, everything))
+        assertEquals(phone, ReachLadder.resolve(Reach.Subtree, null, everything))
     }
 
     @Test
-    fun `a folder scope with a folder is left alone`() {
-        assertEquals(SearchScope.FOLDER, SearchReach.resolve(SearchScope.FOLDER, someFolder))
-        assertEquals(SearchScope.SUBFOLDERS, SearchReach.resolve(SearchScope.SUBFOLDERS, someFolder))
+    fun `with no local drives to name at all it falls back to everywhere`() {
+        // Nothing better to coerce to, and a reach that retrieves nothing would be read as the
+        // search having failed.
+        assertEquals(Reach.Everywhere, ReachLadder.resolve(Reach.Folder, null, emptyList()))
+        assertEquals(Reach.Everywhere, ReachLadder.resolve(Reach.Folder, null, listOf(nas)))
     }
 
     @Test
-    fun `device and provenance never need resolving`() {
+    fun `a tree-shaped reach with a folder is left alone`() {
+        assertEquals(Reach.Folder, ReachLadder.resolve(Reach.Folder, someFolder, everything))
+        assertEquals(Reach.Subtree, ReachLadder.resolve(Reach.Subtree, someFolder, everything))
+    }
+
+    @Test
+    fun `a reach naming a card that has been pulled narrows rather than going quiet`() {
+        // SEARCH.md §13.3. Retrieving from a volume id that no longer resolves answers "no
+        // matches", which blames the query for a card that is not in the phone any more.
+        val both = Reach.Drives(setOf(internal.key, card.key))
+        assertEquals(
+            Reach.Drives(setOf(internal.key)),
+            ReachLadder.resolve(both, someFolder, listOf(internal, nas)),
+        )
+        // And when every drive it named has gone, it says so by being empty rather than by
+        // silently widening to something that answers.
+        val gone = ReachLadder.resolve(Reach.Drives(setOf(card.key)), someFolder, listOf(internal))
+        assertTrue(gone.isEmpty)
+    }
+
+    @Test
+    fun `everywhere never needs resolving`() {
         for (cwd in listOf(someFolder, null)) {
-            assertEquals(SearchScope.DEVICE, SearchReach.resolve(SearchScope.DEVICE, cwd))
-            assertEquals(SearchScope.PROVENANCE, SearchReach.resolve(SearchScope.PROVENANCE, cwd))
+            assertEquals(Reach.Everywhere, ReachLadder.resolve(Reach.Everywhere, cwd, everything))
         }
+    }
+
+    // ── which drives count as the phone ──
+
+    @Test
+    fun `the phone is the local drives, and the root mounts are not among them`() {
+        // Root is reachable by being ticked in the volume sheet, never by a rung: somebody
+        // searching this phone is looking for their own files, and a system path ranked beside
+        // a photo is the rung's entire value spent.
+        assertEquals(setOf(internal.key, card.key), ReachLadder.phoneKeys(everything))
+    }
+
+    @Test
+    fun `a live walk at the widest reach is not pointed at the system volumes`() {
+        // The other half of the same guarantee: the index never holds /data, and the walk is
+        // not sent there either.
+        assertEquals(
+            listOf(internal.key.root, card.key.root, nas.key.root),
+            ReachLadder.everywhereRoots(everything),
+        )
+    }
+
+    @Test
+    fun `the drive a pane stands on is the longest root that contains it`() {
+        // Volumes nest - a granted folder can sit inside the internal volume - and matching the
+        // shorter root would caption a pane with the wrong drive and search a wider one than
+        // the chip claimed.
+        val granted = ReachDrive(
+            key = VolumeKey(VPath.of("local", "/storage/emulated/0/Shared")),
+            label = "Shared",
+            remote = false,
+            system = false,
+        )
+        val deep = VPath.of("local", "/storage/emulated/0/Shared/Work")
+        assertEquals(granted, ReachLadder.driveAt(deep, listOf(internal, granted)))
+        assertEquals(internal, ReachLadder.driveAt(someFolder, listOf(internal, granted)))
+    }
+
+    @Test
+    fun `a path on no known drive stands on none of them`() {
+        assertEquals(null, ReachLadder.driveAt(VPath.of("zip", "/x/y"), everything))
+        assertEquals(null, ReachLadder.driveAt(null, everything))
+    }
+
+    @Test
+    fun `a volume root itself counts as being on that volume`() {
+        assertEquals(internal, ReachLadder.driveAt(internal.key.root, everything))
     }
 
     // ── the banner ──

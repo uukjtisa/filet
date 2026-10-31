@@ -36,14 +36,86 @@ class SqliteIndex(
      * field that cannot answer rather than returning an empty list and looking broken (R1).
      */
     private val extractors: List<FactExtractor> = emptyList(),
+    /**
+     * Where to keep the database, as a plain path, or null for the app's own database folder.
+     *
+     * A String rather than a `File` because R3 counts a storage handle in a SIGNATURE. See
+     * `IndexDb.open`.
+     */
+    private val dbDir: String? = null,
+    /**
+     * Where the file memory lives ([FileMemory]), or null for none - tests and the desktop.
+     *
+     * Its own folder and its own file, because it is not derived: see [MemoryDb].
+     */
+    private val memoryDir: String? = null,
 ) : FileIndex {
+
+    /** Null when there is no folder for it or it would not open; every write site checks. */
+    private val memory: FileMemory? = memoryDir?.let { runCatching { MemoryDb.open(it) }.getOrNull() }
+
+    /**
+     * Filet's own working folders, which the memory never records. The parent of the memory's
+     * folder is the Filet folder itself, and the index's parent is wherever the cache lives;
+     * both, so a cache moved out of the Filet folder is still excluded.
+     */
+    private val ownRoots: List<String> = listOfNotNull(memoryDir, dbDir)
+        .map { MemoryRules.parentOf(it.replace('\\', '/')) }
+        .distinct()
+        .map { VPath.of("local", it).toString() }
+
+    private fun remembers(path: VPath): Boolean = memory != null && MemoryRules.records(path.toString(), ownRoots)
+
+    // Off the caller's thread: a rename's listener runs wherever the rename did, which can be
+    // the main thread, and a history write must not be the thing that janks it.
+    private val memoryWrites = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "filet-memory").apply { isDaemon = true }
+    }
+
+    init {
+        // No memory means nothing to record; the index itself is unaffected either way.
+        val memory = memory
+        if (memory != null) {
+            vfs.onRelocated { from, to, isDir ->
+                if (!remembers(from) && !remembers(to)) return@onRelocated
+                memoryWrites.execute {
+                    runCatching {
+                        val at = System.currentTimeMillis()
+                        when {
+                            // Into Filet's own storage: as far as the user's files go, it left.
+                            !remembers(to) -> memory.gone(from.toString(), at)
+                            // Out of it: a file arriving.
+                            !remembers(from) -> memory.seen(to.toString(), isDir, at, found = false)
+                            else -> memory.moved(from.toString(), to.toString(), isDir, at, certain = true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    override suspend fun firstSeenOf(paths: List<VPath>): Map<VPath, Long> = withContext(io) {
+        val m = memory ?: return@withContext emptyMap()
+        val byString = paths.filter { remembers(it) }.associateBy { it.toString() }
+        if (byString.isEmpty()) return@withContext emptyMap()
+        runCatching { m.firstSeen(byString.keys.toList()) }.getOrDefault(emptyMap())
+            .mapNotNull { (k, v) -> byString[k]?.let { it to v } }.toMap()
+    }
+
+    override suspend fun memoryOf(path: VPath): MemoryView? = withContext(io) {
+        val m = memory ?: return@withContext null
+        if (!remembers(path)) return@withContext null
+        val own = runCatching { m.of(path.toString()) }.getOrNull()
+        val inside = runCatching { m.earliestUnder(path.toString()) }.getOrNull()
+        MemoryView(own, inside)
+    }
 
     /** Extension -> the extractors that claim it, resolved once. */
     private val extractorsByExt: Map<String, List<FactExtractor>> =
         extractors.flatMap { e -> e.extensions.map { it.lowercase() to e } }
             .groupBy({ it.first }, { it.second })
 
-    private val dbh = IndexDb.open(context)
+    private val dbh = IndexDb.open(context, dbDir)
     private val db get() = dbh.db
     private val lock = Mutex()
 
@@ -138,9 +210,68 @@ class SqliteIndex(
                 if (where.isNotEmpty()) append(" WHERE ").append(where)
                 append(" LIMIT ").append(req.limit)
             }
-            runCatching { db.rawQuery(sql, args.map { it.toString() }.toTypedArray()).map(::readRow) }
+            val strict = runCatching { db.rawQuery(sql, args.map { it.toString() }.toTypedArray()).map(::readRow) }
                 .getOrElse { emptyList() }
+            // SEARCH.md §14.4. A mistyped word retrieves nothing strictly, so the gate never meets
+            // the file it would have admitted - see TypoRetrieval.
+            if (hasDup(parsed.root) || !TypoRetrieval.wanted(words, strict.size)) return@withContext strict
+            val seen = strict.mapTo(HashSet()) { it.id }
+            val loose = typoCandidates(req, parsed, words).filter { seen.add(it.id) }
+            strict + loose.take((req.limit - strict.size).coerceAtLeast(0))
         }
+
+    /**
+     * Rows that may hold one of [words] with a slip in it, for the gate to judge.
+     *
+     * Words under the typo floor stay exact: a slip in "pdf" is a different word, and the gate
+     * gives it no budget either.
+     */
+    private fun typoCandidates(req: SearchRequest, parsed: ParsedQuery, words: List<String>): List<IndexRow> {
+        val args = ArrayList<Any>()
+        val where = ArrayList<String>()
+        scopeClause(req, args)?.let { where += it }
+        for (w in words.filter { it.length < TypoRetrieval.MIN_LENGTH }) {
+            where += "n.name_fold LIKE ?"
+            args += "%$w%"
+        }
+        val typoable = words.filter { it.length >= TypoRetrieval.MIN_LENGTH }
+        // Bug identified in review: this was `n.id IN (SELECT rowid ... ORDER BY rank LIMIT 400)`,
+        // which took the best 400 names on the whole phone BEFORE the scope applied. A typo in
+        // a Folder, Subtree or Drives search found nothing whenever those 400 sat elsewhere. The
+        // match is a join now, scoped in the same WHERE, and ranked after.
+        val ranked = dbh.hasFts
+        if (ranked) {
+            val expr = TypoRetrieval.ftsExpression(typoable) ?: return emptyList()
+            where += "node_fts MATCH ?"
+            args += expr
+        } else {
+            for (w in typoable) {
+                val pieces = TypoRetrieval.pieces(w)
+                if (pieces.isEmpty()) continue
+                where += pieces.joinToString(" OR ", "(", ")") { "n.name_fold LIKE ?" }
+                for (p in pieces) args += "%$p%"
+            }
+        }
+        where += sqlPredicates(parsed.root, args)
+        val sql = buildString {
+            append("SELECT n.id, n.name, n.name_fold, n.is_dir, n.size, n.mtime, n.parent_id, n.vol_id, ")
+            append("p.origin, IFNULL(u.opens,0), IFNULL(u.last_at,0), IFNULL(u.pinned,0), n.gen ")
+            append("FROM node n")
+            if (ranked) append(" JOIN node_fts f ON f.rowid = n.id")
+            append(" LEFT JOIN provenance p ON p.node_id = n.id")
+            append(" LEFT JOIN usage u ON u.node_id = n.id")
+            if (where.isNotEmpty()) append(" WHERE ").append(where.joinToString(" AND "))
+        }
+        val bound = args.map { it.toString() }.toTypedArray()
+        // Ranked by bm25 where this SQLite allows it in a join, unranked where it refuses - a
+        // typo found in no particular order beats none found.
+        val orders = if (ranked) listOf(" ORDER BY f.rank", "") else listOf("")
+        for (order in orders) {
+            val rows = runCatching { db.rawQuery(sql + order + " LIMIT " + TypoRetrieval.POOL, bound).map(::readRow) }
+            if (rows.isSuccess) return rows.getOrThrow()
+        }
+        return emptyList()
+    }
 
     /**
      * @return a SQL fragment limiting the search to the requested scope, or null for none.
@@ -148,24 +279,46 @@ class SqliteIndex(
      * The subtree case is a recursive CTE walking DOWN from the scope directory. Walking up
      * from every candidate instead would be 500 round trips through `parent_id`.
      */
-    private fun scopeClause(req: SearchRequest, args: MutableList<Any>): String? {
-        val origin = req.origin ?: return null
-        return when (req.scope) {
-            SearchScope.FOLDER -> {
+    private fun scopeClause(req: SearchRequest, args: MutableList<Any>): String? =
+        when (val reach = req.reach) {
+            Reach.Folder, Reach.Subtree -> {
+                val origin = req.origin ?: return null
                 val id = nodeIdFor(origin) ?: return "1 = 0"
                 args += id
-                "n.parent_id = ?"
+                if (reach == Reach.Folder) {
+                    "n.parent_id = ?"
+                } else {
+                    "n.parent_id IN (WITH RECURSIVE sub(id) AS (" +
+                        "SELECT ? UNION ALL SELECT c.id FROM node c JOIN sub ON c.parent_id = sub.id WHERE c.is_dir = 1" +
+                        ") SELECT id FROM sub)"
+                }
             }
-            SearchScope.SUBFOLDERS -> {
-                val id = nodeIdFor(origin) ?: return "1 = 0"
-                args += id
-                "n.parent_id IN (WITH RECURSIVE sub(id) AS (" +
-                    "SELECT ? UNION ALL SELECT c.id FROM node c JOIN sub ON c.parent_id = sub.id WHERE c.is_dir = 1" +
-                    ") SELECT id FROM sub)"
+            // A named set of drives, which is a volume filter rather than a tree one. An empty
+            // set is legal and retrieves nothing - every drive it named has been pulled or
+            // deleted, and `Reach.prune` has already narrowed it to say so.
+            is Reach.Drives -> {
+                val ids = volumeIdsFor(reach.keys)
+                if (ids.isEmpty()) "1 = 0" else "n.vol_id IN (" + ids.joinToString(",") + ")"
             }
-            SearchScope.DEVICE -> null
-            SearchScope.PROVENANCE -> "p.origin IS NOT NULL"
+            Reach.Everywhere -> null
         }
+
+    /**
+     * The `volume.id`s a set of reach keys names.
+     *
+     * A key naming no volume contributes nothing, which is the right answer for a share that
+     * has never been crawled: an uncrawled drive has no rows, and inventing a clause that
+     * matched everything instead would quietly widen the reach the user asked for.
+     */
+    private fun volumeIdsFor(keys: Set<VolumeKey>): List<Long> {
+        if (keys.isEmpty()) return emptyList()
+        val marks = keys.joinToString(",") { "?" }
+        return runCatching {
+            db.rawQuery(
+                "SELECT id FROM volume WHERE uuid IN (" + marks + ")",
+                keys.map { it.uuid }.toTypedArray(),
+            ).map { it.getLong(0) }
+        }.getOrDefault(emptyList())
     }
 
     /** The half of the query that SQL can answer before retrieval, so it costs nothing. */
@@ -254,7 +407,9 @@ class SqliteIndex(
 
     /** Node ids that have at least one byte-identical twin, for a `dup:` query. */
     private fun duplicateIds(req: SearchRequest): List<Long> {
-        val scope = if (req.scope == SearchScope.DEVICE) null else req.origin
+        // A whole-device duplicate hunt is the only one that runs unscoped; anything
+        // narrower hashes the subtree the pane is standing in.
+        val scope = if (req.reach == Reach.Everywhere) null else req.origin
         val groups = kotlinx.coroutines.runBlocking { duplicates(scope) }
         val out = ArrayList<Long>()
         for (group in groups) for (path in group) nodeIdFor(path)?.let { out += it }
@@ -376,21 +531,103 @@ class SqliteIndex(
             arrayOf(volId.toString()),
         ).use { c -> if (c.moveToFirst()) c.getLong(0) else null }
 
+    // Every volume, matched in Kotlin by `VolumeOwner` rather than by a LIKE in SQL: the table
+    // holds a handful of rows, and the match is the part that was wrong. See VolumeOwner.
     private fun volumeIdFor(path: VPath): Long? =
-        db.rawQuery("SELECT id, root FROM volume WHERE ? LIKE root || '%'", arrayOf(path.toString()))
-            .use { c ->
-                var best: Long? = null
-                var bestLen = -1
-                while (c.moveToNext()) {
-                    val root = c.getString(1)
-                    if (root.length > bestLen) { bestLen = root.length; best = c.getLong(0) }
-                }
-                best
-            }
+        db.rawQuery("SELECT id, root FROM volume", null).use { c ->
+            val rows = ArrayList<Pair<Long, String>>()
+            while (c.moveToNext()) rows += c.getLong(0) to c.getString(1)
+            VolumeOwner.of(rows, path.toString())
+        }
 
     private fun volumeRoot(volId: Long): VPath? =
         db.rawQuery("SELECT root FROM volume WHERE id = ?", arrayOf(volId.toString()))
             .use { c -> if (c.moveToFirst()) runCatching { VPath.parse(c.getString(0)) }.getOrNull() else null }
+
+    private fun allVolumes(): List<Pair<Long, String>> =
+        db.rawQuery("SELECT id, root FROM volume", null).use { c ->
+            buildList { while (c.moveToNext()) add(c.getLong(0) to c.getString(1)) }
+        }
+
+    /** The generation [volId] was last walked completely at, or 0. See CrawlScope.completeGen. */
+    private fun completeGenOf(volId: Long): Long {
+        val uuid = db.rawQuery("SELECT uuid FROM volume WHERE id = ?", arrayOf(volId.toString()))
+            .use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: return 0L
+        return CrawlScope.completeGen(
+            stored = dbh.meta(META_COMPLETE + uuid),
+            metaGen = dbh.meta(META_GEN)?.toLongOrNull() ?: 0L,
+            rootGen = rootNodeId(volId)?.let(::knownDirGen),
+            lastRunAt = dbh.meta(META_LAST_RUN)?.toLongOrNull() ?: 0L,
+        )
+    }
+
+    override suspend fun completeVolumes(): Set<String> = withContext(io) {
+        runCatching {
+            allVolumes().filter { (id, _) -> completeGenOf(id) > 0L }.map { it.second }.toSet()
+        }.getOrDefault(emptySet())
+    }
+
+    /**
+     * The unwalked half of an interrupted pass over [root]: its generation and its directories,
+     * or null when there is none to continue.
+     *
+     * Every entry's node has to still exist. A share forgotten and added back between the two
+     * halves has lost the rows the entries point at, and continuing would hang new rows off ids
+     * that are gone - so one missing node discards the whole frontier and the pass starts clean.
+     */
+    private fun loadFrontier(root: VPath): Pair<Long, List<Pending>>? {
+        val owner = root.toString()
+        var gen: Long? = null
+        val out = ArrayList<Pending>()
+        db.rawQuery(
+            "SELECT gen, ord, node_id, path FROM crawl_queue WHERE scheme = ? ORDER BY gen DESC, ord",
+            arrayOf(root.scheme),
+        ).use { c ->
+            while (c.moveToNext()) {
+                val path = c.getString(3)
+                if (!VolumeOwner.owns(owner, path)) continue
+                val g = c.getLong(0)
+                if (gen == null) gen = g else if (g != gen) break
+                val p = runCatching { VPath.parse(path) }.getOrNull() ?: return null
+                out += Pending(c.getLong(1), c.getLong(2), p)
+            }
+        }
+        val g = gen ?: return null
+        val alive = out.all { p ->
+            db.rawQuery("SELECT 1 FROM node WHERE id = ?", arrayOf(p.nodeId.toString())).use { it.moveToFirst() }
+        }
+        return if (alive) g to out else null
+    }
+
+    private fun saveFrontier(root: VPath, gen: Long, queue: Collection<Pending>) {
+        clearFrontier(root)
+        if (queue.isEmpty()) return
+        // Ordinals are per generation and shared by every share's frontier under it, so this one
+        // starts after whatever is already there.
+        val base = db.rawQuery("SELECT IFNULL(MAX(ord), -1) + 1 FROM crawl_queue WHERE gen = ?", arrayOf(gen.toString()))
+            .use { c -> if (c.moveToFirst()) c.getLong(0) else 0L }
+        db.beginTransaction()
+        try {
+            var i = 0L
+            for (p in queue) {
+                db.execSQL(
+                    "INSERT INTO crawl_queue(gen, ord, node_id, scheme, path) VALUES(?,?,?,?,?)",
+                    arrayOf<Any>(gen, base + i++, p.nodeId, root.scheme, p.path.toString()),
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    private fun clearFrontier(root: VPath) {
+        val owner = root.toString()
+        val keys = db.rawQuery("SELECT gen, ord, path FROM crawl_queue WHERE scheme = ?", arrayOf(root.scheme)).use { c ->
+            buildList { while (c.moveToNext()) if (VolumeOwner.owns(owner, c.getString(2))) add(c.getLong(0) to c.getLong(1)) }
+        }
+        for ((g, o) in keys) db.execSQL("DELETE FROM crawl_queue WHERE gen = ? AND ord = ?", arrayOf<Any>(g, o))
+    }
 
     private fun ensureVolume(root: VPath): Long {
         val uuid = root.toString()
@@ -537,19 +774,60 @@ class SqliteIndex(
                 // it blindly would also overflow on Long.MAX_VALUE and produce a deadline in
                 // the past, which is the opposite of what the caller asked for.
                 val deadline = if (budgetMs <= 0) Long.MAX_VALUE else started + budgetMs
-                val gen = (dbh.meta(META_GEN)?.toLongOrNull() ?: 0L) + 1
-                // Only written after a pass that finished, so it names the last
-                // generation that can be trusted to have been everywhere.
-                val lastCompleteGen = dbh.meta(META_GEN)?.toLongOrNull() ?: 0L
+                val metaGen = dbh.meta(META_GEN)?.toLongOrNull() ?: 0L
+                // The drives the VFS actually has. A root that is neither one of these nor inside
+                // a volume the index holds has nothing to attach to - a folder on a card no pass
+                // has reached yet - and registering it as a volume is the defect CrawlScope is
+                // for. Null when the VFS cannot say: nothing is dropped as a stray then, and a
+                // root no volume holds is refused rather than guessed at.
+                val drives = runCatching { vfs.roots().map { it.path.toString() }.toSet() }.getOrNull()
+                // The folder volumes an earlier build registered, dropped before anything is
+                // classified against them - see CrawlScope.strays. Judged against the VFS's own
+                // drives, so a real mount inside another is never mistaken for one.
+                val volumesBefore = allVolumes()
+                if (drives != null && roots.any { it.scheme == "local" && it.toString() in drives }) {
+                    for (id in CrawlScope.strays(volumesBefore, drives + roots.map { it.toString() })) {
+                        runCatching {
+                            db.execSQL("DELETE FROM node WHERE vol_id = ?", arrayOf<Any>(id))
+                            db.execSQL("DELETE FROM volume WHERE id = ?", arrayOf<Any>(id))
+                        }
+                    }
+                }
+                val volumes = allVolumes()
+                // One share on its own is the pass that keeps a frontier, so an interrupted walk
+                // of a NAS resumes where it stopped instead of at the root. SEARCH.md §14.7.
+                val share = roots.singleOrNull()?.takeIf {
+                    it.scheme in VolumeKey.REMOTE_SCHEMES && CrawlScope.subtreeOf(volumes, it.toString()) == null
+                }
+                val frontier = share?.let { loadFrontier(it) }
+                // A fresh stamp for every pass, from a counter that only goes up. See [nextStamp]
+                // for what reusing one number across folder passes cost.
+                val fresh = nextStamp()
+                val gen = if (share == null) fresh else CrawlScope.resumeGen(
+                    storedGen = frontier?.first,
+                    storedRows = frontier?.second?.size ?: 0,
+                    volumeCompleteGen = completeGenOf(ensureVolume(share)),
+                    fresh = fresh,
+                )
+                val resumed = frontier != null && frontier.second.isNotEmpty() && gen == frontier.first
                 // Read BEFORE anything is touched. This is the number that makes a running
                 // update legible: "checked 12,430 of 31,206" instead of a bare 12,430 that
                 // reads as an index which just started from nothing.
                 val filesBefore = countFiles()
+                // Rows inserted by THIS pass have ids above this one: SQLite hands out
+                // max(rowid) + 1, and nothing is deleted until the pass has finished.
+                //
+                // A resumed share pass uses the boundary its first half started from, or every
+                // row that half inserted is "not fresh" and a move it found is recorded as a
+                // deletion and a new file.
+                val maxIdBefore = (if (resumed) dbh.meta(META_FRONTIER_MAXID + share.toString())?.toLongOrNull() else null)
+                    ?: db.rawQuery("SELECT IFNULL(MAX(id), 0) FROM node", null)
+                        .use { c -> if (c.moveToFirst()) c.getLong(0) else 0L }
                 _status.update {
                     it.copy(
                         running = true, phase = "scanning", scanned = 0, knownAtStart = filesBefore,
-                        // Bug identified, reported as the index showing nothing while it
-                        // updates: `available` gates whether the index is allowed to answer a
+                        // Bug identified here, which presented as the index showing nothing while
+                        // it updates: `available` gates whether the index is allowed to answer a
                         // search at all, and it was only ever written at init and in this
                         // crawl's `finally`. So a pass that began before the first count had
                         // found anything left it false for the whole pass - and
@@ -578,15 +856,61 @@ class SqliteIndex(
                 var moved = 0
                 var factsWritten = 0
                 var removed = 0
+                var wroteLastRun = false
+                // What this pass walked, split by what it may conclude about it. See CrawlScope.
+                val volumeIds = ArrayList<Long>()
+                val volumeRoots = ArrayList<VPath>()
+                val subtreeIds = ArrayList<Long>()
+                // The share's queue, kept reachable from the finally below so an interrupted
+                // pass can write it out as the frontier.
+                var shareQueue: ArrayDeque<Pending>? = null
+                // The directory taken off the queue and not yet finished. Something throwing in
+                // the middle of it would otherwise leave it on neither the queue nor the index,
+                // and the resumed pass would sweep everything under it as gone.
+                var inFlight: Pending? = null
+                var swept = false
 
                 try {
+                    seedMemory()
                     for (root in roots) {
-                        val volId = ensureVolume(root)
-                        val rootId = upsertNode(volId, null, root.name.ifEmpty { root.scheme }, true, -1, 0, gen)
+                        // A folder is walked as a folder of the volume holding it. Registering
+                        // it as a volume of its own is what let a folder pass sweep the index.
+                        val owner = CrawlScope.subtreeOf(volumes, root.toString())
+                        if (owner == null && (drives == null || root.toString() !in drives)) continue
+                        val volId = owner ?: ensureVolume(root)
+                        val volRoot = if (owner == null) root else (volumeRoot(volId) ?: root)
+                        val remote = root.scheme in VolumeKey.REMOTE_SCHEMES
+                        // Read before the root row is touched: the fallback for a database older
+                        // than the per-volume key reads the root's generation.
+                        val volComplete = completeGenOf(volId)
+                        // Until a complete pass has been through this volume since the memory
+                        // began, every first look is "it was already here", not an arrival.
+                        // Keyed by the VOLUME, so a file arriving in a watched folder is an
+                        // arrival once the volume has a baseline.
+                        val foundHere = memory?.baselined(volRoot.toString()) != true
+                        val rootId = if (owner == null) {
+                            upsertNode(volId, null, root.name.ifEmpty { root.scheme }, true, -1, 0, gen)
+                        } else {
+                            nodeIdFor(root) ?: indexSingle(root) ?: continue
+                        }
+                        if (owner == null) {
+                            volumeIds += volId
+                            volumeRoots += root
+                        } else {
+                            subtreeIds += rootId
+                        }
                         // Pending entries carry the order they were discovered in, so a
                         // detour is a sort and undoing one is a sort back - see CrawlPriority.
                         var discovered = 0L
-                        val queue = ArrayDeque(listOf(Pending(discovered++, rootId, root)))
+                        val queue = ArrayDeque<Pending>()
+                        if (resumed && root == share) {
+                            queue.addAll(frontier!!.second)
+                            discovered = (queue.maxOfOrNull { it.order } ?: 0L) + 1
+                        } else {
+                            queue.addLast(Pending(discovered++, rootId, root))
+                        }
+                        if (root == share) shareQueue = queue
+                        var failures = 0
                         var steeredFor: String? = null
                         while (queue.isNotEmpty()) {
                             currentCoroutineContext().ensureActive()
@@ -605,6 +929,7 @@ class SqliteIndex(
                             }
 
                             val pending = queue.removeFirst()
+                            inFlight = pending
                             val parentId = pending.nodeId
                             val dir = pending.path
                             visited++
@@ -625,9 +950,9 @@ class SqliteIndex(
                             // generation, or has no row at all.
                             //
                             // So a skip needs both: the modification time has not moved AND a
-                            // completed pass has been in there. If no pass has ever completed,
-                            // lastCompleteGen is 0, nothing qualifies, and this behaves exactly
-                            // as it did before.
+                            // completed pass has been in there. If no pass has ever completed
+                            // this volume, volComplete is 0, nothing qualifies, and this behaves
+                            // exactly as it did before.
                             //
                             // This is the half of "the indexing never stops" that makes an
                             // update finish at all: without it every pass re-lists every folder
@@ -636,19 +961,43 @@ class SqliteIndex(
                             val dirMtime = runCatching { vfs.stat(dir)?.mtime ?: 0L }.getOrDefault(0L)
                             val known = knownDirMtime(parentId)
                             val unchanged = dirUnchanged(known, dirMtime)
-                            if (unchanged && lastCompleteGen > 0L && knownDirGen(parentId) == lastCompleteGen) {
+                            if (unchanged && volComplete > 0L && knownDirGen(parentId) == volComplete) {
                                 // Carried forward, so the sweep at the end does not delete a
                                 // subtree for the crime of not having changed.
                                 runCatching { keepSubtree(parentId, gen) }
+                                inFlight = null
                                 if (visited % 40 == 0) onProgress(seen, dir)
                                 continue
                             }
 
-                            val children = runCatching { vfs.list(dir) }.getOrNull() ?: continue
+                            // Bug identified here: a folder that could not be listed was skipped
+                            // without being stamped, so the sweep at the end deleted everything
+                            // under it - an unreadable folder was treated as an empty one. On a
+                            // share that meant a dropped connection mid-pass wiped every folder
+                            // not yet reached.
+                            val children = runCatching { vfs.list(dir) }.getOrNull()
+                            if (children == null) {
+                                failures++
+                                when (CrawlScope.onUnreadable(remote, isRoot = parentId == rootId, consecutiveFailures = failures)) {
+                                    CrawlScope.Unreadable.CARRY -> {
+                                        runCatching { keepSubtree(parentId, gen) }
+                                        inFlight = null
+                                        continue
+                                    }
+                                    CrawlScope.Unreadable.STOP -> {
+                                        // Back on the frontier, so the resumed pass starts here.
+                                        queue.addFirst(pending)
+                                        inFlight = null
+                                        complete = false
+                                        break
+                                    }
+                                }
+                            }
+                            failures = 0
 
                             db.beginTransaction()
                             val toExtract = ArrayList<Pair<Long, dev.niccc2007.filet.vfs.VNode>>()
-                            try {
+                            try { inMemoryBatch {
                                 if (!unchanged) changed++
                                 for (child in children) {
                                     seen++
@@ -658,6 +1007,8 @@ class SqliteIndex(
                                         child.size, child.mtime, gen,
                                         hidden = child.hidden,
                                         inode = child.inode,
+                                        memo = child.path,
+                                        found = foundHere,
                                     )
                                     if (child.isDir) queue.addLast(Pending(discovered++, id, child.path))
                                     // Look inside only when the file is new or has actually
@@ -671,6 +1022,7 @@ class SqliteIndex(
                                     "UPDATE node SET dir_mtime = ?, gen = ? WHERE id = ?",
                                     arrayOf<Any>(dirMtime, gen, parentId),
                                 )
+                                } // inMemoryBatch
                                 db.setTransactionSuccessful()
                             } finally {
                                 db.endTransaction()
@@ -678,15 +1030,27 @@ class SqliteIndex(
 
                             // Outside the transaction: opening an archive is slow, and holding a
                             // write lock across it would stall every read in the app.
-                            for ((id, child) in toExtract) {
+                            for ((n, pair) in toExtract.withIndex()) {
+                                val (id, child) = pair
                                 currentCoroutineContext().ensureActive()
-                                if (System.currentTimeMillis() > deadline) { complete = false; break }
+                                if (System.currentTimeMillis() > deadline) {
+                                    // Bug identified here: the rows were already written with the
+                                    // file's real size and time, so the next pass saw nothing
+                                    // changed and never looked inside them. A zero time is the
+                                    // one stamp no file has, so the next pass reads them again.
+                                    for ((rest, _) in toExtract.drop(n)) {
+                                        runCatching { db.execSQL("UPDATE node SET mtime = 0 WHERE id = ?", arrayOf<Any>(rest)) }
+                                    }
+                                    complete = false
+                                    break
+                                }
                                 for (extractor in extractorsByExt[child.extension].orEmpty()) {
                                     val facts = runCatching { extractor.facts(child) }.getOrNull() ?: continue
                                     for ((kind, values) in facts) writeInner(id, kind, values)
                                     factsWritten++
                                 }
                             }
+                            inFlight = null
                             if (!complete) break
                             if (visited % 40 == 0) {
                                 _status.update {
@@ -708,18 +1072,52 @@ class SqliteIndex(
 
                     // Generation sweep, SEARCH.md §4.4. Only after a COMPLETE pass: sweeping
                     // after a truncated one would delete everything the crawl never reached.
+                    //
+                    // Scoped to what this pass walked - see CrawlScope. It was every row in the
+                    // database, so a folder pass deleted every drive it was not standing in, and
+                    // a pass over the phone deleted every share's rows.
                     if (complete) {
-                        // Moves first, THEN the sweep. The other order destroys the very rows
-                        // a move needs to carry forward.
-                        moved = relinkMoves(gen)
-                        // Counted, not just executed: "4 gone" is only honest if something
-                        // actually counted them.
-                        removed = db.compileStatement("DELETE FROM node WHERE gen < ?")
-                            .use { st -> st.bindLong(1, gen); st.executeUpdateDelete() }
-                        dbh.putMeta(META_GEN, gen.toString())
-                        dbh.putMeta(META_LAST_RUN, System.currentTimeMillis().toString())
+                        val scope = CrawlScope.sweepSql(volumeIds, subtreeIds)
+                        if (scope != null) {
+                            // Moves first, THEN the sweep. The other order destroys the very rows
+                            // a move needs to carry forward.
+                            moved = relinkMoves(gen, maxIdBefore, scope)
+                            rememberGone(gen, scope)
+                            // Counted, not just executed: "4 gone" is only honest if something
+                            // actually counted them.
+                            removed = db.compileStatement("DELETE FROM node WHERE gen < ? AND $scope")
+                                .use { st -> st.bindLong(1, gen); st.executeUpdateDelete() }
+                        }
+                        // Only a pass over whole volumes says anything about them. A folder pass
+                        // finishing is a fact about the folder.
+                        if (volumeRoots.isNotEmpty()) {
+                            dbh.putMeta(META_GEN, maxOf(metaGen, gen).toString())
+                            for (r in volumeRoots) dbh.putMeta(META_COMPLETE + r.toString(), gen.toString())
+                            if (share != null) clearFrontier(share)
+                            // "Last indexed" is the phone's. A share finishing does not make the
+                            // phone's index any fresher.
+                            if (volumeRoots.any { it.scheme !in VolumeKey.REMOTE_SCHEMES }) {
+                                dbh.putMeta(META_LAST_RUN, System.currentTimeMillis().toString())
+                                wroteLastRun = true
+                            }
+                            memory?.let { m ->
+                                val now = System.currentTimeMillis()
+                                for (r in volumeRoots) runCatching { m.markBaselined(r.toString(), now) }
+                            }
+                        }
+                        swept = true
                     }
                 } finally {
+                    // Whatever stopped the pass - the budget, a share going quiet, or a cancel -
+                    // the share's unwalked half is written down, so the next pass continues it.
+                    val q = shareQueue
+                    if (share != null && q != null && !swept) {
+                        inFlight?.let { q.addFirst(it) }
+                        runCatching {
+                            saveFrontier(share, gen, q)
+                            dbh.putMeta(META_FRONTIER_MAXID + share.toString(), maxIdBefore.toString())
+                        }
+                    }
                     // The detour cannot outlive the crawl it was steering.
                     detour = null
                     val files = countFiles()
@@ -730,7 +1128,7 @@ class SqliteIndex(
                             // Between passes the surviving rows all carry the generation that
                             // completed, so nothing is left labelled as still being checked.
                             writingGen = if (complete) gen else it.writingGen,
-                            lastRunAt = if (complete) System.currentTimeMillis() else it.lastRunAt,
+                            lastRunAt = if (wroteLastRun) System.currentTimeMillis() else it.lastRunAt,
                             lastAttemptAt = started,
                         )
                     }
@@ -784,12 +1182,12 @@ class SqliteIndex(
      *
      * @return how many files were carried forward.
      */
-    private fun relinkMoves(gen: Long): Int {
+    private fun relinkMoves(gen: Long, maxIdBefore: Long, scope: String): Int {
         // Rows the sweep is about to delete. Normally empty, which is why this returns before
         // touching anything else - a crawl where nothing vanished must cost nothing.
         val gone = ArrayList<Candidate>()
         db.rawQuery(
-            "SELECT id, vol_id, name, size, mtime, IFNULL(inode, 0) FROM node WHERE gen < ? AND is_dir = 0",
+            "SELECT id, vol_id, name, size, mtime, IFNULL(inode, 0) FROM node WHERE gen < ? AND is_dir = 0 AND $scope",
             arrayOf(gen.toString()),
         ).use { c ->
             while (c.moveToNext()) {
@@ -799,18 +1197,24 @@ class SqliteIndex(
         if (gone.isEmpty()) return 0
 
         // Pair each vanished row with the single fresh row that is the same file.
+        //
+        // "Fresh" means CREATED by this pass, not merely stamped by it. Every surviving row
+        // carries the current generation too, so matching on the generation alone let a
+        // deleted file's identity - and its shortcut - jump onto an identical twin that had
+        // been sitting in another folder all along. A move's destination is always a row this
+        // pass had to insert; a file that was already indexed somewhere else is not one.
         val pairs = ArrayList<Pair<Long, Long>>()
         for (old in gone) {
             val fresh = if (old.inode != 0L) {
                 query(
-                    "SELECT id FROM node WHERE gen = ? AND vol_id = ? AND is_dir = 0 AND inode = ? LIMIT 2",
-                    arrayOf(gen.toString(), old.volId.toString(), old.inode.toString()),
+                    "SELECT id FROM node WHERE gen = ? AND id > ? AND vol_id = ? AND is_dir = 0 AND inode = ? LIMIT 2",
+                    arrayOf(gen.toString(), maxIdBefore.toString(), old.volId.toString(), old.inode.toString()),
                 )
             } else {
                 query(
-                    "SELECT id FROM node WHERE gen = ? AND vol_id = ? AND is_dir = 0 AND " +
+                    "SELECT id FROM node WHERE gen = ? AND id > ? AND vol_id = ? AND is_dir = 0 AND " +
                         "name = ? AND size = ? AND mtime = ? LIMIT 2",
-                    arrayOf(gen.toString(), old.volId.toString(), old.name, old.size.toString(), old.mtime.toString()),
+                    arrayOf(gen.toString(), maxIdBefore.toString(), old.volId.toString(), old.name, old.size.toString(), old.mtime.toString()),
                 )
             }
             // Exactly one candidate, and not the row itself.
@@ -824,9 +1228,21 @@ class SqliteIndex(
         if (unambiguous.isEmpty()) return 0
 
         var relinked = 0
+        val forMemory = ArrayList<Triple<String, String, Boolean>>()
+        val names = HashMap<Long, String>()
+        val byOld = gone.associateBy { it.id }
         db.beginTransaction()
         try {
             for ((oldId, newId) in unambiguous) {
+                // Both paths BEFORE the rows change: afterwards the old one no longer exists.
+                if (memory != null) {
+                    val from = pathString(oldId, names)
+                    val to = pathString(newId, names)
+                    val newInode = db.rawQuery("SELECT IFNULL(inode, 0) FROM node WHERE id = ?", arrayOf(newId.toString()))
+                        .use { c -> if (c.moveToFirst()) c.getLong(0) else 0L }
+                    val certain = MemoryRules.relinkIsCertain(byOld[oldId]?.inode ?: 0L, newInode)
+                    if (from != null && to != null) forMemory += Triple(from, to, certain)
+                }
                 val row = db.rawQuery(
                     "SELECT parent_id, name, name_fold, size, mtime, flags, IFNULL(inode, 0) FROM node WHERE id = ?",
                     arrayOf(newId.toString()),
@@ -855,6 +1271,18 @@ class SqliteIndex(
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
+        }
+        memory?.let { m ->
+            val now = System.currentTimeMillis()
+            runCatching {
+                m.batch {
+                    for ((from, to, certain) in forMemory) {
+                        if (MemoryRules.records(from, ownRoots) || MemoryRules.records(to, ownRoots)) {
+                            m.moved(from, to, isDir = false, at = now, certain = certain)
+                        }
+                    }
+                }
+            }.onFailure { android.util.Log.w("FiletMemory", "relink not recorded", it) }
         }
         return relinked
     }
@@ -924,6 +1352,38 @@ class SqliteIndex(
      * obvious implementation and it is unusable: on a phone it is minutes of IO and a hot
      * battery to answer a question that stage 1 usually answers for free.
      */
+    /**
+     * One recursive query that carries each row's top-level ancestor down with it.
+     *
+     * The direct children are the anchor, each its own `top`; every descendant inherits the
+     * top of the folder it was reached through. That makes the largest child fall out of the
+     * same pass as the totals. The depth bound is a backstop against a corrupt `parent_id`
+     * chain, which would otherwise make SQLite recurse until it ran out of memory - the tree
+     * itself cannot form a cycle, because a row has one parent.
+     */
+    override suspend fun subtree(path: VPath, sink: SubtreeSink): Boolean = withContext(io) {
+        val id = nodeIdFor(path) ?: return@withContext false
+        db.rawQuery(
+            """
+            WITH RECURSIVE sub(id, top, direct, is_dir, size, ino, mt, depth) AS (
+              SELECT id, name, 1, is_dir, IFNULL(size, 0), IFNULL(inode, 0), IFNULL(mtime, 0), 0
+                FROM node WHERE parent_id = ?
+              UNION ALL
+              SELECT c.id, sub.top, 0, c.is_dir, IFNULL(c.size, 0), IFNULL(c.inode, 0), IFNULL(c.mtime, 0), sub.depth + 1
+                FROM node c JOIN sub ON c.parent_id = sub.id
+               WHERE sub.is_dir = 1 AND sub.depth < 256
+            )
+            SELECT top, direct, is_dir, size, ino, mt FROM sub
+            """.trimIndent(),
+            arrayOf(id.toString()),
+        ).use { c ->
+            while (c.moveToNext()) {
+                sink.accept(c.getString(0), c.getInt(1) != 0, c.getInt(2) != 0, c.getLong(3), c.getLong(4), c.getLong(5))
+            }
+        }
+        true
+    }
+
     override suspend fun duplicates(scope: VPath?, minSize: Long, limitGroups: Int): List<List<VPath>> =
         withContext(io) {
             val scopeId = scope?.let { nodeIdFor(it) }
@@ -1073,6 +1533,86 @@ class SqliteIndex(
         db.rawQuery("SELECT IFNULL(gen, 0) FROM node WHERE id = ?", arrayOf(id.toString()))
             .use { c -> if (c.moveToFirst()) c.getLong(0) else 0L }
 
+    /** Run [block] inside one memory transaction when there is a memory; see [FileMemory.batch]. */
+    private inline fun inMemoryBatch(crossinline block: () -> Unit) {
+        val m = memory
+        if (m == null) block() else m.batch { block() }
+    }
+
+    /**
+     * A node's full path as a VPath string, walking up `parent_id`, with [cache] shared across
+     * a batch so siblings do not each re-walk the same parents.
+     */
+    private fun pathString(id: Long, cache: HashMap<Long, String>): String? {
+        cache[id]?.let { return it }
+        val row = db.rawQuery("SELECT name, parent_id, vol_id FROM node WHERE id = ?", arrayOf(id.toString()))
+            .use { c -> if (c.moveToFirst()) Triple(c.getString(0), if (c.isNull(1)) null else c.getLong(1), c.getLong(2)) else null }
+            ?: return null
+        val parentId = row.second
+        val out = if (parentId == null) {
+            volumeRoot(row.third)?.toString()
+        } else {
+            val parent = pathString(parentId, cache) ?: return null
+            runCatching { VPath.parse(parent).child(row.first).toString() }.getOrNull()
+        } ?: return null
+        cache[id] = out
+        return out
+    }
+
+    /**
+     * Tell the memory what the sweep is about to delete, while the rows can still be read.
+     *
+     * After [relinkMoves], so a file that moved is not reported gone from where it used to be.
+     */
+    private fun rememberGone(gen: Long, scope: String) {
+        val m = memory ?: return
+        val ids = db.rawQuery("SELECT id FROM node WHERE gen < ? AND $scope", arrayOf(gen.toString()))
+            .use { c -> buildList { while (c.moveToNext()) add(c.getLong(0)) } }
+        if (ids.isEmpty()) return
+        val cache = HashMap<Long, String>()
+        val now = System.currentTimeMillis()
+        runCatching {
+            m.batch {
+                for (id in ids) {
+                    val p = pathString(id, cache) ?: continue
+                    if (MemoryRules.records(p, ownRoots)) m.gone(p, now)
+                }
+            }
+        }
+    }
+
+    /**
+     * Once, the first time a memory meets an index that already has rows: everything the index
+     * knows is recorded as already here. Without it, a file in a folder the crawl skips as
+     * unchanged would never get a record at all.
+     */
+    private fun seedMemory() {
+        val m = memory ?: return
+        if (runCatching { m.seeded() }.getOrDefault(true)) return
+        runCatching {
+            db.rawQuery(
+                """
+                WITH RECURSIVE p(id, path, is_dir) AS (
+                  SELECT n.id, v.root, n.is_dir FROM node n JOIN volume v ON v.id = n.vol_id
+                   WHERE n.parent_id IS NULL
+                  UNION ALL
+                  SELECT c.id,
+                         CASE WHEN p.path LIKE '%:///' THEN p.path || c.name ELSE p.path || '/' || c.name END,
+                         c.is_dir
+                    FROM node c JOIN p ON c.parent_id = p.id
+                   WHERE p.is_dir = 1
+                )
+                SELECT path, is_dir FROM p
+                """.trimIndent(),
+                null,
+            ).use { c ->
+                val rows = generateSequence { if (c.moveToNext()) c.getString(0) to (c.getInt(1) != 0) else null }
+                    .filter { MemoryRules.records(it.first, ownRoots) }
+                m.seed(rows, System.currentTimeMillis())
+            }
+        }
+    }
+
     private fun upsertNode(
         volId: Long,
         parentId: Long?,
@@ -1083,21 +1623,37 @@ class SqliteIndex(
         gen: Long,
         hidden: Boolean = false,
         inode: Long = 0,
+        /** The node's path, when the memory should hear about it. Null for bookkeeping rows. */
+        memo: VPath? = null,
+        /** Whether a first look counts as "already here" - see [FileMemory.seen]. */
+        found: Boolean = true,
     ): Long {
         val fold = Fuzzy.fold(name)
         val flags = if (hidden) 1 else 0
+        // The old size rides along on the lookup that was already being made, so noticing a
+        // resize for the memory costs no extra read.
         val sel = if (parentId == null) {
             db.rawQuery(
-                "SELECT id FROM node WHERE vol_id = ? AND parent_id IS NULL AND name = ?",
+                "SELECT id, IFNULL(size, -1) FROM node WHERE vol_id = ? AND parent_id IS NULL AND name = ?",
                 arrayOf(volId.toString(), name),
             )
         } else {
             db.rawQuery(
-                "SELECT id FROM node WHERE vol_id = ? AND parent_id = ? AND name = ?",
+                "SELECT id, IFNULL(size, -1) FROM node WHERE vol_id = ? AND parent_id = ? AND name = ?",
                 arrayOf(volId.toString(), parentId.toString(), name),
             )
         }
-        val existing = sel.use { c -> if (c.moveToFirst()) c.getLong(0) else null }
+        var oldSize = -1L
+        val existing = sel.use { c -> if (c.moveToFirst()) { oldSize = c.getLong(1); c.getLong(0) } else null }
+        val m = memory
+        if (m != null && memo != null && remembers(memo)) {
+            val now = System.currentTimeMillis()
+            // On an existing row as well as a new one: a memory younger than the index (or set
+            // aside and restarted) has no record of a file the index has known for months, and
+            // that file was by definition already here.
+            m.seen(memo.toString(), isDir, now, found = found || existing != null)
+            if (existing != null && !isDir) m.resized(memo.toString(), oldSize, size, now)
+        }
         if (existing != null) {
             db.execSQL(
                 "UPDATE node SET size = ?, mtime = ?, gen = ?, flags = ?, is_dir = ?, inode = ? WHERE id = ?",
@@ -1161,6 +1717,206 @@ class SqliteIndex(
         return VPath(path.scheme, "/")
     }
 
+    // ────────────────────────── writes that are not a crawl ──────────────────────────
+
+    /**
+     * The generation a write outside a crawl stamps: the one the next pass will write.
+     *
+     * Not the last complete one. A row stamped with that is older than any running or resumed
+     * pass, and the sweep at the end of it would delete a row this wrote a moment earlier - in a
+     * folder the pass had already been through and would not revisit.
+     */
+    private fun writeGen(): Long = nextStamp()
+
+    /**
+     * A generation no row carries yet, from a counter that only goes up.
+     *
+     * Bug identified in review: a pass took `META_GEN + 1`, and only a pass over whole volumes
+     * advances META_GEN - correctly, since a folder finishing says nothing about the drive. So
+     * every folder pass between two complete passes wrote the SAME number. Open Download and its
+     * rows were stamped G; delete a file in it; the watcher's pass over Download also ran at G,
+     * the deleted file's row was G and not older than G, and the sweep kept it. Search offered a
+     * file that was gone until the next complete pass. The same held for a listing written
+     * between two passes. A stamp per pass makes "older than this pass" mean what it says.
+     *
+     * META_GEN keeps its meaning - the newest generation a complete pass has written - and the
+     * stamp is always ahead of it.
+     */
+    private fun nextStamp(): Long {
+        val next = currentStamp() + 1
+        dbh.putMeta(META_STAMP, next.toString())
+        return next
+    }
+
+    /** The newest stamp handed out, or the last complete generation if that is newer. */
+    private fun currentStamp(): Long = maxOf(
+        dbh.meta(META_GEN)?.toLongOrNull() ?: 0L,
+        dbh.meta(META_STAMP)?.toLongOrNull() ?: 0L,
+    )
+
+    /**
+     * The id of [dir] on [volId], inserting any folder between the volume root and it that the
+     * index has never seen. Existing rows are left alone: a folder's size, time and generation are
+     * the crawl's to write, and a placeholder overwriting them would lose what the crawl knew.
+     */
+    private fun ensureDirChain(volId: Long, root: VPath, dir: VPath, gen: Long): Long? {
+        var id = rootNodeId(volId) ?: upsertNode(volId, null, root.name.ifEmpty { root.scheme }, true, -1, 0, gen)
+        val rootSegments = root.segments.size
+        val segments = dir.segments
+        if (segments.size < rootSegments) return null
+        for (seg in segments.drop(rootSegments)) {
+            val found = db.rawQuery(
+                "SELECT id FROM node WHERE vol_id = ? AND parent_id = ? AND name = ?",
+                arrayOf(volId.toString(), id.toString(), seg),
+            ).use { c -> if (c.moveToFirst()) c.getLong(0) else null }
+            id = found ?: upsertNode(volId, id, seg, true, -1, 0, gen, hidden = seg.startsWith("."))
+        }
+        return id
+    }
+
+    /**
+     * Make [dirId]'s children exactly [children]: upsert each, delete what is no longer there.
+     *
+     * @param memoryFound null to leave the memory out of it; otherwise what a first look counts
+     *   as - see [FileMemory.seen].
+     */
+    private fun reconcile(volId: Long, dirId: Long, children: List<VNode>, gen: Long, memoryFound: Boolean?) {
+        val listed = HashSet<String>(children.size * 2)
+        for (child in children) {
+            listed += child.name
+            upsertNode(
+                volId, dirId, child.name, child.isDir, child.size, child.mtime, gen,
+                hidden = child.hidden,
+                inode = child.inode,
+                memo = if (memoryFound != null) child.path else null,
+                found = memoryFound ?: true,
+            )
+        }
+        val gone = db.rawQuery(
+            "SELECT id, name FROM node WHERE vol_id = ? AND parent_id = ?",
+            arrayOf(volId.toString(), dirId.toString()),
+        ).use { c -> buildList { while (c.moveToNext()) if (c.getString(1) !in listed) add(c.getLong(0)) } }
+        val m = memory
+        val cache = HashMap<Long, String>()
+        for (id in gone) {
+            if (m != null && memoryFound != null) {
+                pathString(id, cache)?.let { p -> if (MemoryRules.records(p, ownRoots)) m.gone(p, System.currentTimeMillis()) }
+            }
+            db.execSQL(
+                "WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL SELECT c.id FROM node c JOIN sub ON c.parent_id = sub.id) " +
+                    "DELETE FROM node WHERE id IN (SELECT id FROM sub)",
+                arrayOf<Any>(id),
+            )
+        }
+    }
+
+    override suspend fun putListing(root: VPath, dir: VPath, children: List<VNode>, stillOwned: () -> Boolean) {
+        // Dropped, not queued, while a crawl holds the index. A listing written beside a running
+        // pass can delete a folder the pass has already queued, and the pass then hangs rows off
+        // an id that no longer exists. A listing not written is a folder the next walk writes.
+        if (!lock.tryLock()) return
+        try { withContext(io) {
+            // A share mid-way through its complete pass is that pass's to write: a row written
+            // here, newer than the pass's own generation, would outlive its sweep if the file
+            // went before the pass got there.
+            if (hasFrontier(root)) return@withContext
+            // Checked under the lock, which forgetVolumes also takes: a share deleted between
+            // the walk listing it and this write must not be registered again.
+            if (!stillOwned()) return@withContext
+            runCatching {
+                val gen = writeGen()
+                val volId = ensureVolume(root)
+                db.beginTransaction()
+                try {
+                    val dirId = ensureDirChain(volId, root, dir, gen)
+                    if (dirId != null) {
+                        reconcile(volId, dirId, children, gen, memoryFound = null)
+                        db.setTransactionSuccessful()
+                    }
+                } finally {
+                    db.endTransaction()
+                }
+            }
+        } } finally {
+            lock.unlock()
+        }
+    }
+
+    private fun hasFrontier(root: VPath): Boolean {
+        val owner = root.toString()
+        return db.rawQuery("SELECT path FROM crawl_queue WHERE scheme = ?", arrayOf(root.scheme)).use { c ->
+            var found = false
+            while (!found && c.moveToNext()) found = VolumeOwner.owns(owner, c.getString(0))
+            found
+        }
+    }
+
+    override suspend fun refreshFolders(dirs: Collection<VPath>): Int = lock.withLock { withContext(io) {
+        var read = 0
+        val volumes = runCatching { allVolumes() }.getOrDefault(emptyList())
+        for (dir in dirs.distinctBy { it.toString() }) {
+            currentCoroutineContext().ensureActive()
+            val volId = VolumeOwner.of(volumes, dir.toString()) ?: continue
+            val root = volumeRoot(volId) ?: continue
+            val children = runCatching { vfs.list(dir) }.getOrNull() ?: continue
+            runCatching {
+                val gen = writeGen()
+                val found = memory?.baselined(root.toString()) != true
+                db.beginTransaction()
+                try {
+                    inMemoryBatch {
+                        val dirId = nodeIdFor(dir) ?: ensureDirChain(volId, root, dir, gen)
+                        if (dirId != null) reconcile(volId, dirId, children, gen, memoryFound = found)
+                    }
+                    db.setTransactionSuccessful()
+                } finally {
+                    db.endTransaction()
+                }
+                read++
+            }
+        }
+        if (read > 0) _status.update { val f = countFiles(); it.copy(files = f, available = it.available || f > 0) }
+        read
+    } }
+
+    override suspend fun seed(roots: List<VPath>, entries: Sequence<SeedEntry>): Int = lock.withLock { withContext(io) {
+        // Not a fresh stamp: older than any pass to come, so the first complete one sweeps
+        // whatever the media store listed that is not really there.
+        val gen = currentStamp()
+        // Only volumes that have never completed: see FileIndex.seed.
+        val open = roots.filter { r ->
+            runCatching { completeGenOf(ensureVolume(r)) == 0L }.getOrDefault(false)
+        }.associateWith { ensureVolume(it) }
+        if (open.isEmpty()) return@withContext 0
+        val dirIds = HashMap<String, Long>()
+        var added = 0
+        db.beginTransaction()
+        try {
+            for (e in entries) {
+                val path = e.path.toString()
+                val (root, volId) = open.entries.firstOrNull { VolumeOwner.owns(it.key.toString(), path) } ?: continue
+                if (e.path == root) continue
+                val parent = e.path.parent ?: continue
+                val parentId = dirIds[parent.toString()]
+                    ?: ensureDirChain(volId, root, parent, gen)?.also { dirIds[parent.toString()] = it }
+                    ?: continue
+                val exists = db.rawQuery(
+                    "SELECT 1 FROM node WHERE vol_id = ? AND parent_id = ? AND name = ?",
+                    arrayOf(volId.toString(), parentId.toString(), e.path.name),
+                ).use { it.moveToFirst() }
+                if (exists) continue
+                val id = upsertNode(volId, parentId, e.path.name, e.isDir, e.size, e.mtime, gen, hidden = e.path.name.startsWith("."))
+                if (e.isDir) dirIds[path] = id
+                added++
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        if (added > 0) _status.update { val f = countFiles(); it.copy(files = f, available = f > 0) }
+        added
+    } }
+
     override suspend fun forget(path: VPath) = withContext(io) {
         val id = nodeIdFor(path) ?: return@withContext
         // ON DELETE CASCADE only reaches the side tables; children reference parent_id with
@@ -1171,6 +1927,33 @@ class SqliteIndex(
             arrayOf<Any>(id),
         )
         _status.update { it.copy(files = countFiles()) }
+    }
+
+    /**
+     * Under [lock], the way [clear] is, so a sweep cannot land in the middle of a crawl that is
+     * writing rows into the volume being dropped.
+     *
+     * One volume row deleted is the whole subtree gone: `node.vol_id` cascades from the volume,
+     * and `inner_fact`, `usage` and `provenance` cascade from the node. The full-text tables
+     * follow too, because SQLite fires `node_ad` and `inner_ad` for rows a cascade removes.
+     * The one table with no constraint is the crawl frontier, which holds bare node ids, so it
+     * is cleared by hand and first.
+     */
+    override suspend fun forgetVolumes(keep: (uuid: String) -> Boolean): Int = lock.withLock {
+        withContext(io) {
+            val gone = db.rawQuery("SELECT id, uuid FROM volume", null).use { c ->
+                buildList { while (c.moveToNext()) if (!keep(c.getString(1))) add(c.getLong(0)) }
+            }
+            for (id in gone) {
+                db.execSQL(
+                    "DELETE FROM crawl_queue WHERE node_id IN (SELECT id FROM node WHERE vol_id = ?)",
+                    arrayOf<Any>(id),
+                )
+                db.execSQL("DELETE FROM volume WHERE id = ?", arrayOf<Any>(id))
+            }
+            if (gone.isNotEmpty()) _status.update { it.copy(files = countFiles()) }
+            gone.size
+        }
     }
 
     override suspend fun clear() = lock.withLock {
@@ -1191,7 +1974,14 @@ class SqliteIndex(
 
     fun setEnabled(enabled: Boolean) = _status.update { it.copy(enabled = enabled) }
 
-    override fun close() = dbh.close()
+    override fun close() {
+        dbh.close()
+        // Pending history writes are let finish first: a rename recorded half a second before
+        // close is still a rename.
+        memoryWrites.shutdown()
+        runCatching { memoryWrites.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS) }
+        runCatching { memory?.close() }
+    }
 
     private fun countFiles(): Long =
         runCatching {
@@ -1203,6 +1993,15 @@ class SqliteIndex(
     private companion object {
         const val META_GEN = "gen"
         const val META_LAST_RUN = "lastRun"
+
+        /** `complete:<volume uuid>` - the generation that volume last completed at. */
+        const val META_COMPLETE = "complete:"
+
+        /** The newest generation handed to any pass or listing. See [nextStamp]. */
+        const val META_STAMP = "stamp"
+
+        /** A share frontier's move boundary, so its resumed half can still see its first half's inserts. */
+        const val META_FRONTIER_MAXID = "frontier.maxid:"
         const val META_LAST_ATTEMPT = "lastAttempt"
     }
 }

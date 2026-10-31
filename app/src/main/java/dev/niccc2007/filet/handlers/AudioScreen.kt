@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -121,7 +122,13 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
 
     val face = PlayerFace.of(vm.prefs.playerFace.collectAsStateWithLifecycle().value)
     val uninterrupted by vm.prefs.uninterrupted.collectAsStateWithLifecycle()
-    val glow by vm.prefs.livingGlow.collectAsStateWithLifecycle()
+    // The background glow has no switch any more - it is what the player looks like, and
+    // `glowStrength` is the question worth asking about it. Kept as a named constant rather
+    // than inlined at thirty call sites, so the places that still ASK about it stay findable.
+    val glow = true
+    // The disc's own glow does have one, and only a face with a disc offers it. See
+    // `PlayerFace.hasDiscGlow`.
+    val discGlow by vm.prefs.discGlow.collectAsStateWithLifecycle()
     val scratchAudio by vm.prefs.scratchAudio.collectAsStateWithLifecycle()
     // The pulse belongs to the glow and is read through it.
     //
@@ -138,12 +145,16 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     // see `glowScale` for why this is not the same question as how hard a beat swings it.
     val glowStrength by vm.prefs.glowStrength.collectAsStateWithLifecycle()
     val glowScale = dev.niccc2007.filet.playback.glowScale(glowStrength)
+    // The coloured background's own strength, which is a DIFFERENT question from how bright
+    // the mist round the disc is. One slider used to answer both, which is why it appeared on
+    // looks that draw no disc and changed something nobody could point at.
+    val vibrancyPos = vm.prefs.vibrancy.collectAsStateWithLifecycle().value
+    val vibrance = dev.niccc2007.filet.playback.vibranceScale(vibrancyPos)
     val discTurn by vm.prefs.discTurnMs.collectAsStateWithLifecycle()
     val speed by playback.speed.collectAsStateWithLifecycle()
     val sleepAt by playback.sleepAt.collectAsStateWithLifecycle()
-    val pitch = dev.niccc2007.filet.playback.PitchMode.of(
-        vm.prefs.pitchMode.collectAsStateWithLifecycle().value,
-    )
+    // The player's, not the setting's: a remembered track plays at its own pitch.
+    val pitch by playback.pitch.collectAsStateWithLifecycle()
     val maxSpeed by playback.maxSpeedFlow.collectAsStateWithLifecycle()
     // The heart's list. It used to be Bookmarks, which is a list of PLACES shown beside
     // folders and shortcuts - so hearting a song put a file somewhere you cannot press
@@ -219,12 +230,17 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
      */
     // Which beats fire. Not the same control as depth: see `PULSE_SENSE`.
     val pulseSenseGain by vm.prefs.pulseSense.collectAsStateWithLifecycle()
+    // This track's own beat correction, 0 unless it was set for it. See `BeatNudge`.
+    val nudges = dev.niccc2007.filet.playback.BeatNudges.of(LocalContext.current)
+    val nudge by remember(track?.id) { nudges.of(track?.id) }
+        .collectAsStateWithLifecycle(nudges.nudgeOf(track?.id))
     val signal = dev.niccc2007.filet.playback.rememberBeatSignal(
         beats = beat.map,
         playback = playback,
         on = beatPulse,
         playing = state.playing,
         sensitivity = pulseSenseGain,
+        nudgeMs = nudge,
     )
     val beating = if (beatPulse && beat.map != null) signal else null
 
@@ -257,11 +273,17 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         onTint = onTint,
         uninterrupted = uninterrupted,
         glow = glow,
+        discGlow = discGlow,
         glowScale = glowScale,
+        vibrance = vibrance,
+        vibrancyPos = vibrancyPos,
         glowStrength = glowStrength,
         discTurn = discTurn,
         scratch = scratchAudio,
         pulse = beatPulse,
+        nudge = nudge,
+        onNudge = { delta -> track?.id?.let { nudges.add(it, delta) } },
+        onNudgeReset = { track?.id?.let { nudges.set(it, 0) } },
         signal = beating,
         ready = beat.ready,
         record = beat.record,
@@ -394,14 +416,24 @@ private class PlayerCtx(
     val onTint: androidx.compose.ui.graphics.Color,
     val uninterrupted: Boolean,
     val glow: Boolean,
+    /** Whether the Halo disc wears a glow of its own. See `Prefs.discGlow`. */
+    val discGlow: Boolean,
     /** The glow's own brightness as a multiplier, and as the 0-to-1 control position. */
     val glowScale: Float,
+    /** The coloured background's multiplier. See `vibranceScale`. */
+    val vibrance: Float,
+    /** The same as the slider's own 0-to-1 position, so the control needs no inverse. */
+    val vibrancyPos: Float,
     val glowStrength: Float,
     /** How much of the track one turn of the disc is worth, in milliseconds. */
     val discTurn: Float,
     /** Halo's two switches, read here so the overflow does not reach for the prefs. */
     val scratch: Boolean,
     val pulse: Boolean,
+    /** This track's beat correction in ms, positive is later, and its two buttons. See `BeatNudge`. */
+    val nudge: Int,
+    val onNudge: (Int) -> Unit,
+    val onNudgeReset: () -> Unit,
     /** The beat itself, or null when nothing is driving it. See `BeatSignal`. */
     val signal: dev.niccc2007.filet.playback.BeatSignal?,
     /** How far along the reading of the track is, so a face can say so. */
@@ -433,7 +465,7 @@ private class PlayerCtx(
 @Composable
 private fun FaceTopBar(c: PlayerCtx) {
     PlayerTopBar(
-        eyebrow = if (c.uninterrupted) "UNINTERRUPTED  ·  PLAYING FROM" else "PLAYING FROM",
+        eyebrow = if (c.uninterrupted) "UNINTERRUPTIBLE  ·  PLAYING FROM" else "PLAYING FROM",
         eyebrowLit = c.uninterrupted,
         context = c.state.from.ifBlank { c.folderLine },
         uninterrupted = c.uninterrupted,
@@ -462,32 +494,44 @@ private fun FaceTopBar(c: PlayerCtx) {
             onTravel = if (!c.face.hasDisc) null else { v: Float ->
                 c.vm.prefs.setDiscTurnMs(dev.niccc2007.filet.playback.Scratch.turnMsFor(v))
             },
-            // The glow, and the pulse underneath it. Both on every face: the glow is
-            // not Halo's, it is behind all of them and on the strip as well.
-            glow = c.glow,
-            onGlow = { c.vm.prefs.setLivingGlow(!c.glow) },
-            glowStrength = c.glowStrength.takeIf { c.glow },
-            onGlowStrength = if (!c.glow) null else { v: Float ->
-                c.vm.prefs.setGlowStrength(v)
-            },
+            // The glow round the DISC, which is the only part of the glow that is a switch.
+            // It used to be one row over the whole background, on every face - so asking for
+            // the record's halo and getting a grey player was one control doing two jobs. The
+            // background's own drift is always on and has a strength instead.
+            glow = c.discGlow.takeIf { c.face.hasDiscGlow },
+            onGlow = { c.vm.prefs.setDiscGlow(!c.discGlow) }.takeIf { c.face.hasDiscGlow },
+            // Gated like the switch above it, and this was the reported confusion: the
+            // switch carried `hasDiscGlow` and the slider under it did not, so a look with no
+            // record in it still offered a strength for the light around the record.
+            glowStrength = c.glowStrength.takeIf { c.face.hasDiscGlow },
+            onGlowStrength = { v: Float -> c.vm.prefs.setGlowStrength(v) }
+                .takeIf { c.face.hasDiscGlow },
+            // The background's vibrancy, on every look that HAS a coloured background - which
+            // is all of them but Classic, whose whole identity is that it is flat.
+            vibrancy = c.vibrancyPos.takeIf { c.face.ambient },
+            onVibrancy = { v: Float -> c.vm.prefs.setVibrancy(v) }.takeIf { c.face.ambient },
             // The pulse is offered on the faces that can answer it. Classic cannot, by
             // decision rather than omission - see `PlayerFace.pulses`.
-            pulse = c.pulse.takeIf { c.glow && c.face.pulses },
-            onPulse = { c.vm.prefs.setBeatPulse(!c.pulse) }.takeIf { c.glow && c.face.pulses },
+            pulse = c.pulse.takeIf { c.face.pulses },
+            onPulse = { c.vm.prefs.setBeatPulse(!c.pulse) }.takeIf { c.face.pulses },
+            // The record's own nudge, under the switch it corrects, while there is a track.
+            nudge = c.nudge.takeIf { c.face.pulses && c.state.current != null },
+            onNudge = c.onNudge.takeIf { c.face.pulses && c.state.current != null },
+            onNudgeReset = c.onNudgeReset,
             // The slider runs 0 to 1 and is mapped to its real gain here, so the control does
             // not have to know what a gain of 0.4 means.
-            sense = c.pulseSense.takeIf { c.glow && c.face.pulses },
-            onSense = if (!c.glow || !c.face.pulses) null else { v: Float ->
+            sense = c.pulseSense.takeIf { c.face.pulses },
+            onSense = if (!c.face.pulses) null else { v: Float ->
                 c.vm.prefs.setPulseSense(dev.niccc2007.filet.playback.senseFor(v))
             },
-            depth = c.pulseDepth.takeIf { c.glow && c.face.pulses },
-            onDepth = if (!c.glow || !c.face.pulses) null else { v: Float ->
+            depth = c.pulseDepth.takeIf { c.face.pulses },
+            onDepth = if (!c.face.pulses) null else { v: Float ->
                 c.vm.prefs.setPulseDepth(v)
             },
             // And the wave's distance only where there IS a wave, which is Halo alone. Its
             // size and resting depth are fixed now - see `WAVE_SIZE` in PlayerFace.kt.
-            waveGap = c.waveGap.takeIf { c.glow && c.face.hasWave },
-            onWaveGap = if (!c.glow || !c.face.hasWave) null else { v: Float ->
+            waveGap = c.waveGap.takeIf { c.face.hasWave },
+            onWaveGap = if (!c.face.hasWave) null else { v: Float ->
                 c.vm.prefs.setWaveGap(v)
             },
         )
@@ -553,19 +597,19 @@ private fun ColumnScope.FaceError(c: PlayerCtx) {
 @Composable
 private fun ClassicFace(c: PlayerCtx) {
     val colors = Filet.colors
-    Column(Modifier.fillMaxSize()) {
+    FaceFrame {
         ViewerBar(
             title = c.title,
             subtitle = listOfNotNull(
-                "Uninterrupted".takeIf { c.uninterrupted },
+                "Uninterruptible".takeIf { c.uninterrupted },
                 "${c.state.position} of ${c.state.size}".takeIf { c.state.canStep },
             ).joinToString("  ·  "),
             onClose = { c.vm.closeHandler() },
         ) {
             ViewerAction(
                 FiletIcons.Shield,
-                if (c.uninterrupted) "Uninterrupted - nothing will pause this"
-                else "Uninterrupted playback",
+                if (c.uninterrupted) "Uninterruptible - nothing will pause this"
+                else "Uninterruptible playback",
                 active = c.uninterrupted,
             ) { c.vm.prefs.setUninterrupted(!c.uninterrupted) }
             ViewerAction(FiletIcons.Rows, "Queue", enabled = c.state.canStep, onClick = c.onQueue)
@@ -583,22 +627,23 @@ private fun ClassicFace(c: PlayerCtx) {
                 onSaveQueue = c.onSaveQueue.takeIf { c.state.canStep },
             )
         }
-        Column(
-            Modifier.weight(1f).fillMaxWidth().padding(horizontal = 26.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            // Centred, not stacked from the top. The art is capped by whichever of width and
-            // height runs out first, so on a tall phone there is slack, and hanging the whole
-            // player off the top leaves it in the middle of the screen with a hole under it.
-            verticalArrangement = Arrangement.Center,
+        FaceLayout(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            controlsPadding = 26.dp,
+            art = {
+                PlayerArt(
+                    art = c.art,
+                    isVideo = c.isVideo,
+                    playing = c.state.playing,
+                    source = c.source,
+                    plain = true,
+                    // Square, capped on whichever axis is scarce. The old
+                    // `fillMaxWidth().aspectRatio(1f)` is right in portrait and overflows a
+                    // sideways phone, which is how the picture became a stamp.
+                    modifier = artSizing(inset = if (LocalFaceLandscape.current) 0.dp else 26.dp),
+                )
+            },
         ) {
-            PlayerArt(
-                art = c.art,
-                isVideo = c.isVideo,
-                playing = c.state.playing,
-                source = c.source,
-                plain = true,
-                modifier = Modifier.fillMaxWidth().weight(1f, fill = false).aspectRatio(1f),
-            )
             if (c.isVideo) {
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -616,23 +661,23 @@ private fun ClassicFace(c: PlayerCtx) {
                 }
             }
             Spacer(Modifier.height(22.dp))
-            Text(
+            // Whole, never dotted: a title gives up size before it gives up letters. See ListName.
+            dev.niccc2007.filet.browser.ListNameText(
                 c.title,
-                fontSize = 19.sp,
+                MaterialTheme.colorScheme.onSurface,
+                startSp = 19f,
+                lines = 2,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                maxLines = 2,
-                textAlign = TextAlign.Center,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface,
+                align = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(4.dp))
-            Text(
+            dev.niccc2007.filet.browser.ListNameText(
                 c.sub,
-                fontSize = 12.5.sp,
-                color = colors.fg2,
-                maxLines = 1,
-                textAlign = TextAlign.Center,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                colors.fg2,
+                startSp = 12.5f,
+                align = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
             FaceError(c)
             Spacer(Modifier.height(16.dp))
@@ -672,7 +717,7 @@ private fun BoxScope.AmbientFace(c: PlayerCtx) {
         base = c.tint,
         on = c.glow,
         running = c.state.playing,
-        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowScale,
+        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.vibrance,
         pulse = c.signal?.swing,
         pulseDepth = c.pulseDepth,
     )
@@ -681,52 +726,58 @@ private fun BoxScope.AmbientFace(c: PlayerCtx) {
         pulse = c.signal?.swing,
         pulseDepth = c.pulseDepth,
     )
-    Column(Modifier.fillMaxSize()) {
+    FaceFrame {
         FaceTopBar(c)
         // `.artwrap{padding:14px 28px 0;flex:1;place-items:center}`
-        Box(
-            Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(start = 28.dp, end = 28.dp, top = 14.dp),
-            contentAlignment = Alignment.Center,
+        FaceLayout(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            art = {
+                Box(artSizing(inset = 14.dp)) {
+                    PlayerArt(
+                        art = c.art,
+                        isVideo = c.isVideo,
+                        playing = c.state.playing,
+                        source = c.source,
+                        plain = false,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    if (c.isVideo) VideoBadge(onWatch = c.onWatch)
+                }
+            },
         ) {
-            Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
-                PlayerArt(
-                    art = c.art,
+            Column(Modifier.padding(horizontal = PlayerMetrics.GUTTER)) {
+                // Sideways there is no room for the gap that separates the picture from the
+                // type when they are stacked, and the two are side by side so nothing needs
+                // separating.
+                Spacer(Modifier.height(if (LocalFaceLandscape.current) 0.dp else 24.dp))
+                PlayerTitleBlock(
+                    title = c.title,
+                    sub = c.sub,
                     isVideo = c.isVideo,
-                    playing = c.state.playing,
-                    source = c.source,
-                    plain = false,
-                    modifier = Modifier.fillMaxSize(),
+                    centred = false,
+                    bookmarked = c.bookmarked,
+                    tint = c.tint,
+                    onHeart = { c.vm.toggleFavourite(c.livePath) },
+                    scrolling = c.state.playing,
                 )
-                if (c.isVideo) VideoBadge(onWatch = c.onWatch)
+                FaceError(c)
+                Spacer(Modifier.height(PlayerMetrics.SCRUB_TOP))
+                PlayerScrub(c.shownPosition, c.state, c.tint, c.onScrub, c.onScrubEnd)
+                Spacer(Modifier.height(PlayerMetrics.TRANSPORT_TOP))
+                PlayerTransport(c.state, c.tint, c.onTint, playback = c.playback)
+                Spacer(Modifier.height(PlayerMetrics.CHIPS_TOP))
+                PlayerChips(
+                    c.speed, c.maxSpeed, c.sleepLeft, c.pitch, c.tint, c.onTint, c.playback,
+                ) { c.vm.prefs.setPitchMode(it.id) }
             }
         }
-        Column(Modifier.padding(horizontal = PlayerMetrics.GUTTER)) {
-            Spacer(Modifier.height(24.dp))
-            PlayerTitleBlock(
-                title = c.title,
-                sub = c.sub,
-                isVideo = c.isVideo,
-                centred = false,
-                bookmarked = c.bookmarked,
-                tint = c.tint,
-                onHeart = { c.vm.toggleFavourite(c.livePath) },
-                scrolling = c.state.playing,
-            )
-            FaceError(c)
-            Spacer(Modifier.height(PlayerMetrics.SCRUB_TOP))
-            PlayerScrub(c.shownPosition, c.state, c.tint, c.onScrub, c.onScrubEnd)
-            Spacer(Modifier.height(PlayerMetrics.TRANSPORT_TOP))
-            PlayerTransport(c.state, c.tint, c.onTint, playback = c.playback)
-            Spacer(Modifier.height(PlayerMetrics.CHIPS_TOP))
-            PlayerChips(
-                c.speed, c.maxSpeed, c.sleepLeft, c.pitch, c.tint, c.onTint, c.playback,
-            ) { c.vm.prefs.setPitchMode(it.id) }
+        // The pull-up handle is dropped in two columns: it needs a strip of height at the
+        // bottom of the whole screen, and sideways that strip is the room the transport is
+        // using. The queue is still reachable from the bar.
+        if (!LocalFaceLandscape.current) {
+            Spacer(Modifier.height(16.dp))
+            if (c.state.canStep) QueueHandle(c.state, c.onQueue) else Spacer(Modifier.height(16.dp))
         }
-        Spacer(Modifier.height(16.dp))
-        if (c.state.canStep) QueueHandle(c.state, c.onQueue) else Spacer(Modifier.height(16.dp))
     }
 }
 
@@ -749,7 +800,7 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
         base = c.tint,
         on = c.glow,
         running = c.state.playing,
-        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowScale,
+        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.vibrance,
         pulse = c.signal?.swing,
         pulseDepth = c.pulseDepth,
     )
@@ -758,66 +809,89 @@ private fun BoxScope.EditorialFace(c: PlayerCtx) {
         pulse = c.signal?.swing,
         pulseDepth = c.pulseDepth,
     )
-    Column(Modifier.fillMaxSize()) {
+    // The two groups, declared once and arranged twice below. Editorial's portrait design is
+    // already art-beside-type, so sideways it does not want the shared two-column layout - it
+    // wants its own halves to stop competing for the scarce axis. Writing the blocks as values
+    // keeps that from meaning two copies of the face.
+    val artBlock: @Composable (Modifier) -> Unit = { m ->
+        Box(m) {
+            PlayerArt(
+                art = c.art,
+                isVideo = c.isVideo,
+                playing = c.state.playing,
+                source = c.source,
+                plain = false,
+                radius = 14.dp,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (c.isVideo) VideoBadge(onWatch = c.onWatch, inset = 7.dp)
+        }
+    }
+    val titleBlock: @Composable () -> Unit = {
+        Text("NOW PLAYING", fontSize = 9.sp, letterSpacing = 1.4.sp, color = colors.fg3)
+        Spacer(Modifier.height(6.dp))
+        // 18sp, not the ambient face's 22: the column is 56% of the width here and the same
+        // size would scroll on almost every name rather than on long ones.
+        PlayerTitleBlock(
+            title = c.title,
+            sub = c.sub,
+            isVideo = c.isVideo,
+            centred = false,
+            titleSize = 18.sp,
+            bookmarked = c.bookmarked,
+            tint = c.tint,
+            onHeart = { c.vm.toggleFavourite(c.livePath) },
+            scrolling = c.state.playing,
+        )
+    }
+    val controlsBlock: @Composable ColumnScope.() -> Unit = {
+        FaceError(c)
+        Spacer(Modifier.height(8.dp))
+        PlayerScrub(c.shownPosition, c.state, c.tint, c.onScrub, c.onScrubEnd)
+        Spacer(Modifier.height(PlayerMetrics.TRANSPORT_TOP))
+        PlayerTransport(c.state, c.tint, c.onTint, playback = c.playback)
+        Spacer(Modifier.height(PlayerMetrics.CHIPS_TOP))
+        PlayerChips(
+            c.speed, c.maxSpeed, c.sleepLeft, c.pitch, c.tint, c.onTint, c.playback,
+        ) { c.vm.prefs.setPitchMode(it.id) }
+    }
+
+    FaceFrame {
         FaceTopBar(c)
-        Spacer(Modifier.weight(1f))
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = PlayerMetrics.GUTTER),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Box(Modifier.fillMaxWidth(0.44f).aspectRatio(1f)) {
-                PlayerArt(
-                    art = c.art,
-                    isVideo = c.isVideo,
-                    playing = c.state.playing,
-                    source = c.source,
-                    plain = false,
-                    radius = 14.dp,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                if (c.isVideo) VideoBadge(onWatch = c.onWatch, inset = 7.dp)
+        if (LocalFaceLandscape.current) {
+            // One row holding everything, given `weight(1f)` so it has a bounded height of its
+            // own - which is what `fillMaxHeight` on the picture needs. Sized by width instead,
+            // a square at 44% of a 780dp screen is 343dp tall and does not fit in the 300dp
+            // left under the bar, which is how the artwork came to overflow sideways.
+            Row(
+                Modifier.weight(1f).fillMaxWidth().padding(horizontal = PlayerMetrics.GUTTER),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                artBlock(Modifier.fillMaxHeight(0.82f).aspectRatio(1f))
+                Column(Modifier.weight(1f)) {
+                    titleBlock()
+                    controlsBlock()
+                }
             }
-            Column(Modifier.weight(1f).padding(bottom = 4.dp)) {
-                Text(
-                    "NOW PLAYING",
-                    fontSize = 9.sp,
-                    letterSpacing = 1.4.sp,
-                    color = colors.fg3,
-                )
-                Spacer(Modifier.height(6.dp))
-                // 18sp, not the ambient face's 22: the column is 56% of the width here and
-                // the same size would scroll on almost every name rather than on long ones.
-                PlayerTitleBlock(
-                    title = c.title,
-                    sub = c.sub,
-                    isVideo = c.isVideo,
-                    centred = false,
-                    titleSize = 18.sp,
-                    bookmarked = c.bookmarked,
-                    tint = c.tint,
-                    onHeart = { c.vm.toggleFavourite(c.livePath) },
-                    scrolling = c.state.playing,
-                )
+        } else {
+            Spacer(Modifier.weight(1f))
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = PlayerMetrics.GUTTER),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                artBlock(Modifier.fillMaxWidth(0.44f).aspectRatio(1f))
+                Column(Modifier.weight(1f).padding(bottom = 4.dp)) { titleBlock() }
             }
+            Column(Modifier.padding(horizontal = PlayerMetrics.GUTTER)) { controlsBlock() }
+            // Weighted on BOTH sides, so the block sits in the middle of what is left rather
+            // than against the queue handle. With only the leading spacer the whole top half of
+            // a tall phone was empty and the face read as having fallen down the screen.
+            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.height(16.dp))
+            if (c.state.canStep) QueueHandle(c.state, c.onQueue) else Spacer(Modifier.height(16.dp))
         }
-        Column(Modifier.padding(horizontal = PlayerMetrics.GUTTER)) {
-            FaceError(c)
-            Spacer(Modifier.height(8.dp))
-            PlayerScrub(c.shownPosition, c.state, c.tint, c.onScrub, c.onScrubEnd)
-            Spacer(Modifier.height(PlayerMetrics.TRANSPORT_TOP))
-            PlayerTransport(c.state, c.tint, c.onTint, playback = c.playback)
-            Spacer(Modifier.height(PlayerMetrics.CHIPS_TOP))
-            PlayerChips(
-                c.speed, c.maxSpeed, c.sleepLeft, c.pitch, c.tint, c.onTint, c.playback,
-            ) { c.vm.prefs.setPitchMode(it.id) }
-        }
-        // Weighted on BOTH sides, so the block sits in the middle of what is left rather
-        // than against the queue handle. With only the leading spacer the whole top half of
-        // a tall phone was empty and the face read as having fallen down the screen.
-        Spacer(Modifier.weight(1f))
-        Spacer(Modifier.height(16.dp))
-        if (c.state.canStep) QueueHandle(c.state, c.onQueue) else Spacer(Modifier.height(16.dp))
     }
 }
 
@@ -850,7 +924,7 @@ private fun BoxScope.HaloFace(c: PlayerCtx) {
         running = c.glow && c.state.playing,
         pulse = beating?.swing,
         pulseDepth = depth,
-        strength = c.glowScale,
+        strength = c.vibrance,
     )
     // The turn. A full revolution every 24 seconds - a 33rpm record is 1.8, which at this
     // size is a blur and makes the artwork unreadable. This is slow enough to look still
@@ -939,235 +1013,280 @@ private fun BoxScope.HaloFace(c: PlayerCtx) {
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
+    FaceFrame {
         FaceTopBar(c)
-        Box(
-            Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 40.dp, vertical = 14.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .graphicsLayer {
-                        rotationZ = discAngle.floatValue + scratched
-                    }
-                    // Turn the record to move through the track.
-                    //
-                    // It PLAYS while it moves, which is the whole point and the thing the
-                    // scrub bar cannot do: the handle moves and the sound arrives when you
-                    // let go. Here you hear where you are going, so you stop when you hear
-                    // the place rather than guessing at a bar. See `Scratch` for the
-                    // geometry and for why the decoder is told twelve times a second rather
-                    // than sixty.
-                    // KEYED ON `dj` as well as the track.
-                    //
-                    // `pointerInput` launches its block once per key and keeps everything it
-                    // closed over. Keyed on the path alone, turning the sound on or off did
-                    // not reach this code until the next song - so the gesture ran with one
-                    // setting while the engine ran with the other. See `Scratch.MS_PER_TURN`
-                    // for what that did.
-                    .pointerInput(c.node.path, dj, c.discTurn) {
-                        val centre = androidx.compose.ui.geometry.Offset(
-                            size.width / 2f,
-                            size.height / 2f,
-                        )
-                        var at = 0L
-                        var told = 0L
-                        // `awaitEachGesture` would be the wrong tool here: this must
-                        // consume everything from the first move onwards, or a fast
-                        // back-and-forth leaks into whatever is behind the disc and the
-                        // player reacts to a gesture that was meant for the record.
-                        detectDragGestures(
-                            onDragStart = {
-                                scratching = true
-                                armed.value = true
-                                // Read from the PLAYER, not from `c`.
-                                //
-                                // This is why the record was confusing rather than simply
-                                // wrong. `pointerInput` launches its block once and keeps the
-                                // `c` it was handed, so `c.state` was a snapshot from whenever
-                                // the gesture modifier was last keyed - usually the moment the
-                                // track opened, hence "it starts from the start" - and after a
-                                // recomposition that did re-key it, from some other arbitrary
-                                // moment. Same stale-capture family as the tab drag, which
-                                // `tools/check-deadswitch.mjs` exists for. The player's own
-                                // StateFlow is live by construction.
-                                at = c.playback.state.value.positionMs
-                                told = 0L
-                                // The handle under the scrub bar follows the record from the
-                                // first frame. Without this the bar sat where it was when the
-                                // finger landed and only jumped at the end, so the two halves
-                                // of the same gesture disagreed on where the track was.
-                                c.onScrub(at)
-                                if (!dj) return@detectDragGestures
-                                // Everything the engine costs starts HERE, on touch, and ends
-                                // on release. Nothing is decoded or allocated while a track is
-                                // simply playing - which was the condition this was built
-                                // under. See `ScratchEngine`.
-                                val source = c.source ?: return@detectDragGestures
-                                val wasPlaying = c.playback.state.value.playing
-                                resumeAfter.value = wasPlaying
-                                scope.launch {
-                                    val made = ScratchEngine(context, source)
-                                    if (!made.open(at)) {
-                                        dev.niccc2007.filet.data.Diag.log("scratch", "open failed at $at")
-                                        return@launch
-                                    }
-                                    // The finger may already be gone. Nothing is started,
-                                    // the player is left alone, and what was built is freed.
-                                    if (!armed.value) {
-                                        made.close()
-                                        return@launch
-                                    }
-                                    c.playback.pause()
-                                    if (!made.start()) {
-                                        dev.niccc2007.filet.data.Diag.log("scratch", "start failed")
-                                        made.close()
-                                        // Falls back to silent seeking rather than taking the
-                                        // sound away. An effect that cannot work must not
-                                        // leave the player worse than it found it.
-                                        if (wasPlaying) c.playback.resume()
-                                        return@launch
-                                    }
-                                    if (!armed.value) {
-                                        made.close()
-                                        if (wasPlaying) c.playback.resume()
-                                        return@launch
-                                    }
-                                    // Where the finger is NOW, not where it was when this
-                                    // began: a spin does not wait for a decoder.
-                                    made.seekToward(at)
-                                    engine.value = made
-                                }
-                            },
-                            onDragEnd = {
-                                scratching = false
-                                armed.value = false
-                                endScratch(c, engine, resumeAfter, scope, at)
-                            },
-                            onDragCancel = {
-                                scratching = false
-                                armed.value = false
-                                endScratch(c, engine, resumeAfter, scope, at)
-                            },
-                        ) { change, _ ->
-                            change.consume()
-                            val turned = dev.niccc2007.filet.playback.Scratch.turn(
-                                change.previousPosition.x, change.previousPosition.y,
-                                change.position.x, change.position.y,
-                                centre.x, centre.y,
-                            )
-                            val now = android.os.SystemClock.elapsedRealtime()
-                            val duration = c.playback.state.value.durationMs
-                            val was = at
-                            at = dev.niccc2007.filet.playback.Scratch.seekTo(
-                                at, turned, duration, c.discTurn,
-                            )
-                            // The disc stops when the track does.
-                            //
-                            // It used to keep turning under the finger after the position had
-                            // run into 0 or the end, which reads as the gesture having come
-                            // loose - a record that spins while the needle is at the label is
-                            // a record that is not attached to anything. The picture only
-                            // turns by as much as the TRACK actually moved, so at either end
-                            // it simply stops and waits for the hand to come back.
-                            val moved = at != was || (duration <= 0L)
-                            if (moved) scratched += turned
-                            // ONE position drives all three: the picture turns by it, the
-                            // handle sits on it, and the engine plays toward it. They cannot
-                            // disagree because there is nothing to disagree with.
-                            c.onScrub(at)
-                            val live = engine.value
-                            if (live != null) {
-                                // One call, one number. There is nothing to refill and
-                                // nothing to decode: the whole track is already in memory.
-                                // See `TrackPcm`.
-                                live.seekToward(at)
-                            } else if (now - told >= dev.niccc2007.filet.playback.Scratch.SEEK_EVERY_MS) {
-                                told = now
-                                c.playback.seekTo(at)
-                            }
-                        }
-                    },
-            ) {
-                PlayerArt(
-                    art = c.art,
-                    isVideo = c.isVideo,
-                    playing = c.state.playing,
-                    source = c.source,
-                    plain = false,
-                    radius = 1000.dp,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                // The vinyl rim was tried here and reverted. It was a faithful record -
-                // label, grooves, lead-in - and it cost the artwork more than half its
-                // radius, which on the one face whose whole subject is the artwork is the
-                // wrong trade. The picture stays big; the disc is said with a ring of light
-                // instead of with a rim of black.
-                //
-                // The ring ANSWERS the sound: it brightens and widens with the level coming
-                // out of the decoder, so it beats rather than pulses on a timer. See
-                // `BeatRing`.
-                dev.niccc2007.filet.playback.BeatRing(
-                    tint = c.tint,
-                    playback = c.playback,
-                    signal = beating,
-                    pulseDepth = depth,
-                    glow = c.glow,
-                    waveGap = c.waveGap,
-                    waveSize = dev.niccc2007.filet.playback.WAVE_SIZE,
-                    waveRest = dev.niccc2007.filet.playback.WAVE_REST,
-                    turning = turning,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                // The spindle. Small and dim: enough that the turn has a centre to be about,
-                // not so much that there is a hole in the middle of the picture.
+        FaceLayout(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            art = {
                 Box(
                     Modifier
-                        .align(Alignment.Center)
-                        .size(30.dp)
-                        .clip(androidx.compose.foundation.shape.CircleShape)
-                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.55f)),
+                        .fillMaxSize()
+                        .padding(
+                            // Sideways the column the disc sits in is already narrow, so the
+                            // 40dp that frames it on a tall phone would eat the radius.
+                            start = if (LocalFaceLandscape.current) 14.dp else 40.dp,
+                            end = if (LocalFaceLandscape.current) 14.dp else 40.dp,
+                            // More below than above when sideways. The top bar above the disc
+                            // is mostly empty space at its ends, so a disc centred under it
+                            // reads as sitting low; this lifts it to the middle of the screen
+                            // as the eye measures it, with room under the ring's outer wave.
+                            top = if (LocalFaceLandscape.current) 4.dp else 14.dp,
+                            bottom = if (LocalFaceLandscape.current) 26.dp else 14.dp,
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
                     Box(
-                        Modifier
-                            .size(10.dp)
-                            .clip(androidx.compose.foundation.shape.CircleShape)
-                            .background(c.tint.copy(alpha = 0.55f + 0.45f * turning)),
-                    )
+                        // Square, capped on whichever axis is scarce. `fillMaxWidth` is right
+                        // on a tall phone and sideways it made the disc taller than the screen,
+                        // so the record was cropped top and bottom and the transport under it
+                        // was pushed off entirely.
+                        artSizing()
+                            .graphicsLayer {
+                                rotationZ = discAngle.floatValue + scratched
+                            }
+                            // Turn the record to move through the track.
+                            //
+                            // It PLAYS while it moves, which is the whole point and the thing the
+                            // scrub bar cannot do: the handle moves and the sound arrives when you
+                            // let go. Here you hear where you are going, so you stop when you hear
+                            // the place rather than guessing at a bar. See `Scratch` for the
+                            // geometry and for why the decoder is told twelve times a second rather
+                            // than sixty.
+                            // KEYED ON `dj` as well as the track.
+                            //
+                            // `pointerInput` launches its block once per key and keeps everything it
+                            // closed over. Keyed on the path alone, turning the sound on or off did
+                            // not reach this code until the next song - so the gesture ran with one
+                            // setting while the engine ran with the other. See `Scratch.MS_PER_TURN`
+                            // for what that did.
+                            .pointerInput(c.node.path, dj, c.discTurn) {
+                                val centre = androidx.compose.ui.geometry.Offset(
+                                    size.width / 2f,
+                                    size.height / 2f,
+                                )
+                                var at = 0L
+                                // The same position without the rounding, so a slow turn adds up.
+                                var atExact = 0.0
+                                var told = 0L
+                                // `awaitEachGesture` would be the wrong tool here: this must
+                                // consume everything from the first move onwards, or a fast
+                                // back-and-forth leaks into whatever is behind the disc and the
+                                // player reacts to a gesture that was meant for the record.
+                                detectDragGestures(
+                                    onDragStart = {
+                                        scratching = true
+                                        armed.value = true
+                                        // Read from the PLAYER, not from `c`.
+                                        //
+                                        // This is why the record was confusing rather than simply
+                                        // wrong. `pointerInput` launches its block once and keeps the
+                                        // `c` it was handed, so `c.state` was a snapshot from whenever
+                                        // the gesture modifier was last keyed - usually the moment the
+                                        // track opened, hence "it starts from the start" - and after a
+                                        // recomposition that did re-key it, from some other arbitrary
+                                        // moment. Same stale-capture family as the tab drag, which
+                                        // `tools/check-deadswitch.mjs` exists for. The player's own
+                                        // StateFlow is live by construction.
+                                        at = c.playback.state.value.positionMs
+                                        atExact = at.toDouble()
+                                        told = 0L
+                                        // The handle under the scrub bar follows the record from the
+                                        // first frame. Without this the bar sat where it was when the
+                                        // finger landed and only jumped at the end, so the two halves
+                                        // of the same gesture disagreed on where the track was.
+                                        c.onScrub(at)
+                                        if (!dj) return@detectDragGestures
+                                        // Everything the engine costs starts HERE, on touch, and ends
+                                        // on release. Nothing is decoded or allocated while a track is
+                                        // simply playing - which was the condition this was built
+                                        // under. See `ScratchEngine`.
+                                        val source = c.source ?: return@detectDragGestures
+                                        val wasPlaying = c.playback.state.value.playing
+                                        resumeAfter.value = wasPlaying
+                                        scope.launch {
+                                            val made = ScratchEngine(context, source)
+                                            if (!made.open(at)) {
+                                                dev.niccc2007.filet.data.Diag.log("scratch", "open failed at $at")
+                                                return@launch
+                                            }
+                                            // The finger may already be gone. Nothing is started,
+                                            // the player is left alone, and what was built is freed.
+                                            if (!armed.value) {
+                                                made.close()
+                                                return@launch
+                                            }
+                                            c.playback.pause()
+                                            if (!made.start()) {
+                                                dev.niccc2007.filet.data.Diag.log("scratch", "start failed")
+                                                made.close()
+                                                // Falls back to silent seeking rather than taking the
+                                                // sound away. An effect that cannot work must not
+                                                // leave the player worse than it found it.
+                                                if (wasPlaying) c.playback.resume()
+                                                return@launch
+                                            }
+                                            if (!armed.value) {
+                                                made.close()
+                                                if (wasPlaying) c.playback.resume()
+                                                return@launch
+                                            }
+                                            // Where the finger is NOW, not where it was when this
+                                            // began: a spin does not wait for a decoder.
+                                            made.seekToward(at)
+                                            engine.value = made
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        scratching = false
+                                        armed.value = false
+                                        // Landed on a whole second. Asked for as a one-second jump,
+                                        // and it is the half of the ask the disc owes: while the
+                                        // finger is down the record is continuous, which is the whole
+                                        // point of it, so the quantisation belongs at the moment the
+                                        // hand comes off rather than during the spin.
+                                        val landed = dev.niccc2007.filet.playback.Scrub.wholeSecond(
+                                            atExact, c.playback.state.value.durationMs,
+                                        ) ?: at
+                                        endScratch(c, engine, resumeAfter, scope, landed)
+                                    },
+                                    onDragCancel = {
+                                        scratching = false
+                                        armed.value = false
+                                        endScratch(c, engine, resumeAfter, scope, at)
+                                    },
+                                ) { change, _ ->
+                                    change.consume()
+                                    val turned = dev.niccc2007.filet.playback.Scratch.turn(
+                                        change.previousPosition.x, change.previousPosition.y,
+                                        change.position.x, change.position.y,
+                                        centre.x, centre.y,
+                                    )
+                                    val now = android.os.SystemClock.elapsedRealtime()
+                                    val duration = c.playback.state.value.durationMs
+                                    val was = at
+                                    // Accumulated as a DOUBLE and rounded only to report.
+                                    //
+                                    // Bug identified here: `Scratch.msFor` truncates each frame's
+                                    // degrees to whole milliseconds, and one frame of a slow drag is a
+                                    // fraction of one - so every frame of a careful movement truncated
+                                    // to zero and the disc would not budge until the hand sped up.
+                                    // Turning a record slowly is precisely how somebody lands on a
+                                    // moment, which is the thing being asked for here.
+                                    atExact = dev.niccc2007.filet.playback.Scrub.discMove(
+                                        atExact, turned, c.discTurn, duration,
+                                    ) ?: atExact
+                                    at = atExact.toLong().coerceIn(0L, duration.coerceAtLeast(0L))
+                                    // The disc stops when the track does.
+                                    //
+                                    // It used to keep turning under the finger after the position had
+                                    // run into 0 or the end, which reads as the gesture having come
+                                    // loose - a record that spins while the needle is at the label is
+                                    // a record that is not attached to anything. The picture only
+                                    // turns by as much as the TRACK actually moved, so at either end
+                                    // it simply stops and waits for the hand to come back.
+                                    val moved = at != was || (duration <= 0L)
+                                    if (moved) scratched += turned
+                                    // ONE position drives all three: the picture turns by it, the
+                                    // handle sits on it, and the engine plays toward it. They cannot
+                                    // disagree because there is nothing to disagree with.
+                                    c.onScrub(at)
+                                    val live = engine.value
+                                    if (live != null) {
+                                        // One call, one number. There is nothing to refill and
+                                        // nothing to decode: the whole track is already in memory.
+                                        // See `TrackPcm`.
+                                        live.seekToward(at)
+                                    } else if (now - told >= dev.niccc2007.filet.playback.Scratch.SEEK_EVERY_MS) {
+                                        told = now
+                                        c.playback.seekTo(at)
+                                    }
+                                }
+                            },
+                    ) {
+                        PlayerArt(
+                            art = c.art,
+                            isVideo = c.isVideo,
+                            playing = c.state.playing,
+                            source = c.source,
+                            plain = false,
+                            radius = 1000.dp,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        // The vinyl rim was tried here and reverted. It was a faithful record -
+                        // label, grooves, lead-in - and it cost the artwork more than half its
+                        // radius, which on the one face whose whole subject is the artwork is the
+                        // wrong trade. The picture stays big; the disc is said with a ring of light
+                        // instead of with a rim of black.
+                        //
+                        // The ring ANSWERS the sound: it brightens and widens with the level coming
+                        // out of the decoder, so it beats rather than pulses on a timer. See
+                        // `BeatRing`.
+                        dev.niccc2007.filet.playback.BeatRing(
+                            tint = c.tint,
+                            playback = c.playback,
+                            signal = beating,
+                            pulseDepth = depth,
+                            glow = c.discGlow,
+                            glowScale = c.glowScale,
+                            waveGap = c.waveGap,
+                            waveSize = dev.niccc2007.filet.playback.WAVE_SIZE,
+                            waveRest = dev.niccc2007.filet.playback.WAVE_REST,
+                            turning = turning,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        // The spindle. Small and dim: enough that the turn has a centre to be about,
+                        // not so much that there is a hole in the middle of the picture.
+                        Box(
+                            Modifier
+                                .align(Alignment.Center)
+                                .size(30.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(MaterialTheme.colorScheme.background.copy(alpha = 0.55f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(10.dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(c.tint.copy(alpha = 0.55f + 0.45f * turning)),
+                            )
+                        }
+                    }
+                    if (c.isVideo) VideoBadge(onWatch = c.onWatch, inset = 0.dp)
                 }
+            },
+        ) {
+            Column(Modifier.padding(horizontal = PlayerMetrics.GUTTER)) {
+                PlayerTitleBlock(
+                    title = c.title,
+                    sub = c.sub,
+                    isVideo = c.isVideo,
+                    centred = true,
+                    bookmarked = c.bookmarked,
+                    tint = c.tint,
+                    onHeart = { c.vm.toggleFavourite(c.livePath) },
+                    scrolling = c.state.playing,
+                )
+                FaceError(c)
+                Spacer(Modifier.height(PlayerMetrics.SCRUB_TOP))
+                PlayerScrub(c.shownPosition, c.state, c.tint, c.onScrub, c.onScrubEnd)
+                Spacer(Modifier.height(PlayerMetrics.TRANSPORT_TOP))
+                PlayerTransport(c.state, c.tint, c.onTint, playback = c.playback)
+                Spacer(Modifier.height(PlayerMetrics.CHIPS_TOP))
+                PlayerChips(
+                    c.speed, c.maxSpeed, c.sleepLeft, c.pitch, c.tint, c.onTint, c.playback,
+                    centred = true,
+                ) { c.vm.prefs.setPitchMode(it.id) }
             }
-            if (c.isVideo) VideoBadge(onWatch = c.onWatch, inset = 0.dp)
+            // The pull-up handle is dropped in two columns: it needs a strip of height at
+            // the bottom of the whole screen, and sideways that strip is the room the
+            // transport is using. The queue is still reachable from the bar.
+            if (!LocalFaceLandscape.current) {
+                Spacer(Modifier.height(16.dp))
+                if (c.state.canStep) QueueHandle(c.state, c.onQueue)
+                else Spacer(Modifier.height(16.dp))
+            }
         }
-        Column(Modifier.padding(horizontal = PlayerMetrics.GUTTER)) {
-            PlayerTitleBlock(
-                title = c.title,
-                sub = c.sub,
-                isVideo = c.isVideo,
-                centred = true,
-                bookmarked = c.bookmarked,
-                tint = c.tint,
-                onHeart = { c.vm.toggleFavourite(c.livePath) },
-                scrolling = c.state.playing,
-            )
-            FaceError(c)
-            Spacer(Modifier.height(PlayerMetrics.SCRUB_TOP))
-            PlayerScrub(c.shownPosition, c.state, c.tint, c.onScrub, c.onScrubEnd)
-            Spacer(Modifier.height(PlayerMetrics.TRANSPORT_TOP))
-            PlayerTransport(c.state, c.tint, c.onTint, playback = c.playback)
-            Spacer(Modifier.height(PlayerMetrics.CHIPS_TOP))
-            PlayerChips(
-                c.speed, c.maxSpeed, c.sleepLeft, c.pitch, c.tint, c.onTint, c.playback,
-                centred = true,
-            ) { c.vm.prefs.setPitchMode(it.id) }
-        }
-        Spacer(Modifier.height(16.dp))
-        if (c.state.canStep) QueueHandle(c.state, c.onQueue) else Spacer(Modifier.height(16.dp))
     }
 }
 
@@ -1196,7 +1315,7 @@ private fun BoxScope.ImmersiveFace(c: PlayerCtx) {
         base = c.tint,
         on = c.glow,
         running = c.state.playing,
-        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.glowScale,
+        strength = dev.niccc2007.filet.playback.GLOW_OVER_ART * c.vibrance,
         pulse = c.signal?.swing,
         pulseDepth = c.pulseDepth,
     )
@@ -1206,7 +1325,15 @@ private fun BoxScope.ImmersiveFace(c: PlayerCtx) {
             detectTapGestures { chrome = !chrome }
         },
     )
-    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars)) {
+    // Framed like the other four, though this face needs no two-column arrangement: its
+    // artwork IS the screen and its controls are already pinned to the bottom, which is
+    // correct sideways. The frame is here so the shape is declared on every face rather than
+    // on four of them - a shared part that reads it would otherwise get `false` on this one
+    // and be drawing for a portrait that is not there.
+    //
+    // The inset goes on the frame rather than inside it on purpose: the shape should be
+    // measured from the space actually available, with the navigation bar already taken off.
+    FaceFrame(Modifier.windowInsetsPadding(WindowInsets.navigationBars)) {
         AnimatedVisibility(visible = chrome, enter = fadeIn(), exit = fadeOut()) {
             FaceTopBar(c)
         }

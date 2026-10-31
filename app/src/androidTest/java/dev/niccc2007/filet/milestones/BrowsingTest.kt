@@ -7,7 +7,7 @@ import dev.niccc2007.filet.data.Bookmarks
 import dev.niccc2007.filet.data.Prefs
 import dev.niccc2007.filet.data.SortKey
 import dev.niccc2007.filet.data.SortSpec
-import dev.niccc2007.filet.index.SearchScope
+import dev.niccc2007.filet.index.Reach
 import dev.niccc2007.filet.index.WalkSearchSource
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
@@ -184,7 +184,7 @@ class BrowsingTest {
     @Test fun live_search_finds_a_file_in_a_subfolder_without_an_index() {
         openLeft()
         a.openSearch(true)
-        a.setScope(SearchScope.SUBFOLDERS)
+        a.setReach(Reach.Subtree)
         a.setQuery("needle")
         settle(a, 12_000) { a.state.value.search.hits.isNotEmpty() }
         assertTrue(
@@ -195,7 +195,7 @@ class BrowsingTest {
 
     @Test fun each_pane_searches_on_its_own() {
         openLeft(); openRight()
-        a.openSearch(true); a.setScope(SearchScope.FOLDER); a.setQuery("alpha")
+        a.openSearch(true); a.setReach(Reach.Folder); a.setQuery("alpha")
         settle(a) { a.state.value.search.hits.isNotEmpty() }
         assertTrue("pane B must not have been searched", !b.state.value.search.open)
         assertEquals("", b.state.value.search.query)

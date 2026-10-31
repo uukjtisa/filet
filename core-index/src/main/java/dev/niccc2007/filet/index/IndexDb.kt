@@ -26,10 +26,57 @@ class IndexDb private constructor(val db: SQLiteDatabase, val hasFts: Boolean) {
         const val NAME = "filet-index.db"
         const val VERSION = 1
 
-        fun open(context: Context): IndexDb {
-            val file = File(context.getDatabasePath(NAME).absolutePath)
+        /**
+         * @param inDir where to keep the database, as a plain path, or null for the app's own
+         *   database directory.
+         *
+         * A String and not a `File` on purpose: R3 keeps storage handles out of every layer
+         * but the providers and a short allow-list, and a `File` in a signature counts even
+         * when the body never touches it. The app layer decides the location - see
+         * `FiletStore.dirPath` - so that the one setting governing where derived files live
+         * governs this too.
+         */
+        fun open(context: Context, inDir: String? = null): IndexDb {
+            val legacy = File(context.getDatabasePath(NAME).absolutePath)
+            val file = if (inDir == null) legacy else File(inDir, NAME)
             file.parentFile?.mkdirs()
-            val db = SQLiteDatabase.openOrCreateDatabase(file, null)
+
+            // MOVED, not deleted.
+            //
+            // The first cut deleted the old copy rather than carrying it across, on the
+            // grounds that the index is derived and a re-crawl costs one pass. That reasoning
+            // was about the only thing then in this file, and it does not survive the file
+            // gaining anything that is NOT derived. Rebuilding search rows is a few minutes;
+            // destroying a record nothing else holds is permanent, and a database is not the
+            // place to make that distinction at delete time.
+            //
+            // The race that excused the deletion was self-inflicted. The move only has to
+            // beat the first reader, and this runs on the opening thread before any reader
+            // exists - which is exactly the property the old comment relied on to justify
+            // deleting. The same moment that made deletion safe makes the move safe.
+            //
+            // All three files or none: a database carried across without its write-ahead log
+            // is a database missing its most recent commits.
+            if (inDir != null && legacy.absolutePath != file.absolutePath && legacy.isFile) {
+                val moved = listOf("", "-wal", "-shm").all { suffix ->
+                    val from = File(legacy.absolutePath + suffix)
+                    if (!from.isFile) return@all true
+                    val to = File(file.absolutePath + suffix)
+                    runCatching { from.renameTo(to) }.getOrDefault(false) ||
+                        runCatching { from.copyTo(to, overwrite = true); from.delete() }
+                            .getOrDefault(false)
+                }
+                // A move that only half happened leaves the destination inconsistent, and the
+                // opener below would then quarantine it and start clean - which is the right
+                // outcome, but only because nothing was thrown away to get there.
+                if (!moved) {
+                    for (suffix in listOf("", "-wal", "-shm")) {
+                        runCatching { File(file.absolutePath + suffix).delete() }
+                    }
+                }
+            }
+
+            val db = openOrRebuild(file)
             // Every pragma goes through rawQuery, not execSQL. Several of them - journal_mode
             // and mmap_size among them - RETURN a row with the value they settled on, and
             // execSQL refuses any statement that produces data. Using execSQL here is what
@@ -46,6 +93,39 @@ class IndexDb private constructor(val db: SQLiteDatabase, val hasFts: Boolean) {
             createSchema(db, fts)
             return IndexDb(db, fts)
         }
+
+        /**
+         * Open the database, setting a broken one aside rather than destroying it.
+         *
+         * Refusing to start is not an option - a file manager that will not open because its
+         * search index is corrupt has turned a degraded feature into no app at all. But the
+         * first version of this DELETED the unreadable file and recreated it, and a wipe and a
+         * quarantine cost exactly the same while only one of them can be undone.
+         *
+         * It matters more now the database can live in shared storage, where somebody can
+         * delete half of it while it is open: the folder is visible on purpose, so this is a
+         * thing that will happen rather than a hypothetical. Renamed aside, a later build - or
+         * a person - can still look at what was there. Deleted, nobody can.
+         *
+         * The quarantined copy is left for good. Pruning it would mean deciding how long to
+         * keep something whose whole purpose is to be available when somebody eventually
+         * notices, and it sits in a visible folder where it can be removed by hand.
+         */
+        private fun openOrRebuild(file: File): SQLiteDatabase =
+            runCatching { SQLiteDatabase.openOrCreateDatabase(file, null) }.getOrElse {
+                val stamp = System.currentTimeMillis()
+                for (suffix in listOf("", "-wal", "-shm")) {
+                    val bad = File(file.absolutePath + suffix)
+                    if (!bad.isFile) continue
+                    val aside = File(file.absolutePath + ".broken-" + stamp + suffix)
+                    // Only deleted when it could not even be set aside, because the alternative
+                    // is failing to open at all.
+                    if (!runCatching { bad.renameTo(aside) }.getOrDefault(false)) {
+                        runCatching { bad.delete() }
+                    }
+                }
+                SQLiteDatabase.openOrCreateDatabase(file, null)
+            }
 
         /** Run a pragma and consume whatever row it produces. */
         private fun pragma(db: SQLiteDatabase, sql: String) {

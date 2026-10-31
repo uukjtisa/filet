@@ -1,80 +1,50 @@
 package dev.niccc2007.filet.index
 
 /**
- * How much a search result is worth trusting right now.
+ * How much a search result is worth trusting right now. SEARCH.md §14.3.
  *
  * Two states, and deliberately only two. A third one for "this might be gone" was considered
- * and rejected: an entry the index can no longer justify is dropped from the list rather than
- * labelled, because a row that announces its own unreliability is asking the reader to do the
- * checking that the app exists to do.
+ * and rejected: a row whose check failed is removed rather than labelled, because a row that
+ * announces its own unreliability is asking the reader to do the checking the app exists to do.
  *
- * So the rule is: if it is on screen, it is either known to be there or being checked.
+ * ## What changed, and why
+ *
+ * Confirming used to mean "an index pass is running and has not re-read this row yet". Every row
+ * had in fact already been checked against the filesystem before it was shown, so the label was
+ * describing the crawl rather than the row - and with an unbounded crawl on every open, results
+ * read Confirming for minutes after they had been verified. It now means one thing about the row
+ * itself: **it came from the index and its own check has not come back yet.**
  */
 enum class HitState(val label: String) {
-    /**
-     * Known to be there.
-     *
-     * Either no pass is running - in which case the last complete pass is the authority - or
-     * one is running and has already reached this entry.
-     */
+    /** Checked against the filesystem, or seen there by a walk a moment ago. Can be acted on. */
     AVAILABLE("Available"),
 
     /**
-     * A pass is running and has not reached this entry yet.
+     * From the index, shown before its check came back.
      *
-     * The row is served anyway, because an entry written on an earlier pass is a fact until
-     * something disproves it and withholding it is choosing to know less than is known. The
-     * label is there so the difference is visible rather than silently assumed.
+     * Shown rather than withheld, because the index is right nearly always and first paint
+     * should not wait on the filesystem to say so. Not openable until the check passes - see
+     * [actionable] - so a row that turns out to be gone can be seen for a moment and never used.
      */
     CONFIRMING("Confirming"),
 }
 
 /**
- * Which state a row is in.
- *
- * @param crawlRunning whether an index pass is in flight.
- * @param rowGen the generation stamped on this row.
- * @param currentGen the generation the running pass is writing, or the last complete one.
- *
- * A generation is bumped once per pass and stamped on every row the pass re-reads, so
- * `rowGen == currentGen` is exactly "this pass has been here". Between passes every surviving
- * row carries the last complete generation, which is why nothing is ever left confirming
- * when nothing is running.
+ * What a row becomes once its check comes back: available if the file is there, or null to
+ * remove it. Removed, not relabelled - see [HitState].
  */
-fun hitState(crawlRunning: Boolean, rowGen: Long, currentGen: Long): HitState =
-    if (crawlRunning && rowGen < currentGen) HitState.CONFIRMING else HitState.AVAILABLE
+fun afterCheck(exists: Boolean): HitState? = if (exists) HitState.AVAILABLE else null
+
+/** Whether a row may be opened, shared or acted on without checking it first. */
+fun actionable(state: HitState): Boolean = state == HitState.AVAILABLE
 
 /**
- * Whether a result may be shown at all.
+ * Whether a row carries a state badge.
  *
- * The third state, refused. A row the index holds whose file is no longer on disk is not a
- * degraded result, it is a wrong one - so it is dropped here rather than labelled and left for
- * the reader to discover by tapping it.
- *
- * Cheap because it only ever runs on the handful of rows that survived ranking: the index is
- * narrowing thousands of rows to a page, and a stat on a page is nothing.
+ * Only while its check is outstanding. This used to be "while an index pass is running", which
+ * labelled every row Available or Confirming for as long as a crawl ran - so the badge described
+ * the crawl, and with an unbounded crawl on every open, rows that had passed their check still
+ * read Confirming minutes later. A row whose check passed has nothing left to say; a badge on
+ * every row saying so is the noise the label was always meant to avoid.
  */
-fun showable(existsOnDisk: Boolean): Boolean = existsOnDisk
-
-/**
- * Whether the state is worth drawing at all.
- *
- * Reported as there being no indicator on screen. Two things produced that, and only one was
- * the obvious one.
- *
- * The first: the badge was drawn only for [HitState.CONFIRMING], on the argument that a label
- * on every row saying Available is noise. That argument is right between passes and wrong
- * during one - while a pass is running, "this one has been checked" and "this one has not yet"
- * are both facts worth having, and showing only half of the pair makes the other half
- * indistinguishable from a feature that is not there.
- *
- * The second is the one that actually made the screen blank, and it is a case the first design
- * did not have: on a FIRST index there is nothing to confirm. The database was empty when the
- * pass began, so every row it holds was written by that pass and is Available by definition.
- * Nothing could ever be labelled, which reads as nothing working.
- *
- * So: while a pass is running, every row says which it is. Between passes, nothing does -
- * everything is available then and a badge on every row would be the noise the first argument
- * was worried about.
- */
-fun showBadge(crawlRunning: Boolean): Boolean = crawlRunning
+fun showBadge(state: HitState): Boolean = state == HitState.CONFIRMING

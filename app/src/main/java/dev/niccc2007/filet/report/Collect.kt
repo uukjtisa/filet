@@ -85,7 +85,7 @@ object Collect {
         }
         val out = ByteArrayOutputStream()
         sized.compress(Bitmap.CompressFormat.JPEG, 85, out)
-        val dir = File(context.cacheDir, "report").apply { mkdirs() }
+        val dir = dev.niccc2007.filet.data.FiletStore.dir(context, dev.niccc2007.filet.data.FiletStore.Area.REPORTS)
         File(dir, "picture-${System.currentTimeMillis()}-$index.jpg").apply { writeBytes(out.toByteArray()) }.absolutePath
     }
 
@@ -120,12 +120,14 @@ object Collect {
 
     /** Called once by the form, so the helpers above know which cache is theirs. */
     fun bind(context: Context) {
-        cacheRoot = context.cacheDir
+        cacheRoot = dev.niccc2007.filet.data.FiletStore.dir(context, dev.niccc2007.filet.data.FiletStore.Area.REPORTS)
     }
 
     /** Pictures left behind by a report that was sent or abandoned. */
     fun clearPictures(context: Context) {
-        File(context.cacheDir, "report").listFiles()?.forEach { it.delete() }
+        dev.niccc2007.filet.data.FiletStore.dir(context, dev.niccc2007.filet.data.FiletStore.Area.REPORTS)
+            .listFiles { f -> f.name.startsWith("picture-") }
+            ?.forEach { it.delete() }
     }
 
     private const val EDGE = 1600

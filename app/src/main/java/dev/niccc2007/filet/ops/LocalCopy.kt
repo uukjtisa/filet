@@ -3,6 +3,7 @@ package dev.niccc2007.filet.ops
 import android.content.Context
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.Vfs
+import dev.niccc2007.filet.data.FiletStore
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -52,7 +53,7 @@ class LocalCopy(
             ?.let { return@withContext it }
         if (node.size > MAX_BYTES) return@withContext null
         runCatching {
-            val folder = File(context.cacheDir, FOLDER).apply { mkdirs() }
+            val folder = FiletStore.dir(context, FiletStore.Area.COPIES)
             // Keyed on size and time as well as the name, so a file edited elsewhere is not
             // read back from a stale copy - the same rule `RemoteStaging` uses.
             val target = File(folder, node.size.toString() + "_" + node.mtime + "_" + safe(node.name))

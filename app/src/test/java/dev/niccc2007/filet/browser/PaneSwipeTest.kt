@@ -23,6 +23,13 @@ class PaneSwipeTest {
     }
 
     @Test
+    fun `a thumb that settles for a moment before moving still swipes`() {
+        // 300ms was thrown away under the old 220ms window, which is much of why the gesture
+        // read as unresponsive. Ownership keeps it off a drag now; the window is a backstop.
+        assertTrue(PaneSwipe.fires(-120f, 4f, 300f, 300L, normal))
+    }
+
+    @Test
     fun `a scroll at a slight angle never changes tab`() {
         // Plenty of horizontal travel, but more vertical - that is a list being flicked.
         assertFalse(PaneSwipe.fires(-90f, 120f, 900f, 100L, normal))

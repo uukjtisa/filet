@@ -113,6 +113,7 @@ class SelectionBarConfigTest {
             on = SelectionCallbacks(
                 copy = {}, move = {}, send = {}, delete = {}, compress = {}, rename = {},
                 openWith = {}, details = {}, bookmark = {}, nearby = {}, shortcut = {},
+                copyPath = {}, invert = {},
             ),
             // Every conditional action switched ON, because the question this asks is whether the
             // catalogue can ever produce each id - not whether it does for one particular file.
@@ -130,6 +131,32 @@ class SelectionBarConfigTest {
         for (id in SelectionBarConfig.IDS) {
             assertTrue("$id is choosable but never produced", id in produced)
         }
+    }
+
+    @Test
+    fun `an entry moves one place and nothing else changes`() {
+        val ids = listOf("copy", "move", "rename", "delete")
+        assertEquals(listOf("delete", "copy", "move", "rename"), SelectionBarConfig.moved(ids, 3, 0))
+        assertEquals(listOf("move", "copy", "rename", "delete"), SelectionBarConfig.moved(ids, 0, 1))
+        // Out of range is a dead button, not a clamp that swaps the wrong pair.
+        assertEquals(ids, SelectionBarConfig.moved(ids, 0, -1))
+        assertEquals(ids, SelectionBarConfig.moved(ids, 3, 4))
+        assertEquals(ids, SelectionBarConfig.moved(ids, 2, 2))
+    }
+
+    @Test
+    fun `the menu's icon row is unchanged until the bar is arranged`() {
+        assertEquals(QUICK_IDS, SelectionBarConfig.contextQuick(null))
+        assertEquals(QUICK_IDS, SelectionBarConfig.contextQuick(""))
+    }
+
+    @Test
+    fun `an arranged bar leads the menu's icon row, topped up from the standard verbs`() {
+        val row = SelectionBarConfig.contextQuick("delete,details,copy")
+        assertEquals(listOf("delete", "details", "copy", "move", "rename"), row)
+        // Never a duplicate, and never longer than the row has room for.
+        assertEquals(row.distinct(), row)
+        assertEquals(QUICK_IDS.size, SelectionBarConfig.contextQuick(SelectionBarConfig.IDS.joinToString(",")).size)
     }
 
     @Test

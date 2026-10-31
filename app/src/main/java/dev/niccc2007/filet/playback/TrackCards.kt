@@ -4,15 +4,16 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
+import android.util.LruCache
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import dev.niccc2007.filet.media.LoadQueue
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -31,6 +32,15 @@ data class TrackCard(
     val art: Bitmap?,
     val video: Boolean = false,
     val pending: Boolean = false,
+    /**
+     * Whether this file HAS a picture, as distinct from whether one is loaded.
+     *
+     * The tags are kept for the session and the pictures are evicted under memory pressure, so
+     * a null `art` is ambiguous without this: "this file has no cover" and "its cover was
+     * dropped to free memory" need different answers, and guessing the first means a cover that
+     * is evicted once never comes back.
+     */
+    val hasArt: Boolean = false,
 ) {
     /** `3:41`, or empty when the file would not say. */
     val clock: String
@@ -70,29 +80,76 @@ data class TrackCard(
  */
 class TrackCards(private val context: Context, private val vfs: Vfs) {
 
-    private val cache = ConcurrentHashMap<String, TrackCard>()
-    private val gate = Semaphore(AT_ONCE)
+    // ── the cache was one map, and that was the hang ───────────────────────────────────────
+    //
+    // Bug identified here: this was a single `ConcurrentHashMap` with NO eviction, and every
+    // entry holds a 160x160 ARGB bitmap - 102 KB each. Scrolling fifteen hundred tracks of All
+    // Music therefore retained about 150 MB of thumbnails on a device whose whole heap may be
+    // 192 MB. The collector then runs continuously, and a collection pause stops the main
+    // thread: the symptom was a hang of under a second that got WORSE the longer the list was
+    // scrolled, which is the signature of heap pressure rather than of slow decoding.
+    //
+    // Split in two, because the two halves have nothing in common. Tags are a few dozen bytes
+    // and are worth keeping for the whole session - that is what makes a second pass over a
+    // list free. Pictures are four orders of magnitude bigger and are worth keeping only while
+    // they are near the screen.
+    private val tags = ConcurrentHashMap<String, TrackCard>()
+
+    private val art = object : LruCache<String, Bitmap>(ART_BYTES) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+    }
+
+    private val queue = LoadQueue(workers = AT_ONCE)
 
     /** What is already known, or a holding card carrying the filename. */
-    fun cached(path: VPath): TrackCard =
-        cache[path.toString()] ?: TrackCard(
-            title = path.name.substringBeforeLast('.', path.name),
-            artist = null,
-            album = null,
-            durationMs = 0,
-            art = null,
-            pending = true,
-        )
+    fun cached(path: VPath): TrackCard {
+        val key = path.toString()
+        tags[key]?.let { return it.copy(art = art.get(key)) }
+        return holding(path)
+    }
 
-    suspend fun of(path: VPath): TrackCard {
-        cache[path.toString()]?.let { return it }
-        val read = gate.withPermit { withContext(Dispatchers.IO) { read(path) } }
-        cache[path.toString()] = read
-        return read
+    private fun holding(path: VPath) = TrackCard(
+        title = path.name.substringBeforeLast('.', path.name),
+        artist = null,
+        album = null,
+        durationMs = 0,
+        art = null,
+        pending = true,
+    )
+
+    /** For a row on screen. */
+    suspend fun of(path: VPath): TrackCard = fill(path, urgent = true)
+
+    /**
+     * For a row that is not on screen yet - the pre-render ahead of the viewport.
+     *
+     * Identical work at a lower priority: it yields to every row somebody is actually looking
+     * at. See [LoadQueue] for why the two tiers cannot be one.
+     */
+    suspend fun warm(path: VPath): TrackCard = fill(path, urgent = false)
+
+    private suspend fun fill(path: VPath, urgent: Boolean): TrackCard {
+        val key = path.toString()
+        tags[key]?.let { held ->
+            // Read already, and either its picture is still here or it never had one.
+            if (!held.hasArt || art.get(key) != null) return held.copy(art = art.get(key))
+        }
+        val body = { store(key, read(path)) }
+        if (urgent) queue.join(key, body) else queue.ahead(key, body)
+        return cached(path)
+    }
+
+    /** Tags into the map that keeps them, the picture into the one that evicts. */
+    private fun store(key: String, card: TrackCard) {
+        tags[key] = card.copy(art = null, hasArt = card.art != null)
+        card.art?.let { art.put(key, it) }
     }
 
     /** Forget everything, for the refresh button: a re-tagged file should re-read. */
-    fun clear() = cache.clear()
+    fun clear() {
+        tags.clear()
+        art.evictAll()
+    }
 
     private fun read(path: VPath): TrackCard {
         val fallback = path.name.substringBeforeLast('.', path.name)
@@ -163,8 +220,25 @@ class TrackCards(private val context: Context, private val vfs: Vfs) {
         /** Big enough for a 44dp tile on a 3x phone, small enough to hold two hundred of. */
         const val THUMB = 160
 
-        /** How many files are parsed at once. A screen of rows must not open a screen of files. */
-        const val AT_ONCE = 3
+        /**
+         * How many files are parsed at once. A screen of rows must not open a screen of files.
+         *
+         * Two, not three: a header parse and a bitmap decode are both CPU, and on the mid-range
+         * phone this was reported on the main thread needs a core of its own in order to draw
+         * the rows the parses are for.
+         */
+        const val AT_ONCE = 2
+
+        /**
+         * What the pictures may occupy. A tenth of the heap, clamped.
+         *
+         * At 102 KB a thumbnail that is roughly forty on a small heap and two hundred on a large
+         * one - a screenful either way, with enough margin that scrolling back up a screen or
+         * two is a cache hit rather than a re-read.
+         */
+        val ART_BYTES: Int = (Runtime.getRuntime().maxMemory() / 10)
+            .coerceIn(4L * 1024 * 1024, 24L * 1024 * 1024)
+            .toInt()
     }
 }
 
@@ -175,5 +249,29 @@ class TrackCards(private val context: Context, private val vfs: Vfs) {
  * first frame instead of flashing its filename and then correcting itself.
  */
 @Composable
-fun rememberTrackCard(cards: TrackCards, path: VPath): State<TrackCard> =
-    produceState(cards.cached(path), path) { value = cards.of(path) }
+fun rememberTrackCard(cards: TrackCards, path: VPath): State<TrackCard> {
+    val start = cards.cached(path)
+
+    // Already read: no producer at all.
+    //
+    // A list recomposes constantly while it is scrolled, and `produceState` launched a coroutine
+    // for every row on every key change in order to ask a question whose answer was already in
+    // the map. Scrolling back up a playlist should cost a lookup.
+    if (!start.pending) return remember(path) { mutableStateOf(start) }
+
+    return produceState(start, path) {
+        // Let a fling or a scrubber drag pass before queueing a header parse.
+        //
+        // The gate inside `of` runs three reads at a time, and cancelling this producer does
+        // drop a read still waiting its turn - so the backlog was self-limiting and this is not
+        // the disaster the thumbnail path had. It is still three `MediaMetadataRetriever`
+        // parses that nobody will see for every screenful swept past, and on the device that was
+        // reported as hot it is three parses competing with audio decoding. A row that is still
+        // here after this delay is a row somebody has stopped on.
+        delay(SETTLE_MS)
+        value = cards.of(path)
+    }
+}
+
+/** How long a row must stay on screen before its tags are worth a header parse. */
+private const val SETTLE_MS = 90L

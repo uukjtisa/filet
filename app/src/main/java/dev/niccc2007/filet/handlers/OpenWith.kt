@@ -113,9 +113,23 @@ fun OpenWithDialog(
         // sheet is shown, it says the first tier is empty, and every launchable app is under it.
         AppPickerForExtension(extension, apps) { app ->
             pickingApp = false
-            if (app != null) {
-                vm.handlers.setExternal(extension, app, alsoRoute = true)
-                onDismiss()
+            when {
+                app == null -> Unit
+                // A file in hand: open it in that app, and remember the app only if the tick
+                // said so. This used to set the default unconditionally and never open the
+                // file - "open this once in X" silently became a permanent rule that did not
+                // even do the once.
+                file != null -> {
+                    // "Always this way" with Another app means the type now goes to an app,
+                    // and to this one; openWithApp only re-routes a type already set to apps.
+                    if (always) vm.handlers.setDefault(extension, HandlerId.EXTERNAL)
+                    vm.openWithApp(file, app, remember = always)
+                    onDismiss()
+                }
+                else -> {
+                    vm.handlers.setExternal(extension, app, alsoRoute = true)
+                    onDismiss()
+                }
             }
         }
         return
@@ -174,10 +188,12 @@ fun OpenWithDialog(
 
             if (file != null) {
                 Spacer(Modifier.height(10.dp))
+                // Tickable before a row is picked. It used to wait for a choice, and choosing
+                // "Another app" leaves this dialogue at once - so for that row there was never
+                // a moment the tick could be set. Ticked first, it applies to whatever is picked.
                 DlgTick(
                     on = always,
                     label = "Always open .$extension this way",
-                    enabled = chosen != null,
                 ) { always = !always }
             }
         }

@@ -53,11 +53,14 @@ class ConfigTest {
         }
     }
 
-    @Test fun `a drive root written into the file by hand is dropped, not served`() {
+    @Test fun `a drive root written into the file by hand is kept`() {
         val raw = "{\"password\":\"bcd234fgh5\",\"deviceId\":\"x\",\"shares\":[" +
             "{\"path\":\"C:\\\\\",\"name\":\"C\"},{\"path\":\"D:\\\\Docs\",\"name\":\"Docs\",\"tag\":\"docs\"}]}"
         val d = ConfigCodec.decode(raw) { fixed }
-        assertEquals(listOf("D:\\Docs"), d.config.shares.map { it.path })
+        // A drive root is a legitimate share now, so it is kept rather than dropped. It still
+        // counts as repaired, because the hand-written entry had no tag and decoding gives it
+        // one - the endpoint has to be stable across restarts.
+        assertEquals(listOf("C:\\", "D:\\Docs"), d.config.shares.map { it.path })
         assertTrue(d.repaired)
     }
 

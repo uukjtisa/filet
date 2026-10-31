@@ -80,8 +80,14 @@ class ArchiveProviderTest {
         assertTrue(n!!.isDir)
     }
 
-    @Test fun writing_is_refused_rather_than_silently_ignored() = runTest {
-        val e = runCatching { vfs.create(root().child("x.txt"), isDir = false) }.exceptionOrNull()
+    @Test fun a_file_made_inside_a_zip_is_really_there_afterwards() = runTest {
+        // It used to be refused outright: an archive was read-only. Now it is a folder everywhere.
+        vfs.create(root().child("x.txt"), isDir = false)
+        assertTrue(vfs.list(root()).any { it.name == "x.txt" })
+    }
+
+    @Test fun the_archive_itself_cannot_be_written_as_if_it_were_a_member() = runTest {
+        val e = runCatching { vfs.delete(root(), recursive = true) }.exceptionOrNull()
         assertTrue(e is VfsException.Unsupported)
     }
 

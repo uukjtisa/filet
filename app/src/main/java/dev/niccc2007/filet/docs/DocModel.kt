@@ -32,9 +32,105 @@ data class Doc(
     val title: String = "",
     /** Said out loud at the top when a reader could only get part of the way. See [Note]. */
     val note: String? = null,
+    /**
+     * What each block sits inside, parallel to [blocks]. Empty for a reader with no nesting,
+     * which is every reader but Markdown's - see [nestOf].
+     */
+    val nests: List<Nest> = emptyList(),
+    /** Where each `#name` in a link lands, as an index into [blocks]. See `DocOutline`. */
+    val anchors: Map<String, Int> = emptyMap(),
+    /** The headings in order, for the Contents sheet. */
+    val outline: List<Heading> = emptyList(),
 ) {
     val empty: Boolean get() = blocks.isEmpty()
+
+    /** The nesting of block [i], and none for a reader that never set any. */
+    fun nestOf(i: Int): Nest = nests.getOrNull(i) ?: Nest.NONE
 }
+
+/** One heading, as the Contents sheet lists it. [index] is its block, [slug] its anchor. */
+data class Heading(val level: Int, val text: String, val index: Int, val slug: String)
+
+/**
+ * What a block sits inside, outermost first.
+ *
+ * ## Why a block carries this rather than the model being a tree
+ *
+ * The screen is a flat lazy list, because a long document has to compose only what is on screen,
+ * and a tree would be flattened again to draw it. So each block says what it is inside, and the
+ * screen draws those containers a block-high slice at a time: a quote's rule down the edge, an
+ * alert's coloured one, a list item's indent. Slices with the same frames meet edge to edge and
+ * read as one container, which is the same trick a slide card already plays.
+ *
+ * Kept in order because the order is what is drawn: a quote inside a list item is indented and
+ * THEN ruled, and a list inside a quote is the other way round.
+ */
+data class Nest(
+    val frames: List<Frame> = emptyList(),
+    /** The folds this block is inside, by [Block.Fold.id]. Hidden while any of them is closed. */
+    val folds: List<Int> = emptyList(),
+) {
+    /** How many list levels deep this is - the indent its own frames already draw. */
+    val indents: Int get() = frames.count { it == Frame.INDENT }
+
+    /** The alert this block is part of, if any: the innermost one. */
+    val alert: Frame? get() = frames.lastOrNull { it.alert }
+
+    val quoted: Boolean get() = frames.any { it == Frame.QUOTE }
+
+    companion object {
+        val NONE = Nest()
+    }
+}
+
+/** One container a block can sit inside. See [Nest]. */
+enum class Frame {
+    /** The space a list item's own text starts at, for what follows it inside the item. */
+    INDENT,
+    QUOTE,
+    NOTE, TIP, IMPORTANT, WARNING, CAUTION,
+    ;
+
+    /** One of GitHub's five alerts, as opposed to an indent or a plain quote. */
+    val alert: Boolean get() = this != INDENT && this != QUOTE
+
+    companion object {
+        /** The alert a `> [!TYPE]` names, or null for a type GitHub does not draw. */
+        fun alertOf(type: String): Frame? = when (type.uppercase()) {
+            "NOTE" -> NOTE
+            "TIP" -> TIP
+            "IMPORTANT" -> IMPORTANT
+            "WARNING" -> WARNING
+            "CAUTION" -> CAUTION
+            else -> null
+        }
+    }
+}
+
+/**
+ * A picture placed in a run of text.
+ *
+ * The text holds U+FFFC at [at], which is where the screen puts the picture once it has one -
+ * so a row of badges flows and wraps like the words around it, and a picture that has not
+ * loaded yet is a small gap rather than a block-sized hole.
+ *
+ * @param src as the file wrote it; resolving it is `DocRefs`'s job, at the screen.
+ * @param width the size an HTML `<img>` asked for, in CSS pixels. 0 when it did not say.
+ * @param widthPercent a `width="50%"`, as a percentage of the column. 0 when it did not say.
+ * @param href where tapping it goes, when it sits inside a link.
+ */
+data class Picture(
+    val at: Int,
+    val src: String,
+    val alt: String = "",
+    val width: Int = 0,
+    val height: Int = 0,
+    val widthPercent: Int = 0,
+    val href: String = "",
+)
+
+/** A table cell's formatting and pictures; its text is in [Block.Table.rows]. */
+data class Rich(val spans: List<Span> = emptyList(), val pictures: List<Picture> = emptyList())
 
 /** One thing in a document, in the order it appears. */
 sealed interface Block {
@@ -54,6 +150,8 @@ sealed interface Block {
         val align: Align = Align.START,
         /** Indent from the start edge, in points, as the file declares it. 0 for none. */
         val indent: Int = 0,
+        /** Pictures in the run, each at a U+FFFC in [text]. */
+        val pictures: List<Picture> = emptyList(),
     ) : Block
 
     /** A list item, flattened: the depth is carried rather than nested. */
@@ -69,6 +167,16 @@ sealed interface Block {
          * falls back to [number] or a plain bullet.
          */
         val marker: String = "",
+        /** A task list's box: checked, unchecked, or null for an ordinary item. Display only. */
+        val task: Boolean? = null,
+        /** False for a loose list, whose items are spaced like paragraphs. */
+        val tight: Boolean = true,
+        /**
+         * How many characters the widest marker in this item's list has, so an ordered list's
+         * numbers can be right-aligned in one column. 0 when the reader did not work it out.
+         */
+        val markerChars: Int = 0,
+        val pictures: List<Picture> = emptyList(),
     ) : Block
 
     /** Preformatted text, drawn monospaced and never reflowed. */
@@ -90,10 +198,38 @@ sealed interface Block {
          * row shorter than its cells means the same for the cells it does not cover.
          */
         val colSpans: List<List<Int>> = emptyList(),
+        /** Each cell's formatting, parallel to [rows]. Empty for a reader with plain cells. */
+        val rich: List<List<Rich>> = emptyList(),
+        /** How each column's text sits, by column. Empty, or short, means [Align.START]. */
+        val aligns: List<Align> = emptyList(),
     ) : Block
 
     /** A horizontal rule. */
     data object Rule : Block
+
+    /** The title line of a GitHub alert - its icon and name - for [frame], which is an alert. */
+    data class AlertHead(val frame: Frame) : Block
+
+    /**
+     * The summary line of a fold (`<details>`), which opens and closes the blocks inside it.
+     *
+     * @param id what the blocks inside name in [Nest.folds].
+     * @param open whether it starts open, as `<details open>` asks.
+     */
+    data class Fold(
+        val id: Int,
+        val text: String,
+        val spans: List<Span> = emptyList(),
+        val open: Boolean = false,
+    ) : Block
+
+    /**
+     * A document's front matter - the YAML block at the top of a page - as its keys and values.
+     *
+     * Drawn as a card rather than as the text it is, because it is data ABOUT the page and
+     * reading it as the page's first paragraph is how it looks in an editor, not on GitHub.
+     */
+    data class Meta(val entries: List<Pair<String, String>>) : Block
 
     /**
      * A slide boundary, for a presentation.
@@ -206,6 +342,26 @@ class SpanBuilder {
         // with `**` next to `**` in real markdown, and a zero-width annotation makes
         // AnnotatedString throw on some versions rather than draw nothing.
         if (span.valid) out.add(span)
+    }
+
+    /** The last character appended, or null when nothing has been. */
+    val last: Char? get() = if (sb.isEmpty()) null else sb[sb.length - 1]
+
+    /**
+     * Drop trailing whitespace, and pull in every mark that ran into it.
+     *
+     * For text that arrives with its whitespace collapsed but not trimmed - HTML - where trimming
+     * the finished string instead would leave a mark ending past the text, and `annotate` drops
+     * such a mark whole rather than clamping it.
+     */
+    fun trimEnd() {
+        var end = sb.length
+        while (end > 0 && sb[end - 1].isWhitespace() && sb[end - 1] != ' ') end--
+        if (end == sb.length) return
+        sb.setLength(end)
+        val kept = out.map { if (it.to > end) it.copy(to = end) else it }.filter { it.valid }
+        out.clear()
+        out.addAll(kept)
     }
 
     fun text(): String = sb.toString()

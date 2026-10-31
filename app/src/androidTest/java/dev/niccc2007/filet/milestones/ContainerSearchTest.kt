@@ -8,7 +8,7 @@ import dev.niccc2007.filet.apk.ApkTools
 import dev.niccc2007.filet.index.ArchiveFacts
 import dev.niccc2007.filet.index.QueryParser
 import dev.niccc2007.filet.index.SearchRequest
-import dev.niccc2007.filet.index.SearchScope
+import dev.niccc2007.filet.index.Reach
 import dev.niccc2007.filet.index.SqliteIndex
 import dev.niccc2007.filet.jobs.JobLedger
 import dev.niccc2007.filet.vfs.VPath
@@ -82,7 +82,7 @@ class ContainerSearchTest {
 
     private fun names(query: String): List<String> = runBlocking {
         index.candidates(
-            SearchRequest(query, SearchScope.DEVICE, origin = null, limit = 200),
+            SearchRequest(query, Reach.Everywhere, origin = null, limit = 200),
             QueryParser.parse(query),
         ).map { it.name }
     }

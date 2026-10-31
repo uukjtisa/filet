@@ -83,10 +83,21 @@ object CrashReport {
         appendLine(error.stackTraceToString())
     }
 
+    /**
+     * Where reports land.
+     *
+     * The visible `Filet` folder rather than app-private storage, because a crash report's
+     * whole purpose is to be read by somebody who is not the app - attached to an issue,
+     * copied off the phone, looked at after the fact. Kept in `filesDir` it could only be
+     * reached through the one screen inside the app that had just crashed.
+     */
+    private fun reportsDir(context: Context): File =
+        dev.niccc2007.filet.data.FiletStore.dir(context, dev.niccc2007.filet.data.FiletStore.Area.REPORTS)
+
     private fun write(context: Context, text: String) {
         val stamp = System.currentTimeMillis()
         runCatching {
-            val dir = File(context.filesDir, DIR).apply { mkdirs() }
+            val dir = reportsDir(context)
             File(dir, "crash-$stamp.txt").writeText(text)
             prune(dir, KEEP)
         }
@@ -138,7 +149,7 @@ object CrashReport {
     }
 
     fun recent(context: Context): List<Report> {
-        val dir = File(context.filesDir, DIR)
+        val dir = reportsDir(context)
         val files = dir.listFiles()?.sortedByDescending { it.lastModified() } ?: return emptyList()
         return files.mapNotNull { f ->
             val text = runCatching { f.readText() }.getOrNull() ?: return@mapNotNull null
@@ -158,7 +169,7 @@ object CrashReport {
     }
 
     fun clear(context: Context) {
-        File(context.filesDir, DIR).listFiles()?.forEach { runCatching { it.delete() } }
+        reportsDir(context).listFiles()?.forEach { runCatching { it.delete() } }
     }
 
     const val EXTRA_REPORT = "filet.crashReport"

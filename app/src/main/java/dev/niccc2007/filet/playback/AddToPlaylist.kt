@@ -42,15 +42,30 @@ import dev.niccc2007.filet.ui.dialogs.DlgSpacer
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
- * Where do these go.
+ * Which playlists these are in.
  *
- * One tap per row, because adding to a playlist has no second question - there is nothing to
- * confirm and no state to set first. The footer therefore holds only Cancel and the way to
- * make a new list; a Save button would have nothing left to save.
+ * ## What this was, and why it is not that any more
  *
- * A row says when the track is already in that list rather than hiding it. Hiding it would
- * answer "why is Favourites not in this dialogue" with silence, and a greyed row that states
- * the reason is the shorter conversation.
+ * It was a list of buttons: tapping a row added the tracks and closed the dialogue, and a row
+ * for a list the track was already in was greyed out and inert. Two things were wrong with it,
+ * and they are the same thing from two sides.
+ *
+ * A dialogue that closes on the first tap cannot file one track into three playlists, which is
+ * the ordinary case - so filing a song into three lists meant opening the same dialogue three
+ * times from the same overflow menu.
+ *
+ * And a greyed row is a dead end. The dialogue was the only screen in the app that knew which
+ * playlists hold a given track, and the one thing it would not let you do was take it out of
+ * one - for that you had to remember which list it was in, open it, find the track in it, and
+ * use the row menu there.
+ *
+ * So the rows are **tick boxes over membership** rather than buttons that perform an action. A
+ * ticked box means the track is in that list; clearing it takes the track out. The dialogue
+ * stays open until it is dismissed, and nothing is deferred behind a Save - every tap is the
+ * edit, the same way the rest of this app treats a switch.
+ *
+ * With several tracks selected a box has three states, and which way a partial box resolves is
+ * a real decision with a real argument behind it: see [PlaylistMembership].
  */
 @Composable
 fun AddToPlaylistDialog(vm: BrowserViewModel) {
@@ -67,7 +82,7 @@ fun AddToPlaylistDialog(vm: BrowserViewModel) {
     Dlg(onDismiss = dismiss) {
         DlgHeader(
             icon = FiletIcons.Rows,
-            title = if (nodes.size == 1) "Add to playlist" else "Add ${nodes.size} to playlist",
+            title = if (nodes.size == 1) "Playlists" else "Playlists for ${nodes.size} tracks",
             sub = if (nodes.size == 1) nodes.first().name else null,
             onClose = dismiss,
         )
@@ -77,22 +92,24 @@ fun AddToPlaylistDialog(vm: BrowserViewModel) {
                 DlgCaption("The tracks go straight in.")
             } else {
                 for (list in lists) {
-                    // How many of this selection are already there - the number that decides
-                    // whether pressing the row does anything.
+                    // How much of this selection the list already holds. Counted live off
+                    // `lists`, which is a flow, so a tick appears from the edit itself rather
+                    // than from a copy of the answer held in this composable - the version that
+                    // keeps its own `checked` state is the version that drifts.
                     val have = paths.count { list.contains(it) }
-                    val all = have == paths.size
+                    val state = PlaylistMembership.state(have, paths.size)
                     PlaylistRow(
                         cards = vm.trackCards,
                         list = list,
-                        detail = when {
-                            all && paths.size == 1 -> "Already in this playlist"
-                            all -> "All ${paths.size} are already here"
-                            have > 0 -> "${paths.size - have} to add  ·  $have already here"
-                            list.size == 0 -> "Empty"
-                            else -> dev.niccc2007.filet.browser.plural(list.size, "track", "tracks")
-                        },
-                        dim = all,
-                    ) { if (!all) vm.addToPlaylist(list.id, nodes) }
+                        detail = PlaylistMembership.detail(have, paths.size, list.size),
+                        ticked = state.ticked,
+                    ) {
+                        vm.setPlaylistMembership(
+                            list.id,
+                            nodes,
+                            member = PlaylistMembership.act(state) == PlaylistMembership.Act.ADD,
+                        )
+                    }
                 }
                 Spacer(Modifier.height(4.dp))
                 Row(
@@ -113,14 +130,15 @@ fun AddToPlaylistDialog(vm: BrowserViewModel) {
             }
         }
         DlgFooter {
-            DlgBtn("Cancel", onClick = dismiss)
             if (making) {
+                DlgBtn("Cancel") { making = false }
                 DlgSpacer()
                 DlgBtn("Create", kind = BtnKind.PRIMARY) { vm.newPlaylistWith(name, nodes) }
             } else {
-                // Nothing to press: tapping a row IS the commit, so a second button here
-                // would be a control with nothing left to do.
                 DlgSpacer()
+                // "Done", not "Cancel". Every tick has already been applied, so a button
+                // offering to cancel would be lying about what pressing it undoes.
+                DlgBtn("Done", kind = BtnKind.PRIMARY, onClick = dismiss)
             }
         }
     }
@@ -131,7 +149,8 @@ private fun PlaylistRow(
     cards: TrackCards,
     list: Playlist,
     detail: String,
-    dim: Boolean,
+    /** True, false, or null for the dash - see [PlaylistMembership.State.ticked]. */
+    ticked: Boolean?,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
@@ -139,7 +158,9 @@ private fun PlaylistRow(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(11.dp))
-            .clickable(enabled = !dim, onClick = onClick)
+            // The whole row, not the box. A 20dp target at the end of a row is a control half
+            // the people using it miss, and there is nothing else on the row to tap.
+            .clickable(onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -149,22 +170,55 @@ private fun PlaylistRow(
         PlaylistCover(cards, list, 44.dp, radius = 10.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(
-                list.name,
-                fontSize = 13.sp,
+            dev.niccc2007.filet.browser.ListNameText(
+                name = list.name,
+                color = MaterialTheme.colorScheme.onSurface,
+                startSp = 13f,
+                isDir = true,
                 fontWeight = FontWeight.SemiBold,
-                color = if (dim) colors.fg3 else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(2.dp))
             Text(detail, fontSize = 10.sp, color = colors.fg3, maxLines = 1)
         }
-        if (dim) {
-            Icon(
+        Spacer(Modifier.width(10.dp))
+        TickBox(ticked)
+    }
+}
+
+/**
+ * A three-state box, drawn here rather than taken from Material.
+ *
+ * `TriStateCheckbox` exists and brings its own ripple, its own 48dp touch target and its own
+ * colour scheme - three things this dialogue has already decided differently - so it would be
+ * the one control on the sheet that belongs to a different design. The shape is the same
+ * rounded square the rest of the kit uses, and the dash for the partial state is what makes
+ * "some of these forty are in here" legible without reading the caption.
+ */
+@Composable
+private fun TickBox(ticked: Boolean?) {
+    val colors = Filet.colors
+    val on = ticked != false
+    Box(
+        Modifier
+            .size(21.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (on) colors.accent else colors.sunken),
+        contentAlignment = Alignment.Center,
+    ) {
+        when (ticked) {
+            true -> Icon(
                 FiletIcons.Check, null,
-                tint = colors.fg3, modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(13.dp),
             )
+            // The dash, drawn as a bar rather than as a glyph so it cannot be mistaken for a
+            // small tick at a glance.
+            null -> Box(
+                Modifier
+                    .size(width = 10.dp, height = 2.dp)
+                    .background(MaterialTheme.colorScheme.onPrimary),
+            )
+            false -> Unit
         }
     }
 }

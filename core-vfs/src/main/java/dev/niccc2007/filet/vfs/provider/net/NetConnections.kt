@@ -128,6 +128,16 @@ data class NetConnection(
      * which is exactly when somebody is trying to fix it.
      */
     val lastUsedAt: Long = 0L,
+
+    /**
+     * Keep an index of this share's names, so a search can find them without walking it live.
+     *
+     * Off by default, for every share, always - SEARCH.md §13.6. Walking a 222 GB share per
+     * keystroke is hopeless, so somebody who searches one NAS daily can pay for it once; nobody
+     * else pays at all. Names, sizes and dates only: nothing is opened, hashed or thumbnailed,
+     * and nothing watches the share for changes - the index is as fresh as its last pass.
+     */
+    val indexed: Boolean = false,
 )
 
 /**
@@ -266,12 +276,30 @@ class NetConnections(context: Context) {
         return true
     }
 
+    /**
+     * Told the volume uuid of a share whose stored rows have just become wrong or unwanted:
+     * the share was deleted, an edit changed what its paths mean, or indexing was switched off.
+     * FiletApp points it at the index's sweep. Here, at the one place every save and delete
+     * passes through, so no caller can forget it - `delete` used to rewrite the list and
+     * nothing else, and every removed share left its rows behind (SEARCH.md §13.7).
+     */
+    var onRowsLost: (volumeUuid: String) -> Unit = {}
+
     fun save(connection: NetConnection) {
-        val list = all().filterNot { it.id == connection.id } + connection
-        write(list)
+        val before = all()
+        val old = before.firstOrNull { it.id == connection.id }
+        write(before.filterNot { it.id == connection.id } + connection)
+        if (old != null && RemoteIdentity.rowsLost(old, connection)) {
+            onRowsLost(RemoteIdentity.volumeUuid(old))
+        }
     }
 
-    fun delete(id: String) = write(all().filterNot { it.id == id })
+    fun delete(id: String) {
+        val before = all()
+        val gone = before.firstOrNull { it.id == id }
+        write(before.filterNot { it.id == id })
+        if (gone != null) onRowsLost(RemoteIdentity.volumeUuid(gone))
+    }
 
     fun newId(): String = "n" + System.currentTimeMillis().toString(36)
 
@@ -308,7 +336,8 @@ class NetConnections(context: Context) {
      */
     fun importAll(entries: List<JSONObject>): Int {
         var n = 0
-        val merged = all().associateBy { it.id }.toMutableMap()
+        val before = all().associateBy { it.id }
+        val merged = before.toMutableMap()
         for (o in entries) {
             // `fromJson` would try to DECRYPT fields that arrived in plain, so the secrets are
             // lifted out first and put back on the parsed object.
@@ -329,6 +358,12 @@ class NetConnections(context: Context) {
             n++
         }
         write(merged.values.toList())
+        // An imported entry that replaced a saved one is an edit like any other, and can
+        // change what the saved one's rows mean.
+        for ((id, old) in before) {
+            val now = merged[id] ?: continue
+            if (RemoteIdentity.rowsLost(old, now)) onRowsLost(RemoteIdentity.volumeUuid(old))
+        }
         return n
     }
 
@@ -338,61 +373,9 @@ class NetConnections(context: Context) {
         sp.edit().putString(KEY, arr.toString()).apply()
     }
 
-    private fun toJson(c: NetConnection) = JSONObject().apply {
-        put("id", c.id)
-        put("protocol", c.protocol.name)
-        put("label", c.label)
-        put("host", c.host)
-        put("altHosts", org.json.JSONArray(c.altHosts))
-        put("lastGood", c.lastGood)
-        put("deviceId", c.deviceId)
-        put("port", c.port)
-        put("user", c.user)
-        put("password", encrypt(c.password))
-        put("share", c.share)
-        put("domain", c.domain)
-        put("tls", c.useTls)
-        put("anon", c.anonymous)
-        put("startPath", c.startPath)
-        put("readOnly", c.readOnly)
-        put("passive", c.passive)
-        put("timeout", c.timeoutSeconds)
-        // The key is a secret of the same kind as the password and gets the same treatment.
-        put("privateKey", encrypt(c.privateKey))
-        put("keyPassphrase", encrypt(c.keyPassphrase))
-        put("lastUsedAt", c.lastUsedAt)
-    }
+    private fun toJson(c: NetConnection) = NetConnectionJson.encode(c, ::encrypt)
 
-    private fun fromJson(o: JSONObject): NetConnection? = runCatching {
-        NetConnection(
-            id = o.getString("id"),
-            protocol = NetProtocol.valueOf(o.getString("protocol")),
-            label = o.optString("label"),
-            host = o.optString("host"),
-            altHosts = o.optJSONArray("altHosts")?.let { arr ->
-                (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }
-            }.orEmpty(),
-            lastGood = o.optString("lastGood"),
-            deviceId = o.optString("deviceId"),
-            port = o.optInt("port"),
-            user = o.optString("user"),
-            password = decrypt(o.optString("password")),
-            share = o.optString("share"),
-            domain = o.optString("domain"),
-            useTls = o.optBoolean("tls"),
-            anonymous = o.optBoolean("anon"),
-            startPath = o.optString("startPath"),
-            readOnly = o.optBoolean("readOnly"),
-            // Defaulted true rather than false: a connection saved before this field existed
-            // was passive, and reading a missing boolean as false would silently switch every
-            // one of them to active mode on the next launch.
-            passive = o.optBoolean("passive", true),
-            timeoutSeconds = o.optInt("timeout", 15).coerceIn(3, 120),
-            privateKey = decrypt(o.optString("privateKey")),
-            keyPassphrase = decrypt(o.optString("keyPassphrase")),
-            lastUsedAt = o.optLong("lastUsedAt"),
-        )
-    }.getOrNull()
+    private fun fromJson(o: JSONObject): NetConnection? = NetConnectionJson.decode(o, ::decrypt)
 
     // ── crypto ──
 
@@ -464,3 +447,72 @@ internal fun splitNetPath(path: dev.niccc2007.filet.vfs.VPath): Pair<String, Str
 
 internal fun netPath(scheme: String, id: String, remote: String): dev.niccc2007.filet.vfs.VPath =
     dev.niccc2007.filet.vfs.VPath.of(scheme, "/$id/${remote.trimStart('/')}")
+
+/**
+ * The stored form of a [NetConnection], with the secrets sealed by whoever calls it.
+ *
+ * Separate from [NetConnections] so the shape can be tested on the JVM: the store itself needs
+ * the Android keystore, but every field that can be lost on a round trip is lost here, and a
+ * field written and never read back - the opt-in, say - fails nothing and is simply forgotten
+ * on the next launch.
+ */
+object NetConnectionJson {
+    fun encode(c: NetConnection, seal: (String) -> String): JSONObject = JSONObject().apply {
+        put("id", c.id)
+        put("protocol", c.protocol.name)
+        put("label", c.label)
+        put("host", c.host)
+        put("altHosts", org.json.JSONArray(c.altHosts))
+        put("lastGood", c.lastGood)
+        put("deviceId", c.deviceId)
+        put("port", c.port)
+        put("user", c.user)
+        put("password", seal(c.password))
+        put("share", c.share)
+        put("domain", c.domain)
+        put("tls", c.useTls)
+        put("anon", c.anonymous)
+        put("startPath", c.startPath)
+        put("readOnly", c.readOnly)
+        put("passive", c.passive)
+        put("timeout", c.timeoutSeconds)
+        // The key is a secret of the same kind as the password and gets the same treatment.
+        put("privateKey", seal(c.privateKey))
+        put("keyPassphrase", seal(c.keyPassphrase))
+        put("lastUsedAt", c.lastUsedAt)
+        put("indexed", c.indexed)
+    }
+
+    fun decode(o: JSONObject, open: (String) -> String): NetConnection? = runCatching {
+        NetConnection(
+            id = o.getString("id"),
+            protocol = NetProtocol.valueOf(o.getString("protocol")),
+            label = o.optString("label"),
+            host = o.optString("host"),
+            altHosts = o.optJSONArray("altHosts")?.let { arr ->
+                (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }
+            }.orEmpty(),
+            lastGood = o.optString("lastGood"),
+            deviceId = o.optString("deviceId"),
+            port = o.optInt("port"),
+            user = o.optString("user"),
+            password = open(o.optString("password")),
+            share = o.optString("share"),
+            domain = o.optString("domain"),
+            useTls = o.optBoolean("tls"),
+            anonymous = o.optBoolean("anon"),
+            startPath = o.optString("startPath"),
+            readOnly = o.optBoolean("readOnly"),
+            // Defaulted true rather than false: a connection saved before this field existed
+            // was passive, and reading a missing boolean as false would silently switch every
+            // one of them to active mode on the next launch.
+            passive = o.optBoolean("passive", true),
+            timeoutSeconds = o.optInt("timeout", 15).coerceIn(3, 120),
+            privateKey = open(o.optString("privateKey")),
+            keyPassphrase = open(o.optString("keyPassphrase")),
+            lastUsedAt = o.optLong("lastUsedAt"),
+            // Absent on everything saved before the opt-in existed, and absent means off.
+            indexed = o.optBoolean("indexed", false),
+        )
+    }.getOrNull()
+}

@@ -255,16 +255,16 @@ class TreeRowsTest {
 
     @Test
     fun `reach leaves half of a phone viewport empty`() {
-        assertEquals(280f, Reach.gapDp(560f, on = true), 0.01f)
-        assertEquals(0f, Reach.gapDp(600f, on = false), 0.01f)
+        assertEquals(280f, ThumbReach.gapDp(560f, on = true), 0.01f)
+        assertEquals(0f, ThumbReach.gapDp(600f, on = false), 0.01f)
     }
 
     @Test
     fun `reach always keeps room for three rows`() {
         // A landscape phone: two fifths of 250 would leave about two rows on screen.
-        assertEquals(250f - Reach.KEEP_DP, Reach.gapDp(250f, on = true), 0.01f)
+        assertEquals(250f - ThumbReach.KEEP_DP, ThumbReach.gapDp(250f, on = true), 0.01f)
         // Shorter than the rows themselves: no gap at all, never a negative one.
-        assertEquals(0f, Reach.gapDp(120f, on = true), 0.01f)
-        assertEquals(0f, Reach.gapDp(0f, on = true), 0.01f)
+        assertEquals(0f, ThumbReach.gapDp(120f, on = true), 0.01f)
+        assertEquals(0f, ThumbReach.gapDp(0f, on = true), 0.01f)
     }
 }

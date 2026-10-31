@@ -18,7 +18,7 @@ object HomeSections {
      * user. Device-wide since the tracked-folder list was retired - see `HomeFeed` - so the
      * heading no longer has to apologise for a narrow reach.
      */
-    const val ARRIVED = "Added to this phone"
+    const val ARRIVED = "New files"
 
     /**
      * The same list, named for a tab strip rather than for a section heading.

@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
+import dev.niccc2007.filet.playback.AllMusicFilter
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
@@ -61,7 +62,10 @@ enum class MediaCategory(
      */
     IMAGES("images", "Photos", FiletIcons.Image),
     VIDEOS("videos", "Videos", FiletIcons.Video),
-    AUDIO("audio", "Music", FiletIcons.Audio),
+    // "Audio", not "Music". The category is MediaStore's AUDIO media type, which is voice
+    // notes, recordings, ringtones and podcasts as well as songs - calling it Music promised a
+    // library and delivered an inventory.
+    AUDIO("audio", "Audio", FiletIcons.Audio),
 
     /**
      * Packages, by extension.
@@ -117,7 +121,19 @@ sealed interface CategoryResult {
 object CategoryQuery {
 
     /** One track: the file, how long it plays, and when the media index first saw it. */
-    data class AudioRow(val node: VNode, val durationMs: Long, val addedAtMs: Long)
+    /**
+     * One track off the media index. [title], [artist] and [album] are the index's own reading of
+     * the tags - what a search across a whole library can match without opening two thousand
+     * files - and null where the index has none.
+     */
+    data class AudioRow(
+        val node: VNode,
+        val durationMs: Long,
+        val addedAtMs: Long,
+        val title: String? = null,
+        val artist: String? = null,
+        val album: String? = null,
+    )
 
 
     /**
@@ -188,7 +204,10 @@ object CategoryQuery {
                 add(MediaStore.MediaColumns.VOLUME_NAME)
             }
         }.toTypedArray()
-        val (selection, args) = selectionFor(category)
+        // Filet's own files are not the phone's documents or audio. See FeedExclusions.ownPaths.
+        val (selection, args) = selectionFor(category).let { (sel, a) ->
+            excluding(sel, a, dev.niccc2007.filet.home.FeedExclusions.ownPaths(dev.niccc2007.filet.data.FiletStore.rootPath(context)))
+        }
         val sort = MediaStore.Files.FileColumns.DATE_MODIFIED + " DESC"
 
         // THE bug. This used to put `LIMIT 2000` inside the sort-order string, the old trick for
@@ -298,9 +317,14 @@ object CategoryQuery {
         offset: Int,
         limit: Int,
         before: Long? = null,
+        blocked: Set<String> = emptySet(),
+        prefixes: Set<String> = emptySet(),
+        // No default, for the reason `newRows` gives for `prefixes`: a caller that forgot it
+        // would silently get the date-added list in the date-modified tab.
+        by: HistorySort,
     ): Pair<CategoryResult, List<NewRow>> = withContext(Dispatchers.IO) {
         val read = try {
-            newRows(context, offset, limit, before)
+            newRows(context, offset, limit, before, blocked, prefixes, by)
         } catch (e: Exception) {
             return@withContext CategoryResult.Failed(e.message ?: e::class.java.simpleName) to emptyList()
         }
@@ -316,19 +340,210 @@ object CategoryQuery {
      * - A leading dot is a hidden file, which a list of what arrived should not surface.
      * - [before] is in milliseconds and the column is in SECONDS.
      */
-    internal fun newSelection(before: Long?): Pair<String, Array<String>> {
+    internal fun newSelection(
+        before: Long?,
+        blocked: Set<String> = emptySet(),
+        prefixes: Set<String> = emptySet(),
+        by: HistorySort,
+    ): Pair<String, Array<String>> {
         val base = MediaStore.MediaColumns.MIME_TYPE + " IS NOT NULL AND " +
             MediaStore.MediaColumns.DISPLAY_NAME + " NOT LIKE ?"
         val args = mutableListOf(".%")
-        if (before == null) return base to args.toTypedArray()
-        args += (before / 1000L).toString()
-        return "$base AND " + MediaStore.MediaColumns.DATE_ADDED + " < ?" to args.toTypedArray()
+        var sql = base
+        // The date jump's window is on whichever date the list is ordered by. Both columns are
+        // in seconds.
+        if (before != null) {
+            sql += " AND " + columnFor(by) + " < ?"
+            args += (before / 1000L).toString()
+        }
+        // Folders the reader has blocked, excluded by the DATABASE rather than afterwards.
+        //
+        // It has to be here and not a filter over the rows: the page size and the offset are
+        // applied by the provider, so dropping rows after the query would return short pages,
+        // make the offset arithmetic wrong, and eventually hide files that are not blocked at
+        // all. `escapeLike` exists because a folder named `100%_backup` would otherwise match
+        // everything - a path is user data and LIKE has wildcards in it.
+        //
+        // Each entry is the thing itself AND everything under it. Bug identified here: only the
+        // `under` half was written, as `path/%`, so an entry naming a FILE - one hidden from the
+        // list by its own path, or Filet's own settings file - matched nothing in the query and
+        // came back in every page.
+        for ((under, exact) in blockedEntries(blocked)) {
+            sql += " AND (" + MediaStore.MediaColumns.DATA + " IS NULL OR (" +
+                MediaStore.MediaColumns.DATA + " NOT LIKE ? ESCAPE '\\' AND " +
+                MediaStore.MediaColumns.DATA + " != ?))"
+            args += under
+            args += exact
+        }
+        // Name prefixes, in the DATABASE for exactly the same reason as the folders above: a
+        // filter applied to the rows afterwards returns short pages and corrupts the offset.
+        //
+        // One pattern per prefix covers both halves of the rule - the entry's own name and any
+        // folder it sits under - because every segment of a path is preceded by a separator,
+        // so `%/log_%` matches a file called `log_1.txt` and anything inside a folder called
+        // `log_old`. That is the subtree rule the feature is actually about: hiding
+        // `.thumbnails` while keeping the ten thousand images in it is the worst outcome
+        // available. See `FeedExclusions`, which owns the same rule for callers that have a
+        // path rather than a query.
+        for (pattern in prefixPatterns(prefixes)) {
+            sql += " AND (" + MediaStore.MediaColumns.DATA + " IS NULL OR " +
+                MediaStore.MediaColumns.DATA + " NOT LIKE ? ESCAPE '\\')"
+            args += pattern
+        }
+        return sql to args.toTypedArray()
     }
+
+    /**
+     * The LIKE patterns for a set of name prefixes.
+     *
+     * `%/p%` rather than `p%`: anchored to a separator so it matches the start of ANY segment
+     * and never the middle of one. Without the separator, excluding `log_` would also exclude
+     * `catalog_2026.txt`, and somebody filtering their logs would silently lose their
+     * catalogue.
+     *
+     * Escaped, because a prefix is typed by a person and `%` and `_` are wildcards - `log_` has
+     * one in it already, which is why this is not a theoretical concern. A blank entry is
+     * dropped rather than turned into `%/%`, which would hide every file on the device.
+     */
+    internal fun prefixPatterns(prefixes: Set<String>): List<String> =
+        prefixes.asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .map { "%/" + escapeLike(it) + "%" }
+            .distinct()
+            .toList()
+
+    /**
+     * The LIKE patterns for a set of blocked folders: the folder itself and everything under it.
+     *
+     * Trailing separators are trimmed first, so `/DCIM/` and `/DCIM` are one folder rather than
+     * two patterns that disagree, and the result is de-duplicated after trimming - the set is
+     * keyed on the raw string, so two spellings of one folder arrive as two entries and would
+     * otherwise each add a clause that says the same thing. A blank entry is dropped rather than
+     * turned into `%`, which would block the entire device - a stored preference is not
+     * trustworthy just because this code writes it carefully.
+     */
+    internal fun blockedPrefixes(blocked: Set<String>): List<String> = blockedEntries(blocked).map { it.first }
+
+    /** For each blocked entry, the LIKE pattern for what is under it and the entry's own path. */
+    internal fun blockedEntries(blocked: Set<String>): List<Pair<String, String>> =
+        blocked.asSequence()
+            .map { it.trim().trimEnd('/') }
+            .filter { it.isNotEmpty() && it != "/" }
+            .map { escapeLike(it) + "/%" to it }
+            .distinct()
+            .toList()
+
+    /**
+     * [selection] with each of [paths] left out, itself and everything under it. Pure.
+     *
+     * The selection is bracketed first: a category's own selection can be a run of ORs, and an
+     * AND appended to one binds to its last term only - which would apply the exclusion to one
+     * kind of file in the category and not the others.
+     */
+    internal fun excluding(selection: String, args: Array<String>, paths: Set<String>): Pair<String, Array<String>> {
+        val entries = blockedEntries(paths)
+        if (entries.isEmpty()) return selection to args
+        val data = MediaStore.MediaColumns.DATA
+        var sql = "(" + selection + ")"
+        val out = args.toMutableList()
+        for ((under, exact) in entries) {
+            sql += " AND (" + data + " IS NULL OR (" + data + " NOT LIKE ? ESCAPE '\\' AND " + data + " != ?))"
+            out += under
+            out += exact
+        }
+        return sql to out.toTypedArray()
+    }
+
+    /**
+     * The `WHERE` for All Music, built from the filter's decision.
+     *
+     * Here rather than beside the decision itself: this is the layer that owns MediaStore, and
+     * naming its columns is query building. See `AllMusicFilter` for why the list is filtered
+     * at all and what the defaults mean.
+     *
+     * The folders are one `OR`-ed group, so a file qualifies by being in ANY of them, and the
+     * lengths are `AND`-ed around it. An empty folder list means no folder restriction rather
+     * than no results - "scan nowhere" is never what clearing the field meant, and a library
+     * that silently empties itself is the worst reading of an ambiguous setting.
+     */
+    internal fun audioSelection(
+        folders: Collection<String>,
+        primary: String,
+        minMs: Long,
+        maxMs: Long,
+    ): Pair<String?, Array<String>> {
+        val args = mutableListOf<String>()
+        val clauses = mutableListOf<String>()
+
+        val dirs = AllMusicFilter.prefixes(folders, primary)
+        if (dirs.isNotEmpty()) {
+            clauses += dirs.joinToString(" OR ", prefix = "(", postfix = ")") {
+                args += escapeLike(it) + "/%"
+                MediaStore.MediaColumns.DATA + " LIKE ? ESCAPE '\\'"
+            }
+        }
+
+        val lo = minMs.coerceAtLeast(0L)
+        val hi = if (maxMs <= 0L) 0L else maxMs
+        val bounds = mutableListOf<String>()
+        if (lo > 0L) {
+            bounds += MediaStore.Audio.AudioColumns.DURATION + " >= ?"
+            args += lo.toString()
+        }
+        // A ceiling of zero means "no ceiling", which is how the control says "any" at the top
+        // of its travel. A ceiling BELOW the floor would match nothing, so it is ignored rather
+        // than obeyed - either control can be dragged past the other by accident.
+        if (hi > 0L && hi > lo) {
+            bounds += MediaStore.Audio.AudioColumns.DURATION + " <= ?"
+            args += hi.toString()
+        }
+        if (bounds.isNotEmpty()) {
+            // A duration of 0 is MediaStore saying it does not KNOW, not a zero-length file, so
+            // those rows survive both bounds. Dropping them would hide real tracks whose
+            // headers the index never read, and a missing album is a worse outcome than a
+            // stray tone.
+            clauses += "((" + bounds.joinToString(" AND ") + ") OR " +
+                MediaStore.Audio.AudioColumns.DURATION + " <= 0)"
+        }
+
+        if (clauses.isEmpty()) return null to emptyArray()
+        return clauses.joinToString(" AND ") to args.toTypedArray()
+    }
+
+    /** Escape the wildcards LIKE treats specially, so a path matches itself and nothing more. */
+    internal fun escapeLike(raw: String): String =
+        raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     /** Newest first; `_id` breaks ties so a page boundary never splits a second unstably. */
     internal const val NEW_ORDER = "date_added DESC, _id DESC"
 
-    private fun newRows(context: Context, offset: Int, limit: Int, before: Long?): Pair<List<NewRow>, Int> {
+    /** Newest first by date modified, with the same `_id` tiebreak so paging is stable. */
+    internal const val MODIFIED_ORDER = "date_modified DESC, _id DESC"
+
+    internal fun orderFor(by: HistorySort): String = when (by) {
+        HistorySort.DATE_ADDED -> NEW_ORDER
+        HistorySort.DATE_MODIFIED -> MODIFIED_ORDER
+    }
+
+    internal fun columnFor(by: HistorySort): String = when (by) {
+        HistorySort.DATE_ADDED -> MediaStore.MediaColumns.DATE_ADDED
+        HistorySort.DATE_MODIFIED -> MediaStore.MediaColumns.DATE_MODIFIED
+    }
+
+    private fun newRows(
+        context: Context,
+        offset: Int,
+        limit: Int,
+        before: Long?,
+        blocked: Set<String>,
+        // No default. A default here is what let the prefixes be dropped silently: the caller
+        // below simply did not pass them, the compiler was satisfied, and the rule reached the
+        // query as an empty set. Plumbing that is always supplied should refuse to compile
+        // when it is not.
+        prefixes: Set<String>,
+        by: HistorySort,
+    ): Pair<List<NewRow>, Int> {
         val uri = MediaStore.Files.getContentUri("external")
         val modern = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
         val columns = buildList {
@@ -342,11 +557,11 @@ object CategoryQuery {
                 add(MediaStore.MediaColumns.VOLUME_NAME)
             }
         }.toTypedArray()
-        val (selection, args) = newSelection(before)
+        val (selection, args) = newSelection(before, blocked, prefixes, by)
         val primary = Environment.getExternalStorageDirectory().path
         val out = ArrayList<NewRow>(minOf(limit, 512))
         var unplaced = 0
-        limited(context, uri, columns, selection, args, NEW_ORDER, limit, offset)?.use { c ->
+        limited(context, uri, columns, selection, args, orderFor(by), limit, offset)?.use { c ->
             val dataAt = c.getColumnIndex(MediaStore.MediaColumns.DATA)
             val nameAt = c.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
             val sizeAt = c.getColumnIndex(MediaStore.MediaColumns.SIZE)
@@ -419,15 +634,45 @@ object CategoryQuery {
         orderColumn: String,
         descending: Boolean,
         limit: Int = LIMIT,
+        /** Which folders and lengths qualify. See `AllMusicFilter`. */
+        folders: Collection<String> = emptyList(),
+        minMs: Long = 0L,
+        maxMs: Long = 0L,
     ): Pair<CategoryResult, List<AudioRow>> {
         return withContext(Dispatchers.IO) {
             val read = try {
-                audio(context, orderColumn, descending, limit)
+                audio(context, orderColumn, descending, limit, folders, minMs, maxMs)
             } catch (e: Exception) {
                 return@withContext CategoryResult.Failed(e.message ?: e::class.java.simpleName) to emptyList()
             }
             outcome(read.first.map { it.node }, read.second, canSeeEverything(context)) to read.first
         }
+    }
+
+    /**
+     * How many tracks All Music holds under its filter, or null when the index will not say.
+     *
+     * The same selection as [readAudio], so the count on the Playlists banner and the list it
+     * opens cannot disagree. One column and no order: the provider answers a count without
+     * building rows, which is why this is not `readAudio(...).size` with a huge limit.
+     */
+    suspend fun countAudio(
+        context: Context,
+        folders: Collection<String> = emptyList(),
+        minMs: Long = 0L,
+        maxMs: Long = 0L,
+    ): Int? = withContext(Dispatchers.IO) {
+        runCatching {
+            val primary = Environment.getExternalStorageDirectory().path
+            val (selection, args) = audioSelection(folders, primary, minMs, maxMs)
+            context.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.MediaColumns._ID),
+                selection,
+                args,
+                null,
+            )?.use { it.count }
+        }.getOrNull()
     }
 
     /**
@@ -437,6 +682,9 @@ object CategoryQuery {
      * one, which reads as a broken alphabet. `_id` breaks ties, so two tracks with the same
      * name or size keep one order between reads instead of swapping on every refresh.
      */
+    /** What the media index writes for a tag it does not have. */
+    private const val UNKNOWN_TAG = "<unknown>"
+
     internal fun audioOrder(orderColumn: String, descending: Boolean): String {
         val column = audioColumn(orderColumn)
         val dir = if (descending) "DESC" else "ASC"
@@ -449,6 +697,9 @@ object CategoryQuery {
         orderColumn: String,
         descending: Boolean,
         limit: Int,
+        folders: Collection<String>,
+        minMs: Long,
+        maxMs: Long,
     ): Pair<List<AudioRow>, Int> {
         val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val modern = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
@@ -459,21 +710,30 @@ object CategoryQuery {
             add(MediaStore.MediaColumns.DATE_MODIFIED)
             add(MediaStore.MediaColumns.DATE_ADDED)
             add(MediaStore.Audio.AudioColumns.DURATION)
+            add(MediaStore.Audio.AudioColumns.TITLE)
+            add(MediaStore.Audio.AudioColumns.ARTIST)
+            add(MediaStore.Audio.AudioColumns.ALBUM)
             if (modern) {
                 add(MediaStore.MediaColumns.RELATIVE_PATH)
                 add(MediaStore.MediaColumns.VOLUME_NAME)
             }
         }.toTypedArray()
         val primary = Environment.getExternalStorageDirectory().path
+        // Filtered in the DATABASE, not over the rows: the limit is applied by the provider, so
+        // dropping rows afterwards would return a short list and call it the whole library.
+        val (selection, args) = audioSelection(folders, primary, minMs, maxMs)
         val out = ArrayList<AudioRow>(minOf(limit, 256))
         var unplaced = 0
-        limited(context, uri, columns, null, null, audioOrder(orderColumn, descending), limit)?.use { c ->
+        limited(context, uri, columns, selection, args, audioOrder(orderColumn, descending), limit)?.use { c ->
             val dataAt = c.getColumnIndex(MediaStore.MediaColumns.DATA)
             val nameAt = c.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
             val sizeAt = c.getColumnIndex(MediaStore.MediaColumns.SIZE)
             val timeAt = c.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
             val addedAt = c.getColumnIndex(MediaStore.MediaColumns.DATE_ADDED)
             val lenAt = c.getColumnIndex(MediaStore.Audio.AudioColumns.DURATION)
+            val titleAt = c.getColumnIndex(MediaStore.Audio.AudioColumns.TITLE)
+            val artistAt = c.getColumnIndex(MediaStore.Audio.AudioColumns.ARTIST)
+            val albumAt = c.getColumnIndex(MediaStore.Audio.AudioColumns.ALBUM)
             val relAt = c.getColumnIndex(MediaStore.MediaColumns.RELATIVE_PATH)
             val volAt = c.getColumnIndex(MediaStore.MediaColumns.VOLUME_NAME)
             while (out.size + unplaced < limit && c.moveToNext()) {
@@ -496,6 +756,10 @@ object CategoryQuery {
                     // DATE_MODIFIED - see [nodeFor].
                     durationMs = if (lenAt >= 0) c.getLong(lenAt) else 0L,
                     addedAtMs = if (addedAt >= 0) c.getLong(addedAt) * 1000L else 0L,
+                    title = if (titleAt >= 0) c.getString(titleAt)?.takeIf { it.isNotBlank() } else null,
+                    // "<unknown>" is the index's way of saying it has none, not an artist.
+                    artist = if (artistAt >= 0) c.getString(artistAt)?.takeIf { it.isNotBlank() && it != UNKNOWN_TAG } else null,
+                    album = if (albumAt >= 0) c.getString(albumAt)?.takeIf { it.isNotBlank() && it != UNKNOWN_TAG } else null,
                 )
             }
         }

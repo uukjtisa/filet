@@ -5,70 +5,71 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 
 /**
- * How far the sound is behind the number the player reports, in milliseconds.
+ * How far the sound is behind the number the player reports: by nothing the light has to take
+ * off. The position is already where the speaker is.
  *
- * ## Why this is arithmetic and no longer a slider
+ * ## Why this subtracts nothing any more
  *
- * There used to be a Timing control: a number somebody moved by ear until the pulse sat on
- * the beat. It was the wrong shape of answer to a question that has a right one, and it was
- * honest about nothing - a light that needs calibrating by hand on every phone is a light
- * that is wrong on every phone it has not been calibrated on, which is all of them.
+ * Bug identified here: over Bluetooth the light ran about 200 ms late on every track. It took
+ * the output pipeline off the player's position - the mixer buffer doubled plus a Bluetooth
+ * constant, 40 + 160 ms with a headset in - on the reading that `MediaPlayer.getCurrentPosition`
+ * counts the frames that have left the app. It does not. The platform player anchors its clock
+ * on the output's own timestamps: the media time it reports is what it has written less what
+ * is still waiting to be played out, which is the frame being PRESENTED. The pipeline was in
+ * the position already, and taking it off again drove the light from 200 ms of music ago.
  *
- * The lateness is three terms, and only one of them is genuinely unknowable:
+ * Measured on the phone rather than read off a source tree (`LatencyProbe`, A2DP, 2026-10-31):
+ * after Play the position stood still for 280 to 369 ms over five starts, and a silent track on
+ * the same route measured 283 ms between the mixer and the output. A position that waits for
+ * the first sound to come out is a position at the speaker.
  *
- * | Term | Size | Where it comes from |
- * |---|---|---|
- * | The analysis window | ~36ms, computed | see [BeatMap.biasMs] - a property of the maths, not the device |
- * | The output buffer | 4-20ms, readable | [AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER] |
- * | A Bluetooth hop | 120-250ms, NOT readable | the codec's own pipeline, see [A2DP_MS] |
+ * Why it looked like one track's fault and not all of them: a light late by a fixed amount
+ * still lands on a hit when the music has one every quarter of a second. Of an eighth-note
+ * track at 118 bpm, 84 % of the late flashes landed on some hit anyway; of a sparse one at
+ * 67 bpm, 11 % did, and that was the one that looked late.
  *
- * The first two are derived here and need nobody's opinion. The third is the one that made a
- * slider look necessary, and it is better answered by asking the system what the sound is
- * coming OUT of than by asking a person to watch a light and guess.
+ * ## What is left
  *
- * ## What it still cannot do
- *
- * A2DP latency is a property of the receiving earbud and is not reported to the phone at any
- * API level. [A2DP_MS] is a middle value for the SBC and AAC pipelines everything supports;
- * a low-latency gaming earbud will be early by about eighty milliseconds against it and an
- * old speaker late by about the same. There is no call that improves on this, and a wrong
- * constant that is right for most people beats a control that is wrong until somebody tunes
- * it.
+ * - The analysis window's own offset, which is arithmetic: [BeatMap.biasMs].
+ * - One record's own analysis error, which nothing can measure: its [BeatNudge], 0 unless it
+ *   was set for that track.
+ * - Whatever the platform does not know. An earbud that reports less delay than it has puts
+ *   the position early by the difference, and no API says by how much. That is still not a
+ *   timing control (D-02): a calibration by eye is wrong on every phone nobody calibrated.
  */
 object BeatLatency {
 
     /**
-     * A Bluetooth audio pipeline, in milliseconds.
+     * Where in the track the light reads the map, for a position [reportedMs] the player gave
+     * [ageMs] ago, read against a map whose buckets sit [biasMs] behind their content, with the
+     * track's own [nudgeMs] (positive is later, so it reads an earlier part of the map).
      *
-     * Measured ranges published for the common codecs: SBC lands around 150-250ms, AAC on
-     * Android around 150-200, aptX around 100-150, LDAC around 200. The codec in use is not
-     * reportable either, so this is one number for all of them, chosen at the low end of the
-     * common range - the error from being slightly early reads as anticipation, and the error
-     * from being late reads as broken.
+     * No output term, on purpose: see the class comment for the bug that was.
      */
-    const val A2DP_MS = 160L
+    fun earMs(reportedMs: Long, ageMs: Long, biasMs: Long, nudgeMs: Long = 0L): Long =
+        reportedMs + ageMs - biasMs - nudgeMs
 
     /** When the buffer cannot be read, which is a device being unusual rather than broken. */
     private const val BUFFER_FALLBACK_MS = 10L
 
     /**
-     * The whole output-side delay for however the phone is playing sound right now.
+     * The route the sound is going out of, for the log line a lateness report is read from.
      *
-     * Read on every track change rather than once, because somebody puts their earbuds in
-     * halfway through a song and the answer changes under them.
+     * Logged and not subtracted: it is what a report is read AGAINST, since a delay the platform
+     * does not know about shows up on one route and not another.
      */
-    fun outputMs(context: Context): Long {
+    fun describe(context: Context): String {
         val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            ?: return BUFFER_FALLBACK_MS
-        return bufferMs(audio) + if (wireless(audio)) A2DP_MS else 0L
+            ?: return "no audio service"
+        val routes = runCatching {
+            audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).joinToString(",") { it.type.toString() }
+        }.getOrDefault("?")
+        return "buffer=${bufferMs(audio)}ms wireless=${wireless(audio)} outputs=[$routes]"
     }
 
     /**
-     * The fast mixer's own buffer, doubled.
-     *
-     * Doubled because a buffer is drained while the next one is filled, so the sound leaving
-     * the mixer is between one and two buffers behind what was written into it; one buffer is
-     * the optimistic reading and two is the one that does not run early.
+     * The fast mixer's own buffer, doubled, as logged. Doubled because a buffer is drained
+     * while the next one is filled, so the sound leaving the mixer is one to two buffers behind.
      */
     private fun bufferMs(audio: AudioManager): Long {
         val frames = audio.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER)

@@ -23,7 +23,7 @@ class IndexUpdateTest {
     @Test
     fun `an update in progress keeps the existing total on screen`() {
         val run = IndexRun(active = true, phase = IndexPhase.UPDATE, known = 31_206, seen = 12_430)
-        assertEquals("Updating — checked 12,430 of 31,206", run.line)
+        assertEquals("Updating · 12,430 of 31,206", run.line)
     }
 
     @Test
@@ -38,7 +38,7 @@ class IndexUpdateTest {
     @Test
     fun `a first ever pass says it is building, because that one really is from nothing`() {
         val run = IndexRun(active = true, phase = IndexPhase.BUILD, known = 0, seen = 12_430)
-        assertEquals("Building the index — 12,430 files so far", run.line)
+        assertEquals("Building index · 12,430 files", run.line)
     }
 
     // ── the two states, on the button as well as in the text ──
@@ -63,7 +63,7 @@ class IndexUpdateTest {
             active = false, endedBecause = CrawlEnd.DONE, phase = IndexPhase.UPDATE,
             known = 31_206, added = 18, removed = 4,
         )
-        assertEquals("Updated — 18 new, 4 gone", run.line)
+        assertEquals("Updated · 18 new, 4 removed", run.line)
     }
 
     @Test
@@ -74,7 +74,7 @@ class IndexUpdateTest {
             known = 31_206, added = 200, removed = 200,
         )
         assertTrue(run.line.contains("200 new"))
-        assertTrue(run.line.contains("200 gone"))
+        assertTrue(run.line.contains("200 removed"))
     }
 
     @Test
@@ -83,16 +83,16 @@ class IndexUpdateTest {
             active = false, endedBecause = CrawlEnd.DONE, phase = IndexPhase.UPDATE,
             known = 31_206, added = 0, removed = 0,
         )
-        assertEquals("Up to date — nothing had changed", run.line)
+        assertEquals("Up to date", run.line)
     }
 
     @Test
     fun `only one side changing reads cleanly`() {
         val onlyNew = IndexRun(active = false, endedBecause = CrawlEnd.DONE, known = 10, added = 3)
-        assertEquals("Updated — 3 new", onlyNew.line)
+        assertEquals("Updated · 3 new", onlyNew.line)
 
         val onlyGone = IndexRun(active = false, endedBecause = CrawlEnd.DONE, known = 10, removed = 3)
-        assertEquals("Updated — 3 gone", onlyGone.line)
+        assertEquals("Updated · 3 removed", onlyGone.line)
     }
 
     @Test
@@ -101,7 +101,7 @@ class IndexUpdateTest {
             active = false, endedBecause = CrawlEnd.DONE, phase = IndexPhase.BUILD,
             known = 0, added = 31_206,
         )
-        assertEquals("Finished — 31,206 files indexed", run.line)
+        assertEquals("Indexed 31,206 files", run.line)
     }
 
     // ── the ways a run can end badly still win ──
@@ -109,10 +109,10 @@ class IndexUpdateTest {
     @Test
     fun `stopping and failing are still reported over any change count`() {
         val stopped = IndexRun(endedBecause = CrawlEnd.STOPPED, known = 100, added = 5)
-        assertEquals("Stopped by you", stopped.line)
+        assertEquals("Stopped", stopped.line)
 
         val failed = IndexRun(endedBecause = CrawlEnd.FAILED, note = "disk full", known = 100)
-        assertEquals("Stopped — error — disk full", failed.line)
+        assertEquals("Failed · disk full", failed.line)
     }
 
     @Test

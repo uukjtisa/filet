@@ -62,6 +62,24 @@ data class ParsedQuery(
     val unparsed: List<String> = emptyList(),
 ) {
     val isEmpty: Boolean get() = root == Node.Everything && free.isEmpty()
+
+    /**
+     * True when answering this needs the provenance table, so a walk cannot serve it.
+     *
+     * The replacement for `SearchScope.PROVENANCE`. Where a file came from used to be a member
+     * of the reach enum, sitting beside two tree depths and a set of drives, which is why that
+     * chip row read as four unrelated options rather than as one ladder. It was never a reach:
+     * it narrows a column. See SEARCH.md §13.4.
+     */
+    val needsProvenance: Boolean get() = hasField(root, QField.FROM)
+
+    private fun hasField(n: Node, f: QField): Boolean = when (n) {
+        is Node.Field -> n.field == f
+        is Node.And -> n.parts.any { hasField(it, f) }
+        is Node.Or -> n.parts.any { hasField(it, f) }
+        is Node.Not -> hasField(n.part, f)
+        else -> false
+    }
 }
 
 object QueryParser {

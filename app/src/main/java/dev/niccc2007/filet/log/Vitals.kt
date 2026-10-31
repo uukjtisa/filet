@@ -226,12 +226,48 @@ object FrameWatch {
                 val rate = activity.windowManager.defaultDisplay.refreshRate
                 if (rate > 1f) budgetNanos = (1_000_000_000L / rate).toLong()
                 val l = Window.OnFrameMetricsAvailableListener { _, metrics, _ ->
-                    val n = metrics.getMetric(FrameMetrics.TOTAL_DURATION)
-                    FRAMES.add(n)
-                    // Missed its vsync: the user saw a stutter.
-                    if (n > budgetNanos) JANKY.add(n)
+                    val total = metrics.getMetric(FrameMetrics.TOTAL_DURATION)
+                    FRAMES.add(total)
+
+                    // This was measured wrong, and the wrong number was believed.
+                    //
+                    // TOTAL_DURATION is the frame's END-TO-END latency: input handling, then
+                    // animation, measure, layout, draw, sync, command issue, the GPU's own work
+                    // and the buffer swap. Rendering is PIPELINED, so a frame can take 20ms to
+                    // travel that pipeline while a finished frame still leaves the end of it
+                    // every vsync. Comparing it against one vsync period therefore reports
+                    // almost every frame as dropped on a perfectly smooth run - it reported
+                    // 13,329 of 13,330 while the same dump recorded 111 frames a second on a
+                    // 120Hz panel, which is the contradiction that gave it away.
+                    //
+                    // So two honest figures instead of one misleading one:
+                    //
+                    //   missed its deadline - the platform's OWN deadline for that frame, which
+                    //   is what "the user saw a stutter" actually means. DEADLINE arrived in
+                    //   API 31; below that a vsync period is the best available guess and the
+                    //   figure stays comparable only against itself.
+                    //
+                    //   over budget on our side - the CPU work this app is responsible for,
+                    //   with the GPU and the swap excluded because no Compose change can move
+                    //   those. THIS is the number to read when asking whether our code is slow.
+                    val deadline = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        metrics.getMetric(FrameMetrics.DEADLINE)
+                    } else {
+                        budgetNanos
+                    }
+                    if (deadline > 0 && total > deadline) JANKY.add(total)
+
+                    val work = metrics.getMetric(FrameMetrics.UNKNOWN_DELAY_DURATION) +
+                        metrics.getMetric(FrameMetrics.INPUT_HANDLING_DURATION) +
+                        metrics.getMetric(FrameMetrics.ANIMATION_DURATION) +
+                        metrics.getMetric(FrameMetrics.LAYOUT_MEASURE_DURATION) +
+                        metrics.getMetric(FrameMetrics.DRAW_DURATION) +
+                        metrics.getMetric(FrameMetrics.SYNC_DURATION)
+                    WORK.add(work)
+                    if (work > budgetNanos) SLOW.add(work)
+
                     // Over 700ms: the app looked frozen.
-                    if (n > 700_000_000L) FROZEN.hit()
+                    if (total > 700_000_000L) FROZEN.hit()
                 }
                 window.addOnFrameMetricsAvailableListener(l, Handler(t.looper))
                 listeners[window] = l
@@ -253,8 +289,27 @@ object FrameWatch {
     }
 
     private val FRAMES get() = Counters.of("frame")
-    private val JANKY get() = Counters.of("frame.missed vsync")
+    private val JANKY get() = Counters.of("frame.missed its deadline")
+    private val WORK get() = Counters.of("frame.our cpu work")
+    private val SLOW get() = Counters.of("frame.our cpu work over budget")
     private val FROZEN get() = Counters.of("frame.frozen >700ms")
+
+    /** Frames, deadline misses and the worst CPU frame, as totals for the run so far. */
+    internal data class Frames(val frames: Long, val missed: Long, val worstWork: Long)
+
+    /**
+     * The running totals, for a caller that wants the change since it last looked.
+     *
+     * Totals rather than [Counter.takeWindow], which RESETS the window - a second reader of the
+     * same counter would then see a gap it caused itself. The counter names live here because
+     * this is the file that writes them, and a second copy of the strings elsewhere is a second
+     * thing to keep in step.
+     */
+    internal fun snapshot(): Frames = Frames(
+        frames = FRAMES.total().count,
+        missed = JANKY.total().count,
+        worstWork = WORK.total().worst,
+    )
 
     internal fun describe(): String {
         val all = FRAMES.total()
@@ -262,11 +317,28 @@ object FrameWatch {
             return "  not measured" + if (!FiletLog.verbose) " (detailed logging is off; frames are only timed while it is on)" else " yet"
         }
         val janky = JANKY.total()
+        val work = WORK.total()
+        val slow = SLOW.total()
         val frozen = FROZEN.total()
-        return "  " + all.count + " frames, " + janky.count +
-            String.format(Locale.US, " (%.1f%%)", janky.count * 100.0 / all.count) +
-            " missed the " + Counters.duration(budgetNanos) + " budget, " + frozen.count + " frozen" +
-            ", average " + Counters.duration(all.nanos / all.count) + ", worst " + Counters.duration(all.worst)
+        val pct = { n: Long -> String.format(Locale.US, " (%.1f%%)", n * 100.0 / all.count) }
+        return buildString {
+            appendLine("  " + all.count + " frames at a " + Counters.duration(budgetNanos) + " vsync")
+            appendLine(
+                "  " + janky.count + pct(janky.count) + " missed the frame's own deadline, " +
+                    frozen.count + " frozen over 700ms",
+            )
+            appendLine(
+                "  end to end: average " + Counters.duration(all.nanos / all.count) +
+                    ", worst " + Counters.duration(all.worst) +
+                    " (pipeline latency - expected to exceed one vsync)",
+            )
+            append(
+                "  our cpu work: average " +
+                    Counters.duration(if (work.count > 0) work.nanos / work.count else 0) +
+                    ", worst " + Counters.duration(work.worst) + ", " + slow.count + pct(slow.count) +
+                    " over budget (this is the figure our own code moves)",
+            )
+        }
     }
 }
 

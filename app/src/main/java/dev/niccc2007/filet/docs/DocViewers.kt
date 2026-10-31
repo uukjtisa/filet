@@ -45,6 +45,14 @@ fun DocumentScreen(vm: BrowserViewModel, node: VNode) {
         SheetScreen(vm, node)
         return
     }
+    // Markdown is read in the code editor, on its page, with one switch to the source - see
+    // `TextEditorScreen`. This reader used to draw it and offer an Edit button to the editor,
+    // which offered nothing back: two screens pointing one way, and the page always the file on
+    // disk rather than the edit being made.
+    if (DocFormat.of(node.extension) == DocFormat.MARKDOWN) {
+        dev.niccc2007.filet.handlers.TextEditorScreen(vm, node, startRendered = true)
+        return
+    }
     val colors = Filet.colors
     val kind = DocFormat.of(node.extension)
     var doc by remember(node.path) { mutableStateOf<Doc?>(null) }
@@ -83,6 +91,13 @@ fun DocumentScreen(vm: BrowserViewModel, node: VNode) {
     }
 
     val writable = vm.canWriteHere(node.path.parent)
+    val page = rememberDocPageState(node.path)
+    // A Word link is a web address, almost always; one to a file next to it opens it here.
+    val place = remember(node.path) {
+        // A link opens its file over this one and Back returns here. It used to show the file
+        // in its folder, which left the document for the browser to do it.
+        DocPlace(file = node.path, open = { vm.followLink(it) }, say = { vm.toast(it) }, stamp = node.mtime)
+    }
     Column(Modifier.fillMaxSize()) {
         ViewerBar(title = node.name, subtitle = node.path.parent?.path.orEmpty(), onClose = { vm.closeHandler() }) {
             when (kind) {
@@ -90,11 +105,14 @@ fun DocumentScreen(vm: BrowserViewModel, node: VNode) {
                 // Hidden where the folder is read-only rather than offered and refused.
                 DocFormat.WORD, DocFormat.SLIDES ->
                     if (writable) ViewerAction(FiletIcons.Rename, "Edit text", enabled = doc != null) { editing = true }
-                // Markdown is plain text: the one code editor, not a second one.
-                DocFormat.MARKDOWN, DocFormat.NONE ->
+                // Plain text is the one code editor's, not a second one's. Markdown never gets
+                // here: it went to the editor above.
+                DocFormat.NONE ->
                     ViewerAction(FiletIcons.Rename, "Edit") { vm.openWith(node, HandlerId.TEXT, remember = false) }
+                DocFormat.MARKDOWN -> Unit
                 DocFormat.SHEET -> Unit
             }
+            if (doc != null) DocPageActions(page)
         }
         val current = doc
         when {
@@ -106,9 +124,9 @@ fun DocumentScreen(vm: BrowserViewModel, node: VNode) {
                 CircularProgressIndicator(strokeWidth = 2.dp)
             }
 
-            // Keyed on the path so the zoom resets when a different file opens, rather than only
-        // when the reader leaves composition - the same slot is reused between files.
-        else -> DocReader(current, key = node.path)
+            // Keyed on the path so the scroll resets when a different file opens, rather than only
+            // when the reader leaves composition - the same slot is reused between files.
+            else -> DocReader(current, key = node.path, place = place, page = page)
         }
     }
 }
@@ -119,7 +137,7 @@ fun DocumentScreen(vm: BrowserViewModel, node: VNode) {
  *
  * | Extension              | View                                            | Edit                                      |
  * |------------------------|-------------------------------------------------|-------------------------------------------|
- * | md markdown mdown mkd  | rendered (`MarkdownReader`)                     | source, in the one code editor            |
+ * | md markdown mdown mkd  | rendered (`MarkdownReader`), in the code editor | one switch to the source and back         |
  * | docx                   | headings, emphasis, lists, tables, pictures     | text of paragraphs, in place (`OfficeEditScreen`) |
  * | pptx                   | slides in deck order, pictures, tables, notes   | text of slide paragraphs, in place        |
  * | xlsx xlsm ods          | grid (`SheetScreen`)                            | no                                        |

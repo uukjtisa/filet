@@ -82,7 +82,7 @@ fun PermissionsCard(onIntents: (List<android.content.Intent>) -> Unit) {
                 // The honest version of "ask for them all". Android has no API to request
                 // several SPECIAL permissions, and each one backgrounds the app, so there is
                 // no batch at any price - only a list of pages to visit, one at a time.
-                "${queue.size} not granted. Android asks one page at a time.",
+                "${queue.size} not granted; Android asks one at a time.",
                 fontSize = 10.5.sp,
                 lineHeight = 14.sp,
                 color = colors.fg3,
@@ -101,6 +101,8 @@ private fun PermissionRow(
 ) {
     val colors = Filet.colors
     val fixed = entry.kind == Perms.Kind.INSTALL
+    // What it costs to go without, one hold away like every other settings row.
+    dev.niccc2007.filet.ui.tabs.HoldHint(entry.needed) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -130,18 +132,18 @@ private fun PermissionRow(
         )
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(
-                entry.label,
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                if (fixed) entry.needed else if (granted) "Granted" else entry.needed,
-                fontSize = 10.sp,
-                lineHeight = 13.5.sp,
-                color = colors.fg3,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    entry.label,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                dev.niccc2007.filet.ui.tabs.HintInfo()
+            }
+            if (granted && !fixed) {
+                Text("Granted", fontSize = 10.sp, lineHeight = 13.5.sp, color = colors.fg3)
+            }
         }
         Spacer(Modifier.width(8.dp))
         when {
@@ -155,6 +157,7 @@ private fun PermissionRow(
 
             else -> Chip("Grant", quiet = false, onClick = onGrant)
         }
+    }
     }
 }
 

@@ -33,7 +33,7 @@ class SearchScopeTest {
     fun `every list-shaped pane narrows its own rows`() {
         for (kind in listOf(
             PaneKind.SCRIPTS, PaneKind.BOOKMARKS, PaneKind.RECENT, PaneKind.HISTORY,
-            PaneKind.SHORTCUTS, PaneKind.REMOTES, PaneKind.ACTIVITY, PaneKind.NEARBY,
+            PaneKind.SHORTCUTS, PaneKind.REMOTES, PaneKind.ACTIVITY,
         )) {
             assertEquals(kind.name, SearchMode.FILTER, searchPlan(kind))
         }
@@ -44,6 +44,9 @@ class SearchScopeTest {
         // About is a page of prose and there is nothing in it to find.
         assertEquals(SearchMode.NONE, searchPlan(PaneKind.ABOUT))
         assertFalse(searchOffered(PaneKind.ABOUT))
+        // Nearby lists the devices in reach - a handful at most, nothing to narrow.
+        assertEquals(SearchMode.NONE, searchPlan(PaneKind.NEARBY))
+        assertFalse(searchOffered(PaneKind.NEARBY))
     }
 
     @Test

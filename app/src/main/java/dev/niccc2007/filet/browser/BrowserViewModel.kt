@@ -36,8 +36,8 @@ import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.provider.ArchiveProvider
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -53,6 +53,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -142,10 +145,17 @@ data class DropPlan(
  */
 data class VolumeInfo(
     val node: VNode,
+    /** What the drive is called everywhere it is named: the name given to it, if any. */
     val label: String,
     val free: Long?,
     val total: Long?,
     val remote: Boolean = false,
+    /**
+     * The name the system gives it, before any rename. For Details, the rename field's
+     * placeholder, and anything that recognises a drive by name - a renamed Termux tree is
+     * still Termux.
+     */
+    val systemLabel: String = label,
 )
 
 /** The APK toolchain's actions, for the one function that says whether each can run. */
@@ -187,8 +197,23 @@ data class AppPick(
     val forceRemember: Boolean? = null,
 )
 
-/** A file plus the handler that should show it. */
-data class OpenRequest(val node: VNode, val handler: HandlerId)
+/**
+ * A file plus the handler that should show it.
+ *
+ * @param run the pictures and videos beside it in the list it was opened from, when there are
+ *   any to swipe to. See [dev.niccc2007.filet.handlers.ViewerRun].
+ * @param back the file this one was opened from by a link inside it, which Back returns to. See
+ *   [BrowserViewModel.followLink].
+ * @param returning this request is that return: the screen goes straight back to where the file
+ *   was left rather than offering its saved spot. See `ReadingSpots.returnSpot`.
+ */
+data class OpenRequest(
+    val node: VNode,
+    val handler: HandlerId,
+    val run: dev.niccc2007.filet.handlers.ViewerRun? = null,
+    val back: OpenRequest? = null,
+    val returning: Boolean = false,
+)
 
 data class AppState(
     // `tabIds` used to sit here, always empty, never written and never read - until the
@@ -224,9 +249,10 @@ data class AppState(
      * refused and what would have to change - and a toast has room for neither.
      */
     val denied: dev.niccc2007.filet.vfs.Denial? = null,
+    /** Stop Filet, waiting for a yes, with what it would end. See [BrowserViewModel.askStop]. */
+    val stopAsk: List<RunningWork.Item>? = null,
     val volumes: List<VolumeInfo> = emptyList(),
     val switcherOpen: Boolean = false,
-    val activityOpen: Boolean = false,
     val toast: String? = null,
     /** Bumped whenever a job finishes, so the current panes re-list without a manual pull. */
     val revision: Int = 0,
@@ -264,6 +290,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     val vfs get() = graph.vfs
     val bookmarks get() = graph.bookmarks
     val recents get() = graph.recents
+    val folderVisits get() = graph.folderVisits
     val folderPeek get() = graph.folderPeek
     val ledger get() = graph.ledger
 
@@ -363,12 +390,53 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     private var remoteSettle: kotlinx.coroutines.Job? = null
 
+    /**
+     * Show a drive's new name the moment it is given, or restored from a settings file.
+     *
+     * The cards are rebuilt on every measuring pass anyway, which would pick a rename up within
+     * a poll - but a name typed into a dialog that only appears eight seconds later reads as the
+     * rename having failed. Only the two names change here, never the figures, and the panes are
+     * re-equipped so the search chips and drive headers say it too.
+     */
+    /**
+     * The tree turned on or off: every tab is put where the rule says it stands - its drive's
+     * tree, opened down to the folder the list was showing, or the folder the tree had focused.
+     * See `TreeShape`. Every tab and not just the visible ones, so one switched to later is not
+     * found in the shape of a view that is no longer on.
+     */
+    private fun watchTreeView() {
+        viewModelScope.launch {
+            prefs.treeView.drop(1).collect { _tabs.value.forEach { it.reshape() } }
+        }
+    }
+
+    private fun watchDriveNames() {
+        viewModelScope.launch {
+            prefs.driveNames.drop(1).collect { names ->
+                _state.update { s ->
+                    s.copy(
+                        volumes = s.volumes.map { v ->
+                            v.copy(
+                                label = dev.niccc2007.filet.data.DriveNames.resolve(
+                                    names, dev.niccc2007.filet.data.DriveNames.idOf(v.node.path), v.systemLabel,
+                                ),
+                            )
+                        },
+                    )
+                }
+                _tabs.value.forEach(::equip)
+            }
+        }
+    }
+
     fun start() {
         if (started) return
         started = true
         watchRemoteWrites()
         watchDiscoveredAddresses()
         watchNetworkMoves()
+        watchDriveNames()
+        watchTreeView()
         viewModelScope.launch {
             val roots = dev.niccc2007.filet.log.FiletLog.span("launch", "vfs.roots") {
                 runCatching { graph.vfs.roots() }.getOrElse { emptyList() }
@@ -388,7 +456,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             // AFTER the restore, never before: the restore itself walks every pane to its saved
             // folder, and a collector running through that would write the half-restored list
             // back over the one being read.
-            watchPanesForPersist()
+            //
+            // Never for a picker, which browses in tabs of its own - see [ownTabs].
+            if (!ownTabs) watchPanesForPersist()
             // The number that matters, and the one the report was about: everything a person
             // looks at on opening Filet is on screen by here. What follows fills in figures.
             dev.niccc2007.filet.log.FiletLog.i("launch", "first screen ready at +" + dev.niccc2007.filet.log.FiletLog.sinceStart() + "ms")
@@ -398,24 +468,21 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     /**
-     * Start an index update every time Filet opens, which is the required behaviour.
+     * Ask the index whether it wants a pass, now that Filet is open.
      *
-     * Deliberately quiet. It posts no toast and blocks nothing: a pass that confirms what is
-     * still there is the normal state of affairs, not an event. The settings screen shows it
-     * running, and the notification carries a Stop, so it is visible without being in the way.
+     * Bug identified here, and it was the largest battery cost the app has had: this called
+     * `crawlFully(roots)` unconditionally - unbounded, over every volume including two network
+     * shares and the root mounts, with the foreground service and its notification - on every
+     * open. Measured at 46% of a day's battery. See [dev.niccc2007.filet.index.IndexCoordinator.onOpen],
+     * which now makes the same staleness decision launch has always made, of local volumes only,
+     * and never starts the service on its own.
      *
-     * Three things it will not do. It will not run when indexing is switched off, because that
-     * setting has to mean what it says. It will not start a second pass over one already in
-     * flight. And on a device with nothing indexed yet it still runs - that first pass is the
-     * BUILD phase and says so, rather than silently doing the most expensive thing Filet can
-     * do under a label that suggests otherwise.
+     * Never for a picker. Another app asking Filet for a photo is not Filet being opened, and a
+     * picker that crawled the device was the most expensive possible way to answer that.
      */
     private fun updateIndexOnOpen(volumes: List<VNode>) {
-        val roots = volumes.map { it.path }
-        if (roots.isEmpty()) return
-        if (!graph.prefs.indexEnabled.value) return
-        if (graph.indexCoordinator.isCrawling()) return
-        graph.indexCoordinator.crawlFully(roots)
+        if (ownTabs) return
+        graph.indexCoordinator.onOpen(volumes.map { it.path })
     }
 
     /**
@@ -443,14 +510,19 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      */
     private suspend fun volumeInfos(roots: List<VNode>): List<VolumeInfo> {
         val known = _state.value.volumes.associateBy { it.node.path }
+        val names = prefs.driveNames.value
         return roots.map { node ->
             val before = known[node.path]
+            val system = volumeLabel(node)
             VolumeInfo(
                 node = node,
-                label = volumeLabel(node),
+                label = dev.niccc2007.filet.data.DriveNames.resolve(
+                    names, dev.niccc2007.filet.data.DriveNames.idOf(node.path), system,
+                ),
                 free = before?.free,
                 total = before?.total,
                 remote = graph.vfs.isRemote(node.path),
+                systemLabel = system,
             )
         }
     }
@@ -484,6 +556,12 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     private suspend fun measureVolumes(roots: List<VNode>) {
         _state.update { it.copy(volumes = volumeInfos(roots)) }
+        // Pushed on every pass, because the volume list is not fixed at launch: a share
+        // connects, a card is slotted, a folder is granted. Equipping panes only at creation
+        // left a share that arrived later missing from `rootsForDevice` for the rest of the
+        // session - which made `jumpTo` fall back to navigating, and would now cost the reach
+        // ladder the one rung that can see that share at all.
+        _tabs.value.forEach(::equip)
         if (roots.isEmpty()) return
         passes++
         kotlinx.coroutines.coroutineScope {
@@ -536,9 +614,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             scope = viewModelScope,
             searchSources = graph.searchSources,
             indexStatus = { graph.index.status.value },
-            generationsFor = { paths -> graph.index.generationsFor(paths) },
+            onNotice = { msg -> toast(msg) },
+            covered = { graph.coveredVolumes },
+            onGone = { path -> graph.forgetGone(path) },
             onSearched = { q -> graph.index.steerCrawl(q) },
-            onOpened = { node -> openNode(node) },
+            onOpened = { node, from -> openNode(node, from) },
             // Walking into a folder is the moment its contents are about to be searched, so
             // it is also when indexing it is worth doing. Bounded and skipped entirely if a
             // crawl is already running - see IndexCoordinator.indexFolderNow.
@@ -546,7 +626,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             worldRevision = { _state.value.revision },
             dragging = { _state.value.drag != null },
         )
-        pane.rootsForDevice = _state.value.volumes.map { it.node.path }
+        equip(pane)
         return pane
     }
 
@@ -581,6 +661,23 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             )
         }
         persistTabs()
+    }
+
+    /**
+     * Every tab closed at once, leaving one on Home: the clean slate, in one tap.
+     *
+     * Decision: no confirmation. This is a clean-up done often, and a question every time is the
+     * cost that stops it being used. Split goes off with the tabs, because one tab cannot fill
+     * two sides; turning split on again gives the second side its own tab, as it always does.
+     * The new tab is a new pane rather than the old first one sent Home, so its Back history and
+     * scroll memory go too - a reset that kept them would still Back into the old session.
+     */
+    fun closeAllTabs() {
+        val closed = _tabs.value.size
+        _tabs.value = listOf(newPane().also { it.openHome() })
+        _state.update { it.copy(activeA = 0, activeB = 0, split = SplitMode.OFF, focused = Side.A) }
+        persistTabs()
+        if (closed > 1) toast("Closed $closed tabs")
     }
 
     /** Assigns the tab to the focused side, which is what makes one tab strip serve two panes. */
@@ -653,8 +750,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * What each kind needs is [refreshPlan], which is a table with a test that fails if a
      * kind is ever added without one.
      *
-     * It says what it re-read afterwards, because a refresh with no visible change is
-     * indistinguishable from the broken version.
+     * No toast afterwards. It used to say "Folder refreshed", and on a pull that was a white
+     * pill flashing up over a list that had just answered the gesture itself: the pull's own
+     * indicator turns once when it fires, which is the acknowledgement, so the toast said the
+     * same thing a second time in a louder voice.
      */
     fun refreshPane(pane: PaneController) {
         val plan = refreshPlan(pane.state.value.kind)
@@ -663,7 +762,6 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             // Panes that read straight from a store on every composition need a nudge to
             // recompose at all, which is what this is.
             _state.update { it.copy(revision = it.revision + 1) }
-            toast("${plan.label} refreshed")
         }
     }
 
@@ -704,6 +802,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             // what the screen is watching.
             RefreshTarget.RESUME_POINTS -> bumpResume()
             RefreshTarget.CATEGORY -> bumpCategory()
+            RefreshTarget.CAMERA -> bumpCamera()
 
             // Bug identified: these three shared one branch and one comment claiming
             // all of them were live, and for one of them that was false. Remotes reads
@@ -853,12 +952,29 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     // ── opening ──
 
-    fun openNode(node: VNode) {
+    /** Count use of a folder for Quick access. See `QuickAccess.usedBy` and `workedIn`. */
+    private fun creditUse(folder: VPath?) {
+        folder?.let(QuickAccess::workedIn)?.let { graph.folderVisits.credit(it) }
+    }
+
+    /**
+     * Open what was tapped.
+     *
+     * @param from the list it was tapped in, as drawn - a folder, search results, a category.
+     *   A picture or video opened from one can be swiped to its neighbours there.
+     */
+    /**
+     * @param back the request this file is opened from by a link, which Back returns to. Carried
+     *   to wherever the request is made, because that can be after a read of the file's first
+     *   bytes - see [followLink].
+     */
+    fun openNode(node: VNode, from: List<VNode>? = null, back: OpenRequest? = null) {
         // Here and not in `openWithRegistered`: archives and APKs branch off below before that
         // is reached, and a pick must never open an inspector over the picker.
         if (pickTap(node)) return
         val pane = focusedPane() ?: return
         graph.recents.record(node.path, node.isDir)
+        creditUse(QuickAccess.usedBy(node.path, node.isDir))
         // Frecency counts real interactions only. Counting appearances in a result list
         // makes the ranking eat itself (SEARCH.md §5.4).
         viewModelScope.launch { runCatching { graph.index.recordOpen(node.path) } }
@@ -879,7 +995,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 dev.niccc2007.filet.apk.BundleRoute.Tap.INSPECT -> openApk(node)
             // By whole name, not by extension: `backup.tar.gz` has the extension "gz".
             Archives.canList(node.name) -> mountArchive(node)
-            else -> openUnclaimed(node)
+            else -> openUnclaimed(node, from, back)
         }
     }
 
@@ -895,7 +1011,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * word document are all zips underneath, and putting the archive viewer ahead of their own
      * handler would be a worse bug than the one being fixed.
      */
-    private fun openUnclaimed(node: VNode) {
+    private fun openUnclaimed(node: VNode, from: List<VNode>? = null, back: OpenRequest? = null) {
         viewModelScope.launch {
             val kind = runCatching {
                 // Sniffing reads the first few hundred bytes of the file, which for an unclaimed
@@ -923,7 +1039,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 toast("This is a ${kind.name.lowercase()} archive despite its name.")
                 mountArchive(node)
             } else {
-                openWithRegistered(node)
+                openWithRegistered(node, from, back)
             }
         }
     }
@@ -939,6 +1055,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun mountArchive(node: VNode) {
         val pane = focusedPane() ?: return
         graph.recents.record(node.path, isDir = false)
+        creditUse(QuickAccess.usedBy(node.path, isDir = false))
 
         // A local archive opens where it lies.
         val local = graph.vfs.osPath(node.path)
@@ -1072,6 +1189,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             toast("Nothing is ticked to paste")
             return
         }
+        creditUse(dest)
         viewModelScope.launch {
             var copied = 0
             var moved = 0
@@ -1134,7 +1252,21 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     // ── operations ──
 
-    fun deleteSelection() = withSelection { items ->
+    /**
+     * Delete the focused pane's selection, or [explicit] when a dialogue was raised for files
+     * outside any selection (see [confirmDeleteOf]). One delete either way, through the same
+     * operation, so it is a job in Activity like every other.
+     */
+    fun deleteSelection(explicit: List<VNode>? = null) {
+        if (explicit != null) {
+            if (explicit.isNotEmpty()) deleteItems(explicit)
+            return
+        }
+        withSelection { deleteItems(it) }
+    }
+
+    private fun deleteItems(items: List<VNode>) {
+        creditUse(items.firstOrNull()?.path?.parent)
         viewModelScope.launch {
             val r = graph.ops.delete(items.map { it.path })
             reportAndRefresh(r.succeeded, r.failed, "deleted", r.denial)
@@ -1143,6 +1275,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun rename(target: VPath, newName: String) {
         if (newName.isBlank() || newName == target.name) return
+        creditUse(target.parent)
         viewModelScope.launch {
             runAction(
                 dev.niccc2007.filet.vfs.FileAction.RENAME,
@@ -1167,6 +1300,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         // worse than no highlight at all.
         val dest = paneFor(side)?.state?.value?.target ?: return
         if (name.isBlank()) return
+        creditUse(dest)
         viewModelScope.launch {
             val made = dest.child(name.trim())
             runAction(
@@ -1180,6 +1314,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun createFile(name: String, side: Side = _state.value.focused) {
         val dest = paneFor(side)?.state?.value?.target ?: return
         if (name.isBlank()) return
+        creditUse(dest)
         viewModelScope.launch {
             val made = dest.child(name.trim())
             runAction(
@@ -1286,8 +1421,66 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             val options = ExtractOptions()
             val plan = graph.extractOps.plan(root, dest, node.name, options)
             _extractPlan.value = PendingExtract(root, dest, node.name, options, plan)
+            // Drawn into the pane that is about to receive them, and re-made whenever an
+            // option changes - or the folder does - so the ghosts never describe a stale plan.
+            // This is the only thing that makes it obvious a folder is about to gain forty
+            // files, now that there is no pick tab and no second confirm.
+            _pickPreview.value = ghostsOf(plan, node.name)
+            // Only once an explicit destination was NOT given. "Extract to the other pane"
+            // names its target and must not then follow this pane around.
+            if (into == null) followFolderWhileExtracting(root, node.name)
         }
     }
+
+    /**
+     * Re-aim a running extraction at whatever folder is being looked at.
+     *
+     * ## Why "Extract here" and "Extract to" are one action now
+     *
+     * They were two menu items, and the only difference between them was where the extraction
+     * pointed: here used the folder you were standing in, to opened a tab so you could go and
+     * find another one. Two code paths, two previews, two sets of bugs - and the "to" half had
+     * to invent a pick tab, a destination to carry, and a confirmation to end it.
+     *
+     * Once the ghosts follow the folder there is nothing left to separate them. Start the
+     * extraction, and the folder you are looking at IS the destination: stay where you are and
+     * it is "here", walk somewhere and it is "to". Nothing to choose up front, nothing to learn,
+     * and one path that can be wrong in one place.
+     *
+     * Deliberately NOT cancelled when you leave the folder. Cancelling on a step away would
+     * make the feature fragile in a way nothing else here is - a stray back-swipe would destroy
+     * the setup - and it would force the destination to be decided before you are allowed to
+     * look around, which is the thing the pick tab existed to work around.
+     *
+     * Re-planned on the FOLDER alone, so a refresh, a sort or a rename redraws from the plan in
+     * hand while actually walking rebuilds it. `collectLatest` drops a plan still being built
+     * when the folder moves again.
+     */
+    private fun followFolderWhileExtracting(root: VPath, label: String) {
+        extractWatch?.cancel()
+        extractWatch = viewModelScope.launch {
+            _state
+                .map { it.focused }
+                .flatMapLatest { side -> paneFor(side)?.state ?: kotlinx.coroutines.flow.emptyFlow() }
+                .map { it.target }
+                .distinctUntilChanged()
+                .collectLatest { dest ->
+                    // A pane with no folder - mid-load, or a special pane - is not a
+                    // destination. The extraction keeps the one it has rather than losing it.
+                    if (dest == null) return@collectLatest
+                    val current = _extractPlan.value ?: return@collectLatest
+                    if (current.into == dest) return@collectLatest
+                    val plan = graph.extractOps.plan(root, dest, label, current.options)
+                    // Still the same extraction: a cancel or a commit between the two lines
+                    // must not put a card back on screen.
+                    if (_extractPlan.value == null) return@collectLatest
+                    _extractPlan.value = current.copy(into = dest, plan = plan)
+                    _pickPreview.value = ghostsOf(plan, label)
+                }
+        }
+    }
+
+    private var extractWatch: kotlinx.coroutines.Job? = null
 
     /** Extract into the other pane, which is what a two-pane file manager is for. */
     fun extractToOtherPane(node: VNode) {
@@ -1304,18 +1497,33 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         viewModelScope.launch {
             val plan = graph.extractOps.plan(current.archiveRoot, current.into, current.label, options)
             _extractPlan.value = current.copy(options = options, plan = plan)
+            // The ghosts follow the options. Lifting a wrapper changes what lands in this
+            // folder, and a preview that kept the old answer would be the one thing on screen
+            // disagreeing with the plan about to run.
+            if (_pickPreview.value != null) _pickPreview.value = ghostsOf(plan, current.label)
         }
     }
 
-    fun cancelExtract() { _extractPlan.value = null }
+    fun cancelExtract() {
+        extractWatch?.cancel()
+        extractWatch = null
+        _extractPlan.value = null
+        _pickPreview.value = null
+    }
 
     /** Carry out exactly the plan on screen. */
     fun confirmExtract() {
         val pending = _extractPlan.value ?: return
         _extractPlan.value = pending.copy(busy = true)
+        creditUse(pending.into)
+        // Pinned from here on. The destination is whatever is on screen at the moment Extract
+        // is pressed, and it must not move under a running extraction.
+        extractWatch?.cancel()
+        extractWatch = null
         viewModelScope.launch {
             val r = graph.extractOps.run(pending.archiveRoot, pending.into, pending.plan, pending.label)
             _extractPlan.value = null
+            _pickPreview.value = null
             reportAndRefresh(r.succeeded, r.failed, "extracted", r.denial)
         }
     }
@@ -1341,6 +1549,27 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     val picking: Boolean get() = pickRequest != null
 
+    /**
+     * Whether this browser's tabs are its own rather than the app's saved session.
+     *
+     * Set by the picker activity, which is a second browser in a second process-local view
+     * model, reading and writing the same preferences as the one the user left open.
+     *
+     * Bug identified here: it restored the saved tab list, so opening the picker resumed
+     * somebody's browsing session inside a modal chooser - and then wrote its own walking back
+     * over that list. Picking a photo through the categories left the browser sitting on the
+     * Photos tab afterwards, with the tab they had actually been using closed. Two browsers
+     * sharing one saved session is not a session.
+     *
+     * It also started in the wrong place. The restore aims at a volume root, which for an
+     * image pick is a folder of folders; Home has the categories on it, and Photos is most of
+     * the answer already.
+     *
+     * So a picker reads nothing and writes nothing: one tab, opened on Home, discarded with
+     * the activity.
+     */
+    var ownTabs: Boolean = false
+
     /** The asking app's name, for the notice strip. Null when the caller could not be named. */
     var pickCaller: String? = null
 
@@ -1351,7 +1580,12 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     var onPickCancel: (() -> Unit)? = null
 
     /** What the picker would hand over: the focused pane's selection, files and folders both. */
-    fun pickSelection(): List<VNode> = focusedPane()?.selectedNodes().orEmpty()
+    /**
+     * What an external picker hands back. See [_pickChosen] for why this is not a pane's
+     * selection: the report form's own attachment pick comes through here, and choosing a photo
+     * from the Photos tab put it in a list this never read.
+     */
+    fun pickSelection(): List<VNode> = _pickChosen.value
 
     /**
      * Whether Install should be offered for what is selected.
@@ -1382,18 +1616,71 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     /** True when there is a second pane on screen to extract into. */
     fun isSplit(): Boolean = _state.value.split != SplitMode.OFF
 
-    /** The three destinations, from a selection rather than from a node. */
+    /**
+     * The two destinations, from a selection rather than from a node.
+     *
+     * Two, not three. "Extract to..." is gone: it opened a pick tab so a folder could be
+     * chosen, and the ghosts follow the folder now, so starting the extraction and walking
+     * somewhere does the same job with no tab, no second confirm and no second code path. See
+     * `followFolderWhileExtracting`. The other pane stays, because that one names a
+     * destination that is NOT where you are standing and cannot be reached by walking without
+     * losing your place.
+     */
     fun extractSelection() = withSelection { items -> extract(items[0]) }
-
-    fun extractSelectionToPicked() = withSelection { items -> extractToPicked(items[0]) }
 
     fun extractSelectionToOtherPane() = withSelection { items -> extractToOtherPane(items[0]) }
 
-    /** "Extract to ...": browse to a folder, then preview the extraction into that. */
-    fun extractToPicked(node: VNode) {
-        pick(dev.niccc2007.filet.pick.PickSpec("Extract ${node.name} to", dev.niccc2007.filet.pick.PickSpec.Want.FOLDER, confirmLabel = "Extract into this")) { r ->
-            if (r is dev.niccc2007.filet.pick.PickResult.Picked) extract(node, r.first)
+    /**
+     * A plan's top-level items as ghosts.
+     *
+     * One function, because there is now one Extract. It was shared by "Extract to" and
+     * "Extract here" so the two previews could not drift; those are one action now, and this
+     * is still the single place a plan becomes ghosts - so the drawing and the extractor
+     * cannot describe different operations, which is the failure the plan/extractor split
+     * exists to prevent.
+     */
+    private fun ghostsOf(
+        plan: ExtractPlan,
+        archiveName: String,
+    ): dev.niccc2007.filet.pick.PickPreview {
+        // Only what lands in THIS folder. The deeper entries are inside those, and listing
+        // every file of a thousand-entry archive would bury the folder it is drawn into.
+        val top = plan.items.filter { !it.path.trimEnd('/').contains('/') }
+        val ghosts = top.take(dev.niccc2007.filet.pick.PickPreview.SHOWN).map {
+            dev.niccc2007.filet.pick.PickPreview.Ghost(
+                name = it.path.trimEnd('/').substringAfterLast('/'),
+                isDir = it.isDir,
+                note = when {
+                    it.collides != null -> "already here"
+                    it.added -> "new folder"
+                    else -> ""
+                },
+                invented = it.added,
+            )
         }
+        val clashes = plan.collisions.size
+        return dev.niccc2007.filet.pick.PickPreview(
+            title = "Extract $archiveName here",
+            detail = buildString {
+                append(dev.niccc2007.filet.browser.plural(plan.entryCount, "entry", "entries"))
+                if (plan.needsBytes > 0) {
+                    append("  ·  ")
+                    append(dev.niccc2007.filet.browser.humanSize(plan.needsBytes))
+                }
+                if (clashes > 0) {
+                    append("  ·  ")
+                    append(dev.niccc2007.filet.browser.plural(clashes, "name clash", "name clashes"))
+                }
+            },
+            entries = ghosts,
+            extra = (top.size - ghosts.size).coerceAtLeast(0),
+            blocked = if (!plan.fits) {
+                "Not enough room: needs " + dev.niccc2007.filet.browser.humanSize(plan.needsBytes) +
+                    ", " + dev.niccc2007.filet.browser.humanSize(plan.freeBytes) + " free"
+            } else {
+                null
+            },
+        )
     }
 
     // -- picking, when Filet asks itself --
@@ -1413,10 +1700,89 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         val onResult: (dev.niccc2007.filet.pick.PickResult) -> Unit,
         val pane: PaneController,
         val returnTo: Int,
+        /**
+         * What the caller's operation would produce in a given folder, or null for a pick with
+         * nothing to show.
+         *
+         * Supplied by the caller because only the caller knows: an extract has a plan, a save
+         * has a filename. See `PickPreview`.
+         */
+        val preview: (suspend (dev.niccc2007.filet.vfs.VPath) -> dev.niccc2007.filet.pick.PickPreview?)? = null,
     )
 
     private val _inAppPick = MutableStateFlow<LivePick?>(null)
     val inAppPick: StateFlow<LivePick?> = _inAppPick.asStateFlow()
+
+    /**
+     * What has been chosen for the live pick, wherever it was chosen from.
+     *
+     * ## Why the pick keeps its own list instead of reading a pane's selection
+     *
+     * Bug identified here: the confirm read `live.pane.selectedNodes()` - the selection of the
+     * ONE pane the pick happened to start in. Every other surface in the app has its own idea of
+     * what is selected, or no idea at all, so choosing a photo anywhere but that pane's folder
+     * listing put the file nowhere the confirm would look. On the Photos tab a tap did not even
+     * register: the card never highlighted, and "Use these" answered "Select a picture first"
+     * about a picture that had just been tapped.
+     *
+     * A pick is not a property of a pane. It is a question the app is being asked, and it should
+     * be answerable from anywhere the file can be seen - the folder list, a category, the gallery,
+     * search results, Home. So the chosen set lives with the pick, every surface writes to this
+     * one list, and the confirm reads the same list it was written into.
+     *
+     * Holds [VNode]s rather than paths because the filter needs to ask what a node IS - its
+     * extension, its size - to decide whether it qualifies, and a path alone cannot answer that
+     * without another stat.
+     */
+    private val _pickChosen = MutableStateFlow<List<dev.niccc2007.filet.vfs.VNode>>(emptyList())
+    val pickChosen: StateFlow<List<dev.niccc2007.filet.vfs.VNode>> = _pickChosen.asStateFlow()
+
+    /**
+     * Whether the pick card is rolled up out of the way.
+     *
+     * On the pick, not on a pane, for the same reason as [_pickChosen]: walking into another tab
+     * must not expand a card somebody deliberately folded away, and must not fold away one they
+     * left open. Reset whenever a pick starts, because a card that remembered being minimised
+     * from a previous pick would open with the question already hidden.
+     */
+    private val _pickMinimised = MutableStateFlow(false)
+    val pickMinimised: StateFlow<Boolean> = _pickMinimised.asStateFlow()
+
+    fun setPickMinimised(value: Boolean) { _pickMinimised.value = value }
+
+    /**
+     * The name a save pick will write, as it is typed on the card. On the pick for the same
+     * reason as [_pickChosen]; reset when a pick starts, to the name its caller offered.
+     */
+    private val _pickName = MutableStateFlow("")
+    val pickName: StateFlow<String> = _pickName.asStateFlow()
+
+    fun setPickName(value: String) { _pickName.value = value }
+
+    /** Whether something is at [path] now. For the save card's "Replace", asked of the folder itself. */
+    suspend fun exists(path: VPath): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        runCatching { graph.vfs.stat(path) != null }.getOrDefault(false)
+    }
+
+    /** Whether this exact file is in the pick's chosen list, for a row or card to light up. */
+    fun isPickChosen(path: dev.niccc2007.filet.vfs.VPath): Boolean =
+        _pickChosen.value.any { it.path == path }
+
+    /**
+     * The preview standing between the confirm and the commit, or null.
+     *
+     * Held here rather than inside [LivePick] so the pane can draw its ghosts without
+     * recomposing on every other part of the pick, and so a second confirm press commits
+     * rather than rebuilding what is already on screen.
+     */
+    private val _pickPreview = MutableStateFlow<dev.niccc2007.filet.pick.PickPreview?>(null)
+    val pickPreview: StateFlow<dev.niccc2007.filet.pick.PickPreview?> = _pickPreview.asStateFlow()
+
+    /** True while the preview is being built, so the button can say it is working. */
+    private val _pickPreviewBusy = MutableStateFlow(false)
+    val pickPreviewBusy: StateFlow<Boolean> = _pickPreviewBusy.asStateFlow()
+
+    /** Drop the preview and go back to choosing, without ending the pick. */
 
     // ── carrying a setup to another phone ──
 
@@ -1470,7 +1836,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun exportSettings(sections: Set<SettingsTransfer.Section>, withSecrets: Boolean) {
         _exportPlan.value = null
         pick(
-            dev.niccc2007.filet.pick.PickSpec("Where to put the settings file", dev.niccc2007.filet.pick.PickSpec.Want.FOLDER, confirmLabel = "Save here", start = somewhereToStart()),
+            dev.niccc2007.filet.pick.PickSpec("Where to put the settings file", dev.niccc2007.filet.pick.PickSpec.Want.FOLDER, confirmLabel = "Save here"),
         ) pick@{ r ->
             val dest = (r as? dev.niccc2007.filet.pick.PickResult.Picked)?.first ?: return@pick
             viewModelScope.launch {
@@ -1519,7 +1885,6 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 "Pick a settings file",
                 dev.niccc2007.filet.pick.PickSpec.Want.FILE,
                 dev.niccc2007.filet.pick.PickFilter.Extensions(setOf("json"), "a settings file (.json)"),
-                start = somewhereToStart(),
             ),
         ) pick@{ r ->
             val path = (r as? dev.niccc2007.filet.pick.PickResult.Picked)?.first ?: return@pick
@@ -1546,10 +1911,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * Apply the chosen sections.
      *
      * Preferences are written straight into the store rather than through each typed setter,
-     * because the setters are the things that hold the live flows and there is no setter for
-     * half of these keys. The cost is that the screens reading those flows do not see the new
-     * values until the app is restarted - which is why the toast says so rather than leaving
-     * somebody to wonder why their theme did not change.
+     * because there is no setter for half of these keys. The flows built from the old values are
+     * then re-read (`Prefs.reload`), along with the stores that cache a list of their own, so
+     * the theme, the layout and the openers change where they stand. Before that re-read existed
+     * this ended in "restart Filet for the look and layout".
      */
     fun importSettings(sections: Set<SettingsTransfer.Section>) {
         val offer = _importOffer.value ?: return
@@ -1567,42 +1932,39 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 // underneath a `MutableStateFlow` is a value nothing is watching.
                 when (section) {
                     SettingsTransfer.Section.BOOKMARKS -> graph.bookmarks.reload()
+                    SettingsTransfer.Section.OPENERS -> graph.registry.reload()
                     else -> Unit
                 }
             }
+            graph.prefs.reload()
             val parts = buildList {
                 if (keys > 0) add("$keys setting(s)")
                 if (remotes > 0) add("$remotes network drive(s)")
             }
             refreshPanes()
-            // Honest about the half that needs a restart. Bookmarks and the
-            // remotes come back immediately because their stores were told; a theme or a
-            // density lives behind a flow that was built at startup from the value that was
-            // there then, and nothing short of a restart re-reads it.
-            toast(
-                if (parts.isEmpty()) "Nothing to import."
-                else "Imported " + parts.joinToString(" and ") +
-                    " - restart Filet for the look and layout",
-            )
+            toast(if (parts.isEmpty()) "Nothing to import." else "Imported " + parts.joinToString(" and "))
         }
     }
 
     /**
-     * A folder for a picker opened from a screen that is not a folder.
+     * Open `filet.json` in Filet's own editor, writing it first if it does not exist yet.
      *
-     * A pick starts at the focused pane's `cwd`, and **Settings has none** - it is a pane with a
-     * kind and no directory. The first pickers returned early there and the button silently did
-     * nothing, which is how Export reached a device test looking like a dead control. `pick`
-     * falls back to this.
-     *
-     * Download rather than the storage root: it is where a file somebody is about to move to
-     * another phone belongs, and it is the folder every Android has.
+     * Saving it is the whole of applying it: `ConfigSync` hears the file change and applies it
+     * where it stands, and says what it skipped and on which line.
      */
-    private fun somewhereToStart(): VPath {
-        focusedPane()?.state?.value?.target?.let { return it }
-        val downloads = dev.niccc2007.filet.vfs.VPath.of("local", "/storage/emulated/0/Download")
-        return downloads
+    fun editSettingsFile() {
+        viewModelScope.launch {
+            graph.configSync.ensureSettingsFile()
+            val path = VPath.of("local", graph.configSync.settingsPath())
+            val node = runCatching { graph.vfs.stat(path) }.getOrNull()
+            if (node == null) {
+                toast("Could not write filet.json.")
+                return@launch
+            }
+            openWith(node, HandlerId.TEXT, remember = false)
+        }
     }
+
 
     /**
      * The one way Filet picks a file or a folder for itself. See `PickSpec`.
@@ -1611,19 +1973,100 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * spinner always hears back. The old dialogue never reported a cancel, which left the cover
      * art buttons disabled after backing out of the chooser.
      */
-    fun pick(spec: dev.niccc2007.filet.pick.PickSpec, onResult: (dev.niccc2007.filet.pick.PickResult) -> Unit) {
+    fun pick(
+        spec: dev.niccc2007.filet.pick.PickSpec,
+        preview: (suspend (dev.niccc2007.filet.vfs.VPath) -> dev.niccc2007.filet.pick.PickPreview?)? = null,
+        onResult: (dev.niccc2007.filet.pick.PickResult) -> Unit,
+    ) {
         // A second pick replaces a live one, and the first caller is told it ended.
         if (_inAppPick.value != null) finishPick(dev.niccc2007.filet.pick.PickResult.Cancelled)
-        val start = spec.start ?: focusedPane()?.state?.value?.target ?: somewhereToStart()
+        // Null opens the tab on Home, which every pick does unless its operation belongs to a
+        // place; see PickSpec.startIn.
+        val start = spec.startIn()
         val s = _state.value
         val returnTo = if (s.focused == Side.A || s.split == SplitMode.OFF) s.activeA else s.activeB
-        val pane = _tabs.value.getOrNull(addTab(start))
+        val added = runCatching { addTab(start) }
+        dev.niccc2007.filet.log.FiletLog.i(
+            "pick",
+            "addTab returned ${added.getOrNull()} of ${_tabs.value.size} tabs" +
+                (added.exceptionOrNull()?.let { ", THREW " + it } ?: ""),
+        )
+        val pane = added.getOrNull()?.let { _tabs.value.getOrNull(it) }
         if (pane == null) {
+            dev.niccc2007.filet.log.FiletLog.w("pick", "no pane for the pick tab; giving up")
             onResult(dev.niccc2007.filet.pick.PickResult.Cancelled)
             return
         }
-        _inAppPick.value = LivePick(spec, onResult, pane, returnTo)
+        _pickPreview.value = null
+        _pickChosen.value = emptyList()
+        _pickMinimised.value = false
+        _pickName.value = spec.name
+        _inAppPick.value = LivePick(spec, onResult, pane, returnTo, preview)
+        watchPickFolder(pane, spec, preview)
+        // Logged because this subsystem has been hard to diagnose from the outside: the
+        // symptom of every fault in it is "a tab opened and nothing else happened", which is
+        // the same sentence whether the pick never started, started and was replaced, or
+        // started and was never drawn. These three lines tell them apart - see `PickNotice`,
+        // which logs the drawing end.
+        dev.niccc2007.filet.log.FiletLog.i(
+            "pick",
+            "started ${spec.want} \"${spec.title}\" at ${start?.path ?: "Home"}, tab ${_tabs.value.size - 1}, " +
+                "returning to $returnTo",
+        )
     }
+
+    /**
+     * Keep the ghosts showing what WOULD happen in the folder being looked at, as it changes.
+     *
+     * ## Why this follows the folder instead of being built once
+     *
+     * The ghosts used to be produced by the first of two confirm presses, for the folder you
+     * were standing in at that moment, and then left alone. Walk somewhere else and the
+     * preview stayed behind: the new folder showed nothing, the old folder's ghosts were still
+     * the ones on file, and committing extracted into the folder you had walked TO. One
+     * decision described in one place and taken in another.
+     *
+     * So the preview is a function of where you are, recomputed whenever that changes. There
+     * is then nothing for a second press to confirm, which is what let the extra step go - and
+     * nowhere for the two halves to disagree, because the ghosts and the destination are now
+     * the same fact read twice.
+     *
+     * Rebuilt on the FOLDER, not on the listing: `distinctUntilChanged` over the destination
+     * alone means a refresh, a sort, a selection or a rename redraws the ghosts from the
+     * existing preview rather than rebuilding it, while actually walking somewhere does
+     * rebuild. `collectLatest` drops a build still running when the folder moves again, so
+     * flicking through folders costs the last one rather than all of them.
+     *
+     * The job dies with the pick: it is cancelled in `finishPick`, so a cancelled or committed
+     * pick leaves nothing running.
+     */
+    private fun watchPickFolder(
+        pane: PaneController,
+        spec: dev.niccc2007.filet.pick.PickSpec,
+        preview: (suspend (dev.niccc2007.filet.vfs.VPath) -> dev.niccc2007.filet.pick.PickPreview?)?,
+    ) {
+        pickWatch?.cancel()
+        if (preview == null) return
+        pickWatch = viewModelScope.launch {
+            pane.state
+                .map { spec.resultFor(it.cwd, emptyList(), it.active)?.paths?.firstOrNull() }
+                .distinctUntilChanged()
+                .collectLatest { where ->
+                    if (where == null) {
+                        _pickPreview.value = null
+                        return@collectLatest
+                    }
+                    _pickPreviewBusy.value = true
+                    val made = runCatching { preview(where) }.getOrNull()
+                    _pickPreviewBusy.value = false
+                    // Only if this pick is still the live one: a build that finishes after the
+                    // pick ended must not put ghosts back on screen.
+                    if (_inAppPick.value?.pane === pane) _pickPreview.value = made
+                }
+        }
+    }
+
+    private var pickWatch: kotlinx.coroutines.Job? = null
 
     /**
      * How a row draws while anything is being picked, or null when nothing is.
@@ -1647,19 +2090,27 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * A file that does not qualify says why instead of doing nothing; one that does is taken at
      * once for a single in-app pick, and selected otherwise so the bar's Use button confirms.
      */
-    private fun pickTap(node: VNode): Boolean {
+    fun pickTap(node: VNode): Boolean {
         val spec = activePickSpec() ?: return false
         if (node.isDir) return false
         when (spec.rowState(node)) {
             dev.niccc2007.filet.pick.PickSpec.RowState.DIMMED -> toast(spec.refusal(node))
             dev.niccc2007.filet.pick.PickSpec.RowState.ACCEPTED -> {
-                val pane = focusedPane() ?: return false
-                if (_inAppPick.value != null && spec.want == dev.niccc2007.filet.pick.PickSpec.Want.FILE) {
+                // Into the PICK's list, not a pane's selection - see [_pickChosen]. Public
+                // because the surfaces that can show a file are not all panes: a category, the
+                // gallery and Home all reach a file the pick would accept, and each of them
+                // used to open it instead, because this was private and they could not ask.
+                // One tap ends a single in-app pick: the caller asked for one file and has it,
+                // so there is nothing left to confirm. An external one still needs its confirm,
+                // because the result goes back through the Activity.
+                if (spec.want == dev.niccc2007.filet.pick.PickSpec.Want.SAVE) {
+                    // A save takes the NAME of a file tapped, as a desktop save dialogue does;
+                    // the card then says "Replace" so nothing is saved over unannounced.
+                    _pickName.value = node.name
+                } else if (_inAppPick.value != null && spec.want == dev.niccc2007.filet.pick.PickSpec.Want.FILE) {
                     finishPick(dev.niccc2007.filet.pick.PickResult.Picked(listOf(node.path)))
-                } else if (spec.want == dev.niccc2007.filet.pick.PickSpec.Want.FILES) {
-                    pane.toggleSelect(node)
                 } else {
-                    pane.selectOnly(node)
+                    _pickChosen.update { spec.chosenAfter(it, node) }
                 }
             }
             dev.niccc2007.filet.pick.PickSpec.RowState.FOLDER -> return false
@@ -1670,7 +2121,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     /** True while any pick is live, for the chrome that changes while one is. */
     val pickingAnything: Boolean get() = picking || _inAppPick.value != null
 
-    /** The notice strip's confirm and the selection bar's Use button. */
+    /**
+     * The notice strip's confirm and the selection bar's Use button.
+     *
+     * TWO presses when the caller offers a preview, and that is the point of it. The first
+     * builds what the operation would produce and shows it in the destination's own listing;
+     * the second commits. A folder pick used to end on one press, with the tab closing and the
+     * work happening somewhere the reader was no longer looking - so nothing ever said what
+     * was about to appear. See `PickPreview`.
+     */
     fun confirmPicking() {
         val live = _inAppPick.value
         if (live == null) {
@@ -1680,14 +2139,33 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         // `active` as well as `cwd`: in tree view `cwd` is the volume root and the folder being
         // looked at is the open branch. See PickSpec.folderOf.
         val here = live.pane.state.value
-        val result = live.spec.resultFor(here.cwd, live.pane.selectedNodes(), here.active)
+        val result = live.spec.resultFor(here.cwd, _pickChosen.value, here.active, _pickName.value)
         if (result == null) {
             toast(
-                if (live.spec.want == dev.niccc2007.filet.pick.PickSpec.Want.FOLDER) "Open a folder first"
-                else "Select ${live.spec.accept.what} first",
+                when (live.spec.want) {
+                    dev.niccc2007.filet.pick.PickSpec.Want.SAVE ->
+                        dev.niccc2007.filet.pick.PickName.problem(_pickName.value) ?: "Open a folder first"
+                    dev.niccc2007.filet.pick.PickSpec.Want.FOLDER -> "Open a folder first"
+                    dev.niccc2007.filet.pick.PickSpec.Want.FILE,
+                    dev.niccc2007.filet.pick.PickSpec.Want.FILES -> "Select ${live.spec.accept.what} first"
+                },
             )
             return
         }
+        // A save into a folder that cannot take one is refused HERE, before the pick ends, so
+        // the answer is to walk somewhere else rather than to start again.
+        if (live.spec.want == dev.niccc2007.filet.pick.PickSpec.Want.SAVE) {
+            writeBlockReason(result.first.parent)?.let { toast(it); return }
+        }
+        // ONE confirm, always.
+        //
+        // This used to be two: the first press built the preview and the second committed. It
+        // was wrong in both directions. It asked twice for one decision, and - because the
+        // destination was recomputed from the pane on the SECOND press while the ghosts had
+        // been built for wherever you stood on the FIRST - browsing between the two presses
+        // extracted into one folder while showing the contents of another. The ghosts are live
+        // now (see `watchPickFolder`), so what is on screen is already the answer and there is
+        // nothing left to confirm a second time.
         finishPick(result)
     }
 
@@ -1698,11 +2176,37 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     private fun finishPick(result: dev.niccc2007.filet.pick.PickResult) {
         val live = _inAppPick.value ?: return
+        pickWatch?.cancel()
+        pickWatch = null
         _inAppPick.value = null
+        _pickChosen.value = emptyList()
+        _pickMinimised.value = false
+        _pickName.value = ""
+        _pickPreview.value = null
+        _pickPreviewBusy.value = false
         // By identity, not by the index it was given: tabs can be closed or moved mid-pick.
         val idx = _tabs.value.indexOf(live.pane)
-        if (idx >= 0) closeTab(idx)
+        if (idx >= 0) {
+            closeTab(idx)
+        } else {
+            // Said out loud rather than shrugged off. A pick tab that outlives its pick is an
+            // ordinary-looking tab nobody opened, and the only way anybody finds out is by
+            // counting tabs - which is how two of them came to be sitting there.
+            dev.niccc2007.filet.log.FiletLog.w("pick", "the pick tab was already gone; nothing closed")
+        }
         focusTab(live.returnTo.coerceIn(0, _tabs.value.lastIndex.coerceAtLeast(0)))
+        // The selection the pick was started FROM goes too.
+        //
+        // Bug identified here: a pick is almost always started from a selected row, and the
+        // selection was left behind when the pick ended. The pane it belongs to has re-listed
+        // by then, so the set holds a path whose row is drawn from a fresh node - the row did
+        // not look selected while the set said it was, and the next tap on it therefore
+        // toggled it OFF, invisibly. Which presents exactly as reported: that one file cannot
+        // be selected, while selecting a different file first makes it work.
+        //
+        // Cleared whatever the outcome. A cancelled pick means the operation is not happening,
+        // and a confirmed one means it already has.
+        _tabs.value.forEach { it.clearSelection() }
         live.onResult(result)
     }
 
@@ -1866,6 +2370,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
         val selfDrop = items.any { it.isDir && it.path.contains(dest) }
         if (selfDrop) return DropPlan(dest, label, move = true, refusal = "Cannot drop a folder into itself")
+        // Said while hovering, not after the drop. A zip in the tree takes a drop as a folder does,
+        // and a mounted archive refuses writes - so without this the copy started and failed.
+        writeBlockReason(dest)?.let { return DropPlan(dest, label, move = false, refusal = it) }
         // Dropping onto the folder they came from is not a mistake to refuse - it is the
         // gesture for "give me another one of these". It used to answer "Already in X", which
         // is true and useless: it names what you can see and offers nothing.
@@ -1979,7 +2486,43 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     // ── chrome ──
 
     fun openSwitcher(open: Boolean) = _state.update { it.copy(switcherOpen = open) }
-    fun openActivity(open: Boolean) = _state.update { it.copy(activityOpen = open) }
+    /**
+     * The Activity tab, in the focused pane - from the bar, the side bar, a job's notification,
+     * and Index now.
+     *
+     * It was a bottom sheet from the bar and a tab from the side bar, two drawings of one ledger
+     * with different rows: the sheet could not open a result or show a job's figures. See
+     * `ActivityBody`.
+     */
+    fun openActivity() {
+        focusedPane()?.openSpecial(PaneKind.ACTIVITY, SpecialPanes.Pinned.ACTIVITY.label)
+    }
+
+    /** A finished job's result, opened: a folder in the pane, a file in whatever opens it. */
+    fun openJobResult(raw: String) {
+        val path = runCatching { dev.niccc2007.filet.vfs.VPath.parse(raw) }.getOrNull() ?: return
+        viewModelScope.launch {
+            val node = runCatching { withContext(Dispatchers.IO) { graph.vfs.stat(path) } }.getOrNull()
+            if (node == null) {
+                toast("That is not there any more.")
+                return@launch
+            }
+            if (node.isDir) focusedPane()?.jumpTo(path) else openNode(node)
+        }
+    }
+
+    /** A finished job's result, shown in the folder that holds it. */
+    fun showJobInFolder(raw: String) {
+        val path = runCatching { dev.niccc2007.filet.vfs.VPath.parse(raw) }.getOrNull() ?: return
+        viewModelScope.launch {
+            val node = runCatching { withContext(Dispatchers.IO) { graph.vfs.stat(path) } }.getOrNull()
+            if (node == null) {
+                toast("That is not there any more.")
+                return@launch
+            }
+            revealInFolder(node)
+        }
+    }
     fun toast(msg: String?) = _state.update { it.copy(toast = msg) }
     fun consumeToast() = _state.update { it.copy(toast = null) }
 
@@ -2042,6 +2585,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         _dialog.update { Dialog.ConfirmDelete(items.size, items.first().name) }
     }
 
+    /**
+     * Ask before deleting [items] that are not a selection - a held tile's peek, a viewer's
+     * Delete. [then] runs once the delete is confirmed.
+     */
+    fun confirmDeleteOf(items: List<VNode>, then: (() -> Unit)? = null) {
+        if (items.isEmpty()) return
+        _dialog.update { Dialog.ConfirmDelete(items.size, items.first().name, items, then) }
+    }
+
     /** Named after the folder, which is what a zip of a selection is nearly always for. */
     fun suggestedArchiveName(): String {
         val pane = focusedPane() ?: return "archive.zip"
@@ -2054,16 +2606,17 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     /**
      * Why this location cannot be written to, or null when it can.
      *
-     * Archives and APKs mount read-only, so every create/rename/delete/paste in one is refused
-     * by the provider. Asking here means the UI can drop or grey those actions instead of
-     * offering them and turning the refusal into an error.
+     * APKs mount read-only, and so does an archive Filet cannot rewrite - RAR, an encrypted or
+     * split one, a staged copy of one on a share. Asking here means the UI can drop or grey
+     * those actions instead of offering them and turning the refusal into an error, and the
+     * archive's own refusal says which of those it is.
      */
     fun writeBlockReason(path: VPath?): String? {
         if (path == null) return "Open a folder first"
         if (graph.vfs.canWrite(path)) return null
         return when (path.scheme) {
             "apk" -> "APKs open read-only — use Decompile to change one"
-            "zip" -> "Archives open read-only — extract it to change what is inside"
+            "zip" -> graph.vfs.writeRefusal(path) ?: "Archives open read-only — extract it to change what is inside"
             else -> "This location is read-only"
         }
     }
@@ -2080,13 +2633,295 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     // a picker or a chooser.
 
     var onIntent: ((android.content.Intent) -> Unit)? = null
+    /** Start an activity FOR A RESULT; the answer comes back through [deliverResult]. */
+    var onIntentForResult: ((android.content.Intent) -> Unit)? = null
+
+    // Held here rather than by the Activity, so an answer that arrives after the Activity was
+    // recreated - the sheet in front, the phone turned - still finds who asked.
+    private var awaitingResult: ((Int, android.content.Intent?) -> Unit)? = null
+
+    /** Start [intent] for a result and hand the answer to [onResult]. One at a time. */
+    fun startForResult(intent: android.content.Intent, onResult: (Int, android.content.Intent?) -> Unit) {
+        val start = onIntentForResult ?: run { onIntent?.invoke(intent); return }
+        awaitingResult = onResult
+        start(intent)
+    }
+
+    /** The answer to [startForResult]. Called by the Activity. */
+    fun deliverResult(code: Int, data: android.content.Intent?) {
+        val waiting = awaitingResult ?: return
+        awaitingResult = null
+        waiting(code, data)
+    }
+
+    /**
+     * Offer a Wi-Fi network to Android's own "save this network?" sheet, and say what became of
+     * it. See `WifiAdd` for why this is started for a result and nothing else works.
+     *
+     * Where the phone will not show the sheet, or Android could not save the network, the
+     * fallback is the one there always was: Wi-Fi settings, with the password already copied.
+     */
+    fun addWifiNetwork(intent: android.content.Intent, ssid: String, password: String) {
+        val started = android.os.SystemClock.elapsedRealtime()
+        startForResult(intent) { code, data ->
+            val codes = data?.getIntegerArrayListExtra(android.provider.Settings.EXTRA_WIFI_NETWORK_RESULT_LIST)
+            val outcome = dev.niccc2007.filet.qr.WifiAdd.outcome(
+                ok = code == android.app.Activity.RESULT_OK,
+                codes = codes,
+                elapsedMs = android.os.SystemClock.elapsedRealtime() - started,
+            )
+            val name = ssid.ifEmpty { "The network" }
+            when (outcome) {
+                dev.niccc2007.filet.qr.WifiAdd.Outcome.SAVED -> toast("$name saved. The phone joins it when it is in range.")
+                dev.niccc2007.filet.qr.WifiAdd.Outcome.ALREADY -> _dialog.update { Dialog.WifiSaved(name, password) }
+                dev.niccc2007.filet.qr.WifiAdd.Outcome.DECLINED -> toast("$name was not added.")
+                dev.niccc2007.filet.qr.WifiAdd.Outcome.FAILED -> wifiByHand("Android could not save $name", password)
+                dev.niccc2007.filet.qr.WifiAdd.Outcome.NOT_SHOWN -> wifiByHand("This phone will not offer to save it", password)
+            }
+        }
+    }
+
+    /** Wi-Fi settings, with the password on the clipboard first: it is the one thing that screen asks for. */
+    private fun wifiByHand(why: String, password: String) {
+        if (password.isNotEmpty()) copySecret(password, "$why. The password is copied for Wi-Fi settings.")
+        else toast("$why. Pick it in Wi-Fi settings.")
+        onIntent?.invoke(android.content.Intent(android.provider.Settings.ACTION_WIFI_SETTINGS))
+    }
     /** @param startAt where the picker should open, or null for wherever it likes. */
     var onPickFolder: ((android.net.Uri?) -> Unit)? = null
     var onExit: (() -> Unit)? = null
     var onShare: ((List<VNode>) -> Unit)? = null
     var onCheckUpdates: (() -> Unit)? = null
 
+    // ── back, inside a screen that is itself inside a pane ────────────────────────────────
+    //
+    // Bug identified here: a pane's content can have its own levels - a playlist opened from
+    // the playlist list, a remote opened from the remotes list - and each of those screens
+    // declared a `BackHandler` of its own. Two unrelated mechanisms were then deciding one
+    // gesture: the browser's single handler, which walks the pane's history, and whichever
+    // inner handler happened to be composed. Which of them ran depended on composition order,
+    // and when the browser's won, backing out of an open playlist left the Playlists tab
+    // entirely and landed on Home - a level the reader never asked to leave.
+    //
+    // One mechanism instead. An inner screen REGISTERS what back should undo while it is on
+    // screen, the browser's handler asks here first, and a claim that reports it consumed the
+    // press stops there. Ordering cannot decide it any more because there is only one handler.
+    private val innerBacks = ArrayDeque<Pair<Long, () -> Boolean>>()
+    private var innerBackIds = 0L
+
+    /**
+     * Claim the back gesture while a screen inside a pane has a level to close.
+     *
+     * @param undo returns true when it consumed the press. Innermost claim wins, which is the
+     *   order they were registered in, so a drill-down inside a drill-down still unwinds one
+     *   level at a time.
+     * @return a token to hand back to [releaseInnerBack].
+     */
+    fun claimInnerBack(undo: () -> Boolean): Long {
+        val id = ++innerBackIds
+        innerBacks.addLast(id to undo)
+        return id
+    }
+
+    fun releaseInnerBack(token: Long) {
+        innerBacks.removeAll { it.first == token }
+    }
+
+    /** True when an inner screen took the press. Called first by the browser's handler. */
+    fun consumeInnerBack(): Boolean {
+        // Last registered is innermost. A claim that says it did nothing is passed over rather
+        // than swallowing the press, so a screen can register once and decide per press.
+        for (i in innerBacks.indices.reversed()) {
+            if (innerBacks[i].second()) return true
+        }
+        return false
+    }
+
+    /**
+     * Go to what a finished job produced.
+     *
+     * A folder is opened; a FILE is revealed in its folder with the row selected, because the
+     * useful thing after compressing is seeing the archive sitting among its neighbours rather
+     * than opening it. Anything that is no longer there says so instead of opening a blank
+     * pane - the work finished, and what it made can still have been moved since.
+     */
+    fun openJobDestination(raw: String) {
+        val path = runCatching { dev.niccc2007.filet.vfs.VPath.parse(raw) }.getOrNull() ?: return
+        viewModelScope.launch {
+            val node = runCatching { withContext(Dispatchers.IO) { graph.vfs.stat(path) } }.getOrNull()
+            if (node == null) {
+                toast("That is not there any more.")
+                return@launch
+            }
+            if (node.isDir) focusedPane()?.jumpTo(path) else revealInFolder(node)
+        }
+    }
+
+    /**
+     * Open Filet's own folder in a tab.
+     *
+     * Through the ordinary browser rather than a dedicated screen, because it IS an ordinary
+     * folder - which is the entire point of having moved the files there. The one thing worth
+     * saying is that the derived half is dotted, so reaching it means hidden entries are on;
+     * jumping straight into it sidesteps that rather than leaving somebody looking at a `Filet`
+     * folder that appears to have nothing in it.
+     */
+    fun openFiletFolder(cacheOnly: Boolean = true) {
+        val dir = runCatching {
+            if (cacheOnly) dev.niccc2007.filet.data.FiletStore.cacheRoot(graph.app)
+            else dev.niccc2007.filet.data.FiletStore.root(graph.app)
+        }.getOrNull() ?: return
+        openJobDestination(graph.files.vpath(dir).toString())
+    }
+
+    /**
+     * Restart the app so restored settings take effect.
+     *
+     * A restore copies preference FILES, and `Prefs` built its StateFlows from the old
+     * contents when the graph was constructed - so without this the restore appears to do
+     * nothing at all, which is the worst of the available outcomes: the data is back, the
+     * screen says otherwise, and somebody concludes the feature is broken and stops using it.
+     *
+     * The process is ended rather than the Activity recreated, because the object graph lives
+     * on the Application and would survive a recreate with the stale values still in it.
+     */
+    fun restartForRestoredSettings() {
+        toast("Settings restored. Restarting…")
+        val context = graph.app
+        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            ?.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(600)
+            runCatching { if (intent != null) context.startActivity(intent) }
+            kotlin.system.exitProcess(0)
+        }
+    }
+
+    /**
+     * Stop everything Filet is running and end the process. Debug builds only.
+     *
+     * ## Why this is not "press back until it closes"
+     *
+     * Filet keeps three foreground services - playback, the share server and the indexer - and
+     * each exists precisely so that leaving the app does NOT stop it. That is correct, and it
+     * means there is no ordinary way to answer "is anything still running", which is the
+     * question somebody debugging a battery or a heat complaint actually has.
+     *
+     * Services first, then the process. Ending the process while a foreground service is up
+     * invites Android to restart it, which would quietly disprove the thing this was used to
+     * check. The settings are written out before any of it, because this is a hard stop and
+     * `onPause` is not going to get its turn.
+     */
+    fun shutDownEverything() {
+        if (!dev.niccc2007.filet.BuildConfig.DEBUG) return
+        toast("Stopping everything…")
+        val context = graph.app
+        runCatching { playback.stop() }
+        for (service in listOf(
+            dev.niccc2007.filet.playback.PlaybackService::class.java,
+            dev.niccc2007.filet.nearby.NearbyService::class.java,
+            dev.niccc2007.filet.index.IndexService::class.java,
+        )) {
+            runCatching { context.stopService(android.content.Intent(context, service)) }
+        }
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    dev.niccc2007.filet.data.SettingsHome.snapshot(context)
+                }
+            }
+            // Long enough for the services to actually go, since stopService is a request
+            // rather than an instruction.
+            kotlinx.coroutines.delay(400)
+            kotlin.system.exitProcess(0)
+        }
+    }
+
     fun requestExit() { onExit?.invoke() }
+
+    /**
+     * Leave the task entirely, not just this screen. Set by the activity hosting the browser.
+     *
+     * Separate from [onExit], which finishes one activity and leaves the task - and every
+     * service - exactly where it was. That difference is the whole reason Stop Filet exists.
+     */
+    var onStopFilet: (() -> Unit)? = null
+
+    /** One of the entries in the side bar's Filet card. */
+    fun onPinned(p: SpecialPanes.Pinned) {
+        when (p) {
+            SpecialPanes.Pinned.ACTIVITY -> openActivity()
+            SpecialPanes.Pinned.SETTINGS -> focusedPane()?.openSpecial(PaneKind.SETTINGS, p.label)
+            SpecialPanes.Pinned.ABOUT -> focusedPane()?.openSpecial(PaneKind.ABOUT, p.label)
+            SpecialPanes.Pinned.STOP -> askStop()
+        }
+    }
+
+    /** What would end right now, in the sheet's words. */
+    fun runningWorkNow(): List<RunningWork.Item> {
+        val np = graph.playback.state.value
+        val running = graph.ledger.jobs.value.filter { it.running }
+        return RunningWork.of(
+            playing = if (np.playing) np.current?.title else null,
+            crawling = graph.indexCoordinator.isCrawling(),
+            jobs = running.map { it.title to RunningWork.leavesPartial(it.title) },
+            hosting = runCatching { graph.webdav.state().shares.count { it.running } }.getOrDefault(0),
+            nearby = graph.nearby.state.value.running,
+        )
+    }
+
+    /**
+     * Stop Filet, asking first unless asked not to.
+     *
+     * The tick on the sheet turns the asking off, but never when something would be cut off
+     * partway. Naming a copy in flight before it is interrupted is not a confirmation that can
+     * be given in advance - the one time it matters is the one time nobody remembered there
+     * was a copy running.
+     */
+    fun askStop() {
+        val items = runningWorkNow()
+        if (!graph.prefs.stopConfirm.value && items.none { it.interrupts }) {
+            stopFilet()
+        } else {
+            _state.update { it.copy(stopAsk = items) }
+        }
+    }
+
+    fun cancelStop() = _state.update { it.copy(stopAsk = null) }
+
+    /**
+     * End everything Filet is running, the way a fresh install would find it.
+     *
+     * Wound down in order rather than just killed, because the parts with something outside the
+     * process have to be told: the player releases its session so another app gets audio focus
+     * back cleanly, a share being hosted closes its socket instead of leaving clients hanging,
+     * and the services take their notifications down. The scheduled sweep is cancelled as well,
+     * so nothing wakes Filet back up while it is meant to be stopped; the next open schedules it
+     * again. Then the process ends, which is what stops whatever the list above did not name.
+     */
+    fun stopFilet() {
+        _state.update { it.copy(stopAsk = null) }
+        viewModelScope.launch {
+            runCatching { graph.playback.stop() }
+            runCatching { graph.indexCoordinator.stop() }
+            runCatching { dev.niccc2007.filet.index.IndexService.stop(graph.app) }
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                runCatching { graph.webdav.stop() }
+                runCatching { graph.nearby.stop() }
+            }
+            runCatching { dev.niccc2007.filet.nearby.NearbyService.stop(graph.app) }
+            runCatching {
+                androidx.work.WorkManager.getInstance(graph.app)
+                    .cancelUniqueWork(dev.niccc2007.filet.index.IndexCoordinator.WORK_NAME)
+            }
+            onStopFilet?.invoke()
+            // Long enough for the stop intents to reach the services and their notifications to
+            // leave the shade; a kill that races them leaves a notification for a dead process.
+            kotlinx.coroutines.delay(STOP_SETTLE_MS)
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }
+    }
 
     /**
      * Open the first of [intents] this phone can actually handle.
@@ -2104,6 +2939,24 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     /** Whether every selected item is somewhere this phone's media index can hold. */
+    /**
+     * One item is selected and it lives somewhere other than the folder on screen: a search hit
+     * from below it, a category, New files. Where Show in folder is a step somewhere.
+     */
+    fun selectionIsElsewhere(): Boolean {
+        val pane = focusedPane() ?: return false
+        val items = pane.selectedNodes()
+        if (items.size != 1) return false
+        val s = pane.state.value
+        return s.kind != PaneKind.FOLDER || items[0].path.parent != s.target
+    }
+
+    /** Show the one selected item in its folder. */
+    fun revealSelection() {
+        val node = focusedPane()?.selectedNodes()?.singleOrNull() ?: return
+        revealInFolder(node)
+    }
+
     fun selectionIsOnThisDevice(): Boolean {
         val items = focusedPane()?.selectedNodes().orEmpty()
         return items.isNotEmpty() &&
@@ -2186,6 +3039,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         viewModelScope.launch {
             val roots = runCatching { graph.vfs.roots() }.getOrElse { emptyList() }
             _state.update { st -> st.copy(volumes = volumeInfos(roots)) }
+            _tabs.value.forEach(::equip)
             val added = roots.lastOrNull { it.path.scheme == "saf" }
             if (added != null) {
                 // walking: a folder created here a moment ago; the pane is already its parent.
@@ -2201,14 +3055,29 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     val handlers get() = graph.registry
 
     /** Single tap: whatever the registry says opens this type. */
-    fun openWithRegistered(node: VNode) {
+    fun openWithRegistered(node: VNode, from: List<VNode>? = null, back: OpenRequest? = null) {
         when (val h = graph.registry.handlerFor(node)) {
             HandlerId.EXTERNAL -> openExternally(node)
             HandlerId.ARCHIVE -> mountArchive(node)
             HandlerId.APK -> openApk(node)
-            else -> _openRequest.value = OpenRequest(node, h)
+            else -> _openRequest.value = OpenRequest(node, h, from?.let { viewerRun(node, it) }, back = back)
         }
     }
+
+    /**
+     * The pictures and videos in [from] a viewer opened on [node] can swipe through.
+     *
+     * Only files that open in Filet's own picture or video viewer: a photo whose type somebody
+     * sent to another app is not a page, because reaching it would mean leaving Filet.
+     */
+    private fun viewerRun(node: VNode, from: List<VNode>): dev.niccc2007.filet.handlers.ViewerRun? =
+        dev.niccc2007.filet.handlers.ViewerRun.of(from, node) { n ->
+            when (FileKind.of(n)) {
+                FileKind.IMAGE -> graph.registry.handlerFor(n) == HandlerId.IMAGE
+                FileKind.VIDEO -> graph.registry.handlerFor(n) == HandlerId.MEDIA
+                else -> false
+            }
+        }
 
     /** Double tap: always ask, even when a default exists. That is what a chooser is for. */
     fun openChooser(node: VNode) { _chooserFor.value = node }
@@ -2228,7 +3097,66 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
     }
 
-    fun closeHandler() { _openRequest.value = null }
+    /**
+     * Back out of the file on screen: to the file it was opened from by a link, or out of the
+     * viewers when it was opened from the browser.
+     *
+     * Bug identified here: a link from one document to another replaced the first, so Back out
+     * of the second closed the only screen there was and landed in the folder list, with the
+     * document that was being read gone. Each request now carries the one beneath it.
+     */
+    fun closeHandler() {
+        _openRequest.value = _openRequest.value?.back?.copy(returning = true)
+    }
+
+    /**
+     * Out of every viewer at once, however deep the links went - for a step that leaves them for
+     * the browser on purpose: a folder, Reveal in folder, an APK walked into.
+     */
+    fun leaveHandlers() { _openRequest.value = null }
+
+    /**
+     * A link inside the file on screen, followed. A file opens on top of the one showing, so Back
+     * comes back to it, at the place it was left; a folder leaves the viewers for the browser,
+     * since a folder is not a page.
+     *
+     * Through [openNode], so a file reached by a link is opened in every sense - recorded among
+     * the recently opened, ranked, routed to its own viewer - and the request it makes carries
+     * the one it was opened from.
+     */
+    fun followLink(path: dev.niccc2007.filet.vfs.VPath) {
+        viewModelScope.launch {
+            val target = withContext(Dispatchers.IO) { runCatching { graph.vfs.stat(path) }.getOrNull() }
+            when {
+                target == null -> toast("${path.name} is not there.")
+                target.isDir -> {
+                    leaveHandlers()
+                    openNode(target)
+                }
+                // Bug identified here: the request was given its `back` after `openNode` returned,
+                // read off whatever request was showing then. Every file that is not an archive
+                // or a bundle has its first bytes read before it is routed (`openUnclaimed`), so
+                // its request arrived a moment later, after that check had already found the old
+                // one and done nothing. Back out of the linked file then had nothing to return
+                // to and landed in the folder list. The one underneath now travels with the open.
+                else -> openNode(target, back = _openRequest.value?.copy(returning = false))
+            }
+        }
+    }
+
+    /**
+     * A viewer was swiped to another file of its run.
+     *
+     * The request follows, so whatever asks "what is open" hears the file on screen rather than
+     * the one first tapped. Not recorded in Recently opened: passing a photo on the way to
+     * another is not opening it.
+     */
+    fun viewerMoved(run: dev.niccc2007.filet.handlers.ViewerRun) {
+        val r = _openRequest.value ?: return
+        val node = run.current
+        val handler = if (FileKind.of(node) == FileKind.VIDEO) HandlerId.MEDIA else HandlerId.IMAGE
+        _openRequest.value = r.copy(node = node, handler = handler, run = run)
+    }
 
     /**
      * Open the full player on whatever is playing now.
@@ -2293,7 +3221,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             graph.registry.clearExternal(ext)
             toast("${remembered.label} is no longer installed — pick another")
         }
-        askWhichApp(node)
+        // A tap with no remembered app gets the one complete Open with - every Filet viewer
+        // AND every app - not an apps-only list. `force` is the explicit "another app" action.
+        if (force) askWhichApp(node) else openChooser(node)
     }
 
     /**
@@ -2514,11 +3444,13 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             pending.node, pending.text, pending.archiveName, pending.cost, null, true, pending.onSaved,
         )
         viewModelScope.launch {
-            val id = ledger.start("Saving into", pending.archiveName)
+            // No Stop on a save, on purpose: it writes over the file in place, and a save stopped
+            // half way is the file cut short. It takes as long as writing one text file does.
+            val id = ledger.start("Saving into", pending.archiveName, kind = dev.niccc2007.filet.jobs.JobKind.SAVE)
             runCatching {
                 kotlinx.coroutines.withContext(Dispatchers.IO) {
                     val bytes = pending.text.toByteArray(Charsets.UTF_8)
-                    ArchiveEdits.replace(pending.node.path) { java.io.ByteArrayInputStream(bytes) }
+                    ArchiveEdits.replace(pending.node.path, graph.stagedArchiveDirs()) { java.io.ByteArrayInputStream(bytes) }
                 }
             }.onSuccess {
                 ledger.finish(id)
@@ -2542,10 +3474,20 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun saveArchiveMemberElsewhere() {
         val pending = _archiveSave.value ?: return
         _archiveSave.value = null
-        pick(dev.niccc2007.filet.pick.PickSpec("Save ${pending.node.name} to", dev.niccc2007.filet.pick.PickSpec.Want.FOLDER, confirmLabel = "Save here")) pick@{ r ->
+        pick(
+            dev.niccc2007.filet.pick.PickSpec(
+                "Save ${pending.node.name} to",
+                dev.niccc2007.filet.pick.PickSpec.Want.FOLDER,
+                confirmLabel = "Save here",
+                // Beside the archive it came out of: the one pick that starts in a place.
+                start = dev.niccc2007.filet.pick.PickSpec.besideArchive(pending.node.path),
+                verb = "save",
+                subject = pending.node.name,
+            ),
+        ) pick@{ r ->
             val folder = (r as? dev.niccc2007.filet.pick.PickResult.Picked)?.first ?: return@pick
             viewModelScope.launch {
-                val id = ledger.start("Saving", pending.node.name)
+                val id = ledger.start("Saving", pending.node.name, kind = dev.niccc2007.filet.jobs.JobKind.SAVE)
                 runCatching {
                     val taken = kotlinx.coroutines.withContext(Dispatchers.IO) {
                         runCatching { graph.vfs.list(folder).map { it.name }.toHashSet() }
@@ -2751,7 +3693,14 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * album art makes a four-minute song bigger than the album.
      */
     fun replaceCover(node: VNode, onDone: () -> Unit) {
-        pick(dev.niccc2007.filet.pick.PickSpec("Choose a picture for " + node.name, dev.niccc2007.filet.pick.PickSpec.Want.FILE, dev.niccc2007.filet.pick.PickFilter.PICTURES)) pick@{ r ->
+        pick(
+            dev.niccc2007.filet.pick.PickSpec(
+                "Choose a picture for " + node.name,
+                dev.niccc2007.filet.pick.PickSpec.Want.FILE,
+                dev.niccc2007.filet.pick.PickFilter.PICTURES,
+                subject = node.name,
+            ),
+        ) pick@{ r ->
             val picked = (r as? dev.niccc2007.filet.pick.PickResult.Picked)?.first
             if (picked == null) {
                 // Backed out: nothing attached, and the screen's buttons come back.
@@ -2849,7 +3798,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         if (ArchiveEdits.isMember(node.path)) {
             viewModelScope.launch {
                 val refusal = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                    runCatching { ArchiveEdits.refusalFor(node.path) }.getOrElse { it.message }
+                    runCatching { ArchiveEdits.refusalFor(node.path, graph.stagedArchiveDirs()) }.getOrElse { it.message }
                 }
                 val cost = kotlinx.coroutines.withContext(Dispatchers.IO) {
                     runCatching { EditCosts.describe(ArchiveEdits.costOf(node.path)) }
@@ -2867,7 +3816,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             return
         }
         viewModelScope.launch {
-            val id = ledger.start("Saving", node.name)
+            val id = ledger.start("Saving", node.name, kind = dev.niccc2007.filet.jobs.JobKind.SAVE)
             runCatching {
                 val bytes = text.toByteArray(Charsets.UTF_8)
                 kotlinx.coroutines.withContext(Dispatchers.IO) {
@@ -2908,38 +3857,170 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     /**
-     * Write an edited image beside the original.
+     * Ask where to save a new picture made from [node], and under what name.
      *
-     * Never over it. [editedName] picks a name that is not taken and is not the original's,
-     * and this is the only path that writes an edit - so "the editor ate my photo" is not a
-     * bug this app can have. The caller hands over encoded bytes rather than a bitmap, which
-     * keeps the image format decision with the editor that knows whether alpha matters.
+     * The picker's save mode (`PickSpec.Want.SAVE`): it opens in [node]'s folder offering the
+     * name [editedName] would have picked, and the answer is a path that may already exist - the
+     * card has said "Replace" before the confirm if it does.
      *
-     * @param extension what the bytes actually are, which is not always what the original
-     *   was: a `.heic` edited and re-encoded comes back as JPEG and must be named as one.
+     * @param extension what the new file will be. It decides the name offered, which files in
+     *   the folder can be tapped to take their name, and the extension a typed name is given.
+     */
+    fun chooseSaveAs(node: VNode, extension: String, onChosen: (VPath) -> Unit) {
+        val folder = node.path.parent
+        viewModelScope.launch {
+            val taken = if (folder == null) HashSet() else kotlinx.coroutines.withContext(Dispatchers.IO) {
+                runCatching { graph.vfs.list(folder).map { it.name }.toHashSet() }.getOrDefault(HashSet())
+            }
+            pick(
+                dev.niccc2007.filet.pick.PickSpec(
+                    title = "Choose where to save a copy of " + node.name,
+                    want = dev.niccc2007.filet.pick.PickSpec.Want.SAVE,
+                    accept = dev.niccc2007.filet.pick.PickFilter.Extensions(
+                        dev.niccc2007.filet.pick.PickName.sameKind(extension),
+                        "a .$extension file",
+                    ),
+                    name = editedName(node.name, extension) { it in taken },
+                    saveExtension = extension,
+                    verb = "save",
+                    subject = "a copy of " + node.name,
+                ),
+            ) { result ->
+                if (result is dev.niccc2007.filet.pick.PickResult.Picked) onChosen(result.first)
+            }
+        }
+    }
+
+    /** [path] with a name ending in what the bytes are, for a new file; an original keeps its name. */
+    private fun named(path: VPath, extension: String, isNew: Boolean): VPath {
+        if (!isNew) return path
+        val parent = path.parent ?: return path
+        return parent.child(dev.niccc2007.filet.pick.PickName.fitted(path.name, extension))
+    }
+
+    /**
+     * Put a picture's bytes at [target]. A new file is written straight; one that exists is
+     * replaced through the written-beside, read-back, swapped-in path (`SafeReplace`), so a
+     * failure at any step leaves it as it was.
+     */
+    private suspend fun writePicture(target: VPath, bytes: ByteArray, verify: (ByteArray) -> Unit = {}) {
+        val folder = target.parent ?: error("There is nowhere to save this.")
+        writeBlockReason(folder)?.let { error(it) }
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            if (graph.vfs.stat(target) != null) {
+                dev.niccc2007.filet.docs.SafeReplace.replace(
+                    dev.niccc2007.filet.docs.VfsSiblings(graph.vfs, folder), target.name, bytes, verify,
+                )
+            } else {
+                graph.vfs.openWrite(target).use { it.write(bytes) }
+            }
+        }
+    }
+
+    /**
+     * After a picture is written: its old thumbnails dropped, the gallery told, the panes re-read.
+     *
+     * The gallery has to be told by hand. A picture written straight through the filesystem is
+     * seen by no file operation, so nothing else announces it - which is how an edited copy came
+     * to be on the disk and in no gallery at all, and a turn saved over a photo still showed the
+     * old way up there.
+     */
+    private fun pictureWritten(target: VPath) {
+        dev.niccc2007.filet.media.Thumbnails.forget(target)
+        dev.niccc2007.filet.media.MediaAnnounce.announce(graph.app, listOf(target))
+        refreshPanes()
+    }
+
+    /**
+     * Save the turn the picture viewer is showing: over the original, or to [to].
+     *
+     * Read from the FILE rather than from the screen, so a turn never costs resolution - the
+     * viewer's copy is scaled down to fit the phone. `PictureTurn` decides what each format
+     * allows; for a JPEG it is one number in the file, every pixel untouched.
+     *
+     * @param quarters clockwise, 1 to 3.
+     * @param to where a new file goes, from [chooseSaveAs]; null replaces the original.
+     * @param onDone whether it was saved, so the viewer can stop waiting either way.
+     */
+    fun saveTurnedPicture(node: VNode, quarters: Int, to: VPath?, onDone: (Boolean) -> Unit) {
+        var target = to ?: node.path
+        viewModelScope.launch {
+            val id = ledger.start("Saving", target.name, kind = dev.niccc2007.filet.jobs.JobKind.SAVE)
+            runCatching {
+                // The whole file is held twice at the peak, the original and the turned copy.
+                if (node.size > TURN_MAX_BYTES) error("This picture is too large to turn here.")
+                val bytes = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    graph.vfs.openRead(node.path).use { it.readBytes() }
+                }
+                val turned = kotlinx.coroutines.withContext(Dispatchers.Default) {
+                    dev.niccc2007.filet.handlers.PictureTurn.turn(bytes, node.extension, quarters, replacing = to == null)
+                }
+                // Named for what was made, should that differ from what the name was picked for.
+                target = named(target, turned.extension, to != null)
+                writePicture(target, turned.bytes) { back ->
+                    // The read-back already proved the bytes; this proves they say what was
+                    // meant, which is the part a bug here would get wrong.
+                    val want = turned.orientation ?: return@writePicture
+                    check(dev.niccc2007.filet.media.JpegOrientation.read(back) == want) {
+                        "The saved copy does not say the turn it was given."
+                    }
+                }
+            }.onSuccess {
+                ledger.finish(id)
+                pictureWritten(target)
+                toast(if (to == null) "Turned and saved" else "Saved as " + target.name)
+                onDone(true)
+            }.onFailure {
+                val why = dev.niccc2007.filet.ops.FileOperations.readable(it)
+                ledger.fail(id, why)
+                toast("Could not save: $why")
+                onDone(false)
+            }
+        }
+    }
+
+    /**
+     * Save an edit: over the original, or to [to].
+     *
+     * Over the original only when that was the choice made, in so many words, from the editor's
+     * Save menu - and through [writePicture], so the file being saved over cannot be lost to a
+     * save that fails half way. A new file goes wherever the picker said, under the name typed
+     * there. The caller hands over encoded bytes rather than a bitmap, which keeps the format
+     * decision with the editor that knows whether alpha matters.
+     *
+     * A JPEG carries the original's EXIF block across (`JpegOrientation.carried`): without it,
+     * every edited photo lost when and where it was taken, and a gallery sorting by date moved it
+     * to today.
+     *
+     * @param extension what the bytes actually are, which is not always what the original was:
+     *   a `.heic` edited and re-encoded comes back as JPEG and can only be saved as new.
+     * @param to where a new file goes, from [chooseSaveAs]; null replaces the original.
      * @param onSaved the name that was actually used, so the editor can say it out loud.
      */
-    fun saveEditedImage(node: VNode, bytes: ByteArray, extension: String, onSaved: (String) -> Unit) {
+    fun saveEditedImage(node: VNode, bytes: ByteArray, extension: String, to: VPath?, onSaved: (String) -> Unit) {
+        val target = named(to ?: node.path, extension, to != null)
         viewModelScope.launch {
-            val folder = node.path.parent
-            if (folder == null) { toast("There is nowhere to save this."); return@launch }
-            if (!graph.vfs.canWrite(folder)) { toast("This folder is read-only."); return@launch }
-            val id = ledger.start("Saving", node.name)
+            val id = ledger.start("Saving", target.name, kind = dev.niccc2007.filet.jobs.JobKind.SAVE)
             runCatching {
-                val taken = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                    runCatching { graph.vfs.list(folder).map { it.name }.toHashSet() }
-                        .getOrDefault(HashSet())
+                if (to == null && !dev.niccc2007.filet.pick.PickName.sameKind(node.extension).contains(extension.lowercase())) {
+                    error("An edited " + node.extension.uppercase() + " can only be saved as a new file.")
                 }
-                val name = editedName(node.name, extension) { it in taken }
-                kotlinx.coroutines.withContext(Dispatchers.IO) {
-                    graph.vfs.openWrite(folder.child(name)).use { out -> out.write(bytes) }
+                val withDetails = if (extension.lowercase() in setOf("jpg", "jpeg")) {
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        runCatching {
+                            val head = graph.vfs.openRead(node.path).use { dev.niccc2007.filet.media.JpegOrientation.head(it) }
+                            dev.niccc2007.filet.media.JpegOrientation.carried(head, bytes)
+                        }.getOrNull()
+                    } ?: bytes
+                } else {
+                    bytes
                 }
-                name
-            }.onSuccess { name ->
+                writePicture(target, withDetails)
+            }.onSuccess {
                 ledger.finish(id)
-                toast("Saved as $name")
-                refreshPanes()
-                onSaved(name)
+                pictureWritten(target)
+                toast(if (to == null) "Saved" else "Saved as " + target.name)
+                onSaved(target.name)
             }.onFailure {
                 val why = dev.niccc2007.filet.ops.FileOperations.readable(it)
                 ledger.fail(id, why)
@@ -3055,11 +4136,27 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      *   registered to. Honouring the registered handler here would answer "edit this" with a
      *   read-only preview, which is a worse answer than refusing.
      */
-    fun openIncoming(uri: android.net.Uri, mime: String?, edit: Boolean = false) {
+    fun openIncoming(
+        uri: android.net.Uri,
+        mime: String?,
+        edit: Boolean = false,
+        /**
+         * Which of Filet's viewers the other app asked for, or null for the usual routing.
+         *
+         * Filet publishes its viewers to the system under their own names - "Filet Video
+         * Player", "Filet PDF Reader" - as activity aliases of the one activity, so the alias
+         * that was launched IS the answer to "which viewer did they want". See
+         * `open/InboundViewers.kt`.
+         */
+        viewer: HandlerId? = null,
+    ) {
         viewModelScope.launch {
             val node = incomingNode(uri) ?: run { toast("Filet cannot open that link."); return@launch }
             when {
                 node.isDir -> focusedPane()?.jumpTo(node.path)
+                // Never remembered: opening one file from outside Filet must not rewrite what
+                // Filet itself uses for that type from then on.
+                viewer != null -> openWith(node, viewer, remember = false)
                 edit -> openWith(node, HandlerId.TEXT, remember = false)
                 else -> openWithRegistered(node)
             }
@@ -3136,7 +4233,13 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun extractInstalled(app: dev.niccc2007.filet.apk.InstalledApp) {
         viewModelScope.launch {
             val root = extractedApksFolder
-            val id = graph.ledger.start("Extracting ${app.label}")
+            val id = graph.ledger.start(
+                "Extracting ${app.label}",
+                cancel = coroutineContext[kotlinx.coroutines.Job],
+                kind = dev.niccc2007.filet.jobs.JobKind.APK,
+                to = root.toString(),
+                runAgain = { extractInstalled(app) },
+            )
             runCatching {
                 kotlinx.coroutines.withContext(Dispatchers.IO) {
                     ensureFolder(root)
@@ -3618,6 +4721,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         toast(if (enabled) "Index on" else "Index off — search still works, just slower")
     }
 
+    /** Smart or Manual. The setting is already written; this makes the schedule match it. */
+    fun onIndexAutoToggled(auto: Boolean) {
+        graph.indexCoordinator.setAuto(auto)
+    }
+
     /** The run the user started, for the Stop button and the reason it ended. */
     val indexRun get() = graph.indexCoordinator.run
 
@@ -3629,11 +4737,18 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * every press and the rest was never reached.
      */
     fun reindexNow() {
-        val roots = _state.value.volumes.map { it.node.path }
+        // Narrowed BEFORE the empty check, so a phone holding only shares and root mounts is told
+        // there is nothing to index rather than shown a run that silently does nothing.
+        val roots = dev.niccc2007.filet.index.Indexable.volumes(
+            _state.value.volumes.map { it.node.path },
+            graph.indexCoordinator.indexedShares(),
+        )
         if (roots.isEmpty()) { toast("No volume to index."); return }
         if (graph.indexCoordinator.isCrawling()) { toast("Already indexing."); return }
-        graph.indexCoordinator.crawlFully(roots)
-        openActivity(true)
+        // Run again on the activity row is this function again: a person asking, which is the
+        // only way the unbounded crawl may start (tools/check-crawl.mjs).
+        graph.indexCoordinator.crawlFully(roots, runAgain = { reindexNow() })
+        openActivity()
     }
 
     fun stopIndexing() {
@@ -3672,7 +4787,12 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         if (_scriptRunning.value != null) return
         viewModelScope.launch {
             _scriptRunning.value = script.id
-            val jobId = ledger.start("Running script", script.name)
+            val jobId = ledger.start(
+                "Running script", script.name,
+                cancel = coroutineContext[kotlinx.coroutines.Job],
+                kind = dev.niccc2007.filet.jobs.JobKind.SCRIPT,
+                runAgain = { runScript(script) },
+            )
             val result = graph.scriptEngine.run(script.source, script.permissions)
             _scriptResult.value = result
             _scriptRunning.value = null
@@ -3748,7 +4868,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     /** Walk into the APK as a folder - the same navigation as any other container. */
     fun browseApk(node: VNode) {
-        closeHandler()
+        leaveHandlers()
         val os = graph.vfs.osPath(node.path)
         if (os == null) { toast("Browse APKs from local storage."); return }
         // walking: descending into the APK that was tapped.
@@ -3757,7 +4877,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     /** Open one dex as a tree of smali. The provider does the disassembly on demand. */
     fun browseDex(node: VNode, dexEntry: String) {
-        closeHandler()
+        leaveHandlers()
         val os = graph.vfs.osPath(node.path)
         if (os == null) { toast("Browse APKs from local storage."); return }
         val root = dev.niccc2007.filet.vfs.provider.ApkProvider.mount(os)
@@ -3790,7 +4910,13 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun decompileApk(node: VNode) {
         if (_apkWork.value != null) return
         viewModelScope.launch {
-            val jobId = ledger.start("Decompiling", node.name)
+            val jobId = ledger.start(
+                "Decompiling", node.name,
+                cancel = coroutineContext[kotlinx.coroutines.Job],
+                kind = dev.niccc2007.filet.jobs.JobKind.APK,
+                from = node.path.toString(),
+                runAgain = { decompileApk(node) },
+            )
             _apkWork.value = "decompiling…"
             runCatching {
                 graph.apkTools.decompile(node.path, workDirFor(node)) { step ->
@@ -3817,7 +4943,13 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         val work = workDirFor(node)
         if (!work.isDirectory) { toast("Decompile it first."); return }
         viewModelScope.launch {
-            val jobId = ledger.start("Rebuilding", node.name)
+            val jobId = ledger.start(
+                "Rebuilding", node.name,
+                cancel = coroutineContext[kotlinx.coroutines.Job],
+                kind = dev.niccc2007.filet.jobs.JobKind.APK,
+                from = node.path.toString(),
+                runAgain = { rebuildApk(node) },
+            )
             _apkWork.value = "rebuilding…"
             runCatching {
                 graph.apkTools.rebuildAndSign(
@@ -3848,7 +4980,13 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun signApk(node: VNode) {
         if (_apkWork.value != null) return
         viewModelScope.launch {
-            val jobId = ledger.start("Signing", node.name)
+            val jobId = ledger.start(
+                "Signing", node.name,
+                cancel = coroutineContext[kotlinx.coroutines.Job],
+                kind = dev.niccc2007.filet.jobs.JobKind.APK,
+                from = node.path.toString(),
+                runAgain = { signApk(node) },
+            )
             _apkWork.value = "signing…"
             runCatching {
                 graph.apkTools.signOnly(node.path, graph.signingKeys, resolveSigningKey())
@@ -4019,7 +5157,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun searchByOrigin(origin: String) {
         val pane = focusedPane() ?: return
         pane.openSearch(true)
-        pane.setScope(dev.niccc2007.filet.index.SearchScope.PROVENANCE)
+        // Widened deliberately. `from:` is a field rather than a reach now (SEARCH.md §13.4),
+        // so without this the question would be asked of whichever folder the pane happened to
+        // be standing in - and "where did this come from" is never a question about one folder.
+        pane.setReach(ReachLadder.wholePhone(pane.reachDrives))
         pane.setQuery("from:$origin")
     }
 
@@ -4133,6 +5274,22 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun copyText(text: String, message: String) {
         val cm = graph.app.getSystemService(android.content.ClipboardManager::class.java)
         cm?.setPrimaryClip(android.content.ClipData.newPlainText("filet", text))
+        toast(message)
+    }
+
+    /**
+     * [copyText] for a password, a two-factor secret or an activation code: marked sensitive, so
+     * Android 13 and later leave it out of the clipboard preview and the keyboard's suggestions.
+     */
+    fun copySecret(text: String, message: String) {
+        val cm = graph.app.getSystemService(android.content.ClipboardManager::class.java)
+        val clip = android.content.ClipData.newPlainText("filet", text)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            clip.description.extras = android.os.PersistableBundle().apply {
+                putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true)
+            }
+        }
+        cm?.setPrimaryClip(clip)
         toast(message)
     }
 
@@ -4364,14 +5521,39 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         if (graph.davState.value.running) toast("Takes effect the next time you start hosting")
     }
 
-    /** Pick the folder for one share, starting from wherever the pane is. */
-    fun pickShareFolder(id: Long) {
-        val start = focusedPane()?.state?.value?.target
-            ?: graph.app.let { VPath.of("local", "/storage/emulated/0") }
-        pick(dev.niccc2007.filet.pick.PickSpec("Share this folder", dev.niccc2007.filet.pick.PickSpec.Want.FOLDER, confirmLabel = "Share this one", start = start)) pick@{ r ->
-            val dest = (r as? dev.niccc2007.filet.pick.PickResult.Picked)?.first ?: return@pick
-            val sh = graph.webdav.shares.firstOrNull { it.id == id } ?: return@pick
-            saveShare(sh.copy(customRoot = dest.toString()))
+    /**
+     * A share editor to reopen, carrying what was typed into it before a folder was picked.
+     *
+     * Bug identified here: the picker opens in a tab of its own, so the editor closed for it and
+     * its draft lived nowhere. The pick was then applied to the stored share by id - and a new
+     * share is not stored until Save, so the lookup found nothing and the folder was dropped
+     * along with the name and code typed so far. The draft is held here instead, where leaving
+     * the Remotes tab cannot reach it, and the editor comes back with it either way.
+     */
+    private val _shareDraft = MutableStateFlow<dev.niccc2007.filet.webdav.DavShare?>(null)
+    val shareDraft: StateFlow<dev.niccc2007.filet.webdav.DavShare?> = _shareDraft.asStateFlow()
+
+    fun shareDraftTaken() {
+        _shareDraft.value = null
+    }
+
+    /**
+     * Pick the folder for a share being edited. Opens on Home, as every pick does.
+     *
+     * Nothing is saved: the folder joins the draft, and Save in the editor stores it with the
+     * rest. A cancelled pick reopens the editor unchanged.
+     */
+    fun pickShareFolder(draft: dev.niccc2007.filet.webdav.DavShare) {
+        pick(
+            dev.niccc2007.filet.pick.PickSpec(
+                "Share this folder",
+                dev.niccc2007.filet.pick.PickSpec.Want.FOLDER,
+                confirmLabel = "Share this one",
+                verb = "share",
+            ),
+        ) { r ->
+            val dest = (r as? dev.niccc2007.filet.pick.PickResult.Picked)?.first
+            _shareDraft.value = if (dest == null) draft else draft.copy(customRoot = dest.toString())
         }
     }
 
@@ -4529,21 +5711,56 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 c.protocol.scheme,
                 "/" + c.id + if (parts.isEmpty()) "" else "/" + parts.joinToString("/"),
             )
+            // Every address this remote has, because that is what opening it would try.
+            //
+            // Bug identified here: the backstop below was one address's timeout plus a margin,
+            // while `NetDial` walks the saved addresses in SEQUENCE - so a remote with three
+            // addresses needed up to three timeouts to finish and the test killed it after one.
+            // The second and third address were never dialled, and the verdict handed back was
+            // the first address's timeout. Testing a remote whose primary address had moved
+            // therefore always failed, while OPENING the same remote worked, because opening it
+            // was never under this clock.
+            //
+            // The budget is per address, so the test gets exactly the chance the real thing
+            // does. Capped, because a long timeout times the addresses allowed by `Endpoints`
+            // would otherwise let one row spin for a quarter of an hour.
+            val tried = graph.connections.candidates(c)
+            val budgetMs = (tried.size.coerceAtLeast(1) * (c.timeoutSeconds.coerceIn(5, 60) + 5) * 1000L)
+                .coerceAtMost(180_000L)
             val verdict = runCatching {
                 withContext(Dispatchers.IO) {
-                    // Bounded by the connection's own timeout plus a margin, so a server that
-                    // accepts a socket and then says nothing cannot leave the row spinning for
-                    // ever. The provider's timeout should fire first; this is the backstop.
-                    kotlinx.coroutines.withTimeout(
-                        (c.timeoutSeconds.coerceIn(5, 60) + 5) * 1000L,
-                    ) {
+                    // The provider's own timeout should fire first; this is the backstop for a
+                    // server that accepts a socket and then says nothing.
+                    kotlinx.coroutines.withTimeout(budgetMs) {
                         graph.vfs.list(path) { }
                     }
                 }
             }
             val result = verdict.fold(
-                onSuccess = { dev.niccc2007.filet.remotes.RemoteProbe.WORKING },
-                onFailure = { dev.niccc2007.filet.remotes.RemoteProbe.verdictFor(it) },
+                onSuccess = {
+                    // WHICH address answered, not just that one did. `NetDial` writes the
+                    // address that worked to `lastGood`, so after a successful dial this names
+                    // it - and on a remote with several addresses that is the one thing the
+                    // test is being asked.
+                    val good = graph.connections.byId(c.id)?.lastGood?.takeIf { it.isNotBlank() }
+                    when {
+                        good == null -> dev.niccc2007.filet.remotes.RemoteProbe.WORKING
+                        tried.size <= 1 -> dev.niccc2007.filet.remotes.RemoteProbe.WORKING
+                        else -> dev.niccc2007.filet.remotes.RemoteProbe.WORKING.copy(detail = "at $good")
+                    }
+                },
+                onFailure = {
+                    val v = dev.niccc2007.filet.remotes.RemoteProbe.verdictFor(it)
+                    // A remote with one address that failed says why. One with several says how
+                    // many were tried, because "unreachable" on a three-address remote reads as
+                    // the other two having been skipped - which is exactly what used to happen.
+                    if (tried.size <= 1) v
+                    else v.copy(
+                        detail = listOf(v.detail, "${tried.size} addresses tried")
+                            .filter { d -> d.isNotBlank() }
+                            .joinToString(" · "),
+                    )
+                },
             )
             _remoteTests.value = _remoteTests.value + (c.id to result)
             _remoteTesting.value = _remoteTesting.value - c.id
@@ -4606,6 +5823,14 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             // left blank: the label is what the storage card shows, and a blank one there was
             // a real fault once already.
             label = found.name.takeIf { it != found.host }.orEmpty(),
+            // Where a Filet host said its share starts. Only Filet publishes this, so for
+            // everything else it is empty and the root is what gets mounted - which is the
+            // right assumption for a NAS and the wrong one for a Filet share, whose base path
+            // is `/a/<code>` and was otherwise left for somebody to work out from an address.
+            share = found.path.orEmpty(),
+            // Carried so the entry can be recognised again at a different address. Same reason
+            // as `connectionFromHost`: identity cannot be the one thing guaranteed to change.
+            deviceId = found.deviceId,
         )
 
     fun saveConnection(c: dev.niccc2007.filet.vfs.provider.net.NetConnection) {
@@ -4781,7 +6006,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * and do nothing when tapped. Now the tap is also the check: if it is gone, say so once
      * and take the row out.
      */
-    fun openHomeEntry(node: VNode) {
+    fun openHomeEntry(node: VNode, from: List<VNode>? = null) {
         viewModelScope.launch {
             val live = runCatching { graph.vfs.stat(node.path) }.getOrNull()
             if (live == null) {
@@ -4789,7 +6014,16 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 toast("That file is gone — removed from the list.")
                 return@launch
             }
-            if (live.isDir) focusedPane()?.jumpTo(live.path) else openNode(live)
+            // A pick gets first refusal, exactly as it does in a folder listing.
+            //
+            // Bug identified here: this is the one funnel Home, a category list and the
+            // category gallery all tap through, and it went straight to opening the file. So
+            // while a pick was live, tapping a photo in the Photos tab OPENED the photo - the
+            // card never lit up, nothing was added to the pick, and the confirm then said to
+            // select a picture first. A file the pick cannot use now says why, which is the
+            // same answer a dimmed row gives, instead of quietly doing something else.
+            if (!live.isDir && pickTap(live)) return@launch
+            if (live.isDir) focusedPane()?.jumpTo(live.path) else openNode(live, from)
         }
     }
 
@@ -4799,6 +6033,79 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         graph.bookmarks.remove(node.path)
         graph.home.refresh()
         _state.update { it.copy(revision = it.revision + 1) }
+    }
+
+    /**
+     * Leave the folder a New files row came from out of the feed from now on.
+     *
+     * The FOLDER, not the file. A row in New files is a file somebody did not put there - a
+     * thumbnail cache, a chat app's media directory, a game's asset dump - and hiding one of
+     * forty thousand of them is no use; the folder is the unit the noise arrives in.
+     *
+     * Stored as a path prefix and applied inside the query, so blocking takes effect on the
+     * next page rather than filtering rows after they have been counted. See
+     * `CategoryQuery.newSelection`.
+     */
+    fun blockHomeFolder(node: VNode) {
+        val folder = (if (node.isDir) node.path else node.path.parent) ?: run {
+            toast("That has no folder to block.")
+            return
+        }
+        val path = folder.path
+        // A root would hide the whole device, and the preference is read back by code that
+        // cannot tell a deliberate choice from a mistake, so it is refused here rather than
+        // defended everywhere downstream.
+        if (path.isBlank() || path == "/" || path.trimEnd('/').count { it == '/' } == 0) {
+            toast("A whole volume cannot be blocked.")
+            return
+        }
+        prefs.blockFolder(path)
+        graph.home.refresh()
+        toast("Hidden from New files: ${folder.name}")
+    }
+
+    /**
+     * Pick a folder, or files, for New files to leave out from now on.
+     *
+     * Through the in-app picker, so the place is pointed at rather than typed. A file is held
+     * in the same list as the folders: the feed's test is "this path, or anything under it",
+     * which for a file is just the file.
+     */
+    fun pickNewFilesExclusion(folder: Boolean) {
+        pick(
+            dev.niccc2007.filet.pick.PickSpec(
+                if (folder) "Hide a folder from New files" else "Hide files from New files",
+                if (folder) dev.niccc2007.filet.pick.PickSpec.Want.FOLDER else dev.niccc2007.filet.pick.PickSpec.Want.FILES,
+                confirmLabel = if (folder) "Hide this folder" else "Hide these",
+                verb = "hide",
+            ),
+        ) { r ->
+            val picked = (r as? dev.niccc2007.filet.pick.PickResult.Picked)?.paths.orEmpty()
+            // New files reads this device's media index; a share's path names nothing in it.
+            val local = picked.filter { it.scheme == "local" }
+            var added = 0
+            for (p in local) {
+                val path = p.path
+                // A volume root would hide the whole device. Same refusal as a held row.
+                if (path.isBlank() || path == "/" || path.trimEnd('/').count { it == '/' } == 0) continue
+                if (path.trimEnd('/') == "/storage/emulated/0") continue
+                prefs.blockFolder(path)
+                added++
+            }
+            if (added > 0) {
+                graph.home.refresh()
+                val what = if (added == 1) local.first().name else "$added items"
+                toast("Hidden from New files: " + what)
+            } else if (picked.isNotEmpty()) {
+                toast(if (local.isEmpty()) "New files only lists this device" else "A whole volume cannot be hidden.")
+            }
+        }
+    }
+
+    /** Let a blocked folder back into the feed. */
+    fun unblockHomeFolder(path: String) {
+        prefs.unblockFolder(path)
+        graph.home.refresh()
     }
 
     /** Show the file in its folder, with the row selected. */
@@ -4901,6 +6208,159 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
     }
 
+    /**
+     * The same dialogue for a set of paths, which is what a list of tracks has.
+     *
+     * Statted first and in parallel, because the dialogue takes nodes and a selection of forty
+     * on a share is forty round trips - sequentially that is a sheet that opens seconds after
+     * the tap. Anything that will not stat is dropped with a count, rather than the whole
+     * selection failing because one file was deleted.
+     */
+    fun askAddToPlaylistPaths(paths: List<dev.niccc2007.filet.vfs.VPath>) {
+        if (paths.isEmpty()) return
+        viewModelScope.launch {
+            val nodes = withContext(Dispatchers.IO) {
+                coroutineScope {
+                    paths
+                        .map { p -> async { runCatching { graph.vfs.stat(p) }.getOrNull() } }
+                        .awaitAll()
+                        .filterNotNull()
+                }
+            }
+            if (nodes.isEmpty()) {
+                toast("None of those are still there.")
+                return@launch
+            }
+            if (nodes.size < paths.size) toast("${paths.size - nodes.size} are no longer there")
+            askAddToPlaylist(nodes)
+        }
+    }
+
+    /**
+     * Choose another folder for All Music to scan, through the app's own chooser.
+     *
+     * Stored relative to the primary volume when it is under it, absolute when it is not - so a
+     * folder on an SD card keeps its own path and a folder on this phone survives the volume
+     * being mounted somewhere else. See `AllMusicFilter.prefixes`.
+     */
+    fun pickAllMusicFolder() {
+        pick(
+            dev.niccc2007.filet.pick.PickSpec(
+                "Scan this folder for music",
+                dev.niccc2007.filet.pick.PickSpec.Want.FOLDER,
+                confirmLabel = "Scan this folder",
+            ),
+        ) { r ->
+            val path = (r as? dev.niccc2007.filet.pick.PickResult.Picked)?.paths?.firstOrNull()
+                ?: return@pick
+            // Stored as the absolute path it is. Making it relative to the primary volume
+            // would need `Environment` up here, which is a storage API in a view model - and
+            // `AllMusicFilter.prefixes` already takes an absolute folder as it finds it, so
+            // the relativising bought nothing but a layering violation.
+            graph.prefs.addAllMusicFolder(path.path)
+            toast("All Music now scans ${path.name}")
+        }
+    }
+
+    /**
+     * Measure the beat of every audio file in the selection, in the background.
+     *
+     * Resolving a path to a playable URI is a per-file read, so it happens off the main thread
+     * and the selection is cleared immediately - the work is listed in Activity from the moment
+     * it starts, which is where somebody looks for it, and keeping the selection highlighted
+     * for however long the resolving took read as the button not having fired.
+     */
+    /** One track, from a playlist row's menu. */
+    fun makeBeatMapForPath(path: dev.niccc2007.filet.vfs.VPath) {
+        viewModelScope.launch {
+            val node = runCatching { withContext(Dispatchers.IO) { graph.vfs.stat(path) } }.getOrNull()
+            if (node == null) {
+                toast("That is not there any more.")
+                return@launch
+            }
+            val uri = runCatching {
+                dev.niccc2007.filet.playback.TrackMedia.uriFor(graph.vfs, graph.files, node)
+            }.getOrNull()
+            if (uri == null) {
+                toast("That could not be read.")
+                return@launch
+            }
+            if (graph.beatMaker.isStored(uri)) {
+                toast("Already measured.")
+                return@launch
+            }
+            graph.beatMaker.make(uri, node.name)
+            toast("Measuring the beat. See Activity.")
+        }
+    }
+
+    /**
+     * Every track in a playlist, as one job.
+     *
+     * The whole point of doing this ahead of time: the pulse is ready for a list somebody is
+     * about to put on, rather than measured one track at a time while they wait for each. The
+     * tracks already measured are skipped without being read, so running it twice on a list
+     * that has grown by two costs two tracks rather than the whole list.
+     */
+    fun makeBeatMapsForPlaylist(id: String) {
+        viewModelScope.launch {
+            val list = graph.playlists.get(id)
+            if (list == null) {
+                toast("That list is gone.")
+                return@launch
+            }
+            val paths = list.tracks
+            if (paths.isEmpty()) {
+                toast("Nothing in that list.")
+                return@launch
+            }
+            val tracks = withContext(Dispatchers.IO) {
+                paths.mapNotNull { p ->
+                    val node = runCatching { graph.vfs.stat(p) }.getOrNull() ?: return@mapNotNull null
+                    if (FileKind.of(node) != FileKind.AUDIO) return@mapNotNull null
+                    val uri = runCatching {
+                        dev.niccc2007.filet.playback.TrackMedia.uriFor(graph.vfs, graph.files, node)
+                    }.getOrNull() ?: return@mapNotNull null
+                    uri to node.name
+                }
+            }
+            if (tracks.isEmpty()) {
+                toast("Nothing in that list could be read.")
+                return@launch
+            }
+            graph.beatMaker.makeAll(tracks, list.name)
+            toast("Measuring ${tracks.size} tracks. See Activity.")
+        }
+    }
+
+    fun makeBeatMapsForSelection() {
+        val items = focusedPane()?.selectedNodes().orEmpty()
+            .filter { FileKind.of(it) == FileKind.AUDIO }
+        if (items.isEmpty()) return
+        focusedPane()?.clearSelection()
+        viewModelScope.launch {
+            val tracks = items.mapNotNull { node ->
+                val uri = runCatching {
+                    dev.niccc2007.filet.playback.TrackMedia.uriFor(graph.vfs, graph.files, node)
+                }.getOrNull() ?: return@mapNotNull null
+                uri to node.name
+            }
+            if (tracks.isEmpty()) {
+                toast("Those could not be read.")
+                return@launch
+            }
+            if (tracks.size == 1) {
+                graph.beatMaker.make(tracks[0].first, tracks[0].second)
+            } else {
+                graph.beatMaker.makeAll(tracks, "${tracks.size} tracks")
+            }
+            toast(
+                if (tracks.size == 1) "Measuring the beat. See Activity."
+                else "Measuring ${tracks.size} tracks. See Activity.",
+            )
+        }
+    }
+
     fun addToPlaylistSelection() {
         // The tracks only. The row is offered for a mixed selection and labelled "11 of 12";
         // adding all twelve would put the screenshot in the playlist as a row that never plays.
@@ -4913,19 +6373,41 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         askAddToPlaylist(items)
     }
 
-    fun addToPlaylist(id: String, nodes: List<VNode>) {
+    /**
+     * Put these in a playlist, or take them out of it.
+     *
+     * The dialogue STAYS OPEN. It is a set of tick boxes now rather than a list of buttons, and
+     * the whole point of boxes is filing one track into three lists without the dialogue closing
+     * under the first tap. It is dismissed by Done, by the scrim, or by the close in the corner.
+     *
+     * Adding is idempotent - `Playlist.plusAll` skips what is already there - so a mixed
+     * selection needs no de-duplication here.
+     */
+    fun setPlaylistMembership(id: String, nodes: List<VNode>, member: Boolean) {
         val list = graph.playlists.get(id) ?: return
-        val before = list.size
-        graph.playlists.add(id, nodes.map { it.path })
-        val added = (graph.playlists.get(id)?.size ?: before) - before
-        _playlistFor.value = emptyList()
-        toast(
-            when {
-                added == 0 -> "Already in ${list.name}"
-                added == nodes.size -> "Added to ${list.name}"
-                else -> "$added added to ${list.name}"
-            },
-        )
+        val paths = nodes.map { it.path }
+        if (member) {
+            val before = list.size
+            graph.playlists.add(id, paths)
+            val added = (graph.playlists.get(id)?.size ?: before) - before
+            toast(
+                when {
+                    added == 0 -> "Already in ${list.name}"
+                    added == nodes.size && added == 1 -> "Added to ${list.name}"
+                    else -> "$added added to ${list.name}"
+                },
+            )
+        } else {
+            for (p in paths) graph.playlists.remove(id, p)
+            val gone = list.size - (graph.playlists.get(id)?.size ?: list.size)
+            toast(
+                when {
+                    gone <= 0 -> "Not in ${list.name}"
+                    gone == 1 -> "Taken out of ${list.name}"
+                    else -> "$gone taken out of ${list.name}"
+                },
+            )
+        }
     }
 
     fun newPlaylistWith(name: String, nodes: List<VNode>) {
@@ -4948,7 +6430,20 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * still SHOWN in the playlist - a list that quietly shrinks is how somebody loses one
      * they spent an hour on - it just is not handed to the decoder.
      */
-    fun playPlaylist(id: String, from: Int = 0, shuffle: Boolean = false) {
+    fun playPlaylist(id: String, from: Int = 0, shuffle: Boolean = false) =
+        startPlaylist(id, tapped = null, tappedAt = from, shuffle = shuffle)
+
+    /**
+     * Play a playlist starting at the track that was tapped, identified by its path.
+     *
+     * The path and not its row number. See `PlaylistHealth`: the queue leaves out whatever no
+     * longer stats, so a row number from the screen and a position in the queue are two indices
+     * into two lists of different lengths, and treating them as one played the wrong song.
+     */
+    fun playPlaylistTrack(id: String, path: VPath, shuffle: Boolean = false) =
+        startPlaylist(id, tapped = path.toString(), tappedAt = 0, shuffle = shuffle)
+
+    private fun startPlaylist(id: String, tapped: String?, tappedAt: Int, shuffle: Boolean) {
         val list = graph.playlists.get(id) ?: return
         viewModelScope.launch {
             val nodes = list.tracks.mapNotNull { p ->
@@ -4959,7 +6454,14 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 return@launch
             }
             val tracks = dev.niccc2007.filet.playback.tracksOf(nodes)
-            val at = from.coerceIn(0, tracks.lastIndex)
+            val stored = list.tracks.map { it.toString() }
+            val at = dev.niccc2007.filet.playback.PlaylistHealth.let { h ->
+                if (tapped != null) {
+                    h.startIndex(stored, tracks.map { it.id }, tapped)
+                } else {
+                    h.startIndexAt(stored, tracks.map { it.id }, tappedAt)
+                }
+            }.coerceIn(0, tracks.lastIndex)
             // asAudio: a playlist is a music context. A video in one is there because
             // somebody chose to put it there, and throwing the video player at track four
             // of a queue of songs is the opposite of what the list is for. Watch is still
@@ -4967,7 +6469,68 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             graph.playback.play(tracks, at, asAudio = true, from = list.name)
             graph.playback.setShuffle(shuffle)
             maximisePlayer()
+            // Opening a list and playing out of it are the two moments the gaps matter, so the
+            // probe runs here too rather than only when the detail screen is composed.
+            checkPlaylistTracks(id)
         }
+    }
+
+    private val _missingTracks = MutableStateFlow<Set<String>>(emptySet())
+
+    /**
+     * Playlist entries whose files did not stat, by `VPath.toString()`.
+     *
+     * One set across every list rather than one per list: a path is gone or it is not, and the
+     * same file is commonly in three playlists. The screens filter it by what they are drawing.
+     */
+    val missingTracks: StateFlow<Set<String>> = _missingTracks.asStateFlow()
+
+    private var trackProbe: Job? = null
+
+    /**
+     * Stat a playlist's tracks and publish the ones that are not there.
+     *
+     * Bounded and cancellable: a list of two thousand entries on a share would otherwise be two
+     * thousand round trips held open behind a screen somebody has already left. A newer probe
+     * replaces an older one, because the newer screen is the one being looked at.
+     */
+    fun checkPlaylistTracks(id: String) {
+        val list = graph.playlists.get(id) ?: return
+        trackProbe?.cancel()
+        trackProbe = viewModelScope.launch {
+            val gone = HashSet<String>()
+            for (p in list.tracks.take(PROBE_CAP)) {
+                val there = runCatching { withContext(Dispatchers.IO) { graph.vfs.stat(p) } }.getOrNull()
+                if (there == null) gone += p.toString()
+            }
+            // Merged rather than replaced, so probing list B does not un-mark list A's gaps
+            // while both are on screen in a split view. Entries that came back are dropped.
+            val checked = list.tracks.take(PROBE_CAP).map { it.toString() }.toSet()
+            _missingTracks.value = (_missingTracks.value - checked) + gone
+        }
+    }
+
+    /**
+     * Drop the entries whose files are gone from this device.
+     *
+     * Only the ones `PlaylistHealth.removable` vouches for - a path on a share that did not
+     * answer is left alone, because "deleted" and "the server is off" look identical from here
+     * and only one of them is worth editing somebody's playlist over.
+     */
+    fun prunePlaylistMissing(id: String) {
+        val list = graph.playlists.get(id) ?: return
+        val gone = _missingTracks.value
+        val drop = list.tracks.filter {
+            it.toString() in gone &&
+                dev.niccc2007.filet.playback.PlaylistHealth.removable(it.toString())
+        }
+        if (drop.isEmpty()) {
+            toast("Nothing to clean up here.")
+            return
+        }
+        for (p in drop) graph.playlists.remove(id, p)
+        _missingTracks.value = _missingTracks.value - drop.map { it.toString() }.toSet()
+        toast(if (drop.size == 1) "Removed 1 missing track." else "Removed ${drop.size} missing tracks.")
     }
 
     /**
@@ -4996,6 +6559,59 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun bumpCategory() {
         _categoryRevision.value = _categoryRevision.value + 1
+    }
+
+    /** Bumped to start the scanner's camera again. See [RefreshTarget.CAMERA]. */
+    private val _cameraRevision = MutableStateFlow(0)
+    val cameraRevision: StateFlow<Int> = _cameraRevision.asStateFlow()
+
+    fun bumpCamera() {
+        _cameraRevision.value = _cameraRevision.value + 1
+    }
+
+    /**
+     * The code the scanner has read, until its dialog is closed.
+     *
+     * Held here rather than in the screen because "From a picture" goes through the picker,
+     * which is a tab of its own: the scanner is not composed while it is open, and an answer
+     * written into the screen's own state would land in a composition that no longer exists.
+     * The picture's code would be read and then shown nowhere.
+     */
+    private val _scanFound = MutableStateFlow<dev.niccc2007.filet.qr.ScanHit?>(null)
+    val scanFound: StateFlow<dev.niccc2007.filet.qr.ScanHit?> = _scanFound.asStateFlow()
+
+    fun scanned(hit: dev.niccc2007.filet.qr.ScanHit?) {
+        _scanFound.value = hit
+    }
+
+    /**
+     * Choose a picture in Filet's own picker and read the code in it, for the scanner.
+     *
+     * A picture with no code says so here, naming it, rather than handing the screen a null it
+     * would have to explain; a cancelled pick says nothing, because nothing was asked.
+     */
+    fun scanPicture() {
+        pick(
+            dev.niccc2007.filet.pick.PickSpec(
+                "Read a code from a picture",
+                dev.niccc2007.filet.pick.PickSpec.Want.FILE,
+                accept = dev.niccc2007.filet.pick.PickFilter.Mime(listOf("image/*"), "a picture"),
+                verb = "read the code in",
+            ),
+        ) pick@{ r ->
+            val path = (r as? dev.niccc2007.filet.pick.PickResult.Picked)?.first ?: return@pick
+            viewModelScope.launch {
+                val text = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    runCatching {
+                        dev.niccc2007.filet.qr.QrDecode.fromStream({
+                            kotlinx.coroutines.runBlocking { graph.vfs.openRead(path) }
+                        })
+                    }.getOrNull()
+                }
+                if (text == null) toast("No code found in " + path.name)
+                else scanned(dev.niccc2007.filet.qr.ScanHit(text, fromPicture = true))
+            }
+        }
     }
 
     /**
@@ -5274,36 +6890,76 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     // ── persistence ──
 
+    /**
+     * Write the tab list now, for the moment the app leaves the screen. Every change is already
+     * written as it happens (see [watchPanesForPersist]); this is the last write on the way out,
+     * so what is kept when the app leaves is exactly what it was showing.
+     */
+    fun saveTabsNow() = persistTabs()
+
+    /** Where the tabs are kept. See [dev.niccc2007.filet.data.TabSession] for why not in the settings. */
+    private val tabSession by lazy { dev.niccc2007.filet.data.TabSession(graph.app) }
+
+    /** The settings key the tabs lived under before [tabSession]: read once, then cleared. */
+    private var oldTabsKeyCleared = false
+
     private fun persistTabs() {
+        // A picker never writes the session. See [ownTabs].
+        if (ownTabs) return
         val arr = JSONArray()
-        for (t in _tabs.value) {
-            val s = t.state.value
-            // The folds travel with the tab. Restoring the folder and dropping the tree it was
-            // opened into gives back a collapsed trunk, which for somebody working three levels
-            // down is most of their place lost - the path is only half of where they were.
-            //
-            // `foldsToSave` keeps the VISIBLE folds, shallowest first, capped: a fold whose
-            // parent is shut cannot be seen, and saving it would reopen a branch on restore
-            // that was not open when the app closed. The cap is there because `open` is
-            // unbounded and this goes into a preference.
-            val folds = JSONArray()
-            for (f in TreeRows.foldsToSave(s.cwd, s.open)) folds.put(f.toString())
-            arr.put(
-                JSONObject()
-                    .put("kind", s.kind.name)
-                    .put("path", s.cwd?.toString() ?: "")
-                    .put("folds", folds)
-            )
-        }
-        graph.prefs.putString(
-            KEY_TABS,
+        for (t in _tabs.value) arr.put(TabCodec.encode(recordOf(t)))
+        tabSession.save(
             JSONObject().put("tabs", arr)
                 .put("a", _state.value.activeA)
                 .put("b", _state.value.activeB)
                 .put("split", _state.value.split.name)
                 .toString(),
         )
+        if (!oldTabsKeyCleared) {
+            oldTabsKeyCleared = true
+            if (graph.prefs.getString(KEY_TABS) != null) graph.prefs.putString(KEY_TABS, null)
+        }
     }
+
+    /**
+     * Everything one tab needs to come back exactly as it was left. See [TabRecord].
+     *
+     * The folds travel with the tab. Restoring the folder and dropping the tree it was opened
+     * into gives back a collapsed trunk, which for somebody working three levels down is most of
+     * their place lost - the path is only half of where they were. `foldsToSave` keeps the
+     * VISIBLE folds, shallowest first, capped: a fold whose parent is shut cannot be seen, and
+     * saving it would reopen a branch on restore that was not open when the app closed.
+     *
+     * The title is kept only where it is not the kind's own name, and the scroll position is the
+     * one the pane filed for the folder it is in.
+     */
+    private fun recordOf(pane: PaneController): TabRecord {
+        val s = pane.state.value
+        val (behind, ahead) = pane.history()
+        return TabRecord(
+            kind = s.kind,
+            path = s.cwd,
+            title = s.title.takeIf { s.kind != PaneKind.FOLDER && s.kind != PaneKind.HOME },
+            category = s.category?.id,
+            folds = TreeRows.foldsToSave(s.cwd, s.open),
+            focus = s.active,
+            scroll = pane.placeOf(s)?.let { pane.scroll.at(it) },
+            search = s.search.takeIf { it.open && it.query.isNotBlank() }
+                ?.let { SearchRecord(it.query, it.reach) },
+            // The newest of each, which are the ones Back and Forward reach first.
+            places = pane.scroll.all().takeLast(TabHistory.PLACES),
+            kept = pane.keptViews(),
+            back = behind.takeLast(TabHistory.KEEP).map(TabHistory::recordOf),
+            forward = ahead.takeLast(TabHistory.KEEP).map(TabHistory::recordOf),
+        )
+    }
+
+    /** What decides whether the saved tabs are out of date, for [watchPanesForPersist]. */
+    private fun signatureOf(st: PaneState): String =
+        st.kind.name + ":" + (st.cwd?.toString() ?: "") + ":" +
+            TreeRows.foldsToSave(st.cwd, st.open).joinToString(",") + ":" +
+            (st.active?.toString() ?: "") + ":" + (st.category?.id ?: "") + ":" +
+            (if (st.search.open) st.search.query + "/" + st.search.reach else "")
 
     /**
      * Keep the saved tab list current as somebody walks around.
@@ -5315,10 +6971,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * like it worked, because opening a tab is itself a tab operation.
      *
      * A collector over the panes rather than a call inside `navigateTo`: a `PaneController` has
-     * no reference to this ViewModel by design, and threading a callback through it would make
-     * every navigation a disk write. The signature below is a short string, so an unchanged
-     * state costs one comparison, and `debounce` collapses a walk down four folders - or a
-     * branch being opened and shut while reading - into a single write.
+     * no reference to this ViewModel by design. The signature below is a short string, so an
+     * unchanged state costs one comparison.
+     *
+     * Written on EVERY change, with no pause. Bug identified here: a half-second debounce sat
+     * in front of the write, so anything done in the last moment before the phone went off or
+     * the app was swiped away - opening a folder, closing a tab - came back undone. The pause was
+     * there because each write rewrote every setting; the tabs have their own file now (see
+     * [dev.niccc2007.filet.data.TabSession]), a write is the tabs alone, and Android coalesces a
+     * burst of them into one trip to the disk anyway.
      *
      * `collectLatest` on the tab list because panes come and go: adding a tab has to resubscribe
      * onto the new set, and the old subscription must die rather than hold a closed pane alive.
@@ -5327,14 +6988,12 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         viewModelScope.launch {
             _tabs.collectLatest { panes ->
                 if (panes.isEmpty()) return@collectLatest
-                combine(panes.map { it.state }) { states ->
-                    states.joinToString("|") { st ->
-                        st.kind.name + ":" + (st.cwd?.toString() ?: "") + ":" +
-                            TreeRows.foldsToSave(st.cwd, st.open).joinToString(",")
-                    }
+                // A scroll counts as a change too: `scrolled` moves when the pane files a new
+                // position, which is once a scroll comes to rest rather than every frame of it.
+                combine(panes.map { p -> p.state.combine(p.scrolled) { st, n -> signatureOf(st) + "#" + n } }) {
+                    it.joinToString("|")
                 }
                     .distinctUntilChanged()
-                    .debounce(PERSIST_AFTER_MS)
                     .collect { persistTabs() }
             }
         }
@@ -5344,43 +7003,26 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         // The setting. Off means start with Home alone - and the saved list is
         // deliberately LEFT on disk rather than cleared, so turning the setting back on
         // restores the tabs that were open rather than starting from nothing.
-        val raw = TabRestore.savedStateFor(graph.prefs.getString(KEY_TABS), graph.prefs.restoreTabs.value)
+        //
+        // A picker reads nothing: see [ownTabs]. It opens on Home below.
+        val raw = if (ownTabs) null
+        else TabRestore.savedStateFor(tabSession.read() ?: graph.prefs.getString(KEY_TABS), graph.prefs.restoreTabs.value)
         val restored = ArrayList<PaneController>()
         var a = 0
         var b = 0
         var split = SplitMode.OFF
+        // Searches are put back last, once every pane has its drives: a search over chosen
+        // drives resolves against them, and asked before `equip` it would find none.
+        val searches = ArrayList<Pair<PaneController, SearchRecord>>()
         if (raw != null) {
             runCatching {
                 val o = JSONObject(raw)
                 val arr = o.getJSONArray("tabs")
                 for (i in 0 until arr.length()) {
-                    val t = arr.getJSONObject(i)
                     val pane = newPane()
-                    val p = t.optString("path", "")
-                    val kind = runCatching { PaneKind.valueOf(t.optString("kind")) }.getOrNull()
-                    when {
-                        kind == PaneKind.FOLDER && p.isNotEmpty() ->
-                            runCatching { VPath.parse(p) }.getOrNull()
-                                ?.let { at ->
-                                    // walking: restoring a tab to its saved folder. The tree it had open is put back
-                                    // separately by restoreFolds, so expanding here would fight it.
-                                    pane.navigateTo(at, push = false)
-                                    // And the tree it was opened into. `navigateTo` first, so
-                                    // the folds land on the right folder rather than on
-                                    // whatever the pane was showing a moment ago.
-                                    val saved = t.optJSONArray("folds")
-                                    if (saved != null) {
-                                        val folds = ArrayList<VPath>(saved.length())
-                                        for (j in 0 until saved.length()) {
-                                            runCatching { VPath.parse(saved.getString(j)) }
-                                                .getOrNull()?.let { folds += it }
-                                        }
-                                        pane.restoreFolds(folds)
-                                    }
-                                } ?: pane.openHome()
-                        kind != null && kind != PaneKind.FOLDER -> pane.openSpecial(kind, kind.name.lowercase().replaceFirstChar { c -> c.uppercase() })
-                        else -> pane.openHome()
-                    }
+                    val record = arr.optJSONObject(i)?.let(TabCodec::decode)
+                    putBack(pane, record)
+                    record?.search?.let { searches += pane to it }
                     restored += pane
                 }
                 a = o.optInt("a", 0)
@@ -5389,12 +7031,19 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             }
         }
         if (restored.isEmpty()) {
-            val home = newPane().also { it.openHome() }
-            // walking: the single pane a cold start opens, before any tree exists.
-            val first = newPane().also { p -> fallback?.let { p.navigateTo(it, push = false) } ?: p.openHome() }
-            restored += home
-            restored += first
-            a = 1
+            if (ownTabs) {
+                // One tab, on Home. Home is where the categories are, and a picture pick that
+                // starts in Photos is already most of the way to its answer - whereas the
+                // volume root a cold start would otherwise land on is a folder of folders.
+                restored += newPane().also { it.openHome() }
+            } else {
+                val home = newPane().also { it.openHome() }
+                // walking: the single pane a cold start opens, before any tree exists.
+                val first = newPane().also { p -> fallback?.let { p.navigateTo(it, push = false) } ?: p.openHome() }
+                restored += home
+                restored += first
+                a = 1
+            }
         }
         _tabs.value = restored
         _state.update {
@@ -5404,12 +7053,84 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 split = split,
             )
         }
-        val roots = _state.value.volumes.map { it.node.path }
-        restored.forEach { it.rootsForDevice = roots }
+        restored.forEach(::equip)
+        for ((pane, q) in searches) {
+            pane.openSearch(true)
+            pane.setReach(q.reach)
+            pane.setQuery(q.query)
+        }
         // LAST. Anything waiting on a usable pane waits on this, not on the tab list becoming
         // non-empty: the list is populated a moment before `activeA` is set, and waiting on
         // the list alone meant a shortcut acted on tab 0 while the user was looking at tab 2.
         _tabsReady.value = true
+    }
+
+    /**
+     * One saved tab, put back into [pane] as it was left. A record this build cannot read opens
+     * Home there rather than dropping the tab, so the tab strip keeps its shape.
+     */
+    private fun putBack(pane: PaneController, r: TabRecord?) {
+        // Its memory first, so the screen it is about to show finds its position and its view
+        // already there on the first frame rather than drawing at the top and jumping.
+        if (r != null) {
+            pane.scroll.restore(r.places)
+            pane.restoreKept(r.kept)
+        }
+        when {
+            r == null -> pane.openHome()
+            r.kind == PaneKind.FOLDER && r.path != null -> {
+                // walking: restoring a tab to its saved folder, as a RETURN, so the listing puts
+                // its scroll position back. The tree it had open is put back separately by
+                // restoreFolds, so expanding here would fight it.
+                pane.navigateTo(r.path, push = false, resume = true)
+                r.scroll?.let { marks -> pane.placeOf(pane.state.value)?.let { pane.parkScroll(it, marks) } }
+                // And the tree it was opened into, and the branch it was working in. Both after
+                // `navigateTo`, so they land on this folder rather than on whatever the pane was
+                // showing a moment ago.
+                pane.restoreFolds(r.folds)
+                r.focus?.let { pane.focusPath(it, record = false) }
+            }
+            r.kind == PaneKind.CATEGORY ->
+                dev.niccc2007.filet.home.MediaCategory.entries.firstOrNull { it.id == r.category }
+                    ?.let(pane::openCategory) ?: pane.openHome()
+            r.kind == PaneKind.HOME || r.kind == PaneKind.FOLDER -> pane.openHome()
+            // A record from before titles were saved reads as the kind's own name, as it did.
+            else -> pane.openSpecial(r.kind, r.title ?: r.kind.name.lowercase().replaceFirstChar { c -> c.uppercase() })
+        }
+        // A tab put back at launch is a return, whatever screen it shows: its lists and its
+        // views come back as left. A folder said so already through `navigateTo`.
+        if (r != null) pane.markReturn()
+        // And its history, after it has arrived: arriving is what would otherwise clear it.
+        if (r != null && (r.back.isNotEmpty() || r.forward.isNotEmpty())) {
+            pane.restoreHistory(
+                r.back.mapNotNull { TabHistory.stateOf(it, pane.id, pane::titleFor) },
+                r.forward.mapNotNull { TabHistory.stateOf(it, pane.id, pane::titleFor) },
+            )
+        }
+    }
+
+    /**
+     * Give one pane the volume list it reads: roots for [PaneController.jumpTo], drives for the
+     * reach ladder.
+     *
+     * Both come off `_state.volumes`, so they are written together or they disagree - and a
+     * ladder offering a drive `jumpTo` cannot resolve is worse than either being absent.
+     */
+    private fun equip(pane: PaneController) {
+        pane.rootsForDevice = _state.value.volumes.map { it.node.path }
+        pane.reachDrives = _state.value.volumes.map { v ->
+            ReachDrive(
+                key = dev.niccc2007.filet.index.VolumeKey(v.node.path),
+                label = v.label,
+                remote = v.remote,
+                // Asked of the scheme, which is the only thing that distinguishes a superuser
+                // volume from an ordinary one once it is a VNode like any other.
+                system = v.node.path.scheme == dev.niccc2007.filet.vfs.provider.RootProvider.SCHEME,
+            )
+        }
+        // A tab put back before the drives were known was rooted wherever it was saved, with no
+        // drive to hang its tree from. Now there is one.
+        pane.reshape()
     }
 
     private fun volumeLabel(node: VNode): String = when {
@@ -5445,16 +7166,6 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     private companion object {
         const val KEY_TABS = "tabs.v1"
 
-        /**
-         * How long a pane has to settle before its position is written.
-         *
-         * Long enough that walking down a path is one write rather than one per folder, short
-         * enough that it has always happened by the time somebody closes the app - the process
-         * can be killed from the task switcher at any moment, and anything not yet written is
-         * simply lost.
-         */
-        const val PERSIST_AFTER_MS = 500L
-
         /** Release and debug both, so a development build is never bridge-blind (PLAN.md §5.4). */
         val TRAWL_PACKAGES = listOf("dev.niccc2007.trawl", "dev.niccc2007.trawl.debug", "com.junkfood.seal")
 
@@ -5470,6 +7181,16 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
          * visible gain.
          */
         const val MAX_COVER_BYTES = 8 * 1024 * 1024
+
+        /**
+         * How many playlist entries get checked for still being there.
+         *
+         * A stat is cheap on this phone and a round trip on a share, and the list is drawn
+         * before any of it finishes, so the cap is about the tail: past a few hundred rows
+         * nobody is scrolling to see whether row 1,400 is dimmed, and the queue drops a gone
+         * file whether or not its row was marked.
+         */
+        const val PROBE_CAP = 400
     }
 }
 
@@ -5500,3 +7221,20 @@ private const val VOLUME_POLL_MS = 8_000L
  * arrived, and the next poll fills it in.
  */
 private const val MEASURE_BUDGET_MS = 3_000L
+
+/**
+ * How long Stop Filet waits between telling the services to stop and ending the process.
+ *
+ * Measured against nothing more precise than the shade: a kill that races the stop intents
+ * leaves a notification up for a process that no longer exists, and tapping it starts Filet
+ * again - the opposite of what was asked. Under half a second is not noticeable after a
+ * deliberate tap.
+ */
+private const val STOP_SETTLE_MS = 400L
+
+/**
+ * The largest picture a turn is saved for. The file is held whole, twice, while it is turned;
+ * a phone camera's JPEG is a few megabytes and a large scan a few tens, so this refuses only
+ * what would be out of memory before it was out of this.
+ */
+private const val TURN_MAX_BYTES = 96L * 1024 * 1024

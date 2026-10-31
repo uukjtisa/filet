@@ -11,8 +11,9 @@ import org.json.JSONObject
  * @param isDir null for a bookmark saved before this field existed. Those get resolved with a
  *   stat instead of a guess: guessing "folder" is the bug this fixes, and guessing "file"
  *   would break every bookmark anyone already has.
+ * @param quickAt when this was added to Quick access by hand, or 0. See `QuickAccess`.
  */
-data class Bookmark(val label: String, val path: VPath, val isDir: Boolean? = null)
+data class Bookmark(val label: String, val path: VPath, val isDir: Boolean? = null, val quickAt: Long = 0)
 
 /**
  * Starred locations, shown in the rail beside the real volumes.
@@ -63,6 +64,13 @@ class Bookmarks(private val prefs: Prefs) {
 
     fun contains(path: VPath): Boolean = _items.value.any { it.path == path }
 
+    /** Add to Quick access by hand, or take it back out. Folders only; the caller checks. */
+    fun setQuick(path: VPath, on: Boolean) {
+        val at = if (on) System.currentTimeMillis() else 0L
+        _items.value = _items.value.map { if (it.path == path) it.copy(quickAt = at) else it }
+        save()
+    }
+
     fun move(from: Int, to: Int) {
         val list = _items.value.toMutableList()
         if (from !in list.indices || to !in list.indices) return
@@ -88,6 +96,7 @@ class Bookmarks(private val prefs: Prefs) {
                     // optBoolean flattens unknown to false, which would call every old
                     // bookmark a file. Same bug, other direction.
                     if (o.has("dir")) o.optBoolean("dir") else null,
+                    o.optLong("quick", 0L),
                 )
             }
         }.getOrElse { emptyList() }   // a corrupt blob loses bookmarks, never the app
@@ -100,6 +109,7 @@ class Bookmarks(private val prefs: Prefs) {
             // Written only when known, so unknown survives a save instead of quietly
             // becoming false on the next write.
             b.isDir?.let { o.put("dir", it) }
+            if (b.quickAt > 0) o.put("quick", b.quickAt)
             arr.put(o)
         }
         prefs.putString(KEY, arr.toString())

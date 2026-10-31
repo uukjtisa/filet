@@ -37,28 +37,66 @@ object SpecialPanes {
         val kind: PaneKind,
         val label: String,
         val icon: androidx.compose.ui.graphics.vector.ImageVector,
+        /** Which side-bar fold it lives in. Every destination lives in exactly one. */
+        val fold: Fold,
+        /**
+         * Non-null for a destination that is the full version of what its fold already lists -
+         * Bookmarks under Quick access, Opened under Recent - drawn as the fold's last row
+         * ("All bookmarks") rather than as a row of its own beside the same items. That repeat
+         * is the redundancy the side bar was redesigned to remove.
+         */
+        val seeAll: String? = null,
     )
+
+    /**
+     * The side bar's folds, top to bottom, the same in the portrait drawer and the landscape
+     * rail. Drawn by `SideFolds`, which ends with [PINNED] as an always-open "Filet" card.
+     */
+    enum class Fold { QUICK, RECENT, DRIVES, COLLECTIONS, TOOLS }
 
     /**
      * The order both surfaces draw, top to bottom.
      *
      * Home, Activity, Settings and About are absent on purpose: Home is not a special pane, and
-     * the other three are pinned to the bottom of the rail and the end of the switcher rather
-     * than sitting in the destination list. They are still declared in their surfaces, which is
-     * the one remaining hand-maintained pair and is noted here so it is not mistaken for
-     * completeness.
+     * the other three are in [PINNED]. `SideFolds` reads both lists and both surfaces draw
+     * `SideFolds` - `check-pinned.mjs` fails the build on a surface that draws a row by hand.
      */
     val DESTINATIONS: List<Destination> = listOf(
-        Destination(PaneKind.RECENT, "Opened", FiletIcons.Clock),
-        Destination(PaneKind.BOOKMARKS, "Bookmarks", FiletIcons.Star),
-        Destination(PaneKind.PLAYLISTS, "Playlists", FiletIcons.Audio),
-        Destination(PaneKind.RESUME, "Carry on", FiletIcons.Clock),
-        Destination(PaneKind.NEARBY, "Nearby", FiletIcons.Wifi),
-        Destination(PaneKind.REMOTES, "Remotes", FiletIcons.Device),
-        Destination(PaneKind.SHORTCUTS, "Shortcuts", FiletIcons.Pin),
-        Destination(PaneKind.SCRIPTS, "Scripts", FiletIcons.Script),
-        Destination(PaneKind.APPS, "Apps", FiletIcons.Apk),
+        Destination(PaneKind.BOOKMARKS, "Bookmarks", FiletIcons.Star, Fold.QUICK, seeAll = "All bookmarks"),
+        Destination(PaneKind.RECENT, "Opened", FiletIcons.Clock, Fold.RECENT, seeAll = "Everything opened"),
+        Destination(PaneKind.PLAYLISTS, "Playlists", FiletIcons.Audio, Fold.COLLECTIONS),
+        Destination(PaneKind.RESUME, "Carry on", FiletIcons.Clock, Fold.COLLECTIONS),
+        // Rows of their own in Tools, not a "see all" at the foot of Drives. Drives lists the
+        // shares already saved; these two are where a share is found, added or hosted, and as
+        // the last row of a fold of mounts they read as one more mount and were not found.
+        Destination(PaneKind.REMOTES, "Remotes", FiletIcons.Device, Fold.TOOLS),
+        Destination(PaneKind.NEARBY, "Nearby", FiletIcons.Wifi, Fold.TOOLS),
+        Destination(PaneKind.APPS, "Apps", FiletIcons.Apk, Fold.TOOLS),
+        Destination(PaneKind.SHORTCUTS, "Shortcuts", FiletIcons.Pin, Fold.TOOLS),
+        Destination(PaneKind.SCRIPTS, "Scripts", FiletIcons.Script, Fold.TOOLS),
+        Destination(PaneKind.SCAN, "Scan a code", FiletIcons.Scan, Fold.TOOLS),
     )
+
+    /** One fold's destinations, in the declared order. */
+    fun inFold(fold: Fold): List<Destination> = DESTINATIONS.filter { it.fold == fold }
+
+    /**
+     * The "Filet" card at the end of the side bar, in order.
+     *
+     * Activity, Settings and About were once written out twice, in the switcher and in the rail,
+     * and a fourth entry is exactly the kind of addition that lands in one surface and not the
+     * other - the Apps-tab defect again. So the list is declared here and drawn once, by
+     * `SideFolds`. What each entry DOES is an exhaustive `when` in
+     * `BrowserViewModel.onPinned`, so a fifth cannot be added without deciding that too.
+     */
+    enum class Pinned(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
+        ACTIVITY("Activity", FiletIcons.Jobs),
+        SETTINGS("Settings", FiletIcons.Cog),
+        ABOUT("About", FiletIcons.Info),
+        STOP("Stop Filet", FiletIcons.Power),
+    }
+
+    val PINNED: List<Pinned> = Pinned.entries
 
     /** The kinds that are reachable from the navigation surfaces. */
     val REACHABLE: Set<PaneKind> = DESTINATIONS.map { it.kind }.toSet()
@@ -74,9 +112,9 @@ object SpecialPanes {
         PaneKind.HOME to "the home button, and the start pane",
         PaneKind.HISTORY to
             "the Home overview's New files heading, and a bottom-bar entry of its own",
-        PaneKind.ACTIVITY to "pinned to the end of both surfaces, not a destination row",
-        PaneKind.SETTINGS to "pinned to the end of both surfaces",
-        PaneKind.ABOUT to "pinned to the end of both surfaces",
+        PaneKind.ACTIVITY to "the Filet card at the end of the side bar, not a destination row",
+        PaneKind.SETTINGS to "the Filet card at the end of the side bar",
+        PaneKind.ABOUT to "the Filet card at the end of the side bar",
         PaneKind.CATEGORY to
             "the Categories section on the Home overview, one entry per kind of file",
     )

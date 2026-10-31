@@ -73,6 +73,21 @@ fun ApkInspectorScreen(vm: BrowserViewModel, node: VNode) {
     var icon by remember(node.path) { mutableStateOf<android.graphics.Bitmap?>(null) }
     val work by vm.apkWork.collectAsState()
 
+    // Back to this APK comes back to the same place in it: the scroll and the open sections.
+    // Bug identified here: leaving for the manifest editor or a dex and coming back put the
+    // inspector at its first row with every section shut. The list is drawn whole once the facts
+    // arrive, so a position handed to its state at creation is honoured on the first layout.
+    val place = remember(node.path) { InspectorPlace.of(node.path) }
+    val listState = remember(node.path) {
+        androidx.compose.foundation.lazy.LazyListState(place.index, place.offset)
+    }
+    androidx.compose.runtime.DisposableEffect(node.path) {
+        onDispose {
+            place.index = listState.firstVisibleItemIndex
+            place.offset = listState.firstVisibleItemScrollOffset
+        }
+    }
+
     LaunchedEffect(node.path) {
         runCatching { vm.inspectApk(node) }
             .onSuccess { i ->
@@ -116,7 +131,8 @@ fun ApkInspectorScreen(vm: BrowserViewModel, node: VNode) {
             }
             else -> {
                 val i = info!!
-                LazyColumn(Modifier.fillMaxSize()) {
+                androidx.compose.runtime.CompositionLocalProvider(LocalInspectorPlace provides place) {
+                LazyColumn(Modifier.fillMaxSize(), state = listState) {
                     // `.insp .ih` - the identity block. The screen used to open with six
                     // sections of key-values and no summary, so the question everybody actually
                     // has (what happens if I install this) was somewhere below the fold, spelled
@@ -302,6 +318,7 @@ fun ApkInspectorScreen(vm: BrowserViewModel, node: VNode) {
                         }
                     }
                 }
+                }
             }
         }
     }
@@ -450,7 +467,8 @@ private fun Fold(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = Filet.colors
-    var open by remember(title) { mutableStateOf(false) }
+    val place = LocalInspectorPlace.current
+    var open by remember(title) { mutableStateOf(place?.open?.contains(title) == true) }
     val shape = RoundedCornerShape(11.dp)
     Column(
         Modifier
@@ -461,7 +479,10 @@ private fun Fold(
             .border(1.dp, if (tone == FoldTone.WARN) colors.warn.copy(alpha = 0.45f) else colors.lineSoft, shape),
     ) {
         Row(
-            Modifier.fillMaxWidth().clickable { open = !open }.padding(horizontal = 12.dp, vertical = 11.dp),
+            Modifier.fillMaxWidth().clickable {
+                open = !open
+                place?.open?.let { if (open) it += title else it -= title }
+            }.padding(horizontal = 12.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -665,3 +686,22 @@ private fun ActionChip(
             .padding(horizontal = 11.dp, vertical = 6.dp),
     )
 }
+
+/**
+ * Where the inspector was left, per APK: the first row on screen and which sections were open.
+ *
+ * Kept for the session rather than saved: it answers "I went to the manifest and came back",
+ * which happens inside one sitting. The sixteen most recent APKs, so it cannot grow.
+ */
+private object InspectorPlace {
+    class Place(var index: Int = 0, var offset: Int = 0, val open: MutableSet<String> = HashSet())
+
+    private val byApk = object : LinkedHashMap<String, Place>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Place>?) = size > 16
+    }
+
+    fun of(path: dev.niccc2007.filet.vfs.VPath): Place = byApk.getOrPut(path.toString()) { Place() }
+}
+
+/** The place the sections of the inspector on screen read their open state from. */
+private val LocalInspectorPlace = androidx.compose.runtime.staticCompositionLocalOf<InspectorPlace.Place?> { null }

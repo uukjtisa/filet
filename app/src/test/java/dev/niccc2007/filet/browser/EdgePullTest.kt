@@ -117,4 +117,33 @@ class EdgePullTest {
         val s = EdgePull.onScroll(PullState(), -50f, atTop = false, atBottom = true)
         assertEquals(50f, s.distance, 0.01f)
     }
+
+    // ── the indicator: Chrome-style, rides out slower than the finger ────────────────
+
+    @Test
+    fun `the threshold is a deliberate pull, not the tail of a flick`() {
+        assertTrue(EdgePull.THRESHOLD_DP >= 120f)
+    }
+
+    @Test
+    fun `progress fills to one at the threshold and stops there`() {
+        assertEquals(0f, EdgePull.progress(0f, 100f), 0.001f)
+        assertEquals(0.5f, EdgePull.progress(50f, 100f), 0.001f)
+        assertEquals(1f, EdgePull.progress(100f, 100f), 0.001f)
+        assertEquals(1f, EdgePull.progress(900f, 100f), 0.001f)
+    }
+
+    @Test
+    fun `the indicator moves slower than the finger and never passes its cap`() {
+        val cap = 96f
+        var last = 0f
+        for (d in listOf(1f, 10f, 50f, 150f, 400f, 5000f)) {
+            val o = EdgePull.indicatorOffset(d, cap)
+            assertTrue("never decreases", o >= last)
+            assertTrue("never faster than half the finger", o <= d * 0.5f + 0.001f)
+            assertTrue("never past the cap", o <= cap)
+            last = o
+        }
+        assertEquals(0f, EdgePull.indicatorOffset(0f, cap), 0.001f)
+    }
 }

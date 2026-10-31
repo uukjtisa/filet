@@ -100,8 +100,9 @@ class ApkTools(
         val base = SplitPackage.baseOf(members.map { it.name })
             ?: throw IllegalArgumentException("There is no base APK inside this bundle.")
         val member = members.first { it.name == base }
-        val out = File(context.cacheDir, "bundle-base").apply { mkdirs() }
-            .resolve(apk.name.substringBeforeLast('.') + "-base.apk")
+        val out = dev.niccc2007.filet.data.FiletStore.dir(
+            context, dev.niccc2007.filet.data.FiletStore.Area.BUNDLES,
+        ).resolve(apk.name.substringBeforeLast('.') + "-base.apk")
         // Re-extracted each time rather than cached on name: the bundle may have been replaced
         // with a different build carrying the same filename, and showing the previous one's
         // permissions would be worse than the wait.

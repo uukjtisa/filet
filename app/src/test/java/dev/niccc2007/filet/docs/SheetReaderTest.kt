@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -400,16 +401,82 @@ class SheetReaderTest {
         assertEquals(SheetZoom.DOUBLE_TAP, SheetZoom.doubleTap(0.6f), 0f)
     }
 
+    // ── the pinch in flight ──
+
+    /** Where moving content [at] content pixels in is drawn on screen, laid out at [offset]. */
+    private fun drawnAt(at: Float, axis: SheetAxis, lead: Float = axis.lead, offset: Float = axis.offset) = lead + at - offset
+
     @Test
-    fun `the content under the fingers stays under them`() {
-        for ((offset, focus, from, to) in listOf(
-            arrayOf(0f, 120f, 1f, 2f), arrayOf(340f, 55f, 1.3f, 0.7f), arrayOf(1000f, 400f, 2f, 3f),
-        ).map { listOf(it[0], it[1], it[2], it[3]) }) {
-            val after = SheetZoom.offsetAbout(offset, focus, from, to)
-            assertEquals((offset + focus) / from, (after + focus) / to, 0.001f)
+    fun `landing puts every cell where the picture had it, not only the one under the fingers`() {
+        val across = SheetAxis(offset = 340f, lead = 96f, content = 5000f, size = 1080f)
+        for (ratio in listOf(2f, 1.3f, 0.85f)) {
+            val p = SheetPinch().by(ratio, cx = 610f, cy = 0f, from = 1f, lo = SheetZoom.MIN, hi = SheetZoom.MAX)
+            val leadAfter = 96f * p.scale + 1f // the band's real size after, rounding and all
+            val landed = p.lands(across, leadAfter, p.x)
+            for (cell in listOf(340f, 900f, 1200f)) {
+                val picture = p.x + p.scale * drawnAt(cell, across)
+                val laidOut = drawnAt(cell * p.scale, across, lead = leadAfter, offset = landed)
+                assertEquals("cell $cell at $ratio", picture, laidOut, 0.01f)
+            }
         }
+    }
+
+    @Test
+    fun `the point under the fingers stays under them while they move`() {
+        val p = SheetPinch()
+            .by(1.2f, cx = 300f, cy = 500f, from = 1f, lo = SheetZoom.MIN, hi = SheetZoom.MAX)
+            .by(1.5f, cx = 300f, cy = 500f, from = 1f, lo = SheetZoom.MIN, hi = SheetZoom.MAX)
+        assertEquals(1.8f, p.scale, 0.0001f)
+        assertEquals(300f, p.x + p.scale * 300f, 0.01f)
+        assertEquals(500f, p.y + p.scale * 500f, 0.01f)
+    }
+
+    @Test
+    fun `a pinch never promises a size that cannot land`() {
+        val grown = SheetPinch().by(10f, 0f, 0f, from = 1.5f, lo = SheetZoom.MIN, hi = SheetZoom.MAX)
+        assertEquals(SheetZoom.MAX, 1.5f * grown.scale, 0.0001f)
+        val shrunk = SheetPinch().by(0.01f, 0f, 0f, from = 1.5f, lo = SheetZoom.MIN, hi = SheetZoom.MAX)
+        assertEquals(SheetZoom.MIN, 1.5f * shrunk.scale, 0.0001f)
+        // Pushing against a bound moves nothing, so the picture does not slide under the fingers.
+        val pinned = SheetPinch().by(2f, 400f, 400f, from = SheetZoom.MAX, lo = SheetZoom.MIN, hi = SheetZoom.MAX)
+        assertTrue(pinned.idle)
+        assertEquals(grown, grown.by(Float.NaN, 9f, 9f, 1.5f, SheetZoom.MIN, SheetZoom.MAX))
+        assertEquals(grown, grown.by(0f, 9f, 9f, 1.5f, SheetZoom.MIN, SheetZoom.MAX))
+    }
+
+    @Test
+    fun `shrinking at the top-left keeps the sheet on its corner`() {
         // Zooming out at the left edge cannot scroll to before the first column.
-        assertEquals(0f, SheetZoom.offsetAbout(0f, 100f, 2f, 1f), 0f)
+        val across = SheetAxis(offset = 0f, lead = 96f, content = 5000f, size = 1080f)
+        val down = SheetAxis(offset = 0f, lead = 140f, content = 90_000f, size = 1900f)
+        val p = SheetPinch().by(0.85f, 540f, 900f, from = 1f, lo = SheetZoom.MIN, hi = SheetZoom.MAX).held(across, down)
+        assertEquals(0f, p.lands(across, 96f * p.scale, p.x), 0.01f)
+        assertEquals(0f, p.lands(down, 140f * p.scale, p.y), 0.01f)
+    }
+
+    @Test
+    fun `shrinking at the far edge does not pull past the last column`() {
+        val start = SheetAxis(offset = 0f, lead = 96f, content = 5000f, size = 1080f)
+        val across = start.copy(offset = start.farthest(1f))
+        val down = SheetAxis(offset = 0f, lead = 140f, content = 90_000f, size = 1900f)
+        val p = SheetPinch().by(0.85f, 1000f, 900f, from = 1f, lo = SheetZoom.MIN, hi = SheetZoom.MAX).held(across, down)
+        assertEquals(across.farthest(p.scale), p.lands(across, 96f * p.scale, p.x), 0.01f)
+    }
+
+    @Test
+    fun `a sheet narrower than the screen sits at its start`() {
+        val across = SheetAxis(offset = 0f, lead = 96f, content = 300f, size = 1080f)
+        val down = SheetAxis(offset = 0f, lead = 140f, content = 600f, size = 1900f)
+        val p = SheetPinch().by(1.6f, 900f, 1200f, from = 1f, lo = SheetZoom.MIN, hi = SheetZoom.MAX).held(across, down)
+        assertEquals(0f, p.lands(across, 96f * p.scale, p.x), 0.01f)
+        assertEquals(0f, p.lands(down, 140f * p.scale, p.y), 0.01f)
+    }
+
+    @Test
+    fun `shrinking lands mid-pinch before the picture runs out of rows, growing never does`() {
+        assertTrue(SheetPinch(scale = SheetPinch.OUT - 0.01f).outOfRows)
+        assertFalse(SheetPinch(scale = SheetPinch.OUT).outOfRows)
+        assertFalse(SheetPinch(scale = SheetZoom.MAX).outOfRows)
     }
 
     @Test

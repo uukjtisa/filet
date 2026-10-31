@@ -7,6 +7,8 @@ import org.junit.Test
 /**
  * Drag on the left for brightness, on the right for volume, sideways to seek.
  *
+ * Also the bar coming back under a still finger, which made a sideways swipe a level drag.
+ *
  * The side each control lives on is settled by convention rather than taste - MX Player, VLC,
  * mpv, Plex and YouTube on mobile all put brightness left and volume right - so the side is
  * asserted here and cannot be swapped by accident later.
@@ -211,5 +213,34 @@ class PlayerGestureTest {
     @Test
     fun `an unknown duration seeks nowhere`() {
         assertEquals(5_000L, PlayerGesture.seekAfter(5_000L, 500f, W, durationMs = 0L))
+    }
+
+    @Test
+    fun `a sideways swipe stays a seek when the bar comes back and moves the surface under it`() {
+        val width = 1080f
+        // The finger: straight across, 20 px an event, not a pixel up or down.
+        val fingerX = listOf(500f, 520f, 540f, 560f, 580f, 600f)
+        val fingerY = List(fingerX.size) { 1000f }
+        // The surface: the top bar comes back on the second event and pushes it down 150 px.
+        val surfaceTop = listOf(0f, 0f, 150f, 150f, 150f, 150f)
+        val localY = fingerY.indices.map { fingerY[it] - surfaceTop[it] }
+
+        // The old reading, where it is now minus where it started, in the moving surface's terms:
+        // a clear upward drag on the left, which is brightness, going up.
+        val absolute = PlayerGesture.drag(fingerX[0], fingerX.last() - fingerX[0], localY.last() - localY[0], width)
+        assertEquals(PlayerGesture.Drag.BRIGHTNESS, absolute)
+
+        // The platform's per-event movement maps both positions through the layout of that
+        // moment, so the surface moving is not in it. Summed, it is the finger's own travel.
+        val travel = PlayerGesture.Travel()
+        for (i in 1 until fingerX.size) travel.add(fingerX[i] - fingerX[i - 1], fingerY[i] - fingerY[i - 1])
+        assertEquals(100f, travel.dx, 0f)
+        assertEquals(0f, travel.dy, 0f)
+        assertEquals(PlayerGesture.Drag.SEEK, PlayerGesture.drag(fingerX[0], travel.dx, travel.dy, width))
+
+        // And a real vertical drag is still one.
+        travel.reset()
+        repeat(6) { travel.add(2f, -20f) }
+        assertEquals(PlayerGesture.Drag.BRIGHTNESS, PlayerGesture.drag(fingerX[0], travel.dx, travel.dy, width))
     }
 }

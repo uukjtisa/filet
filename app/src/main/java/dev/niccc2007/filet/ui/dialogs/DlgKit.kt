@@ -142,6 +142,8 @@ fun Dlg(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = Filet.colors
+    // Holds a viewer's controls up while this is open. See OverlayHold.
+    OverlayHold.Hold()
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -283,13 +285,15 @@ fun DlgHeader(
         }
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f).padding(top = 1.dp)) {
-            Text(
+            // Faded, never dotted. The titles that run long are the ones carrying a file's name
+            // - "Delete <name>?" - and a name cut in the middle is the one part that cannot be
+            // read back from anywhere else on the dialogue. See ListName.
+            dev.niccc2007.filet.browser.ListNameText(
                 title,
-                fontSize = 14.5.sp,
+                MaterialTheme.colorScheme.onSurface,
+                startSp = 14.5f,
+                lines = 2,
                 fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface,
             )
             if (sub != null) {
                 Spacer(Modifier.height(2.dp))
@@ -891,14 +895,14 @@ fun DlgCtxHead(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text(
+                // A name, so never dotted: it gives up size, then fades before its extension. See ListName.
+                dev.niccc2007.filet.browser.ListNameText(
                     name,
-                    fontSize = 14.sp,
+                    MaterialTheme.colorScheme.onSurface,
+                    startSp = 14f,
+                    lines = 2,
+                    isDir = thumb?.isDir == true,
                     fontWeight = FontWeight.Medium,
-                    lineHeight = 18.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 if (path.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))

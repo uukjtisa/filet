@@ -347,6 +347,17 @@ class ImageOpsTest {
     }
 
     @Test
+    fun `an edit is opaque unless a pixel actually is not`() {
+        // Every edit of a photo goes back through a pixel array; it must not come out "transparent".
+        val photo = Pixels.of(3, 2) { x, y -> (0xFF shl 24) or (x * 40 shl 16) or (y * 90) }
+        assertTrue(photo.isOpaque())
+        assertTrue(photo.rotated(Turn.RIGHT).isOpaque())
+        val cut = Pixels(2, 1, intArrayOf(0xFF102030.toInt(), 0x80102030.toInt()))
+        assertFalse(cut.isOpaque())
+        assertFalse("fully clear is not opaque either", Pixels(1, 1, intArrayOf(0)).isOpaque())
+    }
+
+    @Test
     fun `pinching at the centre is unchanged`() {
         val box = 1000f
         val centred = ZoomView().pinched(2f, 0f, 0f, box, box)

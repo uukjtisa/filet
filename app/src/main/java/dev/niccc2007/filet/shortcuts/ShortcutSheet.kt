@@ -142,7 +142,13 @@ fun ShortcutRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f).clickable(onClick = onOpen)) {
-            Text(record.label, fontSize = 13.sp)
+            dev.niccc2007.filet.browser.ListNameText(
+                text = dev.niccc2007.filet.ui.highlighted(record.label, dev.niccc2007.filet.ui.LocalPaneQuery.current, colors.accent),
+                color = androidx.compose.material3.LocalContentColor.current,
+                startSp = 13f,
+                lines = 1,
+                isDir = true,
+            )
             Text(
                 buildString {
                     append(record.kindLabel())

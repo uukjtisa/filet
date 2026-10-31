@@ -95,8 +95,14 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
                 androidx.compose.runtime.CompositionLocalProvider(
                     androidx.activity.compose.LocalOnBackPressedDispatcherOwner provides
                         (if (parked || liveBack == null) parkedBack else liveBack),
+                    dev.niccc2007.filet.docs.LocalViewerReturn provides r.returning,
                 ) {
-                when (r.handler) {
+                val run = r.run
+                // A picture or video opened from a list with others beside it swipes through
+                // them. See ViewerRunHost; alone, each opens as it always did.
+                if (run != null && (r.handler == HandlerId.IMAGE || r.handler == HandlerId.MEDIA)) {
+                    ViewerRunHost(vm, run)
+                } else when (r.handler) {
                     HandlerId.TEXT -> TextEditorScreen(vm, r.node)
                     HandlerId.IMAGE -> ImageViewerScreen(vm, r.node)
                     HandlerId.MEDIA -> MediaScreen(vm, r.node)
@@ -243,16 +249,19 @@ fun ViewerBar(
             modifier = Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = onClose).padding(7.dp),
         )
         Column(Modifier.weight(1f)) {
-            Text(
+            // The file's name, so never dotted: it gives up size, then fades before its
+            // extension. See ListName.
+            dev.niccc2007.filet.browser.ListNameText(
                 title,
-                fontSize = 13.sp,
-                maxLines = 1,
+                MaterialTheme.colorScheme.onSurface,
+                startSp = 13f,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
-            if (subtitle.isNotEmpty()) {
-                Text(subtitle, fontSize = 9.5.sp, color = colors.fg2, maxLines = 1)
+            // In a run the counter leads: where you are among the photos is what a swipe changes.
+            val line = listOfNotNull(LocalViewerRun.current?.label, subtitle.takeIf { it.isNotEmpty() })
+                .joinToString("  ·  ")
+            if (line.isNotEmpty()) {
+                Text(line, fontSize = 9.5.sp, color = colors.fg2, maxLines = 1)
             }
         }
         actions()

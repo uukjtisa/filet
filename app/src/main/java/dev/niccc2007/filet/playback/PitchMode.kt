@@ -16,16 +16,24 @@ package dev.niccc2007.filet.playback
  * decoding the audio ourselves and running our own time-stretch - a real DSP job, not a
  * setting. What Filet can do is stop walking into it.
  *
- * ## So there are three answers, and the default is the one that is never unintelligible
+ * ## So there are three answers, and the default is the one with no artefacts at all
+ *
+ * [FOLLOW] lets the pitch go with the speed, the way a tape does: plain resampling, which has
+ * nothing to invent and so nothing to warble. It is the default because a speed change then
+ * sounds like a speed change - slower is deeper, faster is higher - which is what a speed
+ * control on music is mostly reached for, and because it is the one of the three that is
+ * smooth at every speed on the rail.
  *
  * [AUTO] holds the pitch while the stretcher is good at it and lets the pitch fall below
- * that, so a slowed voice is deep rather than garbled. It is the default because an
- * intelligible wrong-pitched voice beats an unintelligible right-pitched one every time, and
- * because the crossover is exactly where the artefacts start rather than a number somebody
- * liked.
+ * that, so a slowed voice is deep rather than garbled. It was the default until FOLLOW took
+ * over: it is still the pick for speech, where a voice at its own pitch matters more than a
+ * speed change sounding like one.
  *
- * The other two exist because either can be the right answer: a musician slowing a solo wants
- * the pitch held whatever it costs, and somebody who likes the tape effect wants it always.
+ * [HOLD] exists because it can be the right answer too: a musician slowing a solo wants the
+ * pitch held whatever it costs.
+ *
+ * A stored choice wins over the default, so changing [DEFAULT] moves only a player whose pitch
+ * mode was never picked.
  */
 enum class PitchMode(val id: String, val label: String, val about: String) {
 
@@ -38,22 +46,19 @@ enum class PitchMode(val id: String, val label: String, val about: String) {
      */
     AUTO(
         "auto", "Automatic",
-        "Keeps the pitch while that sounds clean, and lets it drop when holding it would " +
-            "start to warble. Never unintelligible.",
+        "Keeps the pitch until holding it would warble.",
     ),
 
     /** Always stretch. Right pitch at any speed, and audibly granular when slowed a long way. */
     HOLD(
-        "hold", "Keep the pitch",
-        "Always holds the original pitch. Below 0.75× Android's time-stretcher warbles - " +
-            "that is the stretcher, not Filet dropping anything.",
+        "hold", "Keep pitch",
+        "Always keeps the original pitch; may warble below 0.75×.",
     ),
 
     /** Always resample. Smooth at any speed, and a slowed voice goes deep like a tape. */
     FOLLOW(
-        "follow", "Let it drop",
-        "Pitch follows the speed, like a tape. Perfectly smooth at every speed, and a slowed " +
-            "voice goes deep.",
+        "follow", "Follow speed",
+        "Pitch follows the speed, like a tape.",
     );
 
     /**
@@ -123,7 +128,8 @@ enum class PitchMode(val id: String, val label: String, val about: String) {
          */
         const val PITCH_FLOOR = 0.75f
 
-        val DEFAULT = AUTO
+        /** Tape-style, the one with no artefacts. See the class comment for why not [AUTO]. */
+        val DEFAULT = FOLLOW
 
         fun of(stored: String?): PitchMode = entries.firstOrNull { it.id == stored } ?: DEFAULT
     }

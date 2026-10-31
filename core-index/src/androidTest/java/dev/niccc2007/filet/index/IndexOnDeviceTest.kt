@@ -79,7 +79,7 @@ class IndexOnDeviceTest {
         crawl()
         val hits = runBlocking {
             index.candidates(
-                SearchRequest("report", SearchScope.DEVICE, origin = null, limit = 200),
+                SearchRequest("report", Reach.Everywhere, origin = null, limit = 200),
                 QueryParser.parse("report"),
             )
         }
@@ -97,7 +97,7 @@ class IndexOnDeviceTest {
         crawl()
         val hits = runBlocking {
             index.candidates(
-                SearchRequest("report final", SearchScope.DEVICE, origin = null, limit = 200),
+                SearchRequest("report final", Reach.Everywhere, origin = null, limit = 200),
                 QueryParser.parse("report final"),
             )
         }
@@ -109,7 +109,7 @@ class IndexOnDeviceTest {
         crawl()
         val hits = runBlocking {
             index.candidates(
-                SearchRequest("report holiday", SearchScope.DEVICE, origin = null, limit = 200),
+                SearchRequest("report holiday", Reach.Everywhere, origin = null, limit = 200),
                 QueryParser.parse("report holiday"),
             )
         }
@@ -121,7 +121,7 @@ class IndexOnDeviceTest {
         crawl()
         val hits = runBlocking {
             index.candidates(
-                SearchRequest("im", SearchScope.DEVICE, origin = null, limit = 200),
+                SearchRequest("im", Reach.Everywhere, origin = null, limit = 200),
                 QueryParser.parse("im"),
             )
         }
@@ -133,7 +133,7 @@ class IndexOnDeviceTest {
         val dcim = vpath(File(tmp, "DCIM/Camera"))
         val hits = runBlocking {
             index.candidates(
-                SearchRequest("", SearchScope.FOLDER, origin = dcim, limit = 200),
+                SearchRequest("", Reach.Folder, origin = dcim, limit = 200),
                 QueryParser.parse(""),
             )
         }
@@ -267,7 +267,7 @@ class IndexOnDeviceTest {
         runBlocking { index.recordOpen(path); index.recordOpen(path) }
         val rows = runBlocking {
             index.candidates(
-                SearchRequest("report", SearchScope.DEVICE, origin = null, limit = 50),
+                SearchRequest("report", Reach.Everywhere, origin = null, limit = 50),
                 QueryParser.parse("report"),
             )
         }
@@ -287,7 +287,10 @@ class IndexOnDeviceTest {
     @Test fun a_truncated_crawl_reports_incomplete_and_keeps_rows() {
         crawl()
         val before = index.status.value.files
-        val result = runBlocking { index.crawl(listOf(vpath(tmp)), budgetMs = 0) }
+        // Zero is "no deadline" (FileIndex.crawl), so it cannot truncate anything. A tree too
+        // big to walk in one millisecond can: the deadline is checked per folder.
+        for (i in 0 until 300) File(tmp, "Download/deep$i").mkdirs()
+        val result = runBlocking { index.crawl(listOf(vpath(tmp)), budgetMs = 1) }
         assertFalse(result.complete)
         assertTrue("a truncated crawl must not delete anything", index.status.value.files >= before)
     }

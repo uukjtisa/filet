@@ -20,6 +20,17 @@ plugins {
  */
 val keystorePropertiesFile: File = rootProject.file("keystore.properties")
 
+/**
+ * Where "Report a problem" posts, from `filet.reportEndpoint` in local.properties, or blank.
+ *
+ * A build setting rather than a constant in the source, so the address can be set once the
+ * backend is deployed without editing code, and a local test server can be pointed at for a
+ * debug build. It is a URL, not a credential: the GitHub token lives only on the server.
+ */
+val reportEndpoint: String = rootProject.file("local.properties").takeIf { it.exists() }?.let { f ->
+    Properties().apply { FileInputStream(f).use { load(it) } }.getProperty("filet.reportEndpoint")
+}?.trim().orEmpty()
+
 android {
     namespace = "dev.niccc2007.filet"
 
@@ -65,6 +76,7 @@ android {
         versionName = "0.1.20"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "REPORT_ENDPOINT", "\"" + reportEndpoint.replace("\"", "") + "\"")
     }
 
     buildTypes {
@@ -160,12 +172,28 @@ dependencies {
     implementation(libs.commonmark)
     implementation(libs.commonmark.gfm.tables)
     implementation(libs.commonmark.strikethrough)
+    implementation(libs.commonmark.alerts)
+    implementation(libs.commonmark.footnotes)
+    implementation(libs.commonmark.tasklist)
+    implementation(libs.commonmark.autolink)
+    implementation(libs.commonmark.frontmatter)
+    // Pictures in documents: local ones through the VFS, web ones through HttpURLConnection -
+    // see docs/DocPictures.kt. SVG for the badges every README starts with.
+    implementation(libs.coil.compose)
+    implementation(libs.coil.svg)
+    implementation(libs.coil.network)
+    // Syntax colours for code blocks.
+    implementation(libs.highlights)
     // M6: rebuild and re-sign on device. ARSCLib reads and writes AXML with no aapt2.
     implementation(libs.smali.assembler)
     implementation(libs.apksig)
     implementation(libs.arsclib)
     // QR for the share URL. Core only: no camera, no Android glue.
     implementation(libs.zxing)
+    implementation(libs.camerax.core)
+    implementation(libs.camerax.camera2)
+    implementation(libs.camerax.lifecycle)
+    implementation(libs.camerax.view)
     implementation(libs.kotlinx.coroutines.android)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)

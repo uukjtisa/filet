@@ -80,6 +80,37 @@ object PlayerGesture {
     }
 
     /**
+     * A drag's travel so far, summed from the platform's per-event movement.
+     *
+     * ## Why summed, and not "where it is now minus where it started"
+     *
+     * Bug identified here: a sideways swipe on a video changed the brightness or the volume. The
+     * classifier was right; what it was given was not. The positions a drag reports are in the
+     * gesture surface's own coordinates, and that surface MOVES during the gesture - a drag
+     * brings the chrome back, the top bar comes in at full height in one frame, and the surface
+     * under it (a `weight(1f)` box in the same column) is pushed down by the bar's height. A
+     * finger that has not moved vertically at all is then 150 px higher in the surface's terms,
+     * the travel reads as a clear upward drag, and the drag is held as BRIGHTNESS or VOLUME for
+     * the rest of the gesture - raising the level, because up is louder.
+     *
+     * Each event's movement is computed by the platform from two positions mapped through the
+     * SAME, current layout, so a move of the surface is not in it. Summing those is the finger's
+     * own travel whatever the layout does underneath. It does not drift: the sum of differences
+     * of one coordinate is that coordinate's change, to float precision.
+     */
+    class Travel {
+        var dx = 0f
+            private set
+        var dy = 0f
+            private set
+
+        fun reset() { dx = 0f; dy = 0f }
+
+        /** One event's movement, as the platform reports it. */
+        fun add(moveX: Float, moveY: Float) { dx += moveX; dy += moveY }
+    }
+
+    /**
      * How far a finger travels before the gesture is allowed to mean anything.
      *
      * Deliberately well past the platform's touch slop. The decision is held for the rest of the

@@ -44,10 +44,13 @@ fun searchPlan(kind: PaneKind): SearchMode = when (kind) {
     PaneKind.SHORTCUTS -> SearchMode.FILTER
     PaneKind.REMOTES -> SearchMode.FILTER
     PaneKind.ACTIVITY -> SearchMode.FILTER
-    PaneKind.NEARBY -> SearchMode.FILTER
+    // Nothing listed here is worth narrowing: the devices in reach are a handful at most.
+    PaneKind.NEARBY -> SearchMode.NONE
     PaneKind.APPS -> SearchMode.FILTER
     PaneKind.RESUME -> SearchMode.FILTER
     PaneKind.CATEGORY -> SearchMode.FILTER
+    // A camera frame has nothing in it to narrow.
+    PaneKind.SCAN -> SearchMode.NONE
 
     // Home searches the device.
     //

@@ -57,7 +57,7 @@ fun ExportSheet(
     Dlg(onDismiss = onDismiss) {
         DlgHeader(FiletIcons.Share, "Export settings", onClose = onDismiss)
         DlgBody {
-            DlgCaption("Pick what travels. The file is plain text you can read.")
+            DlgCaption("Choose what to export.")
             Spacer(Modifier.height(10.dp))
             for (section in Section.entries) {
                 val n = counts[section] ?: 0
@@ -77,15 +77,12 @@ fun ExportSheet(
                 DlgTick(
                     on = secrets,
                     label = "Include passwords",
-                    sub = "Written into the file in plain text. A stored password is " +
-                        "encrypted with a key that never leaves this phone, so it cannot be " +
-                        "copied across any other way.",
+                    sub = "Saved in the file as plain text.",
                 ) { secrets = !secrets }
                 if (secrets) {
                     Spacer(Modifier.height(8.dp))
                     DlgWarn(
-                        "Anyone who opens this file can read those passwords. Delete it once " +
-                            "the other phone has them.",
+                        "Anyone with this file can read the passwords.",
                         bad = true,
                     )
                 }
@@ -93,7 +90,7 @@ fun ExportSheet(
         }
         DlgFooter {
             DlgBtn("Cancel", onClick = onDismiss)
-            DlgBtn("Choose where", kind = BtnKind.PRIMARY, enabled = picked.isNotEmpty()) {
+            DlgBtn("Save", kind = BtnKind.PRIMARY, enabled = picked.isNotEmpty()) {
                 onExport(picked, secrets)
             }
         }
@@ -125,7 +122,7 @@ fun ImportSheet(
             Spacer(Modifier.height(10.dp))
             if (reading.counts.values.none { it > 0 }) {
                 Text(
-                    "There is nothing in this file that this version of Filet can use.",
+                    "Nothing in this file can be imported.",
                     fontSize = 13.sp,
                     lineHeight = 19.sp,
                     color = Filet.colors.fg2,
@@ -142,7 +139,7 @@ fun ImportSheet(
             }
             if (reading.containsPasswords) {
                 Spacer(Modifier.height(4.dp))
-                DlgWarn("This file carries network drive passwords in plain text.")
+                DlgWarn("Contains share passwords in plain text.")
             }
             if (reading.unknownKeys.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
@@ -150,14 +147,12 @@ fun ImportSheet(
                 // parts this build understands; refusing the whole thing over one unknown key
                 // is the behaviour that stops people using the feature.
                 DlgCaption(
-                    "${reading.unknownKeys.size} setting(s) here come from a different version " +
-                        "of Filet and will be left alone.",
+                    "${reading.unknownKeys.size} unrecognised setting(s) will be skipped.",
                 )
             }
             Spacer(Modifier.height(8.dp))
             DlgCaption(
-                "What you pick replaces what is on this phone now. Folders granted through " +
-                    "the system picker have to be granted again here.",
+                "Replaces current settings; granted folders need granting again.",
             )
         }
         DlgFooter {

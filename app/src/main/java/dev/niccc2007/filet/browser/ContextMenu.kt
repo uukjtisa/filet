@@ -173,9 +173,14 @@ val QUICK_IDS = listOf("copy", "move", "rename", "send", "delete")
  * exist in one surface and not another - that drift is the reason the list is data in the first
  * place.
  */
-fun splitForContextMenu(all: List<SelectionAction>): Pair<List<SelectionAction>, List<SelectionAction>> {
-    val quick = QUICK_IDS.mapNotNull { id -> all.firstOrNull { it.id == id } }
-    val rest = all.filterNot { it.id in QUICK_IDS }
+fun splitForContextMenu(
+    all: List<SelectionAction>,
+    /** Which ids go across the top, in order. See [SelectionBarConfig.contextQuick]. */
+    quickIds: List<String> = QUICK_IDS,
+): Pair<List<SelectionAction>, List<SelectionAction>> {
+    val quick = quickIds.mapNotNull { id -> all.firstOrNull { it.id == id } }
+    val taken = quick.map { it.id }.toSet()
+    val rest = all.filterNot { it.id in taken }
     return quick to rest
 }
 

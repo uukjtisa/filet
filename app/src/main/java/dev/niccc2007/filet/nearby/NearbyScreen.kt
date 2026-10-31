@@ -117,7 +117,7 @@ fun NearbyScreen(vm: BrowserViewModel) {
         onDispose { nearby.stopScan() }
     }
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("nearby")) {
         item { TabHeader("Share over this network") }
         item { ShareCard(vm, server, shares.size) { editingPin = nearby.fixedPin() ?: "" } }
 

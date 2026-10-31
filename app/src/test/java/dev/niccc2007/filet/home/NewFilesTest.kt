@@ -31,7 +31,7 @@ class NewFilesTest {
 
     @Test
     fun `folders and hidden files are excluded, parameterised`() {
-        val (sel, args) = CategoryQuery.newSelection(before = null)
+        val (sel, args) = CategoryQuery.newSelection(before = null, by = HistorySort.DATE_ADDED)
         assertTrue(sel.contains("mime_type IS NOT NULL"))
         assertTrue(sel.contains("_display_name NOT LIKE ?"))
         assertEquals(listOf(".%"), args.toList())
@@ -42,7 +42,7 @@ class NewFilesTest {
     fun `a date jump is a range in seconds, not milliseconds`() {
         // DATE_ADDED is seconds. Comparing it with milliseconds puts every file "before" any
         // date, and the jump would show the newest files instead of the day asked for.
-        val (sel, args) = CategoryQuery.newSelection(before = 1_700_000_123_456L)
+        val (sel, args) = CategoryQuery.newSelection(before = 1_700_000_123_456L, by = HistorySort.DATE_ADDED)
         assertTrue(sel.endsWith("date_added < ?"))
         assertEquals("1700000123", args.last())
         assertEquals(args.size, sel.count { it == '?' })

@@ -148,6 +148,16 @@ object FiletIcons {
     /** Back's mirror. Drawn rather than rotated so the two read as a matched pair. */
     val Forward = stroke("forward", "M4 12h16", "m13.5 5.5 6.5 6.5-6.5 6.5", width = 1.9f)
     val Close = stroke("close", "M6 6l12 12M18 6 6 18", width = 1.9f)
+    /** Close every tab: a tab with another behind it, crossed. Not [Close], which is one tab. */
+    val CloseAll = stroke(
+        "closeall",
+        "M4 9a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z",
+        "M8 4.5h10.5a1.5 1.5 0 0 1 1.5 1.5v10.5",
+        "m7.5 11.5 5 5M12.5 11.5l-5 5",
+        width = 1.7f,
+    )
+    /** Stop Filet. The standby mark rather than a cross, because closing a screen is not this. */
+    val Power = stroke("power", "M12 3.5v8", "M7.2 6.4a7.5 7.5 0 1 0 9.6 0", width = 1.9f)
     val Plus = stroke("plus", "M12 5v14M5 12h14", width = 1.9f)
     val NewFolder = stroke("newfolder", "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", "M12 10v6M9 13h6")
     val Paste = stroke("paste", "M8 4h8v3H8z", "M8 5.5H6a2 2 0 0 0-2 2V19a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5a2 2 0 0 0-2-2h-2")
@@ -155,6 +165,17 @@ object FiletIcons {
     val Sort = stroke("sort", "M7 4v16M7 20l-3-3M7 20l3-3", "M17 20V4M17 4l-3 3M17 4l3 3")
     val Share = stroke("share", "M12 15V4", "m8 8 4-4 4 4", "M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5")
     val Eye = stroke("eye", "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12", "M14.5 12a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0")
+    // The same eye with the slash through it, for "stop showing me this". Drawn as the open eye
+    // plus a stroke rather than as a separate shape, so the pair reads as one control in two
+    // states wherever both appear.
+    val EyeOff = stroke(
+        "eyeoff",
+        "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12",
+        "M14.5 12a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0",
+        "M4 20 20 4",
+    )
+    /** An empty ring - the unpicked half of a selection tick. */
+    val Circle = stroke("circle", "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17")
     val Hex = stroke("hex", "M5 5h14v14H5z", "M8 9h2M8 12h2M8 15h2M13 9h3M13 12h3M13 15h3")
     val Device = stroke("device", "M7 3h10v18H7z", "M10.5 18.5h3")
     val Wifi = stroke("wifi", "M3.5 9.5a13 13 0 0 1 17 0", "M6.5 13a9 9 0 0 1 11 0", "M9.5 16.4a5 5 0 0 1 5 0", "M12 20h.01")
@@ -298,8 +319,12 @@ object FiletIcons {
     // -- image editing --
     val Crop = stroke("crop", "M6 2v16h16", "M2 6h16v16")
     val Draw = stroke("draw", "m3 21 1.3-4.3L14.6 6.4l3 3L7.3 19.7z", "m13 8 3 3", "M16.8 4.2 19.8 7.2l-2.2 2.2-3-3z")
-    val RotateRight = stroke("rotr", "M4 12a8 8 0 1 0 2.6-5.9", "M4 4v4h4")
-    val RotateLeft = stroke("rotl", "M20 12a8 8 0 1 1-2.6-5.9", "M20 4v4h-4")
+    // Bug identified here: the two paths were each other's. The arc that ends at the top left
+    // with its head pointing down runs anticlockwise, and it was the one named Right - so the
+    // viewer's Rotate showed a turn the other way from the one it made, and the editor's Left
+    // and Right buttons wore each other's arrows.
+    val RotateRight = stroke("rotr", "M20 12a8 8 0 1 1-2.6-5.9", "M20 4v4h-4")
+    val RotateLeft = stroke("rotl", "M4 12a8 8 0 1 0 2.6-5.9", "M4 4v4h4")
     val FlipH = stroke("fliph", "M12 3v18", "M9 7 4 12l5 5z", "m15 7 5 5-5 5z")
     val FlipV = stroke("flipv", "M3 12h18", "M7 9 12 4l5 5z", "m7 15 5 5 5-5z")
     val Invert = stroke("invert", "M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0", "M12 3.5v17", "M15 7h3.2M14 10h5.2M14 14h5.2M15 17h3.2")
@@ -307,4 +332,17 @@ object FiletIcons {
     val Stretch = stroke("stretch", "M4 9V4h5", "M20 15v5h-5", "m4 4 6 6", "m20 20-6-6")
     val Save = stroke("save", "M5 4h11l3 3v13H5z", "M8.5 4v5h6.5V4", "M8.5 13h7v7h-7z")
     val Undo = stroke("undo", "M4.5 10h10a5 5 0 0 1 0 10H8.5", "m4.5 10 4-4M4.5 10l4 4")
+
+    /** "This opens": the mark after a heading that leads somewhere. */
+    val Chevron = stroke("chevron", "m9.5 5.5 6.5 6.5-6.5 6.5", width = 1.9f)
+
+    /** A viewfinder over a code: the scanner. */
+    val Scan = stroke(
+        "scan",
+        "M4 8.5V4h4.5", "M15.5 4H20v4.5", "M20 15.5V20h-4.5", "M8.5 20H4v-4.5",
+        "M8 8h3v3H8z", "M13 8h3v3h-3z", "M8 13h3v3H8z", "M13.5 13.5h1v1h-1zM15.5 15.5h.5v.5h-.5z",
+    )
+
+    /** The scanner's light. */
+    val Torch = stroke("torch", "M8 3h8v4l-2 3v11h-4V10L8 7z", "M8 7h8", "M12 13.5v2.5")
 }

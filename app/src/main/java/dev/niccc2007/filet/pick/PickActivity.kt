@@ -68,6 +68,11 @@ class PickActivity : ComponentActivity() {
             allowMultiple = intent?.getBooleanExtra(Intent.EXTRA_ALLOW_MULTIPLE, false) == true,
             localOnly = intent?.getBooleanExtra(Intent.EXTRA_LOCAL_ONLY, false) == true,
             openable = intent?.categories?.contains(Intent.CATEGORY_OPENABLE) == true,
+            // Filet's own operations name themselves; an outside app's wording is never shown
+            // as if Filet had said it. `callingPackage` is set because the report form starts
+            // this for a result, which is the only way anyone gets an answer from it anyway.
+            verb = if (fromFilet()) intent?.getStringExtra(PickRequest.EXTRA_VERB).orEmpty() else "",
+            subject = if (fromFilet()) intent?.getStringExtra(PickRequest.EXTRA_SUBJECT).orEmpty() else "",
         )
 
         // Cancel is the default answer, set before anything else can go wrong. A picker that
@@ -84,6 +89,9 @@ class PickActivity : ComponentActivity() {
             FiletTheme(theme = theme, accent = accent) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     val browser: BrowserViewModel = viewModel(factory = factoryFor(graph))
+                    // Before anything starts it: the browser reads this when it builds its
+                    // tabs, and a picker browses in tabs of its own. See `ownTabs`.
+                    browser.ownTabs = true
                     browser.pickRequest = request
                     browser.pickCaller = caller
                     browser.onExit = { cancel() }
@@ -153,6 +161,8 @@ class PickActivity : ComponentActivity() {
         setResult(RESULT_CANCELED)
         finish()
     }
+
+    private fun fromFilet(): Boolean = callingPackage == packageName
 
     /** The asking app's name, for the bar. Its package if it has no readable label. */
     private fun callerLabel(): String? {

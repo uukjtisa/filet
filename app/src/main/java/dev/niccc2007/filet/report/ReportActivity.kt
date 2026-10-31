@@ -93,7 +93,12 @@ open class ReportActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Redacted on the way in, so the title, the preview and the attachment are all the same
+        // cleaned text, and what is shown is what would be published. The logger's runs are
+        // redacted when written; a crash report is not, and an exception message can carry a
+        // share's URL with a password in it.
         val crash = intent.getStringExtra(EXTRA_CRASH)
+            ?.lineSequence()?.joinToString("\n") { dev.niccc2007.filet.log.Redact.line(it) }
         setContent {
             // Prefs directly, never the graph: see the class comment, and CrashActivity.
             val prefs = remember { dev.niccc2007.filet.data.Prefs(this) }
@@ -163,6 +168,10 @@ private fun ReportScreen(
     var steps by rememberSaveable { mutableStateOf("") }
     var deviceOn by rememberSaveable { mutableStateOf(false) }
     var deviceText by rememberSaveable { mutableStateOf("") }
+    // Its own field, sent with the log: the server holds the phone details to 2,000 characters
+    // and a snapshot alone is several thousand. Appending it to the details made every report
+    // that used the button one the server would refuse.
+    var snapshot by rememberSaveable { mutableStateOf("") }
     var logOn by rememberSaveable { mutableStateOf(false) }
     var logName by rememberSaveable { mutableStateOf<String?>(null) }
     var pictures by rememberSaveable { mutableStateOf(listOf<String>()) }
@@ -197,9 +206,10 @@ private fun ReportScreen(
         if (logName == null) logName = logChoices.firstOrNull()?.first
     }
 
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(ReportForm.IMAGES_MAX),
-    ) { uris ->
+    // Pictures go through the same intake whichever picker supplied them: copied in, sized
+    // against the server's limits, and attached only here, after an explicit pick. Nothing
+    // leaves the phone until Send.
+    fun takePictures(uris: List<Uri>) {
         scope.launch {
             var note: String? = null
             for ((i, uri) in uris.withIndex()) {
@@ -214,6 +224,14 @@ private fun ReportScreen(
             pictureNote = note
         }
     }
+
+    // Filet's own picker, through the very door other apps use (`PickActivity`), so there is
+    // one picker rather than an internal twin. The system one is kept only in the crash
+    // process: Filet's picker runs in the main process, and that may be the thing that crashed.
+    val picker = rememberLauncherForActivityResult(FiletPictures) { takePictures(it) }
+    val systemPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(ReportForm.IMAGES_MAX),
+    ) { takePictures(it) }
 
     fun draftNow(): ReportForm.Draft {
         val log = if (!logOn) null else logName?.let { name ->
@@ -234,6 +252,7 @@ private fun ReportScreen(
             device = if (deviceOn) deviceText else null,
             log = log,
             images = images,
+            snapshot = snapshot.ifBlank { null },
         )
     }
 
@@ -244,6 +263,10 @@ private fun ReportScreen(
         title = title,
         description = description,
         steps = steps,
+        // Everything the limits are checked against, so Send is never offered for a report the
+        // server would refuse.
+        device = if (deviceOn) deviceText else null,
+        snapshot = snapshot.ifBlank { null },
         images = pictures.filter { Collect.sizeOf(it) != null }.map {
             ReportForm.Image(Collect.nameOf(it), "image/jpeg", ByteArray(0))
         },
@@ -337,11 +360,13 @@ private fun ReportScreen(
             // Only where the logger runs. The snapshot is what a heat or lag report needs most:
             // temperatures, the thermal state and what the threads are doing.
             if (!inCrashProcess) {
-                FormButton("Add a heat and lag snapshot", primary = false) {
-                    scope.launch {
-                        val dump = FiletLog.dump(context, "issue report")
-                        deviceText = deviceText.trimEnd() + "\n\n" + dump.trim()
+                if (snapshot.isBlank()) {
+                    FormButton("Add a heat and lag snapshot", primary = false) {
+                        scope.launch { snapshot = FiletLog.dump(context, "issue report").trim() }
                     }
+                } else {
+                    Field("Heat and lag snapshot - sent with the log", snapshot, minLines = 4, mono = true) { snapshot = it }
+                    FormButton("Remove the snapshot", primary = false) { snapshot = "" }
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -408,8 +433,18 @@ private fun ReportScreen(
             Spacer(Modifier.height(8.dp))
         }
         if (pictures.size < ReportForm.IMAGES_MAX) {
-            FormButton("Add pictures", primary = false) {
-                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            FormButton("Add pictures", primary = false) { picker.launch(Unit) }
+            if (inCrashProcess) {
+                Text(
+                    "Filet's picker not opening? Use the phone's own",
+                    fontSize = 11.sp,
+                    color = colors.accent,
+                    modifier = Modifier
+                        .padding(top = 6.dp)
+                        .clickable {
+                            systemPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        },
+                )
             }
         }
         pictureNote?.let { Text(it, fontSize = 11.sp, color = colors.bad, modifier = Modifier.padding(top = 6.dp)) }
@@ -424,7 +459,7 @@ private fun ReportScreen(
                 // carried across. It is offered when the server cannot take the report, never as
                 // the way reports are sent.
                 FormButton("Open on GitHub instead", primary = false) {
-                    onOpen(fallbackUrl(title, ReportForm.issueBody(preview.copy(device = if (deviceOn) deviceText else null))))
+                    onOpen(fallbackUrl(title, ReportForm.issueBody(preview)))
                 }
             }
             Spacer(Modifier.height(10.dp))
@@ -457,6 +492,9 @@ private fun ReportScreen(
  */
 private fun fallbackUrl(title: String, body: String): String =
     "https://github.com/uukjtisa/filet/issues/new?title=" + Uri.encode(title) +
+        // The label applies when the person filing can triage, which the maintainer can; for
+        // anyone else GitHub ignores it rather than refusing the page.
+        "&labels=app-report" +
         "&body=" + Uri.encode(body.take(6000))
 
 private const val CRASH_LOG = "crash report"

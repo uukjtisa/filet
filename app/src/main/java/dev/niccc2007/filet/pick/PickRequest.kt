@@ -16,12 +16,18 @@ package dev.niccc2007.filet.pick
  *   nothing about what is offered; it is carried so the picker never claims otherwise.
  * @param openable the caller carried `CATEGORY_OPENABLE`, meaning it will call
  *   `openInputStream` on whatever comes back. A folder is not an answer to that.
+ * @param verb what the pick is FOR, in the imperative - "attach". Only ever set when Filet is
+ *   asking itself through this same door (the report form's pictures); another app's words are
+ *   never put in Filet's mouth, and it is named instead. See [EXTRA_VERB].
+ * @param subject what the operation is done to or with - "to your report". Same rule.
  */
 data class PickRequest(
     val mimeTypes: List<String>,
     val allowMultiple: Boolean,
     val localOnly: Boolean,
     val openable: Boolean,
+    val verb: String = "",
+    val subject: String = "",
 ) {
 
     /** Anything goes, so the browser shows everything without dimming half of it. */
@@ -76,6 +82,8 @@ data class PickRequest(
             allowMultiple: Boolean,
             localOnly: Boolean,
             openable: Boolean,
+            verb: String = "",
+            subject: String = "",
         ): PickRequest {
             val extras = extraMimeTypes?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
             val declared = type?.trim().orEmpty()
@@ -89,8 +97,18 @@ data class PickRequest(
                 allowMultiple = allowMultiple,
                 localOnly = localOnly,
                 openable = openable,
+                verb = verb.trim(),
+                subject = subject.trim(),
             )
         }
+
+        /**
+         * The operation, for a pick Filet sends to its own picker. One door for both directions:
+         * the report form asks `PickActivity` exactly as another app would, plus these two, so
+         * there is one picker and not an internal twin of it. Read only from Filet itself.
+         */
+        const val EXTRA_VERB = "dev.niccc2007.filet.pick.VERB"
+        const val EXTRA_SUBJECT = "dev.niccc2007.filet.pick.SUBJECT"
     }
 }
 

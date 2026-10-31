@@ -151,8 +151,25 @@ private fun DrawScope.lights(
     swing: Float,
 ) {
     // Swell AND brighten. See `HaloBackdrop`: on its own, a change of alpha is a flicker.
-    val grow = spread * (1f + swing * BEAT_BLOOM).coerceAtLeast(0.25f)
-    val lift = (1f + swing * BEAT_FLARE).coerceAtLeast(0.15f)
+    // ONLY the positive half of the swing, and this is not a clamp for tidiness.
+    //
+    // Bug identified here: the background faded towards black while a track sat playing,
+    // and got worse the longer it sat. `swing` is `norm - mean`, and `mean` chases `norm`
+    // over a long window from a standing start of zero. `norm` spikes during a hit and
+    // rests near zero between them, so its TIME average is low - about a sixth - which
+    // means the resting swing starts at zero and sags to roughly -0.15 as the mean
+    // converges. Fed through `1f + swing * FLARE` that put the glow BELOW its resting
+    // brightness for most of every bar, sagging further over the first half-minute of the
+    // track until the coloured light had dropped out and the dark ground showed through.
+    //
+    // The measurement is untouched - the beat is still read against the track's own
+    // running average, which is D-01 and must not be undone. What changes is what the DRAW
+    // does with a trough: nothing at all. Rest is the floor, a beat rises from it, and the
+    // background is never dimmer than it is with the pulse switched off - which is the
+    // same guarantee D-01 was written to protect, now held at the other end.
+    val up = swing.coerceAtLeast(0f)
+    val grow = spread * (1f + up * BEAT_BLOOM)
+    val lift = 1f + up * BEAT_FLARE
     glowBlob(lamps.brushes[0], lamps.alpha(0, lift), a, 0.30f, 0.26f, size.maxDimension * 0.80f * grow)
     glowBlob(lamps.brushes[1], lamps.alpha(1, lift), b, 0.74f, 0.44f, size.maxDimension * 0.95f * grow)
     glowBlob(lamps.brushes[2], lamps.alpha(2, lift), c, 0.52f, 0.72f, size.maxDimension * 0.65f * grow)
@@ -241,7 +258,10 @@ private const val BEAT_FLARE = 1.5f
  * they have an opinion.
  */
 enum class GlowLevel(val id: String, val label: String, val scale: Float) {
-    FAINT("faint", "Faint", 0.55f),
+    // Faint sits ON the new floor rather than below it. At 0.55 it was under `GLOW_MIN`, so
+    // picking it from the strip's pill wrote a value the slider could not represent and the
+    // thumb snapped to the bottom of its travel.
+    FAINT("faint", "Faint", GLOW_MIN),
     SOFT("soft", "Soft", 1.0f),
     STRONG("strong", "Strong", 1.7f);
 
@@ -281,8 +301,43 @@ enum class GlowLevel(val id: String, val label: String, val scale: Float) {
 fun glowScale(position: Float): Float =
     GLOW_MIN + (GLOW_MAX - GLOW_MIN) * position.coerceIn(0f, 1f)
 
-/** Just visible, to a wash. */
-const val GLOW_MIN = 0.20f
+/**
+ * The floor and the ceiling of the glow strength control.
+ *
+ * Bug identified here: the floor was 0.20, which multiplied by the alpha the lights are drawn
+ * at is close enough to nothing that sliding the control down turned the background BLACK. That
+ * made the slider an off switch wearing a different name - the exact thing that was removed
+ * when the "Living background" toggle went, and removed because the coloured background is what
+ * the player looks like rather than an effect laid over it.
+ *
+ * 0.70 is the point where the backdrop is unmistakably the track's colour and still quiet
+ * enough to read white text over. The control now spans "quiet" to "a wash"; it no longer spans
+ * "gone" to "a wash".
+ */
+/**
+ * How vibrant the coloured background is, as a multiplier over its painted strength.
+ *
+ * The range is deliberately wide at the top and shallow at the bottom: asking for "more
+ * vibrant" is the common request and asking for "nearly gone" is rare, and the background is
+ * the ground the whole player sits on - taking it to zero would leave the dark rectangle that
+ * the glow switch used to produce and that the switch was removed for.
+ */
+fun vibranceScale(position: Float): Float =
+    VIBRANCE_MIN + (VIBRANCE_MAX - VIBRANCE_MIN) * position.coerceIn(0f, 1f)
+
+const val VIBRANCE_MIN = 0.5f
+const val VIBRANCE_MAX = 2.0f
+
+/**
+ * The position at which [vibranceScale] returns exactly 1.
+ *
+ * So an install that has never touched the slider looks precisely as it did before the control
+ * existed. A new setting whose default changes the thing it controls is a setting that reads as
+ * a regression to everybody who did not ask for it.
+ */
+const val VIBRANCE_DEFAULT = (1f - VIBRANCE_MIN) / (VIBRANCE_MAX - VIBRANCE_MIN)
+
+const val GLOW_MIN = 0.70f
 const val GLOW_MAX = 2.20f
 
 /**
@@ -333,9 +388,19 @@ fun rememberGlowPhases(running: Boolean): GlowClock {
             at.longValue = GlowClock.STILL
             return@LaunchedEffect
         }
-        while (true) {
-            at.longValue = android.os.SystemClock.elapsedRealtime()
-            delay(1000L / fps)
+        // Registered, so a diagnostics dump NAMES this loop and says how fast it is going.
+        // The cost model above was prose; this is the measurement, and the two disagreeing is
+        // the thing worth catching - a loop documented at 15 Hz and running at 60 looks
+        // identical in the source and is four times the heat. See `FiletLog.loop`.
+        val ticking = dev.niccc2007.filet.log.FiletLog.loop("glow.clock", 1000L / fps)
+        try {
+            while (true) {
+                at.longValue = android.os.SystemClock.elapsedRealtime()
+                ticking.tick()
+                delay(1000L / fps)
+            }
+        } finally {
+            ticking.close()
         }
     }
     return remember { GlowClock(at) }
@@ -383,10 +448,18 @@ fun rememberPhase(periodMs: Int, running: Boolean): State<Float> {
     val phase = remember { mutableFloatStateOf(0f) }
     LaunchedEffect(move, periodMs, fps) {
         if (!move) return@LaunchedEffect
-        while (true) {
-            phase.floatValue =
-                (android.os.SystemClock.elapsedRealtime() % periodMs).toFloat() / periodMs
-            delay(1000L / fps)
+        // Named by its period, because several of these run at once - the ring's sweep, its
+        // breath, the disc - and "one phase loop" in a dump would not say which.
+        val ticking = dev.niccc2007.filet.log.FiletLog.loop("phase.${periodMs}ms", 1000L / fps)
+        try {
+            while (true) {
+                phase.floatValue =
+                    (android.os.SystemClock.elapsedRealtime() % periodMs).toFloat() / periodMs
+                ticking.tick()
+                delay(1000L / fps)
+            }
+        } finally {
+            ticking.close()
         }
     }
     return phase

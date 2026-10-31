@@ -21,6 +21,28 @@ package dev.niccc2007.filet.handlers
  * read. A stale [ZoomView] produces a visibly wrong answer in a test; a stale capture inside a
  * pointer callback produces a viewer that quietly stops zooming, and that shipped.
  */
+/**
+ * How much a picture already fitted to the box must be scaled so that, turned by [degrees], it
+ * fits the box again. 1 at no turn.
+ *
+ * A landscape photo fitted to a portrait screen fills its width and a third of its height.
+ * Turned a quarter without this, it keeps the same size and stands in the middle as a thin
+ * column; with it, it grows until the turned picture meets the edges, which is what turning a
+ * photo on a phone is for. Worked from the turned picture's bounding box, so it is continuous
+ * between quarter turns and the animation grows the picture as it turns rather than jumping
+ * at the end.
+ */
+fun turnFit(boxW: Float, boxH: Float, imageW: Float, imageH: Float, degrees: Float): Float {
+    if (boxW <= 0f || boxH <= 0f || imageW <= 0f || imageH <= 0f) return 1f
+    val fit = minOf(boxW / imageW, boxH / imageH)
+    val fw = imageW * fit
+    val fh = imageH * fit
+    val r = Math.toRadians(degrees.toDouble())
+    val c = kotlin.math.abs(kotlin.math.cos(r)).toFloat()
+    val s = kotlin.math.abs(kotlin.math.sin(r)).toFloat()
+    return minOf(boxW / (fw * c + fh * s), boxH / (fw * s + fh * c))
+}
+
 data class ZoomView(
     val scale: Float = 1f,
     val offsetX: Float = 0f,
@@ -34,7 +56,7 @@ data class ZoomView(
      *
      * ## Why the focus matters, and what it looked like without one
      *
-     * Reported as the viewer zooming "weird" when pinching near a corner. It was: the scale
+     * Bug identified here: a pinch near a corner ran away from the fingers. The scale
      * was applied about the CENTRE of the viewport whatever the fingers were doing, so the
      * picture slid out from under them - the further from the middle you pinched, the more it
      * ran away, and pinching out at a corner threw the part you were looking at off the

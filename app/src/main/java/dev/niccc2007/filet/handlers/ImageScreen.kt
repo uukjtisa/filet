@@ -9,14 +9,21 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculateCentroidSize
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
@@ -31,6 +38,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -72,6 +83,8 @@ import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.browser.humanSize
+import dev.niccc2007.filet.media.JpegOrientation
+import dev.niccc2007.filet.media.upright
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 import kotlinx.coroutines.Dispatchers
@@ -107,19 +120,42 @@ private const val UNDO_DEPTH = 5
 
 private enum class Tool { NONE, CROP, DRAW, RESIZE, ROTATE, TEXT }
 
+/** The bottom bar's two menus. One value, so opening one closes the other. */
+private enum class PicMenu { EDIT, MORE }
+
+/**
+ * @param placeholder drawn while the picture decodes, in place of the bare spinner. A run passes
+ *   the file's poster, so arriving at a photo by swiping goes from soft to sharp.
+ */
 @Composable
-fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
+fun ImageViewerScreen(vm: BrowserViewModel, node: VNode, placeholder: (@Composable () -> Unit)? = null) {
+    val grey by vm.prefs.viewerGrey.collectAsState()
+    dev.niccc2007.filet.ui.theme.DarkGround(ViewerGround.of(grey)) {
+        ImageViewerContent(vm, node, placeholder, grey)
+    }
+}
+
+@Composable
+private fun ImageViewerContent(
+    vm: BrowserViewModel,
+    node: VNode,
+    placeholder: (@Composable () -> Unit)?,
+    grey: Boolean,
+) {
     val colors = Filet.colors
     val scope = rememberCoroutineScope()
 
     var image by remember(node.path) { mutableStateOf<Bitmap?>(null) }
     var sourceSize by remember(node.path) { mutableStateOf("") }
+    // The file's own size, the way up it is shown, for saying when a save would be smaller.
+    var sourceDims by remember(node.path) { mutableStateOf<Pair<Int, Int>?>(null) }
     var error by remember(node.path) { mutableStateOf<String?>(null) }
     var editing by remember(node.path) { mutableStateOf(false) }
     var tool by remember(node.path) { mutableStateOf(Tool.NONE) }
     var busy by remember(node.path) { mutableStateOf(false) }
     var dirty by remember(node.path) { mutableStateOf(false) }
     var exitArmed by remember(node.path) { mutableStateOf(false) }
+    var menu by remember(node.path) { mutableStateOf<PicMenu?>(null) }
 
     // The controls retract while the picture is being looked at, and a tap brings them back - the
     // same rule as the video viewer, decided in the same place. See ViewerChrome.
@@ -135,6 +171,29 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
     var view by remember(node.path) { mutableStateOf(ZoomView.NONE) }
 
     fun resetView() { view = ZoomView.NONE }
+
+    // The viewer's own turn, in quarter turns clockwise, counted up without wrapping so every
+    // turn animates the short way round. A view, like the zoom: the file changes only when the
+    // turn is saved. So a turn holds nothing - swiping on to the next picture still works, and
+    // coming back finds it the way up the file is.
+    //
+    // Bug identified here: Rotate used to open the editor with a quarter turn already made.
+    // That made a turn an unsaved EDIT, the editor's controls replaced the viewer's, and an
+    // unsaved edit holds the run's swipe - so one tap on Rotate also stopped the swipe to the
+    // next photo, and leaving needed a second Back to discard what looked like nothing.
+    var quarters by remember(node.path) { mutableIntStateOf(0) }
+    // The turn last saved, so the Save action goes away once it has done its job.
+    var savedQuarters by remember(node.path) { mutableIntStateOf(0) }
+    val turnDegrees = remember(node.path) { Animatable(0f) }
+    LaunchedEffect(quarters) {
+        // Zero only when the turn has become part of the picture - saved over the file, or
+        // carried into the editor - and by then the picture under it has already turned, so it
+        // snaps rather than spinning back.
+        if (quarters == 0) turnDegrees.snapTo(0f) else turnDegrees.animateTo(quarters * 90f, tween(220))
+    }
+    val turnPending = Math.floorMod(quarters, 4) != 0 && quarters != savedQuarters
+    // Bumped to read the file again after a turn is saved over it.
+    var revision by remember(node.path) { mutableIntStateOf(0) }
 
     fun keep(previous: Bitmap) {
         history.add(previous)
@@ -162,11 +221,44 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
         }
     }
 
-    LaunchedEffect(node.path) {
+    /**
+     * The viewer's turn made part of the picture, for the editor: what is edited is what was on
+     * screen. An edit like any other from there - Undo takes it back off.
+     */
+    fun bakeTurn() {
+        val q = Math.floorMod(quarters, 4)
+        val current = image
+        if (q == 0 || current == null) { quarters = 0; savedQuarters = 0; return }
+        val turn = when (q) { 1 -> Turn.RIGHT; 2 -> Turn.HALF; else -> Turn.LEFT }
+        scope.launch {
+            busy = true
+            val next = withContext(Dispatchers.Default) {
+                runCatching { current.toPixels().rotated(turn).toBitmap() }.getOrNull()
+            }
+            busy = false
+            if (next == null) {
+                vm.toast("That edit needs more memory than is free right now.")
+                return@launch
+            }
+            keep(current)
+            image = next
+            quarters = 0
+            savedQuarters = 0
+        }
+    }
+
+    LaunchedEffect(node.path, revision) {
         runCatching {
             withContext(Dispatchers.IO) {
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                vm.openRead(node).use { BitmapFactory.decodeStream(it, null, bounds) }
+                // The orientation comes from the same open as the size: the front of the file is
+                // read once, looked at, and put back in front of the rest. See JpegOrientation for
+                // why BitmapFactory on its own showed portrait photos lying on their side.
+                val orientation = vm.openRead(node).use { input ->
+                    val head = JpegOrientation.head(input)
+                    BitmapFactory.decodeStream(java.io.SequenceInputStream(head.inputStream(), input), null, bounds)
+                    JpegOrientation.read(head)
+                }
                 val w = bounds.outWidth
                 val h = bounds.outHeight
                 var sample = 1
@@ -178,13 +270,19 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
                     // and nowhere else.
                     inPreferredConfig = Bitmap.Config.ARGB_8888
                 }
-                val bmp = vm.openRead(node).use { BitmapFactory.decodeStream(it, null, opts) }
-                bmp to "$w x $h"
+                val bmp = vm.openRead(node).use { BitmapFactory.decodeStream(it, null, opts) }?.upright(orientation)
+                val sideways = JpegOrientation.transformOf(orientation).sideways
+                Triple(bmp, if (sideways) h else w, if (sideways) w else h)
             }
-        }.onSuccess { (bmp, d) ->
+        }.onSuccess { (bmp, sw, sh) ->
             if (bmp == null) error = "This is not an image Android can decode."
+            // A read after a save over the file: the turn is in it now. Swapped in the same
+            // frame as the picture, so the new one is never shown turned twice.
             image = bmp
-            sourceSize = d
+            quarters = 0
+            savedQuarters = 0
+            sourceSize = "$sw x $sh"
+            sourceDims = sw to sh
         }.onFailure { error = it.message ?: "Could not read this image." }
     }
 
@@ -207,7 +305,16 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
     // keyed on the file - anything it closes over is frozen at the composition that started it.
     // That is the trap this file already documents for `pointerInput`, and here it would have let
     // the tools vanish in the middle of an edit begun after the viewer opened.
-    val holdingChrome = rememberUpdatedState(editing || tool != Tool.NONE || busy)
+    //
+    // An open menu holds them too: it is drawn from the bar, and the bar retracting takes it away
+    // in the middle of a choice. So does any dialogue at all - the QR details are drawn from the
+    // chip in the top bar and went with it; see OverlayHold.
+    val overlayOpen = dev.niccc2007.filet.ui.dialogs.OverlayHold.held
+    val holdingChrome = rememberUpdatedState(editing || tool != Tool.NONE || busy || menu != null || overlayOpen)
+    // Closing one restarts the idle clock. Otherwise a dialogue read for longer than the idle
+    // time lets the controls vanish the instant it closes, which reads as the close button
+    // having taken them too.
+    LaunchedEffect(overlayOpen) { if (!overlayOpen) chromeTouchedAt = System.currentTimeMillis() }
     LaunchedEffect(node.path) {
         while (true) {
             kotlinx.coroutines.delay(400)
@@ -231,6 +338,10 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
     // at yet, and the way out is on the bar.
     val chromeUp = chromeVisible || shown == null || error != null
 
+    // In a run, a swipe moves to the next photo - except while that would cost something: an
+    // edit in progress or not yet saved, or a zoomed view whose drags are panning it.
+    HoldRunSwipe(editing || tool != Tool.NONE || busy || dirty || view.scale > ZOOMED)
+
     // The picture gets the whole screen, system bars included.
     ImmersiveViewer()
 
@@ -247,9 +358,12 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                 )
 
-                shown == null -> CircularProgressIndicator(
-                    Modifier.align(Alignment.Center).size(26.dp), strokeWidth = 2.dp,
-                )
+                shown == null -> {
+                    placeholder?.invoke()
+                    CircularProgressIndicator(
+                        Modifier.align(Alignment.Center).size(26.dp), strokeWidth = 2.dp,
+                    )
+                }
 
                 tool == Tool.CROP -> CropSurface(shown, busy) { rect ->
                     tool = Tool.NONE
@@ -298,7 +412,12 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
                     if (w != shown.width || h != shown.height) runOp { it.stretched(w, h) }
                 }
 
-                else -> ZoomableImage(shown, node.name, view, onTap = { wakeChrome() }) { view = it }
+                else -> ZoomableImage(
+                    shown, node.name, view,
+                    // Read in the draw phase, so the turn animates without recomposing the screen.
+                    turn = { if (quarters == 0) 0f else turnDegrees.value },
+                    onTap = { wakeChrome() },
+                ) { view = it }
             }
             if (busy) {
                 CircularProgressIndicator(
@@ -317,7 +436,11 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
                 title = node.name,
                 subtitle = listOfNotNull(
                     dims.takeIf { it.isNotEmpty() },
-                    if (dirty) "edited, not saved" else humanSize(node.size),
+                    when {
+                        dirty -> "edited, not saved"
+                        turnPending -> "turned, not saved"
+                        else -> humanSize(node.size)
+                    },
                 ).joinToString("  ·  "),
                 onClose = {
                     // Walking away from unsaved edits is a real loss, so the first back arms it and
@@ -341,8 +464,10 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
                         dirty = history.isNotEmpty()
                         resetView()
                     }
-                    ViewerAction(FiletIcons.Save, "Save a copy", enabled = shown != null && !busy) {
-                        val bmp = shown ?: return@ViewerAction
+                    val blocked = remember(node.path) { vm.writeBlockReason(node.path.parent) }
+                    /** Encode what is on screen and hand it to the save, [to] null meaning over the original. */
+                    fun saveEdit(to: dev.niccc2007.filet.vfs.VPath?) {
+                        val bmp = shown ?: return
                         scope.launch {
                             busy = true
                             val encoded = withContext(Dispatchers.Default) {
@@ -350,25 +475,116 @@ fun ImageViewerScreen(vm: BrowserViewModel, node: VNode) {
                             }
                             busy = false
                             if (encoded == null) { vm.toast("Could not encode the edited image."); return@launch }
-                            vm.saveEditedImage(node, encoded.bytes, encoded.extension) {
+                            vm.saveEditedImage(node, encoded.bytes, encoded.extension, to) {
                                 dirty = false
                                 exitArmed = false
                             }
                         }
                     }
+                    val bmp = shown
+                    val makes = if (bmp == null) node.extension else encodedExtension(bmp, node.extension)
+                    SaveChoice(
+                        label = "Save",
+                        enabled = bmp != null && !busy,
+                        replaceDetail = if (bmp == null || blocked != null ||
+                            makes !in dev.niccc2007.filet.pick.PickName.sameKind(node.extension)
+                        ) {
+                            null
+                        } else {
+                            editSizeNote(bmp.width, bmp.height, sourceDims, jpeg = makes != "png")
+                        },
+                        newDetail = newFileNote(node.extension, makes),
+                        onReplace = { saveEdit(null) },
+                        onNew = { vm.chooseSaveAs(node, makes) { saveEdit(it) } },
+                    )
                     ViewerAction(FiletIcons.Close, "Done editing") { editing = false; tool = Tool.NONE }
                 } else {
-                    ViewerAction(FiletIcons.Rename, "Edit", enabled = shown != null) {
-                        editing = true
-                        resetView()
+                    // A turn is saved from up here, where the editor's Save is: the one action
+                    // that only exists while there is something to save.
+                    if (turnPending) {
+                        val blocked = remember(node.path) { vm.writeBlockReason(node.path.parent) }
+                        val makes = PictureTurn.newFormatFor(node.extension)
+                        /** [to] null saves over the original. */
+                        fun saveTurn(to: dev.niccc2007.filet.vfs.VPath?) {
+                            val q = quarters
+                            busy = true
+                            vm.saveTurnedPicture(node, Math.floorMod(q, 4), to) { ok ->
+                                busy = false
+                                if (ok) {
+                                    savedQuarters = q
+                                    if (to == null) revision++
+                                }
+                            }
+                        }
+                        SaveChoice(
+                            label = "Save the turn",
+                            enabled = shown != null && !busy,
+                            replaceDetail = if (blocked != null) {
+                                null
+                            } else {
+                                when (PictureTurn.replaceFor(node.extension)) {
+                                    PictureTurn.Replace.TAG -> "Lossless: only which way up it is changes"
+                                    PictureTurn.Replace.REWRITE -> "Written again at full size, without loss"
+                                    PictureTurn.Replace.NONE -> null
+                                }
+                            },
+                            newDetail = newFileNote(node.extension, makes),
+                            onReplace = { saveTurn(null) },
+                            onNew = { vm.chooseSaveAs(node, makes) { saveTurn(it) } },
+                        )
                     }
-                    ViewerAction(FiletIcons.Refresh, "Reset zoom", enabled = shown != null) { resetView() }
-                    // The gap found while looking at a PNG: the in-app viewer had no way out.
-                    ViewerAction(FiletIcons.Link, "Open in another app") { vm.openExternally(node, force = true) }
-                    ViewerAction(FiletIcons.Share, "Share") { vm.share(node) }
-                    ViewerAction(FiletIcons.Info, "Properties") { vm.showProperties(node) }
+                    // Only what describes the picture is up here, beside its name: the QR chip
+                    // when it holds a code, and Details. What acts on it is along the bottom.
+                    dev.niccc2007.filet.qr.QrChip(node, vm, Modifier.padding(end = 4.dp))
+                    ViewerAction(FiletIcons.Info, "Details") { vm.showProperties(node) }
                 }
             }
+        }
+
+        val runPage = LocalViewerRun.current
+        AnimatedVisibility(
+            visible = chromeUp && !editing,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            PictureActions(
+                ready = shown != null && !busy,
+                canDelete = remember(node.path) { vm.writeBlockReason(node.path.parent) == null },
+                zoomed = view.scale > ZOOMED,
+                menu = menu,
+                onMenu = {
+                    menu = it
+                    // Closing a menu is a touch: the bar does not vanish the moment it shuts.
+                    chromeTouchedAt = System.currentTimeMillis()
+                },
+                onShare = { vm.share(node) },
+                // Turns the view, not the file; see `quarters`. Saving it is offered at the top.
+                onRotate = {
+                    quarters += 1
+                    resetView()
+                    chromeTouchedAt = System.currentTimeMillis()
+                },
+                onEdit = {
+                    editing = true
+                    resetView()
+                    bakeTurn()
+                },
+                onOpenWith = { vm.openExternally(node, force = true) },
+                onDelete = {
+                    vm.confirmDeleteOf(listOf(node)) {
+                        if (runPage != null) runPage.drop() else vm.closeHandler()
+                    }
+                },
+                onFit = { resetView() },
+                grey = grey,
+                onGround = { vm.prefs.setViewerGrey(!grey) },
+                onReveal = {
+                    // Out of every viewer, not back one: the folder is where this is going.
+                    vm.leaveHandlers()
+                    vm.revealInFolder(node)
+                },
+            )
         }
 
         AnimatedVisibility(
@@ -397,12 +613,13 @@ private fun ZoomableImage(
     bitmap: Bitmap,
     label: String,
     view: ZoomView,
+    turn: () -> Float = { 0f },
     onTap: () -> Unit,
     onView: (ZoomView) -> Unit,
 ) {
     var box by remember { mutableStateOf(Size.Zero) }
 
-    // The fix for "pinch to zoom stopped working".
+    // Bug identified here: pinch to zoom did nothing.
     //
     // `Modifier.pointerInput(key)` launches a coroutine that restarts ONLY when the key
     // changes, and the key here is the bitmap. Anything the gesture block closes over is
@@ -416,6 +633,9 @@ private fun ZoomableImage(
     val live = rememberUpdatedState(view)
     val emit = rememberUpdatedState(onView)
     val tapped = rememberUpdatedState(onTap)
+    // In a run, one finger on an unzoomed picture is a swipe to the next one, so it is left for
+    // the pager. Two fingers are a pinch, and a zoomed picture's drags pan it, here or not.
+    val inRun = LocalViewerRun.current != null
 
     Box(
         Modifier
@@ -433,10 +653,12 @@ private fun ZoomableImage(
             }
             // Last in the chain so it wins the Main pass over the tap detector above, the same
             // ordering the row drag-and-drop needed in round 3.
-            .pointerInput(bitmap) {
-                detectTransformGestures { centroid, pan, zoom, _ ->
-                    // The centroid is the whole fix for "zooming at a corner goes weird" -
-                    // it was being discarded, so every pinch scaled about the middle of the
+            .pointerInput(bitmap, inRun) {
+                detectZoomGestures(
+                    passThrough = { fingers -> inRun && fingers < 2 && live.value.scale <= ZOOMED },
+                ) { centroid, pan, zoom ->
+                    // The centroid is the whole fix for a pinch at a corner running away: it
+                    // was being discarded, so every pinch scaled about the middle of the
                     // viewport and the picture slid out from under the fingers.
                     emit.value(
                         live.value.pinched(
@@ -453,11 +675,58 @@ private fun ZoomableImage(
             bitmap = bitmap.asImageBitmap(),
             contentDescription = label,
             modifier = Modifier.fillMaxSize().graphicsLayer {
-                scaleX = view.scale; scaleY = view.scale
+                // Turned about the middle and scaled to fit again, then zoomed and panned in
+                // screen space - so a pan still follows the finger on a turned picture.
+                val degrees = turn()
+                val fit = turnFit(box.width, box.height, bitmap.width.toFloat(), bitmap.height.toFloat(), degrees)
+                scaleX = view.scale * fit; scaleY = view.scale * fit
+                rotationZ = degrees
                 translationX = view.offsetX; translationY = view.offsetY
             },
         )
     }
+}
+
+/** Past this scale a picture counts as zoomed: its drags pan it and a run's swipe waits. */
+private const val ZOOMED = 1.01f
+
+/**
+ * Compose's `detectTransformGestures`, with one difference: a gesture [passThrough] says is
+ * not this picture's is left alone - not counted, not consumed - so a pager around it can take
+ * it. In a run that is one finger on an unzoomed picture, which is a swipe to the next one.
+ *
+ * Asked on every event rather than once per gesture, so a second finger landing turns a swipe
+ * that has not started yet into a pinch.
+ */
+private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectZoomGestures(
+    passThrough: (fingers: Int) -> Boolean,
+    onGesture: (centroid: Offset, pan: Offset, zoom: Float) -> Unit,
+) = awaitEachGesture {
+    var zoom = 1f
+    var pan = Offset.Zero
+    var pastTouchSlop = false
+    val touchSlop = viewConfiguration.touchSlop
+    awaitFirstDown(requireUnconsumed = false)
+    do {
+        val event = awaitPointerEvent()
+        val canceled = event.changes.any { it.isConsumed }
+        val fingers = event.changes.count { it.pressed }
+        if (!canceled && !(passThrough(fingers) && !pastTouchSlop)) {
+            val zoomChange = event.calculateZoom()
+            val panChange = event.calculatePan()
+            if (!pastTouchSlop) {
+                zoom *= zoomChange
+                pan += panChange
+                val centroidSize = event.calculateCentroidSize(useCurrent = false)
+                if (abs(1 - zoom) * centroidSize > touchSlop || pan.getDistance() > touchSlop) pastTouchSlop = true
+            }
+            if (pastTouchSlop) {
+                val centroid = event.calculateCentroid(useCurrent = false)
+                if (zoomChange != 1f || panChange != Offset.Zero) onGesture(centroid, panChange, zoomChange)
+                event.changes.forEach { if (it.positionChanged()) it.consume() }
+            }
+        }
+    } while (!canceled && event.changes.any { it.pressed })
 }
 
 // ── crop ──
@@ -1220,6 +1489,200 @@ private fun ResizeRow(label: String, percent: Float, from: Int, to: Int, onChang
 
 // ── shared chrome ──
 
+/**
+ * What can be done to the picture, along the bottom, each button with its name under it.
+ *
+ * The bar used to be a row of bare icons along the top, and two of them did not say what they
+ * did: a circular arrow that read as "rotate" and was "reset zoom", and a pencil that opened a
+ * whole editor. A name under a button is the cheapest way to stop it being guessed at, and the
+ * bottom is where the thumb already is. Details stays top right, beside the name it describes.
+ */
+@Composable
+private fun PictureActions(
+    ready: Boolean,
+    canDelete: Boolean,
+    zoomed: Boolean,
+    menu: PicMenu?,
+    onMenu: (PicMenu?) -> Unit,
+    onShare: () -> Unit,
+    onRotate: () -> Unit,
+    onEdit: () -> Unit,
+    onOpenWith: () -> Unit,
+    onDelete: () -> Unit,
+    onFit: () -> Unit,
+    grey: Boolean,
+    onGround: () -> Unit,
+    onReveal: () -> Unit,
+) {
+    val ground = MaterialTheme.colorScheme.background
+    Row(
+        Modifier
+            .fillMaxWidth()
+            // The top bar's gradient, upside down: dense behind the labels, gone by the picture.
+            .background(
+                androidx.compose.ui.graphics.Brush.verticalGradient(
+                    0f to Color.Transparent,
+                    0.35f to ground.copy(alpha = 0.55f),
+                    1f to ground.copy(alpha = 0.92f),
+                ),
+            )
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .padding(start = 6.dp, end = 6.dp, top = 16.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BarButton(FiletIcons.Share, "Share", onClick = onShare)
+        BarButton(FiletIcons.RotateRight, "Rotate", enabled = ready, onClick = onRotate)
+        Box {
+            BarButton(FiletIcons.Rename, "Edit") { onMenu(PicMenu.EDIT) }
+            dev.niccc2007.filet.ui.dialogs.PopMenu(
+                expanded = menu == PicMenu.EDIT,
+                onDismiss = { onMenu(null) },
+                below = 52.dp,
+                above = true,
+                centred = true,
+            ) {
+                if (ready) {
+                    dev.niccc2007.filet.ui.dialogs.PopRow(
+                        FiletIcons.Crop,
+                        "Edit here",
+                        detail = "Crop, draw, turn, resize. Saved as a copy.",
+                    ) { onMenu(null); onEdit() }
+                }
+                dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Link, "Open with another app") {
+                    onMenu(null)
+                    onOpenWith()
+                }
+            }
+        }
+        if (canDelete) BarButton(FiletIcons.Delete, "Delete", onClick = onDelete)
+        Box {
+            BarButton(FiletIcons.More, "More") { onMenu(PicMenu.MORE) }
+            dev.niccc2007.filet.ui.dialogs.PopMenu(
+                expanded = menu == PicMenu.MORE,
+                onDismiss = { onMenu(null) },
+                below = 52.dp,
+                above = true,
+            ) {
+                dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Folder, "Show in folder") {
+                    onMenu(null)
+                    onReveal()
+                }
+                // Named for what it switches TO, as a light switch is: the row is the action.
+                dev.niccc2007.filet.ui.dialogs.PopRow(
+                    FiletIcons.Brightness,
+                    if (grey) "Black background" else "Grey background",
+                ) {
+                    onMenu(null)
+                    onGround()
+                }
+                // Only while there is a zoom to undo. A double tap does the same; this is the
+                // way to it that can be read.
+                if (zoomed) {
+                    dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Stretch, "Fit to screen") {
+                        onMenu(null)
+                        onFit()
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Save, as a choice: over the original, or as a new file chosen in the picker.
+ *
+ * Two choices rather than one button, because they are different promises. Replacing is the
+ * common wish - the photo was simply the wrong way up, or it is the crop that was wanted - and a
+ * new file keeps the original exactly as it was. The editor used to have only "Save a copy",
+ * beside the original under a name it chose, so a photo could neither be corrected in place nor
+ * saved anywhere else.
+ *
+ * One menu for the turn and the edit, so the two saves cannot drift into two shapes.
+ *
+ * @param replaceDetail what replacing would do, or null where it is not offered: a folder that
+ *   cannot be written to, or a format Android cannot write back. A new file can still be saved
+ *   anywhere else, so the menu always opens.
+ */
+@Composable
+private fun SaveChoice(
+    label: String,
+    enabled: Boolean,
+    replaceDetail: String?,
+    newDetail: String,
+    onReplace: () -> Unit,
+    onNew: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        ViewerAction(FiletIcons.Save, label, enabled = enabled) { open = true }
+        dev.niccc2007.filet.ui.dialogs.PopMenu(expanded = open, onDismiss = { open = false }, below = 44.dp) {
+            if (replaceDetail != null) {
+                dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Save, "Replace original", detail = replaceDetail) {
+                    open = false
+                    onReplace()
+                }
+            }
+            dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Copy, "Save as new", detail = newDetail) {
+                open = false
+                onNew()
+            }
+        }
+    }
+}
+
+/** The "Save as new" line: where it goes, and what it will be when that is not what it was. */
+private fun newFileNote(extension: String, makes: String): String {
+    val ext = extension.lowercase()
+    return if (makes in dev.niccc2007.filet.pick.PickName.sameKind(ext)) {
+        "Choose a folder and a name; the original stays as it is"
+    } else {
+        "As a " + makes.uppercase() + ": Android cannot write " + ext.uppercase() + " back. Choose a folder and a name"
+    }
+}
+
+/**
+ * What replacing a photo with the edit does to it, said before it is done.
+ *
+ * The editor works on a copy at most 2400 pixels on its longest edge, so replacing a larger
+ * photo with its edit makes the photo smaller - permanently, which is exactly the kind of thing
+ * a menu has to say rather than leave to be discovered.
+ */
+internal fun editSizeNote(w: Int, h: Int, source: Pair<Int, Int>?, jpeg: Boolean): String {
+    val smaller = source != null && w.toLong() * h < source.first.toLong() * source.second
+    return buildString {
+        append("Saved at ").append(w).append(" x ").append(h)
+        if (smaller) append(", smaller than the original's ").append(source!!.first).append(" x ").append(source.second)
+        if (jpeg) append(". Date and place kept")
+    }
+}
+
+/** One of [PictureActions]: an icon and its name, bright enough to read over a photograph. */
+@Composable
+private fun BarButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val colors = Filet.colors
+    Column(
+        Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            icon, null,
+            tint = if (enabled) MaterialTheme.colorScheme.onSurface else colors.fg3.copy(alpha = 0.4f),
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(label, fontSize = 10.sp, color = if (enabled) colors.fg2 else colors.fg3)
+    }
+}
+
 @Composable
 private fun ToolStrip(
     enabled: Boolean,
@@ -1345,10 +1808,11 @@ private fun Bitmap.toPixels(): Pixels {
     return Pixels(width, height, buf)
 }
 
+/** Marked opaque when it is: see [Pixels.isOpaque], and [encodedExtension] which reads the mark. */
 private fun Pixels.toBitmap(): Bitmap =
-    Bitmap.createBitmap(argb, width, height, Bitmap.Config.ARGB_8888)
+    Bitmap.createBitmap(argb, width, height, Bitmap.Config.ARGB_8888).also { it.setHasAlpha(!isOpaque()) }
 
-private class Encoded(val bytes: ByteArray, val extension: String)
+internal class Encoded(val bytes: ByteArray, val extension: String)
 
 /**
  * Encode for saving, and say what was actually produced.
@@ -1359,8 +1823,8 @@ private class Encoded(val bytes: ByteArray, val extension: String)
  * decode but not write - HEIC, AVIF - come back as JPEG, which is why the extension travels
  * with the bytes rather than being assumed from the original name.
  */
-private fun encode(bitmap: Bitmap, sourceExtension: String): Encoded {
-    val png = sourceExtension in PNG_LIKE || bitmap.hasAlpha()
+internal fun encode(bitmap: Bitmap, sourceExtension: String): Encoded {
+    val png = encodedExtension(bitmap, sourceExtension) == "png"
     val out = ByteArrayOutputStream(bitmap.width * bitmap.height / 4)
     return if (png) {
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
@@ -1371,4 +1835,17 @@ private fun encode(bitmap: Bitmap, sourceExtension: String): Encoded {
     }
 }
 
-private val PNG_LIKE = setOf("png", "webp", "gif", "bmp")
+internal val PNG_LIKE = setOf("png", "webp", "gif", "bmp")
+
+/**
+ * What [encode] will produce, known before it runs - so a "Save as new" can offer the right name
+ * before anything is encoded. The same rule, in the one place both read it from.
+ */
+internal fun encodedExtension(bitmap: Bitmap, sourceExtension: String): String {
+    val ext = sourceExtension.lowercase()
+    return when {
+        ext in PNG_LIKE || bitmap.hasAlpha() -> "png"
+        ext == "jpeg" -> "jpeg"
+        else -> "jpg"
+    }
+}

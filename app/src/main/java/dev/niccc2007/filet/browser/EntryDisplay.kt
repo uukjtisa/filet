@@ -22,30 +22,45 @@ import java.util.Locale
  *
  * ## What is configurable, and why the default is what it is
  *
- * Each field can be turned off, because which ones matter depends on what somebody is doing -
- * a photo library wants dates, a download folder wants sizes. The defaults drop the date column
- * and keep the subtitle, because that is the pair that was duplicated and the subtitle is the one
- * with room for a full date.
+ * A row has two configurable surfaces and they are shaped differently on purpose. The LINE under
+ * the name takes a list - any number of parts, in a chosen order - because it has the width for
+ * several and the order is half of what anyone wants from it. The COLUMN beside the name takes
+ * one part or nothing, because its value is that it lines up down the list, and two columns on
+ * the right of a row is the duplication this rework exists to remove.
+ *
+ * The defaults say the same thing twice nowhere: a file gets its size in the column and its date
+ * on the line, a folder gets its item count in the column and its total and date on the line.
+ * Everything a row can answer appears exactly once.
  */
 data class EntryDisplay(
-    /** The second line under a name: the size and the date. */
-    val subtitle: Boolean = true,
+    /**
+     * What the second line under a name is made of, in order.
+     *
+     * Was a boolean, which could only say "size and date, in that order, or nothing". The
+     * fault was never that the line was missing something - it was that it carried things that
+     * were not wanted, and the only way to say so was to turn the whole line off. See
+     * [RowDetails] for the list and [RowDetails.DEFAULT] for why the file size is no longer on
+     * it by default.
+     *
+     * An EMPTY list is a legitimate value and means no second line at all.
+     */
+    val parts: List<DetailPart> = RowDetails.DEFAULT,
 
     /**
-     * The right-hand column: bytes for a file, an item count for a folder.
+     * What sits in the column beside a FILE's name, or null for nothing.
      *
-     * One column rather than two, because they are the same question - "how big is this" - and a
-     * file and a folder simply answer it in different units.
+     * Replaces `measure` and `dateColumn`, which were two booleans that between them could put
+     * two columns on the right of a row - the duplication this rework removes - while still not
+     * being able to express "the folder total instead of the item count", because each column's
+     * content was hard-coded in the renderer.
+     *
+     * See [SideColumn] for the whole argument, including why a file and a folder are set
+     * separately and why each is offered only the parts that can answer for it.
      */
-    val measure: Boolean = true,
+    val sideFile: DetailPart? = SideColumn.FILE_DEFAULT,
 
-    /**
-     * A separate date column on the right.
-     *
-     * **Off by default**, and this is the duplication that was reported: with the subtitle on,
-     * this column prints the same date again a few pixels to the right.
-     */
-    val dateColumn: Boolean = false,
+    /** What sits in the column beside a FOLDER's name, or null for nothing. See [sideFile]. */
+    val sideFolder: DetailPart? = SideColumn.FOLDER_DEFAULT,
 
     val style: DateStyle = DateStyle.NUMERIC,
     val order: DateOrder = DateOrder.YMD,
@@ -118,13 +133,37 @@ object EntryFormat {
         return (b - a) / 86_400_000L
     }
 
-    private fun midnight(t: Long): Long = Calendar.getInstance().apply {
+    private fun midnight(t: Long): Long = scratch().run {
         timeInMillis = t
         set(Calendar.HOUR_OF_DAY, 0)
         set(Calendar.MINUTE, 0)
         set(Calendar.SECOND, 0)
         set(Calendar.MILLISECOND, 0)
-    }.timeInMillis
+        timeInMillis
+    }
+
+    // ── why these are cached ──────────────────────────────────────────────────────────────
+    //
+    // Both of these are called from a LIST ROW, which means once per row per composition -
+    // hundreds of times a second while somebody flings a folder.
+    //
+    // `Calendar.getInstance()` reads the default zone and locale and builds a fresh calendar;
+    // `SimpleDateFormat(pattern, locale)` parses the pattern and loads locale data. Neither is
+    // cheap, and the old code built one Calendar per `midnight` call - two per date compared -
+    // and one SimpleDateFormat per row. Measured on a real phone it was most of the reason the
+    // app could not hold a frame: 13,329 of 13,330 frames missed vsync, at an average of
+    // 19.5ms against a budget of 8.3ms.
+    //
+    // Thread-local rather than shared, because neither type is thread-safe and both are
+    // reached from the composition thread and from background listing work. A thread-local
+    // costs a map lookup; the alternative costs an allocation and a parse.
+    private val calendars = ThreadLocal.withInitial { Calendar.getInstance() }
+    private val formats = ThreadLocal.withInitial { HashMap<String, SimpleDateFormat>() }
+
+    private fun scratch(): Calendar = calendars.get()!!
+
+    private fun formatter(pattern: String): SimpleDateFormat =
+        formats.get()!!.getOrPut(pattern) { SimpleDateFormat(pattern, Locale.US) }
 
     /** The full date, in the configured shape. */
     fun absolute(at: Long, d: EntryDisplay): String {
@@ -142,32 +181,35 @@ object EntryFormat {
             DateOrder.MDY -> "$month${join}dd${join}yyyy"
             DateOrder.YMD -> "yyyy${join}$month${join}dd"
         }
-        return SimpleDateFormat(pattern, Locale.US).format(Date(at))
-    }
-
-    /**
-     * The right-hand column: bytes for a file, a count for a folder.
-     *
-     * @param count null while it is still being read, or when it cannot be read at all. Both show
-     *   nothing rather than a zero - "0 items" on a folder that is merely unread is a confident
-     *   wrong answer, and that column is one somebody checks before deleting something.
-     */
-    fun measure(isDir: Boolean, size: Long, count: Int?): String = when {
-        !isDir -> if (size >= 0) humanSize(size) else ""
-        count == null -> ""
-        count == 1 -> "1 item"
-        else -> "$count items"
+        return formatter(pattern).format(Date(at))
     }
 
     /**
      * The subtitle under a name.
      *
-     * A folder shows only its date: its count is already in the column, and repeating it here is
-     * the duplication this whole type exists to remove.
+     * Delegates to [RowDetails.render], which is where the composition of this line now lives.
+     * Kept as a one-argument-per-field entry point because the settings preview and the row
+     * both want it, and because what it USED to do - size then date, hard-coded - is now one
+     * possible configuration rather than the only one.
      */
-    fun subtitle(isDir: Boolean, size: Long, at: Long, d: EntryDisplay, now: Long = System.currentTimeMillis()): String {
-        val when_ = date(at, d, now)
-        if (isDir) return when_
-        return listOf(humanSize(size), when_).filter { it.isNotEmpty() }.joinToString("  ·  ")
-    }
+    fun subtitle(
+        isDir: Boolean,
+        size: Long,
+        at: Long,
+        d: EntryDisplay,
+        count: Int? = null,
+        name: String = "",
+        total: FolderTotal = FolderTotal.Unknown,
+        now: Long = System.currentTimeMillis(),
+    ): String = RowDetails.render(
+        parts = d.parts,
+        isDir = isDir,
+        size = size,
+        at = at,
+        count = count,
+        name = name,
+        display = d,
+        total = total,
+        now = now,
+    )
 }
