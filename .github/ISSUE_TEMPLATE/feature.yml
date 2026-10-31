@@ -9,8 +9,8 @@ body:
         of us than a maybe, so the questions below are aimed at the reason rather than at the
         feature - what you were trying to do matters more than the control you had in mind.
 
-        Worth knowing first: **[FEATURES.md](../../blob/main/FEATURES.md)** is what Filet does
-        today and **[PLAN.md](../../blob/main/PLAN.md)** is the shape it is being built to. If
+        Worth knowing first: **[FEATURES.md](../../blob/main/docs/FEATURES.md)** is what Filet does
+        today and **[PLAN.md](../../blob/main/docs/PLAN.md)** is the shape it is being built to. If
         an idea fights the layer model in PLAN.md, that is not an automatic no - but it is the
         conversation.
 

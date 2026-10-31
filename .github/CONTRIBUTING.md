@@ -5,7 +5,7 @@ be worth publishing. Contributions are welcome and so is the decision not to mer
 this document exists so that a no comes with a reason you could have read in advance, rather
 than after you have spent an evening on a branch.
 
-If you only want to report something, the [issue templates](.github/ISSUE_TEMPLATE) ask for
+If you only want to report something, the [issue templates](ISSUE_TEMPLATE) ask for
 what a fix needs. Nothing below applies to filing an issue.
 
 ---
@@ -33,7 +33,7 @@ A bug fix needs no issue. Send it.
 
 ## The shape, and the four rules a change is measured against
 
-[`PLAN.md`](PLAN.md) is the architecture. The short version is a layer model — L0 pure logic,
+[`PLAN.md`](../docs/PLAN.md) is the architecture. The short version is a layer model — L0 pure logic,
 L1 the virtual filesystem, L2 providers, L3 services, L4 view models, L5 Compose — and four
 rules that are not style preferences. Every one of them exists because breaking it has already
 cost this app a round of work.

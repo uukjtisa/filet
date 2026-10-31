@@ -51,7 +51,8 @@ signing.properties
 # The line is between DESIGN and SCAFFOLDING, not between code and prose.
 #
 # The design and evidence documents ARE published — PLAN.md, SEARCH.md,
-# NEARBY.md, TEMPLATE.md, and the FEATURES / GATES / FIXES ledgers. The README
+# NEARBY.md, TEMPLATE.md, and the FEATURES / GATES / FIXES ledgers, all in
+# docs/. The README
 # claims every assertion is checkable; those files are what make that true, and
 # excluding them would leave the claim with nothing behind it.
 #
@@ -68,6 +69,11 @@ signing.properties
 # that belongs in the code is in the code; this is the part that does not.
 /DECISIONS.md
 /*-SPEC.md
+
+# A JVM that dies (a Gradle daemon out of memory) writes these into whatever
+# directory it was started from, which is usually this one.
+hs_err_pid*.log
+replay_pid*.log
 
 # Source art for the launcher icon. The rendered assets ship in app/src/main/res.
 /icon/
@@ -90,3 +96,7 @@ report-api/node_modules/
 report-api/.vercel/
 report-api/.env
 report-api/.env*.local
+
+# Competitor research: prices, ratings and claims as observed on a date, kept on disk only.
+/docs/COMPETITORS.md
+/docs/COMPETITORS-FILEMANAGERS.md
