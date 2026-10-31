@@ -145,6 +145,10 @@ object SheetReader {
                         small[name] = boundedText(zip, SMALL_PART_BYTES)
                     base.equals("workbook.xml", true) || base.equals("styles.xml", true) ->
                         small[name] = boundedText(zip, SMALL_PART_BYTES)
+                    // The theme, because most of a workbook's colours are slots in it. See
+                    // SheetLook for why a reader without it draws the formatting as nothing.
+                    name.contains("/theme/", true) && base.endsWith(".xml", true) ->
+                        small[name] = boundedText(zip, SMALL_PART_BYTES)
                     base.equals("sharedStrings.xml", true) -> {
                         val h = SharedStringsHandler()
                         parseStream(zip, h)
@@ -208,10 +212,12 @@ object SheetReader {
             .orEmpty()
 
         val book = WorkbookHandler().also { parse(bookXml, it) }
-        val stylesPath = rels.values.firstOrNull { it.type.endsWith("/styles") }?.target
-        val styles = stylesPath?.let { p -> parts.entries.firstOrNull { it.key.equals(p, true) }?.value }
-            ?.let { xml -> StylesHandler().also { parse(xml, it) }.result() }
-            ?: Styles.NONE
+        fun part(type: String): String? =
+            rels.values.firstOrNull { it.type.endsWith(type) }?.target
+                ?.let { p -> parts.entries.firstOrNull { it.key.equals(p, true) }?.value }
+        // A theme that will not parse is the default theme, not a workbook that will not open.
+        val theme = part("/theme")?.let { runCatching { theme(it) }.getOrNull() } ?: SheetLook.OFFICE_THEME
+        val styles = part("/styles")?.let { xml -> styles(xml, theme) } ?: Styles.NONE
 
         if (book.sheets.isEmpty()) return SheetOpen.Failed(SheetProblem.NO_SHEETS)
 
@@ -404,31 +410,86 @@ object SheetReader {
     // ── styles ────────────────────────────────────────────────────────────────────
 
     /**
-     * Which number format each cell style uses.
+     * The workbook's cell styles: the number format of each, and how each one looks.
      *
      * @param xf the `numFmtId` of each entry of `cellXfs`, in order. A cell's `s` attribute is
      *   an index into it.
      * @param custom the workbook's own formats by id. Ids below 164 are built in and live in
      *   [CellFormat.builtIn]; a workbook may also redefine one of those, and its definition wins.
+     * @param looks the look of each `cellXfs` entry, same indexing, null where it changes
+     *   nothing. Identical looks are one instance, so a sheet of styled cells shares a handful.
      */
-    internal class Styles(val xf: IntArray, val custom: Map<Int, String>) {
+    internal class Styles(
+        val xf: IntArray,
+        val custom: Map<Int, String>,
+        private val looks: Array<CellStyle?> = emptyArray(),
+    ) {
         /** The format code for style index [s]. General when anything is missing. */
         fun code(s: Int): String {
             val id = if (s in xf.indices) xf[s] else 0
             return custom[id] ?: CellFormat.builtIn(id) ?: "General"
         }
 
+        /** How style index [s] draws. Null for plain, and for an index the table does not have. */
+        fun look(s: Int): CellStyle? = if (s in looks.indices) looks[s] else null
+
         companion object {
             val NONE = Styles(IntArray(0), emptyMap())
         }
     }
 
-    internal fun styles(xml: String): Styles = StylesHandler().also { parse(xml, it) }.result()
+    internal fun styles(xml: String, theme: IntArray = SheetLook.OFFICE_THEME): Styles =
+        StylesHandler().also { parse(xml, it) }.result(theme)
 
+    /**
+     * `styles.xml`: number formats, fonts, fills, and the `cellXfs` table that ties them to an
+     * index a cell can name.
+     *
+     * Bug identified here: only the number formats were read, so a cell's `s` reached the date
+     * engine and nowhere else. Bold, a header row's fill and a total row's weight were all in the
+     * file and all dropped, and a workbook formatted with care was shown as a plain grid.
+     *
+     * The traps are all about WHICH element an index counts:
+     *
+     * - `xf` appears under `cellStyleXfs` as well as `cellXfs`, same shape. Counting both shifts
+     *   every index and formats dates as currency.
+     * - `font` and `fill` appear under `dxfs` too - the conditional-format overrides - so a
+     *   font is counted only inside `fonts` and a fill only inside `fills`.
+     * - `color` is a font's colour, a gradient stop's, or a recently-used swatch, by where it
+     *   sits.
+     */
     private class StylesHandler : DefaultHandler() {
         private val custom = HashMap<Int, String>()
         private val xf = ArrayList<Int>()
+        private val xfFont = ArrayList<Int>()
+        private val xfFill = ArrayList<Int>()
         private var inCellXfs = false
+
+        private class FontSpec {
+            var bold = false
+            var italic = false
+            var underline = false
+            var strike = false
+            var color: SheetLook.Ref? = null
+        }
+
+        private class FillSpec {
+            var pattern: String? = null
+            var gradient = false
+            var fg: SheetLook.Ref? = null
+            var bg: SheetLook.Ref? = null
+            val stops = ArrayList<SheetLook.Ref>()
+        }
+
+        private val fonts = ArrayList<FontSpec>()
+        private val fills = ArrayList<FillSpec>()
+        private var inFonts = false
+        private var inFills = false
+        private var font: FontSpec? = null
+        private var fill: FillSpec? = null
+        private var inStop = false
+        private var inIndexed = false
+        private val palette = ArrayList<Int>()
 
         override fun startElement(uri: String?, localName: String?, qName: String?, a: Attributes?) {
             when (local(qName, localName)) {
@@ -437,17 +498,118 @@ object SheetReader {
                     custom[id] = attr(a, "formatCode").orEmpty()
                 }
                 "cellXfs" -> inCellXfs = true
-                // ONLY under cellXfs. `cellStyleXfs` has `xf` elements of the same shape and
-                // counting them shifts every index, which formats dates as currency.
-                "xf" -> if (inCellXfs) xf.add(attr(a, "numFmtId")?.toIntOrNull() ?: 0)
+                "xf" -> if (inCellXfs) {
+                    xf.add(attr(a, "numFmtId")?.toIntOrNull() ?: 0)
+                    xfFont.add(attr(a, "fontId")?.toIntOrNull() ?: 0)
+                    xfFill.add(attr(a, "fillId")?.toIntOrNull() ?: 0)
+                }
+                "fonts" -> inFonts = true
+                "font" -> if (inFonts) font = FontSpec().also { fonts.add(it) }
+                // `<b/>` is on; `<b val="0"/>` is a font that says so explicitly.
+                "b" -> font?.bold = on(a)
+                "i" -> font?.italic = on(a)
+                "strike" -> font?.strike = on(a)
+                "u" -> font?.underline = attr(a, "val") != "none"
+                "fills" -> inFills = true
+                "fill" -> if (inFills) fill = FillSpec().also { fills.add(it) }
+                "patternFill" -> fill?.pattern = attr(a, "patternType") ?: "none"
+                "fgColor" -> fill?.fg = ref(a)
+                "bgColor" -> fill?.bg = ref(a)
+                "gradientFill" -> fill?.gradient = true
+                "stop" -> inStop = true
+                "color" -> when {
+                    inStop -> fill?.stops?.add(ref(a))
+                    font != null -> font?.color = ref(a)
+                }
+                "indexedColors" -> inIndexed = true
+                "rgbColor" -> if (inIndexed) palette.add(SheetLook.rgb(attr(a, "rgb")) ?: SheetLook.BLACK)
             }
         }
 
         override fun endElement(uri: String?, localName: String?, qName: String?) {
-            if (local(qName, localName) == "cellXfs") inCellXfs = false
+            when (local(qName, localName)) {
+                "cellXfs" -> inCellXfs = false
+                "fonts" -> inFonts = false
+                "font" -> font = null
+                "fills" -> inFills = false
+                "fill" -> fill = null
+                "stop" -> inStop = false
+                "indexedColors" -> inIndexed = false
+            }
         }
 
-        fun result() = Styles(xf.toIntArray(), custom)
+        private fun on(a: Attributes?): Boolean = attr(a, "val").let { it == null || it == "1" || it == "true" }
+
+        private fun ref(a: Attributes?) = SheetLook.Ref(
+            rgb = SheetLook.rgb(attr(a, "rgb")),
+            theme = attr(a, "theme")?.toIntOrNull(),
+            indexed = attr(a, "indexed")?.toIntOrNull(),
+            auto = attr(a, "auto").let { it == "1" || it == "true" },
+            tint = attr(a, "tint")?.toDoubleOrNull() ?: 0.0,
+        )
+
+        fun result(theme: IntArray): Styles {
+            val ownPalette = palette.takeIf { it.isNotEmpty() }?.toIntArray()
+            fun color(ref: SheetLook.Ref?) = SheetLook.resolve(ref, theme, ownPalette)
+            val fillColors = fills.map { f ->
+                // A system-colour reference on a pattern resolves to null, and `pattern` then
+                // applies the format's own default for it - which is what the system colour is.
+                if (f.gradient) SheetLook.gradient(f.stops.mapNotNull { color(it) })
+                else SheetLook.pattern(f.pattern, color(f.fg), color(f.bg))
+            }
+            val shared = HashMap<CellStyle, CellStyle>()
+            val looks = Array(xf.size) { i ->
+                val font = fonts.getOrNull(xfFont[i])
+                val look = CellStyle(
+                    bold = font?.bold == true,
+                    italic = font?.italic == true,
+                    underline = font?.underline == true,
+                    strike = font?.strike == true,
+                    fill = fillColors.getOrNull(xfFill[i]),
+                    // Palette entry 64 is "the system foreground", which for a font IS automatic.
+                    ink = font?.color?.takeIf { it.indexed != SheetLook.SYSTEM_FOREGROUND }?.let { color(it) },
+                )
+                if (look.plain) null else shared.getOrPut(look) { look }
+            }
+            return Styles(xf.toIntArray(), custom, looks)
+        }
+    }
+
+    /**
+     * A theme part's colour scheme, in the order a `theme` attribute counts it.
+     *
+     * Each slot holds its colour as `srgbClr val` or, for the two window colours, `sysClr` with
+     * the value it had when the file was saved in `lastClr`. Only the first scheme counts:
+     * extensions may carry others, and they are not the one the cells were coloured with.
+     */
+    internal fun theme(xml: String): IntArray {
+        val bySlot = HashMap<String, Int>()
+        val handler = object : DefaultHandler() {
+            var schemes = 0
+            var inScheme = false
+            var slot: String? = null
+
+            override fun startElement(uri: String?, localName: String?, qName: String?, a: Attributes?) {
+                val n = local(qName, localName)
+                val at = slot
+                when {
+                    n == "clrScheme" -> inScheme = schemes++ == 0
+                    inScheme && n in SheetLook.THEME_SLOTS -> slot = n
+                    inScheme && at != null && n == "srgbClr" ->
+                        SheetLook.rgb(attr(a, "val"))?.let { bySlot.putIfAbsent(at, it) }
+                    inScheme && at != null && n == "sysClr" ->
+                        SheetLook.rgb(attr(a, "lastClr"))?.let { bySlot.putIfAbsent(at, it) }
+                }
+            }
+
+            override fun endElement(uri: String?, localName: String?, qName: String?) {
+                val n = local(qName, localName)
+                if (n == "clrScheme") inScheme = false
+                if (n == slot) slot = null
+            }
+        }
+        parse(xml, handler)
+        return SheetLook.theme(bySlot)
     }
 
     // ── a worksheet ───────────────────────────────────────────────────────────────
@@ -464,6 +626,8 @@ object SheetReader {
         private var frozenCols = 0
         private var declaredRows = 0
         private var stoppedAtRow = -1
+        private var rowLook: CellStyle? = null
+        private val columnLooks = ArrayList<ColumnStyle>()
 
         // The cell being read.
         private var type = ""
@@ -496,6 +660,24 @@ object SheetReader {
                     row = attr(a, "r")?.toIntOrNull()?.minus(1) ?: (row + 1)
                     col = -1
                     cells = ArrayList()
+                    // A row's own style reaches its UNWRITTEN cells only, and only when the row
+                    // says it is formatted - `s` without `customFormat` is left over from an
+                    // edit and the desktop ignores it. Kept only when it has a fill, because
+                    // weight on a cell with no text draws nothing.
+                    rowLook = if (attr(a, "customFormat").let { it == "1" || it == "true" }) {
+                        attr(a, "s")?.toIntOrNull()?.let { ctx.styles.look(it) }?.takeIf { it.fill != null }
+                    } else null
+                }
+                // A formatted column, the same rule as a row. `min` and `max` are 1-based and
+                // inclusive, and a whole-sheet format writes `max="16384"`, so the run is held
+                // as a range rather than as one entry per column.
+                "col" -> {
+                    val look = attr(a, "style")?.toIntOrNull()?.let { ctx.styles.look(it) }?.takeIf { it.fill != null }
+                    val first = attr(a, "min")?.toIntOrNull()?.minus(1)
+                    val last = attr(a, "max")?.toIntOrNull()?.minus(1)
+                    if (look != null && first != null && last != null && first in 0 until SheetLimits.MAX_COLS) {
+                        columnLooks += ColumnStyle(first, last.coerceIn(first, SheetLimits.MAX_COLS - 1), look)
+                    }
                 }
                 "c" -> {
                     val ref = attr(a, "r")?.let { CellRef.parse(it) }
@@ -541,23 +723,29 @@ object SheetReader {
                 "is" -> inInline = false
                 "rPh" -> inPhonetic--
                 "c" -> finishCell()
-                "row" -> if (cells.isNotEmpty()) {
+                "row" -> if (cells.isNotEmpty() || rowLook != null) {
                     cells.sortBy { it.col }
-                    rows.add(SheetRow(row, cells))
+                    rows.add(SheetRow(row, cells, rowLook))
                     cells = ArrayList()
+                    rowLook = null
                 }
             }
         }
 
         private fun finishCell() {
             val f = formulaText()
+            val look = ctx.styles.look(style)
+            // A cell with nothing in it but a fill is part of the picture: the gaps in a
+            // coloured header band are cells exactly like this, and dropping them draws the
+            // band with holes in it. A style with no fill on an empty cell draws nothing, and
+            // is still dropped.
             val cell = CellValue.xlsx(type, value.toString(), inline.toString(), style, f, ctx)
-                ?: return
+                ?: (if (look?.fill != null) Cell(0, "", CellKind.TEXT) else return)
             if (col >= SheetLimits.MAX_COLS) {
                 beyondCols++
                 return
             }
-            cells.add(cell.copy(col = col))
+            cells.add(cell.copy(col = col, style = look))
             if (col + 1 > widest) widest = col + 1
             if (++kept >= SheetLimits.MAX_CELLS) {
                 stoppedAtRow = row
@@ -588,9 +776,9 @@ object SheetReader {
         }
 
         fun result(): Sheet {
-            if (cells.isNotEmpty()) {
+            if (cells.isNotEmpty() || rowLook != null) {
                 cells.sortBy { it.col }
-                rows.add(SheetRow(row, cells))
+                rows.add(SheetRow(row, cells, rowLook))
             }
             // Producers write rows in order; nothing in the format promises it.
             rows.sortBy { it.index }
@@ -614,6 +802,7 @@ object SheetReader {
                 frozenRows = frozenRows,
                 frozenCols = frozenCols,
                 note = notes.joinToString(" ").ifEmpty { null },
+                columnStyles = columnLooks,
             )
         }
     }

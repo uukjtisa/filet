@@ -726,12 +726,18 @@ private fun FileTileBody(
             .then(modifier)
             .padding(vertical = 10.dp, horizontal = 6.dp),
     ) {
-        FileThumb(
-            node = node,
-            size = step.icon.dp,
-            fallbackTint = iconTint(kind, colors.accent, MaterialTheme.colorScheme.onSurfaceVariant, colors.fg2),
-            enabled = thumbnails,
-        )
+        val picture = remember(metrics.widthDp, step) { TileGrid.picture(metrics.widthDp - 12f, step) }
+        // A fixed slot round the thumbnail, because a glyph is drawn smaller than a picture
+        // and a tile without one would otherwise be shorter than its neighbours.
+        Box(Modifier.size(picture.slot.dp), contentAlignment = Alignment.Center) {
+            FileThumb(
+                node = node,
+                size = picture.slot.dp,
+                glyphSize = picture.glyph.dp,
+                fallbackTint = iconTint(kind, colors.accent, MaterialTheme.colorScheme.onSurfaceVariant, colors.fg2),
+                enabled = thumbnails,
+            )
+        }
         Spacer(Modifier.height(7.dp))
         // Whole, at whatever size it fits, in an area the same height on every tile - see
         // TileName. Five or more across is a wide screen, which keeps a higher floor.

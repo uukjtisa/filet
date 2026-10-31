@@ -64,6 +64,38 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
+ * The sound sheet's own glyph, on the button that opens it in both players: three vertical
+ * sliders, which is what the sheet is.
+ *
+ * Bug identified here: the button wore the speed dial, from when the sheet was only a speed.
+ * It has held the volume, the equaliser and the effects since, and a dial on the button said
+ * none of that, so the sheet read as a speed control that happened to have more in it.
+ */
+val SoundSheetGlyph: androidx.compose.ui.graphics.vector.ImageVector = run {
+    val b = androidx.compose.ui.graphics.vector.ImageVector.Builder(
+        name = "soundsheet", defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 24f, viewportHeight = 24f,
+    )
+    // Each slider is its track broken by a ring for the knob. A bar across the track read as a
+    // cross at this size: the round caps closed the gap either side of it.
+    for (d in listOf(
+        "M6 4v6.1", "M6 15.9V20", "M8 13a2 2 0 1 1-4 0 2 2 0 0 1 4 0",
+        "M12 4v1.1", "M12 10.9V20", "M14 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0",
+        "M18 4v9.1", "M18 18.9V20", "M20 16a2 2 0 1 1-4 0 2 2 0 0 1 4 0",
+    )) {
+        b.addPath(
+            pathData = androidx.compose.ui.graphics.vector.PathParser().parsePathString(d).toNodes(),
+            fill = null,
+            stroke = androidx.compose.ui.graphics.SolidColor(Color.White),
+            strokeLineWidth = 1.7f,
+            strokeLineCap = androidx.compose.ui.graphics.StrokeCap.Round,
+            strokeLineJoin = androidx.compose.ui.graphics.StrokeJoin.Round,
+        )
+    }
+    b.build()
+}
+
+/**
  * Frame by frame's switch, which only the video player has. The steps themselves are on the
  * bar it puts under the picture: see `FrameBar`.
  */

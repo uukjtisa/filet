@@ -45,10 +45,16 @@ enum class FileKind {
             "c", "h", "cpp", "hpp", "cs", "go", "rs", "rb", "php", "sh", "bash", "yml", "yaml", "toml",
             "ini", "cfg", "conf", "properties", "css", "scss", "html", "htm", "sql", "gradlew", "pro",
         )
+        // Bug identified here: a spreadsheet drew the text "XLSX" where every other document
+        // has a glyph. This list was kept by hand and the formats the document reader learned
+        // later - xlsx, xlsm, ods - never reached it, so they fell through to OTHER, which
+        // shows the extension instead of an icon. Every extension the reader opens is a
+        // document by definition, so its table is added rather than copied; HTML is matched as
+        // code first, above, and keeps that icon.
         private val DOC_EXT = setOf(
             "txt", "md", "markdown", "mdown", "mkd", "pdf", "doc", "docx", "pptx", "ppt",
-            "rtf", "odt", "odp", "csv", "log", "srt", "vtt",
-        )
+            "rtf", "odt", "odp", "csv", "log", "srt", "vtt", "xls", "epub",
+        ) + dev.niccc2007.filet.docs.DocFormat.EXTENSIONS
         private val BINARY_EXT = setOf("so", "bin", "dat", "img", "iso", "arsc", "o", "a", "dll", "exe")
 
         fun of(node: VNode): FileKind {

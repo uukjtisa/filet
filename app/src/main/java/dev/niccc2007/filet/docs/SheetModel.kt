@@ -51,6 +51,8 @@ data class SheetInfo(
  * @param columns how many columns the grid is wide: one past the right-most cell kept.
  * @param frozenRows rows the file asks to keep on screen. See [SheetInfo] and `SheetScreen`.
  * @param note said at the top when the sheet could only be read in part - see [SheetLimits].
+ * @param columnStyles the look a column gives the cells in it that the file never wrote. See
+ *   [lookAt].
  */
 data class Sheet(
     val name: String,
@@ -59,15 +61,37 @@ data class Sheet(
     val frozenRows: Int = 0,
     val frozenCols: Int = 0,
     val note: String? = null,
+    val columnStyles: List<ColumnStyle> = emptyList(),
 ) {
     val empty: Boolean get() = rows.isEmpty()
+
+    /**
+     * How the cell at [col] of [row] is drawn.
+     *
+     * A cell the file wrote carries its own style, and that is the whole answer - a written cell
+     * with no style attribute is style 0, not "whatever the row says". A cell it did not write
+     * takes the row's look when the row has one, and the column's after that, which is the
+     * order a desktop resolves them in.
+     */
+    fun lookAt(row: SheetRow?, col: Int): CellStyle? {
+        val cell = row?.at(col)
+        if (cell != null) return cell.style
+        row?.style?.let { return it }
+        for (c in columnStyles) if (col in c.first..c.last) return c.style
+        return null
+    }
 
     /** One past the last row with anything in it, as a 0-based count. */
     val lastRow: Int get() = rows.lastOrNull()?.index?.plus(1) ?: 0
 }
 
-/** One row. [index] is 0-based: row "1" in the file is index 0. */
-data class SheetRow(val index: Int, val cells: List<Cell>) {
+/**
+ * One row. [index] is 0-based: row "1" in the file is index 0.
+ *
+ * @param style the look of the cells in this row the file did not write, when the whole row was
+ *   formatted. Null for an ordinary row.
+ */
+data class SheetRow(val index: Int, val cells: List<Cell>, val style: CellStyle? = null) {
     /** The cell in column [col], or null for a gap. Cells are sorted, so this is a search. */
     fun at(col: Int): Cell? {
         var lo = 0
@@ -94,6 +118,8 @@ data class SheetRow(val index: Int, val cells: List<Cell>) {
  *   the fraction behind a percentage. Null when they are the same, which is most cells.
  * @param formula the formula without its `=`, when the cell has one. [text] is then its cached
  *   result, which is what the producing application computed on its last save.
+ * @param style how the file draws it. Null for a plain cell, which is most of them - and the
+ *   instances are shared out of the workbook's style table, so a styled cell costs a reference.
  */
 data class Cell(
     val col: Int,
@@ -101,7 +127,39 @@ data class Cell(
     val kind: CellKind = CellKind.TEXT,
     val raw: String? = null,
     val formula: String? = null,
+    val style: CellStyle? = null,
 )
+
+/**
+ * The part of a cell's formatting that changes how it reads: weight, slant, lines, and colour.
+ *
+ * Colours are opaque ARGB and already resolved - a theme slot with a tint, or an entry in the
+ * legacy palette, is turned into the colour it names when the workbook is read, so drawing a
+ * cell is a lookup and not a colour computation. See [SheetLook].
+ *
+ * @param fill the cell's background, null for none.
+ * @param ink the font's colour, null for automatic. Whether it is USED is a separate question,
+ *   answered by [SheetLook.ink], because a colour chosen against white paper can vanish on a
+ *   dark screen.
+ */
+data class CellStyle(
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    val underline: Boolean = false,
+    val strike: Boolean = false,
+    val fill: Int? = null,
+    val ink: Int? = null,
+) {
+    /** Whether there is anything to draw. A style table is mostly entries that change nothing. */
+    val plain: Boolean get() = this == PLAIN
+
+    companion object {
+        val PLAIN = CellStyle()
+    }
+}
+
+/** A run of columns, [first] to [last] inclusive and 0-based, formatted as a whole. */
+data class ColumnStyle(val first: Int, val last: Int, val style: CellStyle)
 
 /** What a cell holds, which decides alignment the same way a desktop spreadsheet does. */
 enum class CellKind {

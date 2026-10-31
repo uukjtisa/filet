@@ -1178,7 +1178,8 @@ private fun FolderBody(
         // A tile asks for a picture several times the area of a row's and a grid shows three
         // times as many at once, so the pre-render matters more here than in the list.
         val warmCtx = LocalContext.current
-        val warmPx = (metrics.step.icon * 2.5f).toInt().coerceIn(48, 320)
+        // The tile's own slot, which grows with the cell - see TileGrid.picture.
+        val warmPx = thumbPx(TileGrid.picture(metrics.widthDp - 12f, metrics.step).slot)
         WarmAhead(state = gridState, count = rows.size) { i ->
             val node = rows.getOrNull(i)
             if (node != null && !node.isDir && Thumbnails.canPreview(node.extension)) {
@@ -1320,7 +1321,7 @@ private fun FolderBody(
         // glyph is a few pixels wide and a decoded picture would not be visible in it.
         if (metrics.step.icon >= 20) {
             val warmCtx = LocalContext.current
-            val warmPx = (metrics.step.icon * 2.5f).toInt().coerceIn(48, 320)
+            val warmPx = thumbPx(metrics.step.icon.toFloat())
             val ghosts = if (preview == null) 0 else {
                 preview.entries.size + if (preview.extra > 0) 1 else 0
             }

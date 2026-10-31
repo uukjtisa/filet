@@ -156,9 +156,7 @@ private fun Thumb(
 
     val context = LocalContext.current
     val inspecting = LocalInspectionMode.current
-    // Decode a little larger than the slot so the image stays crisp on a high-density screen
-    // without asking for the full picture.
-    val px = (size.value * 2.5f).toInt().coerceIn(48, 320)
+    val px = thumbPx(size.value)
 
     // An answer we already hold is used on the spot: no coroutine, no delay, no work staged.
     val known = remember(node.path, node.mtime, node.size, px) {
@@ -250,6 +248,16 @@ private fun Fallback(
         )
     }
 }
+
+/**
+ * The decode size for a slot [slotDp] wide.
+ *
+ * A little larger than the slot so the image stays crisp on a high-density screen without
+ * asking for the full picture. One function because the pre-render in `PaneView` has to ask
+ * for exactly the size the row will: the cache is keyed on it, and a warm-up at a different
+ * size is a decode nobody uses followed by the one that was needed.
+ */
+internal fun thumbPx(slotDp: Float): Int = (slotDp * 2.5f).toInt().coerceIn(48, 320)
 
 /**
  * How long a row must stay on screen before its preview is worth decoding.

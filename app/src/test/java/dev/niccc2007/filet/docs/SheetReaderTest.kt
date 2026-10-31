@@ -47,6 +47,7 @@ class SheetReaderTest {
         strings: List<String> = emptyList(),
         styles: String? = null,
         date1904: Boolean = false,
+        theme: String? = null,
     ): ByteArray {
         val book = buildString {
             append("""<?xml version="1.0"?><workbook $ns>""")
@@ -64,6 +65,7 @@ class SheetReaderTest {
             }
             append("""<Relationship Id="rS" Type="$relNs/sharedStrings" Target="sharedStrings.xml"/>""")
             append("""<Relationship Id="rT" Type="$relNs/styles" Target="styles.xml"/>""")
+            if (theme != null) append("""<Relationship Id="rH" Type="$relNs/theme" Target="theme/theme1.xml"/>""")
             append("</Relationships>")
         }
         val sst = buildString {
@@ -79,6 +81,7 @@ class SheetReaderTest {
             "xl/sharedStrings.xml" to sst,
             "xl/styles.xml" to (styles ?: """<?xml version="1.0"?><styleSheet $ns><cellXfs count="1"><xf numFmtId="0"/></cellXfs></styleSheet>"""),
         )
+        if (theme != null) parts += "xl/theme/theme1.xml" to theme
         for ((_, part, data) in sheets) {
             parts += "xl/worksheets/$part" to """<?xml version="1.0"?><worksheet $ns>$data</worksheet>"""
         }
@@ -207,6 +210,140 @@ class SheetReaderTest {
         assertEquals("46095", sheet.cell("B1")!!.raw)
         assertEquals("2026-03-14 12:00", sheet.text("C1"))
         assertEquals("12.50%", sheet.text("D1"))
+    }
+
+    // ── cell styles ──
+
+    /**
+     * Fonts 0 plain, 1 bold, 2 italic+underline in theme accent 1, 3 white bold. Fills 0 none,
+     * 1 gray125 (the default every file carries), 2 solid yellow by rgb, 3 solid theme 4 with a
+     * light tint, 4 solid navy by indexed. The dxfs block carries a font and a fill of its own
+     * that must not shift either count.
+     */
+    private val styled = """<styleSheet>""" +
+        """<fonts count="4"><font><sz val="11"/></font><font><b/></font>""" +
+        """<font><i/><u/><color theme="4"/></font><font><b val="1"/><color rgb="FFFFFFFF"/></font></fonts>""" +
+        """<fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>""" +
+        """<fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/><bgColor indexed="64"/></patternFill></fill>""" +
+        """<fill><patternFill patternType="solid"><fgColor theme="4" tint="0.7999816888943144"/></patternFill></fill>""" +
+        """<fill><patternFill patternType="solid"><fgColor indexed="18"/></patternFill></fill></fills>""" +
+        """<cellStyleXfs count="1"><xf numFmtId="0" fontId="1" fillId="2"/></cellStyleXfs>""" +
+        """<cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0"/><xf numFmtId="0" fontId="1" fillId="0"/>""" +
+        """<xf numFmtId="0" fontId="2" fillId="0"/><xf numFmtId="0" fontId="1" fillId="3"/>""" +
+        """<xf numFmtId="0" fontId="3" fillId="4"/><xf numFmtId="0" fontId="0" fillId="2"/></cellXfs>""" +
+        """<dxfs count="1"><dxf><font><b/></font><fill><patternFill><bgColor rgb="FFFF0000"/></patternFill></fill></dxf></dxfs>""" +
+        """</styleSheet>"""
+
+    private fun hex(c: Int?) = c?.let { "%06X".format(it and 0xFFFFFF) }
+
+    @Test
+    fun `bold, italic, underline, fills and font colours reach the cells`() {
+        val sheet = open(
+            xlsx(
+                listOf(
+                    Triple(
+                        "S", "sheet1.xml",
+                        """<sheetData><row r="1"><c r="A1" s="3" t="inlineStr"><is><t>Item</t></is></c>""" +
+                            """<c r="B1" s="4" t="inlineStr"><is><t>Total</t></is></c></row>""" +
+                            """<row r="2"><c r="A2" s="1"><v>1</v></c><c r="B2" s="2"><v>2</v></c><c r="C2"><v>3</v></c></row></sheetData>""",
+                    ),
+                ),
+                styles = styled,
+            ),
+        ).sheet(0)
+        val header = sheet.cell("A1")!!.style!!
+        assertTrue(header.bold)
+        // Theme slot 4 is accent 1 in the default theme, lightened 80%.
+        assertEquals(SheetLook.tint(SheetLook.OFFICE_THEME[4], 0.7999816888943144), header.fill)
+        val total = sheet.cell("B1")!!.style!!
+        assertTrue(total.bold)
+        assertEquals("000080", hex(total.fill))
+        assertEquals("FFFFFF", hex(total.ink))
+        assertEquals(CellStyle(bold = true), sheet.cell("A2")!!.style)
+        val styledText = sheet.cell("B2")!!.style!!
+        assertTrue(styledText.italic && styledText.underline && !styledText.bold)
+        assertEquals("4472C4", hex(styledText.ink))
+        // Style 0 changes nothing, and a plain cell carries no style at all.
+        assertNull(sheet.cell("C2")!!.style)
+    }
+
+    @Test
+    fun `identical looks are one shared instance, and plain is none at all`() {
+        // Two cellXfs entries that differ only in number format draw the same.
+        val s = SheetReader.styles(
+            """<styleSheet><fonts count="2"><font/><font><b/></font></fonts>""" +
+                """<cellXfs count="3"><xf fontId="0"/><xf numFmtId="0" fontId="1"/><xf numFmtId="14" fontId="1"/></cellXfs></styleSheet>""",
+        )
+        assertTrue(s.look(1) === s.look(2))
+        assertNull(s.look(0))
+        assertNull(s.look(99))
+    }
+
+    @Test
+    fun `an empty cell with a fill is kept, one with only weight is not`() {
+        val sheet = SheetReader.sheetFromXml(
+            """<worksheet><sheetData><row r="1"><c r="A1" s="5"/><c r="B1" s="1"/><c r="C1" t="inlineStr"><is><t>x</t></is></c></row></sheetData></worksheet>""",
+            styles = SheetReader.styles(styled),
+        )
+        val a1 = sheet.cell("A1")
+        assertNotNull("the gap in a coloured band is part of the band", a1)
+        assertEquals("", a1!!.text)
+        assertEquals("FFFF00", hex(a1.style!!.fill))
+        assertNull(sheet.cell("B1"))
+    }
+
+    @Test
+    fun `a formatted row and a formatted column colour the cells the file never wrote`() {
+        val sheet = SheetReader.sheetFromXml(
+            """<worksheet><cols><col min="3" max="16384" style="5"/></cols><sheetData>""" +
+                """<row r="1" s="4" customFormat="1"><c r="A1" t="inlineStr"><is><t>x</t></is></c></row>""" +
+                """<row r="2" s="4"><c r="A2" t="inlineStr"><is><t>y</t></is></c></row>""" +
+                """<row r="4" s="5" customFormat="1"/>""" +
+                """</sheetData></worksheet>""",
+            styles = SheetReader.styles(styled),
+        )
+        val r1 = sheet.rows.first { it.index == 0 }
+        val r2 = sheet.rows.first { it.index == 1 }
+        // The row's look for its unwritten cells; a written cell keeps its own (style 0, plain).
+        assertEquals("000080", hex(sheet.lookAt(r1, 1)?.fill))
+        assertNull(sheet.lookAt(r1, 0))
+        // `s` without customFormat is ignored, so the column's fill shows through at C.
+        assertNull(sheet.lookAt(r2, 1))
+        assertEquals("FFFF00", hex(sheet.lookAt(r2, 2)?.fill))
+        // A filled row with no cells is still a row, and a row the file never wrote takes the column.
+        assertEquals("FFFF00", hex(sheet.lookAt(sheet.rows.first { it.index == 3 }, 0)?.fill))
+        assertEquals("FFFF00", hex(sheet.lookAt(null, 200)?.fill))
+        assertNull(sheet.lookAt(null, 1))
+        assertEquals(SheetLimits.MAX_COLS - 1, sheet.columnStyles.single().last)
+    }
+
+    @Test
+    fun `a theme part's own colours replace the default theme`() {
+        val theme = """<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:themeElements>""" +
+            """<a:clrScheme name="Mine"><a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>""" +
+            """<a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="0E2841"/></a:dk2>""" +
+            """<a:lt2><a:srgbClr val="E8E8E8"/></a:lt2><a:accent1><a:srgbClr val="156082"/></a:accent1></a:clrScheme>""" +
+            """</a:themeElements></a:theme>"""
+        val sheet = open(
+            xlsx(
+                listOf(Triple("S", "sheet1.xml", """<sheetData><row r="1"><c r="A1" s="2"><v>1</v></c></row></sheetData>""")),
+                styles = styled,
+                theme = theme,
+            ),
+        ).sheet(0)
+        assertEquals("156082", hex(sheet.cell("A1")!!.style!!.ink))
+    }
+
+    @Test
+    fun `a broken theme part falls back to the default theme rather than failing the workbook`() {
+        val sheet = open(
+            xlsx(
+                listOf(Triple("S", "sheet1.xml", """<sheetData><row r="1"><c r="A1" s="2"><v>1</v></c></row></sheetData>""")),
+                styles = styled,
+                theme = "<a:theme",
+            ),
+        ).sheet(0)
+        assertEquals("4472C4", hex(sheet.cell("A1")!!.style!!.ink))
     }
 
     @Test

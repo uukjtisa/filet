@@ -1406,7 +1406,7 @@ fun PlayerChips(
         },
     ) {
         PlayerChip(
-            FiletIcons.Speed,
+            SoundSheetGlyph,
             soundChipLabel(speed, sound),
             lit = soundChipLit(speed, sound),
             tint = tint,

@@ -389,16 +389,14 @@ fun HtmlScreen(vm: BrowserViewModel, node: VNode) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        // Bug identified here: the page had a strip of its own instead of `ViewerBar` - no name,
+        // no Close, and drawn under the clock now that viewers sit behind the system bars. The
+        // strip's two facts stay, as the bar's actions.
+        dev.niccc2007.filet.handlers.ViewerBar(
+            title = node.name,
+            subtitle = node.path.parent?.path.orEmpty(),
+            onClose = { vm.closeHandler() },
         ) {
-            Text(
-                if (showSource) "Source" else "Preview",
-                fontSize = 11.sp,
-                color = colors.fg3,
-                modifier = Modifier.weight(1f),
-            )
             // Scripts run; the web does not. This is the one fact about the preview that
             // explains a page that looks incomplete, so it is on screen rather than in a menu.
             Text(
@@ -410,17 +408,13 @@ fun HtmlScreen(vm: BrowserViewModel, node: VNode) {
                     .background(colors.sunken)
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                if (showSource) "Preview" else "Source",
-                fontSize = 11.sp,
-                color = colors.accent,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(colors.accent.copy(alpha = 0.12f))
-                    .clickable { showSource = !showSource }
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-            )
+            Spacer(Modifier.width(4.dp))
+            // A mode, drawn lit while the source is showing.
+            dev.niccc2007.filet.handlers.ViewerAction(
+                dev.niccc2007.filet.browser.FiletIcons.Code,
+                if (showSource) "Show the page" else "Show the source",
+                active = showSource,
+            ) { showSource = !showSource }
         }
         val html = source
         // The page stays alive under the source rather than being torn down for it. Bug

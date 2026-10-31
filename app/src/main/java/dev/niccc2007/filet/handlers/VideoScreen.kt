@@ -1390,7 +1390,7 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
                             active = repeating,
                         ) { repeating = !repeating; wake() }
                         OverlayAction(
-                            FiletIcons.Speed,
+                            SoundSheetGlyph,
                             "Speed and sound",
                             active = soundChipLit(speed, soundNow),
                         ) { speedOpen = true; wake() }

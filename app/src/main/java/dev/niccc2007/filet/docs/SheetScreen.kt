@@ -51,6 +51,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
@@ -59,14 +60,17 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
+import dev.niccc2007.filet.handlers.ViewerBar
 import dev.niccc2007.filet.ui.HScroll
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
@@ -118,18 +122,26 @@ fun SheetScreen(vm: BrowserViewModel, node: VNode) {
         }
     }
 
-    when (val o = opened) {
-        null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(strokeWidth = 2.dp)
+    // Bug identified here: the sheet drew no bar. `DocumentScreen` hands a spreadsheet over
+    // before it draws its own, so this was the one document with no name, no Close and its tabs
+    // under the clock - the bar is also what keeps a viewer clear of the status bar.
+    Column(Modifier.fillMaxSize()) {
+        ViewerBar(title = node.name, subtitle = node.path.parent?.path.orEmpty(), onClose = { vm.closeHandler() })
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            when (val o = opened) {
+                null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(strokeWidth = 2.dp)
+                }
+
+                is SheetOpen.Failed -> SheetProblemView(
+                    o,
+                    onElsewhere = { vm.openExternally(node, force = true) },
+                    onClose = vm::closeHandler,
+                )
+
+                is SheetOpen.Ready -> WorkbookView(o.book, node, onElsewhere = { vm.openExternally(node, force = true) })
+            }
         }
-
-        is SheetOpen.Failed -> SheetProblemView(
-            o,
-            onElsewhere = { vm.openExternally(node, force = true) },
-            onClose = vm::closeHandler,
-        )
-
-        is SheetOpen.Ready -> WorkbookView(o.book, node, onElsewhere = { vm.openExternally(node, force = true) })
     }
 }
 
@@ -520,6 +532,7 @@ private fun SheetGrid(sheet: Sheet, zoom: Float, place: SheetPlace, part: Int, o
     val cellAt: @Composable (Line.Data, Int, Boolean) -> Unit = { line, col, pinned ->
         CellBox(
             cell = line.row?.at(col),
+            look = sheet.lookAt(line.row, col),
             selected = selected == (line.index to col),
             pinned = pinned,
             headerRow = line.index < plan.pinRows,
@@ -732,9 +745,19 @@ private fun ScrollStrip(
     }
 }
 
+/**
+ * One cell, drawn the way the file formats it.
+ *
+ * The file's fill replaces the grid's own shading of the header row and pinned columns: a
+ * coloured band is the author's statement about which rows are headers, and the grid's guess
+ * is only for files that make none. The selection is a tint OVER whatever is there, so a filled
+ * cell still says it is selected without losing its colour. Which ink is used is
+ * [SheetLook.ink], which is where the readability decision lives and is tested.
+ */
 @Composable
 private fun CellBox(
     cell: Cell?,
+    look: CellStyle?,
     selected: Boolean,
     pinned: Boolean,
     headerRow: Boolean,
@@ -743,15 +766,17 @@ private fun CellBox(
 ) {
     val colors = Filet.colors
     val line = colors.lineSoft
-    val ground = when {
-        selected -> colors.accent.copy(alpha = 0.16f)
-        pinned || headerRow -> colors.raised
-        else -> Color.Transparent
-    }
+    val shade = if (pinned || headerRow) colors.raised else Color.Transparent
+    val fill = look?.fill?.let { Color(it) }
+    // What is actually behind the text when the file gives no fill, so a font colour is judged
+    // against the ground it will be read on.
+    val behind = if (shade == Color.Transparent) MaterialTheme.colorScheme.background else shade
+    val ink = remember(look, behind) { SheetLook.ink(look, behind.toArgb())?.let { Color(it) } }
     Box(
         Modifier
             .fillMaxSize()
-            .background(ground)
+            .background(fill ?: shade)
+            .then(if (selected) Modifier.background(colors.accent.copy(alpha = 0.16f)) else Modifier)
             .drawBehind {
                 // Right and bottom edges only; the neighbours draw the other two.
                 drawLine(line, Offset(size.width - 0.5f, 0f), Offset(size.width - 0.5f, size.height), 1f)
@@ -771,8 +796,20 @@ private fun CellBox(
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Clip,
-                fontWeight = if (headerRow) FontWeight.Medium else FontWeight.Normal,
-                color = when (cell.kind) {
+                fontWeight = when {
+                    look?.bold == true -> FontWeight.Bold
+                    headerRow -> FontWeight.Medium
+                    else -> FontWeight.Normal
+                },
+                fontStyle = if (look?.italic == true) FontStyle.Italic else FontStyle.Normal,
+                textDecoration = when {
+                    look == null -> null
+                    look.underline && look.strike -> TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
+                    look.underline -> TextDecoration.Underline
+                    look.strike -> TextDecoration.LineThrough
+                    else -> null
+                },
+                color = ink ?: when (cell.kind) {
                     CellKind.ERROR -> colors.warn
                     CellKind.BOOL -> colors.fg2
                     else -> MaterialTheme.colorScheme.onSurface

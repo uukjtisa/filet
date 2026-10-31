@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
+import dev.niccc2007.filet.handlers.ViewerBar
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.ops.LocalCopy
 import dev.niccc2007.filet.ui.dialogs.BtnKind
@@ -150,34 +151,43 @@ fun PdfScreen(vm: BrowserViewModel, node: VNode) {
     }
 
     val current = doc
-    when {
-        loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(strokeWidth = 2.dp)
-        }
+    // Bug identified here: this reader drew no bar. Every other viewer wears `ViewerBar`, so the
+    // PDF was the one screen with no name on it and no Close button - only the system Back - and
+    // its first page sat under the clock, because the bar is also what keeps a viewer clear of
+    // the status bar now that viewers draw behind the system bars.
+    Column(Modifier.fillMaxSize()) {
+        ViewerBar(title = node.name, subtitle = node.path.parent?.path.orEmpty(), onClose = { vm.closeHandler() })
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            when {
+                loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(strokeWidth = 2.dp)
+                }
 
-        current != null -> PdfPages(current, node)
+                current != null -> PdfPages(current, node)
 
-        else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    problemText(problem, node),
-                    fontSize = 12.sp,
-                    color = colors.warn,
-                    modifier = Modifier.padding(horizontal = 28.dp),
-                )
-                val locked = problem as? PdfDoc.Opened.Locked
-                if (locked != null && locked.canAsk) {
-                    Spacer(Modifier.height(14.dp))
-                    Text(
-                        "Enter the password",
-                        fontSize = 12.sp,
-                        color = colors.accent,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.accent.copy(alpha = 0.12f))
-                            .clickable { asking = true }
-                            .padding(horizontal = 12.dp, vertical = 7.dp),
-                    )
+                else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            problemText(problem, node),
+                            fontSize = 12.sp,
+                            color = colors.warn,
+                            modifier = Modifier.padding(horizontal = 28.dp),
+                        )
+                        val locked = problem as? PdfDoc.Opened.Locked
+                        if (locked != null && locked.canAsk) {
+                            Spacer(Modifier.height(14.dp))
+                            Text(
+                                "Enter the password",
+                                fontSize = 12.sp,
+                                color = colors.accent,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(colors.accent.copy(alpha = 0.12f))
+                                    .clickable { asking = true }
+                                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                            )
+                        }
+                    }
                 }
             }
         }

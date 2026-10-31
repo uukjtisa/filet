@@ -147,7 +147,7 @@ fun OpenWithDialog(
                 DlgPick(
                     icon = iconOf(id),
                     label = id.label,
-                    detail = detailFor(id, builtIn, externals[extension]?.label),
+                    detail = openWithDetail(id, builtIn, current, externals[extension]?.label),
                     tag = if (id == HandlerId.EXTERNAL) "App" else null,
                     ours = false,
                     // Opening a file tracks what was tapped in this dialogue; configuring a
@@ -213,15 +213,24 @@ fun OpenWithDialog(
 }
 
 /**
- * The second line on a handler row.
+ * The second line on a handler row. Pure; see `OpenWithDetailTest`.
  *
  * Null rather than an empty string when there is nothing true to say - a row with a blank
  * second line is taller for no reason, and a row saying "default" when it is not is worse.
+ *
+ * Bug identified here: "Default" was written on the type's BUILT-IN viewer whatever the type was
+ * actually set to. With `.xlsx` sent to an office app in Default openers, the sheet read
+ * "Document reader - Default" while a tap on the file opened the other app - the label
+ * contradicted the very behaviour it was there to explain. "Default" now goes on the row a tap
+ * uses: [current], which is the override when there is one and the built-in otherwise.
+ *
+ * @param current what a plain tap on a file of this type opens.
  */
-private fun detailFor(id: HandlerId, builtIn: HandlerId?, externalLabel: String?): String? = when {
+internal fun openWithDetail(id: HandlerId, builtIn: HandlerId?, current: HandlerId?, externalLabel: String?): String? = when {
     id == HandlerId.EXTERNAL && externalLabel == null -> "Pick an app"
+    id == HandlerId.EXTERNAL && current == HandlerId.EXTERNAL -> "Default  ·  $externalLabel"
     id == HandlerId.EXTERNAL -> externalLabel
-    id == builtIn -> "Default"
+    id == current -> "Default"
     else -> null
 }
 

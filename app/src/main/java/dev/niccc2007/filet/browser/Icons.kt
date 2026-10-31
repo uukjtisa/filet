@@ -283,9 +283,6 @@ object FiletIcons {
      */
     val Down = stroke("down", "m5.5 9.5 6.5 6.5 6.5-6.5", width = 1.9f)
 
-    /** Playback speed: a dial with a hand. Not a rabbit, not a stack of chevrons. */
-    val Speed = stroke("speed", "M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0", "M12 12l4-3")
-
     /** The sleep timer. A stopwatch, because a crescent moon reads as a dark theme toggle. */
     val Timer = stroke(
         "timer",
