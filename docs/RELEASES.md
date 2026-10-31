@@ -58,7 +58,8 @@ is being built, fixes still have to reach a phone. They go onto a staging number
 and installed but never released; when the large one ships it carries them. If a fix in there
 cannot wait, the staging version publishes on its own and the staging line moves on.
 
-**STAGING: 0.1.20** — fixes made while 0.2.0 is being drawn. Built and installed, not published.
+**STAGING: none.** 0.1.20 was the staging number through the redesign round and was never
+published; everything it collected ships as 0.2.0, which the build now declares.
 
 0.1.19 published on the staging number too, and it is the largest case this rule has covered:
 a tree view, a rebuilt Aurora player and a Home screen that folds are all MINOR by the bump
@@ -91,9 +92,15 @@ the network work in it — one remote holding several addresses, and archives an
 a share — was worth more to somebody on a second device than waiting for the redesign to finish
 was worth to anybody. The staging line moves on rather than being deleted; 0.2.0 is unchanged.
 
-**NEXT: 0.2.0** — the redesign release. It replaces the visual language of every screen, adds
-a storage tool that did not exist, adds a metadata writer, and changes what a file row shows by
-default. Somebody updating from 0.1.8 opens an app that does not look like the one they closed.
+**NEXT: 0.2.0** — the redesign release. It replaces the visual language of every screen and
+changes what a file row shows by default. Somebody updating from 0.1.8 opens an app that does
+not look like the one they closed.
+
+Decision: the brand-new tools drawn in the same round - a storage tool, the metadata writer's
+screen, the appoint tray, an XAPK inspector, an app icon picker and an intro - follow on 0.2.x
+instead of holding 0.2.0. The number promises that every screen somebody already knows has its
+new look, and that promise is kept; a tool that never existed before is a feature, and waiting
+for six of them would hold back a finished redesign for work that replaces nothing.
 `tools/check-version.mjs` reads that line, so the decision lives in one place.
 
 ## Two release lines in one repository
