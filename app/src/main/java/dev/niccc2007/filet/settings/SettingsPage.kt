@@ -76,7 +76,7 @@ import dev.niccc2007.filet.data.ThemeChoice
 import dev.niccc2007.filet.data.ViewStep
 import dev.niccc2007.filet.handlers.OpenerPicker
 import dev.niccc2007.filet.handlers.defaultOpenersSection
-import dev.niccc2007.filet.handlers.effectsName
+import dev.niccc2007.filet.handlers.eqName
 import dev.niccc2007.filet.index.CrawlEnd
 import dev.niccc2007.filet.ui.theme.Filet
 
@@ -210,6 +210,10 @@ fun SettingsPage(vm: BrowserViewModel) {
     val updatesOn by vm.updateNotificationsOn.collectAsState()
     val selectionBar by prefs.selectionBar.collectAsState()
     val uninterrupted by prefs.uninterrupted.collectAsState()
+    val videoNextPlays by prefs.videoNextPlays.collectAsState()
+    val videoSkip by prefs.videoSkipSeconds.collectAsState()
+    val videoPip by prefs.videoPipOnHome.collectAsState()
+    val pipOnLeave = dev.niccc2007.filet.handlers.pipOnLeaveOffered(LocalContext.current)
     val playerFace by prefs.playerFace.collectAsState()
     // Hoisted out of the look-picker row below: the beat settings are scoped to the
     // look that is selected, and a LazyColumn's items cannot see a value declared
@@ -218,6 +222,8 @@ fun SettingsPage(vm: BrowserViewModel) {
     val pitchMode by prefs.pitchMode.collectAsState()
     val musicSound by prefs.soundOf(dev.niccc2007.filet.playback.SoundTarget.MUSIC).collectAsState()
     val videoSound by prefs.soundOf(dev.niccc2007.filet.playback.SoundTarget.VIDEO).collectAsState()
+    // What this phone has, for the effects it can be offered: no reverb, no Reverb row.
+    val soundOffers = dev.niccc2007.filet.playback.Sound.of(LocalContext.current).offers
     val resumePlayback by prefs.resumePlayback.collectAsState()
     val rootVolumes by prefs.rootVolumes.collectAsState()
     val nameLines by prefs.nameLines.collectAsState()
@@ -582,7 +588,7 @@ fun SettingsPage(vm: BrowserViewModel) {
         anchor(Prefs.K_STOP_CONFIRM)
         item {
             ToggleRow(
-                "Confirm Stop Filet",
+                "Confirm Shutdown Filet",
                 if (stopConfirm) {
                     "Shows running work before Filet stops."
                 } else {
@@ -980,49 +986,48 @@ fun SettingsPage(vm: BrowserViewModel) {
                 }
             }
         }
+        // The video player's own. Every video opens under its silent preview; this is what one
+        // reached by a gallery's arrows or swipe does. The same switch as the viewer's menu.
+        item { SettingsSection("Video", "") }
+        anchor(Prefs.K_VIDEO_NEXT_PLAYS)
+        item {
+            SegmentRow(
+                "Next video",
+                listOf("Tap to play", "Start playing"),
+                if (videoNextPlays) 1 else 0,
+                hint = if (videoNextPlays) {
+                    "A video you swipe or step to in a gallery starts playing."
+                } else {
+                    "A video you swipe or step to in a gallery waits for a tap, like one you open."
+                },
+                key = Prefs.K_VIDEO_NEXT_PLAYS,
+            ) { prefs.setVideoNextPlays(it == 1) }
+        }
+        anchor(Prefs.K_VIDEO_SKIP)
+        item {
+            SegmentRow(
+                "Double-tap skip",
+                listOf("2s", "5s", "10s"),
+                Prefs.VIDEO_SKIP_CHOICES.indexOf(videoSkip),
+                hint = "How far a double tap on either side of a video moves it, and the buttons beside Play.",
+                key = Prefs.K_VIDEO_SKIP,
+            ) { prefs.setVideoSkipSeconds(Prefs.VIDEO_SKIP_CHOICES[it]) }
+        }
+        // Only where leaving can go into the window on its own: Android 12 on, and a phone with it.
+        if (pipOnLeave) {
+            anchor(Prefs.K_VIDEO_PIP_HOME)
+            item {
+                ToggleRow(
+                    "Picture-in-picture on leaving",
+                    "A playing video goes on in a small window when you leave Filet, instead of stopping.",
+                    videoPip,
+                    key = Prefs.K_VIDEO_PIP_HOME,
+                ) { prefs.setVideoPipOnHome(it) }
+            }
+        }
         // Music's own: the same as its sheet, which is where they are usually set. Here so they
         // can be found by searching, and reset without a file open. A file remembered from its sheet keeps its own.
         item { SettingsSection("Sound · Music", "") }
-        anchor(Prefs.K_SOUND_MUSIC_EQ_ON)
-        item {
-            ToggleRow(
-                "Sound effects",
-                "One switch for every track: the equalizer, the bass boost, the reverb " +
-                    "and the filter. It never raises the level.",
-                musicSound.eqOn,
-                status = if (musicSound.eqOn) effectsName(musicSound) else null,
-                key = Prefs.K_SOUND_MUSIC_EQ_ON,
-            ) { on -> prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { it.copy(eqOn = on) } }
-        }
-        anchor(Prefs.K_SOUND_MUSIC_BANDS)
-        item {
-            val looks = soundLooks()
-            val look = dev.niccc2007.filet.playback.SoundMaths.Look.of(musicSound)
-            SegmentRow(
-                "Sound preset",
-                looks.map { it.label },
-                if (look == null) -1 else looks.indexOf(look),
-                sub = true,
-                hint = "Equalizer curves, a room or a hall, muffled or radio. Picking one turns the effects on.",
-                status = if (look == null) "Custom, from the music player's sheet" else null,
-                key = Prefs.K_SOUND_MUSIC_BANDS,
-            ) { i -> prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { looks[i].on(it) } }
-        }
-        anchor(Prefs.K_SOUND_MUSIC_BASS)
-        item {
-            SliderRow(
-                "Bass boost",
-                "Lifts what is under 250 Hz, by up to 9 dB. Part of the equalizer, so it is off when that is.",
-                musicSound.bass / 100f,
-                sub = true,
-                status = "${musicSound.bass}%",
-                key = Prefs.K_SOUND_MUSIC_BASS,
-            ) { f ->
-                prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) {
-                    it.copy(bass = kotlin.math.round(f * 20f).toInt() * 5, eqOn = true)
-                }
-            }
-        }
         anchor(Prefs.K_SOUND_MUSIC_VOLUME)
         item {
             val top = dev.niccc2007.filet.playback.SoundMaths.MAX_VOLUME.toFloat()
@@ -1032,6 +1037,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                     "Of the phone's own volume, for every track. Above 100% a limiter keeps " +
                         "the loud parts under full scale.",
                     musicSound.volume / top,
+                    beta = true,
                     status = volumeStatus(musicSound.volume),
                     key = Prefs.K_SOUND_MUSIC_VOLUME,
                 ) { f ->
@@ -1049,49 +1055,224 @@ fun SettingsPage(vm: BrowserViewModel) {
                 }
             }
         }
-        // Video's own: the same as its sheet, which is where they are usually set. Here so they
-        // can be found by searching, and reset without a file open. Apart from the music since the two were split.
-        item { SettingsSection("Sound · Video", "") }
-        anchor(Prefs.K_SOUND_VIDEO_EQ_ON)
+        // The effects, each its own switch and strength as in the sheet; none under the equalizer's.
+        if (dev.niccc2007.filet.playback.SoundPart.SPACE in soundOffers) {
+            anchor(Prefs.K_SOUND_MUSIC_SPACE)
+            item {
+                val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.REVERB
+                val level = fx.of(musicSound)
+                val sizes = dev.niccc2007.filet.playback.SoundMaths.Space.SIZES
+                Column {
+                    ToggleRow(
+                        "Reverb",
+                        "A room around the sound, for every track: from a small room to a large hall.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_MUSIC_SPACE,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { fx.switched(it, on) }
+                    }
+                    SegmentRow(
+                        "Size",
+                        sizes.map { it.label },
+                        sizes.indexOf(dev.niccc2007.filet.playback.SoundMaths.Space.sized(level.amount)),
+                        sub = true,
+                        beta = true,
+                        hint = "Set while the reverb is off, it is the size heard when it is switched on.",
+                        key = Prefs.K_SOUND_MUSIC_SPACE,
+                    ) { i ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { fx.withAmount(it, sizes[i].amount) }
+                    }
+                }
+            }
+        }
+        // Every effect but the reverb shares the filter key, so the first title is the search's.
+        anchor(Prefs.K_SOUND_MUSIC_FILTER)
+        item {
+            Column {
+                run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.MUFFLED
+                    val level = fx.of(musicSound)
+                    ToggleRow(
+                        "Muffled",
+                        "Through a wall: the top goes and the bass stays.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_MUSIC_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { fx.switched(it, on) }
+                    }
+                    SliderRow(
+                        "Muffled strength",
+                        "How thick the wall is. Set while off, it is heard when Muffled is on.",
+                        level.amount / 100f,
+                        beta = true,
+                        sub = true,
+                        status = fx.amountLabel(level.amount),
+                        key = Prefs.K_SOUND_MUSIC_FILTER,
+                    ) { f ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { fx.withAmount(it, fx.snap(f * 100f)) }
+                    }
+                }
+                run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.RADIO
+                    val level = fx.of(musicSound)
+                    ToggleRow(
+                        "Radio",
+                        "A small speaker or a phone line: the middle, with both ends cut.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_MUSIC_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { fx.switched(it, on) }
+                    }
+                    SliderRow(
+                        "Radio strength",
+                        "How small the speaker is. Set while off, it is heard when Radio is on.",
+                        level.amount / 100f,
+                        beta = true,
+                        sub = true,
+                        status = fx.amountLabel(level.amount),
+                        key = Prefs.K_SOUND_MUSIC_FILTER,
+                    ) { f ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { fx.withAmount(it, fx.snap(f * 100f)) }
+                    }
+                }
+                // The effects that came after: a switch each, their strengths on the sheet.
+                run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.UNDERWATER
+                    val level = fx.of(musicSound)
+                    ToggleRow(
+                        "Underwater",
+                        "Under the surface: the low end swells and the rest goes dull. Its strength is on the sheet.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_MUSIC_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { fx.switched(it, on) }
+                    }
+                }
+                if (dev.niccc2007.filet.playback.SoundPart.WIDE in soundOffers) run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.WIDE
+                    val level = fx.of(musicSound)
+                    ToggleRow(
+                        "Wide",
+                        "Spreads the sound past your ears, on headphones. Its strength is on the sheet.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_MUSIC_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { fx.switched(it, on) }
+                    }
+                }
+                run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.EVEN_OUT
+                    val level = fx.of(musicSound)
+                    ToggleRow(
+                        "Even out",
+                        "Brings the loud parts down toward the quiet ones. Its strength is on the sheet.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_MUSIC_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { fx.switched(it, on) }
+                    }
+                }
+                run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.NIGHTCORE
+                    val level = fx.of(musicSound)
+                    ToggleRow(
+                        "Nightcore",
+                        "Faster and higher together, on top of the speed. Switches Vaporwave off.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_MUSIC_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { fx.switched(it, on) }
+                    }
+                }
+                run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.VAPORWAVE
+                    val level = fx.of(musicSound)
+                    ToggleRow(
+                        "Vaporwave",
+                        "Slower and lower together, on top of the speed. Switches Nightcore off.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_MUSIC_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { fx.switched(it, on) }
+                    }
+                }
+                run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.ORBIT
+                    val level = fx.of(musicSound)
+                    ToggleRow(
+                        "8D",
+                        "The sound sweeps from ear to ear every 8 seconds, on headphones. Its swing is on the sheet.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_MUSIC_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { fx.switched(it, on) }
+                    }
+                }
+            }
+        }
+        anchor(Prefs.K_SOUND_MUSIC_EQ_ON)
         item {
             ToggleRow(
-                "Sound effects",
-                "One switch for every video: the equalizer, the bass boost, the reverb " +
-                    "and the filter. It never raises the level.",
-                videoSound.eqOn,
-                status = if (videoSound.eqOn) effectsName(videoSound) else null,
-                key = Prefs.K_SOUND_VIDEO_EQ_ON,
-            ) { on -> prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { it.copy(eqOn = on) } }
+                "Equalizer",
+                "The five bands and the bass boost, for every track. It never raises the level.",
+                musicSound.eqOn,
+                beta = true,
+                status = if (musicSound.eqOn) eqName(musicSound) else null,
+                key = Prefs.K_SOUND_MUSIC_EQ_ON,
+            ) { on -> prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { it.copy(eqOn = on) } }
         }
-        anchor(Prefs.K_SOUND_VIDEO_BANDS)
+        anchor(Prefs.K_SOUND_MUSIC_BANDS)
         item {
-            val looks = soundLooks()
-            val look = dev.niccc2007.filet.playback.SoundMaths.Look.of(videoSound)
+            val presets = dev.niccc2007.filet.playback.SoundMaths.EqPreset.entries
+            val preset = dev.niccc2007.filet.playback.SoundMaths.EqPreset.of(musicSound)
             SegmentRow(
-                "Sound preset",
-                looks.map { it.label },
-                if (look == null) -1 else looks.indexOf(look),
+                "EQ preset",
+                presets.map { it.label },
+                if (preset == null) -1 else presets.indexOf(preset),
                 sub = true,
-                hint = "Equalizer curves, a room or a hall, muffled or radio. Picking one turns the effects on.",
-                status = if (look == null) "Custom, from the video player's sheet" else null,
-                key = Prefs.K_SOUND_VIDEO_BANDS,
-            ) { i -> prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { looks[i].on(it) } }
+                beta = true,
+                hint = "The equalizer's curves, the same seventeen as the sheet. Picking one turns it on.",
+                status = if (preset == null) "Custom, from the music player's sheet" else null,
+                key = Prefs.K_SOUND_MUSIC_BANDS,
+            ) { i -> prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) { presets[i].on(it) } }
         }
-        anchor(Prefs.K_SOUND_VIDEO_BASS)
+        anchor(Prefs.K_SOUND_MUSIC_BASS)
         item {
             SliderRow(
                 "Bass boost",
                 "Lifts what is under 250 Hz, by up to 9 dB. Part of the equalizer, so it is off when that is.",
-                videoSound.bass / 100f,
+                musicSound.bass / 100f,
+                beta = true,
                 sub = true,
-                status = "${videoSound.bass}%",
-                key = Prefs.K_SOUND_VIDEO_BASS,
+                status = "${musicSound.bass}%",
+                key = Prefs.K_SOUND_MUSIC_BASS,
             ) { f ->
-                prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) {
+                prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.MUSIC) {
                     it.copy(bass = kotlin.math.round(f * 20f).toInt() * 5, eqOn = true)
                 }
             }
         }
+        // Video's own: the same as its sheet, which is where they are usually set. Here so they
+        // can be found by searching, and reset without a file open. Apart from the music since the two were split.
+        item { SettingsSection("Sound · Video", "") }
         anchor(Prefs.K_SOUND_VIDEO_VOLUME)
         item {
             val top = dev.niccc2007.filet.playback.SoundMaths.MAX_VOLUME.toFloat()
@@ -1101,6 +1282,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                     "Of the phone's own volume, for every video. Above 100% a limiter keeps " +
                         "the loud parts under full scale.",
                     videoSound.volume / top,
+                    beta = true,
                     status = volumeStatus(videoSound.volume),
                     key = Prefs.K_SOUND_VIDEO_VOLUME,
                 ) { f ->
@@ -1115,6 +1297,221 @@ fun SettingsPage(vm: BrowserViewModel) {
                             prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { it.copy(volume = 100) }
                         }
                     }
+                }
+            }
+        }
+        // The effects, each its own switch and strength as in the sheet; none under the equalizer's.
+        if (dev.niccc2007.filet.playback.SoundPart.SPACE in soundOffers) {
+            anchor(Prefs.K_SOUND_VIDEO_SPACE)
+            item {
+                val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.REVERB
+                val level = fx.of(videoSound)
+                val sizes = dev.niccc2007.filet.playback.SoundMaths.Space.SIZES
+                Column {
+                    ToggleRow(
+                        "Reverb",
+                        "A room around the sound, for every video: from a small room to a large hall.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_VIDEO_SPACE,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { fx.switched(it, on) }
+                    }
+                    SegmentRow(
+                        "Size",
+                        sizes.map { it.label },
+                        sizes.indexOf(dev.niccc2007.filet.playback.SoundMaths.Space.sized(level.amount)),
+                        sub = true,
+                        beta = true,
+                        hint = "Set while the reverb is off, it is the size heard when it is switched on.",
+                        key = Prefs.K_SOUND_VIDEO_SPACE,
+                    ) { i ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { fx.withAmount(it, sizes[i].amount) }
+                    }
+                }
+            }
+        }
+        // Every effect but the reverb shares the filter key, so the first title is the search's.
+        anchor(Prefs.K_SOUND_VIDEO_FILTER)
+        item {
+            Column {
+                run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.MUFFLED
+                    val level = fx.of(videoSound)
+                    ToggleRow(
+                        "Muffled",
+                        "Through a wall: the top goes and the bass stays.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_VIDEO_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { fx.switched(it, on) }
+                    }
+                    SliderRow(
+                        "Muffled strength",
+                        "How thick the wall is. Set while off, it is heard when Muffled is on.",
+                        level.amount / 100f,
+                        beta = true,
+                        sub = true,
+                        status = fx.amountLabel(level.amount),
+                        key = Prefs.K_SOUND_VIDEO_FILTER,
+                    ) { f ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { fx.withAmount(it, fx.snap(f * 100f)) }
+                    }
+                }
+                run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.RADIO
+                    val level = fx.of(videoSound)
+                    ToggleRow(
+                        "Radio",
+                        "A small speaker or a phone line: the middle, with both ends cut.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_VIDEO_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { fx.switched(it, on) }
+                    }
+                    SliderRow(
+                        "Radio strength",
+                        "How small the speaker is. Set while off, it is heard when Radio is on.",
+                        level.amount / 100f,
+                        beta = true,
+                        sub = true,
+                        status = fx.amountLabel(level.amount),
+                        key = Prefs.K_SOUND_VIDEO_FILTER,
+                    ) { f ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { fx.withAmount(it, fx.snap(f * 100f)) }
+                    }
+                }
+                // The effects that came after: a switch each, their strengths on the sheet.
+                run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.UNDERWATER
+                    val level = fx.of(videoSound)
+                    ToggleRow(
+                        "Underwater",
+                        "Under the surface: the low end swells and the rest goes dull. Its strength is on the sheet.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_VIDEO_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { fx.switched(it, on) }
+                    }
+                }
+                if (dev.niccc2007.filet.playback.SoundPart.WIDE in soundOffers) run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.WIDE
+                    val level = fx.of(videoSound)
+                    ToggleRow(
+                        "Wide",
+                        "Spreads the sound past your ears, on headphones. Its strength is on the sheet.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_VIDEO_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { fx.switched(it, on) }
+                    }
+                }
+                run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.EVEN_OUT
+                    val level = fx.of(videoSound)
+                    ToggleRow(
+                        "Even out",
+                        "Brings the loud parts down toward the quiet ones. Its strength is on the sheet.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_VIDEO_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { fx.switched(it, on) }
+                    }
+                }
+                run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.NIGHTCORE
+                    val level = fx.of(videoSound)
+                    ToggleRow(
+                        "Nightcore",
+                        "Faster and higher together, on top of the speed. Switches Vaporwave off.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_VIDEO_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { fx.switched(it, on) }
+                    }
+                }
+                run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.VAPORWAVE
+                    val level = fx.of(videoSound)
+                    ToggleRow(
+                        "Vaporwave",
+                        "Slower and lower together, on top of the speed. Switches Nightcore off.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_VIDEO_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { fx.switched(it, on) }
+                    }
+                }
+                run {
+                    val fx = dev.niccc2007.filet.playback.SoundMaths.Overlay.ORBIT
+                    val level = fx.of(videoSound)
+                    ToggleRow(
+                        "8D",
+                        "The sound sweeps from ear to ear every 8 seconds, on headphones. Its swing is on the sheet.",
+                        level.on,
+                        beta = true,
+                        status = if (level.on) fx.amountLabel(level.amount) else null,
+                        key = Prefs.K_SOUND_VIDEO_FILTER,
+                    ) { on ->
+                        prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { fx.switched(it, on) }
+                    }
+                }
+            }
+        }
+        anchor(Prefs.K_SOUND_VIDEO_EQ_ON)
+        item {
+            ToggleRow(
+                "Equalizer",
+                "The five bands and the bass boost, for every video. It never raises the level.",
+                videoSound.eqOn,
+                beta = true,
+                status = if (videoSound.eqOn) eqName(videoSound) else null,
+                key = Prefs.K_SOUND_VIDEO_EQ_ON,
+            ) { on -> prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { it.copy(eqOn = on) } }
+        }
+        anchor(Prefs.K_SOUND_VIDEO_BANDS)
+        item {
+            val presets = dev.niccc2007.filet.playback.SoundMaths.EqPreset.entries
+            val preset = dev.niccc2007.filet.playback.SoundMaths.EqPreset.of(videoSound)
+            SegmentRow(
+                "EQ preset",
+                presets.map { it.label },
+                if (preset == null) -1 else presets.indexOf(preset),
+                sub = true,
+                beta = true,
+                hint = "The equalizer's curves, the same seventeen as the sheet. Picking one turns it on.",
+                status = if (preset == null) "Custom, from the video player's sheet" else null,
+                key = Prefs.K_SOUND_VIDEO_BANDS,
+            ) { i -> prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) { presets[i].on(it) } }
+        }
+        anchor(Prefs.K_SOUND_VIDEO_BASS)
+        item {
+            SliderRow(
+                "Bass boost",
+                "Lifts what is under 250 Hz, by up to 9 dB. Part of the equalizer, so it is off when that is.",
+                videoSound.bass / 100f,
+                beta = true,
+                sub = true,
+                status = "${videoSound.bass}%",
+                key = Prefs.K_SOUND_VIDEO_BASS,
+            ) { f ->
+                prefs.editSound(dev.niccc2007.filet.playback.SoundTarget.VIDEO) {
+                    it.copy(bass = kotlin.math.round(f * 20f).toInt() * 5, eqOn = true)
                 }
             }
         }
@@ -1644,6 +2041,7 @@ fun SegmentRow(
     selected: Int,
     /** True for a row that only applies while the row above it is on. See [SUB_INDENT]. */
     sub: Boolean = false,
+    beta: Boolean = false,
     /** What it, or the chosen option, does - shown on hold. See [HoldHint]. */
     hint: String? = null,
     /** A live value or a warning, which stays printed under the chips. */
@@ -1656,6 +2054,7 @@ fun SegmentRow(
     Column(Modifier.padding(start = if (sub) 14.dp + SUB_INDENT else 14.dp, end = 14.dp, top = 6.dp, bottom = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, fontSize = 12.sp, color = colors.fg2)
+            if (beta) BetaTag()
             HintInfo()
         }
         Spacer(Modifier.height(5.dp))
@@ -2108,15 +2507,6 @@ internal fun BarRow(
             )
         }
     }
-}
-
-/** The looks this phone can play: without a reverb, Room and Hall are not offered. */
-@Composable
-private fun soundLooks(): List<dev.niccc2007.filet.playback.SoundMaths.Look> {
-    val hasSpace = dev.niccc2007.filet.playback.SoundPart.SPACE in
-        dev.niccc2007.filet.playback.Sound.of(androidx.compose.ui.platform.LocalContext.current).offers
-    return dev.niccc2007.filet.playback.SoundMaths.Look.entries
-        .filter { hasSpace || it.space == dev.niccc2007.filet.playback.SoundMaths.Space.NONE }
 }
 
 /** The app volume as the row says it, with the boost's read-back rule where there is a boost. */

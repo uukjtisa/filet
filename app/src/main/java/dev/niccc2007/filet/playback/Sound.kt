@@ -6,14 +6,18 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.DynamicsProcessing
+import android.media.audiofx.EnvironmentalReverb
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.PresetReverb
+import android.media.audiofx.Virtualizer
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,15 +37,24 @@ interface SoundPort {
     /** A reverb on [session], or null when this phone will not give one. */
     fun openSpace(session: Int): SpaceEffect?
 
+    /** A virtualizer on [session], or null when this phone will not give one. */
+    fun openWide(session: Int): WideEffect? = null
+
     /**
      * Whether this phone has [part] at all, asked before anything is made, so a control for
      * something the phone does not have is not offered in the first place.
      */
     fun offers(part: SoundPart): Boolean = true
+
+    /** Which reverb [openSpace] makes, for the headroom in front of it. Asked once, like [offers]. */
+    val reverb: SoundMaths.Reverb get() = SoundMaths.Reverb.ENVIRONMENTAL
 }
 
 interface EqEffect : AutoCloseable {
     fun set(inputDb: Float, gains: FloatArray)
+
+    /** The compressor after the curve, or null for none. See [SoundMaths.compression]. */
+    fun compress(c: SoundMaths.Compression?) {}
 }
 
 interface BoostEffect : AutoCloseable {
@@ -52,8 +65,13 @@ interface SpaceEffect : AutoCloseable {
     fun set(space: SoundMaths.Space)
 }
 
+interface WideEffect : AutoCloseable {
+    /** The virtualizer's strength, 0 to 1000. */
+    fun set(strength: Int)
+}
+
 /** Which part of the sound this phone refused. Shown, not hidden: a slider that does nothing is a lie. */
-enum class SoundPart { EQUALISER, BOOST, SPACE }
+enum class SoundPart { EQUALISER, BOOST, SPACE, WIDE }
 
 /**
  * One player's session and the effects on it.
@@ -69,8 +87,17 @@ enum class SoundPart { EQUALISER, BOOST, SPACE }
  * an effect is a few milliseconds; a boost that silently stopped working is a support question
  * nobody can answer.
  *
+ * ## What the player does itself
+ *
+ * Nightcore, Vaporwave and 8D are not effects on the session: the first two are the player's
+ * rate and the last its two volumes. The owner is told when either changes, reads [rate] and
+ * [panLeft] and [panRight], and multiplies them into its own speed and volume.
+ *
  * @param onLevel told the player's own volume whenever it changes. The owner multiplies it into
  *   whatever else it does with the volume - a duck, a fade, a mute - so this never fights them.
+ * @param onRate told [rate] whenever it changes.
+ * @param onPan told [panLeft] and [panRight] whenever they move, which under 8D is many times
+ *   a second.
  */
 class SoundLink internal constructor(
     val session: Int,
@@ -79,16 +106,36 @@ class SoundLink internal constructor(
     private val port: SoundPort,
     private val onLevel: (Float) -> Unit,
     private val onRefused: (SoundPart) -> Unit,
+    private val onRate: (Float) -> Unit = {},
+    private val onPan: () -> Unit = {},
 ) : AutoCloseable {
 
     private var eq: EqEffect? = null
     private var boost: BoostEffect? = null
     private var space: SpaceEffect? = null
+    private var wide: WideEffect? = null
     private var plan: SoundPlan? = null
     private var closed = false
 
+    /** The 8D sweep moving [panLeft] and [panRight], while there is one. Started by [Sound]. */
+    internal var sweep: Job? = null
+
     /** The player's own volume under the current plan, 1 before there is one. */
     val level: Float get() = plan?.level ?: 1f
+
+    /** What the player's speed and pitch are both multiplied by: Nightcore's or Vaporwave's. */
+    val rate: Float get() = plan?.rate ?: 1f
+
+    /** How far 8D swings, 0 for not at all. */
+    internal val orbit: Float get() = plan?.orbit ?: 0f
+
+    /** What the player's left volume is multiplied by: 1, except under 8D. */
+    @Volatile var panLeft: Float = 1f
+        private set
+
+    /** What the player's right volume is multiplied by. */
+    @Volatile var panRight: Float = 1f
+        private set
 
     internal val isClosed: Boolean get() = closed
 
@@ -96,6 +143,7 @@ class SoundLink internal constructor(
     internal val equalising: Boolean get() = eq != null
     internal val boosting: Boolean get() = boost != null
     internal val spacing: Boolean get() = space != null
+    internal val widening: Boolean get() = wide != null
 
     @Synchronized
     fun apply(next: SoundPlan) {
@@ -103,7 +151,16 @@ class SoundLink internal constructor(
         val before = plan
         plan = next
         if (before?.level != next.level) onLevel(next.level)
+        if (before?.rate != next.rate) onRate(next.rate)
         bring(next)
+    }
+
+    /** Move the two sides to [left] and [right]. See [SoundMaths.orbitGains]. */
+    internal fun pan(left: Float, right: Float) {
+        if (closed || (left == panLeft && right == panRight)) return
+        panLeft = left
+        panRight = right
+        onPan()
     }
 
     /** Close and remake every effect. See the note on the class. */
@@ -118,6 +175,8 @@ class SoundLink internal constructor(
     override fun close() {
         if (closed) return
         closed = true
+        sweep?.cancel()
+        sweep = null
         drop()
     }
 
@@ -132,7 +191,12 @@ class SoundLink internal constructor(
         val gains = p.eqGains
         if (gains != null) {
             val e = eq ?: port.openEq(session).also { eq = it }
-            if (e == null) onRefused(SoundPart.EQUALISER) else runCatching { e.set(p.eqInputDb, gains) }
+            if (e == null) {
+                onRefused(SoundPart.EQUALISER)
+            } else {
+                runCatching { e.set(p.eqInputDb, gains) }
+                runCatching { e.compress(p.evenOut) }
+            }
         } else {
             eq?.let { runCatching { it.close() } }
             eq = null
@@ -144,15 +208,24 @@ class SoundLink internal constructor(
             space?.let { runCatching { it.close() } }
             space = null
         }
+        if (p.widens) {
+            val w = wide ?: port.openWide(session).also { wide = it }
+            if (w == null) onRefused(SoundPart.WIDE) else runCatching { w.set(p.wide) }
+        } else {
+            wide?.let { runCatching { it.close() } }
+            wide = null
+        }
     }
 
     private fun drop() {
         eq?.let { runCatching { it.close() } }
         boost?.let { runCatching { it.close() } }
         space?.let { runCatching { it.close() } }
+        wide?.let { runCatching { it.close() } }
         eq = null
         boost = null
         space = null
+        wide = null
     }
 }
 
@@ -171,7 +244,9 @@ class SoundLink internal constructor(
 class Sound internal constructor(
     private val settings: (SoundTarget) -> StateFlow<SoundSettings>,
     private val port: SoundPort,
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
+    /** Milliseconds on a clock that only goes forward, for the 8D sweep. */
+    private val clockMs: () -> Long = { System.nanoTime() / 1_000_000L },
 ) {
     private val links = ArrayList<SoundLink>()
 
@@ -183,12 +258,18 @@ class Sound internal constructor(
     /** The parts this phone has at all. Asked once: what is installed does not change while running. */
     val offers: Set<SoundPart> = SoundPart.entries.filter { runCatching { port.offers(it) }.getOrDefault(false) }.toSet()
 
+    /** Which reverb this phone's Reverb is, so a plan keeps that one's headroom. */
+    val reverb: SoundMaths.Reverb = runCatching { port.reverb }.getOrDefault(SoundMaths.Reverb.PRESET)
+
     init {
         for (target in SoundTarget.entries) {
             scope.launch {
                 settings(target).collect { s ->
-                    val plan = SoundMaths.plan(s)
-                    for (l in synchronized(links) { links.filter { it.target == target } }) l.apply(plan)
+                    val plan = SoundMaths.plan(s, reverb)
+                    for (l in synchronized(links) { links.filter { it.target == target } }) {
+                        l.apply(plan)
+                        sweep(l)
+                    }
                 }
             }
         }
@@ -199,18 +280,57 @@ class Sound internal constructor(
      *
      * Linking a session that is already linked returns that link, remade - which is what a new
      * player on the same session needs, and it means a caller cannot stack two sets of effects.
+     *
+     * @param onRate told when Nightcore's or Vaporwave's rate changes; the player reads
+     *   [SoundLink.rate] and sets its speed again.
+     * @param onPan told when 8D moves the sound; the player reads [SoundLink.panLeft] and
+     *   [SoundLink.panRight] and sets its volume again.
      */
-    fun link(session: Int, target: SoundTarget, onLevel: (Float) -> Unit): SoundLink {
+    fun link(
+        session: Int,
+        target: SoundTarget,
+        onRate: (Float) -> Unit = {},
+        onPan: () -> Unit = {},
+        onLevel: (Float) -> Unit,
+    ): SoundLink {
         synchronized(links) {
             links.removeAll { it.isClosed }
             links.firstOrNull { it.session == session }?.let { old ->
                 links.remove(old)
                 old.close()
             }
-            val l = SoundLink(session, target, port, onLevel) { part -> _refused.value = _refused.value + part }
+            val l = SoundLink(session, target, port, onLevel, { part -> _refused.value = _refused.value + part }, onRate, onPan)
             links += l
-            l.apply(SoundMaths.plan(settings(target).value))
+            l.apply(SoundMaths.plan(settings(target).value, reverb))
+            sweep(l)
             return l
+        }
+    }
+
+    /**
+     * Start or stop [l]'s 8D sweep to match its plan: a step every [SWEEP_STEP_MS] while it swings,
+     * and both sides back at 1 the moment it stops.
+     *
+     * One sweep per link, reading the link's swing at every step, so a change of strength is
+     * heard on the next step and not by starting again from the middle.
+     */
+    private fun sweep(l: SoundLink) {
+        if (l.orbit <= 0f || l.isClosed) {
+            l.sweep?.cancel()
+            l.sweep = null
+            l.pan(1f, 1f)
+            return
+        }
+        if (l.sweep?.isActive == true) return
+        l.sweep = scope.launch {
+            while (!l.isClosed) {
+                val swing = l.orbit
+                if (swing > 0f) {
+                    val (left, right) = SoundMaths.orbitGains(swing, clockMs())
+                    l.pan(left, right)
+                }
+                delay(SWEEP_STEP_MS)
+            }
         }
     }
 
@@ -220,6 +340,13 @@ class Sound internal constructor(
     }
 
     companion object {
+        /**
+         * How often 8D moves the sound. The mixer's own block is 10 to 20 ms and it glides each
+         * change across one, so a step twice that long is still a slope; any shorter is waking
+         * the phone for nothing.
+         */
+        const val SWEEP_STEP_MS = 30L
+
         @Volatile private var instance: Sound? = null
 
         /**
@@ -252,8 +379,11 @@ class Sound internal constructor(
 /**
  * The platform's effects. The equaliser is `DynamicsProcessing`'s first EQ and nothing else of
  * it; the boost is `LoudnessEnhancer`, whose make-up gain sits in front of its own peak limiter;
- * the space is `PresetReverb` as an INSERT effect on the session. See [SoundMaths] for why those
- * and not the others this phone has.
+ * the space is `EnvironmentalReverb` as an INSERT effect on the session, set to [SoundMaths.room],
+ * or `PresetReverb` where a phone has no insert environmental one. See [SoundMaths] for why
+ * those and not the others this phone has, and [SoundMaths.Space] for why the presets come last.
+ * Wide is `Virtualizer`, and Even out the multi-band stage of the equaliser's own
+ * `DynamicsProcessing` - never a second one, for the reason in [SoundMaths.compression].
  *
  * ## Why the reverb is an insert and not an auxiliary
  *
@@ -272,12 +402,25 @@ private class AndroidSoundPort : SoundPort {
                 AudioEffect.EFFECT_TYPE_DYNAMICS_PROCESSING
             }
             SoundPart.BOOST -> AudioEffect.EFFECT_TYPE_LOUDNESS_ENHANCER
-            SoundPart.SPACE -> AudioEffect.EFFECT_TYPE_PRESET_REVERB
+            SoundPart.SPACE -> return insertReverb != null
+            // An insert, like the reverb: a virtualizer on the output mix is everybody's.
+            SoundPart.WIDE -> return AudioEffect.queryEffects().orEmpty().any { d ->
+                d.type == AudioEffect.EFFECT_TYPE_VIRTUALIZER && d.connectMode == AudioEffect.EFFECT_INSERT
+            }
         }
-        return AudioEffect.queryEffects().orEmpty().any { d ->
-            d.type == type && (part != SoundPart.SPACE || d.connectMode == AudioEffect.EFFECT_INSERT)
-        }
+        return AudioEffect.queryEffects().orEmpty().any { d -> d.type == type }
     }
+
+    /** The reverb this phone gives as an insert, or null for none. The descriptors, asked once. */
+    private val insertReverb: SoundMaths.Reverb? by lazy {
+        val inserts = AudioEffect.queryEffects().orEmpty().filter { d -> d.connectMode == AudioEffect.EFFECT_INSERT }
+        SoundMaths.reverbFor(
+            environmental = inserts.any { it.type == AudioEffect.EFFECT_TYPE_ENV_REVERB },
+            preset = inserts.any { it.type == AudioEffect.EFFECT_TYPE_PRESET_REVERB },
+        )
+    }
+
+    override val reverb: SoundMaths.Reverb get() = insertReverb ?: SoundMaths.Reverb.PRESET
 
     override fun openEq(session: Int): EqEffect? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
@@ -290,14 +433,15 @@ private class AndroidSoundPort : SoundPort {
         val config = DynamicsProcessing.Config.Builder(
             DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION,
             CHANNELS,
-            true, bands, // the first EQ, which is all of it this uses
-            false, 0,
+            true, bands, // the first EQ, the equaliser
+            true, 1, // one band of the multi-band compressor, Even out: off until it is on
             false, 0,
             false,
         ).build()
         val eq = DynamicsProcessing.Eq(true, true, bands)
         for (i in 0 until bands) eq.setBand(i, DynamicsProcessing.EqBand(true, SoundMaths.EQ_EDGES_HZ[i], 0f))
         config.setPreEqAllChannelsTo(eq)
+        config.setMbcAllChannelsTo(mbcOf(null))
         val dp = DynamicsProcessing(PRIORITY, session, config)
         dp.enabled = true
         object : EqEffect {
@@ -308,9 +452,38 @@ private class AndroidSoundPort : SoundPort {
                 }
             }
 
+            override fun compress(c: SoundMaths.Compression?) = dp.setMbcAllChannelsTo(mbcOf(c))
+
             override fun close() = dp.release()
         }
     }.getOrNull()
+
+    /**
+     * The compressor stage for [c]: one band to the top of the equaliser's range, and switched
+     * off, at a ratio of one, for none. No gain before or after it and no gate or expander, so
+     * all it can ever do is bring a loud part down. See [SoundMaths.compression].
+     */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.P)
+    private fun mbcOf(c: SoundMaths.Compression?): DynamicsProcessing.Mbc {
+        val mbc = DynamicsProcessing.Mbc(true, c != null, 1)
+        mbc.setBand(
+            0,
+            DynamicsProcessing.MbcBand(
+                c != null,
+                SoundMaths.EQ_EDGES_HZ.last(),
+                c?.attackMs ?: 10f,
+                c?.releaseMs ?: 300f,
+                c?.ratio ?: 1f,
+                c?.thresholdDb ?: 0f,
+                c?.kneeDb ?: 0f,
+                GATE_OFF_DB,
+                1f, // no expander
+                0f, // no gain in front
+                0f, // and none after
+            ),
+        )
+        return mbc
+    }
 
     override fun openBoost(session: Int): BoostEffect? = runCatching {
         val le = LoudnessEnhancer(session)
@@ -321,7 +494,54 @@ private class AndroidSoundPort : SoundPort {
         }
     }.getOrNull()
 
-    override fun openSpace(session: Int): SpaceEffect? = runCatching {
+    override fun openSpace(session: Int): SpaceEffect? = when (insertReverb) {
+        SoundMaths.Reverb.ENVIRONMENTAL -> openRoom(session)
+        SoundMaths.Reverb.PRESET -> openPreset(session)
+        null -> null
+    }
+
+    /**
+     * The environmental reverb at [SoundMaths.room]'s numbers, every one of them set, so nothing
+     * is left at whatever the wrapper starts it at.
+     */
+    private fun openRoom(session: Int): SpaceEffect? = runCatching {
+        val reverb = EnvironmentalReverb(PRIORITY, session)
+        // Refused rather than kept: an effect that will not switch on is a room nobody hears.
+        if (reverb.setEnabled(true) != AudioEffect.SUCCESS) {
+            reverb.release()
+            return@runCatching null
+        }
+        object : SpaceEffect {
+            override fun set(space: SoundMaths.Space) {
+                val room = SoundMaths.room(space) ?: return
+                reverb.roomLevel = room.roomLevelMb.toShort()
+                reverb.reverbLevel = room.reverbLevelMb.toShort()
+                reverb.roomHFLevel = room.roomHfLevelMb.toShort()
+                reverb.decayTime = room.decayMs
+                reverb.decayHFRatio = room.decayHfRatio.toShort()
+                reverb.diffusion = room.diffusion.toShort()
+                reverb.density = room.density.toShort()
+            }
+
+            override fun close() = reverb.release()
+        }
+    }.getOrNull()
+
+    /** The virtualizer, refused where it has no strength to set: a Wide that cannot widen. */
+    override fun openWide(session: Int): WideEffect? = runCatching {
+        val v = Virtualizer(PRIORITY, session)
+        if (!v.strengthSupported || v.setEnabled(true) != AudioEffect.SUCCESS) {
+            v.release()
+            return@runCatching null
+        }
+        object : WideEffect {
+            override fun set(strength: Int) = v.setStrength(strength.coerceIn(0, 1000).toShort())
+            override fun close() = v.release()
+        }
+    }.getOrNull()
+
+    /** The fallback: the preset reverb, at the preset nearest each size. See [SoundMaths.Space]. */
+    private fun openPreset(session: Int): SpaceEffect? = runCatching {
         val reverb = PresetReverb(PRIORITY, session)
         reverb.preset = PresetReverb.PRESET_NONE
         // Refused rather than kept: an effect that will not switch on is a room nobody hears.
@@ -333,7 +553,10 @@ private class AndroidSoundPort : SoundPort {
             override fun set(space: SoundMaths.Space) {
                 reverb.preset = when (space) {
                     SoundMaths.Space.NONE -> PresetReverb.PRESET_NONE
+                    SoundMaths.Space.SMALL_ROOM -> PresetReverb.PRESET_SMALLROOM
                     SoundMaths.Space.ROOM -> PresetReverb.PRESET_MEDIUMROOM
+                    SoundMaths.Space.LARGE_ROOM -> PresetReverb.PRESET_LARGEROOM
+                    SoundMaths.Space.MEDIUM_HALL -> PresetReverb.PRESET_MEDIUMHALL
                     SoundMaths.Space.HALL -> PresetReverb.PRESET_LARGEHALL
                 }
             }
@@ -344,6 +567,9 @@ private class AndroidSoundPort : SoundPort {
 
     companion object {
         private const val CHANNELS = 2
+
+        /** A gate threshold no sound is under, which is no gate. */
+        private const val GATE_OFF_DB = -90f
 
         /** Above the default, so an equaliser another app put on the same session does not take ours over. */
         private const val PRIORITY = 1

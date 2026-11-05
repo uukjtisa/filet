@@ -116,10 +116,10 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
     ),
     SettingsEntry(
         key = Prefs.K_STOP_CONFIRM,
-        title = "Confirm Stop Filet",
+        title = "Confirm Shutdown Filet",
         tab = SettingsGroup.CONTROLS,
         section = "Gestures",
-        text = "Confirm Stop Filet Shows running work before Filet stops. Stops at once " +
+        text = "Confirm Shutdown Filet Shows running work before Filet stops. Stops at once " +
             "unless work would be cut short.",
     ),
     SettingsEntry(
@@ -266,28 +266,29 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
         text = "Pitch when slowed",
     ),
     SettingsEntry(
-        key = Prefs.K_SOUND_MUSIC_EQ_ON,
-        title = "Sound effects",
+        key = Prefs.K_VIDEO_NEXT_PLAYS,
+        title = "Next video",
         tab = SettingsGroup.PLAYBACK,
-        section = "Sound · Music",
-        text = "Sound effects One switch for every track: the equalizer, the bass boost, the " +
-            "reverb and the filter. It never raises the level.",
+        section = "Video",
+        text = "Next video Tap to play Start playing A video you swipe or step to in a " +
+            "gallery starts playing. A video you swipe or step to in a gallery waits for " +
+            "a tap, like one you open.",
     ),
     SettingsEntry(
-        key = Prefs.K_SOUND_MUSIC_BANDS,
-        title = "Sound preset",
+        key = Prefs.K_VIDEO_SKIP,
+        title = "Double-tap skip",
         tab = SettingsGroup.PLAYBACK,
-        section = "Sound · Music",
-        text = "Sound preset Equalizer curves, a room or a hall, muffled or radio. Picking " +
-            "one turns the effects on. Custom, from the music player's sheet",
+        section = "Video",
+        text = "Double-tap skip How far a double tap on either side of a video moves it, and " +
+            "the buttons beside Play.",
     ),
     SettingsEntry(
-        key = Prefs.K_SOUND_MUSIC_BASS,
-        title = "Bass boost",
+        key = Prefs.K_VIDEO_PIP_HOME,
+        title = "Picture-in-picture on leaving",
         tab = SettingsGroup.PLAYBACK,
-        section = "Sound · Music",
-        text = "Bass boost Lifts what is under 250 Hz, by up to 9 dB. Part of the equalizer, " +
-            "so it is off when that is.",
+        section = "Video",
+        text = "Picture-in-picture on leaving A playing video goes on in a small window when " +
+            "you leave Filet, instead of stopping.",
     ),
     SettingsEntry(
         key = Prefs.K_SOUND_MUSIC_VOLUME,
@@ -298,26 +299,53 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
             "keeps the loud parts under full scale.",
     ),
     SettingsEntry(
-        key = Prefs.K_SOUND_VIDEO_EQ_ON,
-        title = "Sound effects",
+        key = Prefs.K_SOUND_MUSIC_SPACE,
+        title = "Reverb",
         tab = SettingsGroup.PLAYBACK,
-        section = "Sound · Video",
-        text = "Sound effects One switch for every video: the equalizer, the bass boost, the " +
-            "reverb and the filter. It never raises the level.",
+        section = "Sound · Music",
+        text = "Reverb A room around the sound, for every track: from a small room to a " +
+            "large hall. Size Set while the reverb is off, it is the size heard when it " +
+            "is switched on.",
     ),
     SettingsEntry(
-        key = Prefs.K_SOUND_VIDEO_BANDS,
-        title = "Sound preset",
+        key = Prefs.K_SOUND_MUSIC_FILTER,
+        title = "Muffled",
         tab = SettingsGroup.PLAYBACK,
-        section = "Sound · Video",
-        text = "Sound preset Equalizer curves, a room or a hall, muffled or radio. Picking " +
-            "one turns the effects on. Custom, from the video player's sheet",
+        section = "Sound · Music",
+        text = "Muffled Through a wall: the top goes and the bass stays. Muffled strength " +
+            "How thick the wall is. Set while off, it is heard when Muffled is on. Radio " +
+            "A small speaker or a phone line: the middle, with both ends cut. Radio " +
+            "strength How small the speaker is. Set while off, it is heard when Radio is " +
+            "on. Underwater Under the surface: the low end swells and the rest goes dull. " +
+            "Its strength is on the sheet. Wide Spreads the sound past your ears, on " +
+            "headphones. Its strength is on the sheet. Even out Brings the loud parts " +
+            "down toward the quiet ones. Its strength is on the sheet. Nightcore Faster " +
+            "and higher together, on top of the speed. Switches Vaporwave off. Vaporwave " +
+            "Slower and lower together, on top of the speed. Switches Nightcore off. The " +
+            "sound sweeps from ear to ear every 8 seconds, on headphones. Its swing is on " +
+            "the sheet.",
     ),
     SettingsEntry(
-        key = Prefs.K_SOUND_VIDEO_BASS,
+        key = Prefs.K_SOUND_MUSIC_EQ_ON,
+        title = "Equalizer",
+        tab = SettingsGroup.PLAYBACK,
+        section = "Sound · Music",
+        text = "Equalizer The five bands and the bass boost, for every track. It never " +
+            "raises the level.",
+    ),
+    SettingsEntry(
+        key = Prefs.K_SOUND_MUSIC_BANDS,
+        title = "EQ preset",
+        tab = SettingsGroup.PLAYBACK,
+        section = "Sound · Music",
+        text = "EQ preset The equalizer's curves, the same seventeen as the sheet. Picking " +
+            "one turns it on. Custom, from the music player's sheet",
+    ),
+    SettingsEntry(
+        key = Prefs.K_SOUND_MUSIC_BASS,
         title = "Bass boost",
         tab = SettingsGroup.PLAYBACK,
-        section = "Sound · Video",
+        section = "Sound · Music",
         text = "Bass boost Lifts what is under 250 Hz, by up to 9 dB. Part of the equalizer, " +
             "so it is off when that is.",
     ),
@@ -328,6 +356,57 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
         section = "Sound · Video",
         text = "App volume Of the phone's own volume, for every video. Above 100% a limiter " +
             "keeps the loud parts under full scale.",
+    ),
+    SettingsEntry(
+        key = Prefs.K_SOUND_VIDEO_SPACE,
+        title = "Reverb",
+        tab = SettingsGroup.PLAYBACK,
+        section = "Sound · Video",
+        text = "Reverb A room around the sound, for every video: from a small room to a " +
+            "large hall. Size Set while the reverb is off, it is the size heard when it " +
+            "is switched on.",
+    ),
+    SettingsEntry(
+        key = Prefs.K_SOUND_VIDEO_FILTER,
+        title = "Muffled",
+        tab = SettingsGroup.PLAYBACK,
+        section = "Sound · Video",
+        text = "Muffled Through a wall: the top goes and the bass stays. Muffled strength " +
+            "How thick the wall is. Set while off, it is heard when Muffled is on. Radio " +
+            "A small speaker or a phone line: the middle, with both ends cut. Radio " +
+            "strength How small the speaker is. Set while off, it is heard when Radio is " +
+            "on. Underwater Under the surface: the low end swells and the rest goes dull. " +
+            "Its strength is on the sheet. Wide Spreads the sound past your ears, on " +
+            "headphones. Its strength is on the sheet. Even out Brings the loud parts " +
+            "down toward the quiet ones. Its strength is on the sheet. Nightcore Faster " +
+            "and higher together, on top of the speed. Switches Vaporwave off. Vaporwave " +
+            "Slower and lower together, on top of the speed. Switches Nightcore off. The " +
+            "sound sweeps from ear to ear every 8 seconds, on headphones. Its swing is on " +
+            "the sheet.",
+    ),
+    SettingsEntry(
+        key = Prefs.K_SOUND_VIDEO_EQ_ON,
+        title = "Equalizer",
+        tab = SettingsGroup.PLAYBACK,
+        section = "Sound · Video",
+        text = "Equalizer The five bands and the bass boost, for every video. It never " +
+            "raises the level.",
+    ),
+    SettingsEntry(
+        key = Prefs.K_SOUND_VIDEO_BANDS,
+        title = "EQ preset",
+        tab = SettingsGroup.PLAYBACK,
+        section = "Sound · Video",
+        text = "EQ preset The equalizer's curves, the same seventeen as the sheet. Picking " +
+            "one turns it on. Custom, from the video player's sheet",
+    ),
+    SettingsEntry(
+        key = Prefs.K_SOUND_VIDEO_BASS,
+        title = "Bass boost",
+        tab = SettingsGroup.PLAYBACK,
+        section = "Sound · Video",
+        text = "Bass boost Lifts what is under 250 Hz, by up to 9 dB. Part of the equalizer, " +
+            "so it is off when that is.",
     ),
     SettingsEntry(
         key = Prefs.K_READ_SIZE,

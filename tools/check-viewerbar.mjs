@@ -35,7 +35,7 @@ const HOST = join(SRC, "dev/niccc2007/filet/handlers/HandlerHost.kt");
 /** Screens reached from a route that draw no bar, and why that is right. */
 export const EXEMPT = {
   MediaScreen: "chooses the audio or the video screen and draws nothing of its own",
-  VideoScreen: "the picture is the whole screen; its close is an overlay on the video, and a bar would take the top of every frame",
+  ViewerRunHost: "hosts the run's pages, and each page draws its own bar; a page passing under a swipe is its poster for that moment",
 };
 
 function walk(dir, out = []) {

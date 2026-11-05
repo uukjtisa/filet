@@ -1405,11 +1405,15 @@ fun PlayerChips(
             Arrangement.spacedBy(7.dp)
         },
     ) {
+        // Weighted without filling, so it is measured after the Sleep chip and gets only the
+        // width that chip leaves; the label then says as much as fits. See soundChipLadder.
         PlayerChip(
             SoundSheetGlyph,
             soundChipLabel(speed, sound),
             lit = soundChipLit(speed, sound),
             tint = tint,
+            modifier = Modifier.weight(1f, fill = false),
+            ladder = soundChipLadder(speed, sound),
         ) {
             // A sheet with sliders, not a cycle.
             //
@@ -1451,27 +1455,36 @@ fun PlayerChips(
             onPitch = onPitch,
             onDismiss = { speedOpen = false },
             target = dev.niccc2007.filet.playback.SoundTarget.MUSIC,
-            equaliser = true,
         )
     }
 }
 
 
 
+/**
+ * One chip of the row: a glyph and a word, on one line.
+ *
+ * @param ladder the label's shorter spellings, longest first, for a chip that has to fit the
+ *   width it is given rather than take the width it wants. Null for a chip whose [label] is
+ *   always short.
+ */
 @Composable
 private fun PlayerChip(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     lit: Boolean,
     tint: Color,
+    modifier: Modifier = Modifier,
+    ladder: List<String>? = null,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
+    val color = if (lit) tint else colors.fg2
     Row(
-        Modifier
+        modifier
             .clip(RoundedCornerShape(50))
             .background(if (lit) tint.copy(alpha = 0.16f) else Color.Transparent)
-            .clickable(onClick = onClick)
+            .clickable(onClickLabel = label, onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1480,8 +1493,56 @@ private fun PlayerChip(
             tint = if (lit) tint else colors.fg3,
             modifier = Modifier.size(13.dp),
         )
-        Spacer(Modifier.width(6.dp))
-        Text(label, fontSize = 10.5.sp, color = if (lit) tint else colors.fg2)
+        if (ladder == null) {
+            Spacer(Modifier.width(6.dp))
+            // Never wrapped. Bug identified here: squeezed by the chip beside it, "Sleep" broke
+            // into "Sl / ee / p", a column of letter pairs.
+            Text(label, fontSize = 10.5.sp, color = color, maxLines = 1, softWrap = false)
+        } else {
+            FittedText(
+                ladder,
+                androidx.compose.material3.LocalTextStyle.current.merge(
+                    androidx.compose.ui.text.TextStyle(fontSize = 10.5.sp),
+                ),
+                color,
+                gap = 6.dp,
+            )
+        }
+    }
+}
+
+/**
+ * The longest of [ladder] that fits the width this is given, measured in the [style] it is
+ * drawn in, on one line. Nothing at all when even the shortest does not fit: a word cut in half
+ * says less than no word.
+ *
+ * @param gap room before the text, drawn only when there is text.
+ */
+@Composable
+internal fun FittedText(
+    ladder: List<String>,
+    style: androidx.compose.ui.text.TextStyle,
+    color: Color,
+    modifier: Modifier = Modifier,
+    gap: androidx.compose.ui.unit.Dp = 0.dp,
+) {
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val gapPx = with(androidx.compose.ui.platform.LocalDensity.current) { gap.roundToPx() }
+    BoxWithConstraints(modifier) {
+        val room = constraints.maxWidth - gapPx
+        val text = fitLadder(ladder) { s ->
+            measurer.measure(s, style, maxLines = 1, softWrap = false).size.width <= room
+        }
+        if (text.isNotEmpty()) {
+            Text(
+                text,
+                style = style,
+                color = color,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.padding(start = gap),
+            )
+        }
     }
 }
 

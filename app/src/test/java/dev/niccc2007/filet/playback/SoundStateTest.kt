@@ -66,11 +66,11 @@ class SoundStateTest {
         val s = state(general)
         s.playing(SoundTarget.MUSIC, "/Music/a.mp3")
         s.remember(SoundTarget.MUSIC, on = true, speed = 1f, pitch = PitchMode.FOLLOW)
-        s.editSound(SoundTarget.MUSIC) { SoundMaths.Look.HALL.on(it) }
+        s.editSound(SoundTarget.MUSIC) { it.copy(reverb = EffectLevel(true, 100)) }
         assertTrue(s.editPlayback(SoundTarget.MUSIC) { it.copy(speed = 0.7f) })
         // The player's own settings did not move.
         assertEquals(SoundSettings(), general.flows.getValue(SoundTarget.MUSIC).value)
-        assertEquals(SoundMaths.Space.HALL, s.sound(SoundTarget.MUSIC).value.space)
+        assertEquals(EffectLevel(true, 100), s.sound(SoundTarget.MUSIC).value.reverb)
         // The album's next track is not this one.
         s.playing(SoundTarget.MUSIC, "/Music/b.mp3")
         assertNull(s.rememberedNow(SoundTarget.MUSIC).value)
@@ -78,7 +78,7 @@ class SoundStateTest {
         // And this one comes back with all of it.
         s.playing(SoundTarget.MUSIC, "/Music/a.mp3")
         assertEquals(0.7f, s.rememberedNow(SoundTarget.MUSIC).value!!.speed, 0f)
-        assertEquals(SoundMaths.Space.HALL, s.sound(SoundTarget.MUSIC).value.space)
+        assertEquals(EffectLevel(true, 100), s.sound(SoundTarget.MUSIC).value.reverb)
     }
 
     @Test
@@ -149,11 +149,15 @@ class SoundStateTest {
 
     @Test
     fun `a file's sheet reads back as written, and anything else reads as not remembered`() {
-        val r = Remembered(0.75f, PitchMode.HOLD, loud.copy(space = SoundMaths.Space.ROOM, filter = SoundMaths.Filter.RADIO))
+        val r = Remembered(
+            0.75f,
+            PitchMode.HOLD,
+            loud.copy(reverb = EffectLevel(true, 25), muffled = EffectLevel(false, 40), radio = EffectLevel(true, 60)),
+        )
         assertEquals(r, Remembered.decode(r.encode()))
         assertNull(Remembered.decode(null))
         assertNull(Remembered.decode(""))
-        assertNull(Remembered.decode(r.encode().replaceFirst("v1", "v2")))
+        assertNull(Remembered.decode(r.encode().replaceFirst("v2", "v3")))
         assertNull(Remembered.decode(r.encode().replaceFirst("0.75", "NaN")))
         assertNull(Remembered.decode(r.encode() + ";extra"))
         // Out of range is held in range, not refused: the file is still that file.
@@ -161,5 +165,44 @@ class SoundStateTest {
         assertEquals(MAX_SPEED, wild.speed, 0f)
         assertEquals(100, wild.sound.bass)
         assertEquals(SoundMaths.MAX_VOLUME, wild.sound.volume)
+    }
+
+    @Test
+    fun `a file remembered before the effects had a switch each sounds the same as it did`() {
+        // Its one switch on: the hall and the muffling it named were heard, and still are.
+        val on = Remembered.decode("v1;1;follow;1;0,0,0,0,0;0;100;hall;muffled")!!
+        assertEquals(EffectLevel(true, 100), on.sound.reverb)
+        assertEquals(EffectLevel(true, 100), on.sound.muffled)
+        assertEquals(EffectLevel(false, 100), on.sound.radio)
+        // Off: nothing was heard, so nothing starts playing, and the size is kept for later.
+        val off = Remembered.decode("v1;1;follow;0;0,0,0,0,0;0;100;room;radio")!!
+        assertEquals(EffectLevel(false, 25), off.sound.reverb)
+        assertEquals(EffectLevel(false, 100), off.sound.radio)
+        assertFalse(SoundMaths.plan(off.sound).spaces)
+        // Written again it is this version's, and reads back the same.
+        assertEquals(off, Remembered.decode(off.encode()))
+        assertTrue(off.encode().startsWith(Remembered.VERSION + ";"))
+    }
+
+    @Test
+    fun `a file remembered before the newer effects has them off, and one after keeps every one`() {
+        val before = Remembered.decode("v2;1.0;follow;0;0,0,0,0,0;0;100;0:25;muffled=1:60,radio=0:100")!!
+        assertEquals(EffectLevel(true, 60), before.sound.muffled)
+        val fresh = SoundSettings()
+        for (fx in SoundMaths.Overlay.entries) {
+            if (fx == SoundMaths.Overlay.MUFFLED) continue
+            assertEquals(fx.name, fx.of(fresh), fx.of(before.sound))
+        }
+        val all = before.copy(
+            sound = before.sound.copy(
+                underwater = EffectLevel(true, 30),
+                wide = EffectLevel(true, 100),
+                evenOut = EffectLevel(true, 75),
+                vaporwave = EffectLevel(true, 40),
+                orbit = EffectLevel(false, 65),
+            ),
+        )
+        assertEquals(all, Remembered.decode(all.encode()))
+        assertTrue(all.encode().startsWith(Remembered.VERSION + ";"))
     }
 }

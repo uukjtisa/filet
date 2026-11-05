@@ -7,6 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.log10
 import kotlin.math.sin
 
 /**
@@ -133,33 +134,16 @@ class SoundMathsTest {
     }
 
     @Test
-    fun `every look is found again from what it sets, and moving anything after it is custom`() {
-        for (look in SoundMaths.Look.entries) {
-            val s = look.on(SoundSettings(volume = 150))
-            assertTrue(s.eqOn)
-            assertEquals(150, s.volume)
-            assertEquals(look, SoundMaths.Look.of(s))
-        }
-        val hall = SoundMaths.Look.HALL.on(SoundSettings())
-        assertNull(SoundMaths.Look.of(hall.copy(bands = listOf(0, 0, 1, 0, 0))))
-        assertNull(SoundMaths.Look.of(hall.copy(bass = 5)))
-        assertNull(SoundMaths.Look.of(hall.copy(filter = SoundMaths.Filter.RADIO)))
-        // Two looks never set the same four things, or one of them could never be shown as picked.
-        val sets = SoundMaths.Look.entries.map { listOf(it.bands, it.bass, it.space, it.filter) }
-        assertEquals(sets.size, sets.toSet().size)
-    }
-
-    @Test
     fun `muffled takes the top away and leaves the bass, radio keeps only the telephone band`() {
         val edges = SoundMaths.EQ_EDGES_HZ
-        val muffled = SoundMaths.plan(SoundMaths.Look.MUFFLED.on(SoundSettings())).eqGains!!
+        val muffled = SoundMaths.plan(SoundSettings(muffled = EffectLevel(true, 100))).eqGains!!
         for (i in edges.indices) {
             if (edges[i] <= 355f) assertEquals("at ${edges[i]} Hz", 0f, muffled[i], 0.001f)
             if (edges[i] >= 5600f) assertTrue("at ${edges[i]} Hz", muffled[i] <= -24f)
         }
         // Falling all the way up: a wall does not let a band through again higher up.
         for (i in 1 until muffled.size) assertTrue(muffled[i] <= muffled[i - 1])
-        val radio = SoundMaths.plan(SoundMaths.Look.RADIO.on(SoundSettings())).eqGains!!
+        val radio = SoundMaths.plan(SoundSettings(radio = EffectLevel(true, 100))).eqGains!!
         for (i in edges.indices) {
             if (edges[i] <= 90f || edges[i] >= 11200f) assertTrue("at ${edges[i]} Hz", radio[i] <= -30f)
             if (edges[i] in 710f..2800f) assertTrue("at ${edges[i]} Hz", radio[i] >= 0f)
@@ -167,26 +151,111 @@ class SoundMathsTest {
     }
 
     @Test
-    fun `a room or a hall puts the reverb on and keeps its headroom, and the switch takes it off`() {
-        val hall = SoundMaths.plan(SoundMaths.Look.HALL.on(SoundSettings()))
+    fun `a room or a hall puts the reverb on and keeps its headroom, and its switch takes it off`() {
+        val hall = SoundMaths.plan(SoundSettings(reverb = EffectLevel(true, 100)))
         assertEquals(SoundMaths.Space.HALL, hall.space)
         // A flat curve still gets the equaliser, for the headroom in front of the reverb.
         assertTrue(hall.equalises)
-        assertEquals(-SoundMaths.SPACE_HEADROOM_DB, hall.eqInputDb, 0.001f)
+        assertEquals(-SoundMaths.room(SoundMaths.Space.HALL)!!.headroomDb, hall.eqInputDb, 0.001f)
+        assertEquals(hall.spaceHeadroomDb, -hall.eqInputDb, 0.001f)
         assertTrue(SoundMaths.netPeakDb(hall) <= 0.0001f)
         // With a boosted curve on top, both headrooms add and the net still cannot clip.
         val loud = SoundMaths.plan(
-            SoundSettings(eqOn = true, bands = listOf(12, 12, 12, 12, 12), bass = 100, space = SoundMaths.Space.ROOM),
+            SoundSettings(eqOn = true, bands = listOf(12, 12, 12, 12, 12), bass = 100, reverb = EffectLevel(true, 25)),
         )
         assertTrue(SoundMaths.netPeakDb(loud) <= 0.0001f)
-        // Off is off: no reverb, no equaliser, whatever is stored.
-        val off = SoundMaths.plan(SoundMaths.Look.HALL.on(SoundSettings()).copy(eqOn = false))
+        // Off is off: no reverb, and no equaliser kept in for it, whatever size is stored.
+        val off = SoundMaths.plan(SoundSettings(reverb = EffectLevel(false, 100)))
         assertEquals(SoundMaths.Space.NONE, off.space)
         assertNull(off.eqGains)
-        // And no look but Room and Hall brings a reverb in.
-        for (look in SoundMaths.Look.entries) {
-            val spaced = SoundMaths.plan(look.on(SoundSettings())).spaces
-            assertEquals(look.name, look == SoundMaths.Look.ROOM || look == SoundMaths.Look.HALL, spaced)
+    }
+
+    @Test
+    fun `each size is its own room, longer and louder than the one under it`() {
+        // Size, decay ms, HF ratio, reverb mB, wet %, headroom dB to one place.
+        val table = listOf(
+            listOf(SoundMaths.Space.SMALL_ROOM, 600, 800, 800, 25, "1.9"),
+            listOf(SoundMaths.Space.ROOM, 1000, 800, 1100, 35, "2.6"),
+            listOf(SoundMaths.Space.LARGE_ROOM, 1600, 750, 1400, 50, "3.5"),
+            listOf(SoundMaths.Space.MEDIUM_HALL, 2600, 700, 1700, 71, "4.6"),
+            listOf(SoundMaths.Space.HALL, 4000, 650, 2000, 100, "6.0"),
+        )
+        assertEquals(SoundMaths.Space.SIZES, table.map { it[0] })
+        for (row in table) {
+            val name = (row[0] as SoundMaths.Space).label
+            val r = SoundMaths.room(row[0] as SoundMaths.Space)!!
+            assertEquals(name, row[1], r.decayMs)
+            assertEquals(name, row[2], r.decayHfRatio)
+            assertEquals(name, row[3], r.reverbLevelMb)
+            assertEquals(name, 0, r.roomLevelMb)
+            assertEquals(name, -300, r.roomHfLevelMb)
+            assertEquals(name, 1000, r.diffusion)
+            assertEquals(name, 1000, r.density)
+            assertEquals(name, row[4], kotlin.math.round(r.wet * 100).toInt())
+            assertEquals(name, row[5], String.format(java.util.Locale.US, "%.1f", r.headroomDb))
         }
+        val rooms = SoundMaths.Space.SIZES.map { SoundMaths.room(it)!! }
+        for (i in 1 until rooms.size) {
+            assertTrue(rooms[i].decayMs > rooms[i - 1].decayMs)
+            assertTrue(rooms[i].wet > rooms[i - 1].wet)
+            assertTrue(rooms[i].decayHfRatio <= rooms[i - 1].decayHfRatio)
+        }
+        assertNull(SoundMaths.room(SoundMaths.Space.NONE))
+        // Inside the platform's own range for each parameter.
+        for (r in rooms) {
+            assertTrue(r.decayMs in 100..7000)
+            assertTrue(r.decayHfRatio in 100..2000)
+            assertTrue(r.reverbLevelMb in -9000..SoundMaths.REVERB_MAX_MB)
+            assertTrue(r.roomLevelMb in -9000..0 && r.roomHfLevelMb in -9000..0)
+        }
+    }
+
+    @Test
+    fun `a room's headroom is what its wet level adds at the worst, and never below nothing`() {
+        for (space in SoundMaths.Space.SIZES) {
+            val r = SoundMaths.room(space)!!
+            // The wrapper's level: 2000 * log10(level) millibels is room + reverb - 2000.
+            assertEquals(space.label, (r.roomLevelMb + r.reverbLevelMb - 2000).toDouble(), 2000 * log10(r.wet.toDouble()), 0.5)
+            assertEquals(space.label, 20 * log10(1.0 + r.wet), r.headroomDb.toDouble(), 0.0001)
+            assertEquals(r.headroomDb, SoundMaths.spaceHeadroomDb(space, SoundMaths.Reverb.ENVIRONMENTAL), 0f)
+        }
+        // A room turned all the way down adds nothing, and nothing is not a negative headroom.
+        val silent = SoundMaths.Room(decayMs = 1000, decayHfRatio = 1000, reverbLevelMb = -9000, roomLevelMb = -9000)
+        assertTrue(silent.headroomDb >= 0f)
+        assertEquals(0f, silent.headroomDb, 0.001f)
+        assertEquals(0f, SoundMaths.spaceHeadroomDb(SoundMaths.Space.NONE, SoundMaths.Reverb.ENVIRONMENTAL), 0f)
+        // Every size, on top of the loudest curve there is, still nets at or under zero.
+        for (amount in listOf(0, 25, 50, 75, 100)) {
+            val p = SoundMaths.plan(
+                SoundSettings(eqOn = true, bands = listOf(12, 12, 12, 12, 12), bass = 100, reverb = EffectLevel(true, amount)),
+            )
+            assertEquals(SoundMaths.Space.sized(amount), p.space)
+            assertTrue("at $amount", SoundMaths.netPeakDb(p) <= 0.0001f)
+        }
+    }
+
+    @Test
+    fun `without an insert environmental reverb the presets are used, at the headroom they always had`() {
+        assertEquals(SoundMaths.Reverb.ENVIRONMENTAL, SoundMaths.reverbFor(environmental = true, preset = true))
+        assertEquals(SoundMaths.Reverb.ENVIRONMENTAL, SoundMaths.reverbFor(environmental = true, preset = false))
+        assertEquals(SoundMaths.Reverb.PRESET, SoundMaths.reverbFor(environmental = false, preset = true))
+        assertNull(SoundMaths.reverbFor(environmental = false, preset = false))
+        assertEquals(3f, SoundMaths.SPACE_HEADROOM_DB, 0f)
+        for (space in SoundMaths.Space.SIZES) {
+            assertEquals(space.label, 3f, SoundMaths.spaceHeadroomDb(space, SoundMaths.Reverb.PRESET), 0f)
+            val p = SoundMaths.plan(SoundSettings(reverb = EffectLevel(true, space.amount)), SoundMaths.Reverb.PRESET)
+            assertEquals(space, p.space)
+            assertEquals(space.label, -3f, p.eqInputDb, 0.001f)
+            assertEquals(3f, p.spaceHeadroomDb, 0f)
+            assertTrue(SoundMaths.netPeakDb(p) <= 0.0001f)
+        }
+        assertEquals(0f, SoundMaths.spaceHeadroomDb(SoundMaths.Space.NONE, SoundMaths.Reverb.PRESET), 0f)
+        // The same settings keep each reverb's own headroom and nothing else changes between them.
+        val s = SoundSettings(eqOn = true, bass = 40, reverb = EffectLevel(true, 100))
+        val env = SoundMaths.plan(s, SoundMaths.Reverb.ENVIRONMENTAL)
+        val preset = SoundMaths.plan(s, SoundMaths.Reverb.PRESET)
+        assertTrue(env.eqGains!!.contentEquals(preset.eqGains))
+        assertEquals(env.space, preset.space)
+        assertEquals(env.eqInputDb + env.spaceHeadroomDb, preset.eqInputDb + preset.spaceHeadroomDb, 0.001f)
     }
 }

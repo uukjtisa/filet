@@ -144,6 +144,10 @@ object ConfigKeys {
         act("update.notificationsOff", ConfigType.BOOL),
         act("update.notesFraction", ConfigType.FLOAT),
         act("play.uninterrupted", ConfigType.BOOL),
+        act("play.videoNext", ConfigType.BOOL),
+        act("play.videoSkip", ConfigType.INT),
+        act("viewer.onlyKind", ConfigType.BOOL),
+        act("play.videoPip", ConfigType.BOOL),
         // Each player's own sound, music and video apart. The volume travels as set; reading it
         // back holds it at 100% or under, so an imported boost does not arrive at full blast.
         act("sound.music.eqOn", ConfigType.BOOL),

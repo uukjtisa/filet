@@ -229,14 +229,15 @@ class Playback(
     private var ducked = false
 
     /**
-     * The player's volume: the sound's level, times the duck.
+     * The player's volume: the sound's level, times the duck, times 8D's side on each side.
      *
      * Every volume change goes through here, so the app volume and the duck multiply instead of
      * the last one to call `setVolume` winning.
      */
     private fun applyVolume() {
         val v = (sound?.level ?: 1f) * (if (ducked) DUCKED else 1f)
-        runCatching { player?.setVolume(v, v) }
+        val link = sound
+        runCatching { player?.setVolume(v * (link?.panLeft ?: 1f), v * (link?.panRight ?: 1f)) }
     }
 
     /** Put a new player's session under the sound, which remakes its effects for it. */
@@ -245,7 +246,12 @@ class Playback(
         sound = null
         val id = runCatching { p.audioSessionId }.getOrDefault(0)
         if (id <= 0) return
-        sound = Sound.of(app).link(id, SoundTarget.MUSIC) { applyVolume() }
+        sound = Sound.of(app).link(
+            id,
+            SoundTarget.MUSIC,
+            onRate = { player?.let { applySpeed(it) } },
+            onPan = { applyVolume() },
+        ) { applyVolume() }
         soundStarted = false
         applyVolume()
     }
@@ -669,15 +675,17 @@ class Playback(
 
     private fun applySpeed(p: MediaPlayer) {
         val rate = _speed.value
-        val pitch = _pitch.value.pitchFor(rate)
+        // Nightcore and Vaporwave multiply both, so they ride on whatever the sheet is set to.
+        val tape = sound?.rate ?: 1f
+        val (played, pitch) = SoundMaths.played(rate, _pitch.value.pitchFor(rate), tape, maxSpeed)
         // 1.0 at the default pitch is what a fresh player already does; touching
         // `playbackParams` costs a reconfigure, so a player nobody has slowed is left alone.
-        if (rate == 1f && pitch == 1f && !speedTouched) return
+        if (played == 1f && pitch == 1f && !speedTouched) return
         speedTouched = true
         val wasPlaying = _state.value.playing
         val ok = runCatching {
             p.playbackParams = p.playbackParams
-                .setSpeed(rate)
+                .setSpeed(played)
                 // The whole of the smoothness question, and it is one number.
                 //
                 // At pitch 1.0 the framework runs a TIME-STRETCHER: it keeps the pitch by
@@ -696,10 +704,11 @@ class Playback(
         if (!ok) {
             // The device refused this rate. Remember the fastest it DID take and fall back
             // to it, rather than leaving the slider somewhere that plays nothing.
-            if (rate > 1f) {
-                _maxSpeed.value = maxOf(1f, (rate - SPEED_BACKOFF))
-                _speed.value = _maxSpeed.value
-                runCatching { p.playbackParams = p.playbackParams.setSpeed(_speed.value).setPitch(1f) }
+            if (played > 1f) {
+                _maxSpeed.value = maxOf(1f, (played - SPEED_BACKOFF))
+                _speed.value = minOf(rate, _maxSpeed.value)
+                val again = SoundMaths.played(_speed.value, 1f, tape, _maxSpeed.value).first
+                runCatching { p.playbackParams = p.playbackParams.setSpeed(again).setPitch(1f) }
             }
             return
         }

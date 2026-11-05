@@ -288,7 +288,7 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
      * on screen to explain it. Turning the index off entirely is still the switch above this one.
      */
     /**
-     * Whether Stop Filet asks before stopping.
+     * Whether Shutdown Filet asks before stopping.
      *
      * Turned off from the sheet's own tick. It only ever skips the sheet when nothing would be
      * cut off partway - see `BrowserViewModel.askStop` - because the sheet naming a copy in
@@ -417,6 +417,59 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
     fun setUninterrupted(on: Boolean) {
         _uninterrupted.value = on
         sp.edit().putBoolean(K_UNINTERRUPTED, on).apply()
+    }
+
+    /**
+     * Whether a video reached by a run's arrows or its swipe starts playing at once, rather than
+     * waiting under its preview for a tap the way an opened one does. Off by default: moving
+     * through a gallery stays quiet unless asked. See `VideoStart`.
+     */
+    private val _videoNextPlays = stored { sp.getBoolean(K_VIDEO_NEXT_PLAYS, false) }
+    val videoNextPlays: StateFlow<Boolean> = _videoNextPlays.asStateFlow()
+
+    fun setVideoNextPlays(on: Boolean) {
+        _videoNextPlays.value = on
+        sp.edit().putBoolean(K_VIDEO_NEXT_PLAYS, on).apply()
+    }
+
+    /**
+     * How far one double tap on either side of a video moves it, in seconds, and the two buttons
+     * beside Play with it: one length for the one gesture, whichever way it is asked for. 2, 5
+     * or 10; ten is what other players use, so it is the default, and a stored number that is
+     * not one of the three reads as ten.
+     */
+    private val _videoSkipSeconds = stored { videoSkipOf(sp.getInt(K_VIDEO_SKIP, VIDEO_SKIP_DEFAULT)) }
+    val videoSkipSeconds: StateFlow<Int> = _videoSkipSeconds.asStateFlow()
+
+    /**
+     * Whether a viewer opened from a list of photos and videos swipes through only the kind it
+     * stands on. Off by default: both together, in the list's order, as before. Asked only of a
+     * run that has both; music is never in a run either way. See `ViewerRun.onlyKind`.
+     */
+    private val _viewerOnlyKind = stored { sp.getBoolean(K_VIEWER_ONLY_KIND, false) }
+    val viewerOnlyKind: StateFlow<Boolean> = _viewerOnlyKind.asStateFlow()
+
+    fun setViewerOnlyKind(on: Boolean) {
+        _viewerOnlyKind.value = on
+        sp.edit().putBoolean(K_VIEWER_ONLY_KIND, on).apply()
+    }
+
+    /**
+     * Whether a playing video goes on in a picture-in-picture window when Filet is left, rather
+     * than stopping. Off by default: stopping is what leaving has always done. See `VideoPip`.
+     */
+    private val _videoPipOnHome = stored { sp.getBoolean(K_VIDEO_PIP_HOME, false) }
+    val videoPipOnHome: StateFlow<Boolean> = _videoPipOnHome.asStateFlow()
+
+    fun setVideoPipOnHome(on: Boolean) {
+        _videoPipOnHome.value = on
+        sp.edit().putBoolean(K_VIDEO_PIP_HOME, on).apply()
+    }
+
+    fun setVideoSkipSeconds(seconds: Int) {
+        val s = videoSkipOf(seconds)
+        _videoSkipSeconds.value = s
+        sp.edit().putInt(K_VIDEO_SKIP, s).apply()
     }
 
     /**
@@ -1338,14 +1391,21 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
     private fun soundKey(key: String, legacy: String): String =
         if (!sp.contains(key) && sp.contains(legacy)) legacy else key
 
-    private fun readSound(k: SoundKeys) = dev.niccc2007.filet.playback.SoundSettings(
-        eqOn = sp.getBoolean(soundKey(k.eqOn, K_SOUND_EQ_ON), false),
-        bands = dev.niccc2007.filet.playback.SoundMaths.bandsOf(sp.getString(soundKey(k.bands, K_SOUND_BANDS), null)),
-        bass = sp.getInt(soundKey(k.bass, K_SOUND_BASS), 0).coerceIn(0, 100),
-        volume = dev.niccc2007.filet.playback.SoundMaths.clampVolume(sp.getInt(soundKey(k.volume, K_SOUND_VOLUME), 100)).coerceAtMost(100),
-        space = dev.niccc2007.filet.playback.SoundMaths.Space.of(sp.getString(soundKey(k.space, K_SOUND_SPACE), null)),
-        filter = dev.niccc2007.filet.playback.SoundMaths.Filter.of(sp.getString(soundKey(k.filter, K_SOUND_FILTER), null)),
-    )
+    // The effects are in the keys the space and the filter always had, as levels now - the reverb
+    // in the one and every other effect by name in the other; a name an older build stored there
+    // is read as that effect, on exactly when the equaliser's switch it was heard under was. See
+    // `SoundMaths.reverbOf`.
+    private fun readSound(k: SoundKeys): dev.niccc2007.filet.playback.SoundSettings {
+        val eqOn = sp.getBoolean(soundKey(k.eqOn, K_SOUND_EQ_ON), false)
+        val base = dev.niccc2007.filet.playback.SoundSettings(
+            eqOn = eqOn,
+            bands = dev.niccc2007.filet.playback.SoundMaths.bandsOf(sp.getString(soundKey(k.bands, K_SOUND_BANDS), null)),
+            bass = sp.getInt(soundKey(k.bass, K_SOUND_BASS), 0).coerceIn(0, 100),
+            volume = dev.niccc2007.filet.playback.SoundMaths.clampVolume(sp.getInt(soundKey(k.volume, K_SOUND_VOLUME), 100)).coerceAtMost(100),
+            reverb = dev.niccc2007.filet.playback.SoundMaths.reverbOf(sp.getString(soundKey(k.space, K_SOUND_SPACE), null), eqOn),
+        )
+        return dev.niccc2007.filet.playback.SoundMaths.withFilters(base, sp.getString(soundKey(k.filter, K_SOUND_FILTER), null), eqOn)
+    }
 
     private val _sound = dev.niccc2007.filet.playback.SoundTarget.entries.associateWith { t ->
         stored { readSound(soundKeys(t)) }
@@ -1373,8 +1433,8 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
             .putString(k.bands, bands)
             .putInt(k.bass, s.bass)
             .putInt(k.volume, s.volume)
-            .putString(k.space, s.space.id)
-            .putString(k.filter, s.filter.id)
+            .putString(k.space, dev.niccc2007.filet.playback.SoundMaths.levelText(s.reverb))
+            .putString(k.filter, dev.niccc2007.filet.playback.SoundMaths.filtersText(s))
             .apply()
     }
 
@@ -1623,6 +1683,17 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         const val K_UPD_SKIPPED = "update.skippedVersion"
         const val K_UPD_OFF = "update.notificationsOff"
         const val K_UNINTERRUPTED = "play.uninterrupted"
+        const val K_VIDEO_NEXT_PLAYS = "play.videoNext"
+        const val K_VIDEO_SKIP = "play.videoSkip"
+        const val K_VIEWER_ONLY_KIND = "viewer.onlyKind"
+        const val K_VIDEO_PIP_HOME = "play.videoPip"
+
+        /** The double-tap skip's lengths, in seconds. See [videoSkipSeconds]. */
+        val VIDEO_SKIP_CHOICES = listOf(2, 5, 10)
+        const val VIDEO_SKIP_DEFAULT = 10
+
+        /** [raw] if it is one of [VIDEO_SKIP_CHOICES], else the default. */
+        fun videoSkipOf(raw: Int): Int = if (raw in VIDEO_SKIP_CHOICES) raw else VIDEO_SKIP_DEFAULT
         const val K_STORE_MIGRATED = PrefKeys.STORE_MIGRATED
         const val K_MEMORY_DETAILS = "details.memory"
         const val K_NEW_FILES_ORDER = "home.newFilesOrder"

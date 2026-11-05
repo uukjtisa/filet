@@ -106,6 +106,10 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     val art by playback.art.collectAsStateWithLifecycle()
     val source by playback.source.collectAsStateWithLifecycle()
     val colors = Filet.colors
+    // Inside a run - a video of the run held as sound - the disc's and the bar's drags are this
+    // screen's own, so the run's swipe is held while it is up. It was the run's to hold before
+    // the video screen held its own; see HoldRunSwipe.
+    HoldRunSwipe(true)
 
     // Opening the folder as a queue, once.
     //

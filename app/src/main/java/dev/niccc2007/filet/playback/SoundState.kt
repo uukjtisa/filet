@@ -48,7 +48,15 @@ interface RememberStore {
  */
 data class Remembered(val speed: Float, val pitch: PitchMode, val sound: SoundSettings) {
 
-    /** One line, versioned, so a later sound model can read what this one wrote. */
+    /**
+     * One line, versioned, so a later sound model can read what this one wrote. The last two
+     * fields are the effects as the general settings store them: the reverb's level, then every
+     * other effect's by name. See `SoundMaths.filtersText`.
+     *
+     * Still v2 with the effects that came after Muffled and Radio: they went into the same field
+     * by name, a v2 line from before them reads back with them off, and a build from before them
+     * reading a line from after passes the names it does not know.
+     */
     fun encode(): String = listOf(
         VERSION,
         speed.toString(),
@@ -57,30 +65,36 @@ data class Remembered(val speed: Float, val pitch: PitchMode, val sound: SoundSe
         SoundMaths.bandsText(sound.bands),
         sound.bass.toString(),
         sound.volume.toString(),
-        sound.space.id,
-        sound.filter.id,
+        SoundMaths.levelText(sound.reverb),
+        SoundMaths.filtersText(sound),
     ).joinToString(SEP)
 
     companion object {
-        const val VERSION = "v1"
+        const val VERSION = "v2"
+
+        /** What a file remembered before the effects had a switch each was written as: a space and a filter by name. */
+        private const val V1 = "v1"
         private const val SEP = ";"
 
-        /** The file's sheet, or null for anything that is not one this version wrote whole. */
+        /** The file's sheet, or null for anything that is not one this version or the last wrote whole. */
         fun decode(text: String?): Remembered? {
             val f = text?.split(SEP) ?: return null
-            if (f.size != 9 || f[0] != VERSION) return null
+            if (f.size != 9 || (f[0] != VERSION && f[0] != V1)) return null
             val speed = f[1].toFloatOrNull()?.takeIf { it.isFinite() } ?: return null
+            val eqOn = f[3] == "1"
+            // A v1 field is a name and a v2 field a level; the readers take either, so the two
+            // versions differ only in what the fields hold.
+            val base = SoundSettings(
+                eqOn = eqOn,
+                bands = SoundMaths.bandsOf(f[4]),
+                bass = (f[5].toIntOrNull() ?: 0).coerceIn(0, 100),
+                volume = SoundMaths.clampVolume(f[6].toIntOrNull() ?: 100),
+                reverb = SoundMaths.reverbOf(f[7], eqOn),
+            )
             return Remembered(
                 speed = speed.coerceIn(MIN_SPEED, MAX_SPEED),
                 pitch = PitchMode.of(f[2]),
-                sound = SoundSettings(
-                    eqOn = f[3] == "1",
-                    bands = SoundMaths.bandsOf(f[4]),
-                    bass = (f[5].toIntOrNull() ?: 0).coerceIn(0, 100),
-                    volume = SoundMaths.clampVolume(f[6].toIntOrNull() ?: 100),
-                    space = SoundMaths.Space.of(f[7]),
-                    filter = SoundMaths.Filter.of(f[8]),
-                ),
+                sound = SoundMaths.withFilters(base, f[8], eqOn),
             )
         }
     }
