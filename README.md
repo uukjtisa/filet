@@ -15,6 +15,27 @@ Built by **[Niccc2007](https://github.com/uukjtisa)**. Free and open source, alw
 
 </div>
 
+---
+
+<div align="center">
+
+## Support Filet
+
+**Filet is independent.** It is built by one student, in the hours around studying, and every
+line of it is shared.<br>
+There is no company behind it and no paid tier coming - nothing is locked and nothing ever will be.
+
+**Support goes straight to me**, and it buys the time and the test phones that keep Filet moving.
+
+<a href="https://ko-fi.com/thethirdy2007"><img src="https://img.shields.io/badge/Support%20Filet%20on%20Ko--fi-C25E3A?style=for-the-badge&logo=kofi&logoColor=white" height="44" alt="Support Filet on Ko-fi"></a>
+
+<sub>If it is not for you, the app is exactly the same. It never asks: the only mention of this
+inside it is one row on the About screen.</sub>
+
+</div>
+
+---
+
 > [!WARNING]
 > **Early development.** I built this for my own phone and I'm still finding things wrong with
 > it. There's no store listing - [Releases](https://github.com/uukjtisa/filet/releases) is the
@@ -27,16 +48,15 @@ Built by **[Niccc2007](https://github.com/uukjtisa)**. Free and open source, alw
 
 - [What Filet is](#what-filet-is)
 - [A glimpse of it](#a-glimpse-of-it)
-- [Support Filet](#support-filet)
 - [The tools](#the-tools)
 - [The viewers](#the-viewers)
 - [Finding things](#finding-things)
 - [Your phone and your network](#your-phone-and-your-network)
 - [Where it's going](#where-its-going)
 - [Installing it](#installing-it)
-- [How it's built](#how-its-built)
 - [Building it yourself](#building-it-yourself)
 - [Permissions](#permissions)
+- [Credits](#credits)
 - [Licence](#licence)
 
 ---
@@ -115,95 +135,35 @@ are never annotated.
 
 ---
 
-<div align="center">
-
-## Support Filet
-
-**Filet is independent.** It is built by one student, in the hours around studying, and every
-line of it is shared.<br>
-There is no company behind it and no paid tier coming - nothing is locked and nothing ever will be.
-
-**Support goes straight to me**, and it buys the time and the test phones that keep Filet moving.
-
-<a href="https://ko-fi.com/thethirdy2007"><img src="https://img.shields.io/badge/Support%20Filet%20on%20Ko--fi-C25E3A?style=for-the-badge&logo=kofi&logoColor=white" height="44" alt="Support Filet on Ko-fi"></a>
-
-<sub>If it is not for you, the app is exactly the same. It never asks: the only mention of this
-inside it is one row on the About screen.</sub>
-
-</div>
-
----
-
 ## The tools
 
 The things a phone file manager usually sends you to a PC for.
 
-### Archives
-
-- **Walk into an archive as if it were a folder** - zip and everything zip-shaped (apk, jar,
-  epub, cbz), tar on its own or through gzip, bzip2 or xz, 7z, and RAR and RAR5 including solid
-  archives
-- **See the extraction before it happens.** The destination is drawn as it will be: the folder
-  about to be made, a pointless parent folder lifted away, what would be overwritten, whether it
-  fits, and anything that tried to write outside the folder. The preview and the extractor are
-  the same plan, not a drawing of what a separate piece of code might do
-- **Edit a file inside an archive** and save it back. A zip re-compresses only the file you
-  changed; a `tar.gz` or a 7z has to be rebuilt whole, and it says so, with the size, first
-- **Make one** in zip, tar, tar.gz, tar.bz2, tar.xz or 7z, with real AES-256 zip encryption,
-  split volumes, and an honest estimate of what it will weigh
-- **RAR reads, and Filet cannot create one.** Every RAR writer descends from source whose licence
-  a GPL-3 app cannot accept; the readers Filet ships are libarchive's independent ones.
-  [`core-native/`](core-native/README.md) has the whole measurement
-- **A 7z cannot be given a password here**, for the same kind of reason: nothing Filet can
-  legally ship writes an encrypted 7z. Use zip if the archive needs a password
-
-### App packages
-
-- **Inspect** signature schemes, signer, SDK levels, native ABIs and protection status
-- **`classes.dex` opens as a tree of smali** you can read and edit
-- **Edit the binary manifest** without aapt2
-- **Rebuild, re-sign and install**, on the phone, with the dex format chosen for the device it is
-  going to
-- **Search inside apps** - `pkg:`, `perm:` and `class:` find them by what they are, not their
-  file names
-
-### Bytes, pictures and tags
-
-- **A hex editor, not a viewer.** Tap a byte and type; edits are staged and counted until one
-  write applies them all
-- **An image editor** that rotates to any angle, crops, draws, resizes and adds text
-- **Tags and cover art, read and written** in MP3, FLAC, Ogg, Opus, MP4 and M4A, and document
-  properties in PDF and Office files. Nothing is written in place: a rewrite is built, re-read,
-  and only then replaces the original
-
-### Scripting
-
-- **Lua that can only touch what it declared.** A script states its permissions up front and you
-  approve them before it runs. No `io`, no `os.execute`, no network
-- **It works wherever the files are** - inside an archive or on a network share as much as on
-  internal storage
-- **Seven worked examples**, and a copyable prompt that explains the whole API to an AI agent
+- **Archives** - open zip, 7z, RAR and tar like folders, see an extraction before it happens,
+  edit a file inside one and save it back, and make zip (with AES-256) or 7z. RAR opens, but
+  Filet cannot create one, and a 7z cannot be given a password here.
+  Use zip if the archive needs a password. Both are licence limits, measured in
+  [`core-native/`](core-native/README.md)
+- **App packages** - inspect one before installing it, read and edit its smali and manifest,
+  then rebuild, re-sign and install it on the phone
+- **Hex and pictures** - a hex editor whose edits are staged until you save, and an image editor
+  that crops, draws, rotates and adds text
+- **Tags** - music tags and cover art, and PDF and Office properties, read and written without
+  touching the original until the new copy checks out
+- **Lua scripts** that can only touch what they declared, approved by you before they run
 
 ---
 
 ## The viewers
 
 Filet opens a file rather than handing it away, and every viewer works the same inside an archive
-and on a network share as it does on internal storage.
+or on a network share.
 
-- **Documents** - Markdown the way GitHub draws it, with tables, alerts, code blocks you can
-  resize and pictures at their real size; Word documents, PowerPoint slides, PDFs and
-  spreadsheets with frozen rows and smooth pinch zoom; HTML, rendered or edited. A link from one
-  file to another opens it, and Back brings you to the exact place you left
-- **Code and text**, highlighted with TextMate grammars and tree-sitter, in a real editor
-- **Pictures and video**, swiped through together, with the video player's gestures kept out of
-  each other's way
-- **Audio**, with playlists built from your own files
-- **A QR scanner**, which reads what the code actually is - a payment code shows who it pays
-- **Metadata, APK internals and archives**, as above
-
-**Every one of these gets better with each release, and more viewers are on the way.** Filet's
-aim is that a file on your phone never needs another app to be read properly.
+- **Documents** - Markdown, Word, PowerPoint, PDF and spreadsheets, with pinch zoom. A link to
+  another file opens it, and Back returns you to the exact spot
+- **Code and text**, highlighted, in a real editor
+- **Pictures, video and music**, swiped through together, with playlists from your own files
+- **A QR scanner** that shows what a code really is - a payment code shows who it pays
 
 ---
 
@@ -255,50 +215,10 @@ The big pieces still to come. The full plan, with the test each one has to pass,
 
 ## Installing it
 
-Grab the APK from **[Releases](https://github.com/uukjtisa/filet/releases/latest)**. Android 8.0
-or newer, one file, every phone.
-
-You will have to allow installing from unknown sources, and Android will call the installer
-untrusted: the APK is signed with my own key rather than a store key, which is what a sideloaded
-build looks like. That key is also why an update has to come from the same place the first
-install did.
-
-Once it is installed, **About** has a **Check for updates** button that asks GitHub directly. It
-is compiled out of the `fdroid` flavour, because F-Droid updates its own apps and refuses ones
-that update themselves.
-
----
-
-## How it's built
-
-Six layers, and only the bottom one is allowed to touch a filesystem.
-
-| Layer | What lives there |
-|---|---|
-| **L5** Surfaces | Compose UI, panes, tabs, split view |
-| **L4** Runtime | Lua scripts, background jobs, the activity ledger |
-| **L3** Handlers | Viewers, editors, the APK toolchain |
-| **L2** Routing | What opens what, inbound and internal |
-| **L1** Index | SQLite FTS5 and trigram, retrieve then rerank |
-| **L0** VFS | `FileSystemProvider` per backend, `VPath`, `VNode` |
-
-Nothing above L0 constructs a platform path, and `tools/check-r3.mjs` fails the build if one
-turns up. That one constraint is why archives, network shares, SAF grants and root all work
-through a single code path, and why every viewer above works on all of them.
-
-Everything is checked rather than claimed:
-
-- **[`docs/FEATURES.md`](docs/FEATURES.md)** is the feature register, with per-feature notes
-- **[`docs/GATES.md`](docs/GATES.md)** is the per-milestone evidence, including the one gate that
-  was abandoned and why
-- **[`docs/FIXES.md`](docs/FIXES.md)** tracks every bug found in review to a demonstrated outcome
-- **[`docs/PLAN.md`](docs/PLAN.md)**, **[`docs/SEARCH.md`](docs/SEARCH.md)** and
-  **[`docs/NEARBY.md`](docs/NEARBY.md)** are the design documents
-- **[`docs/RELEASES.md`](docs/RELEASES.md)** is how a release body has to be written, because the
-  app renders it and for most people it is the only documentation they will ever read
-
-Over two thousand JVM tests, fifty-one source checkers that each prove they catch what they are
-for, and on-device tests for what only a phone can show.
+Get the APK from **[Releases](https://github.com/uukjtisa/filet/releases/latest)**. Android 8.0
+or newer, one file for every phone. Android asks you to allow installs from this source, and Play
+Protect may warn about it - [here is why](#why-play-protect-warns-about-filet). After that,
+**About > Check for updates** asks GitHub for new versions.
 
 ---
 
@@ -330,34 +250,74 @@ node tools/check-all.mjs                                               # every s
 ./tools/run-gates.sh <adb-serial>                                      # on-device tests
 ```
 
-`run-gates.sh` exists because `connectedAndroidTest` reinstalls the app between runs, which
-resets the all-files appop and deletes the artifacts the tests just wrote. Both look like
-feature failures and are neither. It installs once, grants, runs the instrumentation directly,
-and collects what the tests produced.
-
-`tools/testservers/webdav.py` is a small WebDAV server for exercising the network provider from
-a device over `adb reverse`.
-
 ---
 
 ## Permissions
 
-| Permission | Why |
-|---|---|
-| All-files access | To browse the shared volume. Filet works without it, but then only folders you pick by hand are visible |
-| Foreground service (data sync) | Two uses, both started by you and both visible with a Stop: a full index, and an active share |
-| Internet and local network | Sharing and network storage. No analytics, no crash reporting, nothing outbound you didn't ask for |
-| Install packages | Only when you tap Install on an APK, or install an update. The system installer still asks |
+Every permission the APK carries, including the ones Android's own libraries add, and what uses
+it.
 
-Crash reports go to app-private storage and are mirrored to `/.filet_logs/` so you can read
-them on the phone. They're never uploaded anywhere, because a file manager's stack traces carry
-your paths.
+| Permission | What uses it |
+|---|---|
+| All-files access (and the older storage permissions on Android 12 and below) | Browsing. Filet works without it, but then only folders you pick by hand are visible |
+| Notifications | Music controls, the progress of a job you started, and the update notice |
+| Camera | The QR scanner, and nothing else. Asked for on its first open, and optional |
+| Internet, network state and Wi-Fi state | Network drives, sharing, Remotes, the update check, and Report a problem when you send one |
+| Wi-Fi multicast | Finding other phones and servers on your Wi-Fi |
+| Install packages | Only when you tap Install on an APK, or install an update. The system installer still asks |
+| See all installed apps | The Apps tab, saving an installed app's APK, and telling you whether an APK is already installed |
+| Foreground service: data sync | A full index you started, and a share while it is hosted. Both show a notification with Stop |
+| Foreground service: media playback | Music that keeps playing with the app closed, and the lock-screen and earphone buttons |
+| Wake lock, run at start-up | Added by Android's WorkManager library for the index tidy-up below, which it re-schedules after a restart. Nothing else starts at boot |
+| Filet bridge | Filet's own. Only apps signed with the same key can hold it |
+| Dynamic receiver | Added by AndroidX. Keeps Filet's internal broadcasts private to Filet |
+
+### What runs without you asking
+
+- **Opening the app** - one request to GitHub for a newer version, and at most twice a day while
+  it stays open. Settings > Maintenance > Update notifications turns it off, and the F-Droid
+  build has no update check at all
+- **Every twelve hours, only while charging** with the battery not low - a sweep that keeps
+  search current. Network shares you opted into get the same, on Wi-Fi only
+- **When photos or other media change** - Android wakes Filet briefly so New files and search
+  pick them up
+
+Nothing else leaves the phone: no analytics, no ads, no crash uploads. Crash reports stay in
+app-private storage and are mirrored to `/.filet_logs/` so you can read them, because a file
+manager's stack traces carry your paths.
+
+### Why Play Protect warns about Filet
+
+Filet is installed from outside the Play Store and signed with my own key, and it asks for what
+a file manager needs: all-files access, installing packages, seeing installed apps. That
+combination is what Play Protect flags, whatever an app does with it.
+
+You don't have to take this page's word for it. Every line of Filet is in this repository - read
+it, or [build the APK yourself](#building-it-yourself) and install that instead.
 
 ---
 
-## Licence
+## Credits
 
-GPL-3.0. See [`LICENSE`](LICENSE).
+<table>
+<tr>
+<td align="center" width="150"><a href="https://github.com/uukjtisa"><img src="https://github.com/uukjtisa.png?size=160" width="80" alt=""><br><b>Niccc2007</b></a><br><sub>Creator &amp; maintainer</sub></td>
+</tr>
+</table>
+
+### Contributors
+
+Filet is shaped by the people who use it, test it, and take the time to say what is wrong and
+what could be better. Thank you.
+
+<table>
+<tr>
+<td align="center" width="150"><a href="https://github.com/KamrulShahed"><img src="https://github.com/KamrulShahed.png?size=160" width="80" alt=""><br><b>Kamrul Shahed</b></a><br><sub>@KamrulShahed</sub></td>
+<td align="center" width="150"><a href="https://github.com/versiogh"><img src="https://github.com/versiogh.png?size=160" width="80" alt=""><br><b>versiogh</b></a><br><sub>@versiogh</sub></td>
+</tr>
+</table>
+
+### Built on
 
 Filet bundles ARSCLib (Apache-2.0), smali and dexlib2 (BSD), LuaJ (MIT), Apache
 commons-compress (Apache-2.0), XZ for Java (public domain) and zip4j (Apache-2.0) for
@@ -382,3 +342,10 @@ Every one of those is compatible with GPL-3.0, and `tools/check-licences.mjs` fa
 if a dependency is added that is not. That check is also where the RAR decision is recorded:
 the available Java decoders carry the UnRAR licence, which restricts what the software may be
 used to build, and a GPL-3 project cannot accept that restriction.
+
+---
+
+## Licence
+
+GPL-3.0. See [`LICENSE`](LICENSE). The libraries Filet is built on and their licences are listed
+under [Built on](#built-on).
