@@ -249,7 +249,7 @@ data class AppState(
      * refused and what would have to change - and a toast has room for neither.
      */
     val denied: dev.niccc2007.filet.vfs.Denial? = null,
-    /** Stop Filet, waiting for a yes, with what it would end. See [BrowserViewModel.askStop]. */
+    /** Shutdown Filet, waiting for a yes, with what it would end. See [BrowserViewModel.askStop]. */
     val stopAsk: List<RunningWork.Item>? = null,
     val volumes: List<VolumeInfo> = emptyList(),
     val switcherOpen: Boolean = false,
@@ -869,6 +869,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun focusSide(side: Side) = _state.update { it.copy(focused = side) }
 
+    /** Focus whichever side [pane] is on: a screen that knows its pane and not its side. */
+    fun focusPane(pane: PaneController) {
+        sideOf(pane)?.let(::focusSide)
+    }
+
     /**
      * Move ONE side along the tab strip.
      *
@@ -1341,7 +1346,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         // only `active` moves as somebody opens branches - so `cwd` is not "where the user is",
         // and reading it here put the result at the top of the storage instead of in the folder
         // they were looking at. See `PaneState.target`.
-        val dest = focusedPane()?.state?.value?.target ?: return@withSelection
+        val dest = selectionFolder() ?: return@withSelection
         // Said before any work starts, because the work may finish in a tenth of a second or
         // run for a minute and the reader cannot tell which in advance. The job row is where
         // the progress is; this is the pointer to it.
@@ -1414,7 +1419,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         // only `active` moves as somebody opens branches - so `cwd` is not "where the user is",
         // and reading it here put the result at the top of the storage instead of in the folder
         // they were looking at. See `PaneState.target`.
-        val dest = into ?: focusedPane()?.state?.value?.target ?: return
+        // A category has no folder to extract into, so it starts beside the archive - and still
+        // follows the pane the moment somebody walks into a folder, as from anywhere else.
+        val dest = into ?: focusedPane()?.state?.value?.target ?: node.path.parent ?: return
         val root = if (node.path.scheme == ArchiveProvider.SCHEME) node.path
         else ArchiveProvider.mount(node.path.path)
         viewModelScope.launch {
@@ -2555,7 +2562,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
     fun askNewFile() = _dialog.update { Dialog.NewFile }
     fun askRename(node: VNode) = _dialog.update { Dialog.Rename(node) }
-    fun askCompress() = _dialog.update { Dialog.Compress }
+    fun askCompress() {
+        // Asked before the dialog, not after it: refusing once a name has been typed wastes
+        // the typing. Only reachable off a folder - a folder pane always has somewhere to write.
+        if (selectionFolder() == null) {
+            toast("These are in different folders. Pick them from one folder to compress them together.")
+            return
+        }
+        _dialog.update { Dialog.Compress }
+    }
     /**
      * Properties, which re-stats a node nobody has measured.
      *
@@ -2622,6 +2637,33 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     fun canWriteHere(path: VPath?): Boolean = writeBlockReason(path) == null
+
+    /**
+     * The folder the selection's own writes go into: the pane's, or on a list with no folder
+     * behind it (a category, New files) the one folder every selected file is in. Null when they
+     * are spread over several. See `TreeSelection.commonFolder`.
+     */
+    fun selectionFolder(): VPath? {
+        val pane = focusedPane() ?: return null
+        pane.state.value.target?.let { return it }
+        return TreeSelection.commonFolder(pane.selectedNodes().map { it.path })
+    }
+
+    /**
+     * Why the selection cannot be written to, or null.
+     *
+     * Bug identified here: the selection bar asked [writeBlockReason] about the pane's folder, and
+     * a category has none - so every write on a category's selection answered "Open a folder
+     * first", about files sitting in an ordinary writable folder. Off a folder, the question is
+     * asked of the folders the selected files are actually in.
+     */
+    fun selectionWriteBlock(): String? {
+        val pane = focusedPane() ?: return null
+        val s = pane.state.value
+        if (s.kind == PaneKind.FOLDER) return writeBlockReason(s.cwd)
+        return pane.selectedNodes().mapNotNullTo(LinkedHashSet()) { it.path.parent }
+            .firstNotNullOfOrNull { writeBlockReason(it) }
+    }
 
     fun canPaste(): Boolean = _state.value.clips.totalPicked > 0 &&
         focusedPane()?.state?.value?.cwd != null
@@ -2844,7 +2886,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * Leave the task entirely, not just this screen. Set by the activity hosting the browser.
      *
      * Separate from [onExit], which finishes one activity and leaves the task - and every
-     * service - exactly where it was. That difference is the whole reason Stop Filet exists.
+     * service - exactly where it was. That difference is the whole reason Shutdown Filet exists.
      */
     var onStopFilet: (() -> Unit)? = null
 
@@ -2872,7 +2914,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     /**
-     * Stop Filet, asking first unless asked not to.
+     * Shutdown Filet, asking first unless asked not to.
      *
      * The tick on the sheet turns the asking off, but never when something would be cut off
      * partway. Naming a copy in flight before it is interrupted is not a confirmation that can
@@ -7223,7 +7265,7 @@ private const val VOLUME_POLL_MS = 8_000L
 private const val MEASURE_BUDGET_MS = 3_000L
 
 /**
- * How long Stop Filet waits between telling the services to stop and ending the process.
+ * How long Shutdown Filet waits between telling the services to stop and ending the process.
  *
  * Measured against nothing more precise than the shade: a kill that races the stop intents
  * leaves a notification up for a process that no longer exists, and tapping it starts Filet

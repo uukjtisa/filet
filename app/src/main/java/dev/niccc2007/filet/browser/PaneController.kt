@@ -1092,6 +1092,19 @@ class PaneController(
      */
     private val picked = HashMap<VPath, VNode>()
 
+    /**
+     * The rows a screen with no folder behind it is drawing, in the order it draws them: a
+     * category, New files. Such a pane has no `entries`, so a range, a select-all and the
+     * selection bar's total had nothing to work over - the screen says what is on it instead.
+     */
+    private val _shown = MutableStateFlow<List<VNode>>(emptyList())
+    val shown: StateFlow<List<VNode>> = _shown.asStateFlow()
+
+    /** Called by a special pane's screen whenever the rows it draws change, and with none as it goes. */
+    fun showRows(rows: List<VNode>) {
+        _shown.value = rows
+    }
+
     /** Set the selection, keeping [picked] to exactly what is in it. */
     private fun choose(next: Set<VPath>, nodes: Iterable<VNode> = emptyList()) {
         for (n in nodes) if (n.path in next) picked[n.path] = n
@@ -1104,12 +1117,13 @@ class PaneController(
      * is on. A range or a select-all over the pane's own rows alone would skip every row inside
      * an open branch.
      */
-    private fun rowsInOrder(s: PaneState): List<VNode> =
-        if (prefs.treeView.value && !s.search.active && s.open.isNotEmpty()) {
+    private fun rowsInOrder(s: PaneState): List<VNode> = when {
+        // A category or New files: no listing of its own, only what its screen drew.
+        s.kind != PaneKind.FOLDER -> _shown.value
+        prefs.treeView.value && !s.search.active && s.open.isNotEmpty() ->
             TreeRows.flatten(s.visible, s.open, s.branches).filter { !it.loading && !it.empty }.map { it.node }
-        } else {
-            s.visible
-        }
+        else -> s.visible
+    }
 
     /**
      * A tap while selecting. Picking a folder takes in what was selected inside it - see
@@ -1217,6 +1231,18 @@ class PaneController(
         choose(TreeSelection.absorb(next), rows)
     }
 
+    /**
+     * A finger sliding across a gallery after a hold, from [start] to [current], measured
+     * against [before] - the selection when the hold began. See `dragSelect` for the arithmetic.
+     */
+    fun dragSelectTo(before: Set<VPath>, start: VPath, current: VPath, adding: Boolean = start !in before) {
+        val rows = rowsInOrder(_state.value)
+        val next = dragSelect(rows.map { it.path }, before, start, current, adding)
+        if (next == _state.value.selected) return
+        anchor = current
+        choose(next, rows)
+    }
+
     fun clearSelection() {
         anchor = null
         choose(emptySet())
@@ -1243,6 +1269,8 @@ class PaneController(
             s.branches.values.asSequence().flatten().asIterable(),
             s.search.hits.map { it.node },
             picked.values,
+            // A selection put back by Back on a category, where nothing was picked this time.
+            _shown.value,
         )
     }
 

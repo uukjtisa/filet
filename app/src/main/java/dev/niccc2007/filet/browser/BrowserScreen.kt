@@ -301,12 +301,15 @@ private fun BrowserBody(vm: BrowserViewModel) {
                 // the confirm; drawing the selection bar as well put two bars over each other,
                 // both claiming the same gesture, and the one on top was the one for the
                 // operation nobody was doing.
-                if (activeState?.selecting == true && livePick == null && !vm.picking) {
+                if (activeState?.selecting == true && livePick == null && !vm.picking && active != null) {
+                    // Off a folder - a category, New files - the rows are the ones its screen
+                    // drew, and the writes are asked of the folders the files are in.
+                    val shown by active.shown.collectAsState()
                     SelectionBar(
                         vm,
                         activeState.selected.size,
-                        activeState.visible.size,
-                        vm.writeBlockReason(activeState.cwd),
+                        if (activeState.kind == PaneKind.FOLDER) activeState.visible.size else shown.size,
+                        vm.selectionWriteBlock(),
                     )
                 }
 

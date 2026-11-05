@@ -571,6 +571,7 @@ private fun ImageViewerContent(
                     bakeTurn()
                 },
                 onOpenWith = { vm.openExternally(node, force = true) },
+                runKinds = { RunKindsRow(vm, node) { menu = null } },
                 onDelete = {
                     vm.confirmDeleteOf(listOf(node)) {
                         if (runPage != null) runPage.drop() else vm.closeHandler()
@@ -1513,6 +1514,8 @@ private fun PictureActions(
     grey: Boolean,
     onGround: () -> Unit,
     onReveal: () -> Unit,
+    /** The run's "only photos / only videos" row, drawn by the run itself; see `RunKindsRow`. */
+    runKinds: @Composable () -> Unit = {},
 ) {
     val ground = MaterialTheme.colorScheme.background
     Row(
@@ -1568,6 +1571,7 @@ private fun PictureActions(
                     onMenu(null)
                     onReveal()
                 }
+                runKinds()
                 // Named for what it switches TO, as a light switch is: the row is the action.
                 dev.niccc2007.filet.ui.dialogs.PopRow(
                     FiletIcons.Brightness,

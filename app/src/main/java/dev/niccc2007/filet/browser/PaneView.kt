@@ -1587,7 +1587,7 @@ private fun SpecialBodyContent(pane: PaneController, vm: BrowserViewModel, s: Pa
                 // must not be a crash on a screen somebody is looking at.
                 pane.openHome()
             } else {
-                dev.niccc2007.filet.home.CategoryScreen(vm, category)
+                dev.niccc2007.filet.home.CategoryScreen(vm, pane, category)
             }
         }
         PaneKind.RECENT -> RecentBody(vm, pane)

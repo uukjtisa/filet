@@ -1,9 +1,10 @@
 package dev.niccc2007.filet.home
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,13 +26,29 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.layout
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -44,6 +61,9 @@ import dev.niccc2007.filet.ui.WarmAhead
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
  * A category as tiles of the files' own pictures, still in days. [CategoryLayout.GALLERY].
@@ -59,6 +79,17 @@ import dev.niccc2007.filet.vfs.VPath
  * rows warmed ahead of the screen must ask for exactly the size the tile will ask for, or every
  * warm-up is a decode nobody uses. One image pipeline - [FileThumb] on screen, [WarmAhead]
  * through `Thumbnails.load(ahead = true)` off it - and no second one.
+ *
+ * ## One touch handler, on the grid, not one per tile
+ *
+ * A tap opens, or toggles while selecting. A hold lifts the tile into its peek, or with a
+ * selection running extends to it ([ListPick]). A slide after the hold selects the run the finger
+ * crosses, and scrolls when it reaches the top or bottom edge, so a month of photos is one stroke.
+ *
+ * That last part is why the handler is the grid's. A tile's own handler dies with the tile, and
+ * a slide that scrolls is exactly the gesture that carries its first tile off the screen and out
+ * of the composition - the selection would stop mid-stroke. So the tiles take no touches of their
+ * own; the grid finds the tile under the finger from its layout and decides.
  */
 @Composable
 internal fun CategoryGallery(
@@ -69,18 +100,124 @@ internal fun CategoryGallery(
     header: @Composable () -> Unit,
     empty: @Composable () -> Unit,
     onFold: (DayGroup) -> Unit,
-    onLongPress: (VNode) -> Unit,
+    pick: ListPick,
+    /** Lift a held tile into its peek. */
+    onPeek: (VNode) -> Unit,
+    /** Put the peek away: the finger moved after the hold, which makes it a slide. */
+    onUnpeek: () -> Unit,
 ) {
     val context = LocalContext.current
     // A cover with its title under it for audio, since two covers from one album are the same
     // picture; a bare picture for photos and videos, where the picture IS the file.
     val captioned = category == MediaCategory.AUDIO
     val cells = remember(groups, collapsed) { GalleryCells.of(groups, collapsed) }
+    val selecting = pick.running()
+    val haptics = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val slide = remember { Slide() }
+    // Cancelled with the screen: an edge scroll left running would scroll a grid nobody holds.
+    DisposableEffect(slide) { onDispose { slide.auto?.cancel() } }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val grid = GalleryCells.grid(maxWidth, captioned)
         val px = GalleryCells.decodePx(grid.tile)
         val state = dev.niccc2007.filet.browser.rememberKeptGridState("category:" + category.id)
+        val density = LocalDensity.current
+        val edgePx = with(density) { GalleryCells.EDGE.roundToPx() }
+        val zonePx = with(density) { SLIDE_EDGE_ZONE.toPx() }
+        val stepPx = with(density) { SLIDE_EDGE_STEP.toPx() }
+        val heightPx = constraints.maxHeight.toFloat()
+
+        /**
+         * The tile under [at], a point in the grid's own space. The layout reports each item
+         * WITHOUT the content padding the grid places it by (`LazyGridMeasuredItem.place` adds
+         * it on), so the side padding is taken off the point rather than added to every item.
+         * A point in the gap between two tiles is no tile, and the run keeps its last end.
+         */
+        fun tileAt(at: Offset): GalleryCell.Tile? {
+            val x = (at.x - edgePx).toInt()
+            val y = at.y.toInt()
+            val item = state.layoutInfo.visibleItemsInfo.firstOrNull {
+                x >= it.offset.x && x < it.offset.x + it.size.width &&
+                    y >= it.offset.y && y < it.offset.y + it.size.height
+            } ?: return null
+            // The header is item 0, so a cell's item sits one along. The key is checked as well:
+            // an index alone could name a neighbour for the frame a fold re-lays the grid.
+            val cell = cells.getOrNull(item.index - 1) as? GalleryCell.Tile ?: return null
+            return cell.takeIf { it.key == item.key }
+        }
+
+        fun slideTo(at: Offset) {
+            val start = slide.start ?: return
+            val tile = tileAt(at) ?: return
+            if (tile.node.path == slide.last) return
+            slide.last = tile.node.path
+            pick.pane.dragSelectTo(slide.before, start, tile.node.path, slide.adding)
+        }
+
+        val hands = GalleryHands(
+            tileAt = ::tileAt,
+            tap = { t ->
+                pick.tap(t.node) { vm.openHomeEntry(t.node, cells.mapNotNull { (it as? GalleryCell.Tile)?.node }) }
+            },
+            hold = { t ->
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                val now = pick.pane.state.value.selected
+                slide.start = t.node.path
+                slide.last = null
+                // Decided once, at the press, by what it found: see `longPressAction`.
+                when (dev.niccc2007.filet.browser.longPressAction(now.size, t.node.path in now)) {
+                    dev.niccc2007.filet.browser.LongPressAction.MENU -> {
+                        slide.adding = true
+                        slide.peeking = true
+                        onPeek(t.node)
+                    }
+                    dev.niccc2007.filet.browser.LongPressAction.MENU_FOR_SELECTION -> {
+                        // A slide from a selected tile takes the run back out.
+                        slide.adding = false
+                        slide.peeking = true
+                        onPeek(t.node)
+                    }
+                    dev.niccc2007.filet.browser.LongPressAction.EXTEND -> {
+                        slide.adding = true
+                        pick.hold(t.node) {}
+                    }
+                }
+                slide.before = pick.pane.state.value.selected
+            },
+            slideStart = { at ->
+                if (slide.peeking) {
+                    slide.peeking = false
+                    onUnpeek()
+                }
+                slide.pointer = at
+                slideTo(at)
+                slide.auto?.cancel()
+                slide.auto = scope.launch {
+                    while (isActive) {
+                        val p = slide.pointer ?: break
+                        val step = dev.niccc2007.filet.browser.edgeScrollStep(p.y, heightPx, zonePx, stepPx)
+                        if (step != 0f) {
+                            state.scrollBy(step)
+                            // A tile scrolled under a finger held still joins the run as well.
+                            slideTo(p)
+                        }
+                        withFrameNanos { }
+                    }
+                }
+            },
+            slideMove = { at ->
+                slide.pointer = at
+                slideTo(at)
+            },
+            slideEnd = {
+                slide.pointer = null
+                slide.start = null
+                slide.auto?.cancel()
+                slide.auto = null
+            },
+        )
+        val live = rememberUpdatedState(hands)
 
         // One item sits above the cells: the header. Stated as the offset so the warm-up's
         // index lands on the tile it names.
@@ -96,7 +233,9 @@ internal fun CategoryGallery(
         LazyVerticalGrid(
             columns = GridCells.Fixed(grid.columns),
             state = state,
-            modifier = Modifier.fillMaxSize(),
+            // Ahead of the grid's own scrolling in the modifier chain, so it is the parent: the
+            // grid sees a slide first, and backs off once the hold has claimed the finger.
+            modifier = Modifier.fillMaxSize().pointerInput(state) { galleryTouch(live) },
             contentPadding = PaddingValues(horizontal = GalleryCells.EDGE, vertical = 0.dp),
             horizontalArrangement = Arrangement.spacedBy(grid.gap),
             verticalArrangement = Arrangement.spacedBy(grid.gap),
@@ -119,13 +258,112 @@ internal fun CategoryGallery(
                         side = grid.tile,
                         captioned = captioned,
                         video = category == MediaCategory.VIDEOS,
-                        // The tiles as laid out, so the viewer swipes to the one beside this.
-                        onClick = { vm.openHomeEntry(c.node, cells.mapNotNull { (it as? GalleryCell.Tile)?.node }) },
-                        onLongClick = { onLongPress(c.node) },
+                        selecting = selecting,
+                        selected = pick.has(c.node.path),
+                        // Touch is the grid's; these are what a screen reader offers instead.
+                        onClick = { live.value.tap(c) },
+                        onLongClick = { live.value.hold(c) },
                     )
                 }
             }
             item(key = "end", span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(28.dp)) }
+        }
+    }
+}
+
+/** How close to the top or bottom a slide has to come before the grid scrolls under it. */
+private val SLIDE_EDGE_ZONE = 72.dp
+
+/** The fastest the grid scrolls under a slide, per frame, with the finger right at the edge. */
+private val SLIDE_EDGE_STEP = 22.dp
+
+/** One hold-and-slide's working state. Plain fields: written and read on the main thread only. */
+private class Slide {
+    var start: VPath? = null
+    var before: Set<VPath> = emptySet()
+    var adding = true
+    var last: VPath? = null
+    var pointer: Offset? = null
+    var peeking = false
+    var auto: Job? = null
+}
+
+/** What the grid's one touch handler calls into, rebuilt each composition and read live. */
+private class GalleryHands(
+    val tileAt: (Offset) -> GalleryCell.Tile?,
+    val tap: (GalleryCell.Tile) -> Unit,
+    val hold: (GalleryCell.Tile) -> Unit,
+    val slideStart: (Offset) -> Unit,
+    val slideMove: (Offset) -> Unit,
+    val slideEnd: () -> Unit,
+)
+
+private const val EARLY_TAP = 1
+private const val EARLY_GONE = 2
+
+/**
+ * Tap, hold, and hold-then-slide over the gallery, as one gesture.
+ *
+ * Written out rather than built from `detectTapGestures` and `detectDragGesturesAfterLongPress`,
+ * because those are two detectors racing for one finger: whichever saw the long press first
+ * consumed it, and the other was cancelled or fired as well. Here the finger is one gesture with
+ * three outcomes, decided in order:
+ *
+ * 1. Lifted before the hold time, without travelling: a tap.
+ * 2. Travelled, or claimed by the grid's own scroll, first: not ours. Nothing is consumed before
+ *    this point, which is what leaves the grid free to scroll and the pager free to swipe.
+ * 3. Held still to the timeout: a hold, and every move after it is consumed - the grid would
+ *    otherwise scroll under the finger while it selects. Past twice the touch slop it is a slide.
+ */
+private suspend fun PointerInputScope.galleryTouch(live: State<GalleryHands>) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val tile = live.value.tileAt(down.position) ?: return@awaitEachGesture
+        val slop = viewConfiguration.touchSlop
+        val early = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+            var result = 0
+            while (result == 0) {
+                val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id }
+                result = when {
+                    c == null -> EARLY_GONE
+                    c.changedToUp() -> if (c.isConsumed) EARLY_GONE else {
+                        c.consume()
+                        EARLY_TAP
+                    }
+                    c.isConsumed || (c.position - down.position).getDistance() > slop -> EARLY_GONE
+                    else -> 0
+                }
+            }
+            result
+        }
+        when (early) {
+            EARLY_TAP -> {
+                live.value.tap(tile)
+                return@awaitEachGesture
+            }
+            EARLY_GONE -> return@awaitEachGesture
+        }
+        live.value.hold(tile)
+        var sliding = false
+        try {
+            while (true) {
+                val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                if (c.changedToUp()) {
+                    c.consume()
+                    break
+                }
+                c.consume()
+                if (!sliding && (c.position - down.position).getDistance() > slop * 2f) {
+                    sliding = true
+                    live.value.slideStart(c.position)
+                } else if (sliding) {
+                    live.value.slideMove(c.position)
+                }
+            }
+        } finally {
+            // Also on a cancelled gesture - the screen going, the pointer stolen - so the edge
+            // scroll never outlives the finger that started it.
+            if (sliding) live.value.slideEnd()
         }
     }
 }
@@ -142,29 +380,35 @@ private fun Modifier.bleed(): Modifier = layout { measurable, constraints ->
 }
 
 @Composable
-@OptIn(ExperimentalFoundationApi::class)
 private fun GalleryTile(
     node: VNode,
     name: String,
     side: Dp,
     captioned: Boolean,
     video: Boolean,
+    selecting: Boolean,
+    selected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
     val colors = Filet.colors
-    // A tile is a full-bleed picture, so the tinted ground a list row uses for "the pick has
-    // taken this one" is not visible on one. A ring is, and it says the same thing.
+    // A tile is a full-bleed picture, so the tinted ground a list row uses for a selected row or
+    // for "the pick has taken this one" is not visible on one. A ring is, and it says the same.
     val chosen = dev.niccc2007.filet.browser.isChosenForPick(node.path)
+    val ringed = chosen || selected
     Column(
         Modifier
             .width(side)
             .clip(RoundedCornerShape(6.dp))
             .then(
-                if (chosen) Modifier.border(2.dp, colors.accent, RoundedCornerShape(6.dp))
+                if (ringed) Modifier.border(2.dp, colors.accent, RoundedCornerShape(6.dp))
                 else Modifier,
             )
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .semantics(mergeDescendants = true) {
+                this.selected = selected
+                onClick(label = if (selecting) "Select" else "Open") { onClick(); true }
+                onLongClick(label = "Options") { onLongClick(); true }
+            },
     ) {
         Box(
             Modifier.size(side).clip(RoundedCornerShape(6.dp)).background(colors.sunken),
@@ -173,6 +417,7 @@ private fun GalleryTile(
             // The component every list and tile uses, so a picture decoded here is already
             // cached for the list, the file browser and the Home card.
             FileThumb(node = node, size = side, fallbackTint = colors.fg3, glyphSize = side * 0.28f)
+            if (selected) Box(Modifier.matchParentSize().background(colors.accent.copy(alpha = 0.18f)))
             // A still frame does not say "video" on its own, and a tap starts playback rather
             // than opening a picture - so the tile says which it is.
             if (video) {
@@ -186,6 +431,23 @@ private fun GalleryTile(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(FiletIcons.PlaySolid, "Video", tint = Color.White, modifier = Modifier.size(10.dp))
+                }
+            }
+            // Only while selecting, as in the folder grid: on every tile at rest it read as a
+            // pick already under way. The whole tile is the target, so this is a mark, not a button.
+            if (selecting) {
+                Box(Modifier.align(Alignment.TopStart).padding(6.dp)) {
+                    if (selected) {
+                        dev.niccc2007.filet.browser.SelectMark(true, side = 20.dp)
+                    } else {
+                        Box(
+                            Modifier
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.18f))
+                                .border(1.5.dp, Color.White.copy(alpha = 0.85f), CircleShape),
+                        )
+                    }
                 }
             }
         }

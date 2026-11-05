@@ -78,3 +78,58 @@ fun longPressAction(selectionSize: Int, targetIsSelected: Boolean): LongPressAct
     targetIsSelected -> LongPressAction.MENU_FOR_SELECTION
     else -> LongPressAction.EXTEND
 }
+
+/**
+ * The selection while a finger slides across a gallery after a hold, from [start] to [current].
+ *
+ * Measured against [before] - the selection as it was when the hold began - and never against
+ * the selection a frame ago. Sliding back towards the start therefore gives tiles back exactly
+ * as they were: a run that only ever grew would keep every tile the finger had once crossed,
+ * and the only way to undo an overshoot would be to tap each one off again.
+ *
+ * Starting on a tile that was already selected takes the run OUT of the selection instead, which
+ * is how a selection is trimmed without lifting a finger. The start tile decides once, at the
+ * press; a run that changed its mind halfway as it crossed selected and unselected tiles would
+ * leave a pattern nobody drew.
+ *
+ * @param order the tiles in reading order, as drawn: a folded day's tiles are not in it.
+ * @param adding whether the run joins the selection or leaves it. Given rather than read off
+ *   [before] when the hold itself already changed [before]: a hold that extended a range up to
+ *   its tile has selected that tile, and a slide from it still adds.
+ * @return [before] unchanged when either end has gone from [order] - the list was re-read under
+ *   the finger, and a range against a list that no longer matches the screen picks the wrong run.
+ */
+fun dragSelect(
+    order: List<VPath>,
+    before: Set<VPath>,
+    start: VPath,
+    current: VPath,
+    adding: Boolean = start !in before,
+): Set<VPath> {
+    val from = order.indexOf(start)
+    val to = order.indexOf(current)
+    if (from < 0 || to < 0) return before
+    val run = order.subList(minOf(from, to), maxOf(from, to) + 1)
+    return if (adding) before + run else before - run.toSet()
+}
+
+/**
+ * How far a drag-select scrolls the grid this frame, in pixels: negative up, positive down.
+ *
+ * Nothing until the finger is inside [zone] of an edge, then faster the deeper it goes, up to
+ * [max] at the very edge and past it. Proportional rather than one fixed speed, because a fixed
+ * speed is either too slow to cross a year of photos or too fast to stop on the right day - and
+ * a finger held just inside the zone is asking to creep.
+ *
+ * @param y the finger, from the top of the grid's own viewport.
+ */
+fun edgeScrollStep(y: Float, height: Float, zone: Float, max: Float): Float {
+    if (height <= 0f || zone <= 0f) return 0f
+    // A grid shorter than two zones would scroll from anywhere in it; halve the zone instead.
+    val z = minOf(zone, height / 2f)
+    return when {
+        y < z -> -max * ((z - y) / z).coerceAtMost(1f)
+        y > height - z -> max * ((y - (height - z)) / z).coerceAtMost(1f)
+        else -> 0f
+    }
+}

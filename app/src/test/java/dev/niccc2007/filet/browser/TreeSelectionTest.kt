@@ -63,4 +63,19 @@ class TreeSelectionTest {
         assertEquals(false, picked.first { it.name == "a.jpg" }.isDir)
         assertEquals(emptyList<VNode>(), TreeSelection.resolve(setOf(p("gone.txt")), root, branch))
     }
+
+    @Test
+    fun `the common folder is the one every file sits directly in`() {
+        val camera = listOf(p("DCIM/Camera/a.jpg"), p("DCIM/Camera/b.jpg"))
+        assertEquals(p("DCIM/Camera"), TreeSelection.commonFolder(camera))
+        assertEquals(p("DCIM/Camera"), TreeSelection.commonFolder(camera.take(1)))
+    }
+
+    @Test
+    fun `files spread over folders have no common folder, and nothing has none`() {
+        // A parent of both is not an answer: an archive "beside" these would land where neither is.
+        assertNull(TreeSelection.commonFolder(listOf(p("DCIM/Camera/a.jpg"), p("DCIM/Screenshots/b.png"))))
+        assertNull(TreeSelection.commonFolder(listOf(p("DCIM/a.jpg"), p("DCIM/Camera/b.jpg"))))
+        assertNull(TreeSelection.commonFolder(emptyList()))
+    }
 }

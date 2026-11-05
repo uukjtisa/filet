@@ -471,6 +471,8 @@ fun TRow(
      * which you already knew from the name; a list of thumbnails tells you which one it is.
      */
     thumbOf: VNode? = null,
+    /** Part of the pane's selection, drawn the way a selected row in the file list is. */
+    selected: Boolean = false,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
@@ -479,6 +481,7 @@ fun TRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .then(if (selected) Modifier.background(colors.sel) else Modifier)
             // The file this row stands for is also what a live pick would take, so the row
             // says so the way a selected row in the file list does. See `chosenForPick`.
             .chosenForPick(thumbOf?.path)

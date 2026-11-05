@@ -78,5 +78,23 @@ object TreeSelection {
         return selected.mapNotNull { found[it] }
     }
 
+    /**
+     * The one folder every path in [paths] sits directly in, or null when they are spread over
+     * several - or there are none.
+     *
+     * Where a selection's own writes land on a screen with no folder behind it: an archive of
+     * six photos picked from a category is written beside them. Picked from three folders it has
+     * no single "beside", and choosing one of the three would put it somewhere the person did
+     * not look, so the answer is none and the action says why.
+     */
+    fun commonFolder(paths: Iterable<VPath>): VPath? {
+        var at: VPath? = null
+        for (p in paths) {
+            val parent = p.parent ?: return null
+            if (at == null) at = parent else if (parent != at) return null
+        }
+        return at
+    }
+
     private const val MAX_WALK = 64
 }

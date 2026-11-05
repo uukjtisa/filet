@@ -118,4 +118,66 @@ class RangeSelectTest {
             }
         }
     }
+
+    // ── a slide across a gallery ──
+
+    @Test fun a_slide_from_an_unselected_tile_adds_the_run_in_display_order() {
+        val out = dragSelect(visible, before = setOf(p("g")), start = p("c"), current = p("d"))
+        assertEquals(setOf(p("g"), p("c"), p("a"), p("d")), out)
+    }
+
+    @Test fun sliding_back_gives_tiles_back_as_they_were_before_the_hold() {
+        val before = setOf(p("a"))
+        // Out to d, then back to c: a and d's state is the one before the hold, not the overshoot.
+        val far = dragSelect(visible, before, start = p("e"), current = p("d"))
+        assertEquals(setOf(p("e"), p("c"), p("a"), p("d")), far)
+        val back = dragSelect(visible, before, start = p("e"), current = p("c"))
+        assertEquals(setOf(p("e"), p("c"), p("a")), back)
+    }
+
+    @Test fun a_slide_upwards_works_like_one_downwards() {
+        val out = dragSelect(visible, emptySet(), start = p("b"), current = p("c"))
+        assertEquals(setOf(p("c"), p("a"), p("d"), p("b")), out)
+    }
+
+    @Test fun a_slide_from_a_selected_tile_takes_the_run_out() {
+        val before = visible.toSet()
+        val out = dragSelect(visible, before, start = p("a"), current = p("b"))
+        assertEquals(setOf(p("e"), p("c"), p("f"), p("g")), out)
+    }
+
+    @Test fun a_hold_that_already_selected_its_tile_still_slides_as_adding() {
+        // The range extension put c into `before`; the slide from c must not read that as "remove".
+        val before = setOf(p("e"), p("c"))
+        val out = dragSelect(visible, before, start = p("c"), current = p("a"), adding = true)
+        assertEquals(setOf(p("e"), p("c"), p("a")), out)
+    }
+
+    @Test fun an_end_gone_from_the_list_changes_nothing() {
+        val before = setOf(p("a"))
+        assertEquals(before, dragSelect(visible, before, start = p("gone"), current = p("b")))
+        assertEquals(before, dragSelect(visible, before, start = p("a"), current = p("gone")))
+    }
+
+    // ── scrolling at the edges while sliding ──
+
+    @Test fun the_middle_of_the_grid_does_not_scroll() {
+        assertEquals(0f, edgeScrollStep(y = 500f, height = 1000f, zone = 100f, max = 20f), 0f)
+        assertEquals(0f, edgeScrollStep(y = 100f, height = 1000f, zone = 100f, max = 20f), 0f)
+    }
+
+    @Test fun deeper_into_an_edge_is_faster_and_capped_at_the_edge_and_beyond() {
+        assertEquals(-10f, edgeScrollStep(y = 50f, height = 1000f, zone = 100f, max = 20f), 0.001f)
+        assertEquals(-20f, edgeScrollStep(y = 0f, height = 1000f, zone = 100f, max = 20f), 0.001f)
+        assertEquals(-20f, edgeScrollStep(y = -40f, height = 1000f, zone = 100f, max = 20f), 0.001f)
+        assertEquals(10f, edgeScrollStep(y = 950f, height = 1000f, zone = 100f, max = 20f), 0.001f)
+        assertEquals(20f, edgeScrollStep(y = 1300f, height = 1000f, zone = 100f, max = 20f), 0.001f)
+    }
+
+    @Test fun a_grid_shorter_than_two_zones_still_has_a_still_middle() {
+        // 150 tall with 100 zones would scroll from everywhere; the zone halves to 75.
+        assertEquals(0f, edgeScrollStep(y = 75f, height = 150f, zone = 100f, max = 20f), 0f)
+        assertTrue(edgeScrollStep(y = 10f, height = 150f, zone = 100f, max = 20f) < 0f)
+        assertEquals(0f, edgeScrollStep(y = 10f, height = 0f, zone = 100f, max = 20f), 0f)
+    }
 }

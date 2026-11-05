@@ -179,6 +179,13 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
     val entries = current.entries
     val groups = current.groups
     val flat = current.flat
+    // The rows as drawn, folded days left out, for the pane's selection to range over and count.
+    // Every row held rather than the page drawn so far: paging is how the list is drawn, not
+    // what is in it, and Select all stopping at row eighty would be a selection of an accident.
+    val drawnEntries = remember(current, collapsed) {
+        if (current.grouped) current.groups.filter { it.key !in collapsed }.flatMap { it.entries } else current.flat
+    }
+    val pick = rememberListPick(vm, pane, drawnEntries)
 
     val listState = dev.niccc2007.filet.browser.rememberKeptListState("history")
 
@@ -306,9 +313,7 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
 
         // What a viewer opened from a row swipes through: the rows in the order they are drawn,
         // without the days folded away. Built on the tap, not on every frame.
-        val openedFrom = {
-            (if (grouped) groups.filter { it.key !in collapsed }.flatMap { it.entries } else flat).asNodes()
-        }
+        val openedFrom = { drawnEntries.asNodes() }
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             if (grouped) {
                 var drawn = 0
@@ -324,7 +329,7 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
                     drawn += take.size
                     val isToday = g.key == todayKey
                     items(take.size, key = { "e:${g.key}:${take[it].path}" }) { i ->
-                        HistoryRow(take[i], sort, vm, isToday, from = openedFrom) { menuFor = it }
+                        HistoryRow(take[i], sort, vm, isToday, from = openedFrom, pick = pick) { menuFor = it }
                     }
                 }
             } else {
@@ -334,6 +339,7 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
                         take[i], sort, vm,
                         FileHistory.dayKey(take[i].timeFor(sort), zone) == todayKey,
                         from = openedFrom,
+                        pick = pick,
                     ) { menuFor = it }
                 }
             }
@@ -431,6 +437,11 @@ internal fun HistoryRow(
     today: Boolean,
     /** The rows this one sits among, for the viewer to swipe through. See `ViewerRun`. */
     from: (() -> List<dev.niccc2007.filet.vfs.VNode>)? = null,
+    /**
+     * The pane's selection, for a list that takes part in one. With it a hold selects and a hold
+     * on a selected row is what opens [onLongPress]'s sheet - see [ListPick].
+     */
+    pick: ListPick? = null,
     onLongPress: (dev.niccc2007.filet.vfs.VNode) -> Unit,
 ) {
     val node = remember(entry.path) {
@@ -447,18 +458,20 @@ internal fun HistoryRow(
     val sub = remember(entry.bytes, entry.origin) {
         listOfNotNull(bytes(entry.bytes), entry.origin).joinToString(" · ")
     }
+    val open = { vm.openHomeEntry(node, from?.invoke()) }
     TRow(
         icon = FileKind.of(node).icon,
         name = entry.name,
         sub = sub,
         accent = today,
         thumbOf = node,
+        selected = pick?.has(node.path) ?: false,
         // Bug identified: this list answered a tap and nothing else, while the very same rows
         // on the Home overview answer a long press with a sheet. The actions that exist
         // everywhere else in the app were missing exactly where a new file is most likely to
         // need them.
-        onClick = { vm.openHomeEntry(node, from?.invoke()) },
-        onLongClick = { onLongPress(node) },
+        onClick = { if (pick != null) pick.tap(node, open) else open() },
+        onLongClick = { if (pick != null) pick.hold(node, onLongPress) else onLongPress(node) },
         trailing = { Trailing(clock(entry.timeFor(sort))) },
     )
 }

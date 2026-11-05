@@ -48,7 +48,7 @@ import dev.niccc2007.filet.vfs.VPath
  * different day tomorrow, so a fold is keyed on the day and not on its label.
  */
 @Composable
-fun CategoryScreen(vm: BrowserViewModel, category: MediaCategory) {
+fun CategoryScreen(vm: BrowserViewModel, pane: dev.niccc2007.filet.browser.PaneController, category: MediaCategory) {
     val colors = Filet.colors
     val context = LocalContext.current
     var collapsed by dev.niccc2007.filet.browser.rememberKeptSet("category.collapsed:" + category.id)
@@ -104,6 +104,9 @@ fun CategoryScreen(vm: BrowserViewModel, category: MediaCategory) {
         }
     }
     val narrowedAway = groups.isEmpty() && everything.isNotEmpty()
+    // The rows as drawn, folded days left out: what the pane's selection ranges over and counts.
+    val drawnEntries = remember(groups, collapsed) { groups.filter { it.key !in collapsed }.flatMap { it.entries } }
+    val pick = rememberListPick(vm, pane, drawnEntries)
 
     if (view == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -151,7 +154,8 @@ fun CategoryScreen(vm: BrowserViewModel, category: MediaCategory) {
                         vm = vm,
                         today = g.key == todayKey,
                         // The category as drawn, so a swipe in the viewer reaches the next row.
-                        from = { groups.filter { it.key !in collapsed }.flatMap { it.entries }.asNodes() },
+                        from = { drawnEntries.asNodes() },
+                        pick = pick,
                         onLongPress = { menuFor = it },
                     )
                 }
@@ -168,18 +172,30 @@ fun CategoryScreen(vm: BrowserViewModel, category: MediaCategory) {
             header = header,
             empty = { if (narrowedAway) dev.niccc2007.filet.ui.NoMatch(query) else CategoryEmpty(category, result) },
             onFold = fold,
+            pick = pick,
             // A held tile lifts into its peek; the row sheet is one tap on from it (More).
-            onLongPress = { peekFor = it },
+            onPeek = { peekFor = it },
+            onUnpeek = { peekFor = null },
         )
     }
 
-    // The gallery's peek. No Select: this tab has no selection to start. More is the sheet a
-    // list row's hold opens, which keeps Show in folder, Bookmark and Shortcut one tap away.
+    // The gallery's peek. Select first, as in the folder grid: it is how a selection starts
+    // from a gallery without the slide. A tile already selected offers Deselect in its place.
+    // More is the sheet a list row's hold opens, keeping Show in folder, Bookmark and Shortcut
+    // one tap away.
     peekFor?.let { node ->
+        val chosen = node.path in pane.state.value.selected
         dev.niccc2007.filet.handlers.TilePeek(
             vm = vm,
             node = node,
             actions = listOf(
+                if (chosen) {
+                    dev.niccc2007.filet.handlers.PeekAction(FiletIcons.Close, "Deselect") { pick.toggle(node) }
+                } else {
+                    dev.niccc2007.filet.handlers.PeekAction(FiletIcons.Check, "Select") {
+                        if (pane.state.value.selecting) pick.toggle(node) else pick.selectOnly(node)
+                    }
+                },
                 dev.niccc2007.filet.handlers.PeekAction(FiletIcons.Open, "Open") {
                     vm.openHomeEntry(node, groups.filter { it.key !in collapsed }.flatMap { it.entries }.asNodes())
                 },

@@ -217,7 +217,7 @@ private fun PeekIcon(node: VNode) {
  * bar in as many segments as there are clips.
  *
  * No file is made and nothing is decoded ahead: each clip is a seek to the nearest keyframe
- * (`SEEK_CLOSEST_SYNC`, the cheap seek) and three seconds of ordinary playback. Over a network
+ * (`SEEK_CLOSEST_SYNC`, the cheap seek) and one clip's length of ordinary playback. Over a network
  * share the still frame stays and nothing plays - a glimpse that has to pull a video across the
  * network a few seconds at a time is a stall dressed up as a preview.
  *
