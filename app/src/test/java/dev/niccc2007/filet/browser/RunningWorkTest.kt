@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * What Stop Filet says it is about to end.
+ * What Shutdown Filet says it is about to end.
  *
  * The defect behind it: nothing short of reinstalling stopped Filet. Swiping it away left the
  * music service, a hosted share, a crawl and any copy in flight all running.
@@ -105,8 +105,8 @@ class RunningWorkTest {
     fun `the confirm says stop anyway only when something would be cut off`() {
         val cut = RunningWork.of(null, false, listOf("Copying 1 item(s)" to true), 0, false)
         val calm = RunningWork.of("Track", false, emptyList(), 0, false)
-        assertEquals("Stop anyway", RunningWork.confirmLabel(cut))
-        assertEquals("Stop Filet", RunningWork.confirmLabel(calm))
-        assertEquals("Stop Filet", RunningWork.confirmLabel(emptyList()))
+        assertEquals("Shutdown anyway", RunningWork.confirmLabel(cut))
+        assertEquals("Shutdown Filet", RunningWork.confirmLabel(calm))
+        assertEquals("Shutdown Filet", RunningWork.confirmLabel(emptyList()))
     }
 }

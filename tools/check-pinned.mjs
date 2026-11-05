@@ -5,7 +5,7 @@
  * The defect this exists for: the Apps tab was added to the wide-screen rail alone, and the rail
  * only exists above 720dp - so on a phone the tab was unreachable while every check passed and
  * the build was green. `SpecialPanes.DESTINATIONS` fixed that for destinations; the pinned rows
- * (Activity, Settings, About, and now Stop Filet) stayed hand-written in both surfaces until
+ * (Activity, Settings, About, and now Shutdown Filet) stayed hand-written in both surfaces until
  * `SpecialPanes.PINNED`. A unit test can see the lists. Only a rule about the SOURCE can see
  * whether a surface still reads them.
  *
@@ -95,7 +95,7 @@ function selftest() {
   );
   expect(
     "a pinned row written by hand in the switcher",
-    { ...real, [switcher]: real[switcher] + '\n        SwitcherRow(FiletIcons.Power, "Stop Filet", i++, reduced) { }\n' },
+    { ...real, [switcher]: real[switcher] + '\n        SwitcherRow(FiletIcons.Power, "Shutdown Filet", i++, reduced) { }\n' },
     true,
   );
   expect(

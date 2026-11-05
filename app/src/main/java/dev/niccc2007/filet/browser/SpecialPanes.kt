@@ -74,7 +74,7 @@ object SpecialPanes {
         Destination(PaneKind.APPS, "Apps", FiletIcons.Apk, Fold.TOOLS),
         Destination(PaneKind.SHORTCUTS, "Shortcuts", FiletIcons.Pin, Fold.TOOLS),
         Destination(PaneKind.SCRIPTS, "Scripts", FiletIcons.Script, Fold.TOOLS),
-        Destination(PaneKind.SCAN, "Scan a code", FiletIcons.Scan, Fold.TOOLS),
+        Destination(PaneKind.SCAN, "QR Scanner", FiletIcons.Scan, Fold.TOOLS),
     )
 
     /** One fold's destinations, in the declared order. */
@@ -93,7 +93,7 @@ object SpecialPanes {
         ACTIVITY("Activity", FiletIcons.Jobs),
         SETTINGS("Settings", FiletIcons.Cog),
         ABOUT("About", FiletIcons.Info),
-        STOP("Stop Filet", FiletIcons.Power),
+        STOP("Shutdown Filet", FiletIcons.Power),
     }
 
     val PINNED: List<Pinned> = Pinned.entries

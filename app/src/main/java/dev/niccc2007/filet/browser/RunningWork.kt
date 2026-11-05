@@ -79,7 +79,7 @@ object RunningWork {
 
     /** What the confirm button says, which changes when it would cut work off. */
     fun confirmLabel(items: List<Item>): String =
-        if (items.any { it.interrupts }) "Stop anyway" else "Stop Filet"
+        if (items.any { it.interrupts }) "Shutdown anyway" else "Shutdown Filet"
 
     /** The ledger title of an index pass. */
     const val INDEX_JOB = "Indexing storage"

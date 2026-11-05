@@ -26,7 +26,7 @@ import dev.niccc2007.filet.ui.dialogs.DlgWarn
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
- * Stop Filet, and what that ends. See [RunningWork] for why the list is the feature.
+ * Shutdown Filet, and what that ends. See [RunningWork] for why the list is the feature.
  *
  * Says plainly what the stop does and does not do. It ends what is running - the music, a
  * share being hosted, a crawl, a copy - and nothing is deleted, so the next open finds every
@@ -48,7 +48,7 @@ internal fun StopDialog(
     Dlg(onDismiss = onDismiss) {
         DlgHeader(
             FiletIcons.Power,
-            "Stop Filet",
+            "Shutdown Filet",
             sub = "Ends everything it is running. Nothing is deleted.",
             onClose = onDismiss,
         )

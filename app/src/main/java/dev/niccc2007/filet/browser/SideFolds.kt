@@ -42,13 +42,13 @@ import dev.niccc2007.filet.ui.theme.Filet
  *  - **Drives** - the phone's storage, then each saved share by name.
  *  - **Collections** - New files, Playlists, Carry on.
  *  - **Tools** - Apps, Shortcuts, Scripts, and Trawl when it is installed.
- *  - **Filet** - [SpecialPanes.PINNED]: Activity, Settings, About, Stop Filet. Always open, so
+ *  - **Filet** - [SpecialPanes.PINNED]: Activity, Settings, About, Shutdown Filet. Always open, so
  *    Settings and Stop are never behind a shut fold. At the end of the scroll in both surfaces:
  *    pinned below the rail, a titled card costs half the height of a phone in landscape.
  *
  * A fold's heading takes a hold: Rearrange or Hide, see [SectionMenu]. Rearrange turns the folds
  * into the [SectionEditor], the same one Home uses. The Filet card moves but never hides - it
- * holds Settings and Stop Filet, and a side bar without them has no way back to either. Rows
+ * holds Settings and Shutdown Filet, and a side bar without them has no way back to either. Rows
  * inside a fold take no hold; Quick access is managed from the Bookmarks list.
  *
  * @param onGo called after any row is acted on, so the drawer can close itself.
@@ -251,7 +251,7 @@ internal val DRAWER_CARDS = listOf(
     SectionSpec(FILET_CARD, "Filet", hideable = false),
 )
 
-/** Never hidden: Settings and Stop Filet live in it. */
+/** Never hidden: Settings and Shutdown Filet live in it. */
 internal val DRAWER_LOCKED = setOf(FILET_CARD)
 
 internal fun cardIdOf(fold: SpecialPanes.Fold): String = when (fold) {

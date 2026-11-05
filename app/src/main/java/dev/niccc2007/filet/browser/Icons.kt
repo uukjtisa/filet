@@ -156,7 +156,7 @@ object FiletIcons {
         "m7.5 11.5 5 5M12.5 11.5l-5 5",
         width = 1.7f,
     )
-    /** Stop Filet. The standby mark rather than a cross, because closing a screen is not this. */
+    /** Shutdown Filet. The standby mark rather than a cross, because closing a screen is not this. */
     val Power = stroke("power", "M12 3.5v8", "M7.2 6.4a7.5 7.5 0 1 0 9.6 0", width = 1.9f)
     val Plus = stroke("plus", "M12 5v14M5 12h14", width = 1.9f)
     val NewFolder = stroke("newfolder", "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", "M12 10v6M9 13h6")

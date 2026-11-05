@@ -33,7 +33,7 @@ class SpecialPanesTest {
     }
 
     @Test
-    fun `stop filet is pinned, last, where both surfaces draw it`() {
+    fun `shutdown filet is pinned, last, where both surfaces draw it`() {
         // Both the switcher and the rail iterate PINNED, so being in this list is being on
         // both surfaces - see check-pinned.mjs for the half of that a test cannot see.
         assertEquals(SpecialPanes.Pinned.STOP, SpecialPanes.PINNED.last())
