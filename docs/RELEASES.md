@@ -58,8 +58,11 @@ is being built, fixes still have to reach a phone. They go onto a staging number
 and installed but never released; when the large one ships it carries them. If a fix in there
 cannot wait, the staging version publishes on its own and the staging line moves on.
 
-**STAGING: none.** 0.1.20 was the staging number through the redesign round and was never
-published; everything it collected ships as 0.2.0, which the build now declares.
+**STAGING: 0.2.1.** The build declares it so a phone running work in progress is told apart
+from one running 0.2.0. It publishes on its own only if a fix cannot wait for the next release.
+
+0.1.20 was the staging number through the redesign round and was never published; everything
+it collected shipped as 0.2.0.
 
 0.1.19 published on the staging number too, and it is the largest case this rule has covered:
 a tree view, a rebuilt Aurora player and a Home screen that folds are all MINOR by the bump
@@ -92,9 +95,16 @@ the network work in it — one remote holding several addresses, and archives an
 a share — was worth more to somebody on a second device than waiting for the redesign to finish
 was worth to anybody. The staging line moves on rather than being deleted; 0.2.0 is unchanged.
 
-**NEXT: 0.2.0** — the redesign release. It replaces the visual language of every screen and
-changes what a file row shows by default. Somebody updating from 0.1.8 opens an app that does
-not look like the one they closed.
+**NEXT: 0.3.0.** From 0.2.0 on the bump table is followed as written, with no exceptions for
+a number being reserved: the staging habit above spent 0.1.9 to 0.1.19 on releases the table
+called MINOR, and a version number that does not say what changed is not doing its job. The
+next release carries videos opening paused under a preview, selection in Categories and New
+files, and a sound sheet with effects - a change to what an existing screen shows by default,
+and new tools - so it is MINOR. The fixes the 0.2.0 notes promised for 0.2.1 ride in it, and
+its notes say so in the first section.
+
+0.2.0 was the redesign release. It replaced the visual language of every screen and changed
+what a file row shows by default.
 
 Decision: the brand-new tools drawn in the same round - a storage tool, the metadata writer's
 screen, the appoint tray, an XAPK inspector, an app icon picker and an intro - follow on 0.2.x
