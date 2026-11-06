@@ -330,6 +330,8 @@ class Playback(
          * would wipe the source every time somebody picked a track out of the list.
          */
         from: String? = null,
+        /** Start at 0:00 even when this track is the one already playing. See [PlayAction]. */
+        fromStart: Boolean = false,
     ) {
         if (tracks.isEmpty()) return
         _asAudio.value = asAudio
@@ -340,11 +342,15 @@ class Playback(
             queue = tracks, index = safe, active = true, error = null,
             from = from ?: now.from,
         )
-        if (sameTrack && player != null && startAtMs <= 0L) {
-            onServiceWanted(PlaybackNotice.shouldKeepService(_state.value))
-            return
+        when (PlayAction.of(sameTrack, loaded = player != null, fromStart = fromStart, startAtMs = startAtMs)) {
+            PlayAction.KEEP -> onServiceWanted(PlaybackNotice.shouldKeepService(_state.value))
+            PlayAction.FROM_START -> {
+                seekTo(0L)
+                if (!_state.value.playing) resume()
+                onServiceWanted(PlaybackNotice.shouldKeepService(_state.value))
+            }
+            PlayAction.LOAD -> load(restart = true, startAtMs = startAtMs)
         }
-        load(restart = true, startAtMs = startAtMs)
     }
 
     /**
@@ -1130,4 +1136,34 @@ class Playback(
  */
 internal object LoadTurn {
     fun handsOver(mine: Long, newest: Long, cancelled: Boolean): Boolean = !cancelled && mine == newest
+}
+
+/**
+ * What [Playback.play] does with a request. Pure, so "from the start" is a test.
+ *
+ * Bug identified here: the same track, already loaded, asked for with no start position, is a
+ * no-op, so coming back to the player never interrupts it. "From the start" in Carry on also
+ * arrives with no start position (0:00), so on the track already playing it did nothing and the
+ * track carried on where it was. A start of 0 cannot say both "no request" and "from the start",
+ * so the second has its own flag.
+ */
+internal enum class PlayAction {
+    /** Already playing this: leave it where it is. */
+    KEEP,
+
+    /** Already playing this, and asked to start over: back to 0:00 without reopening it. */
+    FROM_START,
+
+    /** Open the track, at the position asked for or the remembered one. */
+    LOAD,
+    ;
+
+    companion object {
+        fun of(sameTrack: Boolean, loaded: Boolean, fromStart: Boolean, startAtMs: Long): PlayAction = when {
+            !sameTrack || !loaded -> LOAD
+            fromStart -> FROM_START
+            startAtMs <= 0L -> KEEP
+            else -> LOAD
+        }
+    }
 }

@@ -6746,6 +6746,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                     startAtMs = if (fromStart) 0L else point.positionMs,
                     asAudio = !point.video,
                     from = "",
+                    fromStart = fromStart,
                 )
             } else {
                 val one = dev.niccc2007.filet.playback.tracksOf(listOf(node))
@@ -6755,6 +6756,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                     startAtMs = if (fromStart) 0L else point.positionMs,
                     asAudio = !point.video,
                     from = "",
+                    fromStart = fromStart,
                 )
             }
             maximisePlayer()
