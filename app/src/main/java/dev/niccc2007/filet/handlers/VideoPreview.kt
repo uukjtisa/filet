@@ -82,14 +82,16 @@ import kotlin.coroutines.resume
  * ## Stopped
  *
  * Back while the video plays comes here instead of leaving, with the picture it stopped on and
- * the time it carries on from. Play carries on from there; the menu has Play from the start.
- * Not the glimpse again: a glimpse of other parts of the video above a Play that goes back to
- * the middle of it would show one thing and do another.
+ * the time it carries on from. So does a video with a place saved for Carry on, opened again or
+ * scrolled back to: see [VideoResume]. Play carries on from there; the menu has Play from the
+ * start. Not the glimpse again: a glimpse of other parts of the video above a Play that goes
+ * back to the middle of it would show one thing and do another.
  *
  * A tap anywhere on the picture plays, as the button does: the button is where the eye goes, the
  * picture is where the thumb already is. A swipe still moves through the run.
  *
- * @param stoppedAt where Back stopped it, or 0 for a video just opened.
+ * @param playFrom where Play carries on from, the saved place or where Back stopped it, or 0 for
+ *   a video with nowhere to carry on from. See [VideoResume.playFrom].
  * @param still the frame it stopped on, read off the screen as it stopped; null to read it from
  *   the file instead.
  * @param onPlay play with sound, from this position.
@@ -98,7 +100,7 @@ import kotlin.coroutines.resume
 internal fun VideoPreview(
     vm: BrowserViewModel,
     node: VNode,
-    stoppedAt: Long,
+    playFrom: Long,
     still: Bitmap?,
     onPlay: (fromMs: Long) -> Unit,
 ) {
@@ -112,22 +114,22 @@ internal fun VideoPreview(
     dev.niccc2007.filet.ui.theme.DarkGround(ViewerGround.of(grey)) {
         // The viewer's ground, black or grey by the More menu's switch, as the picture viewer's is.
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
-            if (stoppedAt > 0L) {
-                StoppedStill(vm, node, stoppedAt, still)
+            if (playFrom > 0L) {
+                StoppedStill(vm, node, playFrom, still)
             } else {
                 RunPoster(node, video = false)
                 GlimpseLoop(vm, node, progress)
             }
             // The tap, on a layer of its own over the picture: the glimpse is a view of its own
             // under it, and a view can keep a touch from what is around it.
-            Box(Modifier.matchParentSize().clickable(onClickLabel = "Play") { onPlay(stoppedAt) })
+            Box(Modifier.matchParentSize().clickable(onClickLabel = "Play") { onPlay(playFrom) })
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 PlayMark()
-                if (stoppedAt > 0L) {
+                if (playFrom > 0L) {
                     Spacer(Modifier.height(10.dp))
                     // On a dark disc of its own, like the mark: it sits on a photograph.
                     Text(
-                        "From ${clockOf(stoppedAt)}",
+                        VideoResume.label(playFrom),
                         color = Color.White,
                         fontSize = 12.sp,
                         modifier = Modifier
@@ -146,7 +148,7 @@ internal fun VideoPreview(
                     menuOpen = menu,
                     onMenu = { menu = it },
                 ) {
-                    if (stoppedAt > 0L) {
+                    if (playFrom > 0L) {
                         PopRow(FiletIcons.Play, "Play from the start") { menu = false; onPlay(0L) }
                         PopSeparator()
                     }
@@ -167,7 +169,7 @@ internal fun VideoPreview(
             // of it rather than under it.
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (stoppedAt == 0L && progress.showing && progress.segments > 0) {
+                    if (playFrom == 0L && progress.showing && progress.segments > 0) {
                         GlimpseBar(progress, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
                     }
                     ViewerActionBar {

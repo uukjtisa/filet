@@ -242,6 +242,14 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     // Where Back stopped it and the picture it stopped on; 0 and none until it has played.
     var stoppedAt by remember(node.path) { mutableLongStateOf(0L) }
     var still by remember(node.path) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    // What the preview's Play asked for, the place it offered or the start; null when the screen
+    // opened playing.
+    var playAt by remember(node.path) { mutableStateOf<Long?>(null) }
+    // The saved place, read again whenever the record settles - a pause, a Back, a leaving - so
+    // the preview offers it after being scrolled away and back. See VideoResume.
+    val saves by vm.playback.resume.changes.collectAsStateWithLifecycle()
+    val saved = remember(node.path, saves) { vm.playback.resume.positionOf(node.path.toString()) }
+    val from = VideoResume.playFrom(saved, stoppedAt)
 
     // The picture gets the whole screen, previewing or playing. Restored automatically when this
     // screen is left.
@@ -251,14 +259,17 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     // looked through.
     HoldRunSwipe(face == VideoStart.Face.PLAYING)
     when (face) {
-        VideoStart.Face.PREVIEW -> VideoPreview(vm, node, stoppedAt, still) { from ->
-            stoppedAt = from
+        // The frame Back stopped on only goes with the time it was stopped at: a place saved
+        // since, elsewhere, has its own frame read from the file.
+        VideoStart.Face.PREVIEW -> VideoPreview(vm, node, from, still.takeIf { from == stoppedAt }) { at ->
+            playAt = at
             still = null
             face = VideoStart.Face.PLAYING
         }
-        VideoStart.Face.PLAYING -> VideoPlayer(vm, node, startAt = stoppedAt) { at, frame ->
+        VideoStart.Face.PLAYING -> VideoPlayer(vm, node, startAt = playAt ?: from) { at, frame ->
             stoppedAt = at
             still = frame
+            playAt = null
             face = VideoStart.Face.PREVIEW
         }
     }
@@ -687,6 +698,43 @@ private fun VideoPlayer(
         position = target
     }
 
+    // Carry on's record of this video. This screen plays on its own player, which the music
+    // player's record never sees, so it writes the place down itself. See VideoResume.
+    val resumeTrack = remember(node.path) { dev.niccc2007.filet.playback.tracksOf(listOf(node)).first() }
+    fun saveResume(atMs: Long? = null) {
+        // Nothing to write before the video has opened, and nothing once the music player has
+        // the sound: that player keeps the record from the moment it takes over.
+        if (duration <= 0L || handingOver || handedOver) return
+        val at = atMs
+            ?: runCatching { handle.player?.currentPosition?.toLong() }.getOrNull()?.coerceAtLeast(0L)
+            ?: position
+        runCatching {
+            vm.playback.resume.put(
+                path = resumeTrack.id,
+                title = resumeTrack.title,
+                video = true,
+                positionMs = at,
+                durationMs = duration,
+                settled = true,
+            )
+        }
+    }
+    // Every pause writes it - the button, a tap on the picture, the headphones coming out, focus
+    // lost, a frame step - so it is one watch on `playing` rather than a line beside each.
+    LaunchedEffect(node.path) {
+        snapshotFlow { playing }.collect { if (!it) saveResume() }
+    }
+    // And the app leaving the foreground, which can be the last this screen hears before the
+    // process is killed.
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, node.path) {
+        val watch = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) saveResume()
+        }
+        lifecycle.addObserver(watch)
+        onDispose { lifecycle.removeObserver(watch) }
+    }
+
     /**
      * Where the video is now, to step from.
      *
@@ -798,11 +846,12 @@ private fun VideoPlayer(
     fun stopToPreview() {
         stopping = true
         val at = runCatching { handle.player?.currentPosition?.toLong() }.getOrNull()?.coerceAtLeast(0L) ?: position
+        // Written down before the preview comes up, so the preview opens on it. See VideoResume.
+        saveResume(at)
         val v = handle.view
         runCatching { v?.pause() }
         playing = false
-        // The picture as it was on the screen, read before the player goes. The position is
-        // kept for this viewer only: nothing here writes it down for Carry on, as before.
+        // The picture as it was on the screen, read before the player goes.
         scope.launch { onStop(at, v?.let { captureStill(it) }) }
     }
     fun back() = if (backToPreview()) stopToPreview() else vm.closeHandler()
@@ -1035,6 +1084,10 @@ private fun VideoPlayer(
             // that does it, while this screen is still running - see `handingOver`. A
             // rotation therefore needs no special case at all: it disposes, rebuilds, and
             // reopens the video, which is what turning a phone sideways should do.
+            //
+            // Where it got to is written down first, while the player can still say: leaving is
+            // one of the places Carry on carries on from.
+            saveResume()
             runCatching {
                 handle.sound?.close()
                 handle.sound = null
@@ -1164,8 +1217,14 @@ private fun VideoPlayer(
                             // the same moment of the file; the sound is stopped on the line
                             // before the picture starts, so the gap is a seek rather than a
                             // prepare.
+                            //
+                            // Until the music player has a position of its own, the saved place
+                            // is the one it was asked for: see VideoResume.takeOverAt.
                             if (takingOver) {
-                                resumeAt = vm.playback.state.value.positionMs
+                                resumeAt = VideoResume.takeOverAt(
+                                    vm.playback.state.value.positionMs,
+                                    vm.playback.resume.positionOf(node.path.toString()),
+                                )
                                 vm.playback.stop()
                                 takingOver = false
                             }
@@ -1184,6 +1243,10 @@ private fun VideoPlayer(
                             // Only reached when repeat is off: a looping MediaPlayer never
                             // completes. Rewinding rather than sitting on a black last frame,
                             // so the play button does what it says.
+                            //
+                            // Finished is the one state with no place to carry on from, so the
+                            // record goes, as the music player's does.
+                            runCatching { vm.playback.resume.forget(resumeTrack.id) }
                             playing = false
                             chromeVisible = true
                             position = 0L
