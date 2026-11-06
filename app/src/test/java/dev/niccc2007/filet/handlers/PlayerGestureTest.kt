@@ -17,6 +17,7 @@ import org.junit.Test
 class PlayerGestureTest {
 
     private val W = 1080f
+    private val DENSITY = 2.75f
     private val H = 2400f
 
     // ── which control ──
@@ -179,11 +180,15 @@ class PlayerGestureTest {
 
     // ── seeking by drag ──
 
+    /** A drag on the picture from [startMs] on a video of [d] ms: one event of [dx] px. */
+    private fun seek(startMs: Long, dx: Float, d: Long, track: Float = W): Long =
+        PlayerGesture.SeekDrag(startMs, d, DENSITY).also { it.move(dx, 0f, track) }.target()
+
     @Test
     fun `dragging right goes forward and left goes back`() {
         val d = 300_000L
-        assertTrue(PlayerGesture.seekAfter(100_000L, 300f, W, d) > 100_000L)
-        assertTrue(PlayerGesture.seekAfter(100_000L, -300f, W, d) < 100_000L)
+        assertTrue(seek(100_000L, 300f, d) > 100_000L)
+        assertTrue(seek(100_000L, -300f, d) < 100_000L)
     }
 
     @Test
@@ -191,16 +196,13 @@ class PlayerGestureTest {
         // Unlike the progress bar, where the position under the finger is the position. The
         // picture is a nudge from here; the bar is a jump to there.
         val d = 300_000L
-        assertEquals(
-            PlayerGesture.seekAfter(10_000L, 200f, W, d) - 10_000L,
-            PlayerGesture.seekAfter(200_000L, 200f, W, d) - 200_000L,
-        )
+        assertEquals(seek(10_000L, 200f, d) - 10_000L, seek(200_000L, 200f, d) - 200_000L)
     }
 
     @Test
     fun `a short clip is covered once by a drag the width of the bar`() {
         val short = 30_000L
-        assertEquals(short, PlayerGesture.seekAfter(0L, W, W, short))
+        assertEquals(short, seek(0L, W, short))
     }
 
     @Test
@@ -211,17 +213,17 @@ class PlayerGestureTest {
         val moves = listOf(1f, 37f, 250f, -180f, 900f)
         for (d in durations) for (dx in moves) {
             val start = d / 3
-            val bar = Scrub.barMove(start.toDouble(), dx, W, d, pullDp = 0f, pxPerDp = 2.75f)!!.toLong()
-            assertEquals("duration $d, dx $dx", bar, PlayerGesture.seekAfter(start, dx, W, d))
+            val bar = Scrub.barMove(start.toDouble(), dx, W, d, pullDp = 0f, pxPerDp = DENSITY)!!.toLong()
+            assertEquals("duration $d, dx $dx", bar, seek(start, dx, d))
         }
     }
 
     @Test
     fun `one bar's width covers the whole of an hour or two hours`() {
         for (d in listOf(60 * 60_000L, 2 * 60 * 60_000L)) {
-            assertEquals(d, PlayerGesture.seekAfter(0L, W, W, d))
-            assertEquals(0L, PlayerGesture.seekAfter(d, -W, W, d))
-            assertEquals(d / 2, PlayerGesture.seekAfter(0L, W / 2, W, d))
+            assertEquals(d, seek(0L, W, d))
+            assertEquals(0L, seek(d, -W, d))
+            assertEquals(d / 2, seek(0L, W / 2, d))
         }
     }
 
@@ -229,7 +231,80 @@ class PlayerGestureTest {
     fun `a long video is not capped at ninety seconds a sweep`() {
         // The old pace: a quarter of the width on an hour-long video moved 22.5 seconds.
         val hour = 60 * 60_000L
-        assertEquals(15 * 60_000L, PlayerGesture.seekAfter(0L, W / 4, W, hour))
+        assertEquals(15 * 60_000L, seek(0L, W / 4, hour))
+    }
+
+    @Test
+    fun `it never seeks outside the video`() {
+        val d = 60_000L
+        assertEquals(d, seek(50_000L, W * 10, d))
+        assertEquals(0L, seek(10_000L, -W * 10, d))
+    }
+
+    @Test
+    fun `an unknown duration seeks nowhere`() {
+        assertEquals(5_000L, seek(5_000L, 500f, d = 0L))
+    }
+
+    // ── the bar's gears, on the picture ──
+
+    /** Pull the finger [dp] up or down from where the seek began, without moving along. */
+    private fun PlayerGesture.SeekDrag.pull(dp: Float) = move(0f, dp * DENSITY, W)
+
+    @Test
+    fun `a seek starts in the normal gear`() {
+        val drag = PlayerGesture.SeekDrag(60_000L, 3_600_000L, DENSITY)
+        drag.move(200f, 0f, W)
+        assertEquals(Scrub.Mode.NORMAL, drag.mode)
+    }
+
+    @Test
+    fun `pulling past the bar's quarter distance moves a quarter as far`() {
+        val hour = 3_600_000L
+        val drag = PlayerGesture.SeekDrag(600_000L, hour, DENSITY)
+        drag.pull(Scrub.QUARTER_DP)
+        assertEquals(Scrub.Mode.QUARTER, drag.mode)
+        drag.move(W / 4, 0f, W)
+        // A quarter of the width is a quarter of the hour at full pace: a sixteenth of it here.
+        assertEquals(600_000L + hour / 16, drag.target())
+    }
+
+    @Test
+    fun `pulling past the bar's fine distance lands on whole seconds`() {
+        val drag = PlayerGesture.SeekDrag(600_000L, 3_600_000L, DENSITY)
+        drag.pull(Scrub.FINE_DP)
+        assertEquals(Scrub.Mode.FINE, drag.mode)
+        drag.move(37f, 0f, W)
+        assertEquals(0L, drag.target() % 1_000L)
+        // Fine is a second per FINE_DP_PER_SECOND dp of travel, or slower.
+        val moved = drag.target() - 600_000L
+        assertTrue("moved $moved ms", moved in 0L..((37f / DENSITY / Scrub.FINE_DP_PER_SECOND) * 1_000L + 1_000L).toLong())
+    }
+
+    @Test
+    fun `up and down both change gear, and coming back goes back to normal`() {
+        val drag = PlayerGesture.SeekDrag(0L, 3_600_000L, DENSITY)
+        drag.pull(-Scrub.QUARTER_DP)
+        assertEquals("pulled up", Scrub.Mode.QUARTER, drag.mode)
+        drag.pull(Scrub.QUARTER_DP)
+        assertEquals("back where it began", Scrub.Mode.NORMAL, drag.mode)
+    }
+
+    @Test
+    fun `the gears are the bar's own arithmetic`() {
+        // Each event goes through Scrub.barMove with the pull so far, so a gear on the picture
+        // and the same gear on the bar move the same distance for the same finger.
+        val d = 2 * 3_600_000L
+        val drag = PlayerGesture.SeekDrag(1_000_000L, d, DENSITY)
+        var bar = 1_000_000.0
+        var pull = 0f
+        for ((dx, dyDp) in listOf(120f to 0f, 80f to 30f, 60f to 30f, 40f to 70f, -25f to 0f)) {
+            drag.move(dx, dyDp * DENSITY, W)
+            pull += dyDp
+            bar = Scrub.barMove(bar, dx, W, d, pull, DENSITY)!!
+        }
+        assertEquals(Scrub.Mode.FINE, drag.mode)
+        assertEquals(Scrub.wholeSecond(bar, d), drag.target())
     }
 
     @Test
@@ -244,18 +319,6 @@ class PlayerGestureTest {
         assertEquals("never drawn", 1080f, PlayerGesture.seekTrackPx(1080f, 0f), 0f)
         assertEquals("landscape's bar after turning to portrait", 1080f, PlayerGesture.seekTrackPx(1080f, 2323f), 0f)
         assertEquals("portrait's bar after turning to landscape", 2400f, PlayerGesture.seekTrackPx(2400f, 1003f), 0f)
-    }
-
-    @Test
-    fun `it never seeks outside the video`() {
-        val d = 60_000L
-        assertEquals(d, PlayerGesture.seekAfter(50_000L, W * 10, W, d))
-        assertEquals(0L, PlayerGesture.seekAfter(10_000L, -W * 10, W, d))
-    }
-
-    @Test
-    fun `an unknown duration seeks nowhere`() {
-        assertEquals(5_000L, PlayerGesture.seekAfter(5_000L, 500f, W, durationMs = 0L))
     }
 
     @Test

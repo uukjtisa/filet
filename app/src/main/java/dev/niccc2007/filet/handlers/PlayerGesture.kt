@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.handlers
 
+import dev.niccc2007.filet.playback.Scrub
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -165,24 +166,48 @@ object PlayerGesture {
     }
 
     /**
-     * Where a sideways drag on the picture seeks to: from where the video was when the drag
-     * began, at the progress bar's own pace.
+     * A sideways drag on the picture, event by event: where it seeks to, and in which gear.
      *
      * Relative, unlike the bar, where the position under the finger is the position: dragging the
-     * picture is a nudge from here, dragging the bar is a jump to there. The pace is the bar's -
-     * one bar's width of travel is the whole video - because the picture used to cover at most
-     * ninety seconds per sweep. On an hour-long video that was forty times slower than the bar,
-     * and the longer the video the further a drag on the picture fell behind.
+     * picture is a nudge from here, dragging the bar is a jump to there. Everything else is the
+     * bar's. The pace - one bar's width of travel is the whole video - because the picture used
+     * to cover at most ninety seconds per sweep, forty times slower than the bar on an hour-long
+     * video. And the gears: once the drag is a seek, moving the finger up or down by the bar's own
+     * distances drops to a quarter of the pace past `Scrub.QUARTER_DP` and to whole seconds past
+     * `Scrub.FINE_DP`, exactly as pulling away from the bar does, and back again on the way back.
      *
-     * The rate is `Scrub.barMove`'s at its normal speed, written the same way, so the two cannot
-     * drift apart. The test holds them to it.
+     * Every event moves through `Scrub.barMove` itself, so the picture and the bar are one piece
+     * of arithmetic rather than two that can drift. The pull is counted from where the seek
+     * began, so the slant of the drag that made it a seek does not change gear on its own; up and
+     * down both count, as they do on the bar.
      *
-     * @param trackPx the width of the progress bar the pace is taken from. See [seekTrackPx].
+     * @param startMs where the video was when the drag began.
+     * @param pxPerDp the screen's density, for the gear distances.
      */
-    fun seekAfter(startMs: Long, dxPx: Float, trackPx: Float, durationMs: Long): Long {
-        if (durationMs <= 0L || trackPx <= 0f) return startMs.coerceAtLeast(0L)
-        val at = startMs + dxPx * (durationMs.toDouble() / trackPx)
-        return at.coerceIn(0.0, durationMs.toDouble()).toLong()
+    class SeekDrag(startMs: Long, private val durationMs: Long, private val pxPerDp: Float) {
+        private var atMs = startMs.coerceAtLeast(0L).toDouble()
+        private var pullDp = 0f
+
+        /** The gear the pull has reached, named on screen while it is in use. */
+        val mode: Scrub.Mode get() = Scrub.modeFor(pullDp)
+
+        /**
+         * One event: [dxPx] along, [dyPx] up or down.
+         *
+         * @param trackPx the width of the progress bar the pace is taken from. See [seekTrackPx].
+         */
+        fun move(dxPx: Float, dyPx: Float, trackPx: Float) {
+            pullDp += dyPx / pxPerDp.coerceAtLeast(0.1f)
+            atMs = Scrub.barMove(atMs, dxPx, trackPx, durationMs, pullDp, pxPerDp) ?: atMs
+        }
+
+        /** Where letting go lands: whole seconds once fine, as on the bar. */
+        fun target(): Long = when {
+            // Unknown length: barMove moved nothing, and nothing is clamped against zero.
+            durationMs <= 0L -> atMs.toLong()
+            mode == Scrub.Mode.FINE -> Scrub.wholeSecond(atMs, durationMs) ?: atMs.toLong()
+            else -> atMs.toLong().coerceIn(0L, durationMs)
+        }
     }
 
     /**

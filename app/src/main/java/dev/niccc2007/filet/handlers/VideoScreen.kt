@@ -304,6 +304,8 @@ private fun VideoPlayer(
     // The progress bar's width, so a drag on the picture moves at the bar's pace. See
     // PlayerGesture.seekTrackPx for why it is checked before it is used.
     var seekBarPx by remember { mutableFloatStateOf(0f) }
+    // The gear a drag on the picture is in, named under the time while it is not the normal one.
+    var seekGear by remember(node.path) { mutableStateOf(dev.niccc2007.filet.playback.Scrub.Mode.NORMAL) }
     var chromeVisible by remember(node.path) { mutableStateOf(true) }
 
     // The playback zoom. Same value type as the image viewer, so the arithmetic and its tests
@@ -1414,6 +1416,8 @@ private fun VideoPlayer(
                         // which pushes this box down under a still finger. See
                         // PlayerGesture.Travel for the bug that made.
                         val travel = PlayerGesture.Travel()
+                        // Made when the drag turns out to be a seek. See PlayerGesture.SeekDrag.
+                        var seek: PlayerGesture.SeekDrag? = null
                         detectDragGestures(
                             onDragStart = { at ->
                                 startX = at.x
@@ -1422,18 +1426,23 @@ private fun VideoPlayer(
                                 startHeight = size.height.toFloat()
                                 startPosition = position
                                 travel.reset()
+                                seek = null
                                 kind = PlayerGesture.Drag.NONE
                                 wake()
                             },
                             onDragEnd = {
                                 if (kind == PlayerGesture.Drag.SEEK) scrubTo?.let { seekTo(it) }
                                 scrubTo = null
+                                seek = null
+                                seekGear = dev.niccc2007.filet.playback.Scrub.Mode.NORMAL
                                 kind = PlayerGesture.Drag.NONE
                                 levelKind = PlayerGesture.Drag.NONE
                                 wake()
                             },
                             onDragCancel = {
                                 scrubTo = null
+                                seek = null
+                                seekGear = dev.niccc2007.filet.playback.Scrub.Mode.NORMAL
                                 kind = PlayerGesture.Drag.NONE
                                 levelKind = PlayerGesture.Drag.NONE
                             },
@@ -1465,11 +1474,18 @@ private fun VideoPlayer(
                             }
                             when (kind) {
                                 PlayerGesture.Drag.SEEK -> if (duration > 0L) {
-                                    scrubTo = PlayerGesture.seekAfter(
-                                        startPosition, dx,
-                                        PlayerGesture.seekTrackPx(size.width.toFloat(), seekBarPx),
-                                        duration,
-                                    )
+                                    val track = PlayerGesture.seekTrackPx(size.width.toFloat(), seekBarPx)
+                                    val going = seek
+                                    if (going == null) {
+                                        // The travel that made it a seek, at the normal pace:
+                                        // nothing has pulled yet.
+                                        seek = PlayerGesture.SeekDrag(startPosition, duration, density)
+                                            .also { it.move(dx, 0f, track) }
+                                    } else {
+                                        going.move(moved.x, moved.y, track)
+                                    }
+                                    scrubTo = seek?.target()
+                                    seekGear = seek?.mode ?: dev.niccc2007.filet.playback.Scrub.Mode.NORMAL
                                 }
                                 PlayerGesture.Drag.BRIGHTNESS -> {
                                     val level = PlayerGesture.levelAfter(startLevel, dy, startHeight)
@@ -1665,6 +1681,17 @@ private fun VideoPlayer(
                             color = Color.White.copy(alpha = 0.75f), fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                         )
+                        // The gear, said while it is in use, as the bar says it: a finger moving
+                        // as far as before and the time moving a quarter as far reads as a fault
+                        // unless something names it.
+                        if (seekGear != dev.niccc2007.filet.playback.Scrub.Mode.NORMAL) {
+                            Text(
+                                seekGear.label,
+                                color = Filet.colors.accent, fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(top = 3.dp),
+                            )
+                        }
                     }
                 }
             }
