@@ -54,6 +54,15 @@ fun CategoryScreen(vm: BrowserViewModel, pane: dev.niccc2007.filet.browser.PaneC
     var collapsed by dev.niccc2007.filet.browser.rememberKeptSet("category.collapsed:" + category.id)
     var menuFor by remember(category) { mutableStateOf<VNode?>(null) }
     var peekFor by remember(category) { mutableStateOf<VNode?>(null) }
+    // The gallery's Select: choosing, with nothing picked yet. See `GallerySelect`.
+    var choosing by remember(category) { mutableStateOf(false) }
+    val stopChoosing = {
+        pane.clearSelection()
+        choosing = false
+    }
+    // Back leaves choosing in one press, the picks with it. Through the pane's inner-back claim,
+    // not a BackHandler: see `InnerBack`.
+    dev.niccc2007.filet.browser.InnerBack(vm, enabled = choosing) { stopChoosing() }
 
     // The refresh button's half of it: the media scanner adds rows while this pane is open,
     // so a photo taken and then come back to must be able to appear. See `RefreshTarget.CATEGORY`.
@@ -131,6 +140,9 @@ fun CategoryScreen(vm: BrowserViewModel, pane: dev.niccc2007.filet.browser.PaneC
 
     val stored by vm.prefs.categoryLayouts.collectAsStateWithLifecycle()
     val layout = CategoryLayout.of(stored, category)
+    val gallery = layout == CategoryLayout.GALLERY
+    // The list has no Select: a hold selects there. Choosing ends with the gallery.
+    androidx.compose.runtime.LaunchedEffect(gallery) { if (!gallery) choosing = false }
     val header: @Composable () -> Unit = {
         TabHeader(category.label) {
             // The same exclusive-pair control New files uses for its two orders, because it is
@@ -139,6 +151,25 @@ fun CategoryScreen(vm: BrowserViewModel, pane: dev.niccc2007.filet.browser.PaneC
                 SortPair(CategoryLayout.entries.map { it.label }, layout.label) { picked ->
                     val next = CategoryLayout.entries.first { it.label == picked }
                     if (next != layout) vm.prefs.setCategoryLayout(category.id, next)
+                }
+            }
+            // Select, as Photos has it, so choosing is something the gallery shows it can do
+            // rather than something found by holding. See `GallerySelect`.
+            if (gallery) {
+                val picked = pick.selection.value.size
+                if (GallerySelect.cancelShown(choosing, picked)) {
+                    androidx.compose.foundation.layout.Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(9.dp),
+                    ) {
+                        dev.niccc2007.filet.ui.tabs.TabButton("Cancel") { stopChoosing() }
+                        Text(GallerySelect.headline(picked), fontSize = 11.5.sp, color = colors.fg2)
+                    }
+                } else {
+                    dev.niccc2007.filet.ui.tabs.TabButton("Select", icon = FiletIcons.Check) {
+                        vm.focusPane(pane)
+                        choosing = true
+                    }
                 }
             }
         }
@@ -187,6 +218,7 @@ fun CategoryScreen(vm: BrowserViewModel, pane: dev.niccc2007.filet.browser.PaneC
             empty = { if (narrowedAway) dev.niccc2007.filet.ui.NoMatch(query) else CategoryEmpty(category, result) },
             onFold = fold,
             pick = pick,
+            choosing = choosing,
             // A held tile lifts into its peek; the row sheet is one tap on from it (More).
             onPeek = { peekFor = it },
             onUnpeek = { peekFor = null },

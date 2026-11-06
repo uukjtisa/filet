@@ -85,6 +85,8 @@ import kotlinx.coroutines.launch
  * A tap opens, or toggles while selecting. A hold lifts the tile into its peek, or with a
  * selection running extends to it ([ListPick]). A slide after the hold selects the run the finger
  * crosses, and scrolls when it reaches the top or bottom edge, so a month of photos is one stroke.
+ * After the header's Select, with nothing picked yet, a tap picks and a hold starts the run
+ * rather than the peek. See [GallerySelect].
  *
  * That last part is why the handler is the grid's. A tile's own handler dies with the tile, and
  * a slide that scrolls is exactly the gesture that carries its first tile off the screen and out
@@ -101,6 +103,8 @@ internal fun CategoryGallery(
     empty: @Composable () -> Unit,
     onFold: (DayGroup) -> Unit,
     pick: ListPick,
+    /** The header's Select is on: choosing, though nothing may be picked yet. See [GallerySelect]. */
+    choosing: Boolean,
     /** Lift a held tile into its peek. */
     onPeek: (VNode) -> Unit,
     /** Put the peek away: the finger moved after the hold, which makes it a slide. */
@@ -111,7 +115,7 @@ internal fun CategoryGallery(
     // picture; a bare picture for photos and videos, where the picture IS the file.
     val captioned = category == MediaCategory.AUDIO
     val cells = remember(groups, collapsed) { GalleryCells.of(groups, collapsed) }
-    val selecting = pick.running()
+    val selecting = pick.running() || choosing
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val slide = remember { Slide() }
@@ -158,15 +162,19 @@ internal fun CategoryGallery(
         val hands = GalleryHands(
             tileAt = ::tileAt,
             tap = { t ->
-                pick.tap(t.node) { vm.openHomeEntry(t.node, cells.mapNotNull { (it as? GalleryCell.Tile)?.node }) }
+                pick.tap(t.node, choosing) { vm.openHomeEntry(t.node, cells.mapNotNull { (it as? GalleryCell.Tile)?.node }) }
             },
             hold = { t ->
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 val now = pick.pane.state.value.selected
                 slide.start = t.node.path
                 slide.last = null
-                // Decided once, at the press, by what it found: see `longPressAction`.
-                when (dev.niccc2007.filet.browser.longPressAction(now.size, t.node.path in now)) {
+                // Decided once, at the press, by what it found: see `longPressAction`. Choosing with
+                // nothing picked comes first: the hold picks this tile and the slide picks the run.
+                if (GallerySelect.holdStartsRun(choosing, now.size)) {
+                    slide.adding = true
+                    pick.selectOnly(t.node)
+                } else when (dev.niccc2007.filet.browser.longPressAction(now.size, t.node.path in now)) {
                     dev.niccc2007.filet.browser.LongPressAction.MENU -> {
                         slide.adding = true
                         slide.peeking = true
