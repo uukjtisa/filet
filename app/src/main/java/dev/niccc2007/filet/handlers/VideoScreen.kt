@@ -246,13 +246,12 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     // What the preview's Play asked for, the place it offered or the start; null when the screen
     // opened playing.
     var playAt by remember(node.path) { mutableStateOf<Long?>(null) }
-    // The saved place, read again whenever the record settles - a pause, a Back, a leaving - and
-    // the last stop, which the app holds while it runs, so the preview offers where this video
-    // was left after being scrolled away and back. See VideoResume.
+    // The saved place, read again whenever the record settles - a pause, a Back, a leaving - so
+    // the preview offers where this video was left after being scrolled away and back. See
+    // VideoResume.
     val saves by vm.playback.resume.changes.collectAsStateWithLifecycle()
-    val saved = remember(node.path, saves) { vm.playback.resume.positionOf(node.path.toString()) }
-    val stops by VideoResume.stops.all.collectAsStateWithLifecycle()
-    val from = VideoResume.playFrom(saved, stops[node.path.toString()])
+    val saved = remember(node.path, saves) { vm.playback.resume.pointOf(node.path.toString()) }
+    val from = VideoResume.playFrom(saved?.positionMs, saved?.durationMs ?: 0L, stoppedAt)
 
     // The picture gets the whole screen, previewing or playing. Restored automatically when this
     // screen is left.
@@ -265,8 +264,6 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
         // The frame Back stopped on only goes with the time it was stopped at: a place saved
         // since, elsewhere, has its own frame read from the file.
         VideoStart.Face.PREVIEW -> VideoPreview(vm, node, from, still.takeIf { from == stoppedAt }) { at ->
-            // From the start is a choice to drop the place; the next stop notes a new one.
-            if (at == 0L) VideoResume.stops.clear(node.path.toString())
             playAt = at
             still = null
             face = VideoStart.Face.PLAYING
@@ -710,19 +707,10 @@ private fun VideoPlayer(
     // Carry on's record of this video. This screen plays on its own player, which the music
     // player's record never sees, so it writes the place down itself. See VideoResume.
     val resumeTrack = remember(node.path) { dev.niccc2007.filet.playback.tracksOf(listOf(node)).first() }
-    fun saveResume(atMs: Long? = null) {
-        // Nothing to write before the video has opened, and nothing once the music player has
-        // the sound: that player keeps the record from the moment it takes over.
-        // Nor once it has played to the end: the player can still read its last moment before
-        // the rewind lands, and that is not a place anybody stopped at.
-        if (duration <= 0L || handingOver || handedOver || finished) return
-        val at = atMs
-            ?: runCatching { handle.player?.currentPosition?.toLong() }.getOrNull()?.coerceAtLeast(0L)
-            ?: position
-        // Every stop, listed or not: the preview's Play from is where this video was left, which
-        // is not always a place Carry on lists. See VideoResume.
-        VideoResume.stops.note(resumeTrack.id, at)
-        runCatching {
+    // The one write, for a stop and for the end alike: every place past 0:00 is kept (see
+    // ResumeStore.keeps), and each is logged, so a Carry on that stays empty says why.
+    fun writeResume(at: Long) {
+        val wrote = runCatching {
             vm.playback.resume.put(
                 path = resumeTrack.id,
                 title = resumeTrack.title,
@@ -732,6 +720,27 @@ private fun VideoPlayer(
                 settled = true,
             )
         }
+        dev.niccc2007.filet.log.FiletLog.i("resume") {
+            "video stop at $at of $duration ms: " + when {
+                wrote.isFailure -> "write failed (${wrote.exceptionOrNull()?.javaClass?.simpleName})"
+                dev.niccc2007.filet.playback.ResumeStore.keeps(at) -> "kept"
+                else -> "at 0:00, nothing to keep"
+            }
+        }
+    }
+    fun saveResume(atMs: Long? = null) {
+        // Nothing to write before the video has opened, and nothing once the music player has
+        // the sound: that player keeps the record from the moment it takes over. Opened is
+        // `ready`, not a known length: a file whose player cannot say how long it is still has a
+        // place to come back to. Whatever Resume playback is set to - that decides how a video
+        // opens, not whether Carry on hears of it.
+        // Nor once it has played to the end: the player can still read its last moment before
+        // the rewind lands, and that is not a place anybody stopped at.
+        if (!ready || handingOver || handedOver || finished) return
+        val at = atMs
+            ?: runCatching { handle.player?.currentPosition?.toLong() }.getOrNull()?.coerceAtLeast(0L)
+            ?: position
+        writeResume(at)
     }
     // Every pause writes it - the button, a tap on the picture, the headphones coming out, focus
     // lost, a frame step - so it is one watch on `playing` rather than a line beside each.
@@ -1235,9 +1244,11 @@ private fun VideoPlayer(
                             // Until the music player has a position of its own, the saved place
                             // is the one it was asked for: see VideoResume.takeOverAt.
                             if (takingOver) {
+                                val point = vm.playback.resume.pointOf(node.path.toString())
                                 resumeAt = VideoResume.takeOverAt(
                                     vm.playback.state.value.positionMs,
-                                    vm.playback.resume.positionOf(node.path.toString()),
+                                    point?.positionMs,
+                                    point?.durationMs ?: 0L,
                                 )
                                 vm.playback.stop()
                                 takingOver = false
@@ -1258,12 +1269,12 @@ private fun VideoPlayer(
                             // completes. Rewinding rather than sitting on a black last frame,
                             // so the play button does what it says.
                             //
-                            // Finished is the one state with no place to carry on from, so the
-                            // record goes, as the music player's does, and so does the last stop.
-                            // First, so the pause that follows is not taken for a stop.
+                            // Played to the end is kept, at the end: Carry on tags it finished
+                            // and opening it starts it again (see Finished). First, so the pause
+                            // that follows - read off a player rewinding to 0:00 - is not taken
+                            // for a stop.
                             finished = true
-                            runCatching { vm.playback.resume.forget(resumeTrack.id) }
-                            VideoResume.stops.clear(resumeTrack.id)
+                            writeResume(duration)
                             playing = false
                             chromeVisible = true
                             position = 0L

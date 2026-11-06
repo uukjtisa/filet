@@ -24,16 +24,19 @@ import org.json.JSONObject
  * bound is a store somebody eventually has to clear by hand. [KEEP] rows of a few hundred
  * bytes each, oldest dropped first.
  *
- * Positions are NOT kept for a track that reached its end. Having finished something is the
- * one state where "resume" has no meaning, and an entry that offers to resume the last two
- * seconds of a track you have already heard is worse than no entry.
+ * Every stop is kept, for the music player and the video screen alike: wherever something was
+ * left, whatever its length and however far in, a skip included. Only a stop at 0:00 changes
+ * nothing - see [keeps]. A track played to its end is kept too, at its end, and Carry on tags it
+ * finished rather than dropping it; opening a finished one starts it again. See `Finished`.
  *
  * ## Who writes
  *
  * Two players, and both must. The shared player (`Playback`) writes while it plays and on
  * pause. The video screen owns its own `MediaPlayer` and never went through that path at all -
  * which is why a video quit halfway was never recorded. It writes through [put] with
- * `settled = true` when it pauses, closes, or the app leaves the foreground.
+ * `settled = true` when it pauses, closes, or the app leaves the foreground, and its end when it
+ * plays to the end. The same rule holds for both players: one record, which Carry on lists and
+ * the video preview's Play from reads.
  *
  * ## Telling the list
  *
@@ -100,10 +103,7 @@ class ResumeStore private constructor(context: Context) {
     fun positionOf(path: String): Long? = pointOf(path)?.positionMs?.takeIf { it > 0L }
 
     /**
-     * Write where a track got to, or forget it if there is nothing worth coming back to.
-     *
-     * The judgement is [worthKeeping] and it is pure, because "worth coming back to" is the
-     * only decision here that can be wrong in a way nobody notices.
+     * Write where a track got to. A stop at 0:00 changes nothing: see [keeps].
      *
      * @param settled true for a write made because playback STOPPED - a pause, a close, the app
      *   going to the background. That is the moment the list should show it, so [changes]
@@ -118,18 +118,10 @@ class ResumeStore private constructor(context: Context) {
         settled: Boolean = false,
     ) {
         synchronized(this) {
+            if (!keeps(positionMs)) return
             val before = current()
             val had = before.any { it.path == path }
             val others = before.filterNot { it.path == path }
-            if (!worthKeeping(positionMs, durationMs)) {
-                // Rewritten WITHOUT it rather than left alone: a track played to its end should
-                // lose the stale position it had from the last time round.
-                if (had) {
-                    save(others)
-                    _changes.value++
-                }
-                return
-            }
             save(others + Point(path, title, video, positionMs, durationMs, System.currentTimeMillis()))
             if (!had || settled) _changes.value++
         }
@@ -211,41 +203,21 @@ class ResumeStore private constructor(context: Context) {
          */
         const val KEEP = 120
 
-        /** Below this, nothing was watched - it was a tap and a change of mind. */
-        const val MIN_IN_MS = 10_000L
-
         /**
-         * And this close to the end, it is finished.
+         * Whether [put] writes a position: anything past 0:00, for every kind of media and both
+         * players. Leaving is what Carry on exists for - Back, the phone's Back, Filet sent away,
+         * a pause, Next - whatever the length and however far in, the end included.
          *
-         * Twenty seconds, which covers an album's run-out and a film's credits. Resuming
-         * somebody into the last fifteen seconds of a track is technically where they were and
-         * is never what they wanted.
+         * Bug identified here: the store used to judge what was worth coming back to - ten
+         * seconds in, twenty from the end, fifteen seconds long - so a stop early in a video, a
+         * short clip, or a skip to its middle was never listed, and Carry on and the preview's
+         * Play from could not agree. There is one rule now, and it has no thresholds.
+         *
+         * 0:00 alone is no stop, and it changes nothing rather than forgetting: a track opened
+         * at its start, with the card offering 12:34, and left without moving must not lose the
+         * 12:34 it was offering. The reading spots of the documents follow the same rule.
          */
-        const val MIN_LEFT_MS = 20_000L
-
-        /** Shorter than this, nothing is kept: a clip that short is watched again, not resumed. */
-        const val MIN_LENGTH_MS = 15_000L
-
-        /**
-         * Whether a position is worth coming back to.
-         *
-         * A duration of zero means the length was never known - a stream, or a header that
-         * would not parse - and those are kept on the strength of the position alone.
-         *
-         * Bug identified here: the thresholds were fixed, so a clip under forty seconds could
-         * never be kept at its halfway point - ten seconds in and twenty from the end cannot
-         * both hold. Each is now also capped at a share of the length: a tenth to count as
-         * started, a twentieth to count as finished. A film still needs ten seconds in and
-         * twenty left; a forty-second clip needs four in and two left; halfway through anything
-         * of [MIN_LENGTH_MS] or more is kept.
-         */
-        fun worthKeeping(positionMs: Long, durationMs: Long): Boolean {
-            if (durationMs <= 0L) return positionMs >= MIN_IN_MS
-            if (durationMs < MIN_LENGTH_MS) return false
-            val minIn = minOf(MIN_IN_MS, durationMs / 10)
-            val minLeft = minOf(MIN_LEFT_MS, durationMs / 20)
-            return positionMs >= minIn && positionMs < durationMs - minLeft
-        }
+        fun keeps(positionMs: Long): Boolean = positionMs > 0L
 
         @Volatile private var instance: ResumeStore? = null
 

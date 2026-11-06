@@ -82,16 +82,16 @@ import kotlin.coroutines.resume
  * ## Stopped
  *
  * Back while the video plays comes here instead of leaving, with the picture it stopped on and
- * the time it carries on from. So does a video stopped before, opened again or scrolled back to,
- * whether or not Carry on lists it: see [VideoResume]. Play carries on from there; the menu has
+ * the time it carries on from. So does a video stopped before, opened again or scrolled back to:
+ * every stop of a video is saved. See [VideoResume]. Play carries on from there; the menu has
  * Play from the start. Not the glimpse again: a glimpse of other parts of the video above a Play
  * that goes back to the middle of it would show one thing and do another.
  *
  * A tap anywhere on the picture plays, as the button does: the button is where the eye goes, the
  * picture is where the thumb already is. A swipe still moves through the run.
  *
- * @param playFrom where Play carries on from, the saved place or the last stop, or 0 for a video
- *   with nowhere to carry on from. See [VideoResume.playFrom].
+ * @param playFrom where Play carries on from, the saved place or where Back stopped it, or 0 for
+ *   a video with nowhere to carry on from. See [VideoResume.playFrom].
  * @param still the frame it stopped on, read off the screen as it stopped; null to read it from
  *   the file instead.
  * @param onPlay play with sound, from this position.

@@ -9,49 +9,19 @@ import org.junit.Test
 /** What Carry on keeps, how it states a position, and how its thumbnail cache evicts. */
 class ResumeTest {
 
-    private fun keep(at: Long, length: Long) = ResumeStore.worthKeeping(at, length)
-
     @Test
-    fun `halfway through anything fifteen seconds or longer is kept`() {
-        for (length in listOf(15_000L, 30_000L, 39_000L, 40_000L, 90_000L, 600_000L, 3_000_000L, 14_400_000L)) {
-            assertTrue("halfway through $length ms", keep(length / 2, length))
+    fun `every stop past 0 00 is kept, for every kind of media`() {
+        // Issue #53: one record, no thresholds. 0:09 of a film, 0:05 of a short clip, a skip to
+        // the middle, a song left by Next three seconds in, 9:50 of ten minutes, and the end.
+        for (at in listOf(9_000L, 5_000L, 300_000L, 3_000L, 590_000L, 600_000L, 1L)) {
+            assertTrue("$at ms", ResumeStore.keeps(at))
         }
     }
 
     @Test
-    fun `a forty second clip at its middle was the case the old rule could not keep`() {
-        // Old rule: at least 10s in AND under (length - 20s). At 40s long the middle is 20s,
-        // and 20 < 20 is false.
-        assertTrue(keep(20_000, 40_000))
-    }
-
-    @Test
-    fun `a long film keeps the original thresholds exactly`() {
-        val film = 3L * 60 * 60 * 1000
-        assertFalse(keep(9_999, film))
-        assertTrue(keep(10_000, film))
-        assertTrue(keep(film - 20_001, film))
-        assertFalse(keep(film - 20_000, film))
-    }
-
-    @Test
-    fun `a short clip scales both thresholds to its length`() {
-        // 15s: started at a tenth (1.5s), finished within a twentieth (0.75s) of the end.
-        assertFalse(keep(1_499, 15_000))
-        assertTrue(keep(1_500, 15_000))
-        assertTrue(keep(14_249, 15_000))
-        assertFalse(keep(14_250, 15_000))
-    }
-
-    @Test
-    fun `under fifteen seconds is never kept`() {
-        assertFalse(keep(7_000, 14_999))
-    }
-
-    @Test
-    fun `an unknown length is kept on position alone`() {
-        assertFalse(keep(9_999, 0))
-        assertTrue(keep(10_000, 0))
+    fun `a stop at 0 00 changes nothing`() {
+        assertFalse(ResumeStore.keeps(0L))
+        assertFalse(ResumeStore.keeps(-1L))
     }
 
     private fun point(at: Long, length: Long) =
