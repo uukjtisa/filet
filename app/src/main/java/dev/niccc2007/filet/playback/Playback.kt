@@ -640,7 +640,10 @@ class Playback(
         _state.value = _state.value.copy(playing = false, positionMs = at)
         // A pause is the most likely moment for somebody to leave, so it is the one place
         // worth writing synchronously rather than waiting for the next tick that will not come.
-        rememberWhereWeAre()
+        //
+        // Settled, so Carry on re-reads now. Bug identified here: the flag existed and nothing
+        // passed it, so a paused track reached the list only when something else moved it.
+        rememberWhereWeAre(settled = true)
         // Focus is NOT dropped on a pause. Releasing it tells the system this app is finished
         // with audio, and some launchers then hand the media buttons to another player - so the
         // Play button on our own notification would start somebody else's music.
@@ -923,6 +926,13 @@ class Playback(
 
     /** Finished with. Clears the queue, so the strip and the notification both go away. */
     fun stop() {
+        // Where it got to, before the queue below is cleared. Closing the player is leaving,
+        // and leaving wrote nothing: a track stopped between two five-second ticks came back
+        // up to five seconds early, and one stopped before the first tick not at all.
+        if (player != null) {
+            positionNow()?.let { at -> _state.value = _state.value.copy(positionMs = at) }
+            rememberWhereWeAre(settled = true)
+        }
         loadJob?.cancel()
         sleepJob?.cancel()
         _sleepAt.value = 0L
