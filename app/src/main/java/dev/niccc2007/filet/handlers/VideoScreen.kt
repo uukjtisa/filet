@@ -239,17 +239,20 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
             ),
         )
     }
-    // Where Back stopped it and the picture it stopped on; 0 and none until it has played.
+    // The picture Back stopped on and the time it was taken at, so it is shown with that time
+    // only; 0 and none until Back has stopped it on this visit.
     var stoppedAt by remember(node.path) { mutableLongStateOf(0L) }
     var still by remember(node.path) { mutableStateOf<android.graphics.Bitmap?>(null) }
     // What the preview's Play asked for, the place it offered or the start; null when the screen
     // opened playing.
     var playAt by remember(node.path) { mutableStateOf<Long?>(null) }
-    // The saved place, read again whenever the record settles - a pause, a Back, a leaving - so
-    // the preview offers it after being scrolled away and back. See VideoResume.
+    // The saved place, read again whenever the record settles - a pause, a Back, a leaving - and
+    // the last stop, which the app holds while it runs, so the preview offers where this video
+    // was left after being scrolled away and back. See VideoResume.
     val saves by vm.playback.resume.changes.collectAsStateWithLifecycle()
     val saved = remember(node.path, saves) { vm.playback.resume.positionOf(node.path.toString()) }
-    val from = VideoResume.playFrom(saved, stoppedAt)
+    val stops by VideoResume.stops.all.collectAsStateWithLifecycle()
+    val from = VideoResume.playFrom(saved, stops[node.path.toString()])
 
     // The picture gets the whole screen, previewing or playing. Restored automatically when this
     // screen is left.
@@ -262,6 +265,8 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
         // The frame Back stopped on only goes with the time it was stopped at: a place saved
         // since, elsewhere, has its own frame read from the file.
         VideoStart.Face.PREVIEW -> VideoPreview(vm, node, from, still.takeIf { from == stoppedAt }) { at ->
+            // From the start is a choice to drop the place; the next stop notes a new one.
+            if (at == 0L) VideoResume.stops.clear(node.path.toString())
             playAt = at
             still = null
             face = VideoStart.Face.PLAYING
@@ -693,9 +698,13 @@ private fun VideoPlayer(
         chromeTouchedAt = System.currentTimeMillis()
     }
 
+    // Played to the end and not moved since: the pause that comes with finishing is no stop.
+    var finished by remember(node.path) { mutableStateOf(false) }
+
     fun seekTo(target: Long) {
         handle.seekExactly(target)
         position = target
+        finished = false
     }
 
     // Carry on's record of this video. This screen plays on its own player, which the music
@@ -704,10 +713,15 @@ private fun VideoPlayer(
     fun saveResume(atMs: Long? = null) {
         // Nothing to write before the video has opened, and nothing once the music player has
         // the sound: that player keeps the record from the moment it takes over.
-        if (duration <= 0L || handingOver || handedOver) return
+        // Nor once it has played to the end: the player can still read its last moment before
+        // the rewind lands, and that is not a place anybody stopped at.
+        if (duration <= 0L || handingOver || handedOver || finished) return
         val at = atMs
             ?: runCatching { handle.player?.currentPosition?.toLong() }.getOrNull()?.coerceAtLeast(0L)
             ?: position
+        // Every stop, listed or not: the preview's Play from is where this video was left, which
+        // is not always a place Carry on lists. See VideoResume.
+        VideoResume.stops.note(resumeTrack.id, at)
         runCatching {
             vm.playback.resume.put(
                 path = resumeTrack.id,
@@ -722,7 +736,7 @@ private fun VideoPlayer(
     // Every pause writes it - the button, a tap on the picture, the headphones coming out, focus
     // lost, a frame step - so it is one watch on `playing` rather than a line beside each.
     LaunchedEffect(node.path) {
-        snapshotFlow { playing }.collect { if (!it) saveResume() }
+        snapshotFlow { playing }.collect { if (it) finished = false else saveResume() }
     }
     // And the app leaving the foreground, which can be the last this screen hears before the
     // process is killed.
@@ -1245,8 +1259,11 @@ private fun VideoPlayer(
                             // so the play button does what it says.
                             //
                             // Finished is the one state with no place to carry on from, so the
-                            // record goes, as the music player's does.
+                            // record goes, as the music player's does, and so does the last stop.
+                            // First, so the pause that follows is not taken for a stop.
+                            finished = true
                             runCatching { vm.playback.resume.forget(resumeTrack.id) }
+                            VideoResume.stops.clear(resumeTrack.id)
                             playing = false
                             chromeVisible = true
                             position = 0L
