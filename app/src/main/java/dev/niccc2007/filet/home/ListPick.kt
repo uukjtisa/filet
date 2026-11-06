@@ -45,14 +45,8 @@ internal class ListPick(
     val selection: State<Set<VPath>>,
 ) {
     /** A tap on [node]: about the selection while one runs, [open] otherwise. */
-    fun tap(node: VNode, open: () -> Unit) = tap(node, choosing = false, open)
-
-    /**
-     * A tap on [node]: about the selection while one runs, or while the gallery is [choosing]
-     * with nothing picked yet (see `GallerySelect`), and [open] otherwise.
-     */
-    fun tap(node: VNode, choosing: Boolean, open: () -> Unit) {
-        if (GallerySelect.tapPicks(choosing, pane.state.value.selected.size)) {
+    fun tap(node: VNode, open: () -> Unit) {
+        if (pane.state.value.selecting) {
             vm.focusPane(pane)
             pane.toggleSelect(node)
         } else {
