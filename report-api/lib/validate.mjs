@@ -111,7 +111,7 @@ export function decodeImages(list) {
     if (!img || typeof img !== "object") throw bad(field, "Each image must be an object.");
     const declared = String(img.mime ?? "").toLowerCase();
     if (!ALLOWED.has(declared)) {
-      throw new Refusal(415, "image_type", "Screenshots must be PNG or JPEG.", { field, index });
+      throw new Refusal(415, "image_type", "Photos must be PNG or JPEG.", { field, index });
     }
     let data = typeof img.data === "string" ? img.data : "";
     data = data.replace(/^data:[^,]*,/, "").replace(/\s+/g, "");

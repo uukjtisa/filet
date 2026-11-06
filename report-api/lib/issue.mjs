@@ -25,13 +25,13 @@ export function buildIssue(report, { images = [], dropped = [], receivedAt = new
   if (report.device) parts.push("### Device", fence(report.device));
 
   if (images.length || dropped.length) {
-    const lines = ["### Screenshots"];
+    const lines = ["### Photos"];
     images.forEach((im, i) => {
-      if (/^https:\/\/[^\s()<>]+$/.test(im.url)) lines.push(`![Screenshot ${i + 1}](${im.url})`);
+      if (/^https:\/\/[^\s()<>]+$/.test(im.url)) lines.push(`![Photo ${i + 1}](${im.url})`);
     });
     // Said in the issue, not only in the response: whoever triages it should know a picture was
     // meant to be there and was not, rather than wonder why "see screenshot" points at nothing.
-    for (const d of dropped) lines.push(`_Screenshot ${d.index + 1} was sent but could not be stored (${d.reason})._`);
+    for (const d of dropped) lines.push(`_Photo ${d.index + 1} was sent but could not be stored (${d.reason})._`);
     parts.push(lines.join("\n\n"));
   }
 

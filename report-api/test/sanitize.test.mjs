@@ -96,9 +96,9 @@ test("the issue says which screenshots were dropped and links only https URLs it
     { type: "bug", title: "t t t", body: "body body body", log: "line1\nline2", device: "model: X", images: [] },
     { images: [{ index: 0, url: "https://blob.example/a.png" }, { index: 1, url: "javascript:alert(1)" }], dropped: [{ index: 2, reason: "upload failed" }] },
   );
-  assert.ok(issue.body.includes("![Screenshot 1](https://blob.example/a.png)"));
+  assert.ok(issue.body.includes("![Photo 1](https://blob.example/a.png)"));
   assert.ok(!issue.body.includes("javascript:"));
-  assert.ok(issue.body.includes("Screenshot 3 was sent but could not be stored (upload failed)"));
+  assert.ok(issue.body.includes("Photo 3 was sent but could not be stored (upload failed)"));
   assert.ok(issue.body.includes("<details>\n<summary>Log</summary>"));
 });
 
