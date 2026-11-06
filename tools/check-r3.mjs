@@ -136,7 +136,9 @@ const ALLOWED = [
   "app/src/main/java/dev/niccc2007/filet/home/MediaCategory.kt",
   // The report form's own picture cache, in the app-private cacheDir. Kept as files rather
   // than in memory so a half-written report survives a process death, and every path is
-  // checked to be inside that one folder. It never touches user storage.
+  // checked to be inside that one folder. Its one reach outside it is a delete, once: the
+  // report pictures 0.2.0 left in Filet/Reports, by their exact name (picture-<ms>-<n>.jpg),
+  // directly inside that folder and nothing else. It never reads user storage or writes to it.
   "app/src/main/java/dev/niccc2007/filet/report/Collect.kt",
   // A debug-only diagnostic for the share server, and it cannot use the VFS because the VFS
   // is part of what it exists to watch. Compiles to nothing in a release build, writes a few

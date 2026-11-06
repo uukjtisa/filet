@@ -8,6 +8,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import dev.niccc2007.filet.BuildConfig
+import dev.niccc2007.filet.data.FiletStore
+import dev.niccc2007.filet.log.FiletLog
 import java.io.ByteArrayOutputStream
 import java.io.File
 
@@ -165,6 +167,55 @@ object Collect {
         orphans(folder(context), keep).forEach { it.delete() }
     }
 
+    // ── what 0.2.0 left in Filet/Reports ──
+
+    /**
+     * Whether [name] is a report picture 0.2.0 wrote into Filet's Reports folder: `picture-`,
+     * the moment, the place on the form, `.jpg`. Exactly [picture]'s naming and nothing looser.
+     *
+     * Pure, and tested with its neighbours, because what it matches is deleted from a folder the
+     * person can open, which holds crash reports and anything they put there themselves.
+     */
+    internal fun leftBy020(name: String, isFile: Boolean): Boolean = isFile && LEFT_BY_020.matches(name)
+
+    /**
+     * Deletes [leftBy020]'s files from [folder]: directly inside it, never below, nothing else.
+     *
+     * @return the ones that would not go.
+     */
+    internal fun sweep(folder: File): List<File> =
+        folder.listFiles().orEmpty().filter { leftBy020(it.name, it.isFile) }.filterNot { it.delete() }
+
+    /**
+     * The pictures 0.2.0 left on shared storage, deleted once (issue #22).
+     *
+     * 0.2.0 wrote every report picture into Filet/Reports and could delete none of them, so each
+     * screenshot from a report that was not sent, or was taken off one, is still there, where any
+     * app with storage access can read it. Silent: somebody who never used the form has nothing
+     * there, and somebody who did gains nothing from being shown a cleanup.
+     *
+     * The mark holds the folder that was swept, so a different one - all-files access granted
+     * since, putting Filet on shared storage - is swept in its turn. A failure is logged and
+     * leaves the mark unset, so the next opening tries again. Running twice is harmless anyway:
+     * nothing writes that name into that folder any more.
+     */
+    fun sweepLeftovers(context: Context) {
+        runCatching {
+            val folder = FiletStore.dir(context, FiletStore.Area.REPORTS)
+            val mark = File(context.noBackupFilesDir, SWEPT)
+            if (mark.isFile && mark.readText() == folder.absolutePath) return
+            val stuck = sweep(folder)
+            if (stuck.isEmpty()) {
+                mark.writeText(folder.absolutePath)
+            } else {
+                FiletLog.w(TAG, "${stuck.size} report picture(s) left by 0.2.0 would not delete")
+            }
+        }.onFailure { FiletLog.w(TAG, "clearing the report pictures 0.2.0 left failed", it) }
+    }
+
+    private val LEFT_BY_020 = Regex("picture-\\d+-\\d+\\.jpg")
+    private const val SWEPT = "report-pictures-swept"
+    private const val TAG = "Report"
     private const val FOLDER = "report"
     private const val PREFIX = "picture-"
     private const val EDGE = 1600

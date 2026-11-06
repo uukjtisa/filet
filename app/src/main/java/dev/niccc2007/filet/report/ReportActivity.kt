@@ -176,10 +176,14 @@ private fun ReportScreen(
     var logName by rememberSaveable { mutableStateOf<String?>(null) }
     var pictures by rememberSaveable { mutableStateOf(listOf<String>()) }
     var pictureNote by rememberSaveable { mutableStateOf<String?>(null) }
-    // A report given up on leaves its pictures behind. This form keeps its own and no others.
+    // A report given up on leaves its pictures behind. This form keeps its own and no others,
+    // and the first one opened clears what 0.2.0 left on shared storage.
     LaunchedEffect(Unit) {
         val own = pictures
-        withContext(Dispatchers.IO) { Collect.clearPictures(context, own) }
+        withContext(Dispatchers.IO) {
+            Collect.clearPictures(context, own)
+            Collect.sweepLeftovers(context)
+        }
     }
     // Made once per draft and kept across retries. See ReportForm.requestJson.
     val submissionId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }

@@ -51,4 +51,37 @@ class CollectTest {
         )
         assertEquals(emptyList<File>(), Collect.orphans(File(folder, "missing"), keep = emptyList()))
     }
+
+    @Test
+    fun `what 0_2_0 left is its exact name and nothing looser`() {
+        assertTrue(Collect.leftBy020("picture-1730000000000-0.jpg", isFile = true))
+        assertTrue(Collect.leftBy020(Collect.picture(File("x"), 2, 1_730_000_000_001).name, isFile = true))
+        assertFalse("a folder of that name", Collect.leftBy020("picture-1730000000000-0.jpg", isFile = false))
+        for (other in listOf(
+            "photo.jpg", "picture-1730000000000-0.png", "picture-1730000000000-0.jpg.part", "picture-holiday.jpg",
+            "Picture-1730000000000-0.jpg", "picture-1730000000000-0.jpeg", "my picture-1-0.jpg", "picture--0.jpg",
+            "crash-2026-10-26.txt",
+        )) {
+            assertFalse(other, Collect.leftBy020(other, isFile = true))
+        }
+    }
+
+    @Test
+    fun `the sweep deletes 0_2_0's pictures and leaves everything beside them`() {
+        val reports = tmp.newFolder("Filet", "Reports")
+        val left = listOf("picture-1730000000000-0.jpg", "picture-1730000000001-2.jpg")
+            .map { File(reports, it).apply { writeBytes(ByteArray(2)) } }
+        val stays = listOf("photo.jpg", "picture-1730000000000-0.png", "picture-holiday.jpg", "crash-2026-10-26.txt")
+            .map { File(reports, it).apply { writeText("keep") } }
+        val folderNamedLikeOne = File(reports, "picture-1730000000009-0.jpg").apply { mkdirs() }
+        val below = File(File(reports, "kept").apply { mkdirs() }, "picture-1730000000000-1.jpg").apply { writeBytes(ByteArray(2)) }
+
+        assertEquals("nothing refused", emptyList<File>(), Collect.sweep(reports))
+        left.forEach { assertFalse(it.name, it.exists()) }
+        stays.forEach { assertTrue(it.name, it.isFile) }
+        assertTrue("a folder is never a picture", folderNamedLikeOne.isDirectory)
+        assertTrue("no recursion", below.isFile)
+        assertEquals("a second run finds nothing", emptyList<File>(), Collect.sweep(reports))
+        assertEquals("a missing folder is nothing to do", emptyList<File>(), Collect.sweep(File(reports, "missing")))
+    }
 }
