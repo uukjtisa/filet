@@ -3650,6 +3650,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     suspend fun readMetadata(node: VNode): List<Pair<String, String>> =
         graph.metadata.read(node.path)
 
+    /** What this file's metadata is written as, by its bytes rather than its name. */
+    suspend fun metadataKind(node: VNode): dev.niccc2007.filet.metadata.MetadataStore.Kind =
+        graph.metadata.kindOf(node.path)
+
     /**
      * Write the fields back, optionally keeping a copy of the file first.
      *

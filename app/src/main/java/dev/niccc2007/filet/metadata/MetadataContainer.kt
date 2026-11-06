@@ -235,10 +235,11 @@ object Mp4Container : MetadataContainer {
     override fun cover(bytes: ByteArray) = Mp4Tags.picture(bytes)
     override fun putCover(bytes: ByteArray, cover: Cover?) = Mp4Tags.putPicture(bytes, cover)
     override fun refusal(bytes: ByteArray): String? =
-        if (Mp4Tags.isFragmented(bytes)) {
-            "This is a fragmented MP4. Its offsets are spread across moof and sidx boxes that a " +
-                "streaming player seeks by, and a file that plays from the start and then stops " +
-                "at the first seek is worse than one Filet declines to change."
+        if (Mp4Tags.isFragmented(bytes) && !Mp4Tags.fragmentsMoveWithMoov(bytes)) {
+            "This is a fragmented MP4 whose seek points are fixed positions in the file, or " +
+                "are counted across its tags. Growing the tags would leave them pointing at the " +
+                "wrong place, and a file that plays from the start and then stops at the first " +
+                "seek is worse than one Filet declines to change."
         } else {
             null
         }

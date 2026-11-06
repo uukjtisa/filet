@@ -81,6 +81,27 @@ class MetadataStore(private val vfs: Vfs) {
     }
 
     /**
+     * What a file is written as, decided by its bytes rather than its name.
+     *
+     * @property format the writer for it, or null when nothing here writes it.
+     * @property misnamed set when the name gives a different kind: the kind it really is.
+     */
+    data class Kind(val format: MetadataSupport.Format?, val misnamed: MetadataSupport.Format?)
+
+    /**
+     * The file's [Kind], in one read. A file past [maxRewriteBytes] is not read for it: nothing
+     * could be written to it anyway, and its name is answer enough for showing what it is.
+     */
+    suspend fun kindOf(path: VPath): Kind {
+        val ext = path.name.substringAfterLast('.', "")
+        val byName = Kind(MetadataSupport.writerFor(ext), null)
+        val size = runCatching { vfs.stat(path)?.size ?: -1 }.getOrDefault(-1)
+        if (size < 0 || size > maxRewriteBytes) return byName
+        val bytes = runCatching { readAll(path) }.getOrNull() ?: return byName
+        return Kind(MetadataSupport.writerFor(ext, bytes), MetadataSupport.misnamed(ext, bytes))
+    }
+
+    /**
      * Set one field.
      *
      * @param key the field label as the format names it. A key the container does not know is

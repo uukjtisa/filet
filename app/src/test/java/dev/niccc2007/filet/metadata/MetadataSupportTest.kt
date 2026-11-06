@@ -220,10 +220,31 @@ class MetadataSupportTest {
     fun `the bytes get the final say over the extension`() {
         // A PNG named .mp3 must not be handed to the ID3 writer. The name is a hint; the
         // container is the authority.
+        // So it goes to the PNG writer, which is what the bytes are.
         val png = PngText.put(pngStub(), "Title", "x")!!
-        assertTrue(MetadataSupport.forFile("mp3", png).isEmpty())
-        assertNull(MetadataSupport.writerFor("mp3", png))
+        assertTrue(MetadataSupport.forFile("mp3", png).none { it.engine == Id3Container })
+        assertEquals("PNG", MetadataSupport.writerFor("mp3", png)?.name)
         assertEquals("PNG", MetadataSupport.writerFor("png", png)?.name)
+    }
+
+    @Test
+    fun `a song saved as mp3 that is really MP4 audio is tagged as MP4`() {
+        // Four songs from a streaming site: .mp3 by name, fragmented MP4 by content. Offered
+        // only to the ID3 writer, which rightly did not recognise them, nothing would tag them.
+        val m4a = FragmentedMp4.file()
+        assertEquals("MP4 / M4A", MetadataSupport.writerFor("mp3", m4a)?.name)
+        assertEquals("said on screen", "MP4 / M4A", MetadataSupport.misnamed("mp3", m4a)?.name)
+        assertNull("a right name is not called wrong", MetadataSupport.misnamed("m4a", m4a))
+    }
+
+    @Test
+    fun `a real MP3 still goes to ID3, and a name nothing claims is not guessed at`() {
+        val mp3 = byteArrayOf('I'.code.toByte(), 'D'.code.toByte(), '3'.code.toByte(), 3, 0, 0, 0, 0, 0, 0) +
+            byteArrayOf(0xFF.toByte(), 0xFB.toByte(), 0x90.toByte(), 0x64)
+        assertEquals("MP3 (ID3v2)", MetadataSupport.writerFor("mp3", mp3)?.name)
+        assertNull(MetadataSupport.misnamed("mp3", mp3))
+        assertTrue(MetadataSupport.forFile("xyzzy", FragmentedMp4.file()).isEmpty())
+        assertNull(MetadataSupport.writerFor("xyzzy", FragmentedMp4.file()))
     }
 
     @Test

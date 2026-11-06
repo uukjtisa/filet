@@ -2,6 +2,7 @@ package dev.niccc2007.filet.metadata
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -225,6 +226,52 @@ class Mp4TagsTest {
         assertTrue(Mp4Tags.isFragmented(file))
         assertNull(Mp4Tags.put(file, "Title", "t"))
         assertNull(Mp4Tags.putPicture(file, Cover.of(ByteArray(4))))
+    }
+
+    @Test
+    fun `a streaming download's fragments move with moov, so it takes tags`() {
+        // The shape of four songs that could not be tagged at all: moov, sidx, moof and mdat
+        // pairs, every offset after moov counted from a box that moves with it.
+        val file = FragmentedMp4.file()
+        assertTrue(Mp4Tags.isFragmented(file))
+        assertTrue(Mp4Tags.fragmentsMoveWithMoov(file))
+        assertEquals("the fixture points right", listOf<Byte>(0x51, 0x52, 0x53), FragmentedMp4.pointedAt(file))
+
+        val tagged = Mp4Tags.putPicture(Mp4Tags.put(file, "Title", "A song")!!, Cover.of(ByteArray(40) { 7 }))!!
+        assertEquals("A song", Mp4Tags.read(tagged).toMap()["Title"])
+        assertNotNull(Mp4Tags.picture(tagged))
+        assertEquals("every trun still lands on its own media", listOf<Byte>(0x51, 0x52, 0x53), FragmentedMp4.pointedAt(tagged))
+
+        // Everything after moov is the same bytes, moved as one block: sidx, every moof, every mdat.
+        val oldMoov = Mp4Tags.atoms(file, 0, file.size).first { it.type == "moov" }
+        val newMoov = Mp4Tags.atoms(tagged, 0, tagged.size).first { it.type == "moov" }
+        assertArrayEquals(file.copyOfRange(oldMoov.end, file.size), tagged.copyOfRange(newMoov.end, tagged.size))
+        assertArrayEquals("and nothing before it moved", file.copyOfRange(0, oldMoov.at), tagged.copyOfRange(0, newMoov.at))
+    }
+
+    @Test
+    fun `a fragment that pins a fixed position is refused`() {
+        // base-data-offset-present: the trun counts from an absolute file position, which a
+        // bigger moov would leave short.
+        val absolute = FragmentedMp4.file(
+            listOf(FragmentedMp4.fragment(0x51), FragmentedMp4.fragment(0x52, FragmentedMp4.ABSOLUTE_TFHD)),
+        )
+        assertFalse(Mp4Tags.fragmentsMoveWithMoov(absolute))
+        assertNull(Mp4Tags.put(absolute, "Title", "t"))
+        assertNotNull(Mp4Container.refusal(absolute))
+    }
+
+    @Test
+    fun `an index ahead of moov, or a random-access table, is refused`() {
+        // A sidx in front of moov counts across it; mfra lists every moof by absolute position.
+        val sidxFirst = FragmentedMp4.file(before = FragmentedMp4.sidxBox, withSidx = false)
+        assertFalse(Mp4Tags.fragmentsMoveWithMoov(sidxFirst))
+        assertNull(Mp4Tags.put(sidxFirst, "Title", "t"))
+        val withMfra = FragmentedMp4.file(after = FragmentedMp4.atom("mfra", FragmentedMp4.atom("mfro", ByteArray(8))))
+        assertFalse(Mp4Tags.fragmentsMoveWithMoov(withMfra))
+        assertNull(Mp4Tags.put(withMfra, "Title", "t"))
+        // And the shape that is allowed carries no refusal at all.
+        assertNull(Mp4Container.refusal(FragmentedMp4.file()))
     }
 
     @Test

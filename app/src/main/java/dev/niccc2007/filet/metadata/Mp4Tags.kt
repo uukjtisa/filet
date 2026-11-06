@@ -18,11 +18,19 @@ import java.io.ByteArrayOutputStream
  * The hard part is doing it *only* for the offsets that actually moved, which is why the rule here
  * is written as a comparison against the old position of `moov` rather than as a blanket add.
  *
- * ## What is still refused
+ * ## Fragmented files
  *
- * A **fragmented** file - one with `moof`, `sidx` or `mfra` at the top level - is refused. Those
- * carry their own offset tables outside `moov`, streaming players seek by them, and a file that
- * plays from the start and then stops at the first seek is a worse outcome than a refusal.
+ * A **fragmented** file - one with `moof`, `sidx` or `mfra` at the top level - carries offsets
+ * outside `moov` as well, and streaming players seek by them. It used to be refused outright,
+ * and that was the same mistake as the old read-only caveat: the question is not where the
+ * offsets live but whether growing `moov` moves the place they point at along with them.
+ *
+ * In the shape every DASH and CMAF file has - `moov` first, then `sidx`, then `moof` and `mdat`
+ * pairs - it does. A `sidx` counts from its own end, a `trun` counts from its `moof`, and both
+ * move with the bytes they point at. Bug identified here: four songs saved from a streaming site
+ * were that shape and could not be tagged at all. What is still refused is anything that pins a
+ * fixed position or points backwards across `moov` - see [fragmentsMoveWithMoov] - because a
+ * file that plays from the start and stops at the first seek is a worse outcome than a refusal.
  */
 object Mp4Tags {
 
@@ -130,9 +138,50 @@ object Mp4Tags {
         return top.any { it.type == "ftyp" } && top.any { it.type == "moov" || it.type == "mdat" }
     }
 
-    /** Whether this file's offsets live anywhere this code cannot reach. */
+    /** Whether this file keeps offsets outside `moov` as well, in fragments or indexes. */
     fun isFragmented(b: ByteArray): Boolean =
         atoms(b, 0, b.size).any { it.type == "moof" || it.type == "sidx" || it.type == "mfra" }
+
+    /**
+     * Whether a fragmented file can take a bigger `moov` without a single offset going wrong.
+     *
+     * Growing `moov` moves every byte after it by the same amount, so the file survives exactly
+     * when nothing out there points at a fixed position. True only when all of these hold:
+     *
+     *  - `moov` comes before every fragment and index. A `sidx` or `moof` in front of it would
+     *    count across it, and its count would be short.
+     *  - There is no `mfra`. Its `tfra` lists each `moof` by absolute position.
+     *  - Every `moof` has track fragments, and no `tfhd` sets base-data-offset-present. That flag
+     *    is an absolute file offset; without it, `trun` and `saio` count from the `moof`.
+     *
+     * Anything it cannot read as one of those is a no. Pure, and tested on both sides.
+     */
+    fun fragmentsMoveWithMoov(b: ByteArray): Boolean {
+        val top = atoms(b, 0, b.size)
+        val moov = top.indexOfFirst { it.type == "moov" }
+        if (moov < 0) return false
+        if (top.subList(0, moov).any { it.type in FRAGMENT_BOXES }) return false
+        if (top.any { it.type == "mfra" }) return false
+        for (moof in top.filter { it.type == "moof" }) {
+            val trafs = atoms(b, moof.contentAt, moof.end).filter { it.type == "traf" }
+            if (trafs.isEmpty()) return false
+            for (traf in trafs) {
+                val tfhd = atoms(b, traf.contentAt, traf.end).firstOrNull { it.type == "tfhd" } ?: return false
+                if (tfhd.contentLen < 8) return false
+                if ((u32(b, tfhd.contentAt) and 0xFFFFFF) and BASE_DATA_OFFSET != 0L) return false
+            }
+        }
+        return true
+    }
+
+    /** Whether a tag edit may touch this file at all. */
+    fun rewritable(b: ByteArray): Boolean = isMp4(b) && (!isFragmented(b) || fragmentsMoveWithMoov(b))
+
+    /** tfhd's base-data-offset-present flag: an absolute file position follows. */
+    private const val BASE_DATA_OFFSET = 0x000001L
+
+    /** Boxes that count positions of their own, and so may not sit in front of `moov`. */
+    private val FRAGMENT_BOXES = setOf("moof", "sidx", "ssix", "mfra", "styp", "emsg", "prft")
 
     private fun child(b: ByteArray, parent: Atom, type: String): Atom? =
         atoms(b, parent.contentAt + extraFor(b, parent), parent.end).firstOrNull { it.type == type }
@@ -346,7 +395,7 @@ object Mp4Tags {
 
     /** Rebuild the file with this `ilst` content, fixing up every offset the change moved. */
     private fun withIlst(original: ByteArray, items: List<ByteArray>): ByteArray? {
-        if (!isMp4(original) || isFragmented(original)) return null
+        if (!rewritable(original)) return null
         val moov = atoms(original, 0, original.size).firstOrNull { it.type == "moov" } ?: return null
         val payload = ByteArrayOutputStream()
         for (i in items) payload.write(i)

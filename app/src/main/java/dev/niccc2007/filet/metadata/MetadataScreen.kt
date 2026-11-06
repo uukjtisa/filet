@@ -70,8 +70,13 @@ import dev.niccc2007.filet.vfs.VNode
 @Composable
 fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
     val colors = Filet.colors
-    val format = remember(node.path) { MetadataSupport.writerFor(node.extension) }
-    val readable = remember(node.path) { MetadataSupport.forExtension(node.extension).firstOrNull() }
+    // From the name until the file has been read, then from its bytes. A song named .mp3 that is
+    // really MP4 audio is written as MP4, with MP4's fields - see MetadataStore.kindOf.
+    val byName = remember(node.path) { MetadataSupport.writerFor(node.extension) }
+    val readableByName = remember(node.path) { MetadataSupport.forExtension(node.extension).firstOrNull() }
+    var kind by remember(node.path) { mutableStateOf<MetadataStore.Kind?>(null) }
+    val format = kind.let { if (it != null) it.format else byName }
+    val readable = kind?.misnamed ?: readableByName
 
     var loading by remember(node.path) { mutableStateOf(true) }
     var backup by remember(node.path) { mutableStateOf(true) }
@@ -96,6 +101,8 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
     }
 
     LaunchedEffect(node.path) {
+        val found = runCatching { vm.metadataKind(node) }.getOrNull()
+        kind = found
         fields.clear()
         fields.addAll(runCatching { vm.readMetadata(node) }.getOrDefault(emptyList()))
         asOpened.clear()
@@ -103,7 +110,7 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
         // Every field the format declares, shown whether or not the file carries it yet - an
         // empty Title is a thing to fill in, and a writer that only lists what is already there
         // can never add anything.
-        format?.fields?.forEach { key ->
+        (if (found != null) found.format else byName)?.fields?.forEach { key ->
             if (fields.none { it.first.equals(key, ignoreCase = true) }) fields.add(key to "")
         }
         loading = false
@@ -138,6 +145,18 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
 
         LazyColumn(Modifier.fillMaxSize()) {
             item { SupportBanner(format, readable, node.extension) { matrixOpen = !matrixOpen } }
+            kind?.misnamed?.let { real ->
+                item {
+                    Text(
+                        "Its name ends in .${node.extension}, but it is really ${real.name}, " +
+                            "so that is how its tags are written.",
+                        fontSize = 10.5.sp,
+                        color = colors.fg2,
+                        lineHeight = 14.5.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    )
+                }
+            }
 
             // Above the fields, as the mock has it: a picture is the first thing anyone looks for
             // in a music file's metadata, and the one part of it that is not a line of text.

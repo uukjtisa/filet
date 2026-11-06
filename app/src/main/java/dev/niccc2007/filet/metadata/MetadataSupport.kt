@@ -177,8 +177,9 @@ object MetadataSupport {
             custom = false,
             binary = true,
             caveat = "Tags live in a moov atom, and resizing it moves the media after it - so " +
-                "every chunk offset in stco and co64 is corrected by the same amount. " +
-                "Fragmented files keep offsets outside moov as well and are refused.",
+                "every chunk offset in stco and co64 is corrected by the same amount. A " +
+                "fragmented file is changed only when its seek points move with it, as they do " +
+                "in a streaming download; one that pins fixed positions is refused.",
         ),
         Format(
             name = "PDF",
@@ -247,8 +248,31 @@ object MetadataSupport {
      * The extension alone is a hint - a `.m4a` that is really an MP3 is a thing that happens -
      * and asking the container settles it.
      */
-    fun forFile(ext: String, bytes: ByteArray): List<Format> =
-        forExtension(ext).filter { it.engine.matches(ext, bytes) }
+    fun forFile(ext: String, bytes: ByteArray): List<Format> {
+        val named = forExtension(ext)
+        val matched = named.filter { it.engine.matches(ext, bytes) }
+        if (matched.isNotEmpty() || named.isEmpty()) return matched
+        // The name says one known kind and the bytes are another, so the bytes decide. Bug
+        // identified here: songs saved as .mp3 that are really MP4 audio were offered only to
+        // the ID3 writer, which rightly did not recognise them, and so nothing would tag them.
+        // A name nothing claims is left alone: the bytes alone are not asked to pick a writer.
+        return byContent(bytes)
+    }
+
+    /** Every format whose container recognises these bytes under one of its own names. */
+    fun byContent(bytes: ByteArray): List<Format> = FORMATS
+        .filter { f -> f.extensions.any { e -> runCatching { f.engine.matches(e, bytes) }.getOrDefault(false) } }
+        .sortedBy { it.tier.ordinal }
+
+    /**
+     * When the bytes are a different kind from the one the name gives: that kind's name, for
+     * saying so on screen. Null when the name is right, or when nothing recognises the bytes.
+     */
+    fun misnamed(ext: String, bytes: ByteArray): Format? {
+        val named = forExtension(ext)
+        if (named.isEmpty() || named.any { it.engine.matches(ext, bytes) }) return null
+        return byContent(bytes).firstOrNull()
+    }
 
     /** The best writable format for [ext], or null if nothing here may write it. */
     fun writerFor(ext: String): Format? =
