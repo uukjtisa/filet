@@ -58,8 +58,8 @@ is being built, fixes still have to reach a phone. They go onto a staging number
 and installed but never released; when the large one ships it carries them. If a fix in there
 cannot wait, the staging version publishes on its own and the staging line moves on.
 
-**STAGING: 0.2.1.** The build declares it so a phone running work in progress is told apart
-from one running 0.2.0. It publishes on its own only if a fix cannot wait for the next release.
+**STAGING: none.** 0.2.1 was the staging number after 0.2.0 and was never published;
+everything it collected ships as 0.3.0, which the build now declares.
 
 0.1.20 was the staging number through the redesign round and was never published; everything
 it collected shipped as 0.2.0.
