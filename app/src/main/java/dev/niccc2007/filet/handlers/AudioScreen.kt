@@ -336,6 +336,21 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
             PlayerFace.HALO -> HaloFace(ctx)
         }
 
+        // The continue card, top right under the top bar, on every face. Only for an opening
+        // that arrives while this screen is up - its own open, Next, a row of the queue - not
+        // the one already there when the screen came back from the strip, minutes later.
+        // Under the sheets. See MediaResume.forTrack.
+        val opened by playback.opened.collectAsStateWithLifecycle()
+        val openedBefore = remember { playback.opened.value }
+        val trackCard = remember(opened) { opened?.takeIf { it !== openedBefore }?.let(MediaResume::forTrack) }
+        dev.niccc2007.filet.ui.ContinueCard(
+            key = opened.takeIf { trackCard != null },
+            title = trackCard?.title.orEmpty(),
+            detail = trackCard?.detail.orEmpty(),
+            closeLabel = trackCard?.closeLabel.orEmpty(),
+            modifier = Modifier.align(Alignment.TopEnd).belowPlayerBar(MUSIC_BAR),
+        ) { trackCard?.let { playback.seekTo(it.goesTo) } }
+
         // One sheet for all four, drawn last so it is over everything. It covers rather than
         // rearranging: the old panel pushed the artwork and the transport up by 190dp every
         // time it opened, which moved the Play button out from under the thumb about to press
@@ -354,7 +369,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
             index = state.index,
             tint = tint,
             visible = showQueue && state.queue.isNotEmpty(),
-            onPick = { i -> playback.play(state.queue, i) },
+            onPick = { i -> playback.play(state.queue, i, by = dev.niccc2007.filet.playback.OpenedBy.QUEUE) },
             onClose = { showQueue = false },
             from = state.from.ifBlank { folderLine },
             positionMs = queuePosition,

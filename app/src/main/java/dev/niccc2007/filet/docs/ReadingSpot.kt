@@ -1,46 +1,24 @@
 package dev.niccc2007.filet.docs
 
 import android.content.Context
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import dev.niccc2007.filet.browser.FiletIcons
-import dev.niccc2007.filet.ui.theme.Filet
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -373,70 +351,24 @@ internal fun SaveSpotOnLeave(key: Any?, save: () -> Unit) {
 /**
  * The card that offers a saved spot: top right, over the file, for [ReadingSpots.SHOWN_MS].
  *
- * Small and to one side so it covers a corner of the first screen, not the first line of it. It
- * slides in after the file is up, so the file is seen opening at its top first.
+ * The shared [dev.niccc2007.filet.ui.ContinueCard], the one the media players offer their place
+ * with, so a document and a song ask the same way. It slides in after the file is up, so the file
+ * is seen opening at its top first.
  *
  * @param onGo the card was tapped; scroll to the spot.
  */
 @Composable
 internal fun SpotCard(spot: ReadingSpot?, modifier: Modifier = Modifier, onGo: (ReadingSpot) -> Unit) {
-    val colors = Filet.colors
-    var shown by remember(spot) { mutableStateOf(false) }
     val returning = LocalViewerReturn.current
     val go by rememberUpdatedState(onGo)
-    LaunchedEffect(spot) {
-        if (spot == null) return@LaunchedEffect
-        // Coming back to a page is not opening it again: no question, just the place it was.
-        if (returning) {
-            go(spot)
-            return@LaunchedEffect
-        }
-        shown = true
-        delay(ReadingSpots.SHOWN_MS)
-        shown = false
-    }
-    AnimatedVisibility(
-        visible = shown && spot != null,
+    // Coming back to a page is not opening it again: no question, just the place it was.
+    LaunchedEffect(spot) { if (spot != null && returning) go(spot) }
+    dev.niccc2007.filet.ui.ContinueCard(
+        key = spot.takeIf { !returning },
+        title = "Continue where you left off",
+        detail = spot?.label.orEmpty(),
+        closeLabel = "Stay at the top",
         modifier = modifier,
-        enter = slideInHorizontally { it } + fadeIn(),
-        exit = slideOutHorizontally { it } + fadeOut(),
-    ) {
-        val s = spot ?: return@AnimatedVisibility
-        val shape = RoundedCornerShape(10.dp)
-        Row(
-            Modifier
-                .padding(top = 10.dp, end = 10.dp)
-                .widthIn(max = 280.dp)
-                .clip(shape)
-                .background(colors.high)
-                .border(1.dp, colors.lineSoft, shape)
-                .clickable {
-                    shown = false
-                    onGo(s)
-                }
-                .padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f, fill = false)) {
-                Text("Continue where you left off", fontSize = 12.sp, color = colors.fg2)
-                Text(
-                    s.label,
-                    fontSize = 11.5.sp,
-                    color = colors.accent,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Box(
-                Modifier
-                    .padding(start = 4.dp)
-                    .size(30.dp)
-                    .clip(RoundedCornerShape(50))
-                    .clickable { shown = false },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(FiletIcons.Close, "Stay at the top", tint = colors.fg3, modifier = Modifier.size(14.dp))
-            }
-        }
-    }
+        holdMs = ReadingSpots.SHOWN_MS,
+    ) { spot?.let(go) }
 }

@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
@@ -100,6 +102,30 @@ internal fun ViewerBarButton(
         Text(label, fontSize = 10.sp, color = if (enabled) colors.fg2 else colors.fg3)
     }
 }
+
+/**
+ * Where a continue card sits in a player: top right, under the player's own top bar, clear of
+ * the camera cutout, the status bar, and a navigation bar down the side in landscape - so the
+ * close is never under a system button. The top is the bar's own inset, so the two move
+ * together. See `ui.ContinueCard`.
+ *
+ * @param bar the height of the player's top bar under those insets.
+ */
+// Composable for the insets, which are read in composition; it is only ever called there.
+@Suppress("ComposableModifierFactory")
+@Composable
+internal fun Modifier.belowPlayerBar(bar: androidx.compose.ui.unit.Dp): Modifier = this
+    .windowInsetsPadding(
+        WindowInsets.safeDrawing
+            .only(androidx.compose.foundation.layout.WindowInsetsSides.Top + androidx.compose.foundation.layout.WindowInsetsSides.Horizontal),
+    )
+    .padding(top = bar)
+
+/** The video screen's top bar, for [belowPlayerBar]: a 32 dp button and its 4 dp either side. */
+internal val VIDEO_BAR = 40.dp
+
+/** The music player's top bar, for [belowPlayerBar]: 12 dp above a 36 dp button, 2 dp below. */
+internal val MUSIC_BAR = 50.dp
 
 /** More's way to the file's folder. Out of every viewer, not back one: see the callers. */
 @Composable

@@ -18,15 +18,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -39,14 +36,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
@@ -82,16 +77,21 @@ import kotlin.coroutines.resume
  * ## Stopped
  *
  * Back while the video plays comes here instead of leaving, with the picture it stopped on and
- * the time it carries on from. So does a video stopped before, opened again or scrolled back to:
- * every stop of a video is saved. See [VideoResume]. Play carries on from there; the menu has
- * Play from the start. Not the glimpse again: a glimpse of other parts of the video above a Play
- * that goes back to the middle of it would show one thing and do another.
+ * the time it carries on from. So does a video stopped before, opened again or scrolled back to,
+ * with Resume playback on: every stop of a video is saved. Play carries on from there, and the
+ * continue card at the top right says so and offers the start - "Play from 0:09 · Start over".
+ * Not the glimpse again: a glimpse of other parts of the video above a Play that goes back to
+ * the middle of it would show one thing and do another.
+ *
+ * With Resume playback off, Play starts at 0:00 over the glimpse, and the card offers the saved
+ * place instead - "Continue where you left off · 0:09" - as a document offers its reading spot.
+ * Either way it is the one card the players and the documents share, and it stays for as long as
+ * the preview is up, since nothing plays under it. See [MediaResume.preview].
  *
  * A tap anywhere on the picture plays, as the button does: the button is where the eye goes, the
  * picture is where the thumb already is. A swipe still moves through the run.
  *
- * @param playFrom where Play carries on from, the saved place or where Back stopped it, or 0 for
- *   a video with nowhere to carry on from. See [VideoResume.playFrom].
+ * @param preview where Play starts and what the card offers. See [MediaResume.preview].
  * @param still the frame it stopped on, read off the screen as it stopped; null to read it from
  *   the file instead.
  * @param onPlay play with sound, from this position.
@@ -100,10 +100,11 @@ import kotlin.coroutines.resume
 internal fun VideoPreview(
     vm: BrowserViewModel,
     node: VNode,
-    playFrom: Long,
+    preview: MediaResume.Preview,
     still: Bitmap?,
     onPlay: (fromMs: Long) -> Unit,
 ) {
+    val playFrom = preview.playFromMs
     val grey by vm.prefs.viewerGrey.collectAsState()
     var menu by remember(node.path) { mutableStateOf(false) }
     var more by remember(node.path) { mutableStateOf(false) }
@@ -123,22 +124,7 @@ internal fun VideoPreview(
             // The tap, on a layer of its own over the picture: the glimpse is a view of its own
             // under it, and a view can keep a touch from what is around it.
             Box(Modifier.matchParentSize().clickable(onClickLabel = "Play") { onPlay(playFrom) })
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                PlayMark()
-                if (playFrom > 0L) {
-                    Spacer(Modifier.height(10.dp))
-                    // On a dark disc of its own, like the mark: it sits on a photograph.
-                    Text(
-                        VideoResume.label(playFrom),
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(Color.Black.copy(alpha = 0.45f))
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
-                    )
-                }
-            }
+            PlayMark()
             // The playing screen's own bar, not a copy of it, so pressing Play does not move a
             // thing at the top. See VideoTopBar. The rows are this state's.
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
@@ -148,10 +134,6 @@ internal fun VideoPreview(
                     menuOpen = menu,
                     onMenu = { menu = it },
                 ) {
-                    if (playFrom > 0L) {
-                        PopRow(FiletIcons.Play, "Play from the start") { menu = false; onPlay(0L) }
-                        PopSeparator()
-                    }
                     if (runPage != null) {
                         NextVideoRow(vm) { menu = false }
                         RunKindsRow(vm, node) { menu = false }
@@ -162,6 +144,19 @@ internal fun VideoPreview(
                         vm.openExternally(node, force = true)
                     }
                     PopRow(FiletIcons.Info, "Properties") { menu = false; vm.showProperties(node) }
+                }
+                // Where Play goes and the other way to start, in the card every viewer offers a
+                // place with; it took the place of a pill of its own under the mark, and of
+                // the menu's Play from the start. See MediaResume.
+                preview.card?.let { card ->
+                    dev.niccc2007.filet.ui.ContinueCard(
+                        key = card,
+                        title = card.title,
+                        detail = card.detail,
+                        closeLabel = card.closeLabel,
+                        modifier = Modifier.align(Alignment.TopEnd).belowPlayerBar(VIDEO_BAR),
+                        holdMs = null,
+                    ) { onPlay(card.goesTo) }
                 }
             }
             // The picture viewer's bottom bar, from the same pieces: what is done TO the file,

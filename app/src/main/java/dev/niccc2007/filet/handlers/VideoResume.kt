@@ -15,30 +15,13 @@ import dev.niccc2007.filet.playback.Finished
  * One record, so Carry on and the preview's Play from always agree. A finished place - 99% or
  * more, see [Finished] - is listed, and opens at 0:00: carrying on at the end would end at once.
  *
- * The preview reads the same record, so its Play from survives the preview being scrolled away
- * and back, and is wherever the video was last left.
+ * The preview reads the same record, so its card survives the preview being scrolled away and
+ * back, and is wherever the video was last left: see [MediaResume], which decides where a video
+ * starts and what the card offers. This is the take-over from the music player.
  *
  * Pure, so every case is a test.
  */
 object VideoResume {
-
-    /**
-     * Where Play starts, and what the preview offers: the saved place, else where Back stopped
-     * it on this visit, else the start. A finished saved place is the start.
-     *
-     * The saved place first because it is the one that outlives the screen, and because it can
-     * have moved on elsewhere - the video carried on as music and paused there. The stop on this
-     * visit is for when nothing could be saved, so an accidental Back is still a Play away from
-     * carrying on for as long as the screen is up.
-     *
-     * @param savedMs the saved place for this video, null when there is none.
-     * @param savedDurationMs the length saved with it, 0 when unknown.
-     * @param stoppedAtMs where Back stopped it on this visit, 0 if it has not.
-     */
-    fun playFrom(savedMs: Long?, savedDurationMs: Long, stoppedAtMs: Long): Long {
-        if (savedMs != null && savedMs > 0L) return Finished.startAt(savedMs, savedDurationMs)
-        return stoppedAtMs.coerceAtLeast(0L)
-    }
 
     /**
      * Where the screen starts when it takes the video over from the music player.
@@ -57,6 +40,4 @@ object VideoResume {
     fun takeOverAt(liveMs: Long, savedMs: Long?, savedDurationMs: Long): Long =
         if (liveMs > 0L) liveMs else savedMs?.let { Finished.startAt(it.coerceAtLeast(0L), savedDurationMs) } ?: 0L
 
-    /** The preview's pill: what Play does, said as the time it plays from. */
-    fun label(fromMs: Long): String = "Play from ${clockOf(fromMs)}"
 }

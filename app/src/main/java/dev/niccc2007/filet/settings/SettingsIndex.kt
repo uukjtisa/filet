@@ -248,7 +248,7 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
         tab = SettingsGroup.PLAYBACK,
         section = "Playing",
         text = "Resume playback Tracks and videos open where they stopped. Tracks and videos " +
-            "open at the start; Carry on stays empty.",
+            "open at the start and offer where they stopped.",
     ),
     SettingsEntry(
         key = Prefs.K_MUSIC_UNINTERRUPTED,

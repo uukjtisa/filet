@@ -953,7 +953,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                 if (resumePlayback) {
                     "Tracks and videos open where they stopped."
                 } else {
-                    "Tracks and videos open at the start; Carry on stays empty."
+                    "Tracks and videos open at the start and offer where they stopped."
                 },
                 resumePlayback,
                 key = Prefs.K_RESUME,
