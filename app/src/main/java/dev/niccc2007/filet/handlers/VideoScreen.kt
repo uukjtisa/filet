@@ -288,6 +288,9 @@ private fun VideoPlayer(
     var playing by remember(node.path) { mutableStateOf(false) }
     var ready by remember(node.path) { mutableStateOf(false) }
     var scrubTo by remember(node.path) { mutableStateOf<Long?>(null) }
+    // The progress bar's width, so a drag on the picture moves at the bar's pace. See
+    // PlayerGesture.seekTrackPx for why it is checked before it is used.
+    var seekBarPx by remember { mutableFloatStateOf(0f) }
     var chromeVisible by remember(node.path) { mutableStateOf(true) }
 
     // The playback zoom. Same value type as the image viewer, so the arithmetic and its tests
@@ -1372,7 +1375,9 @@ private fun VideoPlayer(
                             when (kind) {
                                 PlayerGesture.Drag.SEEK -> if (duration > 0L) {
                                     scrubTo = PlayerGesture.seekAfter(
-                                        startPosition, dx, size.width.toFloat(), duration,
+                                        startPosition, dx,
+                                        PlayerGesture.seekTrackPx(size.width.toFloat(), seekBarPx),
+                                        duration,
                                     )
                                 }
                                 PlayerGesture.Drag.BRIGHTNESS -> {
@@ -1593,6 +1598,7 @@ private fun VideoPlayer(
                     ScrubBar(
                         positionMs = shownPosition,
                         durationMs = duration,
+                        modifier = Modifier.onSizeChanged { seekBarPx = it.width.toFloat() },
                         enabled = duration > 0,
                         bufferedFraction = buffered / 100f,
                         onScrub = { scrubTo = it; wake() },

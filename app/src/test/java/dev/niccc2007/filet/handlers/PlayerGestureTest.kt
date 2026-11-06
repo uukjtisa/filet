@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.handlers
 
+import dev.niccc2007.filet.playback.Scrub
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -197,10 +198,52 @@ class PlayerGestureTest {
     }
 
     @Test
-    fun `a short clip is not scrubbed faster than it is long`() {
-        // A full-width drag on a 30s clip must not try to cover 90 seconds.
+    fun `a short clip is covered once by a drag the width of the bar`() {
         val short = 30_000L
         assertEquals(short, PlayerGesture.seekAfter(0L, W, W, short))
+    }
+
+    @Test
+    fun `a drag on the picture moves at the progress bar's pace`() {
+        // The bar's own arithmetic at its normal speed: any drift between the two is a picture
+        // drag that lags, or outruns, the bar under the same finger.
+        val durations = listOf(30_000L, 4 * 60_000L, 60 * 60_000L, 2 * 60 * 60_000L)
+        val moves = listOf(1f, 37f, 250f, -180f, 900f)
+        for (d in durations) for (dx in moves) {
+            val start = d / 3
+            val bar = Scrub.barMove(start.toDouble(), dx, W, d, pullDp = 0f, pxPerDp = 2.75f)!!.toLong()
+            assertEquals("duration $d, dx $dx", bar, PlayerGesture.seekAfter(start, dx, W, d))
+        }
+    }
+
+    @Test
+    fun `one bar's width covers the whole of an hour or two hours`() {
+        for (d in listOf(60 * 60_000L, 2 * 60 * 60_000L)) {
+            assertEquals(d, PlayerGesture.seekAfter(0L, W, W, d))
+            assertEquals(0L, PlayerGesture.seekAfter(d, -W, W, d))
+            assertEquals(d / 2, PlayerGesture.seekAfter(0L, W / 2, W, d))
+        }
+    }
+
+    @Test
+    fun `a long video is not capped at ninety seconds a sweep`() {
+        // The old pace: a quarter of the width on an hour-long video moved 22.5 seconds.
+        val hour = 60 * 60_000L
+        assertEquals(15 * 60_000L, PlayerGesture.seekAfter(0L, W / 4, W, hour))
+    }
+
+    @Test
+    fun `the pace comes from the bar's measured width when it is this screen's bar`() {
+        // 28 dp of padding at 2.75 px per dp: the bar is 77 px narrower than the picture.
+        assertEquals(1003f, PlayerGesture.seekTrackPx(1080f, 1003f), 0f)
+        assertEquals("landscape, side navigation bar", 2180f, PlayerGesture.seekTrackPx(2400f, 2180f), 0f)
+    }
+
+    @Test
+    fun `an unmeasured or stale bar falls back to the picture's width`() {
+        assertEquals("never drawn", 1080f, PlayerGesture.seekTrackPx(1080f, 0f), 0f)
+        assertEquals("landscape's bar after turning to portrait", 1080f, PlayerGesture.seekTrackPx(1080f, 2323f), 0f)
+        assertEquals("portrait's bar after turning to landscape", 2400f, PlayerGesture.seekTrackPx(2400f, 1003f), 0f)
     }
 
     @Test

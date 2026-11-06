@@ -165,25 +165,41 @@ object PlayerGesture {
     }
 
     /**
-     * Where a sideways drag seeks to.
+     * Where a sideways drag on the picture seeks to: from where the video was when the drag
+     * began, at the progress bar's own pace.
      *
-     * Relative to where the video was when the drag began, unlike the progress bar, where the
-     * position under the finger is the position. Dragging the picture is a nudge from here;
-     * dragging the bar is a jump to there.
+     * Relative, unlike the bar, where the position under the finger is the position: dragging the
+     * picture is a nudge from here, dragging the bar is a jump to there. The pace is the bar's -
+     * one bar's width of travel is the whole video - because the picture used to cover at most
+     * ninety seconds per sweep. On an hour-long video that was forty times slower than the bar,
+     * and the longer the video the further a drag on the picture fell behind.
      *
-     * @param fullSweepMs how much of the video a drag across the whole width covers. Capped
-     *   against the duration, so a ninety-second clip does not scrub two minutes per screen.
+     * The rate is `Scrub.barMove`'s at its normal speed, written the same way, so the two cannot
+     * drift apart. The test holds them to it.
+     *
+     * @param trackPx the width of the progress bar the pace is taken from. See [seekTrackPx].
      */
-    fun seekAfter(
-        startMs: Long,
-        dxPx: Float,
-        widthPx: Float,
-        durationMs: Long,
-        fullSweepMs: Long = 90_000L,
-    ): Long {
-        if (durationMs <= 0L || widthPx <= 0f) return startMs.coerceAtLeast(0L)
-        val span = minOf(fullSweepMs, durationMs)
-        val moved = (dxPx / widthPx) * span
-        return (startMs + moved).toLong().coerceIn(0L, durationMs)
+    fun seekAfter(startMs: Long, dxPx: Float, trackPx: Float, durationMs: Long): Long {
+        if (durationMs <= 0L || trackPx <= 0f) return startMs.coerceAtLeast(0L)
+        val at = startMs + dxPx * (durationMs.toDouble() / trackPx)
+        return at.coerceIn(0.0, durationMs.toDouble()).toLong()
     }
+
+    /**
+     * The width a drag on the picture takes its pace from: the progress bar's when the measured
+     * one can be believed, the picture's otherwise.
+     *
+     * The bar is narrower than the picture - its padding, and in landscape the navigation bar at
+     * the side - so pacing by the picture's width would leave a drag a few percent behind it. But
+     * the bar is only measured while the controls are up, and a width kept from before a rotation
+     * is the other orientation's: wider than the picture, or under half of it. Neither is this
+     * screen's bar, and the picture's width is the nearest answer until the bar is drawn again,
+     * which the drag itself brings about by bringing the controls up.
+     */
+    fun seekTrackPx(pictureWidthPx: Float, barWidthPx: Float): Float =
+        if (barWidthPx > 0f && barWidthPx <= pictureWidthPx && barWidthPx >= pictureWidthPx / 2f) {
+            barWidthPx
+        } else {
+            pictureWidthPx
+        }
 }
