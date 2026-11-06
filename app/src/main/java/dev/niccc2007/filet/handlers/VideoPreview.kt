@@ -71,8 +71,8 @@ import kotlin.coroutines.resume
  *
  * ## Opened
  *
- * A glimpse of the whole video, the same one a held tile plays - [GlimpsePlan]'s three clips of a
- * second and a half from across its middle - muted, round and round, over the video's poster. Its own small
+ * A glimpse of the whole video, the same one a held tile plays - [GlimpsePlan]'s five clips from
+ * its opening to its ending - muted, round and round, over the video's poster. Its own small
  * player on a texture, not the video screen's: that one is made only once Play is pressed, so a
  * video looked at and left costs no decoder set up for sound, no sound effects on a session and
  * no audio focus. Nothing here asks for focus at all, so music playing elsewhere carries on

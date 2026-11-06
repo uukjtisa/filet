@@ -1,70 +1,78 @@
 package dev.niccc2007.filet.handlers
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.random.Random
 
-/** Where a video glimpse's clips land: NxDashVids' timing. */
+/** Where a video glimpse's clips land: five, from the opening to the ending. */
 class GlimpsePlanTest {
 
     @Test
-    fun `three clips of a second and a half, one in each third of the middle 70 percent`() {
-        assertEquals(3, GlimpsePlan.CLIPS)
-        assertEquals(1_500L, GlimpsePlan.CLIP_MS)
+    fun `five clips of 1_2 seconds, one in each fifth of 3 to 97 percent`() {
+        assertEquals(5, GlimpsePlan.CLIPS)
+        assertEquals(1_200L, GlimpsePlan.CLIP_MS)
         for (seed in 0 until 200) {
             val duration = 60_000L + seed * 37_919L
             val clips = GlimpsePlan.of(duration, Random(seed))
             assertEquals(GlimpsePlan.CLIPS, clips.size)
-            val from = (duration * 0.15).toLong()
-            val to = (duration * 0.85).toLong()
-            val third = (to - from) / GlimpsePlan.CLIPS
+            val from = (duration * 0.03).toLong()
+            val to = (duration * 0.97).toLong()
+            val fifth = (to - from) / GlimpsePlan.CLIPS
             clips.forEachIndexed { i, c ->
                 assertEquals(GlimpsePlan.CLIP_MS, c.lengthMs)
-                assertTrue("seed $seed clip $i starts in its third", c.startMs >= from + i * third)
-                assertTrue("seed $seed clip $i ends in its third", c.endMs <= from + (i + 1) * third)
+                assertTrue("seed $seed clip $i starts in its fifth", c.startMs >= from + i * fifth)
+                assertTrue("seed $seed clip $i ends in its fifth", c.endMs <= from + (i + 1) * fifth)
             }
             assertTrue("never overlap", clips.zipWithNext().all { (a, b) -> a.endMs <= b.startMs })
         }
     }
 
     @Test
-    fun `a round is four and a half seconds, not twelve`() {
-        assertEquals(4_500L, GlimpsePlan.of(10 * 60_000L, Random(1)).sumOf { it.lengthMs })
+    fun `a round is six seconds`() {
+        assertEquals(6_000L, GlimpsePlan.of(10 * 60_000L, Random(1)).sumOf { it.lengthMs })
     }
 
     @Test
-    fun `nothing from the opening 15 percent or the closing 15 percent of a long video`() {
+    fun `the first clip is from the opening and the last from the ending`() {
+        // The middle-70% plan never reached either, so a round was not a glimpse of the whole.
+        val duration = 10 * 60_000L
+        for (seed in 0 until 100) {
+            val clips = GlimpsePlan.of(duration, Random(seed))
+            assertTrue("seed $seed opens in the first fifth", clips.first().endMs <= duration * 218 / 1000)
+            assertTrue("seed $seed ends in the last fifth", clips.last().startMs >= duration * 782 / 1000)
+        }
+    }
+
+    @Test
+    fun `nothing from the very first or last 3 percent`() {
         val duration = 2 * 60 * 60_000L
         for (seed in 0 until 100) {
             for (c in GlimpsePlan.of(duration, Random(seed))) {
-                assertTrue(c.startMs >= duration * 15 / 100)
-                assertTrue(c.endMs <= duration * 85 / 100)
+                assertTrue(c.startMs >= duration * 3 / 100)
+                assertTrue(c.endMs <= duration * 97 / 100)
             }
         }
     }
 
     @Test
-    fun `a middle too short for the clips falls back to all but two seconds at each end`() {
-        // 9 s: 15-85% is 6.3 s, under the clips' 4.5 s plus 2 s.
-        assertEquals(2_000L to 7_000L, GlimpsePlan.zone(9_000L))
-        // 10 s: 7 s, enough.
-        assertEquals(1_500L to 8_500L, GlimpsePlan.zone(10_000L))
-        for (duration in listOf(5_000L, 6_000L, 7_500L, 9_000L)) {
-            for (seed in 0 until 50) {
-                val clips = GlimpsePlan.of(duration, Random(seed))
-                assertEquals(GlimpsePlan.CLIPS, clips.size)
-                assertTrue(clips.all { it.startMs >= GlimpsePlan.EDGE_MS && it.endMs <= duration })
-            }
+    fun `a video too short to hold the clips apart plays whole`() {
+        // 94% of 6.383 s is the first length that holds five 1.2 s clips end to end.
+        assertTrue(GlimpsePlan.playsWhole(6_382L))
+        assertFalse(GlimpsePlan.playsWhole(6_383L))
+        assertEquals(listOf(GlimpsePlan.Clip(0L, 6_382L)), GlimpsePlan.of(6_382L, Random(1)))
+        assertTrue(GlimpsePlan.isWhole(GlimpsePlan.of(5_000L)))
+        for (seed in 0 until 50) {
+            val clips = GlimpsePlan.of(6_383L, Random(seed))
+            assertEquals(GlimpsePlan.CLIPS, clips.size)
+            assertTrue(clips.zipWithNext().all { (a, b) -> a.endMs <= b.startMs })
+            assertTrue(clips.all { it.startMs >= 0L && it.endMs <= 6_383L })
         }
     }
 
     @Test
-    fun `under five seconds plays whole, a two-second video included`() {
-        val clips = GlimpsePlan.of(4_999L, Random(1))
-        assertEquals(listOf(GlimpsePlan.Clip(0L, 4_999L)), clips)
-        assertTrue(GlimpsePlan.isWhole(clips))
-        // NxDashVids shows nothing under three seconds; here it still plays.
+    fun `under three seconds still plays whole, where NxDashVids shows nothing`() {
         assertEquals(listOf(GlimpsePlan.Clip(0L, 2_000L)), GlimpsePlan.of(2_000L))
         assertEquals(listOf(GlimpsePlan.Clip(0L, 800L)), GlimpsePlan.of(800L))
     }
