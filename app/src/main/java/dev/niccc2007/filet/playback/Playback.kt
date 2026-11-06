@@ -12,6 +12,7 @@ import android.view.Surface
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -444,6 +445,12 @@ class Playback(
         _asAudio.value = false
     }
 
+    /**
+     * Which [load] is the newest. Read and written on the main thread only: [load] runs there,
+     * and so does the hand-over that checks it. See [LoadTurn].
+     */
+    private var loadGen = 0L
+
     private fun load(
         restart: Boolean,
         startAtMs: Long = 0L,
@@ -455,6 +462,7 @@ class Playback(
         orFailed: (() -> Unit)? = null,
     ) {
         loadJob?.cancel()
+        val gen = ++loadGen
         releasePlayer()
         val track = _state.value.current ?: run {
             stop()
@@ -467,6 +475,7 @@ class Playback(
         onServiceWanted(PlaybackNotice.shouldKeepService(_state.value))
 
         loadJob = scope.launch {
+            val job = coroutineContext[Job]
             val uri = runCatching { resolve(track.id) }.getOrNull()
             if (uri == null) {
                 fail("This track has to be copied to local storage before it can play.")
@@ -476,7 +485,12 @@ class Playback(
             // Built and prepared off the main thread. `prepare()` reads and decodes a header,
             // and on a file staged from a share that is a network round trip - on the main
             // thread it is a visible stall at best and an ANR at worst.
-            val prepared = withContext(Dispatchers.IO) {
+            //
+            // Not cancellable, so the player always comes back to be handed over or released.
+            // A cancellable `withContext` that is cancelled while `prepare()` blocks still
+            // finishes the block, then throws on the way out and drops what it built: every
+            // quick skip left a prepared MediaPlayer, decoder and all, that nothing released.
+            val prepared = withContext(NonCancellable + Dispatchers.IO) {
                 runCatching {
                     MediaPlayer().apply {
                         setAudioAttributes(attributes)
@@ -487,56 +501,93 @@ class Playback(
                     }
                 }.getOrNull()
             }
-            if (prepared == null) {
-                fail("Android cannot decode ${track.name}.")
-                orFailed?.invoke()
-                return@launch
+            val remembered = if (prepared != null && resumeWanted()) {
+                runCatching { resume.positionOf(track.id) }.getOrNull()
+            } else {
+                null
             }
-            player = prepared
-            linkSound(prepared)
-            _source.value = uri
-            surface?.let { runCatching { prepared.setSurface(it) } }
-            prepared.setOnCompletionListener { onCompletion() }
-            // Repeat-one loops INSIDE the decoder rather than by re-opening the file.
+            // The hand-over runs on the main thread, where every [load] and [stop] runs.
             //
-            // It used to go round through onCompletion -> load(restart = true), which tears
-            // the player down and prepares a new one - a gap of a few hundred milliseconds,
-            // and a header re-read each time. On a three-minute song that is a seam you might
-            // not notice. On the two-second clip he is looping it is most of the playback.
-            applyLooping(prepared)
-            _state.value = _state.value.copy(
-                durationMs = prepared.duration.toLong().coerceAtLeast(0L),
-            )
-            // Sought BEFORE starting, so a hand-off from the video screen resumes where that
-            // screen was rather than playing a moment from the beginning first.
-            //
-            // The remembered position is the LAST resort, after an explicit request and after
-            // whatever the caller passed: a hand-off from the video screen knows better than
-            // the store does, and a tap on a queue row at a chosen point is a deliberate act
-            // that must not be overridden by where the track was last week.
-            val asked = startAt?.invoke() ?: startAtMs
-            val at = when {
-                asked > 0L -> asked
-                resumeWanted() -> resume.positionOf(track.id) ?: 0L
-                else -> 0L
-            }
-            if (at > 0L) seekTo(at)
-            applySpeed(prepared)
-            if (restart) resume()
-            then?.invoke()
-
-            val tags = runCatching { readTags(track.id, uri) }.getOrNull()
-            if (tags != null) {
-                _art.value = tags.art
-                // The queue entry is updated rather than a parallel tag map kept, so every
-                // surface reading the queue gets the real title without asking anything else.
-                val q = _state.value.queue.toMutableList()
-                val at = _state.value.index
-                if (q.getOrNull(at)?.id == track.id) {
-                    q[at] = q[at].copy(title = tags.title, artist = tags.artist, album = tags.album)
-                    _state.value = _state.value.copy(queue = q)
+            // Bug identified here: it ran on this scope's worker thread, in parallel with the
+            // main thread. A skip pressed during it called [releasePlayer] on the player this
+            // block had just stored, and the next line asked the released player for its
+            // length - IllegalStateException from `getDuration`, the crash filed as #55 from
+            // pressing next or previous quickly. On the main thread a newer skip cannot run
+            // between the check and the use, so the check is the whole fix: a load that is no
+            // longer the newest, or was cancelled by [stop], releases what it built and stops.
+            val tookOver = withContext(NonCancellable + Dispatchers.Main.immediate) {
+                if (!LoadTurn.handsOver(gen, loadGen, cancelled = job?.isCancelled == true)) {
+                    runCatching { prepared?.release() }
+                    return@withContext false
                 }
+                if (prepared == null) {
+                    fail("Android cannot decode ${track.name}.")
+                    orFailed?.invoke()
+                    return@withContext false
+                }
+                handOver(prepared, uri, startAtMs, startAt, remembered, restart, then)
+                true
             }
+            if (!tookOver) return@launch
+            readTagsInto(track, uri)
+        }
+    }
+
+    /**
+     * The newest load's player, made current, and started if [restart]. Main thread only: see
+     * [load]. [remembered] is the stored position, read before the hand-over so this does no
+     * disk work on the main thread.
+     */
+    private fun handOver(
+        prepared: MediaPlayer,
+        uri: Uri,
+        startAtMs: Long,
+        startAt: (() -> Long)?,
+        remembered: Long?,
+        restart: Boolean,
+        then: (() -> Unit)?,
+    ) {
+        player = prepared
+        linkSound(prepared)
+        _source.value = uri
+        surface?.let { runCatching { prepared.setSurface(it) } }
+        prepared.setOnCompletionListener { onCompletion() }
+        // Repeat-one loops INSIDE the decoder rather than by re-opening the file.
+        //
+        // It used to go round through onCompletion -> load(restart = true), which tears
+        // the player down and prepares a new one - a gap of a few hundred milliseconds,
+        // and a header re-read each time. On a three-minute song that is a seam you might
+        // not notice. On a two-second clip on loop it is most of the playback.
+        applyLooping(prepared)
+        _state.value = _state.value.copy(
+            durationMs = prepared.duration.toLong().coerceAtLeast(0L),
+        )
+        // Sought BEFORE starting, so a hand-off from the video screen resumes where that
+        // screen was rather than playing a moment from the beginning first.
+        //
+        // The remembered position is the LAST resort, after an explicit request and after
+        // whatever the caller passed: a hand-off from the video screen knows better than
+        // the store does, and a tap on a queue row at a chosen point is a deliberate act
+        // that must not be overridden by where the track was last week.
+        val asked = startAt?.invoke() ?: startAtMs
+        val at = if (asked > 0L) asked else remembered ?: 0L
+        if (at > 0L) seekTo(at)
+        applySpeed(prepared)
+        if (restart) resume()
+        then?.invoke()
+    }
+
+    /** The track's own title, artist, album and art, once it is playing. */
+    private suspend fun readTagsInto(track: Track, uri: Uri) {
+        val tags = runCatching { readTags(track.id, uri) }.getOrNull() ?: return
+        _art.value = tags.art
+        // The queue entry is updated rather than a parallel tag map kept, so every
+        // surface reading the queue gets the real title without asking anything else.
+        val q = _state.value.queue.toMutableList()
+        val at = _state.value.index
+        if (q.getOrNull(at)?.id == track.id) {
+            q[at] = q[at].copy(title = tags.title, artist = tags.artist, album = tags.album)
+            _state.value = _state.value.copy(queue = q)
         }
     }
 
@@ -1067,4 +1118,16 @@ class Playback(
         /** Past this, Previous restarts the track instead of leaving it. */
         const val RESTART_WINDOW_MS = 4_000L
     }
+}
+
+/**
+ * Whether a prepared player is still wanted when its load comes to hand it over. Pure, so the
+ * rule behind #55 is a test.
+ *
+ * Only the newest load hands over, and only if nothing stopped it. Anything else - a load a
+ * quicker skip has replaced, a load [Playback.stop] cancelled - releases the player it built.
+ * Using it instead is how a released player came to be asked for its length.
+ */
+internal object LoadTurn {
+    fun handsOver(mine: Long, newest: Long, cancelled: Boolean): Boolean = !cancelled && mine == newest
 }
