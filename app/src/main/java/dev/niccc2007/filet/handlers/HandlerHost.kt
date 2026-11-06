@@ -13,6 +13,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -254,7 +258,17 @@ fun ViewerBar(
             )
             // Below the status bar rather than under it, now that the viewer draws behind the
             // system bars. Without this the title sits in the clock.
-            .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.Companion.statusBars)
+            //
+            // Bug identified here: this padded for the status bar alone, and the picture viewer
+            // hides the status bar while it is open. A hidden bar's inset is zero, so the padding
+            // went with it and the bar's Back and title slid under a punch-hole camera. The
+            // cutout is there whether the bar is shown or not, so the bar clears both: the
+            // larger of the two at the top, and the cutout at the sides in landscape. The video
+            // player's bar has carried the same pair since it hit the same fault.
+            .windowInsetsPadding(
+                WindowInsets.displayCutout.union(WindowInsets.statusBars)
+                    .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+            )
             .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
