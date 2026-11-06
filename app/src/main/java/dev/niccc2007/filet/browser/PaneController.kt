@@ -259,10 +259,8 @@ class PaneController(
      * and the whole point is to be asked at the moment the decision is made.
      */
     private val dragging: () -> Boolean = { false },
-    /** Whether a pick is live anywhere in the app. Asked at the moment a row is selected. */
-    private val pickLive: () -> Boolean = { false },
-    /** Hand a file to the live pick's own list, as a tap on it does. See [PickRoute]. */
-    private val pickTake: (VNode) -> Unit = {},
+    /** The live pick, whose list is this pane's selection while one is live. See [PickPort]. */
+    private val pick: PickPort = PickPort.None,
 ) : PaneMemory {
     private val _state = MutableStateFlow(PaneState(id = id))
     val state: StateFlow<PaneState> = _state.asStateFlow()
@@ -1138,11 +1136,36 @@ class PaneController(
      * the pick; tapping it next started a second selection beside the first. Every one of those
      * gestures arrives through [toggleSelect], [selectOnly] or [extendSelectionTo], so the pick
      * claims the row at those three doors and there is one selection while it is live.
+     *
+     * @param put what the pick does with a file: [PickPort.take] for a toggle, an add for
+     *   [selectOnly], a range for [extendSelectionTo].
      */
-    private fun pickTook(node: VNode): Boolean = when (PickRoute.of(pickLive(), node.isDir)) {
+    private inline fun pickTook(node: VNode, put: () -> Unit): Boolean = when (PickRoute.of(pick.live(), node.isDir)) {
         PickRoute.PANE -> false
-        PickRoute.PICK -> { pickTake(node); true }
+        PickRoute.PICK -> { put(); true }
         PickRoute.NOTHING -> true
+    }
+
+    /**
+     * The selection a gesture decides against: the pick's list while a pick is live, this pane's
+     * otherwise. Every hold, double tap and slide reads it here, never `state.selected`, or the
+     * same gesture means one thing in the browser and another in a pick. See [PickPort].
+     */
+    fun selectionNow(): Set<VPath> = if (pick.live()) pick.chosen() else _state.value.selected
+
+    /** What a hold on [path] means now, against [selectionNow]. See [longPressAction]. */
+    fun holdAction(path: VPath): LongPressAction {
+        val now = selectionNow()
+        return longPressAction(now.size, path in now)
+    }
+
+    /**
+     * Hand the move from [selectionNow] to [next], over [rows], to the pick. A run never drops a
+     * file this gesture did not pass over: see [PickRun.diff].
+     */
+    private fun pickTo(next: Set<VPath>, rows: List<VNode>, target: VNode?) {
+        val (add, remove) = PickRun.diff(rows, pick.chosen(), next)
+        pick.run(add, remove, target)
     }
 
     /**
@@ -1150,7 +1173,7 @@ class PaneController(
      * [TreeSelection] - and a row a selected folder already includes says so instead.
      */
     fun toggleSelect(node: VNode) {
-        if (pickTook(node)) return
+        if (pickTook(node) { pick.take(node) }) return
         val s = _state.value
         val next = TreeSelection.toggle(s.selected, node.path)
         if (next == null) {
@@ -1163,7 +1186,9 @@ class PaneController(
     }
 
     fun selectOnly(node: VNode) {
-        if (pickTook(node)) return
+        // In a pick, a file already chosen stays chosen and becomes the anchor; a toggle here
+        // would take it OUT on the press that is meant to pick it.
+        if (pickTook(node) { if (node.path in pick.chosen()) pick.run(emptyList(), emptySet(), node) else pick.take(node) }) return
         anchor = node.path
         choose(setOf(node.path), listOf(node))
     }
@@ -1241,7 +1266,12 @@ class PaneController(
 
     /** Shift-click. See `RangeSelect.kt` for the arithmetic and why it is separate. */
     fun extendSelectionTo(node: VNode) {
-        if (pickTook(node)) return
+        // In a pick the same range, from the pick's anchor over the pick's list.
+        if (pickTook(node) {
+                val rows = rowsInOrder(_state.value)
+                pickTo(rangeSelect(rows.map { it.path }, pick.chosen(), pick.anchor(), node.path), rows, node)
+            }
+        ) return
         val s = _state.value
         val rows = rowsInOrder(s)
         val next = rangeSelect(
@@ -1256,12 +1286,17 @@ class PaneController(
 
     /**
      * A finger sliding across a gallery after a hold, from [start] to [current], measured
-     * against [before] - the selection when the hold began. See `dragSelect` for the arithmetic.
+     * against [before] - the selection when the hold began, read from [selectionNow]. See
+     * `dragSelect` for the arithmetic.
      */
     fun dragSelectTo(before: Set<VPath>, start: VPath, current: VPath, adding: Boolean = start !in before) {
         val rows = rowsInOrder(_state.value)
         val next = dragSelect(rows.map { it.path }, before, start, current, adding)
-        if (next == _state.value.selected) return
+        if (next == selectionNow()) return
+        if (pick.live()) {
+            pickTo(next, rows, rows.firstOrNull { it.path == current })
+            return
+        }
         anchor = current
         choose(next, rows)
     }
@@ -1273,6 +1308,10 @@ class PaneController(
 
     fun selectAll() {
         val rows = rowsInOrder(_state.value)
+        if (pick.live()) {
+            pickTo(rows.mapTo(HashSet()) { it.path }, rows, null)
+            return
+        }
         // Absorbed, so a tree with folders open selects the folders once and not their
         // contents a second time.
         choose(TreeSelection.absorb(rows.mapTo(LinkedHashSet()) { it.path }), rows)
@@ -1281,6 +1320,10 @@ class PaneController(
     fun invertSelection() {
         val s = _state.value
         val rows = rowsInOrder(s)
+        if (pick.live()) {
+            pickTo(TreeSelection.invert(rows.map { it.path }, pick.chosen()), rows, null)
+            return
+        }
         choose(TreeSelection.invert(rows.map { it.path }, s.selected), rows)
     }
 

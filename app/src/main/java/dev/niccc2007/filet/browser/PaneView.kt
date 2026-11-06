@@ -823,9 +823,9 @@ private fun FolderBody(
     // opens the menu on it. The selection stays after the menu closes: it was asked for.
     val onDoubleTapRow: (VNode, Offset) -> Unit = { node, at ->
         vm.focusSide(side)
-        val current = pane.state.value
-        if (node.path !in current.selected) {
-            if (current.selected.isEmpty()) pane.selectOnly(node) else pane.toggleSelect(node)
+        val current = pane.selectionNow()
+        if (node.path !in current) {
+            if (current.isEmpty()) pane.selectOnly(node) else pane.toggleSelect(node)
         }
         menuSelectedIt = false
         menuAt = node to at
@@ -1771,12 +1771,12 @@ private fun dragModifier(
                     travelled = 0f
                     pointer = origin + local
                     vm.focusSide(side)
-                    val current = pane.state.value
                     // What a long press means depends on what is already selected. Decided by
                     // `longPressAction` rather than inline, because a press that quietly does
                     // the other thing reads as the app ignoring you. Kept for the release,
                     // which must judge by what the press FOUND rather than what it changed.
-                    pressAction = longPressAction(current.selected.size, node.path in current.selected)
+                    // Against `selectionNow`, so a pick's hold extends a range as this does.
+                    pressAction = pane.holdAction(node.path)
                     val lift = livePeek.value
                     if (lift != null && pressAction == LongPressAction.MENU) {
                         // A grid tile with nothing selected: the peek, and no drag yet.

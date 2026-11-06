@@ -198,7 +198,7 @@ fun CategoryScreen(vm: BrowserViewModel, pane: dev.niccc2007.filet.browser.PaneC
     // More is the sheet a list row's hold opens, keeping Show in folder, Bookmark and Shortcut
     // one tap away.
     peekFor?.let { node ->
-        val chosen = node.path in pane.state.value.selected
+        val chosen = node.path in pane.selectionNow()
         dev.niccc2007.filet.handlers.TilePeek(
             vm = vm,
             node = node,

@@ -162,11 +162,11 @@ internal fun CategoryGallery(
             },
             hold = { t ->
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                val now = pick.pane.state.value.selected
                 slide.start = t.node.path
                 slide.last = null
-                // Decided once, at the press, by what it found: see `longPressAction`.
-                when (dev.niccc2007.filet.browser.longPressAction(now.size, t.node.path in now)) {
+                // Decided once, at the press, by what it found: see `longPressAction`. Against
+                // `selectionNow`, so during a pick the pick's list is what it found.
+                when (pick.pane.holdAction(t.node.path)) {
                     dev.niccc2007.filet.browser.LongPressAction.MENU -> {
                         slide.adding = true
                         slide.peeking = true
@@ -183,7 +183,7 @@ internal fun CategoryGallery(
                         pick.hold(t.node) {}
                     }
                 }
-                slide.before = pick.pane.state.value.selected
+                slide.before = pick.pane.selectionNow()
             },
             slideStart = { at ->
                 if (slide.peeking) {

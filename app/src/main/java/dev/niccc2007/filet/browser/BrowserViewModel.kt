@@ -625,9 +625,8 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             onLanded = { path -> graph.indexCoordinator.indexFolderNow(path) },
             worldRevision = { _state.value.revision },
             dragging = { _state.value.drag != null },
-            // One selection while a pick is live. See `PaneController.pickTook`.
-            pickLive = { pickingAnything },
-            pickTake = { node -> pickTap(node) },
+            // One selection while a pick is live: the pick's. See `PickPort`.
+            pick = pickPort(),
         )
         equip(pane)
         return pane
@@ -2009,6 +2008,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
         _pickPreview.value = null
         _pickChosen.value = emptyList()
+        pickAnchor = null
         _pickMinimised.value = false
         _pickName.value = spec.name
         _inAppPick.value = LivePick(spec, onResult, pane, returnTo, preview)
@@ -2121,11 +2121,50 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                     finishPick(dev.niccc2007.filet.pick.PickResult.Picked(listOf(node.path)))
                 } else {
                     _pickChosen.update { spec.chosenAfter(it, node) }
+                    // Out as well as in, as the browser's own anchor moves on a deselect.
+                    pickAnchor = node.path
                 }
             }
             dev.niccc2007.filet.pick.PickSpec.RowState.FOLDER -> return false
         }
         return true
+    }
+
+    /**
+     * The last file a pick took or let go of deliberately, which a hold further along extends a
+     * range from. On the pick and not on a pane because most taps that fill a pick arrive through
+     * [pickTap] from surfaces that are not the pane - see [PickPort].
+     */
+    private var pickAnchor: VPath? = null
+
+    /**
+     * A range, a slide, Select all or Invert during a pick: [add] taken where the pick accepts
+     * them, [remove] dropped. A pick for one file, a folder or a save name has no range, so it
+     * takes [target] as a tap would, if anything.
+     */
+    private fun pickRun(add: List<VNode>, remove: Set<VPath>, target: VNode?) {
+        val spec = activePickSpec() ?: return
+        if (spec.want != dev.niccc2007.filet.pick.PickSpec.Want.FILES) {
+            if (target != null && !target.isDir && !isPickChosen(target.path)) pickTap(target)
+            return
+        }
+        _pickChosen.update {
+            PickRun.after(it, add, remove) { n -> spec.rowState(n) == dev.niccc2007.filet.pick.PickSpec.RowState.ACCEPTED }
+        }
+        if (target != null) pickAnchor = target.path
+    }
+
+    /**
+     * The pick as a pane sees it. A function rather than a property: a pane is made during
+     * construction, before a property declared below it would be initialised, and every member
+     * this reads is read at the moment of the gesture.
+     */
+    private fun pickPort(): PickPort = object : PickPort {
+        override fun live() = pickingAnything
+        override fun chosen() = _pickChosen.value.mapTo(HashSet()) { it.path }
+        override fun anchor() = pickAnchor
+        override fun take(node: VNode) { pickTap(node) }
+        override fun run(add: List<VNode>, remove: Set<VPath>, target: VNode?) = pickRun(add, remove, target)
     }
 
     /** True while any pick is live, for the chrome that changes while one is. */
@@ -2190,6 +2229,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         pickWatch = null
         _inAppPick.value = null
         _pickChosen.value = emptyList()
+        pickAnchor = null
         _pickMinimised.value = false
         _pickName.value = ""
         _pickPreview.value = null

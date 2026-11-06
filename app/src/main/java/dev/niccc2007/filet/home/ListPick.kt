@@ -12,7 +12,6 @@ import androidx.compose.runtime.remember
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.LongPressAction
 import dev.niccc2007.filet.browser.PaneController
-import dev.niccc2007.filet.browser.longPressAction
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import kotlinx.coroutines.Dispatchers
@@ -57,8 +56,7 @@ internal class ListPick(
     /** A hold on [node]. [ask] is the row's own sheet, for a row that is already selected. */
     fun hold(node: VNode, ask: (VNode) -> Unit) {
         vm.focusPane(pane)
-        val s = pane.state.value
-        when (longPressAction(s.selected.size, node.path in s.selected)) {
+        when (pane.holdAction(node.path)) {
             LongPressAction.MENU -> pane.selectOnly(node)
             LongPressAction.EXTEND -> pane.extendSelectionTo(node)
             LongPressAction.MENU_FOR_SELECTION -> ask(node)
