@@ -22,7 +22,8 @@
  *   host   at the bottom of something that is itself already clear: a pane (above the
  *          browser's bottom strip), a viewer (HandlerHost stops it at the bar), a dialogue;
  *   self   at the screen's edge, cleared further into its own composable `fn`, which this
- *          then requires to carry the inset.
+ *          then requires to carry the inset. `in` names the file `fn` lives in when it is a
+ *          shared piece rather than one of this file's own.
  * The counts must match exactly. A new bottom anchor nobody has looked at fails, and so does an
  * entry for one that has gone, so the list cannot quietly outlive its reasons.
  *
@@ -63,6 +64,7 @@ export const EDGES = [
   { file: "handlers/VideoScreen.kt", must: /WindowInsets\.navigationBars/, why: "the video's chrome" },
   { file: "handlers/VideoScreen.kt", must: /WindowInsets\.displayCutout\s*\.union\(\s*WindowInsets\.statusBars\s*\)/, why: "the video's top bar below the camera, and below the status bar while a swipe shows it" },
   { file: "handlers/FrameBar.kt", fn: "FrameBar", must: INSET, why: "the frame bar is the video's bottom edge when it is up" },
+  { file: "handlers/ViewerActions.kt", fn: "ViewerActionBar", must: /WindowInsets\.navigationBars/, why: "the viewers' bottom bar: the picture's actions, and the video preview's" },
   { file: "ui/dialogs/DlgKit.kt", fn: "Dlg", must: /WindowInsets\.safeDrawing/, why: "every dialogue and sheet drawn through Dlg" },
 ];
 
@@ -82,6 +84,9 @@ export const KNOWN = {
     { n: 1, kind: "self", fn: "ToolStrip", why: "the editor's tool row, cleared in ToolStrip" },
   ],
   "handlers/TilePeek.kt": [{ n: 1, kind: "inner", why: "the segment bar on the peek's card" }],
+  "handlers/VideoPreview.kt": [
+    { n: 1, kind: "self", fn: "ViewerActionBar", in: "handlers/ViewerActions.kt", why: "the preview's action row and the glimpse's segments over it, cleared in the shared ViewerActionBar" },
+  ],
   "home/CategoryGallery.kt": [{ n: 1, kind: "inner", why: "the video badge on a gallery tile" }],
   "playback/PlaylistsScreen.kt": [
     { n: 1, kind: "inner", why: "the play button on a playlist's cover" },
@@ -190,8 +195,11 @@ export function problems(files, edges = EDGES, known = KNOWN) {
       }
     }
     for (const k of listed) {
-      if (k.kind === "self" && !bodies(src, k.fn).some((b) => INSET.test(b))) {
-        found.push(`${file}: KNOWN says ${k.fn} clears its own anchor (${k.why}), and it has no inset`);
+      const home = k.in ? clean.get(k.in) : src;
+      if (k.kind === "self" && home == null) {
+        found.push(`${file}: KNOWN says ${k.fn} in ${k.in} clears its anchor, and there is no ${k.in}`);
+      } else if (k.kind === "self" && !bodies(home, k.fn).some((b) => INSET.test(b))) {
+        found.push(`${file}: KNOWN says ${k.fn}${k.in ? ` in ${k.in}` : ""} clears its own anchor (${k.why}), and it has no inset`);
       }
     }
   }
@@ -224,6 +232,7 @@ if (process.argv.includes("--selftest")) {
     ["the inset only in a comment", () => edit("handlers/HandlerHost.kt", /Modifier\.windowInsetsPadding\(WindowInsets\.navigationBars\)/, "Modifier /* .windowInsetsPadding(WindowInsets.navigationBars) */")],
     ["Up next losing its inset", () => edit("handlers/PlayerParts.kt", /\.windowInsetsPadding\(WindowInsets\.navigationBars\),/, ",")],
     ["the video's top bar under the camera again", () => edit("handlers/VideoScreen.kt", /WindowInsets\.displayCutout\.union\(WindowInsets\.statusBars\)/, "WindowInsets.statusBars")],
+    ["the shared bottom bar losing its inset", () => edit("handlers/ViewerActions.kt", /\.windowInsetsPadding\(WindowInsets\.navigationBars\)/, "")],
     ["a new bar anchored to the bottom", () => new Map([...files, ["x/NewBar.kt", "@Composable\nfun BoxScope.NewBar() {\n    Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {}\n}\n"]])],
   ];
   let bad = 0;

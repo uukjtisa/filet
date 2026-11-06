@@ -19,15 +19,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -52,7 +50,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
-import dev.niccc2007.filet.browser.humanSize
 import dev.niccc2007.filet.ui.dialogs.PopMenu
 import dev.niccc2007.filet.ui.dialogs.PopRow
 import dev.niccc2007.filet.ui.dialogs.PopSeparator
@@ -107,13 +104,19 @@ internal fun VideoPreview(
 ) {
     val grey by vm.prefs.viewerGrey.collectAsState()
     var menu by remember(node.path) { mutableStateOf(false) }
+    var more by remember(node.path) { mutableStateOf(false) }
+    // Held here rather than in the glimpse, so its segments can sit above the action bar.
+    val progress = remember(node.path) { GlimpseProgress() }
+    val runPage = LocalViewerRun.current
+    val canDelete = remember(node.path) { vm.writeBlockReason(node.path.parent) == null }
     dev.niccc2007.filet.ui.theme.DarkGround(ViewerGround.of(grey)) {
-        Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+        // The viewer's ground, black or grey by the More menu's switch, as the picture viewer's is.
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background), contentAlignment = Alignment.Center) {
             if (stoppedAt > 0L) {
                 StoppedStill(vm, node, stoppedAt, still)
             } else {
                 RunPoster(node, video = false)
-                GlimpseLoop(vm, node)
+                GlimpseLoop(vm, node, progress)
             }
             // The tap, on a layer of its own over the picture: the glimpse is a view of its own
             // under it, and a view can keep a touch from what is around it.
@@ -134,35 +137,64 @@ internal fun VideoPreview(
                     )
                 }
             }
+            // The playing screen's own bar, not a copy of it, so pressing Play does not move a
+            // thing at the top. See VideoTopBar. The rows are this state's.
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                ViewerBar(
-                    title = node.name,
-                    subtitle = humanSize(node.size),
-                    onClose = { vm.closeHandler() },
+                VideoTopBar(
+                    name = node.name,
+                    onBack = { vm.closeHandler() },
+                    menuOpen = menu,
+                    onMenu = { menu = it },
                 ) {
-                    // The arrows as well as the swipe, the way the playing screen has them.
-                    LocalViewerRun.current?.let { runPage ->
-                        if (runPage.hasPrevious) ViewerAction(FiletIcons.Prev, "Previous") { runPage.step(-1) }
-                        if (runPage.hasNext) ViewerAction(FiletIcons.Next, "Next") { runPage.step(1) }
+                    if (stoppedAt > 0L) {
+                        PopRow(FiletIcons.Play, "Play from the start") { menu = false; onPlay(0L) }
+                        PopSeparator()
                     }
-                    Box {
-                        ViewerAction(FiletIcons.More, "More") { menu = true }
-                        PopMenu(expanded = menu, onDismiss = { menu = false }) {
-                            if (stoppedAt > 0L) {
-                                PopRow(FiletIcons.Play, "Play from the start") { menu = false; onPlay(0L) }
-                                PopSeparator()
+                    if (runPage != null) {
+                        NextVideoRow(vm) { menu = false }
+                        RunKindsRow(vm, node) { menu = false }
+                        PopSeparator()
+                    }
+                    PopRow(FiletIcons.Link, "Open in another app") {
+                        menu = false
+                        vm.openExternally(node, force = true)
+                    }
+                    PopRow(FiletIcons.Info, "Properties") { menu = false; vm.showProperties(node) }
+                }
+            }
+            // The picture viewer's bottom bar, from the same pieces: what is done TO the file,
+            // where the thumb already is. See ViewerActionBar. The glimpse's segments ride on top
+            // of it rather than under it.
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (stoppedAt == 0L && progress.showing && progress.segments > 0) {
+                        GlimpseBar(progress, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+                    }
+                    ViewerActionBar {
+                        ViewerBarButton(FiletIcons.Share, "Share") { vm.share(node) }
+                        if (canDelete) {
+                            ViewerBarButton(FiletIcons.Delete, "Delete") {
+                                // As the picture viewer does: confirmed, then the next in the
+                                // run, or out when this was the only one.
+                                vm.confirmDeleteOf(listOf(node)) {
+                                    if (runPage != null) runPage.drop() else vm.closeHandler()
+                                }
                             }
-                            if (LocalViewerRun.current != null) {
-                                NextVideoRow(vm) { menu = false }
-                                RunKindsRow(vm, node) { menu = false }
-                                PopSeparator()
+                        }
+                        Box {
+                            ViewerBarButton(FiletIcons.More, "More") { more = true }
+                            PopMenu(expanded = more, onDismiss = { more = false }, below = 52.dp, above = true) {
+                                ShowInFolderRow {
+                                    more = false
+                                    // Out of every viewer, not back one: the folder is where this is going.
+                                    vm.leaveHandlers()
+                                    vm.revealInFolder(node)
+                                }
+                                ViewerGroundRow(grey) {
+                                    more = false
+                                    vm.prefs.setViewerGrey(!grey)
+                                }
                             }
-                            PopRow(FiletIcons.Link, "Open in another app") {
-                                menu = false
-                                vm.openExternally(node, force = true)
-                            }
-                            PopRow(FiletIcons.Share, "Share") { menu = false; vm.share(node) }
-                            PopRow(FiletIcons.Info, "Properties") { menu = false; vm.showProperties(node) }
                         }
                     }
                 }
@@ -264,14 +296,13 @@ internal suspend fun captureStill(view: SurfaceView): Bitmap? {
 }
 
 /**
- * The glimpse: [GlimpsePlan]'s clips played by [GlimpsePlayer], over whatever is under it, with a
- * bar in as many segments as there are clips. Local files only; see [VideoPreview].
+ * The glimpse: [GlimpsePlan]'s clips played by [GlimpsePlayer], over whatever is under it, telling
+ * [progress] where it is for the bar the preview draws. Local files only; see [VideoPreview].
  */
 @Composable
-private fun GlimpseLoop(vm: BrowserViewModel, node: VNode) {
+private fun GlimpseLoop(vm: BrowserViewModel, node: VNode, progress: GlimpseProgress) {
     var uri by remember(node.path) { mutableStateOf<Uri?>(null) }
     var aspect by remember(node.path) { mutableFloatStateOf(0f) }
-    val progress = remember(node.path) { GlimpseProgress() }
     LaunchedEffect(node.path) {
         if (vm.vfs.osPath(node.path) != null) uri = runCatching { vm.localUriFor(node) }.getOrNull()
     }
@@ -284,16 +315,7 @@ private fun GlimpseLoop(vm: BrowserViewModel, node: VNode) {
             if (aspect > 0f) Modifier.aspectRatio(aspect) else Modifier.fillMaxSize(),
         ) { aspect = it }
     }
-    if (progress.showing && progress.segments > 0) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-            GlimpseBar(
-                progress,
-                modifier = Modifier
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(horizontal = 24.dp, vertical = 20.dp),
-            )
-        }
-    }
+    // Its segments are drawn by the preview, above the action bar: see VideoPreview.
 }
 
 /** The stopped frame's longest edge: sharp on a phone, and one of them held at a time. */

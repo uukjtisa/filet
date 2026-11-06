@@ -1211,123 +1211,67 @@ private fun VideoPlayer(
         // which is a layout fact rather than a race that happens to come out right.
         Column(Modifier.fillMaxSize()) {
             AnimatedVisibility(visible = chromeUp, enter = fadeIn(), exit = fadeOut()) {
-                // In a run, where this is among the list's photos and videos, and the way to the
-                // next: a playing video's sideways drag seeks, so a swipe cannot be it.
-                val runPage = LocalViewerRun.current
-                // The scrim runs to the top edge, behind the camera and the status bar. The
-                // buttons and the name are kept below both: below the camera always, and below
-                // the status bar while a swipe has it showing. With no cutout and the bars hidden
-                // the padding is nothing, so such a phone looks as it did.
-                Box(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.5f))) {
-                    // Back, the name, and everything else behind one button.
-                    //
-                    // It carried six actions beside the title on a 423dp phone, which left
-                    // the filename about 40% of the row and the icons shoulder to shoulder.
-                    // The modes moved DOWN to the transport, where there was a whole row of
-                    // empty space beside the clock and where a mode belongs anyway; the
-                    // three that are neither modes nor frequent are behind the overflow.
-                    //
-                    // The name is centred on the screen, and the buttons are split so that
-                    // neither end outweighs the other: Previous beside Back, Next beside the
-                    // overflow. With all of them on the right, the wider end would have left a
-                    // name in a run about a quarter of the bar.
-                    CentredBar(
-                        Modifier
-                            .fillMaxWidth()
-                            .windowInsetsPadding(
-                                WindowInsets.displayCutout.union(WindowInsets.statusBars)
-                                    .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
-                            )
-                            .padding(horizontal = 4.dp, vertical = 4.dp),
-                        gap = 8.dp,
-                        start = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                OverlayAction(FiletIcons.Back, "Back") { back() }
-                                if (runPage?.hasPrevious == true) {
-                                    OverlayAction(FiletIcons.Prev, "Previous") { runPage.step(-1); wake() }
-                                }
-                            }
-                        },
-                        end = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (runPage?.hasNext == true) {
-                                    OverlayAction(FiletIcons.Next, "Next") { runPage.step(1); wake() }
-                                }
-                                Box {
-                                    OverlayAction(FiletIcons.More, "More") { overflow = true; wake() }
-                                    // On the app's own menu kit rather than Material's dropdown, which was the
-                                    // one menu in Filet drawn in the platform's shape and colours.
-                                    dev.niccc2007.filet.ui.dialogs.PopMenu(expanded = overflow, onDismiss = { overflow = false }) {
-                                        // Here and not on the transport: a headphones glyph beside the speaker
-                                        // read as a second volume control, and nothing on it said it would
-                                        // carry on with the screen off. A row can say so in words.
-                                        dev.niccc2007.filet.ui.dialogs.PopRow(
-                                            FiletIcons.Audio,
-                                            "Play as music",
-                                            detail = "Keeps the sound going with the screen off or in another app.",
-                                        ) { overflow = false; playAsMusic() }
-                                        if (activity != null && pipOffered(context)) {
-                                            dev.niccc2007.filet.ui.dialogs.PopRow(
-                                                FiletIcons.Expand,
-                                                "Picture-in-picture",
-                                                detail = "Goes on in a small window over other apps.",
-                                            ) {
-                                                overflow = false
-                                                if (!enterPip(activity, playing, videoSize, pipAuto, pictureRect())) {
-                                                    vm.toast("This phone would not open a picture-in-picture window.")
-                                                }
-                                            }
-                                        }
-                                        // Here and not as a lit button in the bar, and with no mark in the
-                                        // bar while it is on: see PlayerTopBar.
-                                        dev.niccc2007.filet.ui.dialogs.PopRow(
-                                            FiletIcons.Shield,
-                                            "Uninterruptible",
-                                            detail = if (uninterrupted) {
-                                                "Plays over other apps, and they do not pause it."
-                                            } else {
-                                                "Pauses for calls and other audio."
-                                            },
-                                            active = uninterrupted,
-                                            checked = uninterrupted,
-                                        ) {
-                                            overflow = false
-                                            vm.prefs.setVideoUninterrupted(!uninterrupted)
-                                            wake()
-                                        }
-                                        dev.niccc2007.filet.ui.dialogs.PopSeparator()
-                                        // In a run only: it is what the arrows and the swipe do to the next one.
-                                        if (LocalViewerRun.current != null) {
-                                            NextVideoRow(vm) { overflow = false }
-                                            dev.niccc2007.filet.ui.dialogs.PopSeparator()
-                                        }
-                                        dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Link, "Open in another app") {
-                                            overflow = false
-                                            vm.openExternally(node, force = true)
-                                        }
-                                        dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Share, "Share") { overflow = false; vm.share(node) }
-                                        dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Info, "Properties") {
-                                            overflow = false
-                                            vm.showProperties(node)
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            // A name, so never dotted: it gives up size, then fades before its
-                            // extension. See ListName.
-                            dev.niccc2007.filet.browser.ListNameText(
-                                node.name,
-                                Color.White,
-                                startSp = 12.5f,
-                                align = androidx.compose.ui.text.style.TextAlign.Center,
-                            )
-                            runPage?.let {
-                                Text(it.label, color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, maxLines = 1)
+                // The bar the tap-to-play preview wears as well: see VideoTopBar. The menu is
+                // this state's own - Play as music, picture-in-picture and Uninterruptible are
+                // things only a playing video can do.
+                VideoTopBar(
+                    name = node.name,
+                    onBack = { back() },
+                    menuOpen = overflow,
+                    onMenu = { overflow = it },
+                    onTouch = { wake() },
+                ) {
+                    // Here and not on the transport: a headphones glyph beside the speaker
+                    // read as a second volume control, and nothing on it said it would
+                    // carry on with the screen off. A row can say so in words.
+                    dev.niccc2007.filet.ui.dialogs.PopRow(
+                        FiletIcons.Audio,
+                        "Play as music",
+                        detail = "Keeps the sound going with the screen off or in another app.",
+                    ) { overflow = false; playAsMusic() }
+                    if (activity != null && pipOffered(context)) {
+                        dev.niccc2007.filet.ui.dialogs.PopRow(
+                            FiletIcons.Expand,
+                            "Picture-in-picture",
+                            detail = "Goes on in a small window over other apps.",
+                        ) {
+                            overflow = false
+                            if (!enterPip(activity, playing, videoSize, pipAuto, pictureRect())) {
+                                vm.toast("This phone would not open a picture-in-picture window.")
                             }
                         }
+                    }
+                    // Here and not as a lit button in the bar, and with no mark in the
+                    // bar while it is on: see PlayerTopBar.
+                    dev.niccc2007.filet.ui.dialogs.PopRow(
+                        FiletIcons.Shield,
+                        "Uninterruptible",
+                        detail = if (uninterrupted) {
+                            "Plays over other apps, and they do not pause it."
+                        } else {
+                            "Pauses for calls and other audio."
+                        },
+                        active = uninterrupted,
+                        checked = uninterrupted,
+                    ) {
+                        overflow = false
+                        vm.prefs.setVideoUninterrupted(!uninterrupted)
+                        wake()
+                    }
+                    dev.niccc2007.filet.ui.dialogs.PopSeparator()
+                    // In a run only: it is what the arrows and the swipe do to the next one.
+                    if (LocalViewerRun.current != null) {
+                        NextVideoRow(vm) { overflow = false }
+                        dev.niccc2007.filet.ui.dialogs.PopSeparator()
+                    }
+                    dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Link, "Open in another app") {
+                        overflow = false
+                        vm.openExternally(node, force = true)
+                    }
+                    dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Share, "Share") { overflow = false; vm.share(node) }
+                    dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Info, "Properties") {
+                        overflow = false
+                        vm.showProperties(node)
                     }
                 }
             }
@@ -1905,5 +1849,89 @@ private fun OverlayRound(
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, label, tint = Color.White, modifier = Modifier.size(size * 0.42f))
+    }
+}
+
+/**
+ * The video's top bar, whether it is playing or waiting at its tap-to-play preview: Back, the
+ * name centred on the screen, and everything else behind one button.
+ *
+ * ONE composable for both, so the two cannot drift. They did: the playing bar was rebuilt with
+ * the name centred and clear of the camera while the preview kept the old bar, name at the left
+ * and the arrows after it, so the bar changed shape under the thumb the moment Play was pressed.
+ *
+ * It carried six actions beside the title on a 423dp phone once, which left the filename about
+ * 40% of the row and the icons shoulder to shoulder. The modes moved DOWN to the transport, and
+ * what is neither a mode nor frequent is behind the overflow, whose rows each state passes in.
+ *
+ * The name is centred on the screen, and the buttons are split so that neither end outweighs
+ * the other: Previous beside Back, Next beside the overflow. With all of them on the right, the
+ * wider end would have left a name in a run about a quarter of the bar. In a run the arrows are
+ * here as well as the swipe: a playing video's sideways drag seeks, so a swipe cannot be the
+ * way to the next one there.
+ *
+ * The scrim runs to the top edge, behind the camera and the status bar. The buttons and the name
+ * are kept below both: below the camera always, and below the status bar while a swipe has it
+ * showing. With no cutout and the bars hidden the padding is nothing.
+ *
+ * @param onTouch any press on the bar: the playing screen keeps its chrome up a while longer.
+ * @param menu the overflow's rows. The state's own: only a playing video can play as music.
+ */
+@Composable
+internal fun VideoTopBar(
+    name: String,
+    onBack: () -> Unit,
+    menuOpen: Boolean,
+    onMenu: (Boolean) -> Unit,
+    onTouch: () -> Unit = {},
+    menu: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    val runPage = LocalViewerRun.current
+    Box(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.5f))) {
+        CentredBar(
+            Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(
+                    WindowInsets.displayCutout.union(WindowInsets.statusBars)
+                        .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                )
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            gap = 8.dp,
+            start = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OverlayAction(FiletIcons.Back, "Back") { onBack() }
+                    if (runPage?.hasPrevious == true) {
+                        OverlayAction(FiletIcons.Prev, "Previous") { runPage.step(-1); onTouch() }
+                    }
+                }
+            },
+            end = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (runPage?.hasNext == true) {
+                        OverlayAction(FiletIcons.Next, "Next") { runPage.step(1); onTouch() }
+                    }
+                    Box {
+                        OverlayAction(FiletIcons.More, "More") { onMenu(true); onTouch() }
+                        // On the app's own menu kit rather than Material's dropdown, which was the
+                        // one menu in Filet drawn in the platform's shape and colours.
+                        dev.niccc2007.filet.ui.dialogs.PopMenu(expanded = menuOpen, onDismiss = { onMenu(false) }, content = menu)
+                    }
+                }
+            },
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // A name, so never dotted: it gives up size, then fades before its extension.
+                // See ListName.
+                dev.niccc2007.filet.browser.ListNameText(
+                    name,
+                    Color.White,
+                    startSp = 12.5f,
+                    align = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+                runPage?.let {
+                    Text(it.label, color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, maxLines = 1)
+                }
+            }
+        }
     }
 }

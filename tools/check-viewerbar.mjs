@@ -35,9 +35,10 @@ const HOST = join(SRC, "dev/niccc2007/filet/handlers/HandlerHost.kt");
 /**
  * What counts as the bar. The music player's two bars count as well: each has the way back,
  * and the face under it states the track. Classic wore `ViewerBar` itself until its title was
- * centred, and before that it was the only face this checker could see.
+ * centred, and before that it was the only face this checker could see. The video's bar too,
+ * playing and at its preview alike: the way back and the name, centred clear of the camera.
  */
-const BAR = /\b(?:ViewerBar|PlayerTopBar|ClassicTopBar)\s*\(/;
+const BAR = /\b(?:ViewerBar|PlayerTopBar|ClassicTopBar|VideoTopBar)\s*\(/;
 
 /** Screens reached from a route that draw no bar, and why that is right. */
 export const EXEMPT = {
