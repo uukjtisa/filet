@@ -66,6 +66,35 @@ object Sniff {
     }
 
     /**
+     * The archive format the bytes say, as its id in `Archives.ALL`, or null.
+     *
+     * Bug identified here: tapping a zip renamed to `.skill` sniffed it correctly and mounted
+     * it, and then the archive reader chose its format from the NAME again, found none, and
+     * the archive opened onto "nothing here". Choosing "Open with" and the archive viewer took
+     * the same road. So the reader needs the answer in the same terms it uses for a name.
+     *
+     * [inflated] gives the first bytes once a compressed stream is opened. It is asked only for
+     * gzip, bzip2 and xz, where a tar inside means `tar.gz` and anything else is one
+     * compressed file.
+     */
+    fun archiveId(head: ByteArray, inflated: (Kind) -> ByteArray?): String? = when (val k = kindOf(head)) {
+        Kind.ZIP -> "zip"
+        Kind.SEVEN_ZIP -> "7z"
+        Kind.RAR -> "rar"
+        Kind.TAR -> "tar"
+        Kind.GZIP, Kind.BZIP2, Kind.XZ -> {
+            val stream = when (k) {
+                Kind.GZIP -> "gz"
+                Kind.BZIP2 -> "bz2"
+                else -> "xz"
+            }
+            val inner = runCatching { inflated(k) }.getOrNull()
+            if (inner != null && kindOf(inner) == Kind.TAR) "tar.$stream" else stream
+        }
+        Kind.UNKNOWN -> null
+    }
+
+    /**
      * A tar has no signature at the start at all.
      *
      * Its magic is the word `ustar` at offset 257, which is why [NEEDED] is not a handful of

@@ -139,4 +139,24 @@ class SniffTest {
     fun `enough bytes are asked for to reach a tar`() {
         assertTrue("reading fewer silently misses every tar", Sniff.NEEDED >= 262)
     }
+
+    @Test
+    fun `the bytes name a format the reader knows`() {
+        val zip = byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0, 0)
+        assertEquals("zip", Sniff.archiveId(zip) { null })
+        val gz = byteArrayOf(0x1F, 0x8B.toByte(), 8, 0)
+        val tar = ByteArray(Sniff.NEEDED).also { "ustar".toByteArray().copyInto(it, 257) }
+        assertEquals("a tar inside a gzip is a tar.gz", "tar.gz", Sniff.archiveId(gz) { tar })
+        assertEquals("anything else inside is one file", "gz", Sniff.archiveId(gz) { ByteArray(10) })
+        assertEquals("an unreadable inside is still a gzip", "gz", Sniff.archiveId(gz) { error("corrupt") })
+        assertEquals(null, Sniff.archiveId("plain text".toByteArray()) { null })
+    }
+
+    @Test
+    fun `every id it can answer is a format in the table`() {
+        val ids = dev.niccc2007.filet.vfs.provider.Archives.ALL.map { it.id }.toSet()
+        for (id in listOf("zip", "7z", "rar", "tar", "tar.gz", "tar.bz2", "tar.xz", "gz", "bz2", "xz")) {
+            assertTrue("$id is not in Archives.ALL", id in ids)
+        }
+    }
 }

@@ -56,6 +56,14 @@ class ArchiveProvider(private val stagedUnder: () -> List<String> = { emptyList(
 
     override fun writeRefusal(path: VPath): String? {
         val host = File(split(path).first)
+        // Opened by its bytes under some other name: readable, and kept read-only, because the
+        // writers choose what to write from the name and this name names nothing.
+        if (Archives.of(host.name) == null) {
+            formatOfFile(host)?.let { f ->
+                return "${host.name} is a ${f.label} file under another name, so Filet opens it read-only. " +
+                    "Rename it to .${f.extensions.first()} to change what is inside."
+            }
+        }
         ArchiveWrites.formatRefusal(host.name)?.let { return it }
         if (ArchiveWrites.kindOf(Archives.of(host.name)) == ArchiveWrites.Kind.STREAM) {
             val label = Archives.of(host.name)?.label ?: "compressed"
@@ -334,7 +342,7 @@ class ArchiveProvider(private val stagedUnder: () -> List<String> = { emptyList(
             else -> set.openWith
         }
 
-        val format = Archives.of(file.name)
+        val format = formatOfFile(file)
         format?.refusal?.let { throw VfsException.Unsupported(it) }
         if (format == null) throw VfsException.Unsupported("${asked.name} is not an archive Filet knows.")
 

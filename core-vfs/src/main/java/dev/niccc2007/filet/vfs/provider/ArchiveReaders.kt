@@ -92,7 +92,7 @@ internal class ZipReader(private val file: File) : ArchiveReader {
  * cache uses - so walking three levels into a 200 MB `.tar.gz` decompresses it once rather
  * than once per directory.
  */
-internal class TarReader(private val file: File) : ArchiveReader {
+internal class TarReader(private val file: File, private val format: ArchiveFormat) : ArchiveReader {
 
     override fun members(): List<Member> = MemberCache.get(file) {
         openTar().use { tar ->
@@ -123,21 +123,21 @@ internal class TarReader(private val file: File) : ArchiveReader {
         return null
     }
 
-    /** Wrap the file in whatever compressor its name says, then in the tar reader. */
+    /**
+     * Wrap the file in the compressor its FORMAT says, then in the tar reader.
+     *
+     * The format, not the name: the two agree for a file called `.tar.gz`, and for one renamed
+     * to anything else the format is what the bytes said. See [formatOfFile].
+     */
     private fun openTar(): TarArchiveInputStream {
         val raw = BufferedInputStream(FileInputStream(file), 64 * 1024)
-        val decompressed: InputStream = when {
-            endsWithAny("tar.gz", "tgz") -> GzipCompressorInputStream(raw, true)
-            endsWithAny("tar.bz2", "tbz2", "tbz") -> BZip2CompressorInputStream(raw, true)
-            endsWithAny("tar.xz", "txz") -> XZCompressorInputStream(raw, true)
+        val decompressed: InputStream = when (format.id) {
+            "tar.gz" -> GzipCompressorInputStream(raw, true)
+            "tar.bz2" -> BZip2CompressorInputStream(raw, true)
+            "tar.xz" -> XZCompressorInputStream(raw, true)
             else -> raw
         }
         return TarArchiveInputStream(decompressed)
-    }
-
-    private fun endsWithAny(vararg suffixes: String): Boolean {
-        val lower = file.name.lowercase()
-        return suffixes.any { lower.endsWith(".$it") }
     }
 
     private companion object {
@@ -201,7 +201,7 @@ internal class SevenZipReader(private val file: File) : ArchiveReader {
  * gzip stores the uncompressed length modulo 4 GB in a trailer and bzip2 and xz store nothing
  * at all, so reporting a number here would mean reading the file to invent it.
  */
-internal class StreamReader(private val file: File) : ArchiveReader {
+internal class StreamReader(private val file: File, private val format: ArchiveFormat) : ArchiveReader {
 
     private val memberName: String get() = Archives.baseName(file.name).ifEmpty { "content" }
 
@@ -211,11 +211,11 @@ internal class StreamReader(private val file: File) : ArchiveReader {
     override fun open(name: String): InputStream? {
         if (name != memberName) return null
         val raw = BufferedInputStream(FileInputStream(file), 64 * 1024)
-        val lower = file.name.lowercase()
-        return when {
-            lower.endsWith(".gz") -> GzipCompressorInputStream(raw, true)
-            lower.endsWith(".bz2") -> BZip2CompressorInputStream(raw, true)
-            lower.endsWith(".xz") -> XZCompressorInputStream(raw, true)
+        // By format, for the same reason as the tar reader.
+        return when (format.id) {
+            "gz" -> GzipCompressorInputStream(raw, true)
+            "bz2" -> BZip2CompressorInputStream(raw, true)
+            "xz" -> XZCompressorInputStream(raw, true)
             else -> raw
         }
     }
@@ -259,13 +259,49 @@ internal object MemberCache {
 /** Pick the reader for a file, or null when nothing here can read it. */
 internal fun readerFor(file: File, format: ArchiveFormat?): ArchiveReader? = when (format?.kind) {
     ArchiveKind.ZIP -> ZipReader(file)
-    ArchiveKind.TAR -> TarReader(file)
+    ArchiveKind.TAR -> TarReader(file, format)
     ArchiveKind.SEVEN_ZIP -> SevenZipReader(file)
-    ArchiveKind.STREAM -> StreamReader(file)
+    ArchiveKind.STREAM -> StreamReader(file, format)
     // RAR goes through libarchive, and only when its .so actually loaded. A build without the
     // native module reports "cannot read" rather than crashing on a missing symbol.
     ArchiveKind.RAR -> if (RarNative.available) RarReader(file) else null
     null -> null
+}
+
+/**
+ * The format of [file]: what its name says, or failing that what its first bytes say.
+ *
+ * Read only when the name says nothing, so an ordinary `.zip` costs no read at all. The bytes
+ * are a few hundred from the front, plus the same again from inside a gzip, bzip2 or xz stream
+ * to tell a `tar.gz` from a single compressed file. See [Sniff.archiveId].
+ */
+internal fun formatOfFile(file: File): ArchiveFormat? {
+    Archives.of(file.name)?.let { return it }
+    val id = runCatching {
+        val head = headOf(FileInputStream(file))
+        Sniff.archiveId(head) { kind ->
+            val raw = BufferedInputStream(FileInputStream(file), 8 * 1024)
+            val inner: InputStream = when (kind) {
+                Sniff.Kind.GZIP -> GzipCompressorInputStream(raw, true)
+                Sniff.Kind.BZIP2 -> BZip2CompressorInputStream(raw, true)
+                else -> XZCompressorInputStream(raw, true)
+            }
+            headOf(inner)
+        }
+    }.getOrNull() ?: return null
+    return Archives.ALL.firstOrNull { it.id == id }
+}
+
+/** Up to [Sniff.NEEDED] bytes from the front of [input], which is closed. */
+private fun headOf(input: InputStream): ByteArray = input.use {
+    val head = ByteArray(Sniff.NEEDED)
+    var read = 0
+    while (read < head.size) {
+        val n = it.read(head, read, head.size - read)
+        if (n <= 0) break
+        read += n
+    }
+    head.copyOf(read)
 }
 
 /**

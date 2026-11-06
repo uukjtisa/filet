@@ -280,4 +280,51 @@ class ArchiveProviderTest {
         }
         assertEquals(listOf("only.txt"), vfs.list(mountOf(f)).map { it.name })
     }
+
+    // ── an archive under a name that names nothing ──
+
+    @Test fun a_zip_renamed_to_anything_lists_and_reads() = runTest {
+        // A zip renamed to .skill opened onto "nothing here", even through Open with.
+        val renamed = File(tmp, "tool.skill")
+        zip.copyTo(renamed)
+        val at = mountOf(renamed)
+        assertEquals(listOf("docs", "top.txt"), vfs.list(at).map { it.name }.sorted())
+        assertEquals("alpha", vfs.openRead(at.child("docs").child("a.txt")).use { String(it.readBytes()) })
+    }
+
+    @Test fun a_renamed_tar_gz_is_still_a_tar_inside() = runTest {
+        val f = File(tmp, "backup.bin")
+        TarArchiveOutputStream(GzipCompressorOutputStream(f.outputStream())).use { tar ->
+            val body = "inside".toByteArray()
+            tar.putArchiveEntry(TarArchiveEntry("only.txt").apply { size = body.size.toLong() })
+            tar.write(body)
+            tar.closeArchiveEntry()
+        }
+        val at = mountOf(f)
+        assertEquals(listOf("only.txt"), vfs.list(at).map { it.name })
+        assertEquals("inside", vfs.openRead(at.child("only.txt")).use { String(it.readBytes()) })
+    }
+
+    @Test fun a_renamed_gzip_of_one_file_opens_as_that_file() = runTest {
+        val f = File(tmp, "notes.dat")
+        GzipCompressorOutputStream(f.outputStream()).use { it.write("plain".toByteArray()) }
+        val at = mountOf(f)
+        val only = vfs.list(at).single()
+        assertEquals("plain", vfs.openRead(at.child(only.name)).use { String(it.readBytes()) })
+    }
+
+    @Test fun a_renamed_archive_says_why_it_is_read_only() {
+        val renamed = File(tmp, "tool.skill")
+        zip.copyTo(renamed)
+        val why = ArchiveProvider().writeRefusal(mountOf(renamed))
+        assertNotNull(why)
+        assertTrue(why!!, why.contains("Zip") && why.contains(".zip"))
+    }
+
+    @Test fun a_file_that_is_no_archive_still_says_so() = runTest {
+        val f = File(tmp, "text.skill")
+        f.writeText("just words, no archive at all")
+        val err = runCatching { vfs.list(mountOf(f)) }.exceptionOrNull()
+        assertNotNull("a non-archive listed as if it were one", err)
+    }
 }
