@@ -178,7 +178,7 @@ private const val VEIL_FLOOR = 0.62f
  * never per position tick.
  */
 @Composable
-fun rememberArtPalette(art: Bitmap?, fallback: Color, onFallback: Color): Pair<Color, Color> {
+fun rememberArtPalette(art: Bitmap?, fallback: Color, onFallback: Color): ArtTint {
     val result by produceState(ArtPalette.NONE, art) {
         value = if (art == null) {
             ArtPalette.NONE
@@ -199,9 +199,15 @@ fun rememberArtPalette(art: Bitmap?, fallback: Color, onFallback: Color): Pair<C
         }
     }
     val r = result
-    return if (!r.usable) fallback to onFallback
-    else Color(0xFF000000.toInt() or r.colour) to Color(0xFF000000.toInt() or r.onColour)
+    return if (!r.usable) ArtTint(fallback, onFallback, fromArt = false)
+    else ArtTint(Color(0xFF000000.toInt() or r.colour), Color(0xFF000000.toInt() or r.onColour), fromArt = true)
 }
+
+/**
+ * What [rememberArtPalette] found: the colour, what to draw on it, and whether it is the
+ * artwork's or the fallback. Destructures as the pair it used to be.
+ */
+data class ArtTint(val colour: Color, val onColour: Color, val fromArt: Boolean)
 
 /**
  * How far a title has to travel, and the clock that moves it.

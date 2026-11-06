@@ -174,4 +174,50 @@ class ArtPaletteTest {
         assertFalse(ArtPalette.of(IntArray(576) { 0x1E1E1E }).usable)
         assertFalse(ArtPalette.of(IntArray(576) { 0x000000 }).usable)
     }
+
+    // ── the eyebrow: a word in the track's colour ──
+
+    private val lightGrounds = listOf(0xF6F4EE, 0xFFFFFF, 0xFAF6F0)
+    private val darkGrounds = listOf(ArtPalette.panel(), 0x000000, 0x1B1A17)
+
+    private fun everyHue(): List<Int> = (0 until 36).map { i ->
+        // A palette colour for each hue, as the sampler would hand it over.
+        ArtPalette.of(IntArray(576) { java.awt.Color.HSBtoRGB(i / 36f, 0.9f, 0.9f) and 0xFFFFFF }).colour
+    }
+
+    @Test
+    fun `on the dark panel the track's colour is used as it is`() {
+        for (c in everyHue()) assertEquals(c, ArtPalette.readableOn(c, ArtPalette.panel()))
+    }
+
+    @Test
+    fun `every hue clears 3 to 1 as a word, on light grounds and dark`() {
+        for (c in everyHue()) {
+            for (g in lightGrounds + darkGrounds) {
+                val out = ArtPalette.readableOn(c, g)
+                assertTrue(
+                    "%06X on %06X is %.2f".format(out, g, ArtPalette.contrast(out, g)),
+                    ArtPalette.contrast(out, g) >= ArtPalette.WORD_RATIO,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `on a light ground it goes darker and keeps its hue`() {
+        for (c in everyHue()) {
+            val out = ArtPalette.readableOn(c, 0xF6F4EE)
+            assertTrue(ArtPalette.luminance(out) <= ArtPalette.luminance(c))
+            val d = kotlin.math.abs(hueOf(out) - hueOf(c))
+            assertTrue("%06X became %06X".format(c, out), minOf(d, 360 - d) < 8.0)
+        }
+    }
+
+    @Test
+    fun `a pale colour on a dark ground goes lighter, never darker`() {
+        val dim = 0x3A2A55
+        val out = ArtPalette.readableOn(dim, ArtPalette.panel())
+        assertTrue(ArtPalette.luminance(out) > ArtPalette.luminance(dim))
+        assertTrue(ArtPalette.contrast(out, ArtPalette.panel()) >= ArtPalette.WORD_RATIO)
+    }
 }

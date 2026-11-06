@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -194,7 +195,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
      * Classic keeps the theme accent on purpose: a face whose whole point is that it does
      * not react to the artwork should not have reacting controls.
      */
-    val (tint, onTint) = dev.niccc2007.filet.playback.rememberArtPalette(
+    val (tint, onTint, tintFromArt) = dev.niccc2007.filet.playback.rememberArtPalette(
         art = if (face.ambient) art else null,
         fallback = colors.accent,
         onFallback = MaterialTheme.colorScheme.onPrimary,
@@ -272,6 +273,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         face = face,
         tint = tint,
         onTint = onTint,
+        tintFromArt = tintFromArt,
         uninterrupted = uninterrupted,
         glow = glow,
         discGlow = discGlow,
@@ -415,6 +417,8 @@ private class PlayerCtx(
     val face: PlayerFace,
     val tint: androidx.compose.ui.graphics.Color,
     val onTint: androidx.compose.ui.graphics.Color,
+    /** Whether [tint] is the artwork's, rather than the theme accent standing in for it. */
+    val tintFromArt: Boolean,
     val uninterrupted: Boolean,
     val glow: Boolean,
     /** Whether the Halo disc wears a glow of its own. See `Prefs.discGlow`. */
@@ -462,16 +466,39 @@ private class PlayerCtx(
     val onSaveQueue: () -> Unit,
 )
 
-/** The bar the three ambient faces share, wired to this screen's actions. */
+/**
+ * The bar the ambient faces share, wired to this screen's actions.
+ *
+ * The eyebrow is in the track's colour, the same one the play button wears, made readable as a
+ * word on the ground it sits on (`ArtPalette.readableOn`); with no colour in the artwork it
+ * keeps the quiet grey it always had. The line under it is near-white over a dark ground.
+ *
+ * @param overDark the face darkens the top of the screen itself whatever the theme, as
+ *   Immersive's band does. Otherwise the ground is the theme's background, which is what the
+ *   artwork is laid over at under half strength. Under that blend no colour can be promised
+ *   against every cover; the theme's background is what the words are measured against.
+ */
 @Composable
-private fun FaceTopBar(c: PlayerCtx) {
+private fun FaceTopBar(c: PlayerCtx, overDark: Boolean = false) {
+    val colors = Filet.colors
+    val palette = dev.niccc2007.filet.playback.ArtPalette
+    val ground = if (overDark) {
+        palette.panel()
+    } else {
+        MaterialTheme.colorScheme.background.toArgb() and 0xFFFFFF
+    }
+    val dark = palette.contrast(0xFFFFFF, ground) >= palette.contrast(0x000000, ground)
+    val eyebrow = if (c.tintFromArt) {
+        androidx.compose.ui.graphics.Color(0xFF000000.toInt() or palette.readableOn(c.tint.toArgb() and 0xFFFFFF, ground))
+    } else {
+        colors.fg3
+    }
     PlayerTopBar(
         eyebrow = "PLAYING FROM",
         context = c.state.from.ifBlank { c.folderLine },
-        uninterrupted = c.uninterrupted,
         onClose = { c.vm.closeHandler() },
-        onUninterruptedOff = { c.vm.prefs.setMusicUninterrupted(false) },
-        tint = c.tint,
+        eyebrowColour = eyebrow,
+        contextColour = if (dark) androidx.compose.ui.graphics.Color.White.copy(alpha = 0.9f) else colors.fg2,
     ) {
         PlayerOverflow(
             face = c.face,
@@ -604,7 +631,6 @@ private fun ClassicFace(c: PlayerCtx) {
             onClose = { c.vm.closeHandler() },
         ) {
             ViewerAction(FiletIcons.Rows, "Queue", enabled = c.state.canStep, onClick = c.onQueue)
-            if (c.uninterrupted) UninterruptedBadge(colors.accent) { c.vm.prefs.setMusicUninterrupted(false) }
             // The SAME overflow the other three faces carry, and it is not a tidying
             // exercise: it holds the face switcher. Classic's bar had the three actions
             // spelled out and no overflow, so choosing Classic was a one-way door - the
@@ -1329,7 +1355,8 @@ private fun BoxScope.ImmersiveFace(c: PlayerCtx) {
     // space actually available with the navigation bar already taken off.
     FaceFrame {
         AnimatedVisibility(visible = chrome, enter = fadeIn(), exit = fadeOut()) {
-            FaceTopBar(c)
+            // Over the band that darkens the top of the artwork, in either theme.
+            FaceTopBar(c, overDark = true)
         }
         Spacer(Modifier.weight(1f))
         AnimatedVisibility(visible = chrome, enter = fadeIn(), exit = fadeOut()) {

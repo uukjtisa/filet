@@ -1253,15 +1253,6 @@ private fun VideoPlayer(
                                 if (runPage?.hasNext == true) {
                                     OverlayAction(FiletIcons.Next, "Next") { runPage.step(1); wake() }
                                 }
-                                // Beside the overflow, never on it. See UninterruptedBadge.
-                                if (uninterrupted) {
-                                    Spacer(Modifier.width(4.dp))
-                                    UninterruptedBadge(Filet.colors.accent) {
-                                        vm.prefs.setVideoUninterrupted(false)
-                                        wake()
-                                    }
-                                    Spacer(Modifier.width(2.dp))
-                                }
                                 Box {
                                     OverlayAction(FiletIcons.More, "More") { overflow = true; wake() }
                                     // On the app's own menu kit rather than Material's dropdown, which was the
@@ -1287,7 +1278,8 @@ private fun VideoPlayer(
                                                 }
                                             }
                                         }
-                                        // Here and not as a lit button in the bar: see UninterruptedBadge.
+                                        // Here and not as a lit button in the bar, and with no mark in the
+                                        // bar while it is on: see PlayerTopBar.
                                         dev.niccc2007.filet.ui.dialogs.PopRow(
                                             FiletIcons.Shield,
                                             "Uninterruptible",
@@ -1685,8 +1677,8 @@ private fun VideoPlayer(
                     // changed, which way is it held - and a switch in an overflow menu is a
                     // switch whose state you have to open a menu to read. There is a whole
                     // row of width here and the clock was using a tenth of it. Uninterruptible
-                    // is the exception, in the overflow with a badge in the top bar that says
-                    // it is on: see UninterruptedBadge.
+                    // is the exception, in the overflow, where its switch shows its state: see
+                    // PlayerTopBar.
                     Row(
                         Modifier.fillMaxWidth().padding(top = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,

@@ -142,23 +142,26 @@ import kotlinx.coroutines.launch
  *
  * `.pltop{display:flex;align-items:center;gap:10px;padding:12px 12px 2px}` with 36dp icons.
  *
- * @param eyebrow the small upper line, which says what the line under it is. It used to become
- *   "UNINTERRUPTIBLE · PLAYING FROM" when that was on, which made the one centred line in the
- *   bar change width with a setting; [UninterruptedBadge] says it now.
+ * Nothing in the bar says Uninterruptible is on. It was a shield beside the overflow, and a
+ * mark beside the overflow is the language of notifications - "something new in here" - which
+ * is the wrong thing to say about a setting that is simply on. The switch in the overflow shows
+ * its state, as every switch there does.
+ *
+ * @param eyebrow the small upper line, which says what the line under it is.
  * @param context the line under it: the folder, as a path tail.
- * @param onUninterruptedOff the badge's tap. The switch itself is in the overflow.
+ * @param eyebrowColour the eyebrow's colour: the track's, made readable on the face's ground.
+ *   See `FaceTopBar`.
+ * @param contextColour the line under it.
  */
 @Composable
 fun PlayerTopBar(
     eyebrow: String,
     context: String,
-    uninterrupted: Boolean,
     onClose: () -> Unit,
-    onUninterruptedOff: () -> Unit,
-    tint: Color,
+    eyebrowColour: Color,
+    contextColour: Color,
     overflow: @Composable () -> Unit,
 ) {
-    val colors = Filet.colors
     CentredBar(
         Modifier
             .fillMaxWidth()
@@ -167,26 +170,21 @@ fun PlayerTopBar(
         // A chevron DOWN, not a back arrow. The player is a thing that comes up over the app
         // and goes back down to a strip; an arrow pointing left promises the file list.
         start = { BarIcon(FiletIcons.Down, "Minimise the player", onClick = onClose) },
-        end = {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (uninterrupted) UninterruptedBadge(tint, onUninterruptedOff)
-                overflow()
-            }
-        },
+        end = { overflow() },
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 eyebrow,
                 fontSize = 8.5.sp,
                 letterSpacing = 1.5.sp,
-                color = colors.fg3,
+                color = eyebrowColour,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 context,
                 fontSize = 11.5.sp,
-                color = colors.fg2,
+                color = contextColour,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -277,36 +275,6 @@ internal object CentreSlot {
     fun x(total: Int, width: Int): Int = (total - width) / 2
 }
 
-/**
- * Uninterruptible is on: a small shield beside the overflow, and a tap on it turns it off.
- *
- * The switch is in the overflow, in both players. As a lit button in the bar it was one more
- * icon on the right, and the right end is what decides how much room the centred title gets.
- * Shown only while on, because off is the ordinary state and has nothing to say.
- *
- * Its own element, never drawn on the overflow button: that button carries the dot for work
- * behind it (see [BarIcon]), and two marks on one button read as one. Side by side, each can
- * be there without the other.
- */
-@Composable
-fun UninterruptedBadge(tint: Color, onOff: () -> Unit) {
-    Box(
-        Modifier
-            .size(30.dp)
-            .clip(CircleShape)
-            .background(tint.copy(alpha = 0.16f))
-            .clickable(onClick = onOff),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            FiletIcons.Shield,
-            "Uninterruptible is on. Tap to turn it off",
-            tint = tint,
-            modifier = Modifier.size(15.dp),
-        )
-    }
-}
-
 /** One 36dp round button in the top bar. `.pltop .ico{width:36px;height:36px;border-radius:18px}` */
 @Composable
 fun BarIcon(
@@ -356,7 +324,7 @@ fun PlayerOverflow(
     onProperties: () -> Unit,
     onAddToPlaylist: (() -> Unit)? = null,
     onSaveQueue: (() -> Unit)? = null,
-    /** Whether anything may pause the music, with its switch. See [UninterruptedBadge]. */
+    /** Whether anything may pause the music, with its switch. See [PlayerTopBar]. */
     uninterrupted: Boolean? = null,
     onUninterrupted: (() -> Unit)? = null,
     /** Aurora's own switch. Null on every other face, where it does nothing. */
@@ -553,8 +521,7 @@ fun PlayerOverflow(
                                     onSaveQueue()
                                 }
                             }
-                            // A switch, so the panel stays open: the badge appearing in the bar
-                            // behind it is the answer.
+                            // A switch, so the panel stays open: its own state is the answer.
                             if (uninterrupted != null && onUninterrupted != null) {
                                 PanelRule()
                                 PanelSwitch("Uninterruptible", uninterrupted, onUninterrupted)

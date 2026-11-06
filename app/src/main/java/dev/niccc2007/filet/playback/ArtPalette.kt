@@ -228,6 +228,38 @@ object ArtPalette {
 
     fun panel(): Int = (PANEL_R shl 16) or (PANEL_G shl 8) or PANEL_B
 
+    /**
+     * The floor for a word in the track's colour: the player's eyebrow, 8.5sp small caps.
+     *
+     * 3:1 rather than [MIN_RATIO]'s 4.5, which is for the filled play button. A short label in
+     * capitals reads at 3:1, and asking 4.5 of it on a light theme turns every hue into the
+     * same dark brown, which is the colour of no track at all.
+     */
+    const val WORD_RATIO = 3.0
+
+    /**
+     * [rgb] made readable as a word on [ground]: the same hue and saturation, its lightness
+     * moved AWAY from the ground - lighter on a dark one, darker on a light one - until it clears
+     * [ratio]. Unchanged when it already does.
+     *
+     * [of] only promises its colour against the dark panel. On the light theme the same colour
+     * is a pale tint on a pale ground, so a word drawn in it has to be taken darker.
+     */
+    fun readableOn(rgb: Int, ground: Int, ratio: Double = WORD_RATIO): Int {
+        if (contrast(rgb, ground) >= ratio) return rgb
+        val (h, s, start) = hsl(rgb shr 16 and 0xFF, rgb shr 8 and 0xFF, rgb and 0xFF)
+        // Towards whichever end of the scale the ground is further from.
+        val step = if (contrast(0xFFFFFF, ground) >= contrast(0x000000, ground)) 0.02 else -0.02
+        var light = start
+        var out = rgb
+        while (contrast(out, ground) < ratio) {
+            light += step
+            if (light !in 0.0..1.0) return fromHsl(h, s, light.coerceIn(0.0, 1.0))
+            out = fromHsl(h, s, light)
+        }
+        return out
+    }
+
     /** WCAG relative luminance. */
     fun luminance(rgb: Int): Double {
         fun channel(v: Int): Double {
