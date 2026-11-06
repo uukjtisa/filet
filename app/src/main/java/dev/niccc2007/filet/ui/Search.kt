@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -82,24 +83,48 @@ object TextMatch {
  *
  * A wash marks the match by its ground rather than its letters, which works whatever the text
  * colour is: the letters keep the row's own colour, the strongest contrast it has, and the wash
- * is [ink] at [MATCH_WASH] over whatever is beneath, so a tinted card washes in its own tint.
+ * is [ink], at the strength [matchWash] gives it, over whatever is beneath, so a tinted card
+ * washes in its own tint.
  * `SearchHighlightTest` holds every palette, light and dark, to a readable result.
  */
 fun highlighted(text: String, query: String, ink: Color): AnnotatedString {
     val spans = TextMatch.spans(text, query)
     if (spans.isEmpty()) return AnnotatedString(text)
-    val style = SpanStyle(background = matchWash(ink), fontWeight = FontWeight.SemiBold)
+    val style = matchStyle(ink)
     return buildAnnotatedString {
         append(text)
         for (r in spans) addStyle(style, r.first, r.last + 1)
     }
 }
 
-/** How strongly a match's wash carries its ink. Checked against every palette: see [highlighted]. */
-internal const val MATCH_WASH = 0.28f
+/**
+ * How a matched run is drawn, everywhere a search marks one. The one declaration: the file list's
+ * rows (`matchedName`) and every other list ([highlighted]) both read it, so a change to how a
+ * match looks cannot reach some lists and not others again.
+ */
+fun matchStyle(ink: Color): SpanStyle = SpanStyle(background = matchWash(ink), fontWeight = FontWeight.SemiBold)
 
-/** The colour behind a matched run: [ink], see-through to [MATCH_WASH]. */
-internal fun matchWash(ink: Color): Color = ink.copy(alpha = MATCH_WASH)
+/**
+ * How strongly a match's wash carries its ink, by how light the ink is. Checked against every
+ * palette: see [highlighted].
+ *
+ * Decision: two strengths, not one. A single value has to suit both themes, and the two pull
+ * apart. A light ink is a dark theme's accent, under pale letters, and every step stronger takes
+ * contrast from them: at 0.32 the Ember dark theme's secondary text fell under 3:1. A dark ink is
+ * a light theme's accent, and at 0.28 its band on white was faint enough to pass unnoticed. Each
+ * side is given as much as its own letters allow.
+ *
+ * Split by the ink's luminance, which needs no theme passed in: every dark theme's accent is
+ * above 0.35 and every light theme's below 0.2, and a card tint passed as the ink lands on the
+ * side its own lightness says.
+ */
+internal const val MATCH_WASH_LIGHT_INK = 0.28f
+internal const val MATCH_WASH_DARK_INK = 0.36f
+internal const val LIGHT_INK = 0.27f
+
+/** The colour behind a matched run: [ink], see-through to the strength its lightness allows. */
+internal fun matchWash(ink: Color): Color =
+    ink.copy(alpha = if (ink.luminance() > LIGHT_INK) MATCH_WASH_LIGHT_INK else MATCH_WASH_DARK_INK)
 
 /**
  * A short accent wash behind a row, for the one a search result just brought into view.

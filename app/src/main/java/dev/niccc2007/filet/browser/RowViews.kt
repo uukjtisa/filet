@@ -839,7 +839,12 @@ fun SearchResultRow(
 }
 
 /**
- * A name with the characters a search matched drawn in the accent and a heavier weight.
+ * A name with the characters a search matched marked the way every list marks them:
+ * [dev.niccc2007.filet.ui.matchStyle].
+ *
+ * Bug identified here: this drew its own style - the letters in the accent - after the shared
+ * highlight had moved to a wash behind the letters, so the search results of the file list kept
+ * the light-theme fault that the shared one had fixed. Both now read the one style.
  *
  * Spans out of range are clamped rather than trusted: they were computed on the case-folded name,
  * and the rare name that folding changes the length of must not throw from inside a list.
@@ -850,19 +855,11 @@ internal fun matchedName(
     ink: Color,
 ): androidx.compose.ui.text.AnnotatedString = androidx.compose.ui.text.buildAnnotatedString {
     append(name)
+    val style = dev.niccc2007.filet.ui.matchStyle(ink)
     for (r in spans) {
         val start = r.first.coerceIn(0, name.length)
         val end = (r.last + 1).coerceIn(start, name.length)
-        if (end > start) {
-            addStyle(
-                androidx.compose.ui.text.SpanStyle(
-                    color = ink,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                ),
-                start,
-                end,
-            )
-        }
+        if (end > start) addStyle(style, start, end)
     }
 }
 
