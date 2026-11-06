@@ -31,7 +31,7 @@ export const TYPES = Object.freeze({
  */
 export const MAX_REQUEST_BYTES = 4_300_000;
 
-/** Three screenshots of at most 1 MB decoded each: 4 MB of base64, which fits the cap above. */
+/** Three photos of at most 1 MB decoded each: 4 MB of base64, which fits the cap above. */
 export const MAX_IMAGES = 3;
 export const MAX_IMAGE_BYTES = 1_000_000;
 

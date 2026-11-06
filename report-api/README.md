@@ -15,7 +15,7 @@ One route, `POST /api/report`. Nothing else in the service writes anything.
 | `REPORT_GITHUB_TOKEN` | yes | The fine-grained token described below. |
 | `REPORT_KEY_SALT` | yes | Any long random string, e.g. `openssl rand -hex 32`. IPs and install ids are hashed with it before they are stored, so the store never holds a raw IP. If you change it, all rate-limit counters reset. |
 | `KV_REST_API_URL` + `KV_REST_API_TOKEN` | yes | The Redis store holding the rate-limit counters. The Upstash integration sets these for you; older installs of it name them `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`, and both pairs work. |
-| `BLOB_READ_WRITE_TOKEN` | no | Vercel Blob, for screenshots. Without it, reports are still filed, and the issue says that a screenshot was sent but not stored. |
+| `BLOB_READ_WRITE_TOKEN` | no | Vercel Blob, for photos. Without it, reports are still filed, and the issue says that a photo was sent but not stored. |
 
 Local testing only - never set these on a deployment:
 
@@ -79,7 +79,7 @@ something else.
 | Same draft (`submissionId`) | once per 24 h | A retry after a lost response gets the issue already filed (`200`, `replayed: true`) instead of a second one, and does not spend the install limit. |
 | Same title and text, no `submissionId` | once per 24 h | The fallback for a client that sends no draft id. |
 | Request | 4.3 MB | Just under Vercel's 4.5 MB ceiling, so the app gets this service's structured refusal and not the platform's blank one. |
-| Screenshots | 3 per report, 1 MB each, PNG or JPEG | Checked from the bytes, not the declared type. EXIF/text metadata is stripped before upload. |
+| Photos | 3 per report, 1 MB each, PNG or JPEG | Checked from the bytes, not the declared type. EXIF/text metadata is stripped before upload. |
 | Title / description | 3-120 / 10-10,000 characters | |
 | Log | 30,000 characters | Longer logs are trimmed from the front, because the end is where the failure is. |
 
@@ -107,7 +107,7 @@ its visitors' browsers file reports.
 
 `device` may also be a plain string; the Filet app sends a string, the exact text the reporter
 reviewed. The app sends `type` as `bug`, `feature` or `other` (`question` is accepted and unused)
-and JPEG screenshots only, re-encoded to at most 1600 px, which also strips EXIF. Unknown fields
+and JPEG photos only, re-encoded to at most 1600 px, which also strips EXIF. Unknown fields
 are ignored.
 
 A retry of a draft already filed answers `200` with the same body as the original `201`, plus
@@ -161,12 +161,12 @@ Every refusal has the same envelope. Where retrying later will actually work, it
   key shapes, `Bearer`/`Basic` credentials, `password=`/`token:`-style values, email addresses,
   IPv4/IPv6/MAC addresses, and Filet's own `/a/<code>` WebDAV access codes. It catches what has a
   recognisable shape and nothing else, which is why the app warns that a report is public.
-- **Screenshots** are uploaded to Vercel Blob and linked from the issue. If an upload fails, the
-  report is filed anyway and the issue says which screenshot is missing.
+- **Photos** are uploaded to Vercel Blob and linked from the issue. If an upload fails, the
+  report is filed anyway and the issue says which photo is missing.
 
 ## Run it locally
 
-Node 22 or later. Nothing to install unless you want screenshot upload.
+Node 22 or later. Nothing to install unless you want photo upload.
 
 ```sh
 cd report-api

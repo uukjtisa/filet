@@ -1,12 +1,12 @@
 import { randomBytes } from "node:crypto";
 
 /**
- * Where screenshots are put so an issue can link them.
+ * Where photos are put so an issue can link them.
  *
  * Decision: upload and link, to Vercel Blob. The two alternatives both fail:
  *
  *  - **Inline in a collapsed block.** GitHub drops `data:` image URLs, so an inlined image does
- *    not render, and an issue body is capped at 65,536 characters - a 1 MB screenshot is 1.3
+ *    not render, and an issue body is capped at 65,536 characters - a 1 MB photo is 1.3
  *    million characters of base64. It cannot fit, let alone be read.
  *  - **Commit it to the repository** through the contents API. That needs `contents: write`,
  *    which turns an endpoint that can only open issues into one that can push to the code if it
@@ -35,7 +35,7 @@ export function blobFromEnv(env) {
 /**
  * Store every image, never failing the report because one did not store.
  *
- * A report that is refused because its screenshot could not be uploaded loses the words, which
+ * A report that is refused because its photo could not be uploaded loses the words, which
  * are the part that matters. So each failure becomes a `dropped` entry that the issue mentions
  * and the response reports, and the issue is filed regardless.
  */
