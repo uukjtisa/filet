@@ -410,13 +410,29 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
      * directions - starting a track will not pause whatever else is playing, and nothing else
      * will pause Filet. That is exactly what somebody listening over another app's audio
      * wants and exactly what everybody else would report as a bug.
+     *
+     * One per player. A single switch used to serve both, and only the music player read it, so
+     * the video player's own toggle changed the music's behaviour and nothing of its own. Music
+     * kept the old key, so its value cannot change under anybody; the video's is made from it
+     * once. See [seedVideoUninterrupted].
      */
-    private val _uninterrupted = stored { sp.getBoolean(K_UNINTERRUPTED, false) }
-    val uninterrupted: StateFlow<Boolean> = _uninterrupted.asStateFlow()
+    private val _musicUninterrupted = stored { sp.getBoolean(K_MUSIC_UNINTERRUPTED, false) }
+    val musicUninterrupted: StateFlow<Boolean> = _musicUninterrupted.asStateFlow()
 
-    fun setUninterrupted(on: Boolean) {
-        _uninterrupted.value = on
-        sp.edit().putBoolean(K_UNINTERRUPTED, on).apply()
+    fun setMusicUninterrupted(on: Boolean) {
+        _musicUninterrupted.value = on
+        sp.edit().putBoolean(K_MUSIC_UNINTERRUPTED, on).apply()
+    }
+
+    private val _videoUninterrupted = stored {
+        seedVideoUninterrupted(sp)
+        sp.getBoolean(K_VIDEO_UNINTERRUPTED, false)
+    }
+    val videoUninterrupted: StateFlow<Boolean> = _videoUninterrupted.asStateFlow()
+
+    fun setVideoUninterrupted(on: Boolean) {
+        _videoUninterrupted.value = on
+        sp.edit().putBoolean(K_VIDEO_UNINTERRUPTED, on).apply()
     }
 
     /**
@@ -1682,7 +1698,22 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         const val K_UPD_VERSION = "update.silencedVersion"
         const val K_UPD_SKIPPED = "update.skippedVersion"
         const val K_UPD_OFF = "update.notificationsOff"
-        const val K_UNINTERRUPTED = "play.uninterrupted"
+        const val K_MUSIC_UNINTERRUPTED = "play.uninterrupted"
+        const val K_VIDEO_UNINTERRUPTED = "play.videoUninterrupted"
+
+        /**
+         * Give the video player its own uninterruptible setting, from the one the two players
+         * shared, the first time it is read.
+         *
+         * Written into the store rather than read as a fallback. A fallback would leave the video
+         * following the music's value for as long as nobody set the video's, so for most people
+         * the two would still be one switch. Read again on a reload, which is what an import
+         * from a build with the shared switch needs: both players get the value it carried.
+         */
+        fun seedVideoUninterrupted(sp: SharedPreferences) {
+            if (sp.contains(K_VIDEO_UNINTERRUPTED)) return
+            sp.edit().putBoolean(K_VIDEO_UNINTERRUPTED, sp.getBoolean(K_MUSIC_UNINTERRUPTED, false)).apply()
+        }
         const val K_VIDEO_NEXT_PLAYS = "play.videoNext"
         const val K_VIDEO_SKIP = "play.videoSkip"
         const val K_VIEWER_ONLY_KIND = "viewer.onlyKind"

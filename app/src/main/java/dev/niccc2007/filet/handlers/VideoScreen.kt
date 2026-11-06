@@ -457,7 +457,7 @@ private fun VideoPlayer(
      *
      * The PITCH mode is not local. It is the same preference the music player and Settings
      * read, because "what happens to a voice when I slow it down" is one answer, not one per
-     * screen - the same rule Uninterrupted follows.
+     * screen.
      */
     // This video's remembered sheet, if it has one: its speed, pitch and sound come back with it.
     // Said to the store while the screen is up, so the sheet's Remember toggle has a file to keep.
@@ -545,14 +545,56 @@ private fun VideoPlayer(
     }
 
     /**
-     * The SAME preference the music player and Settings read.
+     * The video's own uninterruptible setting, which Settings shows beside the music's.
      *
-     * One value with three doors, not three switches: turning it on here has to be on when
-     * the next track starts in the other player, and has to be what Settings shows.
+     * It was the music's once, through one shared switch only the music player read: turning it
+     * on here changed what the next track did and nothing about this video. See [VideoFocus].
      */
-    val uninterrupted by vm.prefs.uninterrupted.collectAsStateWithLifecycle()
+    val uninterrupted by vm.prefs.videoUninterrupted.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val activity = context as? android.app.Activity
+
+    // Who else may play over this video, and what pauses it. `VideoView` is told to ask for no
+    // focus of its own (see the factory), so this is the only request. The listener reads the
+    // state as it is when a change arrives: all of it is per file, like this.
+    val focus = remember(node.path) {
+        VideoFocus(
+            context,
+            ignoring = { vm.prefs.videoUninterrupted.value || handingOver },
+            playing = { playing },
+        ) { step ->
+            val v = handle.view ?: return@VideoFocus
+            when (step) {
+                FocusStep.PAUSE -> { runCatching { v.pause() }; playing = false }
+                FocusStep.RESUME -> { runCatching { v.start() }; playing = true }
+                FocusStep.NONE -> Unit
+            }
+        }
+    }
+    // Asked for again on every start: a video played again after another app took the sound
+    // has to take it back. Given back the moment uninterruptible goes on. Not asked for while
+    // the sound is being handed to the music player: that asks for its own, and the loss it
+    // causes here is ignored.
+    LaunchedEffect(focus, playing, uninterrupted, handingOver) {
+        if (uninterrupted) {
+            focus.abandon()
+        } else if (playing && !handingOver) {
+            focus.steps.forget()
+            focus.request()
+        }
+    }
+    DisposableEffect(focus) { onDispose { focus.abandon() } }
+    // Headphones out, Bluetooth gone: pause, whatever the setting says. See noisyWatch.
+    DisposableEffect(node.path) {
+        val noisy = noisyWatch(context) {
+            focus.steps.forget()
+            if (playing) {
+                runCatching { handle.view?.pause() }
+                playing = false
+            }
+        }
+        onDispose { noisy.close() }
+    }
 
     // The window's settings follow the player while it is up: its shape, its play button, and
     // whether leaving Filet goes into it, which the setting decides and only while playing.
@@ -1078,6 +1120,9 @@ private fun VideoPlayer(
                     },
                 factory = { ctx ->
                     VideoView(ctx).apply {
+                        // Before the URI, which is where VideoView asks for focus, and it asks
+                        // with no listener: nothing it lost would ever pause it. See VideoFocus.
+                        setAudioFocusRequest(AudioManager.AUDIOFOCUS_NONE)
                         setVideoURI(uri)
                         // No setMediaController: the whole point of this rewrite.
                         setOnPreparedListener { mp ->
@@ -1620,7 +1665,7 @@ private fun VideoPlayer(
                                     "Uninterruptible playback is off"
                                 },
                                 active = uninterrupted,
-                            ) { vm.prefs.setUninterrupted(!uninterrupted); wake() }
+                            ) { vm.prefs.setVideoUninterrupted(!uninterrupted); wake() }
                             // Named in words whenever it is on, because a lit shield is a state
                             // somebody has to learn and this is the switch that decides whether
                             // a call can take the sound away.

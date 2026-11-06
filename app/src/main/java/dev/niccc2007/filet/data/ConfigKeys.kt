@@ -144,6 +144,7 @@ object ConfigKeys {
         act("update.notificationsOff", ConfigType.BOOL),
         act("update.notesFraction", ConfigType.FLOAT),
         act("play.uninterrupted", ConfigType.BOOL),
+        act("play.videoUninterrupted", ConfigType.BOOL),
         act("play.videoNext", ConfigType.BOOL),
         act("play.videoSkip", ConfigType.INT),
         act("viewer.onlyKind", ConfigType.BOOL),

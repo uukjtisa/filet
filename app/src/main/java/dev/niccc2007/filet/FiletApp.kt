@@ -193,7 +193,7 @@ class FiletGraph(context: Context) {
             // The setting follows the player for as long as the process lives, rather than
             // being read when a track starts. Turning it on mid-track has to take effect on
             // the track that is running - that is the whole situation it gets turned on in.
-            scope.launch { prefs.uninterrupted.collect { player.uninterrupted = it } }
+            scope.launch { prefs.musicUninterrupted.collect { player.uninterrupted = it } }
             // Same shape, same reason: the decoder has to be told, and the setting
             // outlives every screen that can change it.
             scope.launch {

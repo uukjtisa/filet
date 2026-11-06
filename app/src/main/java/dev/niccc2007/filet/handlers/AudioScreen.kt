@@ -122,7 +122,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
     }
 
     val face = PlayerFace.of(vm.prefs.playerFace.collectAsStateWithLifecycle().value)
-    val uninterrupted by vm.prefs.uninterrupted.collectAsStateWithLifecycle()
+    val uninterrupted by vm.prefs.musicUninterrupted.collectAsStateWithLifecycle()
     // The background glow has no switch any more - it is what the player looks like, and
     // `glowStrength` is the question worth asking about it. Kept as a named constant rather
     // than inlined at thirty call sites, so the places that still ASK about it stay findable.
@@ -471,7 +471,7 @@ private fun FaceTopBar(c: PlayerCtx) {
         context = c.state.from.ifBlank { c.folderLine },
         uninterrupted = c.uninterrupted,
         onClose = { c.vm.closeHandler() },
-        onUninterrupted = { c.vm.prefs.setUninterrupted(!c.uninterrupted) },
+        onUninterrupted = { c.vm.prefs.setMusicUninterrupted(!c.uninterrupted) },
         tint = c.tint,
     ) {
         PlayerOverflow(
@@ -612,7 +612,7 @@ private fun ClassicFace(c: PlayerCtx) {
                 if (c.uninterrupted) "Uninterruptible - nothing will pause this"
                 else "Uninterruptible playback",
                 active = c.uninterrupted,
-            ) { c.vm.prefs.setUninterrupted(!c.uninterrupted) }
+            ) { c.vm.prefs.setMusicUninterrupted(!c.uninterrupted) }
             ViewerAction(FiletIcons.Rows, "Queue", enabled = c.state.canStep, onClick = c.onQueue)
             // The SAME overflow the other three faces carry, and it is not a tidying
             // exercise: it holds the face switcher. Classic's bar had the three actions

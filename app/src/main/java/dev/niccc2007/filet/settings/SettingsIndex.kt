@@ -251,12 +251,20 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
             "open at the start; Carry on stays empty.",
     ),
     SettingsEntry(
-        key = Prefs.K_UNINTERRUPTED,
-        title = "Uninterruptible playback",
+        key = Prefs.K_MUSIC_UNINTERRUPTED,
+        title = "Uninterruptible music",
         tab = SettingsGroup.PLAYBACK,
         section = "Playing",
-        text = "Uninterruptible playback Plays over other apps; only calls pause it. Pauses " +
-            "for calls and other audio.",
+        text = "Uninterruptible music Plays over other apps; only calls pause it. Pauses for " +
+            "calls and other audio.",
+    ),
+    SettingsEntry(
+        key = Prefs.K_VIDEO_UNINTERRUPTED,
+        title = "Uninterruptible video",
+        tab = SettingsGroup.PLAYBACK,
+        section = "Playing",
+        text = "Uninterruptible video Plays over other apps, and they do not pause it. " +
+            "Pauses for calls and other audio.",
     ),
     SettingsEntry(
         key = Prefs.K_PITCH_MODE,

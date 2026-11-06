@@ -209,7 +209,8 @@ fun SettingsPage(vm: BrowserViewModel) {
     val verboseLogs by prefs.verboseLogs.collectAsState()
     val updatesOn by vm.updateNotificationsOn.collectAsState()
     val selectionBar by prefs.selectionBar.collectAsState()
-    val uninterrupted by prefs.uninterrupted.collectAsState()
+    val musicUninterrupted by prefs.musicUninterrupted.collectAsState()
+    val videoUninterrupted by prefs.videoUninterrupted.collectAsState()
     val videoNextPlays by prefs.videoNextPlays.collectAsState()
     val videoSkip by prefs.videoSkipSeconds.collectAsState()
     val videoPip by prefs.videoPipOnHome.collectAsState()
@@ -958,18 +959,31 @@ fun SettingsPage(vm: BrowserViewModel) {
                 key = Prefs.K_RESUME,
             ) { prefs.setResumePlayback(it) }
         }
-        anchor(Prefs.K_UNINTERRUPTED)
+        anchor(Prefs.K_MUSIC_UNINTERRUPTED)
         item {
             ToggleRow(
-                "Uninterruptible playback",
-                if (uninterrupted) {
+                "Uninterruptible music",
+                if (musicUninterrupted) {
                     "Plays over other apps; only calls pause it."
                 } else {
                     "Pauses for calls and other audio."
                 },
-                uninterrupted,
-                key = Prefs.K_UNINTERRUPTED,
-            ) { prefs.setUninterrupted(it) }
+                musicUninterrupted,
+                key = Prefs.K_MUSIC_UNINTERRUPTED,
+            ) { prefs.setMusicUninterrupted(it) }
+        }
+        anchor(Prefs.K_VIDEO_UNINTERRUPTED)
+        item {
+            ToggleRow(
+                "Uninterruptible video",
+                if (videoUninterrupted) {
+                    "Plays over other apps, and they do not pause it."
+                } else {
+                    "Pauses for calls and other audio."
+                },
+                videoUninterrupted,
+                key = Prefs.K_VIDEO_UNINTERRUPTED,
+            ) { prefs.setVideoUninterrupted(it) }
         }
         anchor(Prefs.K_PITCH_MODE)
         item {
