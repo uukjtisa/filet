@@ -176,6 +176,11 @@ private fun ReportScreen(
     var logName by rememberSaveable { mutableStateOf<String?>(null) }
     var pictures by rememberSaveable { mutableStateOf(listOf<String>()) }
     var pictureNote by rememberSaveable { mutableStateOf<String?>(null) }
+    // A report given up on leaves its pictures behind. This form keeps its own and no others.
+    LaunchedEffect(Unit) {
+        val own = pictures
+        withContext(Dispatchers.IO) { Collect.clearPictures(context, own) }
+    }
     // Made once per draft and kept across retries. See ReportForm.requestJson.
     val submissionId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     var phase by rememberSaveable { mutableStateOf(Phase.EDITING) }
@@ -233,16 +238,13 @@ private fun ReportScreen(
         ActivityResultContracts.PickMultipleVisualMedia(ReportForm.IMAGES_MAX),
     ) { takePictures(it) }
 
-    fun draftNow(): ReportForm.Draft {
+    fun draftNow(images: List<ReportForm.Image>): ReportForm.Draft {
         val log = if (!logOn) null else logName?.let { name ->
             val text = if (name == CRASH_LOG) crash else FiletLog.readRun(name)
             text?.let {
                 val (fitted, _) = ReportForm.fitLog(it)
                 ReportForm.Log(name, fitted, it.toByteArray().size.toLong())
             }
-        }
-        val images = pictures.mapNotNull { path ->
-            Collect.read(path)?.let { ReportForm.Image(Collect.nameOf(path), "image/jpeg", it) }
         }
         return ReportForm.Draft(
             kind = ReportForm.Kind.entries[kind],
@@ -276,7 +278,20 @@ private fun ReportScreen(
     fun send() {
         phase = Phase.SENDING
         scope.launch {
-            val draft = withContext(Dispatchers.IO) { draftNow() }
+            // Every picture on the form, read now. One that cannot be read any more stops the
+            // send and is named. A report that quietly arrived without it is issue #22.
+            val held = pictures
+            val images = withContext(Dispatchers.IO) {
+                held.map { path -> Collect.read(path)?.let { ReportForm.Image(Collect.nameOf(path), "image/jpeg", it) } }
+            }
+            val gone = images.mapIndexedNotNull { i, image -> if (image == null) i + 1 else null }
+            if (gone.isNotEmpty()) {
+                pictures = held.filterIndexed { i, _ -> images[i] != null }
+                pictureNote = ReportForm.picturesGone(gone)
+                phase = Phase.EDITING
+                return@launch
+            }
+            val draft = withContext(Dispatchers.IO) { draftNow(images.filterNotNull()) }
             when (val r = ReportClient.send(context, draft, submissionId)) {
                 is ReportForm.Outcome.Filed -> {
                     resultText = r.url

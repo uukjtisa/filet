@@ -85,8 +85,7 @@ object Collect {
         }
         val out = ByteArrayOutputStream()
         sized.compress(Bitmap.CompressFormat.JPEG, 85, out)
-        val dir = dev.niccc2007.filet.data.FiletStore.dir(context, dev.niccc2007.filet.data.FiletStore.Area.REPORTS)
-        File(dir, "picture-${System.currentTimeMillis()}-$index.jpg").apply { writeBytes(out.toByteArray()) }.absolutePath
+        picture(folder(context), index, System.currentTimeMillis()).apply { writeBytes(out.toByteArray()) }.absolutePath
     }
 
     // ── the cached pictures, by path ──
@@ -96,39 +95,77 @@ object Collect {
     // and every path it is handed was made by [image] inside this screen's own cache.
 
     /** Size in bytes, or null when the picture is gone - a cache cleared under the form. */
-    fun sizeOf(path: String): Long? = File(path).takeIf { it.isFile && inCache(it) }?.length()
+    fun sizeOf(path: String): Long? = File(path).takeIf { it.isFile && owns(bound, it) }?.length()
 
-    fun read(path: String): ByteArray? = File(path).takeIf { it.isFile && inCache(it) }?.readBytes()
+    fun read(path: String): ByteArray? = File(path).takeIf { it.isFile && owns(bound, it) }?.readBytes()
 
     fun nameOf(path: String): String = path.substringAfterLast('/')
 
     fun delete(path: String) {
-        File(path).takeIf { inCache(it) }?.delete()
+        File(path).takeIf { owns(bound, it) }?.delete()
     }
 
     /**
-     * Whether a path is inside this screen's cache folder.
+     * The one folder the pictures live in: `report`, in the app's private cache.
+     *
+     * Private because a screenshot for a report is nobody else's until Send, which is also the
+     * premise this file's exemption from R3 rests on. Android may empty it, and the form
+     * survives that: a picture gone from under it reads as gone.
+     *
+     * Bug identified here (issue #22): 0.2.0 moved the pictures into Filet's own Reports folder,
+     * which is shared storage whenever Filet has all-files access, and left the check in [owns]
+     * testing the old place. Every picture failed it. Each one was left out of the report
+     * without a word, its size read as nothing, and removing it removed nothing, so it stayed on
+     * shared storage. Writing, reading, deleting and clearing all take the folder from here
+     * now, so where a picture is put and where it is looked for cannot part again.
+     */
+    internal fun folder(cache: File): File = File(cache, FOLDER)
+
+    private fun folder(context: Context): File = folder(context.cacheDir).apply { runCatching { mkdirs() } }
+
+    /** Where picture [index], made at [now], is written. The name is what [owns] recognises. */
+    internal fun picture(folder: File, index: Int, now: Long): File = File(folder, "$PREFIX$now-$index.jpg")
+
+    /**
+     * Whether [f] is one of the pictures in [folder]: directly inside it, named as [picture]
+     * names them.
      *
      * Paths come back from saved state, which is the app's own, but the check costs nothing and
-     * means these helpers cannot be pointed at any other file.
+     * means these helpers cannot be pointed at any other file - not a crash report beside it,
+     * not anything a `..` reaches.
      */
-    private fun inCache(f: File): Boolean = f.parentFile?.name == "report" &&
-        f.parentFile?.parentFile?.canonicalPath == cacheRoot?.canonicalPath
+    internal fun owns(folder: File?, f: File): Boolean {
+        val home = folder?.let { runCatching { it.canonicalFile }.getOrNull() } ?: return false
+        val real = runCatching { f.canonicalFile }.getOrNull() ?: return false
+        return real.name.startsWith(PREFIX) && real.name.endsWith(".jpg") && real.parentFile == home
+    }
+
+    /** The pictures in [folder] that no form holds. [keep] is the paths the open form has. */
+    internal fun orphans(folder: File, keep: Collection<String>): List<File> {
+        val held = keep.mapNotNull { runCatching { File(it).canonicalFile }.getOrNull() }.toSet()
+        return folder.listFiles().orEmpty().filter { owns(folder, it) && it.canonicalFile !in held }
+    }
 
     @Volatile
-    private var cacheRoot: File? = null
+    private var bound: File? = null
 
     /** Called once by the form, so the helpers above know which cache is theirs. */
     fun bind(context: Context) {
-        cacheRoot = dev.niccc2007.filet.data.FiletStore.dir(context, dev.niccc2007.filet.data.FiletStore.Area.REPORTS)
+        bound = folder(context)
     }
 
-    /** Pictures left behind by a report that was sent or abandoned. */
-    fun clearPictures(context: Context) {
-        dev.niccc2007.filet.data.FiletStore.dir(context, dev.niccc2007.filet.data.FiletStore.Area.REPORTS)
-            .listFiles { f -> f.name.startsWith("picture-") }
-            ?.forEach { it.delete() }
+    /**
+     * Pictures no form is holding: what a sent report leaves behind, and an abandoned one.
+     *
+     * The form calls it with its own pictures as [keep] when it opens, so a report that was
+     * given up on does not keep its pictures until Android gets round to the cache, and with
+     * nothing once a report is sent.
+     */
+    fun clearPictures(context: Context, keep: Collection<String> = emptyList()) {
+        orphans(folder(context), keep).forEach { it.delete() }
     }
 
+    private const val FOLDER = "report"
+    private const val PREFIX = "picture-"
     private const val EDGE = 1600
 }

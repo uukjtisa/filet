@@ -65,7 +65,31 @@ class ReportFormTest {
         assertTrue(body.contains("\"submissionId\":\"sub-1\""))
         assertTrue(body.contains("\"type\":\"feature\""))
         assertTrue("title is trimmed", body.contains("\"title\":\"Tabs at the bottom\""))
-        assertTrue(body.contains("Reach is hard.\\n\\n### Steps to reproduce\\n\\n1. Hold the phone\\n2. Reach"))
+        assertTrue(body, body.contains("Reach is hard.\\n\\nSteps to reproduce:\\n1. Hold the phone\\n2. Reach"))
+    }
+
+    @Test
+    fun `the steps go to the server as plain text, which is all its code block shows`() {
+        // #15: a Markdown heading inside the server's code block arrived as three hashes.
+        val body = ReportForm.requestBody(filled)
+        assertFalse(body, body.contains("#"))
+        assertTrue(body, body.endsWith("Steps to reproduce:\n1. Hold the phone\n2. Reach"))
+        // The fallback page has no code block around it, so it keeps its heading.
+        assertTrue(ReportForm.issueBody(filled).contains("### Steps to reproduce"))
+    }
+
+    @Test
+    fun `a picture lost before Send is named, never left out quietly`() {
+        assertEquals(null, ReportForm.picturesGone(emptyList()))
+        assertEquals(
+            "Picture 2 could not be read any more, so it was taken off. Add it again to send it.",
+            ReportForm.picturesGone(listOf(2)),
+        )
+        assertEquals(
+            "Pictures 1 and 3 could not be read any more, so they were taken off. Add them again to send them.",
+            ReportForm.picturesGone(listOf(1, 3)),
+        )
+        assertTrue(ReportForm.picturesGone(listOf(1, 2, 3))!!.startsWith("Pictures 1, 2 and 3 "))
     }
 
     @Test

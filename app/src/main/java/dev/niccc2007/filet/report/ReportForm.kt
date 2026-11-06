@@ -134,6 +134,18 @@ object ReportForm {
         data class No(val why: String) : ImageVerdict
     }
 
+    /**
+     * What the form says when pictures on it could not be read at Send, or null when none were
+     * lost. [numbers] are their places on the form, counted from 1.
+     */
+    fun picturesGone(numbers: List<Int>): String? = when (numbers.size) {
+        0 -> null
+        1 -> "Picture ${numbers[0]} could not be read any more, so it was taken off. " +
+            "Add it again to send it."
+        else -> "Pictures ${numbers.dropLast(1).joinToString(", ")} and ${numbers.last()} " +
+            "could not be read any more, so they were taken off. Add them again to send them."
+    }
+
     /** @param current the sizes of the pictures already on the report, in bytes. */
     fun imageVerdict(current: List<Long>, size: Long): ImageVerdict = when {
         current.size >= IMAGES_MAX -> ImageVerdict.No("Up to $IMAGES_MAX pictures in one report")
@@ -224,11 +236,15 @@ object ReportForm {
      * Not [issueBody]. The phone details travel in their own `device` field, which the server
      * lays out under its own heading - folding them into `body` as well put them on the issue
      * twice and counted them against the description's limit.
+     *
+     * Plain text, not Markdown. The server puts a stranger's words in a code block so they
+     * cannot format the issue, and a `###` heading inside one is printed as three hashes - which
+     * is how the steps arrived on #15.
      */
     fun requestBody(d: Draft): String = buildString {
         append(d.description.trim())
         if (d.steps.isNotBlank()) {
-            append("\n\n### Steps to reproduce\n\n")
+            append("\n\nSteps to reproduce:\n")
             append(d.steps.trim())
         }
     }
