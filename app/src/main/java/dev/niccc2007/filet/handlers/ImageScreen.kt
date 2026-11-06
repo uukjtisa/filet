@@ -1842,16 +1842,15 @@ internal fun encode(bitmap: Bitmap, sourceExtension: String): Encoded {
     }
 }
 
-internal val PNG_LIKE = setOf("png", "webp", "gif", "bmp")
-
 /**
  * What [encode] will produce, known before it runs - so a "Save as new" can offer the right name
- * before anything is encoded. The same rule, in the one place both read it from.
+ * before anything is encoded. The same rule, in the one place both read it from. Which sources
+ * are lossless (PNG, WebP, GIF, BMP) is the file type table's to say.
  */
 internal fun encodedExtension(bitmap: Bitmap, sourceExtension: String): String {
     val ext = sourceExtension.lowercase()
     return when {
-        ext in PNG_LIKE || bitmap.hasAlpha() -> "png"
+        dev.niccc2007.filet.vfs.types.FileTypes.isLossless(ext) || bitmap.hasAlpha() -> "png"
         ext == "jpeg" -> "jpeg"
         else -> "jpg"
     }

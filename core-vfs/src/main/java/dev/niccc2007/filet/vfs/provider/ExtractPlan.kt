@@ -329,8 +329,7 @@ object ExtractPlanner {
             val willWrite = !e.isDir && (collides == null || options.onCollision != CollisionChoice.SKIP)
             if (willWrite) {
                 needs += e.size
-                val ext = e.path.substringAfterLast('.', "").lowercase()
-                if (ext in ArchiveWriter.ALREADY_COMPRESSED) media += e.size
+                if (ArchiveWriter.alreadyCompressed(e.path)) media += e.size
             }
         }
 

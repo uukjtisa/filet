@@ -7,9 +7,12 @@ import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.media.MediaMetadataRetriever
+import android.os.Build
 import android.util.LruCache
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
+import dev.niccc2007.filet.vfs.types.FileTypes
+import dev.niccc2007.filet.vfs.types.TypeKind
 import java.io.ByteArrayOutputStream
 
 /**
@@ -53,24 +56,24 @@ object Thumbnails {
      */
     class Answer internal constructor(val bitmap: Bitmap?)
 
-    /** Extensions we will attempt. Asking is cheap; opening a 4 GB mkv to find out is not. */
-    private val JPEG = setOf("jpg", "jpeg", "jpe", "jfif")
-    private val IMAGE = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif", "avif")
-    private val VIDEO = setOf("mp4", "mkv", "webm", "3gp", "mov", "m4v", "avi", "ts")
-
     /**
-     * Formats that can carry embedded cover art.
+     * Which preview an extension gets, if any, from the file type table. Asking is cheap; opening
+     * a 4 GB mkv to find out is not.
      *
-     * Not every audio format can: a bare WAV has no tag container at all. Listing the ones
-     * that can keeps a pointless extractor spin-up off every .wav in a folder.
+     * Bug identified here: this kept its own picture list, and `.jfif` was in the JPEG half of it
+     * (for the orientation check) and missing from the half that decides whether to decode at
+     * all - so a JFIF never got a thumbnail. The table answers both from one row. It also knows
+     * the API level a format decodes from, so a HEIC on Android 8 is not opened only to fail,
+     * and which sound formats can carry cover art: a bare WAV has no tag container, and asking
+     * keeps a pointless extractor spin-up off every .wav in a folder.
      */
-    private val AUDIO = setOf("mp3", "m4a", "aac", "flac", "ogg", "opus", "wma", "mp4a", "m4b")
+    private fun previewOf(extension: String): TypeKind? =
+        if (FileTypes.norm(extension) == APK) TypeKind.APK
+        else FileTypes.thumbnailKind(extension, Build.VERSION.SDK_INT)
+
     private const val APK = "apk"
 
-    fun canPreview(extension: String): Boolean {
-        val e = extension.lowercase()
-        return e in IMAGE || e in VIDEO || e in AUDIO || e == APK
-    }
+    fun canPreview(extension: String): Boolean = previewOf(extension) != null
 
     /**
      * Drop every size held for [path]. For a file changed in place, so a list that still holds
@@ -137,14 +140,14 @@ object Thumbnails {
         val key = keyOf(path, size, mtime, px)
         cache.get(key)?.let { return it.bitmap }
 
-        val ext = path.name.substringAfterLast('.', "").lowercase()
+        val ext = FileTypes.extensionOf(path.name)
         val os = vfs.osPath(path)
         val bitmap = runCatching {
-            when {
-                ext in IMAGE -> fromImage(vfs, path, os, px, ext)
-                ext in VIDEO -> os?.let { fromVideo(it, px) }
-                ext in AUDIO -> os?.let { fromAudio(it, px) }
-                ext == APK -> os?.let { fromApk(context, it, px) }
+            when (previewOf(ext)) {
+                TypeKind.IMAGE -> fromImage(vfs, path, os, px, ext)
+                TypeKind.VIDEO -> os?.let { fromVideo(it, px) }
+                TypeKind.AUDIO -> os?.let { fromAudio(it, px) }
+                TypeKind.APK -> os?.let { fromApk(context, it, px) }
                 else -> null
             }
         }.getOrNull()
@@ -187,7 +190,7 @@ object Thumbnails {
      * carries the tag in a form BitmapFactory ignores.
      */
     private fun orientationOf(vfs: Vfs, path: VPath, ext: String): Int {
-        if (ext !in JPEG) return JpegOrientation.NORMAL
+        if (!FileTypes.isJpeg(ext)) return JpegOrientation.NORMAL
         return runCatching {
             vfs.openReadBlocking(path).use { JpegOrientation.read(JpegOrientation.head(it)) }
         }.getOrDefault(JpegOrientation.NORMAL)

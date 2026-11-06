@@ -4,6 +4,8 @@ import android.content.Context
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.media.Thumbnails
 import dev.niccc2007.filet.vfs.Vfs
+import dev.niccc2007.filet.vfs.types.FileTypes
+import dev.niccc2007.filet.vfs.types.TypeKind
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -475,7 +477,13 @@ class NearbyHttpServer(
             .toString()
     }
 
-    private fun hasThumb(ext: String): Boolean = ext.lowercase() in THUMBABLE
+    /**
+     * Whether a shared file is worth asking a preview of: a picture, a video frame or an app
+     * icon, as the thumbnailer decides. Cover art is left out - a web listing of an album is
+     * forty extractor spin-ups for pictures that are usually the same one.
+     */
+    private fun hasThumb(ext: String): Boolean =
+        Thumbnails.canPreview(ext) && FileTypes.kindOf(ext) != TypeKind.AUDIO
 
     /**
      * A small preview image for a shared file.
@@ -793,12 +801,27 @@ class NearbyHttpServer(
     private fun escapeHtml(s: String) = s
         .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
-    private fun guessMime(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {
-        "png" -> "image/png"; "jpg", "jpeg" -> "image/jpeg"; "gif" -> "image/gif"
-        "webp" -> "image/webp"; "mp4" -> "video/mp4"; "mkv" -> "video/x-matroska"
-        "mp3" -> "audio/mpeg"; "pdf" -> "application/pdf"; "txt", "log", "md" -> "text/plain"
-        "zip" -> "application/zip"; "apk" -> "application/vnd.android.package-archive"
-        else -> "application/octet-stream"
+    /**
+     * The type a shared file is sent as, from the file type table.
+     *
+     * Every file goes out as an attachment with `nosniff`, so the browser saves it rather than
+     * opening it inside the share's own origin. A page, a script or an SVG is still sent as a
+     * plain download rather than under its real type, so that the attachment header is not the
+     * only thing standing between a shared `.html` and a script running with the share's
+     * session.
+     */
+    private fun guessMime(name: String): String {
+        val octet = "application/octet-stream"
+        val type = FileTypes.of(FileTypes.extensionOf(name)) ?: return octet
+        val mime = type.mime ?: return octet
+        val passive = when (type.kind) {
+            TypeKind.IMAGE -> !type.vector
+            TypeKind.VIDEO, TypeKind.AUDIO, TypeKind.ARCHIVE, TypeKind.APK, TypeKind.DEX -> true
+            TypeKind.DOC -> !mime.endsWith("xml")
+            TypeKind.CODE -> mime == "text/plain"
+            TypeKind.BINARY, TypeKind.OTHER -> false
+        }
+        return if (passive) mime else octet
     }
 
     companion object {
@@ -815,12 +838,6 @@ class NearbyHttpServer(
         /** Superseded by [NetAddresses]; kept as the single-address shorthand it always was. */
         fun localAddress(): String? = NetAddresses.primary()?.ip
 
-        /** Extensions worth asking for a preview of. */
-        private val THUMBABLE = setOf(
-            "jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif", "avif",
-            "mp4", "mkv", "webm", "3gp", "mov", "m4v", "avi",
-            "apk",
-        )
 
         private const val FALLBACK_PAGE = """<!doctype html><meta charset=utf-8>
 <title>Filet</title><body style="font:15px system-ui;padding:24px">

@@ -8,7 +8,7 @@ package dev.niccc2007.filet.vfs.provider
  * of mp4s at maximum will take minutes and save nothing, and the only moment that is worth
  * knowing is before pressing Compress.
  *
- * The already-compressed judgement comes from [ArchiveWriter.ALREADY_COMPRESSED] - the same set
+ * The already-compressed judgement comes from [ArchiveWriter.alreadyCompressed] - the same rule
  * the zip writer uses to decide what to store instead of deflate - rather than a second opinion
  * living in the dialog. Two opinions about what compresses is how an estimate and a result end
  * up disagreeing for reasons nobody can trace.
@@ -96,8 +96,7 @@ object CompressEstimate {
             if (size < 0) { partial = true; continue }
             counted++
             known += size
-            val ext = name.substringAfterLast('.', "").lowercase()
-            if (ext in ArchiveWriter.ALREADY_COMPRESSED) incompressible += size
+            if (ArchiveWriter.alreadyCompressed(name)) incompressible += size
         }
 
         val band = bandFor(format)

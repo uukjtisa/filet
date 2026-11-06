@@ -701,7 +701,7 @@ private fun BlockView(block: Block, nest: Nest, ground: Color, env: DocEnv, open
 private fun PictureView(block: Block.Image) {
     val colors = Filet.colors
     var bitmap by remember(block) { mutableStateOf<ImageBitmap?>(null) }
-    var failed by remember(block) { mutableStateOf(block.format in DocLayout.UNDRAWABLE) }
+    var failed by remember(block) { mutableStateOf(DocLayout.undrawable(block.format)) }
     LaunchedEffect(block) {
         if (failed) return@LaunchedEffect
         val decoded = withContext(Dispatchers.Default) { decodePicture(block.data) }

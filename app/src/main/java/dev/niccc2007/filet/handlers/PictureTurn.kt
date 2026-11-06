@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import dev.niccc2007.filet.media.JpegOrientation
 import dev.niccc2007.filet.media.turnedBy
 import dev.niccc2007.filet.media.upright
+import dev.niccc2007.filet.vfs.types.FileTypes
 
 /**
  * A picture saved the way the viewer has it turned.
@@ -41,17 +42,23 @@ internal object PictureTurn {
         NONE,
     }
 
-    fun replaceFor(extension: String): Replace = when (extension.lowercase()) {
-        in JPEG -> Replace.TAG
-        "png" -> Replace.REWRITE
-        else -> Replace.NONE
+    fun replaceFor(extension: String): Replace {
+        val e = FileTypes.norm(extension)
+        return when {
+            FileTypes.isJpeg(e) -> Replace.TAG
+            e == "png" -> Replace.REWRITE
+            else -> Replace.NONE
+        }
     }
 
     /** What a new file would be saved as, for saying so before it happens. */
-    fun newFormatFor(extension: String): String = when (val e = extension.lowercase()) {
-        in JPEG, "png" -> e
-        in PNG_LIKE -> "png"
-        else -> "jpg"
+    fun newFormatFor(extension: String): String {
+        val e = FileTypes.norm(extension)
+        return when {
+            FileTypes.isJpeg(e) || e == "png" -> e
+            FileTypes.isLossless(e) -> "png"
+            else -> "jpg"
+        }
     }
 
     /**
@@ -101,7 +108,7 @@ internal object PictureTurn {
             ?: error("This is not a picture Android can read.")
         // A JPEG that comes this way still has a tag saying how it was meant to be seen, and the
         // new file has none - so the tag's turn goes into the pixels first, then the viewer's.
-        val orientation = if (ext in JPEG) JpegOrientation.read(bytes) else JpegOrientation.NORMAL
+        val orientation = if (FileTypes.isJpeg(ext)) JpegOrientation.read(bytes) else JpegOrientation.NORMAL
         val turned = decoded.upright(orientation).turnedBy(quarters)
         try {
             val encoded = encode(turned, ext)
@@ -111,6 +118,4 @@ internal object PictureTurn {
             turned.recycle()
         }
     }
-
-    private val JPEG = setOf("jpg", "jpeg", "jpe", "jfif")
 }

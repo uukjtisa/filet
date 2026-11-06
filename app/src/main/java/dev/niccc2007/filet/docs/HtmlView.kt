@@ -57,6 +57,7 @@ import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
+import dev.niccc2007.filet.vfs.types.FileTypes
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.security.MessageDigest
@@ -159,40 +160,13 @@ object HtmlOrigin {
     /**
      * The type a file is served as.
      *
-     * A table rather than the platform's `MimeTypeMap`, for two reasons: that map has no entry
-     * for `.mjs` on several Android versions, and a module script served with the wrong type is
-     * refused outright by the browser's strict MIME check - the page loads and none of its
-     * script runs, which is exactly the fault this viewer is meant not to have.
+     * The file type table rather than the platform's `MimeTypeMap`, for two reasons: that map
+     * has no entry for `.mjs` on several Android versions, and a module script served with the
+     * wrong type is refused outright by the browser's strict MIME check - the page loads and
+     * none of its script runs, which is exactly the fault this viewer is meant not to have.
      */
-    fun mimeOf(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {
-        "html", "htm" -> "text/html"
-        "xhtml" -> "application/xhtml+xml"
-        "css" -> "text/css"
-        "js", "mjs", "cjs" -> "text/javascript"
-        "json", "map" -> "application/json"
-        "txt", "md" -> "text/plain"
-        "xml" -> "application/xml"
-        "svg" -> "image/svg+xml"
-        "png" -> "image/png"
-        "jpg", "jpeg" -> "image/jpeg"
-        "gif" -> "image/gif"
-        "webp" -> "image/webp"
-        "avif" -> "image/avif"
-        "bmp" -> "image/bmp"
-        "ico" -> "image/x-icon"
-        "woff" -> "font/woff"
-        "woff2" -> "font/woff2"
-        "ttf" -> "font/ttf"
-        "otf" -> "font/otf"
-        "wasm" -> "application/wasm"
-        "mp3" -> "audio/mpeg"
-        "ogg", "oga" -> "audio/ogg"
-        "wav" -> "audio/wav"
-        "m4a" -> "audio/mp4"
-        "mp4", "m4v" -> "video/mp4"
-        "webm" -> "video/webm"
-        else -> "application/octet-stream"
-    }
+    fun mimeOf(name: String): String =
+        FileTypes.mime(FileTypes.extensionOf(name)) ?: "application/octet-stream"
 
     /** Text types are declared UTF-8, which is what the viewer has always read pages as. */
     fun isText(mime: String): Boolean =

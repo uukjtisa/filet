@@ -1,5 +1,7 @@
 package dev.niccc2007.filet.index
 
+import dev.niccc2007.filet.vfs.types.FileTypes
+import dev.niccc2007.filet.vfs.types.TypeKind
 import java.util.Locale
 
 /**
@@ -261,17 +263,26 @@ object QueryEval {
         val t = v.lowercase(Locale.US)
         if (t == "dir" || t == "folder") return c.isDir
         if (t == "file") return !c.isDir
-        val groups = TYPE_GROUPS[t]
-        return if (groups != null) c.extension in groups else c.extension.equals(t, true)
+        val kind = TYPE_GROUPS[t]
+        return if (kind != null) FileTypes.kindOf(c.extension) == kind else c.extension.equals(t, true)
     }
 
-    private val TYPE_GROUPS: Map<String, Set<String>> = mapOf(
-        "image" to setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif", "avif", "svg"),
-        "video" to setOf("mp4", "mkv", "webm", "avi", "mov", "3gp", "ts", "m4v"),
-        "audio" to setOf("mp3", "opus", "ogg", "m4a", "aac", "flac", "wav"),
-        "archive" to setOf("zip", "jar", "tar", "gz", "7z", "rar", "xz", "bz2"),
-        "code" to setOf("kt", "java", "smali", "xml", "json", "py", "lua", "js", "c", "cpp", "go", "rs", "sh"),
-        "doc" to setOf("txt", "md", "pdf", "doc", "docx", "csv", "log"),
+    /**
+     * `type:image` and its siblings, as kinds in the file type table.
+     *
+     * Bug identified here: these were six extension lists of their own, shorter than the app's,
+     * so `type:image` missed every `.jfif`, `type:audio` every `.amr` and `type:doc` every
+     * spreadsheet - a search that silently returned less than the folder held. The table is the
+     * one the file list draws its icons from, so a search by type now finds what the list shows
+     * as that type.
+     */
+    private val TYPE_GROUPS: Map<String, TypeKind> = mapOf(
+        "image" to TypeKind.IMAGE,
+        "video" to TypeKind.VIDEO,
+        "audio" to TypeKind.AUDIO,
+        "archive" to TypeKind.ARCHIVE,
+        "code" to TypeKind.CODE,
+        "doc" to TypeKind.DOC,
     )
 
     private inline fun compareLong(actual: Long, op: Cmp, raw: String, parse: (String) -> Long?): Boolean {

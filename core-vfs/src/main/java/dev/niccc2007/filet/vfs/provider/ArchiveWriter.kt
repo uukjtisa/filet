@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.vfs.provider
 
+import dev.niccc2007.filet.vfs.types.FileTypes
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry
@@ -56,17 +57,15 @@ object ArchiveWriter {
         format.kind == ArchiveKind.SEVEN_ZIP || (format.kind == ArchiveKind.ZIP && options.isSplit)
 
     /**
-     * Extensions already compressed to within a percent of their entropy.
+     * Whether an entry is already compressed to within a percent of its entropy, as the file
+     * type table says.
      *
      * Re-deflating a 300 MB mp4 costs minutes and saves nothing, so zip stores those instead.
      * The tar family gets no per-entry choice - the compressor wraps the whole stream - which
      * is a real reason to offer plain `.tar` for a folder of video.
      */
-    internal val ALREADY_COMPRESSED = setOf(
-        "jpg", "jpeg", "png", "gif", "webp", "heic", "avif", "mp3", "m4a", "aac", "ogg",
-        "opus", "flac", "mp4", "mkv", "webm", "mov", "avi", "zip", "7z", "rar", "gz", "bz2",
-        "xz", "apk", "jar", "epub", "pdf",
-    )
+    internal fun alreadyCompressed(name: String): Boolean =
+        FileTypes.isCompressed(FileTypes.extensionOf(name))
 
     /**
      * Write every source into [out].

@@ -4051,7 +4051,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 if (to == null && !dev.niccc2007.filet.pick.PickName.sameKind(node.extension).contains(extension.lowercase())) {
                     error("An edited " + node.extension.uppercase() + " can only be saved as a new file.")
                 }
-                val withDetails = if (extension.lowercase() in setOf("jpg", "jpeg")) {
+                val withDetails = if (dev.niccc2007.filet.vfs.types.FileTypes.isJpeg(extension)) {
                     kotlinx.coroutines.withContext(Dispatchers.IO) {
                         runCatching {
                             val head = graph.vfs.openRead(node.path).use { dev.niccc2007.filet.media.JpegOrientation.head(it) }

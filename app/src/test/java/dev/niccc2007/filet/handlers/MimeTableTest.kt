@@ -1,5 +1,7 @@
 package dev.niccc2007.filet.handlers
 
+import dev.niccc2007.filet.vfs.types.FileTypes
+import dev.niccc2007.filet.vfs.types.TypeKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -44,6 +46,35 @@ class MimeTableTest {
         val offered = OPENER_PRESETS.flatMap { it.extensions }
         val missing = offered.filter { knownMime(it) == null }
         assertTrue("no type for: $missing", missing.isEmpty())
+    }
+
+    @Test fun every_settings_preset_row_is_the_kind_its_heading_says() {
+        // The presets are a display choice of which rows to show first, so they keep their own
+        // short lists - but what each row IS comes from the file type table, and a row filed
+        // under the wrong heading would be the old disagreement back in another place.
+        val heading = mapOf(
+            "Images" to setOf(TypeKind.IMAGE),
+            "Video and audio" to setOf(TypeKind.VIDEO, TypeKind.AUDIO),
+        )
+        for (preset in OPENER_PRESETS) {
+            val kinds = heading[preset.title] ?: continue
+            for (e in preset.extensions) {
+                assertTrue("${preset.title}: .$e is ${FileTypes.kindOf(e)}", FileTypes.kindOf(e) in kinds)
+            }
+        }
+    }
+
+    @Test fun every_spelling_of_a_jpeg_is_named_a_jpeg() {
+        for (e in listOf("jpg", "jpeg", "jpe", "jfif", "jif")) assertEquals(e, "image/jpeg", knownMime(e))
+    }
+
+    @Test fun every_format_the_document_reader_opens_is_a_document_or_code() {
+        // Bug identified earlier: a spreadsheet drew the text "XLSX" instead of a glyph, because
+        // the reader learned xlsx, xlsm and ods and the file kind's own list never did.
+        for (e in dev.niccc2007.filet.docs.DocFormat.EXTENSIONS) {
+            val kind = FileTypes.kindOf(e)
+            assertTrue(".$e is $kind", kind == TypeKind.DOC || kind == TypeKind.CODE)
+        }
     }
 
     @Test fun a_leading_dot_and_any_case_are_accepted() {

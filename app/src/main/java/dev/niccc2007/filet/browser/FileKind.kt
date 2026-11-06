@@ -4,6 +4,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import dev.niccc2007.filet.data.SortKey
 import dev.niccc2007.filet.data.SortSpec
 import dev.niccc2007.filet.vfs.VNode
+import dev.niccc2007.filet.vfs.types.FileTypes
+import dev.niccc2007.filet.vfs.types.TypeKind
 
 /**
  * What a file *is*, as far as the browser is concerned.
@@ -34,45 +36,29 @@ enum class FileKind {
     val isContainer: Boolean get() = this == FOLDER || this == ARCHIVE || this == APK
 
     companion object {
-        // Taken from the one archive table rather than kept in step by hand. A format
-        // added there shows the right icon here without a second edit that gets forgotten.
-        private val ARCHIVE_EXT = dev.niccc2007.filet.vfs.provider.Archives.allExtensions
-        private val IMAGE_EXT = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif", "avif", "svg", "ico")
-        private val VIDEO_EXT = setOf("mp4", "mkv", "webm", "avi", "mov", "3gp", "ts", "m4v", "flv", "wmv")
-        private val AUDIO_EXT = setOf("mp3", "opus", "ogg", "m4a", "aac", "flac", "wav", "wma", "amr", "mid")
-        private val CODE_EXT = setOf(
-            "kt", "kts", "java", "smali", "xml", "json", "gradle", "py", "lua", "js", "ts", "tsx", "jsx",
-            "c", "h", "cpp", "hpp", "cs", "go", "rs", "rb", "php", "sh", "bash", "yml", "yaml", "toml",
-            "ini", "cfg", "conf", "properties", "css", "scss", "html", "htm", "sql", "gradlew", "pro",
-        )
-        // Bug identified here: a spreadsheet drew the text "XLSX" where every other document
-        // has a glyph. This list was kept by hand and the formats the document reader learned
-        // later - xlsx, xlsm, ods - never reached it, so they fell through to OTHER, which
-        // shows the extension instead of an icon. Every extension the reader opens is a
-        // document by definition, so its table is added rather than copied; HTML is matched as
-        // code first, above, and keeps that icon.
-        private val DOC_EXT = setOf(
-            "txt", "md", "markdown", "mdown", "mkd", "pdf", "doc", "docx", "pptx", "ppt",
-            "rtf", "odt", "odp", "csv", "log", "srt", "vtt", "xls", "epub",
-        ) + dev.niccc2007.filet.docs.DocFormat.EXTENSIONS
-        private val BINARY_EXT = setOf("so", "bin", "dat", "img", "iso", "arsc", "o", "a", "dll", "exe")
-
+        /**
+         * The kind, from the file type table.
+         *
+         * Bug identified here: this held five extension lists of its own, and they drifted from
+         * every other list in the app - `.jfif` was a JPEG to the rotation code and nothing at
+         * all here, so it drew a blank icon, got no thumbnail and no picture viewer. The table
+         * declares each extension once with one kind, so nothing can be a picture in one place
+         * and unknown in another. The bundle formats (xapk, apkm, apks) are app packages there,
+         * not zips, which is what lets them offer to install - see SplitInstall.
+         */
         fun of(node: VNode): FileKind {
             if (node.isDir) return FOLDER
-            return when (node.extension) {
-                // The bundle formats are app packages too. They were reaching ARCHIVE via the
-                // zip family, which is why they opened, looked supported, and offered no way
-                // to install - see SplitInstall.
-                "apk", "xapk", "apkm", "apks" -> APK
-                "dex", "odex", "vdex" -> DEX
-                in ARCHIVE_EXT -> ARCHIVE
-                in IMAGE_EXT -> IMAGE
-                in VIDEO_EXT -> VIDEO
-                in AUDIO_EXT -> AUDIO
-                in CODE_EXT -> CODE
-                in DOC_EXT -> DOC
-                in BINARY_EXT -> BINARY
-                else -> OTHER
+            return when (FileTypes.kindOf(node.extension)) {
+                TypeKind.APK -> APK
+                TypeKind.DEX -> DEX
+                TypeKind.ARCHIVE -> ARCHIVE
+                TypeKind.IMAGE -> IMAGE
+                TypeKind.VIDEO -> VIDEO
+                TypeKind.AUDIO -> AUDIO
+                TypeKind.CODE -> CODE
+                TypeKind.DOC -> DOC
+                TypeKind.BINARY -> BINARY
+                TypeKind.OTHER, null -> OTHER
             }
         }
     }

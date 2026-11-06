@@ -1,8 +1,10 @@
 package dev.niccc2007.filet.handlers
 
+import android.os.Build
 import dev.niccc2007.filet.browser.FileKind
 import dev.niccc2007.filet.data.Prefs
 import dev.niccc2007.filet.vfs.VNode
+import dev.niccc2007.filet.vfs.types.FileTypes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -111,8 +113,14 @@ class HandlerRegistry(private val prefs: Prefs) {
         FileKind.FOLDER -> HandlerId.ARCHIVE
         FileKind.APK -> HandlerId.APK
         FileKind.ARCHIVE -> HandlerId.ARCHIVE
-        FileKind.IMAGE -> HandlerId.IMAGE
-        FileKind.VIDEO, FileKind.AUDIO -> HandlerId.MEDIA
+        // A picture or a sound Android cannot decode on this phone - TIFF, WMA, HEIC before
+        // Android 9 - goes to another app, not to a viewer that can only fail. See
+        // `FileTypes.claimsHere` for why video is claimed regardless.
+        FileKind.IMAGE ->
+            if (FileTypes.claimsHere(node.extension, Build.VERSION.SDK_INT)) HandlerId.IMAGE else HandlerId.EXTERNAL
+        FileKind.VIDEO -> HandlerId.MEDIA
+        FileKind.AUDIO ->
+            if (FileTypes.claimsHere(node.extension, Build.VERSION.SDK_INT)) HandlerId.MEDIA else HandlerId.EXTERNAL
         FileKind.CODE -> HandlerId.TEXT
         // PDF is handled above now; what is left in DOC is text-shaped.
         FileKind.DOC -> HandlerId.TEXT
@@ -296,78 +304,9 @@ fun mimeForExtension(extension: String): String {
 const val ANY_TYPE = "*/*"
 
 /**
- * The types Filet names itself, rather than asking the platform.
+ * The types Filet names itself, rather than asking the platform: the file type table's.
  *
  * Pure, so `MimeTableTest` can hold the Office entries in place: those are the ones somebody
  * sets by hand, and they are the ones whose absence was invisible.
  */
-fun knownMime(extension: String): String? = when (extension.lowercase(Locale.US).trimStart('.')) {
-    "png" -> "image/png"
-    "jpg", "jpeg" -> "image/jpeg"
-    "gif" -> "image/gif"
-    "webp" -> "image/webp"
-    "svg" -> "image/svg+xml"
-    "mp4", "m4v" -> "video/mp4"
-    "mkv" -> "video/x-matroska"
-    "webm" -> "video/webm"
-    "3gp" -> "video/3gpp"
-    "mp3" -> "audio/mpeg"
-    "m4a" -> "audio/mp4"
-    "opus", "ogg" -> "audio/ogg"
-    "flac" -> "audio/flac"
-    "wav" -> "audio/wav"
-    "pdf" -> "application/pdf"
-    "zip" -> "application/zip"
-    "apk" -> "application/vnd.android.package-archive"
-    "txt", "log", "md" -> "text/plain"
-    "html", "htm" -> "text/html"
-    "json" -> "application/json"
-    "xml" -> "text/xml"
-
-    // Office. The reason this function grew: every one of these used to be `*/*`.
-    "doc" -> "application/msword"
-    "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    "xls" -> "application/vnd.ms-excel"
-    "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    "ppt" -> "application/vnd.ms-powerpoint"
-    "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    "odt" -> "application/vnd.oasis.opendocument.text"
-    "ods" -> "application/vnd.oasis.opendocument.spreadsheet"
-    "odp" -> "application/vnd.oasis.opendocument.presentation"
-    "rtf" -> "application/rtf"
-    "csv" -> "text/csv"
-    "epub" -> "application/epub+zip"
-
-    // More of what a file manager meets every day.
-    "bmp" -> "image/bmp"
-    "heic", "heif" -> "image/heic"
-    "avif" -> "image/avif"
-    "ico" -> "image/x-icon"
-    "avi" -> "video/x-msvideo"
-    "mov" -> "video/quicktime"
-    "wmv" -> "video/x-ms-wmv"
-    "ts" -> "video/mp2t"
-    "flv" -> "video/x-flv"
-    "aac" -> "audio/aac"
-    "wma" -> "audio/x-ms-wma"
-    "amr" -> "audio/amr"
-    "mid", "midi" -> "audio/midi"
-    "jar" -> "application/java-archive"
-    // Not a real registered type, and deliberately so: a dex is a zip-ish blob nothing else
-    // opens, and naming it keeps it out of the wildcard branch where every app claims it.
-    "dex", "odex", "vdex" -> "application/octet-stream"
-    "7z" -> "application/x-7z-compressed"
-    "rar" -> "application/vnd.rar"
-    "tar" -> "application/x-tar"
-    "gz", "tgz" -> "application/gzip"
-    "torrent" -> "application/x-bittorrent"
-    "srt" -> "application/x-subrip"
-    "vtt" -> "text/vtt"
-    "css" -> "text/css"
-    "js" -> "text/javascript"
-    "yml", "yaml", "toml", "ini", "cfg", "conf", "properties" -> "text/plain"
-    "kt", "kts", "java", "py", "lua", "c", "h", "cpp", "hpp", "rs", "go", "rb", "php",
-    "sh", "bash", "smali", "gradle", "sql" -> "text/plain"
-
-    else -> null
-}
+fun knownMime(extension: String): String? = FileTypes.mime(extension)

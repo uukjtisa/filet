@@ -57,6 +57,8 @@ import dev.niccc2007.filet.data.FiletStore
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
+import dev.niccc2007.filet.vfs.types.FileTypes
+import dev.niccc2007.filet.vfs.types.TypeKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okio.Path.Companion.toPath
@@ -328,17 +330,10 @@ private class VfsFetcher(private val data: VfsPicture, private val options: Opti
         SourceFetchResult(ImageSource(source, options.fileSystem), mimeOf(target.name), DataSource.DISK)
     }
 
-    private fun mimeOf(name: String): String? = when (name.substringAfterLast('.', "").lowercase()) {
-        "png" -> "image/png"
-        "jpg", "jpeg" -> "image/jpeg"
-        "gif" -> "image/gif"
-        "webp" -> "image/webp"
-        "bmp" -> "image/bmp"
-        "svg" -> "image/svg+xml"
-        "ico" -> "image/x-icon"
-        "heic", "heif" -> "image/heif"
-        "avif" -> "image/avif"
-        else -> null
+    /** A picture's type from the file type table; anything that is not a picture is left to Coil to sniff. */
+    private fun mimeOf(name: String): String? {
+        val type = FileTypes.of(FileTypes.extensionOf(name)) ?: return null
+        return type.mime.takeIf { type.kind == TypeKind.IMAGE }
     }
 
     class Factory(private val vfs: Vfs) : Fetcher.Factory<VfsPicture> {

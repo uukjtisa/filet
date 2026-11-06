@@ -764,10 +764,6 @@ class FileOperations(
     }
 
     companion object {
-        private val ALREADY_COMPRESSED = setOf(
-            "jpg", "jpeg", "png", "gif", "webp", "heic", "avif", "mp3", "opus", "ogg", "m4a",
-            "aac", "flac", "mp4", "mkv", "webm", "mov", "avi", "zip", "apk", "7z", "rar", "gz", "xz",
-        )
 
         fun readable(t: Throwable): String = when (t) {
             is VfsException.NotFound -> "no longer exists"

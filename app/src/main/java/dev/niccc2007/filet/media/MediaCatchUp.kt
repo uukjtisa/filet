@@ -4,15 +4,16 @@ import android.content.Context
 import android.provider.MediaStore
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
+import dev.niccc2007.filet.vfs.types.FileTypes
 
 /**
  * Register media that is on the device but missing from the gallery.
  *
  * Bug identified: announcing a file as Filet writes it only helps files written after the fix.
- * Everything already on the disk stays invisible to the gallery, which is what was reported -
- * videos listed perfectly by every file manager and absent from the gallery.
+ * Everything already on the disk stays invisible to the gallery, which presented as videos listed
+ * perfectly by every file manager and absent from the gallery.
  *
- * So the rule is the one asked for: **if Filet tracks a file, Filet registers it.** Stated as a
+ * So the rule is: **if Filet tracks a file, Filet registers it.** Stated as a
  * reconcile rather than a hook, because a hook can only ever catch what happens next.
  *
  * ## Why it is a set difference and not a scan
@@ -29,22 +30,11 @@ import dev.niccc2007.filet.vfs.Vfs
 object MediaCatchUp {
 
     /**
-     * Extensions a gallery or music player would expect to show.
+     * Whether a gallery or music player would be expected to list this, as the file type table
+     * says.
      *
      * Deliberately not every type Filet can open. A document is not missing from the gallery
      * when the gallery was never going to show it, and announcing one is work for nothing.
-     */
-    private val MEDIA = setOf(
-        // pictures
-        "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif", "bmp", "dng", "tiff",
-        // video
-        "mp4", "mkv", "webm", "mov", "avi", "3gp", "m4v", "ts", "mpg", "mpeg",
-        // audio
-        "mp3", "m4a", "aac", "flac", "ogg", "opus", "wav", "amr", "mid",
-    )
-
-    /**
-     * Whether a gallery or music player would be expected to list this.
      *
      * A leading dot marks a hidden file, it does not separate an extension: `.mp4` is a hidden
      * file named "mp4" with no extension at all, the same shape as `.nomedia`. Reading it as an
@@ -54,7 +44,7 @@ object MediaCatchUp {
     fun isMedia(name: String): Boolean {
         val dot = name.indexOf('.', startIndex = 1)
         if (dot < 0) return false
-        return name.substringAfterLast('.').lowercase() in MEDIA
+        return FileTypes.galleryLists(FileTypes.extensionOf(name))
     }
 
     /**

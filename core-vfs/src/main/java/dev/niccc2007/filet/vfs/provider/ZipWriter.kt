@@ -130,7 +130,7 @@ internal object ZipWriter {
             params.fileNameInZip = s.entryPath
             if (s.mtime > 0) params.lastModifiedFileTime = s.mtime
 
-            val stored = s.entryPath.substringAfterLast('.', "").lowercase() in ArchiveWriter.ALREADY_COMPRESSED
+            val stored = ArchiveWriter.alreadyCompressed(s.entryPath)
             if (stored) {
                 params.compressionMethod = CompressionMethod.STORE
                 // Measured rather than taken from `stat`: a stored entry states its length in

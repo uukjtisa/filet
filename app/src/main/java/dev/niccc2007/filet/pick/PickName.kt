@@ -1,5 +1,7 @@
 package dev.niccc2007.filet.pick
 
+import dev.niccc2007.filet.vfs.types.FileTypes
+
 /**
  * Whether a name typed into a save can be a file's name, and if not, why.
  *
@@ -41,20 +43,16 @@ object PickName {
         val typed = if (dot > 0) n.substring(dot + 1).lowercase() else ""
         return when {
             typed in sameKind(ext) -> n
-            typed in PICTURES -> n.substring(0, dot) + "." + ext
+            FileTypes.isPicture(typed) -> n.substring(0, dot) + "." + ext
             else -> "$n.$ext"
         }
     }
 
-    /** The spellings one picture type goes by: a `.jpeg` is a JPEG as much as a `.jpg` is. */
-    fun sameKind(extension: String): Set<String> = when (val e = extension.lowercase().trimStart('.')) {
-        "jpg", "jpeg", "jpe", "jfif" -> setOf("jpg", "jpeg", "jpe", "jfif")
-        "heic", "heif" -> setOf("heic", "heif")
-        "tif", "tiff" -> setOf("tif", "tiff")
-        else -> setOf(e)
-    }
-
-    private val PICTURES = setOf("jpg", "jpeg", "jpe", "jfif", "png", "webp", "gif", "bmp", "heic", "heif", "avif", "tif", "tiff")
+    /**
+     * The spellings one picture type goes by: a `.jpeg` is a JPEG as much as a `.jpg` is. The
+     * families are the file type table's.
+     */
+    fun sameKind(extension: String): Set<String> = FileTypes.spellings(extension)
 
     /** Whether [name] is already used in a folder holding [taken]. Case-blind, as shared storage is. */
     fun clashes(name: String, taken: Collection<String>): Boolean {

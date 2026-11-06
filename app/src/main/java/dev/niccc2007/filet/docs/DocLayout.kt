@@ -1,5 +1,8 @@
 package dev.niccc2007.filet.docs
 
+import android.os.Build
+import dev.niccc2007.filet.vfs.types.FileTypes
+import dev.niccc2007.filet.vfs.types.TypeKind
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -90,8 +93,15 @@ internal object DocLayout {
         return sample
     }
 
-    /** Picture formats Android's decoder cannot draw, which are named instead of drawn. */
-    val UNDRAWABLE = setOf("emf", "wmf", "tif", "tiff", "svg", "eps", "pict")
+    /**
+     * Whether a picture in a document is one Android's decoder cannot draw, so it is named
+     * instead of drawn: a vector format (SVG, EMF, WMF, EPS), or one this phone has no decoder
+     * for (TIFF, PICT, HEIC before Android 9). Both are the file type table's to say.
+     */
+    fun undrawable(format: String, sdk: Int = Build.VERSION.SDK_INT): Boolean {
+        val type = FileTypes.of(format) ?: return false
+        return type.kind == TypeKind.IMAGE && (type.vector || !FileTypes.decodesOn(type, sdk))
+    }
 }
 
 /**
