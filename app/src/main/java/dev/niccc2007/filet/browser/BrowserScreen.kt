@@ -58,6 +58,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -397,6 +399,10 @@ private fun TabStrip(
 ) {
     val colors = Filet.colors
     val scroll = rememberScrollState()
+    val size by vm.prefs.tabSize.collectAsState()
+    // The + follows the tabs while they fit and stays at the end once they do not. #26; see
+    // `TabStripScroll`.
+    val pinned = TabStripScroll.pinned(scroll.maxValue)
     Row(
         Modifier.fillMaxWidth().background(colors.sunken),
         verticalAlignment = Alignment.CenterVertically,
@@ -421,14 +427,38 @@ private fun TabStrip(
             // that - which was a reason, and not a good one. A chevron that says "there are more
             // tabs that way" is true whether or not the strip moved on its own.
             HScroll(ground = colors.sunken, state = scroll) {
-                TabStripContent(vm, tabs, app)
+                TabStripContent(vm, tabs, app, scroll, plus = !pinned)
             }
         }
+        // Outside the scroller, so it never scrolls away and the cue's chevron never sits on it.
+        if (pinned) NewTabButton(vm, size)
     }
 }
 
+/**
+ * The new-tab button. It scales with the tabs: leaving it at one size is how a Huge strip ends
+ * up with a target beside it that is harder to hit than the tabs were before.
+ */
 @Composable
-private fun TabStripContent(vm: BrowserViewModel, tabs: List<PaneController>, app: AppState) {
+private fun NewTabButton(vm: BrowserViewModel, size: TabSize) {
+    Icon(
+        FiletIcons.Plus, "New tab", tint = Filet.colors.fg2,
+        modifier = Modifier
+            .size(size.plus.dp)
+            .clickable { vm.addTab() }
+            .padding((size.plus / 3.75f).dp),
+    )
+}
+
+@Composable
+private fun TabStripContent(
+    vm: BrowserViewModel,
+    tabs: List<PaneController>,
+    app: AppState,
+    scroll: androidx.compose.foundation.ScrollState,
+    /** Whether the + is the row's last item. False once it is pinned outside. */
+    plus: Boolean,
+) {
     val colors = Filet.colors
     val size by vm.prefs.tabSize.collectAsState()
     // Where each chip sits, filled in as they lay out. A drag needs the resting centres and
@@ -445,6 +475,25 @@ private fun TabStripContent(vm: BrowserViewModel, tabs: List<PaneController>, ap
             withFrameNanos { }
             landing = false
         }
+    }
+
+    // The tab being shown stays in view, as near the middle as the ends allow, every time it
+    // changes: a tap, a swipe of the list, a new tab, a close, a drop, the + pinning. Issue #26:
+    // a swipe used to move the highlight to a chip off the edge and leave the strip where it
+    // was. Only on a change, so a thumb scrolling the strip is never pulled back.
+    val shown = TabStripScroll.shown(app.activeA, app.activeB, app.split, app.focused)
+    var placed by remember { mutableStateOf(false) }
+    LaunchedEffect(shown, tabs.size, plus) {
+        // Two frames, so the layout the change caused has happened: until then the chips'
+        // centres and the scroller's extent are the ones from before it.
+        withFrameNanos { }
+        withFrameNanos { }
+        val centre = snapshotFlow { centres[shown] }.first { it != null } ?: return@LaunchedEffect
+        val extent = snapshotFlow { scroll.maxValue }.first { it != Int.MAX_VALUE }
+        val to = TabStripScroll.centreOn(centre, scroll.viewportSize, extent)
+        // Straight there when the strip first appears; a glide after, so the eye follows it.
+        if (placed) scroll.animateScrollTo(to) else scroll.scrollTo(to)
+        placed = true
     }
 
     run {
@@ -507,15 +556,7 @@ private fun TabStripContent(vm: BrowserViewModel, tabs: List<PaneController>, ap
                 )
             }
         }
-        // The new-tab button scales with the tabs. Leaving it at one size is how a Huge strip
-        // ends up with a target beside it that is harder to hit than the tabs were before.
-        Icon(
-            FiletIcons.Plus, "New tab", tint = colors.fg2,
-            modifier = Modifier
-                .size(size.plus.dp)
-                .clickable { vm.addTab() }
-                .padding((size.plus / 3.75f).dp),
-        )
+        if (plus) NewTabButton(vm, size)
     }
 }
 
