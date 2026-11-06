@@ -93,6 +93,17 @@ internal object PictureTurn {
 
     /** Decoded at full size, turned, encoded. See the class notes for when this is allowed to happen. */
     private fun reencoded(bytes: ByteArray, ext: String, quarters: Int, replacing: Boolean): Turned {
+        if (SvgPicture.handles(ext)) {
+            // A drawing has no full size to decode at; it is drawn at the size the viewer showed.
+            val drawn = SvgPicture.render(bytes) ?: error("This SVG could not be read.")
+            val turned = drawn.turnedBy(quarters) // recycles the drawing when it makes a new one
+            try {
+                val encoded = encode(turned, ext)
+                return Turned(encoded.bytes, encoded.extension, null)
+            } finally {
+                turned.recycle()
+            }
+        }
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         val w = bounds.outWidth

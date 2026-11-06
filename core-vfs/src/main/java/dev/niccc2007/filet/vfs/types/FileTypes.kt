@@ -100,7 +100,7 @@ object FileTypes {
         add(FileType("dng", TypeKind.IMAGE, "image/x-adobe-dng"))
         add(FileType("ico", TypeKind.IMAGE, "image/x-icon", galleryLists = false))
         add(FileType("wbmp", TypeKind.IMAGE, "image/vnd.wap.wbmp", galleryLists = false))
-        add(FileType("svg", TypeKind.IMAGE, "image/svg+xml", vector = true, galleryLists = false))
+        add(FileType("svg", TypeKind.IMAGE, "image/svg+xml", vector = true, lossless = true, galleryLists = false))
         // Android cannot decode these, so another app opens them; a gallery still lists them.
         add(FileType("tif", TypeKind.IMAGE, "image/tiff", platformFrom = null, family = "tiff", galleryLists = true))
         add(FileType("tiff", TypeKind.IMAGE, "image/tiff", platformFrom = null, family = "tiff", galleryLists = true))

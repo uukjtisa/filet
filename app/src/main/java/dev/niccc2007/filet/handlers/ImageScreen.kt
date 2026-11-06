@@ -252,6 +252,14 @@ private fun ImageViewerContent(
     LaunchedEffect(node.path, revision) {
         runCatching {
             withContext(Dispatchers.IO) {
+                if (SvgPicture.handles(node.extension)) {
+                    // A drawing, not pixels: drawn rather than decoded. See SvgPicture.
+                    val bytes = vm.openRead(node).use { SvgPicture.readCapped(it) }
+                        ?: error("This drawing is too large to show here.")
+                    val bmp = SvgPicture.render(bytes, EDIT_MAX_EDGE)
+                        ?: error("This SVG could not be read. It may be damaged, or use something the drawing library does not support.")
+                    return@withContext Triple(bmp, bmp.width, bmp.height)
+                }
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 // The orientation comes from the same open as the size: the front of the file is
                 // read once, looked at, and put back in front of the rest. See JpegOrientation for

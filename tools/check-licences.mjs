@@ -110,8 +110,8 @@ const KNOWN = {
   "coil-compose": { licence: "Apache-2.0", ok: true },
   "coil-svg": { licence: "Apache-2.0", ok: true, note: "AndroidSVG underneath, Apache-2.0" },
   "coil-network-core": { licence: "Apache-2.0", ok: true },
-  // Not in the catalogue - coil-svg pulls it - but recorded, because it ships.
-  "androidsvg-aar": { licence: "Apache-2.0", ok: true, note: "com.caverock AndroidSVG 1.4, via coil-svg" },
+  // Pulled by coil-svg, and named in the catalogue too since the picture viewer draws with it.
+  "androidsvg-aar": { licence: "Apache-2.0", ok: true, note: "com.caverock AndroidSVG 1.4, used by coil-svg and the picture viewer" },
   /** Highlights (dev.snipme), syntax colours in code blocks. Apache-2.0 (POM checked 1.1.0). */
   highlights: { licence: "Apache-2.0", ok: true },
   smbj: { licence: "Apache-2.0", ok: true },

@@ -182,6 +182,8 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.svg)
     implementation(libs.coil.network)
+    // SVG drawings in the picture viewer - see handlers/SvgPicture.kt.
+    implementation(libs.androidsvg)
     // Syntax colours for code blocks.
     implementation(libs.highlights)
     // M6: rebuild and re-sign on device. ARSCLib reads and writes AXML with no aapt2.

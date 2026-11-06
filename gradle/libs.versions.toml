@@ -88,6 +88,9 @@ commonmark-frontmatter = { group = "org.commonmark", name = "commonmark-ext-yaml
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version = "3.3.0" }
 coil-svg = { group = "io.coil-kt.coil3", name = "coil-svg", version = "3.3.0" }
 coil-network = { group = "io.coil-kt.coil3", name = "coil-network-core", version = "3.3.0" }
+# Already in the APK as coil-svg's runtime dependency; named here because the picture viewer
+# draws SVGs with it directly. Apache-2.0. Kept at the version coil-svg asks for.
+androidsvg = { group = "com.caverock", name = "androidsvg-aar", version = "1.4" }
 
 # Syntax colours in code blocks. Apache-2.0, pure Kotlin, the library mikepenz's markdown
 # renderer uses for the same job.

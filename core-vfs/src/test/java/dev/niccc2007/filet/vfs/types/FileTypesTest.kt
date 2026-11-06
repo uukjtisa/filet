@@ -147,7 +147,8 @@ class FileTypesTest {
     }
 
     @Test fun the_editor_writes_lossless_sources_back_as_png() {
-        for (e in listOf("png", "webp", "gif", "bmp")) assertTrue(e, FileTypes.isLossless(e))
+        // An SVG is drawn to pixels to be edited; PNG keeps the transparency most of them have.
+        for (e in listOf("png", "webp", "gif", "bmp", "svg")) assertTrue(e, FileTypes.isLossless(e))
         for (e in listOf("jpg", "heic", "avif")) assertFalse(e, FileTypes.isLossless(e))
     }
 
