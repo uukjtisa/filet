@@ -16,17 +16,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -1335,9 +1332,9 @@ private fun BoxScope.ImmersiveFace(c: PlayerCtx) {
     // on four of them - a shared part that reads it would otherwise get `false` on this one
     // and be drawing for a portrait that is not there.
     //
-    // The inset goes on the frame rather than inside it on purpose: the shape should be
-    // measured from the space actually available, with the navigation bar already taken off.
-    FaceFrame(Modifier.windowInsetsPadding(WindowInsets.navigationBars)) {
+    // The frame takes the safe area itself now, on every face, so the shape is measured from the
+    // space actually available with the navigation bar already taken off.
+    FaceFrame {
         AnimatedVisibility(visible = chrome, enter = fadeIn(), exit = fadeOut()) {
             FaceTopBar(c)
         }

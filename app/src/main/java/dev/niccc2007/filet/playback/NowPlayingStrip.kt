@@ -93,6 +93,22 @@ import dev.niccc2007.filet.ui.theme.Filet
  *  3. **The title scrolls when it does not fit**, for the same reason it does on the player: a
  *     filename is the one string where the END is the part that differs from its neighbours.
  */
+/** Whether the strip is up right now, by the same rule it draws by: see [stripShown]. */
+@Composable
+fun nowPlayingShown(vm: BrowserViewModel): Boolean {
+    val state by rememberStatus(vm.playback)
+    return stripShown(state)
+}
+
+/**
+ * Whether [NowPlayingStrip] draws: a track is the one being listened to, paused or not.
+ *
+ * One rule for the strip and for [nowPlayingShown], which the browser reads to colour the strip
+ * it lays under the navigation bar after whatever bar is last. Two copies of the rule would let
+ * that colour disagree with the bar actually above it.
+ */
+private fun stripShown(state: NowPlaying): Boolean = state.active && state.current != null
+
 @Composable
 fun NowPlayingStrip(vm: BrowserViewModel) {
     val colors = Filet.colors
@@ -103,7 +119,7 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
     val state by rememberStatus(playback)
     val art by playback.art.collectAsStateWithLifecycle()
 
-    if (!state.active) return
+    if (!stripShown(state)) return
     val track = state.current ?: return
     val position = rememberPosition(playback)
     val fraction = remember(position, state.durationMs) {

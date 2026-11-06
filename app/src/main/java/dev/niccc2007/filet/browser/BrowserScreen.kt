@@ -32,6 +32,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.animation.core.animateFloat
@@ -246,7 +250,10 @@ private fun BrowserBody(vm: BrowserViewModel) {
             // See `ThumbReach` in RowViews.kt for why the rows move by a gap rather than by
             // reversing the list.
             val reach by vm.prefs.reachMode.collectAsState()
-            Column(Modifier.fillMaxSize()) {
+            // Clear of the sides: sideways, three-key navigation is a strip along one long edge
+            // and the camera cutout is on the other, and both were over the rows' ends. The
+            // bottom is the strip at the end of this column, not padding here - see there.
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
                 if (!reach) {
                     TabStrip(vm, tabs, app, showMenu = !wide)
                     TopBar(vm, app, active, wide)
@@ -301,7 +308,8 @@ private fun BrowserBody(vm: BrowserViewModel) {
                 // the confirm; drawing the selection bar as well put two bars over each other,
                 // both claiming the same gesture, and the one on top was the one for the
                 // operation nobody was doing.
-                if (activeState?.selecting == true && livePick == null && !vm.picking && active != null) {
+                val selectionUp = activeState?.selecting == true && livePick == null && !vm.picking && active != null
+                if (selectionUp && activeState != null && active != null) {
                     // Off a folder - a category, New files - the rows are the ones its screen
                     // drew, and the writes are asked of the folders the files are in.
                     val shown by active.shown.collectAsState()
@@ -331,7 +339,23 @@ private fun BrowserBody(vm: BrowserViewModel) {
                 // needs to express an opinion about how far a bar moves during a selection,
                 // and a preference whose off state is "slightly different bar" is not a
                 // preference worth maintaining.
-                if (!wide && activeState?.selecting != true) BottomNav(vm, app, active)
+                val navUp = !wide && activeState?.selecting != true
+                if (navUp) BottomNav(vm, app, active)
+
+                // The navigation bar's own strip, ONE for the whole stack, in the colour of the
+                // bar above it.
+                //
+                // Bug identified here: only BottomNav cleared the navigation bar, so whenever it
+                // stepped aside - for a selection, on a tablet - the bar that was last instead sat
+                // under the three keys. The selection bar's Copy, Move and Delete were behind
+                // Back, Home and Recents. Inset on every bar, two of them would pad twice when
+                // stacked; here it is one strip after whichever is last, and none of them does it.
+                val edge = when {
+                    navUp || selectionUp || dev.niccc2007.filet.playback.nowPlayingShown(vm) -> colors.raised
+                    reach -> colors.sunken
+                    else -> MaterialTheme.colorScheme.background
+                }
+                Spacer(Modifier.fillMaxWidth().background(edge).windowInsetsBottomHeight(WindowInsets.navigationBars))
             }
 
             // Tapping the pushed-away app closes the sidebar.
@@ -1213,7 +1237,8 @@ private fun BottomNav(
     val base = Modifier
         .fillMaxWidth()
         .background(colors.raised)
-        .windowInsetsPadding(WindowInsets.navigationBars)
+        // No inset of its own: the strip after the last bar clears the navigation bar for the
+        // whole stack. See BrowserScreen.
         .padding(vertical = if (compact) 1.dp else 4.dp)
 
     // Past six the labels stop being readable on a narrow phone, so the bar takes its natural
@@ -1679,7 +1704,12 @@ private fun Toast(message: String, onDone: () -> Unit) {
         onDone()
     }
     val colors = Filet.colors
-    Box(Modifier.fillMaxSize().padding(bottom = 70.dp), contentAlignment = Alignment.BottomCenter) {
+    // Measured from above the navigation bar: from the screen's edge, 70dp put a message over the
+    // bottom bar whenever three-key navigation made that bar taller.
+    Box(
+        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = 70.dp),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
         Text(
             message,
             fontSize = 12.sp,

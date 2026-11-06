@@ -1702,6 +1702,9 @@ private fun ToolStrip(
         Modifier
             .fillMaxWidth()
             .background(colors.raised)
+            // After the background, so the row's colour runs under the navigation bar and its
+            // buttons stop above it. They sat under three-key navigation's keys.
+            .windowInsetsPadding(WindowInsets.navigationBars)
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = 6.dp, vertical = 5.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),

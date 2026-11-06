@@ -12,9 +12,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.statusBars
@@ -100,21 +102,33 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
                 val run = r.run
                 // A picture or video opened from a list with others beside it swipes through
                 // them. See ViewerRunHost; alone, each opens as it always did.
-                if (run != null && (r.handler == HandlerId.IMAGE || r.handler == HandlerId.MEDIA)) {
+                val fullBleed = r.handler == HandlerId.IMAGE || r.handler == HandlerId.MEDIA
+                if (run != null && fullBleed) {
                     ViewerRunHost(vm, run)
-                } else when (r.handler) {
-                    HandlerId.TEXT -> TextEditorScreen(vm, r.node)
-                    HandlerId.IMAGE -> ImageViewerScreen(vm, r.node)
-                    HandlerId.MEDIA -> MediaScreen(vm, r.node)
-                    HandlerId.HEX -> HexViewerScreen(vm, r.node)
-                    HandlerId.APK -> dev.niccc2007.filet.apk.ApkInspectorScreen(vm, r.node)
-                    HandlerId.METADATA ->
-                        dev.niccc2007.filet.metadata.MetadataScreen(vm, r.node)
-                    HandlerId.MANIFEST -> dev.niccc2007.filet.apk.ManifestEditorScreen(vm, r.node)
-                    HandlerId.PDF -> dev.niccc2007.filet.docs.PdfScreen(vm, r.node)
-                    HandlerId.DOC -> dev.niccc2007.filet.docs.DocumentScreen(vm, r.node)
-                    HandlerId.WEB -> dev.niccc2007.filet.docs.HtmlScreen(vm, r.node)
-                    else -> Unit
+                } else Box(
+                    // Every viewer but the picture and the player stops at the navigation bar.
+                    // Bug identified here: they all ran to the screen's bottom edge, so with
+                    // three-key navigation their last lines, the PDF's page counter and any
+                    // bottom row sat under Back, Home and Recents. Pictures and video run edge
+                    // to edge on purpose and clear the bar with their own controls.
+                    Modifier.fillMaxSize().then(
+                        if (fullBleed) Modifier else Modifier.windowInsetsPadding(WindowInsets.navigationBars),
+                    ),
+                ) {
+                    when (r.handler) {
+                        HandlerId.TEXT -> TextEditorScreen(vm, r.node)
+                        HandlerId.IMAGE -> ImageViewerScreen(vm, r.node)
+                        HandlerId.MEDIA -> MediaScreen(vm, r.node)
+                        HandlerId.HEX -> HexViewerScreen(vm, r.node)
+                        HandlerId.APK -> dev.niccc2007.filet.apk.ApkInspectorScreen(vm, r.node)
+                        HandlerId.METADATA ->
+                            dev.niccc2007.filet.metadata.MetadataScreen(vm, r.node)
+                        HandlerId.MANIFEST -> dev.niccc2007.filet.apk.ManifestEditorScreen(vm, r.node)
+                        HandlerId.PDF -> dev.niccc2007.filet.docs.PdfScreen(vm, r.node)
+                        HandlerId.DOC -> dev.niccc2007.filet.docs.DocumentScreen(vm, r.node)
+                        HandlerId.WEB -> dev.niccc2007.filet.docs.HtmlScreen(vm, r.node)
+                        else -> Unit
+                    }
                 }
                 }
             }

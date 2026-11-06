@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -74,6 +77,9 @@ fun UpdateSheet(vm: BrowserViewModel, state: UpdateState) {
                 .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
                 .background(MaterialTheme.colorScheme.surface)
                 .clickable(enabled = false) {}
+                // After the background: the sheet's surface runs under the navigation bar, its
+                // buttons stop above it. They sat under three-key navigation's Back and Home.
+                .windowInsetsPadding(WindowInsets.navigationBars)
                 .padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 16.dp),
         ) {
             when (state) {

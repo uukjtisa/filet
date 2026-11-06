@@ -20,6 +20,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Arrangement
@@ -157,18 +158,32 @@ fun PlayerTopBar(
     overflow: @Composable () -> Unit,
 ) {
     val colors = Filet.colors
-    Row(
+    CentredBar(
         Modifier
             .fillMaxWidth()
             .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
+        gap = 10.dp,
         // A chevron DOWN, not a back arrow. The player is a thing that comes up over the app
         // and goes back down to a strip; an arrow pointing left promises the file list.
-        BarIcon(FiletIcons.Down, "Minimise the player", onClick = onClose)
-
-        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+        start = { BarIcon(FiletIcons.Down, "Minimise the player", onClick = onClose) },
+        end = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Uninterrupted lives HERE and not in the chip row. It is a mode, and a mode
+                // belongs in the chrome where its state can be read without anything being
+                // opened - and it is not trivia: it is the switch that decides whether a phone
+                // call takes the sound away.
+                BarIcon(
+                    FiletIcons.Shield,
+                    if (uninterrupted) "Uninterruptible — nothing will pause this" else "Uninterruptible playback",
+                    lit = uninterrupted,
+                    tint = tint,
+                    onClick = onUninterrupted,
+                )
+                overflow()
+            }
+        },
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 eyebrow,
                 fontSize = 8.5.sp,
@@ -186,19 +201,50 @@ fun PlayerTopBar(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-
-        // Uninterrupted lives HERE and not in the chip row. It is a mode, and a mode belongs
-        // in the chrome where its state can be read without anything being opened - and it is
-        // not trivia: it is the switch that decides whether a phone call takes the sound away.
-        BarIcon(
-            FiletIcons.Shield,
-            if (uninterrupted) "Uninterruptible — nothing will pause this" else "Uninterruptible playback",
-            lit = uninterrupted,
-            tint = tint,
-            onClick = onUninterrupted,
-        )
-        overflow()
     }
+}
+
+/**
+ * A bar with its middle centred on the BAR, not on the room between its two ends.
+ *
+ * Bug identified here: the player's top bar was a row - one button, the words, two buttons - so
+ * the words were centred in what the buttons left, a button's width off to the left of the
+ * screen's middle and of the title under it. Here each end takes its own width and the middle
+ * gets the widest room that keeps it centred clear of the WIDER end, by [CentreSlot].
+ */
+@Composable
+private fun CentredBar(
+    modifier: Modifier,
+    gap: Dp,
+    start: @Composable () -> Unit,
+    end: @Composable () -> Unit,
+    middle: @Composable () -> Unit,
+) {
+    androidx.compose.ui.layout.Layout(contents = listOf(start, middle, end), modifier = modifier) { (s, m, e), c ->
+        val loose = c.copy(minWidth = 0, minHeight = 0)
+        val sp = s.map { it.measure(loose) }
+        val ep = e.map { it.measure(loose) }
+        val total = c.maxWidth
+        val room = CentreSlot.room(total, sp.maxOfOrNull { it.width } ?: 0, ep.maxOfOrNull { it.width } ?: 0, gap.roundToPx())
+        val mp = m.map { it.measure(loose.copy(maxWidth = room)) }
+        val height = (sp + mp + ep).maxOfOrNull { it.height }?.coerceAtLeast(c.minHeight) ?: c.minHeight
+        layout(total, height) {
+            sp.forEach { it.place(0, (height - it.height) / 2) }
+            mp.forEach { it.place(CentreSlot.x(total, it.width), (height - it.height) / 2) }
+            ep.forEach { it.place(total - it.width, (height - it.height) / 2) }
+        }
+    }
+}
+
+/** Where the middle of a [CentredBar] goes. Pure, so the arithmetic is tested. */
+internal object CentreSlot {
+
+    /** The widest the middle may be in a bar [total] wide: centred, it stays [gap] clear of the wider end. */
+    fun room(total: Int, start: Int, end: Int, gap: Int): Int =
+        (total - 2 * (maxOf(start, end) + gap)).coerceAtLeast(0)
+
+    /** The middle's left edge, for a middle [width] wide: centred on the whole bar. */
+    fun x(total: Int, width: Int): Int = (total - width) / 2
 }
 
 /** One 36dp round button in the top bar. `.pltop .ico{width:36px;height:36px;border-radius:18px}` */
@@ -906,7 +952,15 @@ fun FaceFrame(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    BoxWithConstraints(modifier.fillMaxSize()) {
+    // Inside the safe area: clear of the navigation bar along the bottom (or a side, sideways)
+    // and of a camera cutout. The faces draw their backdrops as siblings BEFORE this frame, so
+    // the picture still runs edge to edge; only the controls move. And the shape is measured
+    // from what is left, which is the room the controls actually have.
+    //
+    // Bug identified here: only Immersive was inset. On the other four, three-key navigation
+    // covered the queue handle - Up next and the track count - and a look that hides the status
+    // bar put the top bar's buttons under a punch-hole camera.
+    BoxWithConstraints(modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         CompositionLocalProvider(
             LocalFaceLandscape provides FaceShape.sideBySide(maxWidth.value, maxHeight.value),
         ) {
@@ -963,11 +1017,12 @@ fun FaceLayout(
         }
         return
     }
-    // Clear of the navigation bar, which sideways is a strip along the bottom (gestures) or the
-    // side (buttons). Without it the picture was centred in a box that ran under the gesture
-    // bar, so it sat low - touching the bottom edge with the top bar's height free above it.
+    // Already clear of the navigation bar, which sideways is a strip along the bottom (gestures)
+    // or a side (buttons): [FaceFrame] takes the safe area for the whole face. Before it did,
+    // this row was inset itself, because the picture was centred in a box that ran under the
+    // gesture bar and sat low.
     Row(
-        modifier.windowInsetsPadding(WindowInsets.navigationBars),
+        modifier,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -1632,7 +1687,11 @@ fun BoxScope.QueueSheet(
                 .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
                 .background(MaterialTheme.colorScheme.surface)
                 // Swallows the scrim's tap. `clickable(enabled = false)` still consumes.
-                .clickable(enabled = false) {},
+                .clickable(enabled = false) {}
+                // After the background, so the sheet's surface runs under the navigation bar
+                // and its last row stops above it. It is drawn over the face, not inside the
+                // face's frame, so the frame's inset does not reach it.
+                .windowInsetsPadding(WindowInsets.navigationBars),
         ) {
             // `.grab{width:36px;height:4px;margin:9px auto 4px}`
             Box(
