@@ -1543,27 +1543,11 @@ private fun PictureActions(
     /** The run's "only photos / only videos" row, drawn by the run itself; see `RunKindsRow`. */
     runKinds: @Composable () -> Unit = {},
 ) {
-    val ground = MaterialTheme.colorScheme.background
-    Row(
-        Modifier
-            .fillMaxWidth()
-            // The top bar's gradient, upside down: dense behind the labels, gone by the picture.
-            .background(
-                androidx.compose.ui.graphics.Brush.verticalGradient(
-                    0f to Color.Transparent,
-                    0.35f to ground.copy(alpha = 0.55f),
-                    1f to ground.copy(alpha = 0.92f),
-                ),
-            )
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(start = 6.dp, end = 6.dp, top = 16.dp, bottom = 6.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        BarButton(FiletIcons.Share, "Share", onClick = onShare)
-        BarButton(FiletIcons.RotateRight, "Rotate", enabled = ready, onClick = onRotate)
+    ViewerActionBar {
+        ViewerBarButton(FiletIcons.Share, "Share", onClick = onShare)
+        ViewerBarButton(FiletIcons.RotateRight, "Rotate", enabled = ready, onClick = onRotate)
         Box {
-            BarButton(FiletIcons.Rename, "Edit") { onMenu(PicMenu.EDIT) }
+            ViewerBarButton(FiletIcons.Rename, "Edit") { onMenu(PicMenu.EDIT) }
             dev.niccc2007.filet.ui.dialogs.PopMenu(
                 expanded = menu == PicMenu.EDIT,
                 onDismiss = { onMenu(null) },
@@ -1584,28 +1568,18 @@ private fun PictureActions(
                 }
             }
         }
-        if (canDelete) BarButton(FiletIcons.Delete, "Delete", onClick = onDelete)
+        if (canDelete) ViewerBarButton(FiletIcons.Delete, "Delete", onClick = onDelete)
         Box {
-            BarButton(FiletIcons.More, "More") { onMenu(PicMenu.MORE) }
+            ViewerBarButton(FiletIcons.More, "More") { onMenu(PicMenu.MORE) }
             dev.niccc2007.filet.ui.dialogs.PopMenu(
                 expanded = menu == PicMenu.MORE,
                 onDismiss = { onMenu(null) },
                 below = 52.dp,
                 above = true,
             ) {
-                dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Folder, "Show in folder") {
-                    onMenu(null)
-                    onReveal()
-                }
+                ShowInFolderRow { onMenu(null); onReveal() }
                 runKinds()
-                // Named for what it switches TO, as a light switch is: the row is the action.
-                dev.niccc2007.filet.ui.dialogs.PopRow(
-                    FiletIcons.Brightness,
-                    if (grey) "Black background" else "Grey background",
-                ) {
-                    onMenu(null)
-                    onGround()
-                }
+                ViewerGroundRow(grey) { onMenu(null); onGround() }
                 // Only while there is a zoom to undo. A double tap does the same; this is the
                 // way to it that can be read.
                 if (zoomed) {
@@ -1684,32 +1658,6 @@ internal fun editSizeNote(w: Int, h: Int, source: Pair<Int, Int>?, jpeg: Boolean
         append("Saved at ").append(w).append(" x ").append(h)
         if (smaller) append(", smaller than the original's ").append(source!!.first).append(" x ").append(source.second)
         if (jpeg) append(". Date and place kept")
-    }
-}
-
-/** One of [PictureActions]: an icon and its name, bright enough to read over a photograph. */
-@Composable
-private fun BarButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    val colors = Filet.colors
-    Column(
-        Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(
-            icon, null,
-            tint = if (enabled) MaterialTheme.colorScheme.onSurface else colors.fg3.copy(alpha = 0.4f),
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(Modifier.height(3.dp))
-        Text(label, fontSize = 10.sp, color = if (enabled) colors.fg2 else colors.fg3)
     }
 }
 
