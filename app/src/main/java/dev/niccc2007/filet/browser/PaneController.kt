@@ -259,6 +259,10 @@ class PaneController(
      * and the whole point is to be asked at the moment the decision is made.
      */
     private val dragging: () -> Boolean = { false },
+    /** Whether a pick is live anywhere in the app. Asked at the moment a row is selected. */
+    private val pickLive: () -> Boolean = { false },
+    /** Hand a file to the live pick's own list, as a tap on it does. See [PickRoute]. */
+    private val pickTake: (VNode) -> Unit = {},
 ) : PaneMemory {
     private val _state = MutableStateFlow(PaneState(id = id))
     val state: StateFlow<PaneState> = _state.asStateFlow()
@@ -1126,10 +1130,27 @@ class PaneController(
     }
 
     /**
+     * True when a live pick took [node], so this pane's own selection must not change.
+     *
+     * Bug identified here: during a pick, a TAP went to the pick's own list and every other way
+     * of selecting - a hold, a double tap, the icon, the peek's Select - went to this pane's
+     * selection, which the pick card never reads. A held file showed as selected and was not in
+     * the pick; tapping it next started a second selection beside the first. Every one of those
+     * gestures arrives through [toggleSelect], [selectOnly] or [extendSelectionTo], so the pick
+     * claims the row at those three doors and there is one selection while it is live.
+     */
+    private fun pickTook(node: VNode): Boolean = when (PickRoute.of(pickLive(), node.isDir)) {
+        PickRoute.PANE -> false
+        PickRoute.PICK -> { pickTake(node); true }
+        PickRoute.NOTHING -> true
+    }
+
+    /**
      * A tap while selecting. Picking a folder takes in what was selected inside it - see
      * [TreeSelection] - and a row a selected folder already includes says so instead.
      */
     fun toggleSelect(node: VNode) {
+        if (pickTook(node)) return
         val s = _state.value
         val next = TreeSelection.toggle(s.selected, node.path)
         if (next == null) {
@@ -1142,6 +1163,7 @@ class PaneController(
     }
 
     fun selectOnly(node: VNode) {
+        if (pickTook(node)) return
         anchor = node.path
         choose(setOf(node.path), listOf(node))
     }
@@ -1219,6 +1241,7 @@ class PaneController(
 
     /** Shift-click. See `RangeSelect.kt` for the arithmetic and why it is separate. */
     fun extendSelectionTo(node: VNode) {
+        if (pickTook(node)) return
         val s = _state.value
         val rows = rowsInOrder(s)
         val next = rangeSelect(

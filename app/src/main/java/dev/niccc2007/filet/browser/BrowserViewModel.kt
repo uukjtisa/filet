@@ -625,6 +625,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             onLanded = { path -> graph.indexCoordinator.indexFolderNow(path) },
             worldRevision = { _state.value.revision },
             dragging = { _state.value.drag != null },
+            // One selection while a pick is live. See `PaneController.pickTook`.
+            pickLive = { pickingAnything },
+            pickTake = { node -> pickTap(node) },
         )
         equip(pane)
         return pane
