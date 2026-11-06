@@ -3263,6 +3263,13 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             graph.registry.clearExternal(ext)
             toast("${remembered.label} is no longer installed — pick another")
         }
+        // A sound or picture Android has no decoder for - WMA, TIFF - comes here by default
+        // rather than to a player that could only fail on it. Saying why, before asking where,
+        // is the difference between "Filet refuses this" and "Filet sent this somewhere it will
+        // play". Not on the explicit "another app" action, which is already that choice.
+        if (!force) {
+            dev.niccc2007.filet.vfs.types.FileTypes.notPlayableHere(ext, android.os.Build.VERSION.SDK_INT)?.let { toast(it) }
+        }
         // A tap with no remembered app gets the one complete Open with - every Filet viewer
         // AND every app - not an apps-only list. `force` is the explicit "another app" action.
         if (force) askWhichApp(node) else openChooser(node)

@@ -146,6 +146,8 @@ private fun ImageViewerContent(
     val scope = rememberCoroutineScope()
 
     var image by remember(node.path) { mutableStateOf<Bitmap?>(null) }
+    // A GIF or animated WebP, playing; the still above stays the thing edits work on.
+    var moving by remember(node.path) { mutableStateOf<android.graphics.drawable.Drawable?>(null) }
     var sourceSize by remember(node.path) { mutableStateOf("") }
     // The file's own size, the way up it is shown, for saying when a save would be smaller.
     var sourceDims by remember(node.path) { mutableStateOf<Pair<Int, Int>?>(null) }
@@ -286,6 +288,19 @@ private fun ImageViewerContent(
         }.onFailure { error = it.message ?: "Could not read this image." }
     }
 
+    // After the still, never instead of it: the first frame is on screen at once, and the file
+    // starts moving when its animation has been read. See AnimatedPicture.
+    LaunchedEffect(node.path, revision) {
+        moving = null
+        if (!AnimatedPicture.wanted(node.extension, android.os.Build.VERSION.SDK_INT, node.size)) return@LaunchedEffect
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) return@LaunchedEffect
+        moving = withContext(Dispatchers.IO) {
+            runCatching {
+                AnimatedPicture.decode(vm.openRead(node).use { it.readBytes() }, EDIT_MAX_EDGE)
+            }.getOrNull()
+        }
+    }
+
     DisposableEffect(node.path) {
         onDispose {
             image?.recycle()
@@ -416,6 +431,7 @@ private fun ImageViewerContent(
                     shown, node.name, view,
                     // Read in the draw phase, so the turn animates without recomposing the screen.
                     turn = { if (quarters == 0) 0f else turnDegrees.value },
+                    moving = moving.takeIf { AnimatedPicture.plays(dirty, quarters != 0, editing) },
                     onTap = { wakeChrome() },
                 ) { view = it }
             }
@@ -615,6 +631,7 @@ private fun ZoomableImage(
     label: String,
     view: ZoomView,
     turn: () -> Float = { 0f },
+    moving: android.graphics.drawable.Drawable? = null,
     onTap: () -> Unit,
     onView: (ZoomView) -> Unit,
 ) {
@@ -672,19 +689,20 @@ private fun ZoomableImage(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = label,
-            modifier = Modifier.fillMaxSize().graphicsLayer {
-                // Turned about the middle and scaled to fit again, then zoomed and panned in
-                // screen space - so a pan still follows the finger on a turned picture.
-                val degrees = turn()
-                val fit = turnFit(box.width, box.height, bitmap.width.toFloat(), bitmap.height.toFloat(), degrees)
-                scaleX = view.scale * fit; scaleY = view.scale * fit
-                rotationZ = degrees
-                translationX = view.offsetX; translationY = view.offsetY
-            },
-        )
+        val layer = Modifier.fillMaxSize().graphicsLayer {
+            // Turned about the middle and scaled to fit again, then zoomed and panned in
+            // screen space - so a pan still follows the finger on a turned picture.
+            val degrees = turn()
+            val fit = turnFit(box.width, box.height, bitmap.width.toFloat(), bitmap.height.toFloat(), degrees)
+            scaleX = view.scale * fit; scaleY = view.scale * fit
+            rotationZ = degrees
+            translationX = view.offsetX; translationY = view.offsetY
+        }
+        if (moving != null) {
+            AnimatedFrame(moving, layer)
+        } else {
+            Image(bitmap = bitmap.asImageBitmap(), contentDescription = label, modifier = layer)
+        }
     }
 }
 
