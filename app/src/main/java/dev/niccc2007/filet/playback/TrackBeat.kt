@@ -51,13 +51,63 @@ enum class TrackReady {
  *
  * @param map the onsets and the loudness, or null when there is nothing to show yet.
  * @param ready how far along the measuring is.
- * @param record whether there are enough samples in memory for the disc to make a sound.
+ * @param readingRecord whether the whole track is being read for the disc right now. See
+ *   [RecordRead].
  */
 class TrackBeat(
     val map: BeatMap?,
     val ready: TrackReady,
-    val record: Boolean,
+    val readingRecord: Boolean,
 )
+
+/**
+ * The record's read, as the line under the title reports it.
+ *
+ * ## The note that never went away
+ *
+ * "Preparing the record…" used to show until the whole track had been decoded, and nothing
+ * else ended it. A read that came back with nothing - a decode that failed, a file too short,
+ * a shared decode stopped from elsewhere - left it under the title for as long as the track
+ * stayed open, beside a beat map the panel called ready. And the disc has not waited for the
+ * whole decode since it began playing from a buffer still filling (`TrackPcm.live`), so the
+ * note was reporting a wait nobody was in.
+ *
+ * Now it says only what is true while it shows: the read is running. It ends on every way out
+ * of that read - the samples, nothing, an error, the track changing - because the flag is
+ * cleared in a `finally` and not by the one outcome that used to set it.
+ */
+internal object RecordRead {
+
+    /**
+     * Run [read], with [reading] told true for exactly as long as it runs when the record
+     * [wanted] it, and false on every way out of it. A read for the beat map alone says
+     * nothing here: the beat has its own line.
+     */
+    suspend fun <T> during(wanted: Boolean, reading: (Boolean) -> Unit, read: suspend () -> T): T {
+        if (wanted) reading(true)
+        try {
+            return read()
+        } finally {
+            if (wanted) reading(false)
+        }
+    }
+
+    /**
+     * The one line under the title, or none.
+     *
+     * Only ONE, and the beat wins: it is the slower of the two and the one with something on
+     * screen waiting for it. Two stacked progress lines about the same read of the same file
+     * would be the app talking to itself.
+     *
+     * @param pulse whether the beat is wanted at all.
+     * @param disc whether the face has a record the finger can turn.
+     */
+    fun note(pulse: Boolean, ready: TrackReady, disc: Boolean, readingRecord: Boolean): String? = when {
+        pulse && ready == TrackReady.READING -> "Reading the beat…"
+        disc && readingRecord -> "Preparing the record…"
+        else -> null
+    }
+}
 
 /**
  * Read the track once, for the beat and for the record both.
@@ -93,7 +143,7 @@ fun rememberTrackBeat(source: Uri?, pulse: Boolean, record: Boolean): TrackBeat 
     val emitEvery = rememberPlayerDials().emitEvery
     var map by remember(source) { mutableStateOf<BeatMap?>(null) }
     var ready by remember(source) { mutableStateOf(TrackReady.IDLE) }
-    var samples by remember(source) { mutableStateOf(false) }
+    var readingRecord by remember(source) { mutableStateOf(false) }
     val rebuild by BeatWork.rebuild.collectAsState()
     // The rebuild count when this track arrived. A request made since is a request about THIS
     // track; one made on the previous track must not re-measure the next one too.
@@ -105,7 +155,7 @@ fun rememberTrackBeat(source: Uri?, pulse: Boolean, record: Boolean): TrackBeat 
         val attempt = BeatWork.nextRun()
         if (source == null || (!wantMap && !record)) {
             ready = TrackReady.IDLE
-            samples = false
+            readingRecord = false
             BeatWork.publish(BeatProgress(BeatPhase.IDLE, null, attempt))
             return@LaunchedEffect
         }
@@ -133,18 +183,18 @@ fun rememberTrackBeat(source: Uri?, pulse: Boolean, record: Boolean): TrackBeat 
             }
             // ONE read of the file, shared by the wave and the record. Partial maps are taken
             // as they come, so the wave runs within a frame or two of the samples arriving.
-            val pcm = TrackPcm.of(context, source) { early ->
-                if (measuring && map == null) {
-                    map = BeatMap.from(early)
-                    ready = TrackReady.PARTIAL
+            // The record's line lasts exactly as long as this read, whatever it comes to.
+            val pcm = RecordRead.during(record, { readingRecord = it }) {
+                TrackPcm.of(context, source) { early ->
+                    if (measuring && map == null) {
+                        map = BeatMap.from(early)
+                        ready = TrackReady.PARTIAL
+                    }
                 }
             } ?: run {
                 if (ready != TrackReady.READY) ready = TrackReady.IDLE
                 return@LaunchedEffect
             }
-            // The decode is done, so the disc can make a sound whether or not the measuring
-            // has finished - they are independent and used to be reported as one.
-            samples = true
             if (!measuring) return@LaunchedEffect
 
             BeatWork.publish(BeatProgress(BeatPhase.MEASURING, 0f, attempt))
@@ -203,7 +253,7 @@ fun rememberTrackBeat(source: Uri?, pulse: Boolean, record: Boolean): TrackBeat 
         }
     }
 
-    return TrackBeat(map, ready, samples)
+    return TrackBeat(map, ready, readingRecord)
 }
 
 // ── what the beat map is doing, for the panel ─────────────────────────────────────────

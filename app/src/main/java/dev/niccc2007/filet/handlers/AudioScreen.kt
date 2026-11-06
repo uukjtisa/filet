@@ -287,7 +287,7 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         onNudgeReset = { track?.id?.let { nudges.set(it, 0) } },
         signal = beating,
         ready = beat.ready,
-        record = beat.record,
+        readingRecord = beat.readingRecord,
         pulseSense = dev.niccc2007.filet.playback.sensePosition(pulseSenseGain),
         pulseDepth = vm.prefs.pulseDepth.collectAsStateWithLifecycle().value,
         waveGap = vm.prefs.waveGap.collectAsStateWithLifecycle().value,
@@ -439,8 +439,8 @@ private class PlayerCtx(
     val signal: dev.niccc2007.filet.playback.BeatSignal?,
     /** How far along the reading of the track is, so a face can say so. */
     val ready: dev.niccc2007.filet.playback.TrackReady,
-    /** Whether there are samples in memory for the disc to make a sound with. */
-    val record: Boolean,
+    /** Whether the whole track is being read for the disc right now. See `RecordRead`. */
+    val readingRecord: Boolean,
     /** The pulse's knobs, all as 0-to-1 slider positions. */
     val pulseSense: Float,
     val pulseDepth: Float,
@@ -566,15 +566,13 @@ private fun ColumnScope.FaceError(c: PlayerCtx) {
             modifier = Modifier.fillMaxWidth(),
         )
     }
-    // Only ONE of these, and the beat wins: it is the slower of the two and the one with
-    // something on screen waiting for it. Two stacked progress lines about the same read of
-    // the same file would be the app talking to itself.
-    val note = when {
-        c.pulse && c.ready == dev.niccc2007.filet.playback.TrackReady.READING ->
-            "Reading the beat…"
-        c.scratch && c.face.hasDisc && !c.record -> "Preparing the record…"
-        else -> null
-    }
+    // One line at most, and only while it is true. See `RecordRead`.
+    val note = dev.niccc2007.filet.playback.RecordRead.note(
+        pulse = c.pulse,
+        ready = c.ready,
+        disc = c.scratch && c.face.hasDisc,
+        readingRecord = c.readingRecord,
+    )
     if (note != null) {
         Spacer(Modifier.height(8.dp))
         Text(
