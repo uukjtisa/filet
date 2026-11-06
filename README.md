@@ -301,7 +301,7 @@ it, or [build the APK yourself](#building-it-yourself) and install that instead.
 
 <table>
 <tr>
-<td align="center" width="150"><a href="https://github.com/uukjtisa"><img src="https://github.com/uukjtisa.png?size=160" width="80" alt=""><br><b>Niccc2007</b></a><br><sub>Creator &amp; maintainer</sub></td>
+<td align="center"><sub>Creator &amp; maintainer</sub><br><a href="https://github.com/uukjtisa"><img src="https://github.com/uukjtisa.png?size=160" width="80" alt=""><br><b>Niccc2007</b></a></td>
 </tr>
 </table>
 
@@ -310,10 +310,12 @@ it, or [build the APK yourself](#building-it-yourself) and install that instead.
 Filet is shaped by the people who use it, test it, and take the time to say what is wrong and
 what could be better. Thank you.
 
+<!-- Ten to a row, in the order people first contributed; the eleventh starts a new row. -->
 <table>
 <tr>
-<td align="center" width="150"><a href="https://github.com/KamrulShahed"><img src="https://github.com/KamrulShahed.png?size=160" width="80" alt=""><br><b>Kamrul Shahed</b></a><br><sub>@KamrulShahed</sub></td>
-<td align="center" width="150"><a href="https://github.com/versiogh"><img src="https://github.com/versiogh.png?size=160" width="80" alt=""><br><b>versiogh</b></a><br><sub>@versiogh</sub></td>
+<td align="center"><a href="https://github.com/KamrulShahed"><img src="https://github.com/KamrulShahed.png?size=112" width="56" alt=""><br><sub>Kamrul Shahed</sub></a></td>
+<td align="center"><a href="https://github.com/versiogh"><img src="https://github.com/versiogh.png?size=112" width="56" alt=""><br><sub>versiogh</sub></a></td>
+<td align="center"><a href="https://github.com/firetrojan"><img src="https://github.com/firetrojan.png?size=112" width="56" alt=""><br><sub>firetrojan</sub></a></td>
 </tr>
 </table>
 
