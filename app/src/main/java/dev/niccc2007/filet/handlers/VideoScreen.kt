@@ -68,6 +68,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgAction
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgTone
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 import kotlinx.coroutines.Dispatchers
@@ -294,6 +299,11 @@ private fun VideoPlayer(
     // The video's own size, for the window's shape. Read at prepare: VideoView keeps the size
     // listener for its own layout, so this one is not taken from it.
     var videoSize by remember(node.path) { mutableStateOf<Pair<Int, Int>?>(null) }
+    // The picture, as distinct from the sound. MediaPlayer plays the sound alone, and says
+    // nothing, when this phone cannot decode the picture; this is what notices. See VideoDecode.
+    var watch by remember(node.path) { mutableStateOf<PictureWatch?>(null) }
+    var staged by remember(node.path) { mutableStateOf(false) }
+    var noPicture by remember(node.path) { mutableStateOf<String?>(null) }
     var boxWidth by remember(node.path) { mutableIntStateOf(0) }
     // Off means follow the phone, which is what it did before and is still the default.
     var lockedOrientation by remember(node.path) { mutableStateOf<Int?>(null) }
@@ -777,6 +787,8 @@ private fun VideoPlayer(
         // `takingOver`.
         takingOver = vm.playback.isCurrent(node.path.toString())
         val u = runCatching { vm.localUriFor(node) }.getOrNull()
+        // A share is copied in to play, and the picture's wait is longer for it. See VideoDecode.
+        staged = runCatching { vm.osPathOf(node) }.getOrNull() == null
         if (u == null) {
             error = "This file has to be copied to local storage before it can play. " +
                 "Copy it somewhere local first."
@@ -978,6 +990,53 @@ private fun VideoPlayer(
         }
     }
 
+    // The first-frame watch's clock. It stops for good once a frame is drawn or it has spoken,
+    // and it counts only time the video really runs. See PictureWatch.
+    LaunchedEffect(watch) {
+        val w = watch ?: return@LaunchedEffect
+        var last = -1L
+        var seekSeen = handle.seekDoneAt
+        while (isActive && !w.done) {
+            delay(PictureWatch.TICK_MS)
+            val now = runCatching { handle.player?.currentPosition?.toLong() }.getOrNull() ?: continue
+            val seeked = handle.seekDoneAt != seekSeen
+            seekSeen = handle.seekDoneAt
+            val going = playing && scrubTo == null && run == null && !handingOver && !inPip
+            if (w.tick(PictureWatch.TICK_MS, going, advanced = last >= 0 && now > last, seeked = seeked)) {
+                runCatching { handle.view?.pause() }
+                playing = false
+                val at = uri
+                noPicture = withContext(Dispatchers.IO) {
+                    val stream = at?.let { VideoDecode.streamOf(context, it) }
+                    VideoDecode.words(stream, stream?.let { VideoDecode.decodersFor(it) }.orEmpty())
+                }
+            }
+            last = now
+        }
+    }
+    noPicture?.let { words ->
+        Dlg(onDismiss = { noPicture = null }) {
+            DlgHeader(FiletIcons.Video, "No picture", tone = DlgTone.WARN, onClose = { noPicture = null })
+            DlgBody {
+                Text(words, fontSize = 13.sp, lineHeight = 19.sp, color = colors.fg2)
+                Spacer(Modifier.height(10.dp))
+                DlgAction(FiletIcons.Audio, "Play as music", sub = "The sound, with the screen off or in another app.") {
+                    noPicture = null
+                    playAsMusic()
+                }
+                DlgAction(FiletIcons.Link, "Open in another app") {
+                    noPicture = null
+                    vm.openExternally(node, force = true)
+                }
+                DlgAction(FiletIcons.Play, "Keep playing here", sub = "Sound only, unless the picture comes.") {
+                    noPicture = null
+                    runCatching { handle.view?.start() }
+                    playing = true
+                }
+            }
+        }
+    }
+
     val shownPosition = scrubTo ?: position
     // Paused no longer forces them up. It used to, on the reasoning that a paused video with no
     // controls looks like a frozen one - but pausing to look at a frame is a reason to UNCOVER it,
@@ -1038,6 +1097,8 @@ private fun VideoPlayer(
                             mp.isLooping = repeating
                             duration = mp.duration.toLong().coerceAtLeast(0L)
                             ready = true
+                            // Armed per prepare, and only for a file with a picture to wait for.
+                            watch = if (VideoDecode.hasVideoTrack(mp)) PictureWatch(VideoDecode.windowFor(staged)) else null
                             // The swap, at the last possible instant.
                             //
                             // The position is read off the still-playing background player
@@ -1075,6 +1136,10 @@ private fun VideoPlayer(
                                 "Try opening it in another app."
                             ready = false
                             true
+                        }
+                        setOnInfoListener { _, what, _ ->
+                            if (what == android.media.MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) watch?.drawn()
+                            false
                         }
                     }.also { handle.view = it }
                 },
