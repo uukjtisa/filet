@@ -95,4 +95,26 @@ class SearchScopeTest {
     fun `the two hints are different, so the field never lies about its scope`() {
         assertNotEquals(searchHint(PaneKind.FOLDER), searchHint(PaneKind.SETTINGS))
     }
+
+    @Test
+    fun `the reach and field chips appear only where search walks the device`() {
+        // They were drawn on every tab with the field open, Settings and the categories
+        // included, where "This phone" and type: did nothing at all.
+        for (kind in PaneKind.entries) {
+            assertEquals(kind.name, searchPlan(kind) == SearchMode.FILESYSTEM, searchChipsShown(kind))
+        }
+        assertTrue(searchChipsShown(PaneKind.FOLDER))
+        assertTrue(searchChipsShown(PaneKind.HOME))
+        assertFalse(searchChipsShown(PaneKind.SETTINGS))
+        assertFalse(searchChipsShown(PaneKind.CATEGORY))
+        assertFalse(searchChipsShown(PaneKind.HISTORY))
+    }
+
+    @Test
+    fun `a filtering tab does not offer a field it cannot use`() {
+        assertEquals("filter Settings", searchFieldHint(PaneKind.SETTINGS, "Settings"))
+        assertFalse(searchFieldHint(PaneKind.CATEGORY, "Photos").contains("from:"))
+        assertTrue(searchFieldHint(PaneKind.FOLDER, "Download").contains("from:"))
+        assertEquals(searchHint(PaneKind.HOME), searchFieldHint(PaneKind.HOME, "Home"))
+    }
 }

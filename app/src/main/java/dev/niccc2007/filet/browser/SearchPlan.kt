@@ -75,3 +75,27 @@ fun searchHint(kind: PaneKind): String = when (searchPlan(kind)) {
     SearchMode.FILTER -> "Filter what is on this screen"
     SearchMode.NONE -> ""
 }
+
+/**
+ * Whether the reach chips, the field chips and the index notice go under the field on [kind].
+ *
+ * Bug identified here: they were drawn whenever the search field was open, on every tab. On
+ * Settings, a category, New files or Bookmarks the field narrows the rows already on screen,
+ * so "This folder", "This phone", "Everywhere", "Show hidden", "Only Filet's index" and the
+ * `type:` / `size:` chips were all on screen and did nothing there. That reads as search being
+ * confused about where it is. They belong to the one mode that walks the device.
+ */
+fun searchChipsShown(kind: PaneKind): Boolean = searchPlan(kind) == SearchMode.FILESYSTEM
+
+/**
+ * The words in an empty search field on [kind], titled [title].
+ *
+ * `from:` is a field of the device search, so offering it on a tab that only filters what is
+ * shown was promising something the field cannot do there.
+ */
+fun searchFieldHint(kind: PaneKind, title: String): String = when (searchPlan(kind)) {
+    // Home has no folder to name; what it searches is the whole device.
+    SearchMode.FILESYSTEM -> if (kind == PaneKind.HOME) searchHint(kind) else "search $title — or from:youtube"
+    SearchMode.FILTER -> "filter $title"
+    SearchMode.NONE -> ""
+}

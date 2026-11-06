@@ -179,7 +179,7 @@ fun PaneView(
                 )
             }
             val chips: @Composable () -> Unit = {
-                if (s.search.open) {
+                if (s.search.open && searchChipsShown(s.kind)) {
                     val index = vm.indexStatus.collectAsState().value
                     var reachSheet by remember { mutableStateOf(false) }
                     val currentReach = ReachLadder.resolve(s.search.reach, s.cwd, pane.reachDrives)
@@ -544,8 +544,7 @@ private fun PaneSearchField(pane: PaneController, s: PaneState, modifier: Modifi
         Box(Modifier.weight(1f)) {
             if (s.search.query.isEmpty()) {
                 Text(
-                    // Home has no folder to name; what it searches is the whole device.
-                    if (s.kind == PaneKind.HOME) searchHint(s.kind) else "search ${s.title} — or from:youtube",
+                    searchFieldHint(s.kind, s.title),
                     fontSize = 13.sp, color = colors.fg3,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
