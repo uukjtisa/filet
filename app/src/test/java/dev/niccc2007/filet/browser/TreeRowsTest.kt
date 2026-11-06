@@ -112,6 +112,27 @@ class TreeRowsTest {
     }
 
     @Test
+    fun `a long chain of opened folders shows what is at the bottom of it`() {
+        // Twenty levels, every one opened, and a file at the end. The old guard stopped at
+        // twelve and drew "Nothing in here" under a folder that had contents.
+        val chain = (1..20).map { n -> dir("/c" + (1..n).joinToString("") { "/l$it" }) }
+        val leaf = file(chain.last().path.path + "/end.txt")
+        val branches = chain.zipWithNext().associate { (p, c) -> p.path to listOf(c) } +
+            (chain.last().path to listOf(leaf))
+        val rows = TreeRows.flatten(roots = listOf(chain.first()), open = chain.map { it.path }.toSet(), branches = branches)
+        assertTrue("a guard note was drawn in an ordinary chain", rows.none { it.empty })
+        assertEquals(leaf.path, rows.last().node.path)
+        assertEquals(20, rows.last().depth)
+    }
+
+    @Test
+    fun `the way to a folder thirty levels down is all of it`() {
+        val root = VPath.of("local", "/storage/emulated/0")
+        val target = VPath.of("local", "/storage/emulated/0" + (1..30).joinToString("") { "/d$it" })
+        assertEquals(31, TreeRows.pathTo(root, target).size)
+    }
+
+    @Test
     fun `the depth guard stops a loop from freezing the list`() {
         // A folder whose branch contains itself - a symlinked loop, which exists.
         val loop = dir("/loop")

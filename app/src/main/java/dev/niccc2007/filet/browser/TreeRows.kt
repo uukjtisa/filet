@@ -291,11 +291,20 @@ object TreeRows {
     const val MAX_SAVED_FOLDS = 64
 
     /**
-     * How deep the tree will go.
+     * How deep the tree will go: a guard against a branch that contains itself, and nothing else.
      *
-     * A guard, not a feature. Nothing stops somebody opening their way down a symlinked loop
-     * or a forty-deep build directory, and a lazy list with a hundred thousand rows in it is
-     * a frozen phone. Twelve is further than anyone navigates on purpose.
+     * Bug identified here: this was twelve, on the theory that nobody navigates further on
+     * purpose. People do. A chain of nested folders opened one level at a time reached the
+     * guard, and the guard's note reads "Nothing in here", under a folder full of files. That
+     * was reported as the tree giving up once the structure went off the screen. The same
+     * number also bounded [pathTo], so a folder more than twenty-four levels below the root
+     * could not be arrived at with its trunk drawn.
+     *
+     * The rows were never what twelve protected. [flatten] only descends into folders in
+     * `open`, and every one of those was opened by somebody, or is an ancestor of where they
+     * arrived. So the row count is already bounded by what was asked for. The one
+     * thing that can run away is a listing that names a folder inside itself, which the guard
+     * still stops, now at a depth no real tree reaches. Width is [TreeScale]'s job.
      */
-    const val MAX_DEPTH = 12
+    const val MAX_DEPTH = 256
 }
