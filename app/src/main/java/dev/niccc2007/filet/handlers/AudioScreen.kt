@@ -289,7 +289,6 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         onNudgeReset = { track?.id?.let { nudges.set(it, 0) } },
         signal = beating,
         ready = beat.ready,
-        readingRecord = beat.readingRecord,
         pulseSense = dev.niccc2007.filet.playback.sensePosition(pulseSenseGain),
         pulseDepth = vm.prefs.pulseDepth.collectAsStateWithLifecycle().value,
         waveGap = vm.prefs.waveGap.collectAsStateWithLifecycle().value,
@@ -443,8 +442,6 @@ private class PlayerCtx(
     val signal: dev.niccc2007.filet.playback.BeatSignal?,
     /** How far along the reading of the track is, so a face can say so. */
     val ready: dev.niccc2007.filet.playback.TrackReady,
-    /** Whether the whole track is being read for the disc right now. See `RecordRead`. */
-    val readingRecord: Boolean,
     /** The pulse's knobs, all as 0-to-1 slider positions. */
     val pulseSense: Float,
     val pulseDepth: Float,
@@ -593,13 +590,8 @@ private fun ColumnScope.FaceError(c: PlayerCtx) {
             modifier = Modifier.fillMaxWidth(),
         )
     }
-    // One line at most, and only while it is true. See `RecordRead`.
-    val note = dev.niccc2007.filet.playback.RecordRead.note(
-        pulse = c.pulse,
-        ready = c.ready,
-        disc = c.scratch && c.face.hasDisc,
-        readingRecord = c.readingRecord,
-    )
+    // One line at most, and only while it is true. See `TitleNote`.
+    val note = dev.niccc2007.filet.playback.TitleNote.note(pulse = c.pulse, ready = c.ready)
     if (note != null) {
         Spacer(Modifier.height(8.dp))
         Text(
