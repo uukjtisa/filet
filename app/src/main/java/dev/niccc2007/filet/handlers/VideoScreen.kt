@@ -785,11 +785,14 @@ private fun VideoPlayer(
     // Back stops it and goes to the preview at the frame it stopped on, rather than leaving. See
     // VideoStart. Registered after the viewer's own Back, so it is asked first - the button, the
     // gesture and a predictive back alike, which all arrive through the one dispatcher.
+    //
+    // The arrow on the screen is the same Back, so it calls the same function: it used to close
+    // the viewer outright, and so left from a video the phone's Back would have stopped.
     var stopping by remember(node.path) { mutableStateOf(false) }
-    androidx.activity.compose.BackHandler(
-        enabled = !stopping &&
-            VideoStart.back(VideoStart.Face.PLAYING, handingOver) == VideoStart.BackStep.TO_PREVIEW,
-    ) {
+    // Read when asked, not when drawn: the tap and the dispatcher see the same state.
+    fun backToPreview() = !stopping &&
+        VideoStart.back(VideoStart.Face.PLAYING, handingOver) == VideoStart.BackStep.TO_PREVIEW
+    fun stopToPreview() {
         stopping = true
         val at = runCatching { handle.player?.currentPosition?.toLong() }.getOrNull()?.coerceAtLeast(0L) ?: position
         val v = handle.view
@@ -799,6 +802,8 @@ private fun VideoPlayer(
         // kept for this viewer only: nothing here writes it down for Carry on, as before.
         scope.launch { onStop(at, v?.let { captureStill(it) }) }
     }
+    fun back() = if (backToPreview()) stopToPreview() else vm.closeHandler()
+    androidx.activity.compose.BackHandler(enabled = backToPreview()) { back() }
 
     /**
      * Where to start: where Back stopped it, if it did, or - when this video is the one playing
@@ -1237,7 +1242,7 @@ private fun VideoPlayer(
                         gap = 8.dp,
                         start = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                OverlayAction(FiletIcons.Back, "Close") { vm.closeHandler() }
+                                OverlayAction(FiletIcons.Back, "Back") { back() }
                                 if (runPage?.hasPrevious == true) {
                                     OverlayAction(FiletIcons.Prev, "Previous") { runPage.step(-1); wake() }
                                 }
