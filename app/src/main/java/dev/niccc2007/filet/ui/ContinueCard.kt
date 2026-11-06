@@ -44,7 +44,8 @@ import kotlinx.coroutines.delay
  *
  * @param key what is being offered; null shows nothing. A new key shows the card again.
  * @param title the first line, what the card is about.
- * @param detail the second line, in the accent: where, or what a tap does.
+ * @param detail the second line, in the accent: where, or what a tap does; null for a card of
+ *   one line, which says it all in the [title].
  * @param closeLabel what the close button does, for a screen reader.
  * @param holdMs how long it stays before it slides away by itself; null to stay until tapped or
  *   closed, for a screen where nothing is playing under it.
@@ -54,7 +55,7 @@ import kotlinx.coroutines.delay
 fun ContinueCard(
     key: Any?,
     title: String,
-    detail: String,
+    detail: String?,
     closeLabel: String,
     modifier: Modifier = Modifier,
     holdMs: Long? = CONTINUE_CARD_MS,
@@ -94,13 +95,15 @@ fun ContinueCard(
         ) {
             Column(Modifier.weight(1f, fill = false)) {
                 Text(title, fontSize = 12.sp, color = colors.fg2, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    detail,
-                    fontSize = 11.5.sp,
-                    color = colors.accent,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (detail != null) {
+                    Text(
+                        detail,
+                        fontSize = 11.5.sp,
+                        color = colors.accent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             Box(
                 Modifier

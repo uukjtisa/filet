@@ -252,10 +252,12 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     val saves by vm.playback.resume.changes.collectAsStateWithLifecycle()
     val saved = remember(node.path, saves) { vm.playback.resume.pointOf(node.path.toString()) }
     val resumeOn by vm.prefs.resumePlayback.collectAsStateWithLifecycle()
+    var playOffer by remember(node.path) { mutableStateOf<MediaResume.Offer?>(null) }
     val preview = MediaResume.preview(resumeOn, saved?.positionMs, saved?.durationMs ?: 0L, stoppedAt)
     // Opened straight into playing - a run's next video with Next video on - starts where the
-    // setting says and carries the card. Not a take-over from the music player: that is Carry on
-    // or a return, which have asked already. Decided once, as the video arrives.
+    // setting says, and offers the place when that was the start. Not a take-over from the music
+    // player: that is Carry on or a return, which have asked already. Decided once, as the video
+    // arrives.
     val opening = remember(node.path) {
         if (face == VideoStart.Face.PLAYING && !vm.playback.isCurrent(node.path.toString())) {
             MediaResume.opening(resumeOn, saved?.positionMs, saved?.durationMs ?: 0L)
@@ -274,16 +276,18 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     when (face) {
         // The frame Back stopped on only goes with the time it was stopped at: a place saved
         // since, elsewhere, has its own frame read from the file.
-        VideoStart.Face.PREVIEW -> VideoPreview(vm, node, preview, still.takeIf { preview.playFromMs == stoppedAt }) { at ->
+        VideoStart.Face.PREVIEW -> VideoPreview(vm, node, preview, still.takeIf { preview.playFromMs == stoppedAt }) { at, chosen ->
             playAt = at
+            // Play at 0:00 with a place saved offers it once playing; the pill or Play from the
+            // start picked where to go, so there is nothing to offer.
+            playOffer = if (chosen) null else MediaResume.offer(at, MediaResume.place(saved?.positionMs, saved?.durationMs ?: 0L))
             still = null
             face = VideoStart.Face.PLAYING
         }
-        // The card only on an opening: Play from the preview has been offered the choice there.
         VideoStart.Face.PLAYING -> VideoPlayer(
             vm, node,
             startAt = playAt ?: opening?.startMs ?: 0L,
-            card = if (playAt == null) opening?.card else null,
+            offer = if (playAt == null) opening?.offer else playOffer,
         ) { at, frame ->
             stoppedAt = at
             still = frame
@@ -296,7 +300,8 @@ fun VideoScreen(vm: BrowserViewModel, node: VNode) {
 /**
  * The player itself, with its sound, from [startAt].
  *
- * @param card the continue card for a video opened straight into playing. See [MediaResume].
+ * @param offer the place the continue card offers, for playing that started at 0:00 with one
+ *   saved; null for no card. See [MediaResume].
  * @param onStop Back was pressed: the player is paused, and this is where and on what picture,
  *   for the preview to show. See [VideoStart].
  */
@@ -305,7 +310,7 @@ private fun VideoPlayer(
     vm: BrowserViewModel,
     node: VNode,
     startAt: Long,
-    card: MediaResume.Card?,
+    offer: MediaResume.Offer?,
     onStop: (atMs: Long, still: android.graphics.Bitmap?) -> Unit,
 ) {
     val colors = Filet.colors
@@ -1849,18 +1854,18 @@ private fun VideoPlayer(
             }
         }
 
-        // The continue card, for a video opened straight into playing: top right, under the top
-        // bar, over the picture rather than in the chrome, so it stays while the chrome hides.
-        // A tap goes where the card says - the start, or the place it offers. See MediaResume.
-        card?.let { offer ->
+        // The continue card, for playing that started at 0:00 with a place saved: top right,
+        // under the top bar, over the picture rather than in the chrome, so it stays while the
+        // chrome hides. A tap goes to the place. See MediaResume.
+        offer?.let { place ->
             dev.niccc2007.filet.ui.ContinueCard(
-                key = offer,
-                title = offer.title,
-                detail = offer.detail,
-                closeLabel = offer.closeLabel,
+                key = place,
+                title = place.title,
+                detail = null,
+                closeLabel = place.closeLabel,
                 modifier = Modifier.align(Alignment.TopEnd).belowPlayerBar(VIDEO_BAR),
             ) {
-                seekTo(offer.goesTo)
+                seekTo(place.atMs)
                 wake()
             }
         }
