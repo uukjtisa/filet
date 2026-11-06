@@ -40,13 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
-import dev.niccc2007.filet.ui.dialogs.BtnKind
-import dev.niccc2007.filet.ui.dialogs.Dlg
-import dev.niccc2007.filet.ui.dialogs.DlgBody
-import dev.niccc2007.filet.ui.dialogs.DlgBtn
-import dev.niccc2007.filet.ui.dialogs.DlgCaption
-import dev.niccc2007.filet.ui.dialogs.DlgFooter
-import dev.niccc2007.filet.ui.dialogs.DlgHeader
 import dev.niccc2007.filet.ui.dialogs.PopMenu
 import dev.niccc2007.filet.ui.dialogs.PopRow
 import dev.niccc2007.filet.ui.dialogs.PopSeparator
@@ -99,16 +92,9 @@ fun ResumeScreen(vm: BrowserViewModel) {
     val rows = remember(all, filter, query) {
         all.filter(filter::accepts).filter { dev.niccc2007.filet.ui.TextMatch.matches(query, it.title, it.path) }
     }
-    // The row whose tap is being asked about. A question per tap, never remembered.
-    var asking by remember { mutableStateOf<ResumeStore.Point?>(null) }
-    asking?.let { point ->
-        ResumePrompt(
-            point,
-            onContinue = { asking = null; vm.resumePoint(point) },
-            onRestart = { asking = null; vm.resumePoint(point, fromStart = true) },
-            onDismiss = { asking = null },
-        )
-    }
+    // A tap carries on at once. Decision: no Continue / From the start question in between. The
+    // row IS the request to carry on, and a dialog asking it again made every visit two taps;
+    // starting over is in the row's hold menu, and a finished row starts over on its own.
 
     LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("resume")) {
         item { TabHeader("Carry on") }
@@ -159,7 +145,7 @@ fun ResumeScreen(vm: BrowserViewModel) {
                 Modifier
                     .fillMaxWidth()
                     .combinedClickable(
-                        onClick = { asking = point },
+                        onClick = { vm.resumePoint(point) },
                         onLongClick = { menu = true },
                     )
                     .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -209,7 +195,8 @@ fun ResumeScreen(vm: BrowserViewModel) {
                     )
                 }
                 Spacer(Modifier.fillMaxWidth(0f))
-                Pill(resumePercent(point), PillTone.Plain)
+                val tag = finishedTag(point)
+                if (tag != null) FinishedTag(tag) else Pill(resumePercent(point), PillTone.Plain)
             }
             // A hairline of how far in it is, under the row. The number says it exactly and
             // this says it at a glance, which is the thing a list is scanned for.
@@ -254,39 +241,40 @@ fun ResumeScreen(vm: BrowserViewModel) {
 }
 
 /**
- * Carry on, or start again.
- *
- * Asked on every tap and remembered never: whether to pick a film up where it was or watch it
- * again is a decision about this sitting, not a setting. The saved position is in the question
- * as a clock - "23:41 of 48:02" - because "continue?" with no number is a guess about what is
- * being continued.
+ * "99% FINISHED" for a row played to its end, or null for one still part way. Pure, so the
+ * wording and where it starts are a test. Where "finished" starts is [Finished]'s, so the tag
+ * and the player that opens the row at 0:00 cannot disagree.
+ */
+fun finishedTag(point: ResumeStore.Point): String? =
+    if (Finished.at(point.positionMs, point.durationMs)) {
+        "${Finished.percent(point.positionMs, point.durationMs)}% FINISHED"
+    } else {
+        null
+    }
+
+/**
+ * A finished row's tag, in place of its percentage: the settings page's BETA tag in shape, in
+ * the colour that means done. Not a percentage pill with a word after it - two numbers saying
+ * the same thing side by side reads as two facts.
  */
 @Composable
-private fun ResumePrompt(
-    point: ResumeStore.Point,
-    onContinue: () -> Unit,
-    onRestart: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    Dlg(onDismiss = onDismiss) {
-        DlgHeader(
-            if (point.video) FiletIcons.Video else FiletIcons.Audio,
-            point.title,
-            sub = "Left at " + resumeWhere(point),
-            onClose = onDismiss,
-        )
-        DlgBody {
-            DlgCaption("Carry on from where you stopped, or play it from the start.")
-        }
-        DlgFooter {
-            DlgBtn("Cancel", onClick = onDismiss)
-            DlgBtn("From the start", onClick = onRestart)
-            DlgBtn("Continue", kind = BtnKind.PRIMARY, onClick = onContinue)
-        }
-    }
+private fun FinishedTag(text: String) {
+    val colors = Filet.colors
+    Text(
+        text,
+        fontSize = 8.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.8.sp,
+        maxLines = 1,
+        color = colors.good,
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(colors.good.copy(alpha = 0.15f))
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    )
 }
 
-/** "23:41 of 48:02", or "23:41" when the length was never known. Pure, for the prompt. */
+/** "23:41 of 48:02", or "23:41" when the length was never known. Pure. */
 fun resumeWhere(point: ResumeStore.Point): String {
     val where = dev.niccc2007.filet.handlers.clockOf(point.positionMs)
     return if (point.durationMs > 0L) {

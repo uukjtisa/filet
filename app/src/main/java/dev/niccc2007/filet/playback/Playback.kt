@@ -155,6 +155,14 @@ class Playback(
     val art: StateFlow<Bitmap?> = _art.asStateFlow()
 
     /**
+     * How the current track opened and where, for the continue card; null with nothing loaded.
+     * Its own flow and not part of [NowPlaying], because it changes once per track and that
+     * state is compared on every tick. See [Opened].
+     */
+    private val _opened = MutableStateFlow<Opened?>(null)
+    val opened: StateFlow<Opened?> = _opened.asStateFlow()
+
+    /**
      * What the current track actually resolved to, for a second reader of the same file.
      *
      * The player screen's looping video peek opens its own muted `MediaPlayer` on this, and
@@ -332,6 +340,8 @@ class Playback(
         from: String? = null,
         /** Start at 0:00 even when this track is the one already playing. See [PlayAction]. */
         fromStart: Boolean = false,
+        /** Why it is being played, for [opened]. A play on the track already playing is [OpenedBy.RETURN] whatever this says. */
+        by: OpenedBy = OpenedBy.OPEN,
     ) {
         if (tracks.isEmpty()) return
         _asAudio.value = asAudio
@@ -343,13 +353,19 @@ class Playback(
             from = from ?: now.from,
         )
         when (PlayAction.of(sameTrack, loaded = player != null, fromStart = fromStart, startAtMs = startAtMs)) {
-            PlayAction.KEEP -> onServiceWanted(PlaybackNotice.shouldKeepService(_state.value))
+            PlayAction.KEEP -> {
+                // Said, not left as it was: a screen opening on this track again must hear that
+                // nothing new opened, or it offers the card a second time.
+                _opened.value = Opened(tracks[safe].id, _state.value.positionMs, stored = null, by = OpenedBy.RETURN)
+                onServiceWanted(PlaybackNotice.shouldKeepService(_state.value))
+            }
             PlayAction.FROM_START -> {
                 seekTo(0L)
                 if (!_state.value.playing) resume()
+                _opened.value = Opened(tracks[safe].id, 0L, stored = null, by = by)
                 onServiceWanted(PlaybackNotice.shouldKeepService(_state.value))
             }
-            PlayAction.LOAD -> load(restart = true, startAtMs = startAtMs)
+            PlayAction.LOAD -> load(restart = true, by = by, startAtMs = startAtMs)
         }
     }
 
@@ -382,6 +398,7 @@ class Playback(
         )
         load(
             restart = true,
+            by = OpenedBy.HAND_OFF,
             startAt = positionNow,
             then = {
                 _asAudio.value = true
@@ -459,6 +476,8 @@ class Playback(
 
     private fun load(
         restart: Boolean,
+        /** Why, for [opened]. No default: every caller says, so a new one cannot forget to. */
+        by: OpenedBy,
         startAtMs: Long = 0L,
         /** Read just before the decoder starts, for a gapless hand-off. See [handOffFromVideo]. */
         startAt: (() -> Long)? = null,
@@ -507,11 +526,16 @@ class Playback(
                     }
                 }.getOrNull()
             }
-            val remembered = if (prepared != null && resumeWanted()) {
-                runCatching { resume.positionOf(track.id) }.getOrNull()
+            // The stored place is read whatever the setting: off, the track opens at 0:00 and the
+            // card offers this. A finished track has none - continuing at its end would end it.
+            val stored = if (prepared != null) {
+                runCatching { resume.pointOf(track.id) }.getOrNull()
+                    ?.let { Finished.startAt(it.positionMs, it.durationMs) }
+                    ?.takeIf { it > 0L }
             } else {
                 null
             }
+            val remembered = stored?.takeIf { resumeWanted() }
             // The hand-over runs on the main thread, where every [load] and [stop] runs.
             //
             // Bug identified here: it ran on this scope's worker thread, in parallel with the
@@ -531,7 +555,8 @@ class Playback(
                     orFailed?.invoke()
                     return@withContext false
                 }
-                handOver(prepared, uri, startAtMs, startAt, remembered, restart, then)
+                val at = handOver(prepared, uri, startAtMs, startAt, remembered, restart, then)
+                _opened.value = Opened(track.id, at, stored, by)
                 true
             }
             if (!tookOver) return@launch
@@ -543,6 +568,8 @@ class Playback(
      * The newest load's player, made current, and started if [restart]. Main thread only: see
      * [load]. [remembered] is the stored position, read before the hand-over so this does no
      * disk work on the main thread.
+     *
+     * @return where it started, for [opened].
      */
     private fun handOver(
         prepared: MediaPlayer,
@@ -552,7 +579,7 @@ class Playback(
         remembered: Long?,
         restart: Boolean,
         then: (() -> Unit)?,
-    ) {
+    ): Long {
         player = prepared
         linkSound(prepared)
         _source.value = uri
@@ -581,6 +608,7 @@ class Playback(
         applySpeed(prepared)
         if (restart) resume()
         then?.invoke()
+        return at
     }
 
     /** The track's own title, artist, album and art, once it is playing. */
@@ -610,7 +638,7 @@ class Playback(
         val p = player ?: run {
             // Nothing loaded, but a queue is still here - this is the Play button on a
             // notification after the process was trimmed. Reload rather than doing nothing.
-            if (_state.value.current != null) load(restart = true)
+            if (_state.value.current != null) load(restart = true, by = OpenedBy.RETURN)
             return
         }
         if (!requestFocus()) return
@@ -686,7 +714,7 @@ class Playback(
             else -> ((s.index + delta) % s.size + s.size) % s.size
         }
         _state.value = s.copy(index = next)
-        load(restart = true)
+        load(restart = true, by = OpenedBy.QUEUE)
     }
 
     fun seekTo(ms: Long) {
@@ -942,18 +970,18 @@ class Playback(
         _source.value = null
         _asAudio.value = false
         _state.value = NowPlaying()
+        _opened.value = null
         onServiceWanted(false)
         // On no file: a sheet opened now has nothing to remember.
         if (rememberWatch != null) soundState.playing(SoundTarget.MUSIC, null)
     }
 
     /**
-     * Write where the current track is, or clear it when there is nothing to come back to.
+     * Write where the current track is. Every stop is kept, a skip a few seconds in and the end
+     * included: Carry on is the record of what was left where, and a rule about which stops
+     * count is a rule about which ones silently go missing. The end is tagged as finished on the
+     * list rather than dropped from it - see [Finished].
      *
-     * The judgement lives in `ResumeStore.worthKeeping` - a tap and a change of mind is not a
-     * place to come back to, and neither is the last few seconds of something finished.
-     */
-    /**
      * @param settled true when playback actually came to rest - a pause, a stop, leaving the
      *   screen - as opposed to the five-second ticker. Only a settled write moves
      *   `ResumeStore.changes`, so the Carry-on list re-reads when something finished rather
@@ -975,12 +1003,14 @@ class Playback(
     }
 
     private fun onCompletion() {
+        // The end is written, not forgotten. Bug identified here: a finished track was dropped
+        // from Carry on, so the list lost the one fact worth keeping about it - that it was heard
+        // to the end. It stays, tagged finished, and opens from the top. See [Finished].
+        _state.value = _state.value.copy(positionMs = _state.value.durationMs)
+        rememberWhereWeAre(settled = true)
         val s = _state.value
-        // Finished IS the one state where resuming has no meaning, so the row goes rather
-        // than being left pointing at the run-out groove.
-        runCatching { s.current?.let { resume.forget(it.id) } }
         when {
-            s.repeat == Repeat.ONE -> load(restart = true)
+            s.repeat == Repeat.ONE -> load(restart = true, by = OpenedBy.QUEUE)
             // The end of a queue with repeat off stops rather than wrapping. Wrapping is what
             // Next does on a deliberate press; doing it unasked means a folder of music plays
             // for ever, which is a battery complaint rather than a feature.

@@ -6759,6 +6759,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 return@launch
             }
             if (fromStart) graph.playback.resume.forget(point.path)
+            // A row played to its end starts over: carrying on at the end would end it at once.
+            val restart = fromStart ||
+                dev.niccc2007.filet.playback.Finished.at(point.positionMs, point.durationMs)
             // The folder around it, so the queue continues past this track. A listing that
             // fails - a card pulled out, a permission withdrawn - falls back to the one file
             // rather than refusing: one track playing beats a tap that does nothing.
@@ -6778,25 +6781,27 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             val at = playable.indexOfFirst { it.id == point.path }
             if (at >= 0) {
                 // Explicit, not left to the resume preference: this row IS the request to
-                // carry on, and "Continue" starting at zero because a setting was off would
-                // make the prompt a lie.
+                // carry on, and a tap on it starting at zero because a setting was off would
+                // make the list a lie.
                 graph.playback.play(
                     playable,
                     at,
-                    startAtMs = if (fromStart) 0L else point.positionMs,
+                    startAtMs = if (restart) 0L else point.positionMs,
                     asAudio = !point.video,
                     from = "",
-                    fromStart = fromStart,
+                    fromStart = restart,
+                    by = dev.niccc2007.filet.playback.OpenedBy.CARRY_ON,
                 )
             } else {
                 val one = dev.niccc2007.filet.playback.tracksOf(listOf(node))
                 graph.playback.play(
                     one,
                     0,
-                    startAtMs = if (fromStart) 0L else point.positionMs,
+                    startAtMs = if (restart) 0L else point.positionMs,
                     asAudio = !point.video,
                     from = "",
-                    fromStart = fromStart,
+                    fromStart = restart,
+                    by = dev.niccc2007.filet.playback.OpenedBy.CARRY_ON,
                 )
             }
             maximisePlayer()
