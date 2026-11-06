@@ -24,6 +24,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -1201,13 +1206,14 @@ private fun VideoPlayer(
         // which is a layout fact rather than a race that happens to come out right.
         Column(Modifier.fillMaxSize()) {
             AnimatedVisibility(visible = chromeUp, enter = fadeIn(), exit = fadeOut()) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.5f))
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                // In a run, where this is among the list's photos and videos, and the way to the
+                // next: a playing video's sideways drag seeks, so a swipe cannot be it.
+                val runPage = LocalViewerRun.current
+                // The scrim runs to the top edge, behind the camera and the status bar. The
+                // buttons and the name are kept below both: below the camera always, and below
+                // the status bar while a swipe has it showing. With no cutout and the bars hidden
+                // the padding is nothing, so such a phone looks as it did.
+                Box(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.5f))) {
                     // Back, the name, and everything else behind one button.
                     //
                     // It carried six actions beside the title on a 423dp phone, which left
@@ -1215,60 +1221,114 @@ private fun VideoPlayer(
                     // The modes moved DOWN to the transport, where there was a whole row of
                     // empty space beside the clock and where a mode belongs anyway; the
                     // three that are neither modes nor frequent are behind the overflow.
-                    OverlayAction(FiletIcons.Back, "Close") { vm.closeHandler() }
-                    // A name, so never dotted: it gives up size, then fades before its extension. See ListName.
-                    dev.niccc2007.filet.browser.ListNameText(
-                        node.name,
-                        Color.White,
-                        startSp = 12.5f,
-                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                    )
-                    // In a run, where this is among the list's photos and videos, and the way
-                    // to the next: a playing video's sideways drag seeks, so a swipe cannot be it.
-                    LocalViewerRun.current?.let { runPage ->
-                        Text(runPage.label, color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp, maxLines = 1)
-                        if (runPage.hasPrevious) OverlayAction(FiletIcons.Prev, "Previous") { runPage.step(-1); wake() }
-                        if (runPage.hasNext) OverlayAction(FiletIcons.Next, "Next") { runPage.step(1); wake() }
-                    }
-                    Box {
-                        OverlayAction(FiletIcons.More, "More") { overflow = true; wake() }
-                        // On the app's own menu kit rather than Material's dropdown, which was the
-                        // one menu in Filet drawn in the platform's shape and colours.
-                        dev.niccc2007.filet.ui.dialogs.PopMenu(expanded = overflow, onDismiss = { overflow = false }) {
-                            // Here and not on the transport: a headphones glyph beside the speaker
-                            // read as a second volume control, and nothing on it said it would
-                            // carry on with the screen off. A row can say so in words.
-                            dev.niccc2007.filet.ui.dialogs.PopRow(
-                                FiletIcons.Audio,
-                                "Play as music",
-                                detail = "Keeps the sound going with the screen off or in another app.",
-                            ) { overflow = false; playAsMusic() }
-                            if (activity != null && pipOffered(context)) {
-                                dev.niccc2007.filet.ui.dialogs.PopRow(
-                                    FiletIcons.Expand,
-                                    "Picture-in-picture",
-                                    detail = "Goes on in a small window over other apps.",
-                                ) {
-                                    overflow = false
-                                    if (!enterPip(activity, playing, videoSize, pipAuto, pictureRect())) {
-                                        vm.toast("This phone would not open a picture-in-picture window.")
+                    //
+                    // The name is centred on the screen, and the buttons are split so that
+                    // neither end outweighs the other: Previous beside Back, Next beside the
+                    // overflow. With all of them on the right, the wider end would have left a
+                    // name in a run about a quarter of the bar.
+                    CentredBar(
+                        Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(
+                                WindowInsets.displayCutout.union(WindowInsets.statusBars)
+                                    .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                            )
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
+                        gap = 8.dp,
+                        start = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                OverlayAction(FiletIcons.Back, "Close") { vm.closeHandler() }
+                                if (runPage?.hasPrevious == true) {
+                                    OverlayAction(FiletIcons.Prev, "Previous") { runPage.step(-1); wake() }
+                                }
+                            }
+                        },
+                        end = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (runPage?.hasNext == true) {
+                                    OverlayAction(FiletIcons.Next, "Next") { runPage.step(1); wake() }
+                                }
+                                // Beside the overflow, never on it. See UninterruptedBadge.
+                                if (uninterrupted) {
+                                    Spacer(Modifier.width(4.dp))
+                                    UninterruptedBadge(Filet.colors.accent) {
+                                        vm.prefs.setVideoUninterrupted(false)
+                                        wake()
+                                    }
+                                    Spacer(Modifier.width(2.dp))
+                                }
+                                Box {
+                                    OverlayAction(FiletIcons.More, "More") { overflow = true; wake() }
+                                    // On the app's own menu kit rather than Material's dropdown, which was the
+                                    // one menu in Filet drawn in the platform's shape and colours.
+                                    dev.niccc2007.filet.ui.dialogs.PopMenu(expanded = overflow, onDismiss = { overflow = false }) {
+                                        // Here and not on the transport: a headphones glyph beside the speaker
+                                        // read as a second volume control, and nothing on it said it would
+                                        // carry on with the screen off. A row can say so in words.
+                                        dev.niccc2007.filet.ui.dialogs.PopRow(
+                                            FiletIcons.Audio,
+                                            "Play as music",
+                                            detail = "Keeps the sound going with the screen off or in another app.",
+                                        ) { overflow = false; playAsMusic() }
+                                        if (activity != null && pipOffered(context)) {
+                                            dev.niccc2007.filet.ui.dialogs.PopRow(
+                                                FiletIcons.Expand,
+                                                "Picture-in-picture",
+                                                detail = "Goes on in a small window over other apps.",
+                                            ) {
+                                                overflow = false
+                                                if (!enterPip(activity, playing, videoSize, pipAuto, pictureRect())) {
+                                                    vm.toast("This phone would not open a picture-in-picture window.")
+                                                }
+                                            }
+                                        }
+                                        // Here and not as a lit button in the bar: see UninterruptedBadge.
+                                        dev.niccc2007.filet.ui.dialogs.PopRow(
+                                            FiletIcons.Shield,
+                                            "Uninterruptible",
+                                            detail = if (uninterrupted) {
+                                                "Plays over other apps, and they do not pause it."
+                                            } else {
+                                                "Pauses for calls and other audio."
+                                            },
+                                            active = uninterrupted,
+                                            checked = uninterrupted,
+                                        ) {
+                                            overflow = false
+                                            vm.prefs.setVideoUninterrupted(!uninterrupted)
+                                            wake()
+                                        }
+                                        dev.niccc2007.filet.ui.dialogs.PopSeparator()
+                                        // In a run only: it is what the arrows and the swipe do to the next one.
+                                        if (LocalViewerRun.current != null) {
+                                            NextVideoRow(vm) { overflow = false }
+                                            dev.niccc2007.filet.ui.dialogs.PopSeparator()
+                                        }
+                                        dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Link, "Open in another app") {
+                                            overflow = false
+                                            vm.openExternally(node, force = true)
+                                        }
+                                        dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Share, "Share") { overflow = false; vm.share(node) }
+                                        dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Info, "Properties") {
+                                            overflow = false
+                                            vm.showProperties(node)
+                                        }
                                     }
                                 }
                             }
-                            dev.niccc2007.filet.ui.dialogs.PopSeparator()
-                            // In a run only: it is what the arrows and the swipe do to the next one.
-                            if (LocalViewerRun.current != null) {
-                                NextVideoRow(vm) { overflow = false }
-                                dev.niccc2007.filet.ui.dialogs.PopSeparator()
-                            }
-                            dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Link, "Open in another app") {
-                                overflow = false
-                                vm.openExternally(node, force = true)
-                            }
-                            dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Share, "Share") { overflow = false; vm.share(node) }
-                            dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Info, "Properties") {
-                                overflow = false
-                                vm.showProperties(node)
+                        },
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            // A name, so never dotted: it gives up size, then fades before its
+                            // extension. See ListName.
+                            dev.niccc2007.filet.browser.ListNameText(
+                                node.name,
+                                Color.White,
+                                startSp = 12.5f,
+                                align = androidx.compose.ui.text.style.TextAlign.Center,
+                            )
+                            runPage?.let {
+                                Text(it.label, color = Color.White.copy(alpha = 0.7f), fontSize = 10.sp, maxLines = 1)
                             }
                         }
                     }
@@ -1616,10 +1676,12 @@ private fun VideoPlayer(
                     }
                     // The modes, under the clock rather than crowded against the title.
                     //
-                    // Each one is a switch whose STATE matters - is it looping, can anything
-                    // stop it, is the screen locked - and a switch in an overflow menu is a
+                    // Each one is a switch whose STATE matters - is it looping, is the sound
+                    // changed, which way is it held - and a switch in an overflow menu is a
                     // switch whose state you have to open a menu to read. There is a whole
-                    // row of width here and the clock was using a tenth of it.
+                    // row of width here and the clock was using a tenth of it. Uninterruptible
+                    // is the exception, in the overflow with a badge in the top bar that says
+                    // it is on: see UninterruptedBadge.
                     Row(
                         Modifier.fillMaxWidth().padding(top = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1637,9 +1699,9 @@ private fun VideoPlayer(
                                 "Speed and sound",
                                 active = soundChipLit(speed, soundNow),
                             ) { speedOpen = true; wake() }
-                            // Said in words whenever anything in the sheet is off its default, for
-                            // the same reason the shield is: a lit glyph is a state somebody has to
-                            // learn, and a speed or a volume is a number to read rather than infer.
+                            // Said in words whenever anything in the sheet is off its default: a
+                            // lit glyph is a state somebody has to learn, and a speed or a volume is
+                            // a number to read rather than infer.
                             // Weighted without filling, so the buttons around it are measured first:
                             // it gets what they leave and says as much as fits, never wrapping.
                             // See soundChipLadder.
@@ -1655,30 +1717,6 @@ private fun VideoPlayer(
                                     ),
                                     Filet.colors.accent,
                                     Modifier.weight(1f, fill = false).padding(start = 2.dp, end = 4.dp),
-                                )
-                            }
-                            OverlayAction(
-                                FiletIcons.Shield,
-                                if (uninterrupted) {
-                                    "Uninterruptible - nothing will pause this"
-                                } else {
-                                    "Uninterruptible playback is off"
-                                },
-                                active = uninterrupted,
-                            ) { vm.prefs.setVideoUninterrupted(!uninterrupted); wake() }
-                            // Named in words whenever it is on, because a lit shield is a state
-                            // somebody has to learn and this is the switch that decides whether
-                            // a call can take the sound away.
-                            if (uninterrupted) {
-                                Text(
-                                    "Uninterruptible",
-                                    color = Filet.colors.accent,
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.6.sp,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    modifier = Modifier.padding(start = 2.dp),
                                 )
                             }
                         }

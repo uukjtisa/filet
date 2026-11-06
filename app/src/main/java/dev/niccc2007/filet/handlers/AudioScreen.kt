@@ -466,12 +466,11 @@ private class PlayerCtx(
 @Composable
 private fun FaceTopBar(c: PlayerCtx) {
     PlayerTopBar(
-        eyebrow = if (c.uninterrupted) "UNINTERRUPTIBLE  ·  PLAYING FROM" else "PLAYING FROM",
-        eyebrowLit = c.uninterrupted,
+        eyebrow = "PLAYING FROM",
         context = c.state.from.ifBlank { c.folderLine },
         uninterrupted = c.uninterrupted,
         onClose = { c.vm.closeHandler() },
-        onUninterrupted = { c.vm.prefs.setMusicUninterrupted(!c.uninterrupted) },
+        onUninterruptedOff = { c.vm.prefs.setMusicUninterrupted(false) },
         tint = c.tint,
     ) {
         PlayerOverflow(
@@ -482,6 +481,8 @@ private fun FaceTopBar(c: PlayerCtx) {
             onProperties = { c.vm.propertiesOfTrack(c.state.current, c.node) },
             onAddToPlaylist = { c.vm.askAddToPlaylistPath(c.livePath) },
             onSaveQueue = c.onSaveQueue.takeIf { c.state.canStep },
+            uninterrupted = c.uninterrupted,
+            onUninterrupted = { c.vm.prefs.setMusicUninterrupted(!c.uninterrupted) },
             // Halo's own two, and only Halo's. This bar is shared by the ambient faces,
             // so the gate is on the face rather than on which bar it is - and it has to be
             // here rather than on Classic's copy of the overflow, which is where they were
@@ -599,21 +600,13 @@ private fun ColumnScope.FaceError(c: PlayerCtx) {
 private fun ClassicFace(c: PlayerCtx) {
     val colors = Filet.colors
     FaceFrame {
-        ViewerBar(
+        ClassicTopBar(
             title = c.title,
-            subtitle = listOfNotNull(
-                "Uninterruptible".takeIf { c.uninterrupted },
-                "${c.state.position} of ${c.state.size}".takeIf { c.state.canStep },
-            ).joinToString("  ·  "),
+            line = if (c.state.canStep) "${c.state.position} of ${c.state.size}" else "",
             onClose = { c.vm.closeHandler() },
         ) {
-            ViewerAction(
-                FiletIcons.Shield,
-                if (c.uninterrupted) "Uninterruptible - nothing will pause this"
-                else "Uninterruptible playback",
-                active = c.uninterrupted,
-            ) { c.vm.prefs.setMusicUninterrupted(!c.uninterrupted) }
             ViewerAction(FiletIcons.Rows, "Queue", enabled = c.state.canStep, onClick = c.onQueue)
+            if (c.uninterrupted) UninterruptedBadge(colors.accent) { c.vm.prefs.setMusicUninterrupted(false) }
             // The SAME overflow the other three faces carry, and it is not a tidying
             // exercise: it holds the face switcher. Classic's bar had the three actions
             // spelled out and no overflow, so choosing Classic was a one-way door - the
@@ -626,6 +619,8 @@ private fun ClassicFace(c: PlayerCtx) {
                 onProperties = { c.vm.propertiesOfTrack(c.state.current, c.node) },
                 onAddToPlaylist = { c.vm.askAddToPlaylistPath(c.livePath) },
                 onSaveQueue = c.onSaveQueue.takeIf { c.state.canStep },
+                uninterrupted = c.uninterrupted,
+                onUninterrupted = { c.vm.prefs.setMusicUninterrupted(!c.uninterrupted) },
             )
         }
         FaceLayout(

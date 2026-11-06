@@ -133,27 +133,28 @@ import kotlinx.coroutines.launch
 // ── the top bar ───────────────────────────────────────────────────────────────
 
 /**
- * The bar across the top: close, where this is playing from, and the mode.
+ * The bar across the top: close, where this is playing from, and the overflow.
  *
- * Replaces `ViewerBar` on the three ambient faces. The difference is not decoration: a
- * `ViewerBar` states the FILE, and on a player the file's name is already the title in the
- * middle of the screen. What is missing there - and what the mock promotes to the bar - is the
- * CONTEXT: which folder this queue came from, and whether anything is allowed to interrupt it.
+ * Replaces `ViewerBar` on the ambient faces. The difference is not decoration: a `ViewerBar`
+ * states the FILE, and on a player the file's name is already the title in the middle of the
+ * screen. What is missing there - and what the mock promotes to the bar - is the CONTEXT: which
+ * folder this queue came from.
  *
  * `.pltop{display:flex;align-items:center;gap:10px;padding:12px 12px 2px}` with 36dp icons.
  *
- * @param eyebrow the small upper line. The word "Uninterruptible" when that is on, because a lit
- *   glyph is a state somebody has to learn, and otherwise what the queue is.
+ * @param eyebrow the small upper line, which says what the line under it is. It used to become
+ *   "UNINTERRUPTIBLE · PLAYING FROM" when that was on, which made the one centred line in the
+ *   bar change width with a setting; [UninterruptedBadge] says it now.
  * @param context the line under it: the folder, as a path tail.
+ * @param onUninterruptedOff the badge's tap. The switch itself is in the overflow.
  */
 @Composable
 fun PlayerTopBar(
     eyebrow: String,
-    eyebrowLit: Boolean,
     context: String,
     uninterrupted: Boolean,
     onClose: () -> Unit,
-    onUninterrupted: () -> Unit,
+    onUninterruptedOff: () -> Unit,
     tint: Color,
     overflow: @Composable () -> Unit,
 ) {
@@ -168,17 +169,7 @@ fun PlayerTopBar(
         start = { BarIcon(FiletIcons.Down, "Minimise the player", onClick = onClose) },
         end = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                // Uninterrupted lives HERE and not in the chip row. It is a mode, and a mode
-                // belongs in the chrome where its state can be read without anything being
-                // opened - and it is not trivia: it is the switch that decides whether a phone
-                // call takes the sound away.
-                BarIcon(
-                    FiletIcons.Shield,
-                    if (uninterrupted) "Uninterruptible — nothing will pause this" else "Uninterruptible playback",
-                    lit = uninterrupted,
-                    tint = tint,
-                    onClick = onUninterrupted,
-                )
+                if (uninterrupted) UninterruptedBadge(tint, onUninterruptedOff)
                 overflow()
             }
         },
@@ -188,8 +179,7 @@ fun PlayerTopBar(
                 eyebrow,
                 fontSize = 8.5.sp,
                 letterSpacing = 1.5.sp,
-                fontWeight = if (eyebrowLit) FontWeight.Bold else FontWeight.Normal,
-                color = if (eyebrowLit) tint else colors.fg3,
+                color = colors.fg3,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -205,6 +195,46 @@ fun PlayerTopBar(
 }
 
 /**
+ * Classic's bar: close, the track's title and its place in the queue, and [end].
+ *
+ * Classic wore `ViewerBar`, which every other viewer wears and which starts its title at the
+ * left, so the title sat wherever the close button left it rather than over the centred face
+ * under it. Centred here by [CentredBar], like the ambient faces' bar: the icons at either end
+ * cannot push it sideways.
+ */
+@Composable
+fun ClassicTopBar(
+    title: String,
+    line: String,
+    onClose: () -> Unit,
+    end: @Composable () -> Unit,
+) {
+    val colors = Filet.colors
+    CentredBar(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 12.dp),
+        gap = 8.dp,
+        start = { ViewerAction(FiletIcons.Back, "Close", onClick = onClose) },
+        end = { Row(verticalAlignment = Alignment.CenterVertically) { end() } },
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // The track's name, so never dotted: it gives up size, then fades. See ListName.
+            dev.niccc2007.filet.browser.ListNameText(
+                title,
+                MaterialTheme.colorScheme.onSurface,
+                startSp = 13f,
+                fontWeight = FontWeight.Medium,
+                align = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            if (line.isNotEmpty()) {
+                Text(line, fontSize = 9.5.sp, color = colors.fg2, maxLines = 1)
+            }
+        }
+    }
+}
+
+/**
  * A bar with its middle centred on the BAR, not on the room between its two ends.
  *
  * Bug identified here: the player's top bar was a row - one button, the words, two buttons - so
@@ -213,7 +243,7 @@ fun PlayerTopBar(
  * gets the widest room that keeps it centred clear of the WIDER end, by [CentreSlot].
  */
 @Composable
-private fun CentredBar(
+internal fun CentredBar(
     modifier: Modifier,
     gap: Dp,
     start: @Composable () -> Unit,
@@ -245,6 +275,36 @@ internal object CentreSlot {
 
     /** The middle's left edge, for a middle [width] wide: centred on the whole bar. */
     fun x(total: Int, width: Int): Int = (total - width) / 2
+}
+
+/**
+ * Uninterruptible is on: a small shield beside the overflow, and a tap on it turns it off.
+ *
+ * The switch is in the overflow, in both players. As a lit button in the bar it was one more
+ * icon on the right, and the right end is what decides how much room the centred title gets.
+ * Shown only while on, because off is the ordinary state and has nothing to say.
+ *
+ * Its own element, never drawn on the overflow button: that button carries the dot for work
+ * behind it (see [BarIcon]), and two marks on one button read as one. Side by side, each can
+ * be there without the other.
+ */
+@Composable
+fun UninterruptedBadge(tint: Color, onOff: () -> Unit) {
+    Box(
+        Modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(tint.copy(alpha = 0.16f))
+            .clickable(onClick = onOff),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            FiletIcons.Shield,
+            "Uninterruptible is on. Tap to turn it off",
+            tint = tint,
+            modifier = Modifier.size(15.dp),
+        )
+    }
 }
 
 /** One 36dp round button in the top bar. `.pltop .ico{width:36px;height:36px;border-radius:18px}` */
@@ -296,6 +356,9 @@ fun PlayerOverflow(
     onProperties: () -> Unit,
     onAddToPlaylist: (() -> Unit)? = null,
     onSaveQueue: (() -> Unit)? = null,
+    /** Whether anything may pause the music, with its switch. See [UninterruptedBadge]. */
+    uninterrupted: Boolean? = null,
+    onUninterrupted: (() -> Unit)? = null,
     /** Aurora's own switch. Null on every other face, where it does nothing. */
     scratch: Boolean? = null,
     onScratch: (() -> Unit)? = null,
@@ -489,6 +552,12 @@ fun PlayerOverflow(
                                     open = false
                                     onSaveQueue()
                                 }
+                            }
+                            // A switch, so the panel stays open: the badge appearing in the bar
+                            // behind it is the answer.
+                            if (uninterrupted != null && onUninterrupted != null) {
+                                PanelRule()
+                                PanelSwitch("Uninterruptible", uninterrupted, onUninterrupted)
                             }
                             // One row each for the two groups of settings, with the state in
                             // the trailing label so the panel still says what is on without

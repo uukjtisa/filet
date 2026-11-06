@@ -32,6 +32,13 @@ const ROOT = join(import.meta.dirname, "..");
 const SRC = join(ROOT, "app/src/main/java");
 const HOST = join(SRC, "dev/niccc2007/filet/handlers/HandlerHost.kt");
 
+/**
+ * What counts as the bar. The music player's two bars count as well: each has the way back,
+ * and the face under it states the track. Classic wore `ViewerBar` itself until its title was
+ * centred, and before that it was the only face this checker could see.
+ */
+const BAR = /\b(?:ViewerBar|PlayerTopBar|ClassicTopBar)\s*\(/;
+
 /** Screens reached from a route that draw no bar, and why that is right. */
 export const EXEMPT = {
   MediaScreen: "chooses the audio or the video screen and draws nothing of its own",
@@ -123,7 +130,7 @@ export function routes(hostRaw) {
  * preferred, and only a name with none there is looked up everywhere.
  */
 function drawsBar(d, defs, depth = 0, seen = new Set()) {
-  if (/\bViewerBar\s*\(/.test(d.body)) return true;
+  if (BAR.test(d.body)) return true;
   if (depth >= 5) return false;
   for (const c of d.body.matchAll(/\b([A-Z]\w*)\s*\(/g)) {
     const name = c[1];

@@ -213,6 +213,8 @@ fun PopSeparator() {
  * @param detail one line under the label saying what the row does, for the row whose name
  *   alone does not - "Play as music" is the case it exists for.
  * @param active a mode that is on now, drawn lit.
+ * @param checked a switch, with a tick at the end while it is on and the tick's room kept while
+ *   it is off, so the row reads as something that can be ticked. Null for an action.
  */
 @Composable
 fun PopRow(
@@ -221,6 +223,7 @@ fun PopRow(
     detail: String? = null,
     danger: Boolean = false,
     active: Boolean = false,
+    checked: Boolean? = null,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
@@ -246,6 +249,14 @@ fun PopRow(
             if (detail != null) {
                 Spacer(Modifier.height(1.dp))
                 Text(detail, fontSize = 11.sp, lineHeight = 14.sp, color = colors.fg3)
+            }
+        }
+        if (checked != null) {
+            Spacer(Modifier.width(8.dp))
+            Box(Modifier.width(18.dp), contentAlignment = Alignment.Center) {
+                if (checked) {
+                    Icon(dev.niccc2007.filet.browser.FiletIcons.Check, "On", tint = colors.accent, modifier = Modifier.size(16.dp))
+                }
             }
         }
     }

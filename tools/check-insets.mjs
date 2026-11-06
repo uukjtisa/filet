@@ -61,6 +61,7 @@ export const EDGES = [
   { file: "handlers/PlayerParts.kt", fn: "FaceFrame", must: /WindowInsets\.safeDrawing/, why: "every player face: the queue handle, the transport, the top bar under a cutout" },
   { file: "handlers/PlayerParts.kt", fn: "QueueSheet", must: /WindowInsets\.navigationBars/, why: "Up next, drawn over the face rather than inside its frame" },
   { file: "handlers/VideoScreen.kt", must: /WindowInsets\.navigationBars/, why: "the video's chrome" },
+  { file: "handlers/VideoScreen.kt", must: /WindowInsets\.displayCutout\s*\.union\(\s*WindowInsets\.statusBars\s*\)/, why: "the video's top bar below the camera, and below the status bar while a swipe shows it" },
   { file: "handlers/FrameBar.kt", fn: "FrameBar", must: INSET, why: "the frame bar is the video's bottom edge when it is up" },
   { file: "ui/dialogs/DlgKit.kt", fn: "Dlg", must: /WindowInsets\.safeDrawing/, why: "every dialogue and sheet drawn through Dlg" },
 ];
@@ -222,6 +223,7 @@ if (process.argv.includes("--selftest")) {
     ["the player's frame losing its inset", () => edit("handlers/PlayerParts.kt", /\.windowInsetsPadding\(WindowInsets\.safeDrawing\)/, "")],
     ["the inset only in a comment", () => edit("handlers/HandlerHost.kt", /Modifier\.windowInsetsPadding\(WindowInsets\.navigationBars\)/, "Modifier /* .windowInsetsPadding(WindowInsets.navigationBars) */")],
     ["Up next losing its inset", () => edit("handlers/PlayerParts.kt", /\.windowInsetsPadding\(WindowInsets\.navigationBars\),/, ",")],
+    ["the video's top bar under the camera again", () => edit("handlers/VideoScreen.kt", /WindowInsets\.displayCutout\.union\(WindowInsets\.statusBars\)/, "WindowInsets.statusBars")],
     ["a new bar anchored to the bottom", () => new Map([...files, ["x/NewBar.kt", "@Composable\nfun BoxScope.NewBar() {\n    Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {}\n}\n"]])],
   ];
   let bad = 0;
