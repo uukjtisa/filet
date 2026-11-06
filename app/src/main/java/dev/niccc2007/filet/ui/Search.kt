@@ -70,15 +70,36 @@ object TextMatch {
     }
 }
 
-/** [text] with the query's letters drawn in [ink], so why a row is here is visible. */
+/**
+ * [text] with the query's letters marked by a wash of [ink] behind them, so why a row is here is
+ * visible.
+ *
+ * Bug identified here: the match used to be marked by drawing its letters in [ink] and nothing
+ * else. On a dark theme the accent is far lighter than the dark ground and stands apart from the
+ * pale body text; on a light theme every palette's accent is a dark colour close to the dark body
+ * text - the Ink palette's is #2E2E2C against #161615 - so the matched letters looked like the
+ * rest of the name and the highlight seemed to be missing.
+ *
+ * A wash marks the match by its ground rather than its letters, which works whatever the text
+ * colour is: the letters keep the row's own colour, the strongest contrast it has, and the wash
+ * is [ink] at [MATCH_WASH] over whatever is beneath, so a tinted card washes in its own tint.
+ * `SearchHighlightTest` holds every palette, light and dark, to a readable result.
+ */
 fun highlighted(text: String, query: String, ink: Color): AnnotatedString {
     val spans = TextMatch.spans(text, query)
     if (spans.isEmpty()) return AnnotatedString(text)
+    val style = SpanStyle(background = matchWash(ink), fontWeight = FontWeight.SemiBold)
     return buildAnnotatedString {
         append(text)
-        for (r in spans) addStyle(SpanStyle(color = ink, fontWeight = FontWeight.SemiBold), r.first, r.last + 1)
+        for (r in spans) addStyle(style, r.first, r.last + 1)
     }
 }
+
+/** How strongly a match's wash carries its ink. Checked against every palette: see [highlighted]. */
+internal const val MATCH_WASH = 0.28f
+
+/** The colour behind a matched run: [ink], see-through to [MATCH_WASH]. */
+internal fun matchWash(ink: Color): Color = ink.copy(alpha = MATCH_WASH)
 
 /**
  * A short accent wash behind a row, for the one a search result just brought into view.
