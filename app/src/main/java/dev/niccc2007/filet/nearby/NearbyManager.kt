@@ -364,6 +364,7 @@ class NearbyManager(
 
     fun startScan() = discovery.startScan()
     fun stopScan() = discovery.stopScan()
+    fun restartScan() = discovery.restartScan()
 
     /**
      * Pair with a peer.

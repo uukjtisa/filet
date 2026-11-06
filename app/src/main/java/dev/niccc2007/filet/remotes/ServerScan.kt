@@ -127,6 +127,9 @@ class ServerScan(private val context: Context, private val scope: CoroutineScope
     fun listen() {
         val manager = nsd ?: return
         if (listeners.isNotEmpty()) return
+        // No permission, no listener: without it, Android 17 answers each one with its device
+        // picker, and this starts one per server type. See LocalNetwork.
+        if (!dev.niccc2007.filet.nearby.LocalNetwork.allowed(context)) return
         for ((type, protocol) in SERVICES) {
             val listener = object : NsdManager.DiscoveryListener {
                 override fun onDiscoveryStarted(t: String) = Unit
@@ -248,6 +251,9 @@ class ServerScan(private val context: Context, private val scope: CoroutineScope
      */
     fun sweep() {
         if (sweepJob?.isActive == true) return
+        // Without the network permission every one of the connects times out: 254 waits for
+        // nothing. The screen asks for it first; this is the guard if anything else calls.
+        if (!dev.niccc2007.filet.nearby.LocalNetwork.allowed(context)) return
         val locals = localAddresses()
         val plan = sweepFor(locals)
         if (plan == null) {

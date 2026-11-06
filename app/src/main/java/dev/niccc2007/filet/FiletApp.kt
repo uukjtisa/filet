@@ -394,8 +394,10 @@ class FiletGraph(context: Context) {
         netWatch.moves.filter { it > 0L }.collect {
             runCatching { davBeacon.readvertiseAll() }
             runCatching { davBeacon.restartScan(forget = true) }
-            // Peer discovery has the same staleness for the same reason.
-            runCatching { nearby.startScan() }
+            // Peer discovery has the same staleness for the same reason - a scan that was running,
+            // and only that. Starting one here put Android 17's device picker over whatever was
+            // on screen, with Nearby never opened (issue #38).
+            runCatching { nearby.restartScan() }
             // And the server scan, which was missing from this list - which is why its rows
             // outlived the networks they were found on. Only when it already exists: it is lazy,
             // and building it here to reset a list nobody has ever filled would be work done

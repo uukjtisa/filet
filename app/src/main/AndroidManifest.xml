@@ -15,6 +15,9 @@
 
     <!-- Nearby (M9): a LAN server and mDNS discovery. No INTERNET-only feature uses these. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 17: the local network is a permission (Nearby devices). Asked for only on
+         Remotes and Nearby; nothing listens or announces without it. See LocalNetwork. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />

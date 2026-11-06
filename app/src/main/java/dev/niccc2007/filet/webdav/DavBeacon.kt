@@ -102,6 +102,12 @@ class DavBeacon(private val context: Context) : DavAnnouncer {
     ) {
         val manager = nsd ?: return
         stopAdvertising(id)
+        // Not sent without the network permission, which Android 17 refuses until it is given -
+        // see LocalNetwork. Still recorded, so the grant announces it: see [readvertiseAll].
+        if (!dev.niccc2007.filet.nearby.LocalNetwork.allowed(context)) {
+            ads[id] = Ad(id, label, port, basePath, scope, writable)
+            return
+        }
         val info = NsdServiceInfo().apply {
             // The label is in the name because the name is the only field a resolver is
             // guaranteed to hand back before the TXT records arrive.
@@ -280,8 +286,10 @@ class DavBeacon(private val context: Context) : DavAnnouncer {
         handler.postDelayed(heal, HEAL_EVERY_MS)
     }
 
+    // Only a scan somebody asked for - Remotes open - and only with the network permission. A heal
+    // that started a listener on its own was a new device picker every 45 s on Android 17 (#38).
     private val heal = Runnable {
-        if (scanners.get() > 0) {
+        if (scanners.get() > 0 && dev.niccc2007.filet.nearby.LocalNetwork.allowed(context)) {
             endScan()
             beginScan()
         }
@@ -293,6 +301,9 @@ class DavBeacon(private val context: Context) : DavAnnouncer {
             return
         }
         if (discovery != null) return
+        // No permission, no listener. Without it Android 17 answers each one with its device
+        // picker - and the heal starts a new one every 45 s. See LocalNetwork.
+        if (!dev.niccc2007.filet.nearby.LocalNetwork.allowed(context)) return
         val listener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(type: String) {
                 _state.value = _state.value.copy(scanning = true, error = null)

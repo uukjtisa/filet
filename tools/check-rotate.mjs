@@ -25,12 +25,16 @@
 //  hosting by hand, and then by opening a screen until the other device
 //  reappeared. One watcher, one signal, three things redone.
 //
-//  RULE 2 — DISCOVERY IS NOT OWNED BY ONE SCREEN. Addresses are learned from
-//  announcements, and the scan was started only by the Remotes screen - which
-//  also stopped it on dispose. So "learns the address by itself in the
-//  background" only happened on the one screen where it was not needed. The
-//  activity must start a scan of its own, and the beacon must count its
-//  callers or the screen's dispose stops the app's scan too.
+//  RULE 2 — DISCOVERY RUNS WHERE IT IS ASKED FOR, AND NOWHERE ELSE. It was
+//  once owned by the Remotes screen alone, then by the activity for as long
+//  as Filet was open, so a saved remote learned a moved address in the
+//  background. That second owner was issue #38: on Android 17 the local
+//  network is a permission, and a discovery listener started without it is
+//  the system's "Choose a device to connect" picker - on every launch, and
+//  again at every 45 s heal. So: the activity starts no scan; Remotes and
+//  Nearby own discovery and ask for the permission; every file that talks to
+//  NsdManager checks `LocalNetwork.allowed` first; and the beacon still counts
+//  its callers, or one screen's dispose would stop another's scan.
 // ---------------------------------------------------------------------------
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -40,6 +44,23 @@ const NET = join(ROOT, "core-vfs/src/main/java/dev/niccc2007/filet/vfs/provider/
 const DAV = join(NET, "WebDavProvider.kt");
 const DIAL = join(NET, "NetDial.kt");
 const BEACON = join(ROOT, "app/src/main/java/dev/niccc2007/filet/webdav/DavBeacon.kt");
+const APP = join(ROOT, "app/src/main/java/dev/niccc2007/filet");
+/** Every file that starts a discovery listener or registers an announcement. */
+const NSD_USERS = [
+  BEACON,
+  join(APP, "nearby/Peers.kt"),
+  join(APP, "remotes/ServerScan.kt"),
+];
+
+/** Whether the activity starts a discovery scan itself. */
+function launchScans(activitySrc) {
+  return /davBeacon\.startScan\(\)|\.discoverServices\(/.test(activitySrc);
+}
+
+/** Whether a file calls discoverServices or registerService and never checks the gate. */
+function ungatedNsd(src) {
+  return /\.(discoverServices|registerService)\(/.test(src) && !/LocalNetwork\.allowed\(/.test(src);
+}
 const ACTIVITY = join(ROOT, "app/src/main/java/dev/niccc2007/filet/MainActivity.kt");
 const WATCH = join(ROOT, "app/src/main/java/dev/niccc2007/filet/webdav/NetworkWatch.kt");
 const GRAPH = join(ROOT, "app/src/main/java/dev/niccc2007/filet/FiletApp.kt");
@@ -169,14 +190,19 @@ if (!process.argv.includes("--selftest")) {
     );
   }
   const activity = strip(readFileSync(ACTIVITY, "utf8"));
-  if (!/override fun onStart\(\)/.test(activity) || !/davBeacon\.startScan\(\)/.test(activity)) {
+  if (launchScans(activity)) {
     fails.push(
-      "MainActivity — nothing starts discovery for the app, so addresses are only learned " +
-        "while the Remotes screen is open",
+      "MainActivity — starts discovery on its own; on Android 17 without the local-network " +
+        "permission that is the system's device picker on every launch (#38)",
     );
   }
-  if (!/override fun onStop\(\)/.test(activity) || !/davBeacon\.stopScan\(\)/.test(activity)) {
-    fails.push("MainActivity — starts a scan and never stops it");
+  for (const [where, src] of NSD_USERS.map((f) => [f.replace(ROOT, "").replaceAll("\\", "/"), strip(readFileSync(f, "utf8"))])) {
+    if (ungatedNsd(src)) {
+      fails.push(
+        `${where} — talks to NsdManager without checking LocalNetwork.allowed; on Android 17 a ` +
+          "listener without the permission is the system's device picker (#38)",
+      );
+    }
   }
 
   // Rule 3: something watches the network, and all three stale things are redone.
@@ -241,6 +267,19 @@ if (process.argv.includes("--selftest")) {
     ["an op resolving its own address", bad, 1],
   ];
   let bad_ = 0;
+  // Rule 2, #38: a scan at launch, and a listener with no gate, are both caught.
+  const gate = [
+    ["a scan started by the activity", launchScans("override fun onStart() { graph.davBeacon.startScan() }"), true],
+    ["an activity that starts none", launchScans("override fun onStart() { super.onStart() }"), false],
+    ["a listener with no gate", ungatedNsd("manager.discoverServices(TYPE, P, l)"), true],
+    ["an announcement with no gate", ungatedNsd("manager.registerService(info, P, l)"), true],
+    ["a listener behind the gate", ungatedNsd("if (!LocalNetwork.allowed(context)) return; manager.discoverServices(TYPE, P, l)"), false],
+  ];
+  for (const [name, got, want] of gate) {
+    const ok = got === want;
+    if (!ok) bad_++;
+    console.log(`  ${ok ? "ok  " : "FAIL"}  ${name} (expected ${want}, found ${got})`);
+  }
   for (const [name, src, want] of cases) {
     const got = unwrappedConnSites(src).length;
     const ok = got === want;
@@ -262,5 +301,6 @@ if (fails.length) {
 }
 console.log(
   "ROTATE OK  (rotation sits at the response, every operation goes through it, discovery runs " +
-    "for the app rather than for one screen, and a change of network re-announces and re-listens)",
+    "only where it is asked for and behind the local-network gate, and a change of network " +
+    "re-announces and re-listens)",
 );

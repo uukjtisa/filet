@@ -148,6 +148,9 @@ class NearbyDiscovery(private val context: Context) {
 
     fun advertise(port: Int) {
         val manager = nsd ?: return
+        // An announcement nobody can hear: Android 17 refuses the local network without the
+        // permission. See LocalNetwork.
+        if (!LocalNetwork.allowed(context)) return
         stopAdvertising()
         val info = NsdServiceInfo().apply {
             serviceName = "Filet-" + PairedPeers.selfName(context).take(20)
@@ -185,6 +188,9 @@ class NearbyDiscovery(private val context: Context) {
             return
         }
         stopScan()
+        // No permission, no listener: without it, Android 17 answers one with its device picker.
+        // See LocalNetwork. Nearby asks for it before it scans.
+        if (!LocalNetwork.allowed(context)) return
         val listener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(type: String) {
                 _state.value = _state.value.copy(scanning = true, error = null)
@@ -213,6 +219,18 @@ class NearbyDiscovery(private val context: Context) {
         discoveryListener = listener
         MulticastHold.hold(context, "nearby.scan", true)
         runCatching { manager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener) }
+    }
+
+    /**
+     * Listen again from scratch after this device changed network - a scan that was running, and
+     * only that.
+     *
+     * Bug identified here (issue #38): a network change STARTED peer discovery, whether Nearby
+     * had been opened or not, and on Android 17 every start without the permission is the
+     * system's device picker over whatever screen was up.
+     */
+    fun restartScan() {
+        if (discoveryListener != null) startScan()
     }
 
     fun stopScan() {

@@ -112,13 +112,41 @@ fun NearbyScreen(vm: BrowserViewModel) {
     var editingPin by remember { mutableStateOf<String?>(null) }
     val grants by nearby.grants.all.collectAsState()
 
-    DisposableEffect(Unit) {
+    // Asked for here, on the screen about it, and nowhere else: on Android 17 the local network
+    // is a permission, and a listener started without it raised the system's device picker
+    // (issue #38). A share already up when it is given was not announced; the grant does that.
+    val net = rememberLocalNetwork(onGranted = { if (server.running) nearby.discovery.advertise(server.port) })
+    DisposableEffect(net.allowed) {
+        if (!net.allowed) return@DisposableEffect onDispose {}
         nearby.startScan()
         onDispose { nearby.stopScan() }
     }
 
     LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("nearby")) {
         item { TabHeader("Share over this network") }
+        if (!net.allowed) {
+            item {
+                Column(Modifier.fillMaxWidth().padding(start = 15.dp, end = 15.dp, top = 2.dp, bottom = 8.dp)) {
+                    DlgCaption(
+                        if (net.refused) {
+                            "Filet may not use this network. If Android no longer asks, allow " +
+                                "Nearby devices in this app's settings."
+                        } else {
+                            "Android asks before an app uses this network. Until Filet may, no " +
+                                "phone here can find it or be found."
+                        },
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (net.settingsOnly) {
+                            SmallButton("Open settings") { vm.onIntent?.invoke(net.settings) }
+                        } else {
+                            SmallButton("Allow") { net.ask() }
+                        }
+                    }
+                }
+            }
+        }
         item { ShareCard(vm, server, shares.size) { editingPin = nearby.fixedPin() ?: "" } }
 
         // "Where can I find what somebody sent me" is the first question this screen raises

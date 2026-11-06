@@ -104,13 +104,20 @@ fun RemotesScreen(vm: BrowserViewModel) {
     var menuFor by remember { mutableStateOf<NetConnection?>(null) }
     var forgetting by remember { mutableStateOf<NetConnection?>(null) }
 
-    // This screen's own interest in scanning, which is balanced and refcounted - the app keeps a
-    // scan of its own running while it is in the foreground, so a saved remote learns the address
-    // its device moved to without anybody visiting this screen. Stopping the scan on dispose here
-    // used to stop that one too.
+    // The network is this screen's subject, so it is where the permission for it is asked - and,
+    // on Android 17, nothing below listens until it is given. Without it, every listener raised
+    // the system's device picker over the app (issue #38). A share started before the grant was
+    // recorded but not announced; the grant announces it.
+    val net = dev.niccc2007.filet.nearby.rememberLocalNetwork(onGranted = { vm.davBeacon.readvertiseAll() })
+
+    // This screen's interest in scanning, balanced and refcounted with any other caller's. The app
+    // no longer scans on its own while in the foreground - that was a listener started on every
+    // launch, which is what put the picker up the moment Filet opened - so a saved remote learns
+    // the address its device moved to when this screen is open.
     val beacon = vm.davBeacon
     val found by beacon.state.collectAsState()
-    DisposableEffect(Unit) {
+    DisposableEffect(net.allowed) {
+        if (!net.allowed) return@DisposableEffect onDispose {}
         beacon.startScan()
         // And ask again, now. `startScan` is refcounted, so when the app-wide scan is already
         // running this call returns without sending anything - leaving the screen showing
@@ -128,7 +135,8 @@ fun RemotesScreen(vm: BrowserViewModel) {
     // time the screen opens wakes the radio for nothing most of the time. See `ServerScan`.
     val scan = vm.serverScan
     val servers by scan.state.collectAsState()
-    DisposableEffect(Unit) {
+    DisposableEffect(net.allowed) {
+        if (!net.allowed) return@DisposableEffect onDispose {}
         scan.listen()
         onDispose { scan.stop() }
     }
@@ -288,7 +296,27 @@ fun RemotesScreen(vm: BrowserViewModel) {
             Column(
                 Modifier.fillMaxWidth().padding(start = 15.dp, end = 15.dp, top = 2.dp, bottom = 6.dp),
             ) {
-                if (onNetwork.isEmpty() && !servers.sweeping) {
+                if (!net.allowed) {
+                    // Instead of the sweep, not beside it: without the permission every connect
+                    // it makes times out, and a button that cannot find anything is a lie.
+                    DlgCaption(
+                        if (net.refused) {
+                            "Filet may not look around this network. If Android no longer asks, " +
+                                "allow Nearby devices in this app's settings."
+                        } else {
+                            "Android asks before an app looks around this network. Until Filet " +
+                                "may, nothing here can be found or reached."
+                        },
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (net.settingsOnly) {
+                            SmallButton("Open settings") { vm.onIntent?.invoke(net.settings) }
+                        } else {
+                            SmallButton("Allow") { net.ask() }
+                        }
+                    }
+                } else if (onNetwork.isEmpty() && !servers.sweeping) {
                     DlgCaption(
                         "Nothing has announced itself. A Windows PC does not - it uses a " +
                             "different protocol for that - so look for it by sweeping the " +
@@ -296,14 +324,16 @@ fun RemotesScreen(vm: BrowserViewModel) {
                     )
                     Spacer(Modifier.height(6.dp))
                 }
-                servers.note?.let {
-                    DlgCaption(it)
-                    Spacer(Modifier.height(6.dp))
-                }
-                if (servers.sweeping) {
-                    SmallButton("Stop looking") { scan.stopSweep() }
-                } else {
-                    SmallButton("Look for servers") { scan.sweep() }
+                if (net.allowed) {
+                    servers.note?.let {
+                        DlgCaption(it)
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    if (servers.sweeping) {
+                        SmallButton("Stop looking") { scan.stopSweep() }
+                    } else {
+                        SmallButton("Look for servers") { scan.sweep() }
+                    }
                 }
             }
         }

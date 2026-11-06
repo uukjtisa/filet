@@ -223,27 +223,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Discovery runs for as long as Filet is on screen, not only on the Remotes screen.
-     *
-     * This is what makes a saved remote follow its device to a new address without being asked.
-     * Learning happens from an announcement, and announcements were only being listened for
-     * while the one screen that starts a scan was open - so changing network produced a remote
-     * that no longer worked and a screen offering to add it again as a stranger.
-     *
-     * Bounded by the foreground on purpose. A scan holds a multicast lock, and holding one while
-     * the app is not visible is a battery cost nobody asked for; the addresses are learned the
-     * next time Filet is opened, which is also the next time they could matter.
-     */
-    override fun onStart() {
-        super.onStart()
-        FiletApp.graphOf(this).davBeacon.startScan()
-    }
-
-    override fun onStop() {
-        super.onStop()
-        FiletApp.graphOf(this).davBeacon.stopScan()
-    }
+    // There was a discovery scan here, for as long as Filet was on screen, so a saved remote
+    // followed its device to a new address without Remotes being opened. It is gone (issue #38):
+    // on Android 17 a listener without the local-network permission is the system's device picker,
+    // and this one started on every launch. Discovery now runs only on Remotes and Nearby, which
+    // ask for the permission themselves; a moved remote relearns its address there. See
+    // LocalNetwork.
 
     /**
      * Frame timing, for the "it feels laggy" half of the diagnostics.
