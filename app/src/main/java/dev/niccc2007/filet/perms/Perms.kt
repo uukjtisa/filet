@@ -75,6 +75,8 @@ object Perms {
     const val ALL_FILES = "android.permission.MANAGE_EXTERNAL_STORAGE"
     const val NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS"
     const val CAMERA = "android.permission.CAMERA"
+    /** Android 17's local network: asked for on Remotes and Nearby only. See LocalNetwork. */
+    const val LOCAL_NETWORK = dev.niccc2007.filet.nearby.LocalNetwork.PERMISSION
     const val INSTALL_APPS = "android.permission.REQUEST_INSTALL_PACKAGES"
     const val READ_STORAGE = "android.permission.READ_EXTERNAL_STORAGE"
     const val WRITE_STORAGE = "android.permission.WRITE_EXTERNAL_STORAGE"
@@ -102,6 +104,11 @@ object Perms {
             CAMERA, "Camera",
             "Without it, the scanner cannot read a code. A code in a picture still can.",
             Kind.RUNTIME,
+        ),
+        Entry(
+            LOCAL_NETWORK, "Nearby devices",
+            "Without it, Remotes and Nearby cannot see this network.",
+            Kind.RUNTIME, minSdk = dev.niccc2007.filet.nearby.LocalNetwork.ASKS_FROM,
         ),
         Entry(
             INSTALL_APPS, "Install apps",
