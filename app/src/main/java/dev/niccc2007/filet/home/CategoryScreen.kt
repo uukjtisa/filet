@@ -58,6 +58,9 @@ fun CategoryScreen(vm: BrowserViewModel, pane: dev.niccc2007.filet.browser.PaneC
     // The refresh button's half of it: the media scanner adds rows while this pane is open,
     // so a photo taken and then come back to must be able to appear. See `RefreshTarget.CATEGORY`.
     val revision by vm.categoryRevision.collectAsStateWithLifecycle()
+    // And Filet's own writes, once the index has them. The last read stays drawn while the next
+    // one runs, so this is a quiet swap, never a spinner.
+    val indexed by vm.mediaIndexed.collectAsStateWithLifecycle()
 
     // produceState: the read happens off the main thread, and the screen shows a spinner rather
     // than an empty list while the cursor is walked. Null means "not read yet", which is a
@@ -81,7 +84,7 @@ fun CategoryScreen(vm: BrowserViewModel, pane: dev.niccc2007.filet.browser.PaneC
     // The grouping moved in here with it. It used to sit in a `remember` in the composition,
     // so two thousand allocations and a sort ran on the main thread, during a frame, every
     // time the row list changed identity. It is pure and it has no business being there.
-    val view by produceState<CategoryView?>(null, category, revision) {
+    val view by produceState<CategoryView?>(null, category, revision, indexed) {
         val quick = withContext(Dispatchers.IO) {
             CategoryQuery.readResult(context, category, FIRST_PAGE)
         }
@@ -93,7 +96,18 @@ fun CategoryScreen(vm: BrowserViewModel, pane: dev.niccc2007.filet.browser.PaneC
         }
     }
     val result = view?.result
-    val everything = view?.groups.orEmpty()
+    // Bug identified here: a delete left its row on screen, because this list re-reads only when
+    // asked and the media index drops a row only once the scanner gets to it. Rows Filet has
+    // just removed are left out here, and a day emptied by it goes with them.
+    val gone by vm.justRemoved.collectAsStateWithLifecycle()
+    val read = view?.groups.orEmpty()
+    val everything = remember(read, gone) {
+        if (gone.isEmpty()) read
+        else read.mapNotNull { g ->
+            g.copy(entries = dev.niccc2007.filet.media.JustRemoved.without(g.entries, gone) { dev.niccc2007.filet.media.JustRemoved.plain(it.path) })
+                .takeIf { it.entries.isNotEmpty() }
+        }
+    }
     // Narrowed by the pane's search box, name or folder, keeping the days that still have rows.
     val query = dev.niccc2007.filet.ui.LocalPaneQuery.current
     val groups = remember(everything, query) {

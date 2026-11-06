@@ -121,6 +121,11 @@ const ALLOWED = [
   // read or write a file. The paths it returns are compared against what the VFS reported and
   // handed straight to the platform scanner; no file is opened here.
   "app/src/main/java/dev/niccc2007/filet/media/MediaCatchUp.kt",
+  // Asks only whether a path EXISTS, for the few top-level paths of an operation that the
+  // announcer has already passed as local, real and not private. Nothing is opened, read,
+  // written or listed. It runs on the announcer's thread, which is not a coroutine, so the VFS's
+  // suspend `exists` would mean blocking that thread for the same stat.
+  "app/src/main/java/dev/niccc2007/filet/media/JustRemoved.kt",
   // The whole-phone categories, which are a QUERY against MediaStore and nothing else.
   // MediaStore is the media index rather than a filesystem: it is asked which rows exist and
   // what they are called, and the paths it answers with are turned into VPaths that go back

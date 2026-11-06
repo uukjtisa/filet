@@ -113,6 +113,10 @@ object MediaAnnounce {
     fun announce(context: Context, paths: Collection<VPath>) {
         val real = filesystemPaths(paths)
         if (real.isEmpty()) return
+        // Which of them are now missing is asked straight away and off the caller's thread,
+        // not when the batch is handed over: the batch can be 8 s late, and that wait is the
+        // lag [justRemoved] exists to hide.
+        clock.execute { runCatching { justRemoved.noted(real) } }
         synchronized(lock) {
             appContext = context.applicationContext
             batcher.written(real, SystemClock.elapsedRealtime())
@@ -178,6 +182,19 @@ object MediaAnnounce {
     @Volatile
     var onScanned: (() -> Unit)? = null
 
+    /** What Filet just removed and the index may still list. See [JustRemoved]. */
+    val justRemoved = JustRemoved()
+
+    private val _indexed = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+    /**
+     * Counts finished batches. A category keys its read on it, so a file Filet writes shows up
+     * there once the index has it, the way New files already did through [onScanned]. A
+     * category re-read only on its refresh button before this, so a picture copied back to
+     * where one had been deleted stayed missing from an open Photos.
+     */
+    val indexed: kotlinx.coroutines.flow.StateFlow<Int> = _indexed
+
     /** Must hold [lock]. Points the one pending timer at the batch's due time. */
     private fun schedule() {
         val due = batcher.dueAt()
@@ -205,7 +222,11 @@ object MediaAnnounce {
                     null,
                 ) { _, _ ->
                     // One callback per path; the batch is in the index when the last arrives.
-                    if (left.decrementAndGet() == 0) runCatching { onScanned?.invoke() }
+                    if (left.decrementAndGet() == 0) {
+                        runCatching { justRemoved.recheck() }
+                        _indexed.value = _indexed.value + 1
+                        runCatching { onScanned?.invoke() }
+                    }
                 }
             }
         }

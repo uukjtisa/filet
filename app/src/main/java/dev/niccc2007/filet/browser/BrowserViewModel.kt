@@ -6599,6 +6599,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     private val _categoryRevision = MutableStateFlow(0)
     val categoryRevision: StateFlow<Int> = _categoryRevision.asStateFlow()
 
+    /**
+     * Paths Filet has just removed that the media index may still list. A category leaves
+     * them out, so a delete is gone from the screen when it returns. See `JustRemoved`.
+     */
+    val justRemoved: StateFlow<Set<String>> get() = dev.niccc2007.filet.media.MediaAnnounce.justRemoved.paths
+
+    /** Bumped when a batch of Filet's own writes is in the media index. See `MediaAnnounce.indexed`. */
+    val mediaIndexed: StateFlow<Int> get() = dev.niccc2007.filet.media.MediaAnnounce.indexed
+
     fun bumpCategory() {
         _categoryRevision.value = _categoryRevision.value + 1
     }

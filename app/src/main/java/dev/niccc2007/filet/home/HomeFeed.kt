@@ -10,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -115,13 +116,27 @@ class HomeFeed(private val context: Context, private val scope: CoroutineScope) 
 
     private val _recent = MutableStateFlow<List<FeedItem>>(emptyList())
 
-    /** The Home card: the newest [SHOWN]. */
-    val recent: StateFlow<List<FeedItem>> = _recent.asStateFlow()
+    /**
+     * The Home card: the newest [SHOWN].
+     *
+     * Both lists are published without what Filet has just removed, so a delete is off the
+     * screen when the delete returns, not when the media index catches up. [_all] itself keeps
+     * every row the index returned, because paging counts offsets into the index's own list.
+     * See `JustRemoved`.
+     */
+    val recent: StateFlow<List<FeedItem>> = withoutRemoved(_recent)
 
     private val _all = MutableStateFlow<List<FeedItem>>(emptyList())
 
     /** Everything loaded so far, newest first-appearance first. The New files tab draws this. */
-    val all: StateFlow<List<FeedItem>> = _all.asStateFlow()
+    val all: StateFlow<List<FeedItem>> = withoutRemoved(_all)
+
+    private fun withoutRemoved(rows: StateFlow<List<FeedItem>>): StateFlow<List<FeedItem>> {
+        val gone = dev.niccc2007.filet.media.MediaAnnounce.justRemoved.paths
+        return kotlinx.coroutines.flow.combine(rows, gone) { r, g ->
+            dev.niccc2007.filet.media.JustRemoved.without(r, g) { it.node.path.path }
+        }.stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, rows.value)
+    }
 
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
