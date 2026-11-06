@@ -213,19 +213,16 @@ private fun PeekIcon(node: VNode) {
 }
 
 /**
- * A video's glimpse: the clips [GlimpsePlan] picks, played muted from the original file, with a
- * bar in as many segments as there are clips.
+ * A video's glimpse over its still: the clips [GlimpsePlan] picks, played by [GlimpsePlayer], with
+ * a bar in as many segments as there are clips.
  *
- * No file is made and nothing is decoded ahead: each clip is a seek to the nearest keyframe
- * (`SEEK_CLOSEST_SYNC`, the cheap seek) and one clip's length of ordinary playback. Over a network
- * share the still frame stays and nothing plays - a glimpse that has to pull a video across the
- * network a few seconds at a time is a stall dressed up as a preview.
+ * Over a network share the still stays and nothing plays - a glimpse that has to pull a video
+ * across the network a few seconds at a time is a stall dressed up as a preview.
  *
- * It plays while the peek is up and stops the moment it goes; the player is released with it.
+ * It plays while the peek is up and stops the moment it goes; its players are released with it.
  */
 @Composable
 private fun PeekGlimpse(vm: BrowserViewModel, node: VNode) {
-    val context = LocalContext.current
     val still = rememberPeekBitmap(node)
     var aspect by remember(node.path) { mutableFloatStateOf(still?.let { it.width.toFloat() / it.height.coerceAtLeast(1) } ?: (16f / 9f)) }
     LaunchedEffect(still) { still?.let { aspect = it.width.toFloat() / it.height.coerceAtLeast(1) } }
@@ -234,134 +231,18 @@ private fun PeekGlimpse(vm: BrowserViewModel, node: VNode) {
         // Local files only: a share keeps its still. See above.
         if (vm.vfs.osPath(node.path) != null) uri = runCatching { vm.localUriFor(node) }.getOrNull()
     }
-    var player by remember(node.path) { mutableStateOf<MediaPlayer?>(null) }
-    var plan by remember(node.path) { mutableStateOf<List<GlimpsePlan.Clip>>(emptyList()) }
-    var clip by remember(node.path) { mutableIntStateOf(0) }
-    var within by remember(node.path) { mutableFloatStateOf(0f) }
-    var showing by remember(node.path) { mutableStateOf(false) }
+    val progress = remember(node.path) { GlimpseProgress() }
 
     Box(Modifier.fillMaxWidth().aspectRatio(aspect), contentAlignment = Alignment.Center) {
         still?.let {
             Image(it.asImageBitmap(), node.name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         }
-        val source = uri
-        if (source != null) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (showing) 1f else 0f },
-                factory = { ctx ->
-                    TextureView(ctx).apply {
-                        surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                            override fun onSurfaceTextureAvailable(texture: SurfaceTexture, w: Int, h: Int) {
-                                val mp = MediaPlayer()
-                                runCatching {
-                                    mp.setDataSource(context, source)
-                                    mp.setSurface(Surface(texture))
-                                    mp.setVolume(0f, 0f)
-                                    mp.setOnVideoSizeChangedListener { _, vw, vh ->
-                                        if (vw > 0 && vh > 0) aspect = vw.toFloat() / vh
-                                    }
-                                    mp.setOnInfoListener { _, what, _ ->
-                                        if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) showing = true
-                                        false
-                                    }
-                                    mp.setOnPreparedListener {
-                                        val p = GlimpsePlan.of(it.duration.toLong())
-                                        plan = p
-                                        it.isLooping = GlimpsePlan.isWhole(p)
-                                        p.firstOrNull()?.let { c -> it.seekTo(c.startMs, MediaPlayer.SEEK_CLOSEST_SYNC) }
-                                        it.start()
-                                        player = it
-                                    }
-                                    mp.prepareAsync()
-                                }.onFailure { runCatching { mp.release() } }
-                            }
-
-                            override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, w: Int, h: Int) = Unit
-                            override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
-                                player?.let { runCatching { it.release() } }
-                                player = null
-                                return true
-                            }
-
-                            override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
-                        }
-                    }
-                },
-            )
-        }
-        // The clips, in order, round and round, for as long as the peek is up.
-        LaunchedEffect(player, plan) {
-            val mp = player ?: return@LaunchedEffect
-            if (plan.isEmpty()) return@LaunchedEffect
-            if (GlimpsePlan.isWhole(plan)) {
-                val total = plan[0].lengthMs.coerceAtLeast(1L)
-                while (isActive) {
-                    within = runCatching { mp.currentPosition.toFloat() / total }.getOrDefault(0f).coerceIn(0f, 1f)
-                    delay(TICK_MS)
-                }
-                return@LaunchedEffect
-            }
-            var i = 0
-            while (isActive) {
-                val c = plan[i]
-                clip = i
-                if (i > 0 || within > 0f) runCatching { mp.seekTo(c.startMs, MediaPlayer.SEEK_CLOSEST_SYNC) }
-                val began = System.currentTimeMillis()
-                while (isActive) {
-                    val elapsed = System.currentTimeMillis() - began
-                    within = (elapsed.toFloat() / c.lengthMs).coerceIn(0f, 1f)
-                    if (elapsed >= c.lengthMs) break
-                    delay(TICK_MS)
-                }
-                i = (i + 1) % plan.size
-            }
-        }
-        if (plan.isNotEmpty()) {
-            SegmentBar(
-                segments = plan.size,
-                current = clip,
-                within = within,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(10.dp),
-            )
-        }
-    }
-    DisposableEffect(node.path) {
-        onDispose {
-            player?.let { runCatching { it.release() } }
-            player = null
-        }
-    }
-}
-
-/** The glimpse's progress: a segment per clip, those played full, the playing one filling. */
-@Composable
-private fun SegmentBar(segments: Int, current: Int, within: Float, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        for (i in 0 until segments) {
-            val fill = when {
-                i < current -> 1f
-                i == current -> within
-                else -> 0f
-            }
-            Box(
-                Modifier
-                    .weight(1f)
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(Color.White.copy(alpha = 0.32f)),
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(fill)
-                        .height(3.dp)
-                        .background(Color.White),
-                )
-            }
+        uri?.let { source -> GlimpsePlayer(source, progress, Modifier.fillMaxSize()) { aspect = it } }
+        if (progress.segments > 0) {
+            GlimpseBar(progress, Modifier.align(Alignment.BottomCenter).padding(10.dp))
         }
     }
 }
 
 /** A photo's peek, one size up from the tiles: sharp at the card's width on a phone. */
 private const val PEEK_PX = 1080
-
-private const val TICK_MS = 50L

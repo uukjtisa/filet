@@ -71,8 +71,8 @@ import kotlin.coroutines.resume
  *
  * ## Opened
  *
- * A glimpse of the whole video, the same one a held tile plays - [GlimpsePlan]'s six clips of two
- * seconds, one from each sixth - muted, round and round, over the video's poster. Its own small
+ * A glimpse of the whole video, the same one a held tile plays - [GlimpsePlan]'s three clips of a
+ * second and a half from across its middle - muted, round and round, over the video's poster. Its own small
  * player on a texture, not the video screen's: that one is made only once Play is pressed, so a
  * video looked at and left costs no decoder set up for sound, no sound effects on a session and
  * no audio focus. Nothing here asks for focus at all, so music playing elsewhere carries on
@@ -264,148 +264,34 @@ internal suspend fun captureStill(view: SurfaceView): Bitmap? {
 }
 
 /**
- * The glimpse: [GlimpsePlan]'s clips played muted from the original file, over whatever is under
- * it, with a bar in as many segments as there are clips. Local files only; see [VideoPreview].
+ * The glimpse: [GlimpsePlan]'s clips played by [GlimpsePlayer], over whatever is under it, with a
+ * bar in as many segments as there are clips. Local files only; see [VideoPreview].
  */
 @Composable
 private fun GlimpseLoop(vm: BrowserViewModel, node: VNode) {
-    val context = LocalContext.current
     var uri by remember(node.path) { mutableStateOf<Uri?>(null) }
     var aspect by remember(node.path) { mutableFloatStateOf(0f) }
-    var player by remember(node.path) { mutableStateOf<MediaPlayer?>(null) }
-    var surface by remember(node.path) { mutableStateOf<Surface?>(null) }
-    var plan by remember(node.path) { mutableStateOf<List<GlimpsePlan.Clip>>(emptyList()) }
-    var clip by remember(node.path) { mutableIntStateOf(0) }
-    var within by remember(node.path) { mutableFloatStateOf(0f) }
-    var showing by remember(node.path) { mutableStateOf(false) }
-
-    fun release() {
-        player?.let { runCatching { it.release() } }
-        surface?.let { runCatching { it.release() } }
-        player = null
-        surface = null
-        showing = false
-    }
-    DisposableEffect(node.path) { onDispose { release() } }
+    val progress = remember(node.path) { GlimpseProgress() }
     LaunchedEffect(node.path) {
         if (vm.vfs.osPath(node.path) != null) uri = runCatching { vm.localUriFor(node) }.getOrNull()
     }
     val source = uri ?: return
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        AndroidView(
-            modifier = (if (aspect > 0f) Modifier.aspectRatio(aspect) else Modifier.fillMaxSize())
-                .graphicsLayer { alpha = if (showing) 1f else 0f },
-            factory = { ctx ->
-                TextureView(ctx).apply {
-                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                        override fun onSurfaceTextureAvailable(texture: SurfaceTexture, w: Int, h: Int) {
-                            val mp = MediaPlayer()
-                            val out = Surface(texture)
-                            runCatching {
-                                mp.setDataSource(context, source)
-                                mp.setSurface(out)
-                                // Muted, and nothing asks for audio focus: a MediaPlayer takes
-                                // none of its own, so whatever else is playing carries on.
-                                mp.setVolume(0f, 0f)
-                                mp.setOnVideoSizeChangedListener { _, vw, vh ->
-                                    if (vw > 0 && vh > 0) aspect = vw.toFloat() / vh
-                                }
-                                mp.setOnInfoListener { _, what, _ ->
-                                    if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) showing = true
-                                    false
-                                }
-                                mp.setOnPreparedListener {
-                                    val p = GlimpsePlan.of(it.duration.toLong())
-                                    plan = p
-                                    it.isLooping = GlimpsePlan.isWhole(p)
-                                    p.firstOrNull()?.let { c -> it.seekTo(c.startMs, MediaPlayer.SEEK_CLOSEST_SYNC) }
-                                    it.start()
-                                    player = it
-                                }
-                                surface = out
-                                mp.prepareAsync()
-                            }.onFailure {
-                                runCatching { mp.release() }
-                                runCatching { out.release() }
-                            }
-                        }
-
-                        override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, w: Int, h: Int) = Unit
-
-                        // The app went to the background, or the page went: a new texture comes
-                        // with a new player when it is back.
-                        override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
-                            release()
-                            return true
-                        }
-
-                        override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
-                    }
-                }
-            },
-        )
-        // The clips, in order, round and round, for as long as the preview is up.
-        LaunchedEffect(player, plan) {
-            val mp = player ?: return@LaunchedEffect
-            if (plan.isEmpty()) return@LaunchedEffect
-            if (GlimpsePlan.isWhole(plan)) {
-                val total = plan[0].lengthMs.coerceAtLeast(1L)
-                while (isActive) {
-                    within = runCatching { mp.currentPosition.toFloat() / total }.getOrDefault(0f).coerceIn(0f, 1f)
-                    delay(GLIMPSE_TICK_MS)
-                }
-                return@LaunchedEffect
-            }
-            var i = 0
-            while (isActive) {
-                val c = plan[i]
-                clip = i
-                if (i > 0 || within > 0f) runCatching { mp.seekTo(c.startMs, MediaPlayer.SEEK_CLOSEST_SYNC) }
-                val began = System.currentTimeMillis()
-                while (isActive) {
-                    val elapsed = System.currentTimeMillis() - began
-                    within = (elapsed.toFloat() / c.lengthMs).coerceIn(0f, 1f)
-                    if (elapsed >= c.lengthMs) break
-                    delay(GLIMPSE_TICK_MS)
-                }
-                i = (i + 1) % plan.size
-            }
-        }
+        GlimpsePlayer(
+            source,
+            progress,
+            if (aspect > 0f) Modifier.aspectRatio(aspect) else Modifier.fillMaxSize(),
+        ) { aspect = it }
     }
-    if (showing && plan.isNotEmpty()) {
+    if (progress.showing && progress.segments > 0) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
             GlimpseBar(
-                segments = plan.size,
-                current = clip,
-                within = within,
+                progress,
                 modifier = Modifier
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(horizontal = 24.dp, vertical = 20.dp),
             )
-        }
-    }
-}
-
-/** The glimpse's progress: a segment per clip, those played full, the playing one filling. */
-@Composable
-private fun GlimpseBar(segments: Int, current: Int, within: Float, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        for (i in 0 until segments) {
-            val fill = when {
-                i < current -> 1f
-                i == current -> within
-                else -> 0f
-            }
-            Box(
-                Modifier
-                    .weight(1f)
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(Color.White.copy(alpha = 0.32f)),
-            ) {
-                Box(Modifier.fillMaxWidth(fill).height(3.dp).background(Color.White))
-            }
         }
     }
 }
@@ -415,5 +301,3 @@ private const val STILL_PX = 1600
 
 /** How long Back waits for the screen's picture before reading the frame from the file instead. */
 private const val STILL_WAIT_MS = 300L
-
-private const val GLIMPSE_TICK_MS = 50L
