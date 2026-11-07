@@ -472,7 +472,8 @@ private fun ShareDialog(
             DlgField(
                 "Access code",
                 code,
-                { code = it.filter { c -> c.isLetterOrDigit() } },
+                // The one rule the PC's mount box checks too: see AccessCode.
+                { code = dev.niccc2007.filet.webdav.AccessCode.typing(it) },
                 hint = "leave empty for a new one each time",
             )
             if (codeTaken) {

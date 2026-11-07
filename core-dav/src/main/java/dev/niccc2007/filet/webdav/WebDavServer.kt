@@ -317,7 +317,7 @@ class WebDavServer(
         // screen across a room. No vowels, so it cannot spell anything, and no characters that
         // look like each other in the fonts Explorer uses.
         val taken = live.values.map { it.code }.toSet()
-        val wanted = share.code?.takeIf { it.isNotBlank() && it.all { c -> c.isLetterOrDigit() } }
+        val wanted = share.code?.takeIf(AccessCode::acceptable)
         val code = when {
             // A pinned code that another running share already answers on cannot be honoured -
             // the first one would shadow this one and this share would be silently unreachable.
