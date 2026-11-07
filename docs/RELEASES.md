@@ -95,7 +95,13 @@ the network work in it — one remote holding several addresses, and archives an
 a share — was worth more to somebody on a second device than waiting for the redesign to finish
 was worth to anybody. The staging line moves on rather than being deleted; 0.2.0 is unchanged.
 
-**NEXT: 0.4.0.** The 0.3.1 patch never shipped on its own: the batch after it added new
+**NEXT: 0.4.0** - released 2026-11-07, and the number after it is not decided yet. Between a
+release and the next decision this line names the release just made, because a number written
+here before it is approved is exactly the undecided version the rule exists to stop.
+`check-version` accepts that only while the build is still on the release; the first commit
+that bumps the build needs the next number written here first.
+
+0.4.0 was MINOR. The 0.3.1 patch never shipped on its own: the batch after it added new
 functionality - tap actions per view, streaming from network drives, the floating selection
 pill, Details for several items, the icon size slider, the back-to-top pill - so the release
 that carries both is MINOR by the table below, and 0.3.1 is folded into it rather than spent.

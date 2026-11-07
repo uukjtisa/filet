@@ -52,7 +52,15 @@ export function problems({ doc, gradleName, gradleCode, released, releasedCode, 
     return found;
   }
 
-  if (released && cmp(next, released) <= 0) {
+  // NEXT on the release just made means "not decided yet": the number after a release is
+  // approved before anything names it, so between the two NEXT can only name what shipped.
+  // That is a legitimate state only while the build sits on the same release; the first
+  // commit that moves the build needs a decided NEXT ahead of it, and the rule below that
+  // pins the build to released, next or staging catches the one that does not have it.
+  // Bug identified here: without this allowance every push between a release and the next
+  // decision went red, for following the order the release gate requires.
+  const undecided = released && next === released && gradleName === released;
+  if (released && cmp(next, released) <= 0 && !undecided) {
     found.push(`NEXT is ${next}, which is not ahead of the newest release ${released}`);
   }
 
@@ -83,7 +91,7 @@ export function problems({ doc, gradleName, gradleCode, released, releasedCode, 
     found.push(`versionCode ${gradleCode} does not advance on the released ${releasedCode}`);
   }
 
-  if (gradleName === next && releasedCode != null && !(gradleCode > releasedCode)) {
+  if (gradleName === next && !undecided && releasedCode != null && !(gradleCode > releasedCode)) {
     found.push(`versionCode ${gradleCode} does not advance on the released ${releasedCode}`);
   }
 
@@ -138,6 +146,13 @@ if (process.argv.includes("--selftest")) {
       ...base, doc: staged, released: "0.1.9", gradleName: "0.1.9", gradleCode: 9,
     }, true],
     ["a staged build with a stale code", { ...base, doc: staged, gradleName: "0.1.9", gradleCode: 8 }, true],
+    ["NEXT on the release just made, nothing decided yet", { ...base, doc: "NEXT: 0.1.8" }, false],
+    ["NEXT on the release while the build has moved on", {
+      ...base, doc: "NEXT: 0.1.8", gradleName: "0.1.9", gradleCode: 9,
+    }, true],
+    ["NEXT on the release while the build is still behind it", {
+      ...base, doc: "NEXT: 0.1.9", released: "0.1.9", gradleName: "0.1.8",
+    }, true],
   ];
   let bad = 0;
   for (const [name, input, expect] of CASES) {
