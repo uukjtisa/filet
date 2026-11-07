@@ -1,4 +1,4 @@
-package dev.niccc2007.filet.nearby
+package dev.niccc2007.filet.qr
 
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
@@ -13,14 +13,19 @@ import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
  */
 object Qr {
 
-    /** @return rows of modules, or an empty array when the text cannot be encoded. */
-    fun encode(text: String, quietZone: Int = 1): Array<BooleanArray> {
+    /**
+     * @param badged true when something is drawn over the middle, which then needs the highest
+     *   correction level: a badge covers about a tenth of the code, and level H rebuilds up to
+     *   thirty per cent, where L rebuilds seven.
+     * @return rows of modules, or an empty array when the text cannot be encoded.
+     */
+    fun encode(text: String, quietZone: Int = 1, badged: Boolean = false): Array<BooleanArray> {
         if (text.isEmpty()) return emptyArray()
         return runCatching {
             val hints = mapOf(
                 // A LAN URL is short, so the lowest correction level keeps the modules large
                 // and the code easy to scan across a room.
-                EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L,
+                EncodeHintType.ERROR_CORRECTION to if (badged) ErrorCorrectionLevel.H else ErrorCorrectionLevel.L,
                 EncodeHintType.MARGIN to quietZone,
                 EncodeHintType.CHARACTER_SET to "UTF-8",
             )

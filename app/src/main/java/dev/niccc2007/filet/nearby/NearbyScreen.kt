@@ -510,7 +510,7 @@ private fun ShareCard(
         }
 
         Row(verticalAlignment = Alignment.Top) {
-            QrCode(server.url, Modifier.size(132.dp))
+            dev.niccc2007.filet.qr.FiletQr(server.url, Modifier.size(132.dp))
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 if (server.pinRequired) {
@@ -792,31 +792,3 @@ private fun PairingDialog(pairing: Pairing, onConfirm: () -> Unit, onDismiss: ()
     }
 }
 
-/**
- * A QR of the share URL.
- *
- * Not decoration: typing `192.168.1.42:8321` on a phone keypad is the difference between
- * "share this" and "never mind".
- */
-@Composable
-fun QrCode(text: String, modifier: Modifier = Modifier) {
-    val matrix = remember(text) { Qr.encode(text) }
-    val fg = MaterialTheme.colorScheme.onSurface
-    Box(modifier.background(Color.White).padding(6.dp)) {
-        Canvas(Modifier.fillMaxSize().aspectRatio(1f)) {
-            if (matrix.isEmpty()) return@Canvas
-            val n = matrix.size
-            val cell = size.minDimension / n
-            for (y in 0 until n) {
-                for (x in 0 until n) {
-                    if (!matrix[y][x]) continue
-                    drawRect(
-                        color = Color.Black,
-                        topLeft = Offset(x * cell, y * cell),
-                        size = Size(cell, cell),
-                    )
-                }
-            }
-        }
-    }
-}

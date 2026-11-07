@@ -116,12 +116,22 @@ sealed interface QrContent {
     ) : QrContent
 
     data class Text(override val raw: String) : QrContent
+
+    /** A Filet network drive, from Filet's own link. See `FiletLink`. */
+    data class Drive(override val raw: String, val drive: dev.niccc2007.filet.link.DriveLink) : QrContent
 }
 
 object QrParse {
 
     fun parse(text: String): QrContent {
         val t = text.trim()
+        // Filet's own links first: the https form would otherwise be read as an ordinary link.
+        dev.niccc2007.filet.link.FiletLink.parse(t)?.let { link ->
+            when (link.kind) {
+                dev.niccc2007.filet.link.LinkKind.DRIVE ->
+                    dev.niccc2007.filet.link.DriveLink.of(link)?.let { return QrContent.Drive(t, it) }
+            }
+        }
         val upper = t.uppercase()
         return when {
             upper.startsWith("WIFI:") -> wifi(t) ?: QrContent.Text(t)

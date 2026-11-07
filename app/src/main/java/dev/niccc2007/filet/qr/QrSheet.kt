@@ -64,6 +64,7 @@ fun QrContent.kindLabel(): String = when (this) {
     is QrContent.Esim -> "eSIM"
     is QrContent.Crypto -> "Crypto payment"
     is QrContent.Text -> "Text"
+    is QrContent.Drive -> dev.niccc2007.filet.link.LinkKind.DRIVE.label
 }
 
 private fun QrContent.icon(): ImageVector = when (this) {
@@ -81,6 +82,7 @@ private fun QrContent.icon(): ImageVector = when (this) {
     is QrContent.Esim -> FiletIcons.Device
     is QrContent.Crypto -> FiletIcons.Hex
     is QrContent.Text -> FiletIcons.Doc
+    is QrContent.Drive -> FiletIcons.Storage
 }
 
 /**
@@ -212,6 +214,7 @@ fun QrDialog(content: QrContent, vm: BrowserViewModel, fromPicture: Boolean, onC
                     }
                 }
                 is QrContent.WifiDevice -> WifiDeviceActions(content, vm, onClose)
+                is QrContent.Drive -> DriveActions(content, vm, onClose)
                 is QrContent.Esim -> EsimActions(content, vm, onClose)
                 is QrContent.Crypto -> {
                     DlgCaption(
@@ -308,6 +311,11 @@ private fun Facts(content: QrContent, onCopy: (label: String, value: String) -> 
                 line("Security", content.security.ifEmpty { "Open, no password" }, copy = false)
                 hidden("Password", content.password)
                 if (content.hidden) line("Hidden", "The network does not announce itself", copy = false)
+            }
+            is QrContent.Drive -> {
+                line("Name", content.drive.name, copy = false)
+                line("Address", content.drive.hosts.joinToString(", ") + " : " + content.drive.port, copy = false)
+                hidden("Access code", content.drive.share.substringAfterLast('/'))
             }
             is QrContent.Phone -> line("Number", content.number)
             is QrContent.Sms -> { line("To", content.number); line("Message", content.body) }
@@ -457,6 +465,53 @@ private fun PaymentActions(p: QrContent.Payment, vm: BrowserViewModel, fromPictu
  * one and does the rest; Filet never sees a password. Only some phones can - the code is still
  * shown on one that cannot, with the reason, since the device usually has a way in by hand too.
  */
+/**
+ * A scanned network drive, decided against the remotes already saved (see `DriveMatch`): added,
+ * recognised, or recognised at a new address. Never merged on a guess - a possible match offers
+ * both answers and leaves the choice to the person who knows which phone it is.
+ */
+@Composable
+private fun DriveActions(d: QrContent.Drive, vm: BrowserViewModel, onClose: () -> Unit) {
+    val drive = d.drive
+    val match = remember(drive) { dev.niccc2007.filet.remotes.DriveMatch.of(drive, vm.connections.all()) }
+    fun addNew() {
+        val c = dev.niccc2007.filet.remotes.DriveMatch.remote(drive, vm.connections.newId())
+        vm.saveConnection(c)
+        onClose()
+        vm.openRemote(c)
+    }
+    fun teach(saved: dev.niccc2007.filet.vfs.provider.net.NetConnection) {
+        val c = dev.niccc2007.filet.remotes.DriveMatch.withAddresses(saved, drive)
+        vm.saveConnection(c)
+        onClose()
+        vm.openRemote(c)
+    }
+    when (match) {
+        dev.niccc2007.filet.remotes.DriveMatch.New -> {
+            DlgPick(FiletIcons.Plus, "Add to Remotes", detail = "Then open it") { addNew() }
+        }
+        is dev.niccc2007.filet.remotes.DriveMatch.Known -> {
+            DlgCaption("Already in Remotes as " + match.saved.label.ifEmpty { match.saved.host } + ".")
+            DlgPick(FiletIcons.Open, "Open it") { onClose(); vm.openRemote(match.saved) }
+        }
+        is dev.niccc2007.filet.remotes.DriveMatch.Moved -> {
+            DlgCaption(
+                "This is " + match.saved.label.ifEmpty { match.saved.host } + ", at a new address. " +
+                    "Adding the address keeps everything saved against it.",
+            )
+            DlgPick(FiletIcons.Plus, "Add the new address") { teach(match.saved) }
+        }
+        is dev.niccc2007.filet.remotes.DriveMatch.Maybe -> {
+            DlgCaption(
+                "This might be " + match.saved.label.ifEmpty { match.saved.host } + " at a new address: the " +
+                    "same share and code, but no way to be sure it is the same phone.",
+            )
+            DlgPick(FiletIcons.Plus, "It is - add the address", detail = "To " + match.saved.label.ifEmpty { match.saved.host }) { teach(match.saved) }
+            DlgPick(FiletIcons.Plus, "It is not - add it separately") { addNew() }
+        }
+    }
+}
+
 @Composable
 private fun WifiDeviceActions(d: QrContent.WifiDevice, vm: BrowserViewModel, onClose: () -> Unit) {
     val ctx = LocalContext.current
@@ -557,6 +612,7 @@ private fun summary(c: QrContent): String = when (c) {
     is QrContent.Esim -> c.server
     is QrContent.Crypto -> c.coin
     is QrContent.Text -> c.raw.take(60)
+    is QrContent.Drive -> c.drive.name
 }
 
 private fun host(url: String): String = runCatching { Uri.parse(url).host }.getOrNull()?.ifEmpty { null } ?: url.take(60)
