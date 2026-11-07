@@ -513,38 +513,6 @@ fun SettingsPage(vm: BrowserViewModel) {
                 prefs.setRestoreTabs(it)
             }
         }
-        // What a tap, two, three and a hold do, per view (#34). One table, `TapPlan`, which every
-        // list, grid, tree and the gallery read; a row here per view, folded until opened.
-        item { SettingsSection("Tap actions", "") }
-        anchor(Prefs.K_TAP_LISTS)
-        item {
-            HoldHint("List, dated list and grid. Presets: Filet, Windows-like.", key = Prefs.K_TAP_LISTS) {
-                TapSetRow("Lists", TapView.LISTS, prefs)
-            }
-        }
-        anchor(Prefs.K_TAP_GALLERY)
-        item {
-            HoldHint("The picture and video gallery in a category.", key = Prefs.K_TAP_GALLERY) {
-                TapSetRow("Gallery", TapView.GALLERY, prefs)
-            }
-        }
-        anchor(Prefs.K_TAP_TREE)
-        // The tree's Back is drawn inside the tree's set, so a search for it lands on the set.
-        anchor(Prefs.K_TREE_BACK_FOLDS)
-        item {
-            HoldHint("The tree view. Presets: Filet, Windows-like, Xplorer.", key = Prefs.K_TAP_TREE) {
-                TapSetRow("Tree view", TapView.TREE, prefs) {
-                    // The tree's own Back (#12) lives with the tree's taps.
-                    ToggleRow(
-                        "Back closes the folder you leave",
-                        "In the tree view. Folders open inside it close with it.",
-                        treeBackFolds,
-                        sub = true,
-                        key = Prefs.K_TREE_BACK_FOLDS,
-                    ) { prefs.setTreeBackFolds(it) }
-                }
-            }
-        }
         item { SettingsSection("Viewing options", "") }
         anchor(Prefs.K_TREE_VIEW)
         item {
@@ -703,6 +671,38 @@ fun SettingsPage(vm: BrowserViewModel) {
                             dev.niccc2007.filet.browser.PaneSwipe.Sensitivity.entries[it].id,
                         )
                     }
+                }
+            }
+        }
+        // What a tap, two, three and a hold do, per view (#34). One table, `TapPlan`, which every
+        // list, grid, tree and the gallery read; a row here per view, folded until opened.
+        item { SettingsSection("Tap actions", "") }
+        anchor(Prefs.K_TAP_LISTS)
+        item {
+            HoldHint("List, dated list and grid. Presets: Filet, Windows-like.", key = Prefs.K_TAP_LISTS) {
+                TapSetRow("Lists", TapView.LISTS, prefs)
+            }
+        }
+        anchor(Prefs.K_TAP_GALLERY)
+        item {
+            HoldHint("The picture and video gallery in a category.", key = Prefs.K_TAP_GALLERY) {
+                TapSetRow("Gallery", TapView.GALLERY, prefs)
+            }
+        }
+        anchor(Prefs.K_TAP_TREE)
+        // The tree's Back is drawn inside the tree's set, so a search for it lands on the set.
+        anchor(Prefs.K_TREE_BACK_FOLDS)
+        item {
+            HoldHint("The tree view. Presets: Filet, Windows-like, Xplorer.", key = Prefs.K_TAP_TREE) {
+                TapSetRow("Tree view", TapView.TREE, prefs) {
+                    // The tree's own Back (#12) lives with the tree's taps.
+                    ToggleRow(
+                        "Back closes the folder you leave",
+                        "In the tree view. Folders open inside it close with it.",
+                        treeBackFolds,
+                        sub = true,
+                        key = Prefs.K_TREE_BACK_FOLDS,
+                    ) { prefs.setTreeBackFolds(it) }
                 }
             }
         }
