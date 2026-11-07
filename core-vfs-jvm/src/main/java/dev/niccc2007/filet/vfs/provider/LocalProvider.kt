@@ -244,7 +244,7 @@ class LocalProvider(
 
     private fun VPath.toFile(): File {
         require(scheme == this@LocalProvider.scheme) { "wrong provider for $this" }
-        return File(path)
+        return File(fileString(path))
     }
 
     private fun pathOf(f: File): VPath = VPath.of(scheme, f.absolutePath.replace('\\', '/'))
@@ -323,5 +323,19 @@ class LocalProvider(
 
     companion object {
         const val SCHEME = "local"
+
+        private val DRIVE_ROOT = Regex("^/[A-Za-z]:$")
+
+        /**
+         * The string a VPath's file is opened by.
+         *
+         * Bug identified here: normalising a path drops a root's trailing slash, so `D:/` became
+         * `/D:`, and Windows reads a drive letter with no separator as drive-relative - the
+         * current folder on that drive, which is wherever the program was started. A share of a
+         * whole drive listed the desktop tool's own jar. A bare drive letter here always means
+         * the drive's root, so it gets its separator back. Off Windows nothing changes.
+         */
+        internal fun fileString(path: String, windows: Boolean = File.separatorChar == '\\'): String =
+            if (windows && DRIVE_ROOT.matches(path)) path.substring(1) + "\\" else path
     }
 }
