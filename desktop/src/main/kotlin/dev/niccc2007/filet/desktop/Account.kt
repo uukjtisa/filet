@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.desktop
 
+import dev.niccc2007.filet.webdav.AccessCode
 import java.security.SecureRandom
 import java.util.Random
 
@@ -33,14 +34,9 @@ data class Account(val password: String) {
      * EFFECTIVE code, not only the hand-set ones.
      */
     fun refuseCode(code: String, share: Share, all: List<Share>): String? {
-        if (code.length < MIN_CODE) return "That code is too short. Use at least $MIN_CODE characters."
-        if (code.length > MAX_CODE) return "That code is too long. Use at most $MAX_CODE characters."
-        val bad = code.filter { it !in ALPHABET }.toSet()
-        if (bad.isNotEmpty()) {
-            return "These characters cannot be used: ${bad.joinToString(" ")}. A code uses only " +
-                "the digits 2-9 and the letters $LETTERS - no vowels, and no 0, 1, l or o, so it " +
-                "cannot be misread when read aloud or off a screen."
-        }
+        // The phone's rule, from the one place both read it: any letters and digits, case kept.
+        // Only a code this tool makes keeps to the readable alphabet.
+        AccessCode.problem(code)?.let { return it }
         val clash = all.firstOrNull { it.path != share.path && codeFor(it) == code }
         if (clash != null) return "The share \"${clash.name}\" already uses that code. Pick a different one."
         return null
@@ -48,21 +44,15 @@ data class Account(val password: String) {
 
 
     companion object {
-        /**
-         * The phone's own code alphabet, copied rather than shared because `WebDavServer` keeps
-         * it private: lowercase, no vowels so it cannot spell anything, no `0 1 l o i` so it
-         * survives being read off a screen. Lowercase also because a phone keyboard capitalises
-         * the first letter of a box and the comparison is exact. SPEC.md asks for alphanumeric
-         * only - a dashed password broke a basic-auth comparison once - and this is a subset.
-         */
-        const val ALPHABET = "23456789bcdfghjkmnpqrstvwxz"
+        /** What a generated password is drawn from: [AccessCode.READABLE], the phone's own. */
+        const val ALPHABET = AccessCode.READABLE
 
         /** 27^10 is about 2e14, against a code that is only ever tried over a LAN round trip. */
         const val LENGTH = 10
 
+        /** The bounds of a password this tool made. A code typed by hand follows [AccessCode]. */
         const val MIN_CODE = 6
         const val MAX_CODE = 32
-        private val LETTERS = ALPHABET.filter { it.isLetter() }
 
         private val secure = SecureRandom()
 

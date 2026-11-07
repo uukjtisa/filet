@@ -1,5 +1,7 @@
 package dev.niccc2007.filet.desktop.mount
 
+import dev.niccc2007.filet.webdav.AccessCode
+
 /**
  * Where one share answers: host, port, scheme, and the access code that selects it.
  *
@@ -55,15 +57,12 @@ data class DavTarget(
         /**
          * The code as typed, or null when it cannot be one.
          *
-         * Letters and digits only, which is what the server accepts for a pinned code and all a
-         * minted one contains. Spaces are dropped because a code read across a room gets typed
-         * as `ab 12`. Case is kept: the server compares exactly, and lowercasing here would turn
-         * a correct pinned `Ab12` into a refusal that looks like a wrong code.
+         * [AccessCode]'s rule, the one the phone's server checks. Spaces are dropped because a
+         * code read across a room gets typed as `ab 12`. Case is kept: the server compares
+         * exactly, and lowercasing here would turn a correct pinned `Ab12` into a refusal that
+         * looks like a wrong code.
          */
-        fun cleanCode(typed: String): String? {
-            val c = typed.filterNot { it.isWhitespace() }
-            return c.takeIf { it.isNotEmpty() && it.length <= 64 && it.all { ch -> ch in 'a'..'z' || ch in 'A'..'Z' || ch in '0'..'9' } }
-        }
+        fun cleanCode(typed: String): String? = AccessCode.clean(typed)
 
         /**
          * Read an endpoint back out of a UNC path Windows reports for a mapped drive, or null

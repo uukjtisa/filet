@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.desktop
 
+import dev.niccc2007.filet.webdav.AccessCode
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -92,7 +93,7 @@ object ConfigCodec {
                 tag = s.optString("tag"),
                 // A hand-set code that would not pass the setter is dropped back to the
                 // account's, rather than served: it may collide or be unreadable.
-                code = s.optString("code").let { c -> if (c.isEmpty() || Account.valid(c)) c else "".also { repaired = true } },
+                code = s.optString("code").let { c -> if (c.isEmpty() || AccessCode.acceptable(c)) c else "".also { repaired = true } },
             )
         }
         val shares = Shares.withTags(read)

@@ -41,15 +41,17 @@ class AccountTest {
         assertEquals("bcd234fgh5x", a.codeFor(Share("D:/x", "X", false, "x")))
     }
 
-    @Test fun `a code is refused for length, alphabet and collision, each with its own reason`() {
+    @Test fun `a typed code follows the phone's rule, and is refused for symbols, length and collision`() {
         val a = Account("bcd234fgh5")
         val docs = Share("D:/Docs", "Docs", false, "docs")
         val pics = Share("D:/Pics", "Pics", false, "pics", code = "kkk777")
         val all = listOf(docs, pics)
-        assertTrue(a.refuseCode("kk7", docs, all)!!.contains("too short"))
-        assertTrue(a.refuseCode("k".repeat(33), docs, all)!!.contains("too long"))
-        val vowels = a.refuseCode("hello22", docs, all)!!
-        assertTrue(vowels, vowels.contains("e") && vowels.contains("o") && vowels.contains("cannot be used"))
+        // What the phone takes, the PC takes: short, capitals, vowels.
+        assertEquals(null, a.refuseCode("Ab1", docs, all))
+        assertEquals(null, a.refuseCode("hello22", docs, all))
+        assertTrue(a.refuseCode("k".repeat(65), docs, all)!!.contains("too long"))
+        val symbols = a.refuseCode("ab-12", docs, all)!!
+        assertTrue(symbols, symbols.contains("-") && symbols.contains("cannot be used"))
         assertTrue(a.refuseCode("kkk777", docs, all)!!.contains("Pics"))
         // Collides with another share's EFFECTIVE code, password + tag, not only hand-set ones.
         val dcs = Share("D:/Dcs", "Dcs", false, "dcs")

@@ -104,6 +104,8 @@ private fun SharingSection(host: HostService) {
                 Txt(s.name, bold = true, modifier = Modifier.width(110.dp))
                 Txt(if (gone) "${s.path}  (folder not found)" else s.path, 13, if (gone) Ink.warn else Ink.muted, modifier = Modifier.weight(1f))
                 Btn("Rename") { edit("name:${s.path}", s.name) }
+                // Same name, code and address; only the folder behind it changes.
+                Btn("Change folder") { pickFolder()?.let { note = host.moveShare(s.path, it.path) } }
                 Btn(if (s.writable) "read+write" else "read only") { host.setWritable(s.path, !s.writable) }
                 Btn("Remove") { host.removeShare(s.path) }
             }

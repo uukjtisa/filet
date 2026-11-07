@@ -127,6 +127,23 @@ object Shares {
         return Added.Ok(shares + share, share)
     }
 
+    /**
+     * Point the share at [from] to the folder [to] instead, or say why not.
+     *
+     * Everything else stays: the name, the tag and the code, so the address a phone or a mapped
+     * drive already has goes on working and simply shows the new folder. That is the point of
+     * moving rather than removing and adding, which would mint a new tag and a new address.
+     */
+    fun move(shares: List<Share>, from: String, to: String): Added {
+        val share = shares.firstOrNull { samePath(it.path, from) } ?: return Added.Refused("That folder is not shared any more.")
+        ShareGuard.refusal(to)?.let { return Added.Refused(it) }
+        val clean = to.trim().trimEnd('/', '\\').ifEmpty { to.trim() }
+        if (samePath(share.path, clean)) return Added.Ok(shares, share)
+        shares.firstOrNull { samePath(it.path, clean) }?.let { return Added.Refused("That folder is already shared as \"${it.name}\".") }
+        val moved = share.copy(path = clean)
+        return Added.Ok(shares.map { if (it === share) moved else it }, moved)
+    }
+
     /** Remove the share called [name]. */
     fun remove(shares: List<Share>, name: String): List<Share> = shares.filterNot { it.name == name }
 

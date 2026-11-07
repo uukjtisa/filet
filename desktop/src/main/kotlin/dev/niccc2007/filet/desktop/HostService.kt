@@ -22,6 +22,7 @@
  */
 package dev.niccc2007.filet.desktop
 
+import dev.niccc2007.filet.webdav.AccessCode
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
 import dev.niccc2007.filet.vfs.provider.LocalProvider
@@ -179,7 +180,8 @@ class HostService(
         val target = config.shares.firstOrNull { Shares.samePath(it.path, path) }
             ?: return "That folder is not shared any more."
         val account = config.account
-        val wanted = code?.trim()?.lowercase()
+        // Case kept: the server compares exactly, and the phone's rule allows capitals.
+        val wanted = code?.let { AccessCode.clean(it) ?: it.trim() }
             ?: generateSequence { Account.generate() }.first { account.refuseCode(it, target, config.shares) == null }
         account.refuseCode(wanted, target, config.shares)?.let { return it }
         replaceShare(target.copy(code = wanted), restart = true)
@@ -232,6 +234,28 @@ class HostService(
             is Shares.Added.Refused -> r.reason
             is Shares.Added.Ok -> { update(config.copy(shares = r.shares)); restartIfRunning(); null }
         }
+    }
+
+    /**
+     * Serve a different folder under the share at [path], keeping its name, tag and code (see
+     * [Shares.move]). A running share is restarted alone, because its root is read when it starts.
+     */
+    @Synchronized
+    fun moveShare(path: String, to: String): String? {
+        Shares.checkOnDisk(to)?.let { return it }
+        val r = Shares.move(config.shares, path, to)
+        if (r is Shares.Added.Refused) return r.reason
+        val moved = (r as Shares.Added.Ok).share
+        update(config.copy(shares = r.shares))
+        val id = byId.entries.firstOrNull { Shares.samePath(it.value.path, path) }?.key ?: return null
+        byId = byId + (id to moved)
+        val dav = toDav(id, moved)
+        server.shares = server.shares.map { if (it.id == id) dav else it }
+        if (server.isRunning()) {
+            server.stop(id)
+            server.start(id)
+        }
+        return null
     }
 
     fun removeShare(path: String) {

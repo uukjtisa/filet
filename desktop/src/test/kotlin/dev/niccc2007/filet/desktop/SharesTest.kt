@@ -70,4 +70,30 @@ class SharesTest {
         assertEquals("docs", out[0].tag)
         assertEquals("docs2", out[1].tag)
     }
+
+    // ── moving a share to another folder ──
+
+    @Test fun `a moved share keeps its name, tag, code and write setting`() {
+        val docs = Share("D:/Docs", "Docs", true, "docs", code = "Pinned9")
+        val pics = Share("D:/Pics", "Pics", false, "pics")
+        val r = Shares.move(listOf(docs, pics), "d:\\docs\\", "E:/Archive/Docs")
+        r as Shares.Added.Ok
+        assertEquals(Share("E:/Archive/Docs", "Docs", true, "docs", code = "Pinned9"), r.share)
+        assertEquals(listOf(r.share, pics), r.shares)
+    }
+
+    @Test fun `a move onto a folder already shared, or onto nothing, is refused`() {
+        val docs = Share("D:/Docs", "Docs", false, "docs")
+        val pics = Share("D:/Pics", "Pics", false, "pics")
+        val clash = Shares.move(listOf(docs, pics), "D:/Docs", "D:\\Pics")
+        assertTrue((clash as Shares.Added.Refused).reason.contains("Pics"))
+        assertTrue(Shares.move(listOf(docs), "D:/Gone", "E:/x") is Shares.Added.Refused)
+        assertTrue(Shares.move(listOf(docs), "D:/Docs", "") is Shares.Added.Refused)
+    }
+
+    @Test fun `moving a share to its own folder changes nothing`() {
+        val docs = Share("D:/Docs", "Docs", false, "docs")
+        val r = Shares.move(listOf(docs), "D:/Docs", "d:\\Docs") as Shares.Added.Ok
+        assertEquals(listOf(docs), r.shares)
+    }
 }
