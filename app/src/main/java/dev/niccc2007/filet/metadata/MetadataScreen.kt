@@ -42,6 +42,11 @@ import dev.niccc2007.filet.browser.humanSize
 import dev.niccc2007.filet.handlers.ViewerAction
 import dev.niccc2007.filet.handlers.ViewerBar
 import dev.niccc2007.filet.ui.dialogs.DlgTick
+import dev.niccc2007.filet.ui.dialogs.Dlg
+import dev.niccc2007.filet.ui.dialogs.DlgBody
+import dev.niccc2007.filet.ui.dialogs.DlgHeader
+import dev.niccc2007.filet.ui.dialogs.DlgPick
+import androidx.activity.compose.BackHandler
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 
@@ -95,6 +100,10 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
 
     var cover by remember(node.path) { mutableStateOf<Cover?>(null) }
     var coverPass by remember(node.path) { mutableStateOf(0) }
+    // A picture replaced or removed, held until Save like the fields: null for no change, a
+    // change of null for a removal. Shown in place of the file's own until then.
+    var coverEdit by remember(node.path) { mutableStateOf<CoverEdit?>(null) }
+    var askLeave by remember(node.path) { mutableStateOf(false) }
 
     LaunchedEffect(node.path, coverPass) {
         cover = runCatching { vm.readCover(node) }.getOrNull()
@@ -116,22 +125,56 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
         loading = false
     }
 
+    fun save(then: () -> Unit = {}) {
+        busy = true
+        val changed = fields.filter { (key, value) ->
+            asOpened.none { it.first.equals(key, ignoreCase = true) && it.second == value }
+        }
+        val picture = coverEdit
+        vm.writeMetadata(node, changed, backup, coverChanged = picture != null, cover = picture?.cover) {
+            busy = false
+            dirty = false
+            asOpened.clear()
+            asOpened.addAll(fields)
+            if (picture != null) {
+                coverEdit = null
+                coverPass++
+            }
+            then()
+        }
+    }
+
+    // Leaving with edits not written asks, by the top bar's close and by Back alike.
+    BackHandler(enabled = dirty && !busy) { askLeave = true }
+
     Column(Modifier.fillMaxSize()) {
         ViewerBar(
             title = node.name,
             subtitle = (format ?: readable)?.name?.let { "$it container" } ?: "unknown format",
-            onClose = { vm.closeHandler() },
+            onClose = { if (dirty) askLeave = true else vm.closeHandler() },
         ) {
-            ViewerAction(FiletIcons.Check, "Save", enabled = dirty && !busy && format != null) {
-                busy = true
-                val changed = fields.filter { (key, value) ->
-                    asOpened.none { it.first.equals(key, ignoreCase = true) && it.second == value }
-                }
-                vm.writeMetadata(node, changed, backup) {
-                    busy = false
-                    dirty = false
-                    asOpened.clear()
-                    asOpened.addAll(fields)
+            ViewerAction(FiletIcons.Check, "Save", enabled = dirty && !busy && format != null) { save() }
+        }
+
+        if (askLeave) {
+            Dlg(onDismiss = { askLeave = false }) {
+                DlgHeader(
+                    icon = FiletIcons.Save,
+                    title = "Apply your changes?",
+                    sub = "They are not written to the file yet.",
+                    onClose = { askLeave = false },
+                )
+                DlgBody {
+                    if (format != null) {
+                        DlgPick(FiletIcons.Check, "Apply") {
+                            askLeave = false
+                            save { vm.closeHandler() }
+                        }
+                    }
+                    DlgPick(FiletIcons.Close, "Discard") {
+                        askLeave = false
+                        vm.closeHandler()
+                    }
                 }
             }
         }
@@ -163,19 +206,25 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
             if (format?.binary == true) {
                 item {
                     CoverBlock(
-                        cover = cover,
+                        cover = coverEdit.let { if (it != null) it.cover else cover },
                         busy = busy,
                         onReplace = {
                             busy = true
-                            vm.replaceCover(node) { busy = false; coverPass++ }
+                            vm.pickCover(node) { picked ->
+                                busy = false
+                                if (picked != null) {
+                                    coverEdit = CoverEdit(picked)
+                                    dirty = true
+                                }
+                            }
                         },
                         onExtract = {
                             busy = true
                             vm.extractCover(node) { busy = false }
                         },
                         onRemove = {
-                            busy = true
-                            vm.removeCover(node) { busy = false; coverPass++ }
+                            coverEdit = CoverEdit(null)
+                            dirty = true
                         },
                     )
                 }
@@ -256,6 +305,9 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
  * because the question this block answers is "what picture is actually inside this file" - and a
  * cached answer to that is the one thing that would make it untrustworthy.
  */
+/** A picture change held until Save: [cover] attached, or null for removed. */
+private data class CoverEdit(val cover: Cover?)
+
 @Composable
 private fun CoverBlock(
     cover: Cover?,

@@ -3716,6 +3716,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         node: VNode,
         fields: List<Pair<String, String>>,
         backup: Boolean,
+        /** True when the attached picture was replaced or removed; [cover] is then the new one. */
+        coverChanged: Boolean = false,
+        /** The picture to attach, or null to remove it. Only read when [coverChanged]. */
+        cover: dev.niccc2007.filet.metadata.Cover? = null,
         onDone: () -> Unit,
     ) {
         viewModelScope.launch {
@@ -3733,8 +3737,12 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                     var written = 0
                     var refusal: String? = null
                     var failure: String? = null
-                    for ((key, value) in fields) {
-                        when (val r = graph.metadata.put(node.path, key, value)) {
+                    // The picture is one more edit, written after the backup like the fields.
+                    val edits: List<suspend () -> dev.niccc2007.filet.metadata.MetadataStore.Result> =
+                        fields.map { (key, value) -> suspend { graph.metadata.put(node.path, key, value) } } +
+                            (if (coverChanged) listOf(suspend { graph.metadata.putCover(node.path, cover) }) else emptyList())
+                    for (edit in edits) {
+                        when (val r = edit()) {
                             is dev.niccc2007.filet.metadata.MetadataStore.Result.Ok -> written++
                             // A refusal is the format's answer and worth saying out loud. The
                             // old version counted it as "nothing changed", so a field the
@@ -3782,13 +3790,16 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         graph.metadata.cover(node.path)
 
     /**
-     * Pick an image with Filet itself and make it the attached picture.
+     * Pick an image with Filet itself for the attached picture, and check it - but write
+     * nothing: the picture waits for Save like every other edit (see [writeMetadata]).
      *
      * The size check is here rather than in the store because it is about taste, not safety: a
      * cover is carried inside every copy of the file forever, and a 12 MP photo pasted in as
      * album art makes a four-minute song bigger than the album.
+     *
+     * @param onPicked the picture, or null when nothing was picked or it was refused.
      */
-    fun replaceCover(node: VNode, onDone: () -> Unit) {
+    fun pickCover(node: VNode, onPicked: (dev.niccc2007.filet.metadata.Cover?) -> Unit) {
         pick(
             dev.niccc2007.filet.pick.PickSpec(
                 "Choose a picture for " + node.name,
@@ -3800,7 +3811,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             val picked = (r as? dev.niccc2007.filet.pick.PickResult.Picked)?.first
             if (picked == null) {
                 // Backed out: nothing attached, and the screen's buttons come back.
-                onDone()
+                onPicked(null)
                 return@pick
             }
             viewModelScope.launch {
@@ -3811,12 +3822,12 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 }.getOrNull()
                 if (bytes == null) {
                     toast("Could not read that picture.")
-                    onDone()
+                    onPicked(null)
                     return@launch
                 }
                 if (dev.niccc2007.filet.metadata.Cover.sniff(bytes) == null) {
                     toast("That is not an image Filet recognises, so it was not attached.")
-                    onDone()
+                    onPicked(null)
                     return@launch
                 }
                 if (bytes.size > MAX_COVER_BYTES) {
@@ -3825,22 +3836,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                             "carried inside the file itself, so Filet keeps it under " +
                             humanSize(MAX_COVER_BYTES.toLong()) + ".",
                     )
-                    onDone()
+                    onPicked(null)
                     return@launch
                 }
-                report(
-                    graph.metadata.putCover(node.path, dev.niccc2007.filet.metadata.Cover.of(bytes)),
-                    "Picture attached",
-                )
-                onDone()
+                onPicked(dev.niccc2007.filet.metadata.Cover.of(bytes))
             }
-        }
-    }
-
-    fun removeCover(node: VNode, onDone: () -> Unit) {
-        viewModelScope.launch {
-            report(graph.metadata.removeCover(node.path), "Picture removed")
-            onDone()
         }
     }
 
