@@ -17,6 +17,11 @@ coroutines = "1.10.2"
 # work done once. Not ML Kit's scanner - that is Play Services, which an F-Droid build cannot
 # ship; decoding stays on zxing core.
 camerax = "1.6.2"
+# The second video player, the one that chooses its own decoder: a file past what the phone's
+# first decoder declares plays its sound over a black picture in MediaPlayer, and plays in this.
+# Apache-2.0. Behind a debug-only switch until it does everything the viewer does - see
+# `VideoParity`.
+media3 = "1.11.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -53,6 +58,7 @@ camerax-core = { group = "androidx.camera", name = "camera-core", version.ref = 
 camerax-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
 camerax-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
 camerax-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 
 libsu-core = { group = "com.github.topjohnwu.libsu", name = "core", version = "6.0.0" }
 libsu-io = { group = "com.github.topjohnwu.libsu", name = "io", version = "6.0.0" }

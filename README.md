@@ -325,7 +325,7 @@ Filet bundles ARSCLib (Apache-2.0), smali and dexlib2 (BSD), LuaJ (MIT), Apache
 commons-compress (Apache-2.0), XZ for Java (public domain) and zip4j (Apache-2.0) for
 the archive formats,
 sora-editor (LGPL-2.1, linked unmodified), ZXing (Apache-2.0) for QR codes, CameraX
-(Apache-2.0) for the scanner, BeatRoot's beat tracker as carried in TarsosDSP (GPL-2.0-or-later
+(Apache-2.0) for the scanner, Media3 ExoPlayer (Apache-2.0) as a second video player, BeatRoot's beat tracker as carried in TarsosDSP (GPL-2.0-or-later
 and GPL-3.0; the source is in `app/src/main/java/be/tarsos/dsp/beatroot`, with the file and
 MIDI input removed), and a build of SQLite with FTS5 and trigram enabled. Full attribution is on the About screen in the app.
 

@@ -205,7 +205,13 @@ internal enum class VideoFeature(val label: String) {
 }
 
 /** The players the viewer can run on. */
-internal enum class EngineKind { PLATFORM }
+internal enum class EngineKind {
+    /** `MediaPlayer`, in a `VideoView`. See [VideoViewEngine]. */
+    PLATFORM,
+
+    /** Media3's player, which chooses its own decoder. See [Media3Engine]. */
+    MEDIA3,
+}
 
 internal object VideoParity {
 
@@ -224,6 +230,16 @@ internal object VideoParity {
             VideoFeature.RATE_EFFECTS, VideoFeature.PICTURE_IN_PICTURE,
             VideoFeature.TAP_TO_PLAY_PREVIEW, VideoFeature.RESUME_POINTS,
             -> true
+        }
+        // Nothing yet: each is true once it has been tried on a phone and holds. 8D pan is not
+        // yet even in the code - this player has one volume for both sides, and the split goes
+        // through an audio processor in its renderer chain - but it is a "not yet", not a "no".
+        EngineKind.MEDIA3 -> when (feature) {
+            VideoFeature.SEEK, VideoFeature.SPEED, VideoFeature.FRAME_STEP,
+            VideoFeature.DOUBLE_TAP_SKIP, VideoFeature.SOUND_EFFECTS, VideoFeature.PAN_8D,
+            VideoFeature.RATE_EFFECTS, VideoFeature.PICTURE_IN_PICTURE,
+            VideoFeature.TAP_TO_PLAY_PREVIEW, VideoFeature.RESUME_POINTS,
+            -> false
         }
     }
 

@@ -28,6 +28,13 @@ class VideoParityTest {
     }
 
     @Test
+    fun `Media3 cannot be the default until it passes every feature`() {
+        assertEquals(EngineKind.PLATFORM, VideoParity.DEFAULT)
+        assertTrue(VideoFeature.PAN_8D in VideoParity.missing(EngineKind.MEDIA3))
+        assertEquals(false, VideoParity.canBeDefault(EngineKind.MEDIA3))
+    }
+
+    @Test
     fun `every engine answers for every feature`() {
         // Exhaustive in the code; here, that no answer throws or is skipped.
         for (engine in EngineKind.entries) {
