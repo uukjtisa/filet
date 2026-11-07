@@ -1,7 +1,6 @@
 package dev.niccc2007.filet.handlers
 
 import android.net.Uri
-import android.widget.VideoView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -139,16 +138,12 @@ private const val PRINT_AFTER_MS = 150L
 /**
  * The handle, kept out of Compose state so exactly one place starts and stops it.
  *
- * It holds the `MediaPlayer` as well as the view, and that is the whole fix for the seek
- * measured. `VideoView.seekTo(int)` goes to the nearest keyframe BEHIND the target, so a
- * stream with a keyframe every five seconds turns a drag to 12.5s into a jump to 10s - which
- * reads as a control that quantises rather than one that follows your finger. `MediaPlayer`
- * has taken a mode since API 26 and this app floors at 26, so the exact seek is simply
- * available and was not being asked for.
+ * It holds the engine - whatever plays the video, behind [VideoEngine] - and the exact seek
+ * goes through it: see [VideoEngine.seekExactly] for why a seek to the keyframe behind is not
+ * good enough.
  */
 private class VideoHandle {
-    var view: VideoView? = null
-    var player: android.media.MediaPlayer? = null
+    var engine: VideoEngine? = null
 
     /** This video's link to the video player's own sound. Remade per prepare. */
     var sound: dev.niccc2007.filet.playback.SoundLink? = null
@@ -170,13 +165,7 @@ private class VideoHandle {
     fun seekExactly(ms: Long) {
         val target = ms.coerceAtLeast(0L)
         seekAskedAt = android.os.SystemClock.uptimeMillis()
-        val mp = player
-        if (mp != null) {
-            runCatching { mp.seekTo(target, android.media.MediaPlayer.SEEK_CLOSEST) }
-                .onFailure { view?.seekTo(target.toInt()) }
-        } else {
-            view?.seekTo(target.toInt())
-        }
+        engine?.seekExactly(target)
     }
 }
 
@@ -430,7 +419,7 @@ private fun VideoPlayer(
     fun sideVolume(v: Float) {
         lastVolume[0] = v
         val link = handle.sound
-        runCatching { handle.player?.setVolume(v * (link?.panLeft ?: 1f), v * (link?.panRight ?: 1f)) }
+        handle.engine?.setVolume(v * (link?.panLeft ?: 1f), v * (link?.panRight ?: 1f))
     }
 
     LaunchedEffect(muted, handedOver, soundLevel) {
@@ -484,7 +473,7 @@ private fun VideoPlayer(
     LaunchedEffect(handedOver) {
         if (handedOver) {
             kotlinx.coroutines.delay(HANDOFF_FADE_MS.toLong())
-            runCatching { handle.player?.pause() }
+            runCatching { handle.engine?.pause() }
         }
     }
 
@@ -566,17 +555,13 @@ private fun VideoPlayer(
     // is, so the rail shortens to what this phone can actually do instead of keeping a
     // position that plays nothing.
     LaunchedEffect(speed, pitchMode, ready, soundRate) {
-        val mp = handle.player ?: return@LaunchedEffect
+        val engine = handle.engine ?: return@LaunchedEffect
         val wasPlaying = playing
         // Nightcore and Vaporwave multiply both, so they ride on whatever the sheet is set to.
         val (played, pitch) = dev.niccc2007.filet.playback.SoundMaths.played(
             speed, pitchMode.pitchFor(speed), soundRate, speedCeiling,
         )
-        val ok = runCatching {
-            mp.playbackParams = mp.playbackParams
-                .setSpeed(played)
-                .setPitch(pitch)
-        }.isSuccess
+        val ok = engine.setSpeed(played, pitch) ?: return@LaunchedEffect
         if (!ok) {
             if (played > 1f) {
                 speedCeiling = maxOf(1f, played - dev.niccc2007.filet.playback.SPEED_BACKOFF)
@@ -587,7 +572,7 @@ private fun VideoPlayer(
             return@LaunchedEffect
         }
         // Documented quirk: on some devices writing `playbackParams` STARTS a paused player.
-        if (!wasPlaying) runCatching { mp.pause() }
+        if (!wasPlaying) runCatching { engine.pause() }
     }
 
     /**
@@ -609,7 +594,7 @@ private fun VideoPlayer(
             ignoring = { vm.prefs.videoUninterrupted.value || handingOver },
             playing = { playing },
         ) { step ->
-            val v = handle.view ?: return@VideoFocus
+            val v = handle.engine ?: return@VideoFocus
             when (step) {
                 FocusStep.PAUSE -> { runCatching { v.pause() }; playing = false }
                 FocusStep.RESUME -> { runCatching { v.start() }; playing = true }
@@ -635,7 +620,7 @@ private fun VideoPlayer(
         val noisy = noisyWatch(context) {
             focus.steps.forget()
             if (playing) {
-                runCatching { handle.view?.pause() }
+                runCatching { handle.engine?.pause() }
                 playing = false
             }
         }
@@ -647,9 +632,9 @@ private fun VideoPlayer(
     val pipOnHome by vm.prefs.videoPipOnHome.collectAsStateWithLifecycle()
     val pipAuto = VideoPip.autoEnters(pipOnHome, playing, ready, handingOver)
     fun pictureRect(): android.graphics.Rect? =
-        handle.view?.let { v -> android.graphics.Rect().also { v.getGlobalVisibleRect(it) } }
+        handle.engine?.surface?.let { v -> android.graphics.Rect().also { v.getGlobalVisibleRect(it) } }
     PipEffects(activity, playing, videoSize, pipAuto, { pictureRect() }) {
-        val v = handle.view ?: return@PipEffects
+        val v = handle.engine ?: return@PipEffects
         if (playing) v.pause() else v.start()
         playing = !playing
     }
@@ -763,7 +748,7 @@ private fun VideoPlayer(
         // the rewind lands, and that is not a place anybody stopped at.
         if (!ready || handingOver || handedOver || finished) return
         val at = atMs
-            ?: runCatching { handle.player?.currentPosition?.toLong() }.getOrNull()?.coerceAtLeast(0L)
+            ?: handle.engine?.position?.coerceAtLeast(0L)
             ?: position
         writeResume(at)
     }
@@ -793,7 +778,7 @@ private fun VideoPlayer(
      */
     fun livePosition(): Long {
         if (System.currentTimeMillis() - steppedAt <= STEP_SETTLE_MS) return position
-        return runCatching { handle.player?.currentPosition?.toLong() }.getOrNull()?.coerceAtLeast(0L) ?: position
+        return handle.engine?.position?.coerceAtLeast(0L) ?: position
     }
 
     /** Returns once the last seek has landed, or after [SEEK_WAIT_MS]. A held step's pace. */
@@ -811,14 +796,14 @@ private fun VideoPlayer(
      * readout moves on, and on a moving clip the picture change says which it is. A still scene
      * reads as unchanged either way. The first [MEASURED_STEPS] presses on a video only.
      */
-    suspend fun reportStep(view: VideoView, before: IntArray, from: Long, to: Long, askedAt: Long) {
+    suspend fun reportStep(view: android.view.SurfaceView, before: IntArray, from: Long, to: Long, askedAt: Long) {
         val took = withTimeoutOrNull(1_500L) {
             while (handle.seekDoneAt < askedAt) delay(8)
             handle.seekDoneAt - askedAt
         }
         delay(PRINT_AFTER_MS)
         val change = printChange(before, surfacePrint(view))
-        val at = runCatching { handle.player?.currentPosition?.toLong() }.getOrNull()
+        val at = handle.engine?.position
         dev.niccc2007.filet.log.FiletLog.i("frames") {
             "step $from -> $to ms: " +
                 (if (took != null) "seek done in $took ms" else "no seek-complete in 1.5 s") +
@@ -839,8 +824,9 @@ private fun VideoPlayer(
      * waking the chrome: a step is a look at the picture, and the chrome would come back over it.
      */
     suspend fun stepFrames(by: Int, first: Boolean) {
-        val v = handle.view ?: return
-        if (playing) v.pause()
+        val engine = handle.engine ?: return
+        val v = engine.surface
+        if (playing) engine.pause()
         playing = false
         val from = livePosition()
         val to = frameList?.step(from, by) ?: FrameStep.target(from, duration, fps, by)
@@ -873,7 +859,7 @@ private fun VideoPlayer(
         vm.playback.handOffFromVideo(
             track = dev.niccc2007.filet.playback.tracksOf(listOf(node)).first(),
             positionNow = {
-                runCatching { handle.player?.currentPosition?.toLong() }.getOrNull() ?: position
+                handle.engine?.position ?: position
             },
             // The cue to let go, and the start of everything that looks like a hand-off.
             whenPlaying = { handedOver = true },
@@ -893,13 +879,14 @@ private fun VideoPlayer(
         VideoStart.back(VideoStart.Face.PLAYING, handingOver) == VideoStart.BackStep.TO_PREVIEW
     fun stopToPreview() {
         stopping = true
-        val at = runCatching { handle.player?.currentPosition?.toLong() }.getOrNull()?.coerceAtLeast(0L) ?: position
+        val at = handle.engine?.position?.coerceAtLeast(0L) ?: position
         // Written down before the preview comes up, so the preview opens on it. See VideoResume.
         saveResume(at)
-        val v = handle.view
-        runCatching { v?.pause() }
+        val engine = handle.engine
+        runCatching { engine?.pause() }
         playing = false
         // The picture as it was on the screen, read before the player goes.
+        val v = engine?.surface
         scope.launch { onStop(at, v?.let { captureStill(it) }) }
     }
     fun back() = if (backToPreview()) stopToPreview() else vm.closeHandler()
@@ -960,11 +947,13 @@ private fun VideoPlayer(
         // Runs while the view exists, not only while it is playing: the retract timer is now
         // about being touched rather than about playback, so it has to tick when paused.
         while (ready) {
-            val v = handle.view
+            val v = handle.engine
             if (v != null && scrubTo == null && System.currentTimeMillis() - steppedAt > STEP_SETTLE_MS) {
-                position = v.currentPosition.toLong().coerceAtLeast(0L)
+                // 0 when it cannot say, as the view's own reading was: between a surface going and
+                // the player made again for the next one.
+                position = (v.position ?: 0L).coerceAtLeast(0L)
             }
-            if (v != null) buffered = v.bufferPercentage
+            if (v != null) buffered = v.bufferPercent
             if (chromeVisible &&
                 ViewerChrome.shouldRetract(
                     now = System.currentTimeMillis(),
@@ -1083,7 +1072,7 @@ private fun VideoPlayer(
     // Repeat is a live setting, not a start-up one: turning it on halfway through a clip has
     // to take effect on that clip.
     LaunchedEffect(repeating, ready) {
-        runCatching { handle.player?.isLooping = repeating }
+        handle.engine?.looping = repeating
     }
 
     // A locked orientation belongs to the viewer, not to the app. Leaving it set would rotate
@@ -1139,9 +1128,8 @@ private fun VideoPlayer(
             runCatching {
                 handle.sound?.close()
                 handle.sound = null
-                handle.view?.stopPlayback()
-                handle.view = null
-                handle.player = null
+                handle.engine?.release()
+                handle.engine = null
             }
         }
     }
@@ -1154,12 +1142,12 @@ private fun VideoPlayer(
         var seekSeen = handle.seekDoneAt
         while (isActive && !w.done) {
             delay(PictureWatch.TICK_MS)
-            val now = runCatching { handle.player?.currentPosition?.toLong() }.getOrNull() ?: continue
+            val now = handle.engine?.position ?: continue
             val seeked = handle.seekDoneAt != seekSeen
             seekSeen = handle.seekDoneAt
             val going = playing && scrubTo == null && run == null && !handingOver && !inPip
             if (w.tick(PictureWatch.TICK_MS, going, advanced = last >= 0 && now > last, seeked = seeked)) {
-                runCatching { handle.view?.pause() }
+                runCatching { handle.engine?.pause() }
                 playing = false
                 val at = uri
                 noPicture = withContext(Dispatchers.IO) {
@@ -1186,7 +1174,7 @@ private fun VideoPlayer(
                 }
                 DlgAction(FiletIcons.Play, "Keep playing here", sub = "Sound only, unless the picture comes.") {
                     noPicture = null
-                    runCatching { handle.view?.start() }
+                    runCatching { handle.engine?.start() }
                     playing = true
                 }
             }
@@ -1233,31 +1221,25 @@ private fun VideoPlayer(
                         translationX = picture.offsetX; translationY = picture.offsetY
                     },
                 factory = { ctx ->
-                    VideoView(ctx).apply {
-                        // Before the URI, which is where VideoView asks for focus, and it asks
-                        // with no listener: nothing it lost would ever pause it. See VideoFocus.
-                        setAudioFocusRequest(AudioManager.AUDIOFOCUS_NONE)
-                        setVideoURI(uri)
-                        // No setMediaController: the whole point of this rewrite.
-                        setOnPreparedListener { mp ->
-                            handle.player = mp
-                            videoSize = mp.videoWidth to mp.videoHeight
-                            // VideoView sets no seek listener of its own, so this one is free.
-                            mp.setOnSeekCompleteListener { handle.seekDoneAt = android.os.SystemClock.uptimeMillis() }
+                    // Made only in the branch where the file is staged: `uri` is set by then.
+                    VideoViewEngine(ctx, checkNotNull(uri), object : VideoEngine.Events {
+                        override fun onPrepared(prepared: VideoEngine.Prepared) {
+                            val engine = handle.engine ?: return
+                            videoSize = prepared.width to prepared.height
                             // Linked per prepare: a prepare is a new player on the session, and
                             // effects are remade for it rather than trusted to have survived.
                             handle.sound = dev.niccc2007.filet.playback.Sound.of(ctx).link(
-                                mp.audioSessionId,
+                                prepared.audioSessionId,
                                 dev.niccc2007.filet.playback.SoundTarget.VIDEO,
                                 onRate = { soundRate = it },
                                 onPan = { sideVolume(lastVolume[0]) },
                             ) { soundLevel = it }
                             sideVolume(if (muted) 0f else handle.sound?.level ?: 1f)
-                            mp.isLooping = repeating
-                            duration = mp.duration.toLong().coerceAtLeast(0L)
+                            engine.looping = repeating
+                            duration = prepared.durationMs
                             ready = true
                             // Armed per prepare, and only for a file with a picture to wait for.
-                            watch = if (VideoDecode.hasVideoTrack(mp)) PictureWatch(VideoDecode.windowFor(staged)) else null
+                            watch = if (prepared.hasVideoTrack) PictureWatch(VideoDecode.windowFor(staged)) else null
                             // The swap, at the last possible instant.
                             //
                             // The position is read off the still-playing background player
@@ -1283,16 +1265,17 @@ private fun VideoPlayer(
                                 position = resumeAt
                                 resumeAt = 0L
                             }
-                            mp.start()
+                            engine.start()
                             // And once more now that it is playing: an effect made before the
                             // session's first start is dropped by some phones. See `SoundLink`.
                             handle.sound?.reattach()
                             playing = true
                         }
-                        setOnCompletionListener {
-                            // Only reached when repeat is off: a looping MediaPlayer never
-                            // completes. Rewinding rather than sitting on a black last frame,
-                            // so the play button does what it says.
+
+                        override fun onCompletion() {
+                            // Only reached when repeat is off: a looping player never completes.
+                            // Rewinding rather than sitting on a black last frame, so the play
+                            // button does what it says.
                             //
                             // Played to the end is kept, at the end: Carry on tags it finished
                             // and opening it starts it again (see Finished). First, so the pause
@@ -1305,17 +1288,21 @@ private fun VideoPlayer(
                             position = 0L
                             handle.seekExactly(0L)
                         }
-                        setOnErrorListener { _, what, extra ->
+
+                        override fun onError(what: Int, extra: Int) {
                             error = "This video would not play (error $what/$extra). " +
                                 "Try opening it in another app."
                             ready = false
-                            true
                         }
-                        setOnInfoListener { _, what, _ ->
-                            if (what == android.media.MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) watch?.drawn()
-                            false
+
+                        override fun onFirstFrame() {
+                            watch?.drawn()
                         }
-                    }.also { handle.view = it }
+
+                        override fun onSeekDone() {
+                            handle.seekDoneAt = android.os.SystemClock.uptimeMillis()
+                        }
+                    }).also { handle.engine = it }.surface
                 },
             )
         }
@@ -1405,7 +1392,7 @@ private fun VideoPlayer(
                             onDoubleTap = { at ->
                                 val zone = tapZone(at.x, size.width.toFloat())
                                 if (zone == TapZone.MIDDLE) {
-                                    val v = handle.view
+                                    val v = handle.engine
                                     if (v != null) {
                                         if (playing) v.pause() else v.start()
                                         playing = !playing
@@ -1585,7 +1572,7 @@ private fun VideoPlayer(
                         wake()
                     },
                     onToggle = {
-                        val v = handle.view ?: return@CentreTransport
+                        val v = handle.engine ?: return@CentreTransport
                         if (playing) v.pause() else v.start()
                         playing = !playing
                         wake()
@@ -1844,7 +1831,7 @@ private fun VideoPlayer(
                     onJump = { jumpFrames(it) },
                     settle = { settled() },
                     onToggle = {
-                        handle.view?.let { v ->
+                        handle.engine?.let { v ->
                             if (playing) v.pause() else v.start()
                             playing = !playing
                         }
