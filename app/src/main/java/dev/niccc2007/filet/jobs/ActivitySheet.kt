@@ -1,7 +1,8 @@
 package dev.niccc2007.filet.jobs
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animate
+import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,10 +33,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,8 +65,6 @@ import dev.niccc2007.filet.ui.tabs.TabButton
 import dev.niccc2007.filet.ui.tabs.TabHeader
 import dev.niccc2007.filet.ui.theme.Filet
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** On an intent from a job's notification: open the Activity tab. Read by MainActivity. */
@@ -73,7 +72,7 @@ const val EXTRA_OPEN_ACTIVITY = "dev.niccc2007.filet.extra.OPEN_ACTIVITY"
 
 /** What the Activity tab can ask the rest of the app to do with a job's result. */
 class ActivityActions(
-    /** A tap on a finished job: a folder opens, a file is shown in its folder. */
+    /** Go to folder: a folder opens, a file is shown in its folder. See [JobAction.GO_TO]. */
     val go: (String) -> Unit,
     /** Open the result itself: the folder, or the file in whatever opens it. */
     val open: (String) -> Unit,
@@ -101,10 +100,12 @@ class ActivityActions(
  *
  * ## What a row does
  *
- * - **Tap** a running job: it opens to show from and to, the count, the data moved, the speed and
- *   the time left, with Pause and Stop. Tap a finished one: it goes to what it made.
- * - **Hold**: everything else - open the result, show it in its folder, retry, run again, copy
- *   the details, remove it.
+ * - **Tap** any row: it opens, and only opens - from and to, the count, the data moved, and
+ *   while it runs the speed and the time left - with what the job offers under it: Pause and
+ *   Stop while it runs; Go to folder, or Open and Show in folder, once it has made something;
+ *   Retry or Run again. One list for every kind, see [JobActions]. A tap that jumped away on
+ *   some kinds and opened on others hid a copy's details behind its folder.
+ * - **Hold**: the same, and copying the details and removing it.
  * - **Swipe** a finished row away to clear it.
  */
 @Composable
@@ -133,9 +134,7 @@ fun ActivityBody(ledger: JobLedger, actions: ActivityActions) {
     val toggle: (Job) -> Unit = { j ->
         expanded = if (j.id in expanded) expanded - j.id else expanded + j.id
     }
-    val tap: (Job) -> Unit = { j ->
-        if (!j.running && j.opened.isNotEmpty()) actions.go(j.opened) else toggle(j)
-    }
+    val act: (Job, JobAction) -> Unit = { j, a -> perform(j, a, ledger, actions) }
 
     LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("activity")) {
         item {
@@ -159,10 +158,10 @@ fun ActivityBody(ledger: JobLedger, actions: ActivityActions) {
                 JobRow(
                     job, now, query,
                     expanded = job.id in expanded,
-                    onTap = { tap(job) },
+                    onTap = { toggle(job) },
                     onHold = { menuFor = job },
                     onStop = { ledger.requestCancel(job.id) },
-                    onPause = { if (job.paused) ledger.resume(job.id) else ledger.pause(job.id) },
+                    onAction = { act(job, it) },
                     onSwipedAway = if (swipe) ({ ledger.remove(job.id) }) else null,
                 )
             }
@@ -177,10 +176,10 @@ fun ActivityBody(ledger: JobLedger, actions: ActivityActions) {
                     JobRow(
                         job, now, query,
                         expanded = job.id in expanded,
-                        onTap = { tap(job) },
+                        onTap = { toggle(job) },
                         onHold = { menuFor = job },
                         onStop = {},
-                        onPause = {},
+                        onAction = { act(job, it) },
                         onSwipedAway = { ledger.remove(job.id) },
                     )
                 }
@@ -207,6 +206,12 @@ fun ActivityBody(ledger: JobLedger, actions: ActivityActions) {
  * **Stop** stays on the collapsed row while it runs, as it always was: the row somebody is
  * looking at while the work runs is the one where calling it off matters most. Pause and the
  * figures are one tap further, because they are looked at, not reached for.
+ *
+ * The swipe's offset is plain state the drag writes as it moves, and the settle afterwards runs
+ * under the drag's own lock. It was an animation each move of the finger launched a coroutine to
+ * snap, and a snap that ran after the finger lifted cancelled the settle: the row stopped where it
+ * was, part-way out, and a swipe-away never cleared it. Now a touch that lands mid-settle takes
+ * the row over, and nothing else can.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -218,26 +223,28 @@ private fun JobRow(
     onTap: () -> Unit,
     onHold: () -> Unit,
     onStop: () -> Unit,
-    onPause: () -> Unit,
+    onAction: (JobAction) -> Unit,
     onSwipedAway: (() -> Unit)?,
 ) {
     val colors = Filet.colors
-    val scope = rememberCoroutineScope()
-    val offset = remember { Animatable(0f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
     var width by remember { mutableStateOf(1) }
+    val dragging = rememberDraggableState { d -> offsetX += d }
     val swipe = if (onSwipedAway != null && !job.running) {
         Modifier.draggable(
-            rememberDraggableState { d -> scope.launch { offset.snapTo(offset.value + d) } },
+            dragging,
             Orientation.Horizontal,
             onDragStopped = { v ->
-                // Away past 40% of the row or on a fling; anything less springs back, so a
-                // sideways wobble while scrolling never clears a row.
-                if (abs(offset.value) > width * 0.4f || abs(v) > 2_000f) {
-                    offset.animateTo(if (offset.value + v / 10f < 0) -width.toFloat() else width.toFloat())
-                    onSwipedAway()
-                } else {
-                    offset.animateTo(0f)
+                val end = SwipeAway.settle(offsetX, width.toFloat(), v)
+                // Interrupted by a new touch, this throws, and the row is the finger's again.
+                dragging.drag(MutatePriority.Default) {
+                    var at = offsetX
+                    animate(at, end, v) { value, _ ->
+                        dragBy(value - at)
+                        at = value
+                    }
                 }
+                if (end != 0f) onSwipedAway()
             },
         )
     } else {
@@ -248,7 +255,7 @@ private fun JobRow(
         Modifier
             .fillMaxWidth()
             .onSizeChanged { width = it.width.coerceAtLeast(1) }
-            .offset { IntOffset(offset.value.roundToInt(), 0) }
+            .offset { IntOffset(offsetX.roundToInt(), 0) }
             .then(swipe)
             .combinedClickable(onClick = onTap, onLongClick = onHold)
             .animateContentSize()
@@ -297,9 +304,6 @@ private fun JobRow(
                         .clickable(onClick = onStop)
                         .padding(8.dp),
                 )
-            } else if (!job.running && job.opened.isNotEmpty()) {
-                Spacer(Modifier.width(4.dp))
-                Icon(FiletIcons.FolderOpen, null, tint = colors.fg3, modifier = Modifier.size(14.dp))
             }
         }
         if (job.running) {
@@ -313,13 +317,13 @@ private fun JobRow(
                 LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
             }
         }
-        if (expanded) JobFigures(job, now, onPause, onStop)
+        if (expanded) JobFigures(job, now, onAction)
     }
 }
 
-/** The opened row: where from, where to, how much, how fast, how long, and the two controls. */
+/** The opened row: where from, where to, how much, how fast, how long, and what it offers. */
 @Composable
-private fun JobFigures(job: Job, now: Long, onPause: () -> Unit, onStop: () -> Unit) {
+private fun JobFigures(job: Job, now: Long, onAction: (JobAction) -> Unit) {
     val colors = Filet.colors
     Column(Modifier.fillMaxWidth().padding(start = 28.dp, top = 6.dp)) {
         @Composable
@@ -340,11 +344,11 @@ private fun JobFigures(job: Job, now: Long, onPause: () -> Unit, onStop: () -> U
         }
         if (job.detail.isNotEmpty() && !job.running) line("Result", job.detail)
         job.error?.let { line("Error", it) }
-        if (job.running && (job.pausable || job.cancellable)) {
+        val offered = JobActions.of(job)
+        if (offered.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (job.pausable) Chip(if (job.paused) FiletIcons.Play else FiletIcons.Pause, if (job.paused) "Resume" else "Pause", onPause)
-                if (job.cancellable) Chip(FiletIcons.Close, "Stop", onStop)
+                for (a in offered) Chip(iconOf(a), a.label) { onAction(a) }
             }
         }
     }
@@ -379,23 +383,8 @@ private fun JobMenu(job: Job, now: Long, ledger: JobLedger, actions: ActivityAct
             onClose = onClose,
         )
         DlgBody {
-            val result = job.opened.takeIf { it.isNotEmpty() && !job.running }
-            if (result != null) {
-                DlgPick(FiletIcons.Open, "Open result") { onClose(); actions.open(result) }
-                DlgPick(FiletIcons.FolderOpen, "Show in folder") { onClose(); actions.showInFolder(result) }
-            }
-            if (job.running && job.pausable) {
-                DlgPick(if (job.paused) FiletIcons.Play else FiletIcons.Pause, if (job.paused) "Resume" else "Pause") {
-                    onClose()
-                    if (job.paused) ledger.resume(job.id) else ledger.pause(job.id)
-                }
-            }
-            if (job.running && job.cancellable) {
-                DlgPick(FiletIcons.Close, "Stop") { onClose(); ledger.requestCancel(job.id) }
-            }
-            if (!job.running && job.canRunAgain) {
-                val retry = job.state == JobState.FAILED || job.state == JobState.CANCELLED
-                DlgPick(FiletIcons.Refresh, if (retry) "Retry" else "Run again") { onClose(); ledger.runAgain(job.id) }
+            for (a in JobActions.of(job)) {
+                DlgPick(iconOf(a), a.label) { onClose(); perform(job, a, ledger, actions) }
             }
             DlgPick(FiletIcons.Copy, "Copy details") { onClose(); actions.copy(JobText.details(job, now)) }
             if (!job.running) {
@@ -403,6 +392,28 @@ private fun JobMenu(job: Job, now: Long, ledger: JobLedger, actions: ActivityAct
             }
         }
     }
+}
+
+/** What pressing [action] does, from the opened row or the hold menu alike. */
+private fun perform(job: Job, action: JobAction, ledger: JobLedger, actions: ActivityActions) {
+    when (action) {
+        JobAction.GO_TO -> actions.go(job.opened)
+        JobAction.OPEN -> actions.open(job.opened)
+        JobAction.SHOW_IN_FOLDER -> actions.showInFolder(job.opened)
+        JobAction.PAUSE -> ledger.pause(job.id)
+        JobAction.RESUME -> ledger.resume(job.id)
+        JobAction.STOP -> ledger.requestCancel(job.id)
+        JobAction.RETRY, JobAction.RUN_AGAIN -> ledger.runAgain(job.id)
+    }
+}
+
+private fun iconOf(action: JobAction): ImageVector = when (action) {
+    JobAction.GO_TO, JobAction.SHOW_IN_FOLDER -> FiletIcons.FolderOpen
+    JobAction.OPEN -> FiletIcons.Open
+    JobAction.PAUSE -> FiletIcons.Pause
+    JobAction.RESUME -> FiletIcons.Play
+    JobAction.STOP -> FiletIcons.Close
+    JobAction.RETRY, JobAction.RUN_AGAIN -> FiletIcons.Refresh
 }
 
 private fun subline(job: Job): String = buildString {
