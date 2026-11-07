@@ -102,7 +102,7 @@ class ActivityActions(
  *
  * - **Tap** any row: it opens, and only opens - from and to, the count, the data moved, and
  *   while it runs the speed and the time left - with what the job offers under it: Pause and
- *   Stop while it runs; Go to folder, or Open and Show in folder, once it has made something;
+ *   Stop while it runs; Go to folder, or Open and Open location, once it has made something;
  *   Retry or Run again. One list for every kind, see [JobActions]. A tap that jumped away on
  *   some kinds and opened on others hid a copy's details behind its folder.
  * - **Hold**: the same, and copying the details and removing it.

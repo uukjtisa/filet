@@ -195,7 +195,7 @@ fun CategoryScreen(vm: BrowserViewModel, pane: dev.niccc2007.filet.browser.PaneC
 
     // The gallery's peek. Select first, as in the folder grid: it is how a selection starts
     // from a gallery without the slide. A tile already selected offers Deselect in its place.
-    // More is the sheet a list row's hold opens, keeping Show in folder, Bookmark and Shortcut
+    // More is the sheet a list row's hold opens, keeping Open location, Bookmark and Shortcut
     // one tap away.
     peekFor?.let { node ->
         val chosen = node.path in pane.selectionNow()

@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.handlers
 
+import dev.niccc2007.filet.ui.Labels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -130,7 +131,7 @@ internal val MUSIC_BAR = 50.dp
 /** More's way to the file's folder. Out of every viewer, not back one: see the callers. */
 @Composable
 internal fun ShowInFolderRow(onClick: () -> Unit) {
-    PopRow(FiletIcons.Folder, "Show in folder", onClick = onClick)
+    PopRow(FiletIcons.Folder, Labels.OPEN_LOCATION, onClick = onClick)
 }
 
 /**

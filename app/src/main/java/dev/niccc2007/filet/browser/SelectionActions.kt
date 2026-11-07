@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.browser
 
+import dev.niccc2007.filet.ui.Labels
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
@@ -112,7 +113,7 @@ data class SelectionShape(
  *   should not have a destructive action one tap from the one they meant.
  * @param announceable the selection is on this device's own storage, so the media index can hold it.
  * @param elsewhere the one selected item lives somewhere other than the folder on screen - a
- *   search hit, a category, New files - so Show in folder is a step somewhere rather than a
+ *   search hit, a category, New files - so Open location is a step somewhere rather than a
  *   step to where it already is.
  */
 fun selectionActions(
@@ -136,6 +137,14 @@ fun selectionActions(
     fun partOf(label: String, n: Int): String = if (n < shape.count) "$label · $n of ${shape.count}" else label
 
     return buildList {
+        // Open location heads the list: it is about where the thing is, so it belongs with what
+        // acts on the thing and not under "Put somewhere", where it sat and read as wrong.
+        // Only where it goes somewhere: from a folder, the item is already in its folder.
+        if (single && elsewhere) {
+            on.reveal?.let { run ->
+                add(SelectionAction("reveal", Labels.OPEN_LOCATION, icons.folder, run = run))
+            }
+        }
         // Copy and Move apply to anything that can be selected.
         add(SelectionAction("copy", "Copy", icons.copy, run = on.copy))
         add(SelectionAction("move", "Move", icons.cut, blocked = readOnly, run = on.move))
@@ -272,12 +281,6 @@ fun selectionActions(
         // is drawn.
         on.invert?.let { run ->
             add(SelectionAction("invert", "Invert selection", icons.invert, group = SelectionAction.Group.EDIT, run = run))
-        }
-        // Only where it goes somewhere: from a folder, the item is already in its folder.
-        if (single && elsewhere) {
-            on.reveal?.let { run ->
-                add(SelectionAction("reveal", "Show in folder", icons.folder, group = SelectionAction.Group.PLACE, run = run))
-            }
         }
         // Bookmark and Nearby take any number of files and folders.
         add(

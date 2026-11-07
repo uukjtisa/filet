@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.playback
 
+import dev.niccc2007.filet.ui.Labels
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -160,7 +161,7 @@ fun ResumeScreen(vm: BrowserViewModel) {
                             menu = false
                             vm.resumePoint(point, fromStart = true)
                         }
-                        PopRow(FiletIcons.FolderOpen, "Open containing folder") {
+                        PopRow(FiletIcons.FolderOpen, Labels.OPEN_LOCATION) {
                             menu = false
                             runCatching {
                                 vm.revealPathInFolder(

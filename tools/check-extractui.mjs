@@ -87,7 +87,7 @@ const SECOND_OPINIONS = [
 /**
  * Rows that act on a selection, which the toolbar's overflow menu must not carry. See X12.
  */
-const SELECTION_ROWS = /"(Extract|Extract to the other pane|Copy as path|Invert selection|Show in folder|Compress|Rename|Properties)"/;
+const SELECTION_ROWS = /"(Extract|Extract to the other pane|Copy as path|Invert selection|Open location|Compress|Rename|Properties)"/;
 
 /**
  * The destinations in the SELECTION action list.

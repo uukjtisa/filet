@@ -2,6 +2,7 @@
 
 package dev.niccc2007.filet.home
 
+import dev.niccc2007.filet.ui.Labels
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalContext
 import dev.niccc2007.filet.data.FiletStore
@@ -520,7 +521,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
 
     // What a Home row can do besides open.
     //
-    // "Go to containing folder" is the one that was missing and the one that is wanted most:
+    // Open location is the one that was missing and the one that is wanted most:
     // Home shows you a file out of context, and the next thought is almost always "where does
     // this live".
     menuFor?.let { (node, fromOpened) ->
@@ -673,7 +674,7 @@ fun HomeRowSheet(
         )
         DlgBody(padded = false) {
             Spacer(Modifier.height(6.dp))
-            DlgAction(FiletIcons.FolderOpen, "Go to containing folder", onClick = onReveal)
+            DlgAction(FiletIcons.FolderOpen, Labels.OPEN_LOCATION, onClick = onReveal)
             DlgAction(
                 if (node.isDir) FiletIcons.Folder else FiletIcons.Open,
                 if (node.isDir) "Open folder" else "Open",

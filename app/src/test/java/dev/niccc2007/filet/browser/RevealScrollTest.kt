@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * "Go to containing folder" has to put the file in front of you.
+ * Open location has to put the file in front of you.
  *
  * Reported as the tab opening somewhere else instead of where the file is. Opening the folder
  * and selecting the row is only half of it: the listing starts at the top, so a file far down
@@ -146,7 +146,7 @@ class RevealScrollTest {
 
     @Test
     fun `a chunked listing that has not finished is waited for`() {
-        // THE REGRESSION, as a test. "Go to containing folder" stopped scrolling the moment
+        // THE REGRESSION, as a test. Open location stopped scrolling the moment
         // listings began arriving in chunks: the effect fired on chunk one, the target was not
         // among the first 120 entries, and the old code read that as "not in this listing" and
         // dropped the request. Nothing scrolled, ever, for any file outside the first chunk.

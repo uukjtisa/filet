@@ -3026,7 +3026,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     /** Whether every selected item is somewhere this phone's media index can hold. */
     /**
      * One item is selected and it lives somewhere other than the folder on screen: a search hit
-     * from below it, a category, New files. Where Show in folder is a step somewhere.
+     * from below it, a category, New files. Where Open location is a step somewhere.
      */
     fun selectionIsElsewhere(): Boolean {
         val pane = focusedPane() ?: return false

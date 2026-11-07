@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.playback
 
+import dev.niccc2007.filet.ui.Labels
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -1299,7 +1300,7 @@ private fun TrackRow(
                 onUp?.let { PopRow(FiletIcons.Up, "Move up") { menu = false; it() } }
                 onDown?.let { PopRow(FiletIcons.Down, "Move down") { menu = false; it() } }
                 PopRow(FiletIcons.Plus, "Add to another playlist") { menu = false; onAddTo() }
-                PopRow(FiletIcons.FolderOpen, "Open containing folder") { menu = false; onReveal() }
+                PopRow(FiletIcons.FolderOpen, Labels.OPEN_LOCATION) { menu = false; onReveal() }
                 onBeatMap?.let { PopRow(FiletIcons.Audio, "Make beat map") { menu = false; it() } }
                 onRemove?.let {
                     PopSeparator()

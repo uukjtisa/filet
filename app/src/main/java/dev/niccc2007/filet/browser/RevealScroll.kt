@@ -5,7 +5,7 @@ import kotlin.math.max
 /**
  * Where to scroll a listing so a particular file is actually in front of you.
  *
- * Bug identified: "go to containing folder" opened the folder and selected the row and stopped
+ * Bug identified: Open location opened the folder and selected the row and stopped
  * there. The listing arrives at the top, so a file eight hundred rows down was selected and
  * off screen - present in the sense that it existed, and nowhere in the sense that matters.
  * Worse, the pane scrolls to the top whenever the folder changes, so even a scroll would have

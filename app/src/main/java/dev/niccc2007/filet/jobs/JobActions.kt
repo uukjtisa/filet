@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.jobs
 
+import dev.niccc2007.filet.ui.Labels
 import kotlin.math.abs
 
 /** One thing an Activity row offers. The label is what the button says. */
@@ -11,7 +12,7 @@ enum class JobAction(val label: String) {
     OPEN("Open"),
 
     /** The result in the folder that holds it, selected. */
-    SHOW_IN_FOLDER("Show in folder"),
+    SHOW_IN_FOLDER(Labels.OPEN_LOCATION),
     PAUSE("Pause"),
     RESUME("Resume"),
     STOP("Stop"),
