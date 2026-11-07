@@ -1200,6 +1200,33 @@ class PaneController(
     }
 
     /**
+     * Open, in the tree, as Xplorer does it (#34): a folder unfolds and is stood in; the folder
+     * already stood in folds or unfolds; a folder above the one stood in keeps open and folds the
+     * branch it is gone back up out of. A file is opened from the folder it is in.
+     *
+     * The tree's other tap, [focusRow], only stands in a folder and leaves the folding to a second
+     * tap - which is the Filet preset. Both stay, as two choices in the tap table.
+     */
+    fun treeOpen(node: VNode) {
+        val branch = TreeBranch.keyOf(node)
+        if (branch == null) {
+            focusRow(node)
+            open(node)
+            return
+        }
+        val s = _state.value
+        if (s.active == branch) {
+            flipBranch(branch)
+            focusPath(branch, record = false)
+            return
+        }
+        val folded = TapPlan.foldOnTheWay(s.open, branch, s.active)
+        if (folded != s.open) _state.update { it.copy(open = folded) }
+        if (branch !in _state.value.open) toggleBranch(branch)
+        focusPath(branch)
+    }
+
+    /**
      * Stand in the branch a row belongs to, without opening or closing anything: the folder
      * itself for a folder row, the folder a file is in for a file row. A tree row's tap.
      *

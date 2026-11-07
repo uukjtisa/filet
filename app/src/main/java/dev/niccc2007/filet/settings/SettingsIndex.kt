@@ -92,6 +92,36 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
         text = "Restore tabs Reopens the last session's tabs on start.",
     ),
     SettingsEntry(
+        key = Prefs.K_TAP_LISTS,
+        title = "Lists",
+        tab = SettingsGroup.BROWSING,
+        section = "Tap actions",
+        text = "List, dated list and grid. Presets: Filet, Windows-like. Lists",
+    ),
+    SettingsEntry(
+        key = Prefs.K_TAP_GALLERY,
+        title = "Gallery",
+        tab = SettingsGroup.BROWSING,
+        section = "Tap actions",
+        text = "The picture and video gallery in a category. Gallery",
+    ),
+    SettingsEntry(
+        key = Prefs.K_TAP_TREE,
+        title = "Tree view",
+        tab = SettingsGroup.BROWSING,
+        section = "Tap actions",
+        text = "The tree view. Presets: Filet, Windows-like, Xplorer. Tree view Back closes " +
+            "the folder you leave In the tree view. Folders open inside it close with it.",
+    ),
+    SettingsEntry(
+        key = Prefs.K_TREE_BACK_FOLDS,
+        title = "Back closes the folder you leave",
+        tab = SettingsGroup.BROWSING,
+        section = "Tap actions",
+        text = "Back closes the folder you leave In the tree view. Folders open inside it " +
+            "close with it.",
+    ),
+    SettingsEntry(
         key = Prefs.K_TREE_VIEW,
         title = "Tree view",
         tab = SettingsGroup.BROWSING,
@@ -99,12 +129,12 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
         text = "Tree view Shows folders as an expandable tree.",
     ),
     SettingsEntry(
-        key = Prefs.K_TREE_BACK_FOLDS,
-        title = "Back closes the folder you leave",
+        key = Prefs.K_LIST_ICON_SCALE,
+        title = "Icon size",
         tab = SettingsGroup.BROWSING,
         section = "Viewing options",
-        text = "Back closes the folder you leave In the tree view. Folders open inside it " +
-            "close with it.",
+        text = "Icon size How big icons and thumbnails are in the compact, list and " +
+            "comfortable views. Grids keep their own sizes.",
     ),
     SettingsEntry(
         key = Prefs.K_FOLDERS_FIRST,

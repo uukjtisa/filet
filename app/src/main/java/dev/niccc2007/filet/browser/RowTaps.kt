@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,6 +28,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -65,6 +67,10 @@ object RowTaps {
  *
  * @param selecting whether a selection is live. Changes how taps are timed - see [RowTaps].
  * @param onDoubleTap where the finger was, in root coordinates, so a menu can open under it.
+ * @param onTaps with no selection running, the settled count of taps and where the finger was,
+ *   for the view's tap set to decide (#34). Null keeps a tap and a double tap as above.
+ * @param listensFor the most taps worth waiting for; see `TapSet.listensFor`. One acts the
+ *   moment the finger lifts.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -73,10 +79,16 @@ fun Modifier.rowTaps(
     onTap: () -> Unit,
     onLongClick: () -> Unit,
     onDoubleTap: (Offset) -> Unit,
+    listensFor: Int = 2,
+    onTaps: ((Int, Offset) -> Unit)? = null,
 ): Modifier {
     var origin by remember { mutableStateOf(Offset.Zero) }
     var lastDown by remember { mutableStateOf(Offset.Zero) }
     val liveDouble = rememberUpdatedState(onDoubleTap)
+    val liveTaps = rememberUpdatedState(onTaps)
+    val scope = rememberCoroutineScope()
+    val window = LocalViewConfiguration.current.doubleTapTimeoutMillis
+    val counter = remember(scope, window) { TapCounter(scope, window) }
     val tracked = this
         .onGloballyPositioned { origin = it.positionInRoot() }
         // Only watches. Where the finger lands, so the menu a double tap opens is under it.
@@ -85,6 +97,18 @@ fun Modifier.rowTaps(
                 lastDown = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial).position
             }
         }
+    if (!selecting && onTaps != null) {
+        // The count is settled by [TapCounter] rather than by `combinedClickable`'s double tap,
+        // which stops at two and always makes the first tap wait. Counted here, a row whose set
+        // has nothing on two taps opens on the first without waiting at all.
+        return tracked.combinedClickable(
+            onClick = {
+                val at = origin + lastDown
+                counter.tap(Unit, listensFor) { n -> liveTaps.value?.invoke(n, at) }
+            },
+            onLongClick = onLongClick,
+        )
+    }
     if (!selecting) {
         return tracked.combinedClickable(
             onClick = onTap,

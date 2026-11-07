@@ -98,10 +98,26 @@ data class PaneMetrics(
     val nameLines: Int = 2,
     /** Carried so the things that size themselves against the pane can ask. See [TreeScale]. */
     val widthDp: Int = 0,
+    /**
+     * The Icon size slider (#49): a larger picture in a row that stays a row. Lists only - a
+     * grid's tile is its own size control, and scaling both would make the two fight.
+     */
+    val iconScale: Float = 1f,
 ) {
+    /** The icon's side, in dp, after [iconScale]. Read this, never `step.icon`, for a row. */
+    val icon: Int get() = if (step.isGrid) step.icon else (step.icon * iconScale).toInt()
+
+    /**
+     * The row grows by exactly what the icon grew, so a bigger picture is never a cramped one -
+     * the same rule the steps themselves keep. It never shrinks below the step's own height,
+     * which also holds the tap target.
+     */
+    val rowHeight: Int get() = if (step.isGrid) step.rowHeight else maxOf(step.rowHeight, step.rowHeight + icon - step.icon)
+
     companion object {
-        fun forWidth(widthDp: Int, requested: ViewStep, nameLines: Int = 2) = PaneMetrics(
+        fun forWidth(widthDp: Int, requested: ViewStep, nameLines: Int = 2, iconScale: Float = 1f) = PaneMetrics(
             widthDp = widthDp,
+            iconScale = iconScale,
             step = if (widthDp < 270 && requested.isGrid) ViewStep.LIST
             else if (widthDp < 200) ViewStep.COMPACT_LIST
             else requested,
@@ -161,6 +177,9 @@ fun FileRow(
     onLongClick: () -> Unit,
     /** Where the second tap landed, in root coordinates, for the menu it opens. */
     onDoubleClick: (Offset) -> Unit = {},
+    /** Taps counted against the view's tap set (#34); null keeps one tap and a double tap. */
+    onTaps: ((Int, Offset) -> Unit)? = null,
+    listensFor: Int = 2,
     /**
      * Taken in by a selected folder above it, so acted on with that folder rather than on its
      * own - see `TreeSelection`. Drawn as a fainter selection: it IS going to be copied or
@@ -176,7 +195,7 @@ fun FileRow(
         FileRowBody(
             node, metrics, selected, dropTarget, modifier, thumbnails, display, count, depth, spines,
             lastOfSiblings, treeRow, edge, steps, openInPlace, onOpenInPlace, selecting, onIconClick,
-            onClick, onLongClick, onDoubleClick, included,
+            onClick, onLongClick, onDoubleClick, onTaps, listensFor, included,
         )
     }
 }
@@ -205,6 +224,8 @@ private fun FileRowBody(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDoubleClick: (Offset) -> Unit,
+    onTaps: ((Int, Offset) -> Unit)?,
+    listensFor: Int,
     included: Boolean,
 ) {
     val colors = Filet.colors
@@ -262,8 +283,8 @@ private fun FileRowBody(
         // is lost; see the call sites, which pass no onLongClick when they pass a drag.
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = step.rowHeight.dp)
-            .rowTaps(selecting, onTap = onClick, onLongClick = onLongClick, onDoubleTap = onDoubleClick)
+            .defaultMinSize(minHeight = metrics.rowHeight.dp)
+            .rowTaps(selecting, onTap = onClick, onLongClick = onLongClick, onDoubleTap = onDoubleClick, listensFor = listensFor, onTaps = onTaps)
             .then(modifier)
             .drawBehind {
                 // The row's own background, drawn rather than composed - see the note on `bg`.
@@ -328,7 +349,7 @@ private fun FileRowBody(
         ) {
             FileThumb(
                 node = node,
-                size = step.icon.dp,
+                size = metrics.icon.dp,
                 fallbackTint = iconTint(kind, colors.accent, MaterialTheme.colorScheme.onSurfaceVariant, colors.fg2),
                 enabled = thumbnails,
             )
@@ -337,7 +358,7 @@ private fun FileRowBody(
                 Modifier
                     .align(Alignment.BottomEnd)
                     .graphicsLayer { if (included && !selected) alpha = INCLUDED_ALPHA },
-                side = (step.icon * 0.5f).coerceIn(12f, 18f).dp,
+                side = (metrics.icon * 0.5f).coerceIn(12f, 18f).dp,
             )
         }
         Spacer(Modifier.width(10.dp))
@@ -669,12 +690,15 @@ fun FileTile(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDoubleClick: (Offset) -> Unit = {},
+    /** Taps counted against the view's tap set (#34); null keeps one tap and a double tap. */
+    onTaps: ((Int, Offset) -> Unit)? = null,
+    listensFor: Int = 2,
 ) {
     val base = LocalViewConfiguration.current
     val quick = remember(base) { RowTaps.QuickPress(base) }
     CompositionLocalProvider(LocalViewConfiguration provides quick) {
         Box {
-            FileTileBody(node, metrics, selected, dropTarget, modifier, thumbnails, selecting, onClick, onLongClick, onDoubleClick)
+            FileTileBody(node, metrics, selected, dropTarget, modifier, thumbnails, selecting, onClick, onLongClick, onDoubleClick, onTaps, listensFor)
             // Only while selecting, as in Photos and Files. On every tile at rest it read as a
             // pick already in progress.
             if (onIconClick != null && selecting) {
@@ -697,6 +721,8 @@ private fun FileTileBody(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDoubleClick: (Offset) -> Unit,
+    onTaps: ((Int, Offset) -> Unit)?,
+    listensFor: Int,
 ) {
     val colors = Filet.colors
     val kind = FileKind.of(node)
@@ -726,7 +752,7 @@ private fun FileTileBody(
                 val fill = bg.value
                 if (fill != Color.Transparent) drawRect(fill)
             }
-            .rowTaps(selecting, onTap = onClick, onLongClick = onLongClick, onDoubleTap = onDoubleClick)
+            .rowTaps(selecting, onTap = onClick, onLongClick = onLongClick, onDoubleTap = onDoubleClick, listensFor = listensFor, onTaps = onTaps)
             .then(modifier)
             .padding(vertical = 10.dp, horizontal = 6.dp),
     ) {
@@ -798,7 +824,7 @@ fun SearchResultRow(
     ) {
         FileThumb(
             node = node,
-            size = metrics.step.icon.dp,
+            size = metrics.icon.dp,
             fallbackTint = iconTint(kind, colors.accent, MaterialTheme.colorScheme.onSurfaceVariant, colors.fg2),
         )
         Spacer(Modifier.width(10.dp))

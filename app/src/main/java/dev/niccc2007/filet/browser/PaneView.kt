@@ -141,7 +141,9 @@ fun PaneView(
         // Issue #11: a long name wraps rather than scrolling past. The row's own shape still
         // has the last word - see `nameLineCount`.
         val nameLines by vm.prefs.nameLines.collectAsStateWithLifecycle()
-        val metrics = PaneMetrics.forWidth(widthDp, step, nameLines)
+        // #49: a bigger picture in a row that stays a row.
+        val iconScale by vm.prefs.listIconScale.collectAsStateWithLifecycle()
+        val metrics = PaneMetrics.forWidth(widthDp, step, nameLines, iconScale)
 
         Column(
             Modifier
@@ -813,21 +815,18 @@ private fun FolderBody(
     // dismissing without choosing then puts the selection back how it was.
     var menuSelectedIt by remember { mutableStateOf(false) }
 
-    // `action` is what the press found when it STARTED. Read here instead, it always saw the
-    // row the press had just selected, and the menu opened on every long press - covering the
-    // rows somebody was about to select next, which is how it was reported.
-    val onHeldStill: (VNode, Offset, LongPressAction) -> Unit = { node, at, action ->
-        when (action) {
-            // A range extension is its own feedback: the rows light up and the bar counts them.
-            // Opening a menu on top of that would bury the thing the gesture just did.
-            LongPressAction.EXTEND -> Unit
-            // A press on something unselected selects it, and that is all. The menu would cover
-            // the next rows to pick; it is a double tap, or a press on the selection, away.
-            LongPressAction.MENU -> Unit
-            // Pressing what is already selected is asking about it: the menu, for all of them.
-            LongPressAction.MENU_FOR_SELECTION -> { menuSelectedIt = false; menuAt = node to at }
-        }
+    // What taps do here (#34): the tree's set in a tree, the lists' set otherwise - one table,
+    // `TapPlan`, read live by the handlers below so a change in Settings reaches every row.
+    val tapTreeOn by vm.prefs.treeView.collectAsState()
+    val listsStored by vm.prefs.tapStored(TapView.LISTS).collectAsState()
+    val treeStored by vm.prefs.tapStored(TapView.TREE).collectAsState()
+    val inTree = tapTreeOn && !s.search.active
+    val tapSet = remember(inTree, listsStored, treeStored) {
+        if (inTree) TapPlan.decode(TapView.TREE, treeStored) else TapPlan.decode(TapView.LISTS, listsStored)
     }
+    val liveTaps = rememberUpdatedState(tapSet)
+    val liveInTree = rememberUpdatedState(inTree)
+    var peekFor by remember { mutableStateOf<VNode?>(null) }
 
     // A double tap selects the row - adding it to a running selection, or starting one - and
     // opens the menu on it. The selection stays after the menu closes: it was asked for.
@@ -848,6 +847,55 @@ private fun FolderBody(
         pane.toggleSelect(node)
     }
 
+    // One row's action from the tap table (#34). Each is something a row already offered
+    // somewhere - the menu, the peek, Details - so a tap set moves an action, never invents one.
+    val runTap: (VNode, TapDo, Offset) -> Unit = { node, act, at ->
+        vm.focusSide(side)
+        when (act) {
+            TapDo.OPEN -> if (liveInTree.value) pane.treeOpen(node) else pane.open(node)
+            TapDo.FOCUS -> treeRowClick(pane, vm, side, node)
+            TapDo.SELECT -> pane.toggleSelect(node)
+            TapDo.EXPAND -> TreeBranch.keyOf(node)?.let { pane.flipBranch(it) } ?: pane.open(node)
+            TapDo.MENU -> onDoubleTapRow(node, at)
+            TapDo.PEEK -> if (node.isDir) pane.open(node) else peekFor = node
+            TapDo.OPEN_LOCATION -> vm.revealInFolder(node)
+            TapDo.OPEN_WITH -> if (node.isDir) pane.open(node) else vm.openChooser(node)
+            TapDo.DETAILS -> vm.showProperties(node)
+            TapDo.NOTHING -> Unit
+        }
+    }
+    val tapRow: (VNode, Int, Offset) -> Unit = { node, n, at ->
+        val tap = when (n) {
+            1 -> Tap.ONE
+            2 -> Tap.TWO
+            else -> Tap.THREE
+        }
+        runTap(node, liveTaps.value.of(node.isDir, tap), at)
+    }
+    val holdDoes: (VNode) -> TapDo = { liveTaps.value.of(it.isDir, Tap.HOLD) }
+
+    // `action` is what the press found when it STARTED. Read here instead, it always saw the
+    // row the press had just selected, and the menu opened on every long press - covering the
+    // rows somebody was about to select next, which is how it was reported.
+    val onHeldStill: (VNode, Offset, LongPressAction) -> Unit = { node, at, action ->
+        when (action) {
+            // A range extension is its own feedback: the rows light up and the bar counts them.
+            // Opening a menu on top of that would bury the thing the gesture just did.
+            LongPressAction.EXTEND -> Unit
+            // A fresh press does what Hold is set to. Select and Peek acted when the press
+            // started (see `dragModifier`); Menu selected the row then and opens now, putting
+            // the selection back if nothing is chosen; the rest act now that the finger has
+            // stayed rather than dragged.
+            LongPressAction.MENU -> when (val d = holdDoes(node)) {
+                TapDo.SELECT, TapDo.PEEK, TapDo.NOTHING -> Unit
+                TapDo.MENU -> { menuSelectedIt = true; menuAt = node to at }
+                else -> runTap(node, d, at)
+            }
+            // Pressing what is already selected is asking about it: the menu, for all of them.
+            LongPressAction.MENU_FOR_SELECTION -> { menuSelectedIt = false; menuAt = node to at }
+        }
+    }
+
     menuAt?.let { (node, at) ->
         PaneContextMenu(
             pane = pane,
@@ -863,7 +911,6 @@ private fun FolderBody(
 
     // A grid tile held still, lifted. Select comes first: it is what the hold used to do, now
     // one tap further away rather than gone. Delete only where the folder can be written.
-    var peekFor by remember { mutableStateOf<VNode?>(null) }
     peekFor?.let { node ->
         val writable = vm.writeBlockReason(s.cwd ?: node.path.parent) == null
         dev.niccc2007.filet.handlers.TilePeek(
@@ -1218,9 +1265,9 @@ private fun FolderBody(
                     metrics = metrics,
                     selected = rowSelected(node.path, selection),
                     dropTarget = (app.drag?.over as? DropTarget.Folder)?.path == node.path,
-                    modifier = dragModifier(node, pane, vm, side, registry, onGhost, onHeldStill, peekTile, unpeekTile)
+                    modifier = dragModifier(node, pane, vm, side, registry, onGhost, onHeldStill, peekTile, unpeekTile, hold = holdDoes)
                         .then(pickDim(vm, node)),
-                    thumbnails = metrics.step.icon >= 20,
+                    thumbnails = metrics.icon >= 20,
                     selecting = s.selecting,
                     onIconClick = { onIconTap(node) },
                     onClick = { rowClick(pane, vm, side, node) },
@@ -1229,6 +1276,8 @@ private fun FolderBody(
                     // and two long-press detectors on one tile means the loser never runs.
                     onLongClick = {},
                     onDoubleClick = { at -> onDoubleTapRow(node, at) },
+                    onTaps = { n, at -> tapRow(node, n, at) },
+                    listensFor = tapSet.listensFor(node.isDir),
                 )
             }
         }
@@ -1329,9 +1378,9 @@ private fun FolderBody(
         // tier of the same queue the visible rows use, so a pre-render can never delay a row
         // somebody is looking at - see LoadQueue. Skipped at the two compact steps, where the
         // glyph is a few pixels wide and a decoded picture would not be visible in it.
-        if (metrics.step.icon >= 20) {
+        if (metrics.icon >= 20) {
             val warmCtx = LocalContext.current
-            val warmPx = thumbPx(metrics.step.icon.toFloat())
+            val warmPx = thumbPx(metrics.icon.toFloat())
             val ghosts = if (preview == null) 0 else {
                 preview.entries.size + if (preview.extra > 0) 1 else 0
             }
@@ -1427,12 +1476,13 @@ private fun FolderBody(
                         included = rowIncluded(node.path, selection),
                         dropTarget = (app.drag?.over as? DropTarget.Folder)?.path == (branch ?: node.path),
                         modifier = dragModifier(
-                            node, pane, vm, side, registry, onGhost, onHeldStill,
+                            node, pane, vm, side, registry, onGhost, onHeldStill, peekTile, unpeekTile,
                             into = if (row != null) treeHomes.getOrNull(i) else node.path.takeIf { node.isDir },
+                            hold = holdDoes,
                         ).then(pickDim(vm, node)),
                         // Below ~20 dp the glyph is a few pixels across and a photo in it is
                         // an unreadable smear; the icon says more at that size.
-                        thumbnails = metrics.step.icon >= 20,
+                        thumbnails = metrics.icon >= 20,
                         display = display,
                         // Only folders, and only when something on the row asks for the figure.
                         // Asking for a file's child count would be a directory read per file in
@@ -1494,6 +1544,8 @@ private fun FolderBody(
                         selecting = s.selecting,
                         onIconClick = { onIconTap(node) },
                         onDoubleClick = { at -> onDoubleTapRow(node, at) },
+                        onTaps = { n, at -> tapRow(node, n, at) },
+                        listensFor = tapSet.listensFor(node.isDir),
                     )
                 }
             }
@@ -1732,6 +1784,8 @@ private fun dragModifier(
      * tree a file row is its branch's, which is worked out by `TreeDrop`.
      */
     into: VPath? = node.path.takeIf { node.isDir },
+    /** What a fresh hold on this row is set to do (#34). See `onHeldStill` for the rest of it. */
+    hold: (VNode) -> TapDo = { TapDo.SELECT },
 ): Modifier {
     // Read live. A row's `pointerInput` is keyed on `node.path`, so scrolling a list recycles
     // the composable and hands it new callbacks while the launched block keeps the old ones -
@@ -1741,6 +1795,7 @@ private fun dragModifier(
     val liveHeldStill = rememberUpdatedState(onHeldStill)
     val livePeek = rememberUpdatedState(peek)
     val liveUnpeek = rememberUpdatedState(unpeek)
+    val liveHold = rememberUpdatedState(hold)
     var peeking by remember(node.path) { mutableStateOf(false) }
     var origin by remember(node.path) { mutableStateOf(Offset.Zero) }
     var pointer by remember(node.path) { mutableStateOf(Offset.Zero) }
@@ -1789,15 +1844,20 @@ private fun dragModifier(
                     // which must judge by what the press FOUND rather than what it changed.
                     // Against `selectionNow`, so a pick's hold extends a range as this does.
                     pressAction = pane.holdAction(node.path)
+                    // A fresh press does what Hold is set to; with a selection running it
+                    // extends or asks about it, whatever the set says.
+                    val does = if (pressAction == LongPressAction.MENU) liveHold.value(node) else TapDo.SELECT
                     val lift = livePeek.value
-                    if (lift != null && pressAction == LongPressAction.MENU) {
-                        // A grid tile with nothing selected: the peek, and no drag yet.
+                    if (lift != null && does == TapDo.PEEK) {
+                        // Set to peek: the peek, and no drag yet.
                         peeking = true
                         lift(node)
                     } else {
                         when (pressAction) {
                             LongPressAction.EXTEND -> pane.extendSelectionTo(node)
-                            LongPressAction.MENU -> pane.selectOnly(node)
+                            // Select picks it up; Menu selects it for the menu that opens when
+                            // the finger stays. Anything else leaves the selection alone.
+                            LongPressAction.MENU -> if (does == TapDo.SELECT || does == TapDo.MENU) pane.selectOnly(node)
                             LongPressAction.MENU_FOR_SELECTION -> Unit
                         }
                         val items = pane.selectedNodes().ifEmpty { listOf(node) }

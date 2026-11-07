@@ -1098,6 +1098,51 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
     }
 
     /**
+     * What taps do, one stored set per view (#34). Kept as text and read through `TapPlan.decode`,
+     * which falls back row by row, so nothing stored can make a tap do something its view does
+     * not offer. Null is the Filet preset.
+     */
+    private val _tapLists = stored { sp.getString(K_TAP_LISTS, null) }
+    private val _tapGallery = stored { sp.getString(K_TAP_GALLERY, null) }
+    private val _tapTree = stored { sp.getString(K_TAP_TREE, null) }
+    val tapLists: StateFlow<String?> = _tapLists.asStateFlow()
+    val tapGallery: StateFlow<String?> = _tapGallery.asStateFlow()
+    val tapTree: StateFlow<String?> = _tapTree.asStateFlow()
+
+    /**
+     * How big a list row's icon is, against its step's own size (#49): 1 is the step as drawn,
+     * up to twice that. Compact, list and comfortable only; grids keep their tile sizes.
+     */
+    private val _listIconScale = stored { sp.getFloat(K_LIST_ICON_SCALE, 1f).coerceIn(LIST_ICON_MIN, LIST_ICON_MAX) }
+    val listIconScale: StateFlow<Float> = _listIconScale.asStateFlow()
+
+    fun setListIconScale(v: Float) {
+        val c = v.coerceIn(LIST_ICON_MIN, LIST_ICON_MAX)
+        _listIconScale.value = c
+        sp.edit().putFloat(K_LIST_ICON_SCALE, c).apply()
+    }
+
+    fun tapStored(view: dev.niccc2007.filet.browser.TapView): StateFlow<String?> = when (view) {
+        dev.niccc2007.filet.browser.TapView.LISTS -> tapLists
+        dev.niccc2007.filet.browser.TapView.GALLERY -> tapGallery
+        dev.niccc2007.filet.browser.TapView.TREE -> tapTree
+    }
+
+    fun setTap(view: dev.niccc2007.filet.browser.TapView, v: String?) {
+        when (view) {
+            dev.niccc2007.filet.browser.TapView.LISTS -> _tapLists.value = v
+            dev.niccc2007.filet.browser.TapView.GALLERY -> _tapGallery.value = v
+            dev.niccc2007.filet.browser.TapView.TREE -> _tapTree.value = v
+        }
+        val key = when (view) {
+            dev.niccc2007.filet.browser.TapView.LISTS -> K_TAP_LISTS
+            dev.niccc2007.filet.browser.TapView.GALLERY -> K_TAP_GALLERY
+            dev.niccc2007.filet.browser.TapView.TREE -> K_TAP_TREE
+        }
+        sp.edit().putString(key, v).apply()
+    }
+
+    /**
      * Turning the record makes the sound follow the hand. See `ScratchEngine`.
      *
      * OFF by default, deliberately: it decodes a window of the track the moment a finger
@@ -1771,6 +1816,12 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         const val K_HOME_FOLDS = "home.folds"
         const val K_TREE_VIEW = "view.tree"
         const val K_TREE_BACK_FOLDS = "view.tree.backFolds"
+        const val K_TAP_LISTS = "view.tap.lists"
+        const val K_TAP_GALLERY = "view.tap.gallery"
+        const val K_TAP_TREE = "view.tap.tree"
+        const val K_LIST_ICON_SCALE = "view.list.iconScale"
+        const val LIST_ICON_MIN = 0.8f
+        const val LIST_ICON_MAX = 2f
         const val K_REACH_MODE = "view.reachMode"
         const val K_SPLIT_FIT = "view.splitFit"
         const val K_BLOCKED_FOLDERS = "home.blockedFolders"

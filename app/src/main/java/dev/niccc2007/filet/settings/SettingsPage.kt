@@ -1,6 +1,7 @@
 package dev.niccc2007.filet.settings
 
 import dev.niccc2007.filet.data.PrefKeys
+import dev.niccc2007.filet.browser.TapView
 import dev.niccc2007.filet.data.Prefs
 import dev.niccc2007.filet.ui.tabs.HintInfo
 import dev.niccc2007.filet.ui.tabs.HoldHint
@@ -235,6 +236,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val glowSpill by prefs.glowSpill.collectAsState()
     val treeView by prefs.treeView.collectAsState()
     val treeBackFolds by prefs.treeBackFolds.collectAsState()
+    val listIconScale by prefs.listIconScale.collectAsState()
     val reachMode by prefs.reachMode.collectAsState()
     val splitFit by prefs.splitFit.collectAsState()
     val deviceTier by prefs.deviceTier.collectAsState()
@@ -511,6 +513,38 @@ fun SettingsPage(vm: BrowserViewModel) {
                 prefs.setRestoreTabs(it)
             }
         }
+        // What a tap, two, three and a hold do, per view (#34). One table, `TapPlan`, which every
+        // list, grid, tree and the gallery read; a row here per view, folded until opened.
+        item { SettingsSection("Tap actions", "") }
+        anchor(Prefs.K_TAP_LISTS)
+        item {
+            HoldHint("List, dated list and grid. Presets: Filet, Windows-like.", key = Prefs.K_TAP_LISTS) {
+                TapSetRow("Lists", TapView.LISTS, prefs)
+            }
+        }
+        anchor(Prefs.K_TAP_GALLERY)
+        item {
+            HoldHint("The picture and video gallery in a category.", key = Prefs.K_TAP_GALLERY) {
+                TapSetRow("Gallery", TapView.GALLERY, prefs)
+            }
+        }
+        anchor(Prefs.K_TAP_TREE)
+        // The tree's Back is drawn inside the tree's set, so a search for it lands on the set.
+        anchor(Prefs.K_TREE_BACK_FOLDS)
+        item {
+            HoldHint("The tree view. Presets: Filet, Windows-like, Xplorer.", key = Prefs.K_TAP_TREE) {
+                TapSetRow("Tree view", TapView.TREE, prefs) {
+                    // The tree's own Back (#12) lives with the tree's taps.
+                    ToggleRow(
+                        "Back closes the folder you leave",
+                        "In the tree view. Folders open inside it close with it.",
+                        treeBackFolds,
+                        sub = true,
+                        key = Prefs.K_TREE_BACK_FOLDS,
+                    ) { prefs.setTreeBackFolds(it) }
+                }
+            }
+        }
         item { SettingsSection("Viewing options", "") }
         anchor(Prefs.K_TREE_VIEW)
         item {
@@ -521,17 +555,17 @@ fun SettingsPage(vm: BrowserViewModel) {
                 key = Prefs.K_TREE_VIEW,
             ) { prefs.setTreeView(it) }
         }
-        if (treeView) {
-            anchor(Prefs.K_TREE_BACK_FOLDS)
-            item {
-                ToggleRow(
-                    "Back closes the folder you leave",
-                    "In the tree view. Folders open inside it close with it.",
-                    treeBackFolds,
-                    sub = true,
-                    key = Prefs.K_TREE_BACK_FOLDS,
-                ) { prefs.setTreeBackFolds(it) }
-            }
+        anchor(Prefs.K_LIST_ICON_SCALE)
+        item {
+            // The slider runs 0..1; the scale it stands for runs from LIST_ICON_MIN to MAX.
+            val span = Prefs.LIST_ICON_MAX - Prefs.LIST_ICON_MIN
+            SliderRow(
+                "Icon size",
+                "How big icons and thumbnails are in the compact, list and comfortable views. Grids keep their own sizes.",
+                (listIconScale - Prefs.LIST_ICON_MIN) / span,
+                status = "${(listIconScale * 100).toInt()}%",
+                key = Prefs.K_LIST_ICON_SCALE,
+            ) { prefs.setListIconScale(Prefs.LIST_ICON_MIN + it * span) }
         }
         anchor(Prefs.K_FOLDERS_FIRST)
         item {

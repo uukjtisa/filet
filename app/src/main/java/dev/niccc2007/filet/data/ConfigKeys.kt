@@ -122,6 +122,11 @@ object ConfigKeys {
         act("files.rootVolumes", ConfigType.BOOL),
         act("view.tree", ConfigType.BOOL),
         act("view.tree.backFolds", ConfigType.BOOL),
+        // What taps do, per view: what a finger does, so it travels with the config.
+        act("view.tap.lists", ConfigType.STRING),
+        act("view.tap.gallery", ConfigType.STRING),
+        act("view.tap.tree", ConfigType.STRING),
+        look("view.list.iconScale", ConfigType.FLOAT),
         // Whether a document fetches its pictures from the web: what the phone does, not how it looks.
         act("read.webPictures", ConfigType.BOOL),
         act("view.reachMode", ConfigType.BOOL),
