@@ -1220,10 +1220,15 @@ class PaneController(
             focusPath(branch, record = false)
             return
         }
-        val folded = TapPlan.foldOnTheWay(s.open, branch, s.active)
-        if (folded != s.open) _state.update { it.copy(open = folded) }
-        if (branch !in _state.value.open) toggleBranch(branch)
+        // Recorded FIRST. Bug identified here: opening a branch already stands in it, so with the
+        // focus moved after the open, `focusPath` found it there, returned, and recorded nothing.
+        // No step was ever kept, so Back found none, fell through to the pane's own folder, and
+        // with "Back closes the folder you leave" on folded the branch on its way to the root.
         focusPath(branch)
+        val open = _state.value.open
+        val folded = TapPlan.foldOnTheWay(open, branch, s.active)
+        if (folded != open) _state.update { it.copy(open = folded) }
+        if (branch !in _state.value.open) toggleBranch(branch)
     }
 
     /**
