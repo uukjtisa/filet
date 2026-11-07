@@ -95,13 +95,17 @@ the network work in it — one remote holding several addresses, and archives an
 a share — was worth more to somebody on a second device than waiting for the redesign to finish
 was worth to anybody. The staging line moves on rather than being deleted; 0.2.0 is unchanged.
 
-**NEXT: 0.3.0.** From 0.2.0 on the bump table is followed as written, with no exceptions for
-a number being reserved: the staging habit above spent 0.1.9 to 0.1.19 on releases the table
-called MINOR, and a version number that does not say what changed is not doing its job. The
-next release carries videos opening paused under a preview, selection in Categories and New
-files, and a sound sheet with effects - a change to what an existing screen shows by default,
-and new tools - so it is MINOR. The fixes the 0.2.0 notes promised for 0.2.1 ride in it, and
-its notes say so in the first section.
+**NEXT: 0.3.1.** A patch: the Activity page's stuck swipe and its entries expanding instead
+of jumping away, the on-screen back button doing exactly what the phone's Back does, and the
+metadata writer holding a replaced picture until it is applied. Repairs to screens that
+already exist, nothing to relearn, so PATCH by the table below.
+
+0.3.0 followed the bump table as written, with no exceptions for a number being reserved: the
+staging habit above spent 0.1.9 to 0.1.19 on releases the table called MINOR, and a version
+number that does not say what changed is not doing its job. It carried videos opening paused
+under a preview, selection in Categories and New files, and a sound sheet with effects - a
+change to what an existing screen shows by default, and new tools - so it was MINOR. The fixes
+the 0.2.0 notes promised for 0.2.1 rode in it, and its notes said so in the first section.
 
 0.2.0 was the redesign release. It replaced the visual language of every screen and changed
 what a file row shows by default.
