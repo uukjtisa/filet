@@ -812,7 +812,8 @@ private fun PlaylistDetail(
         if (i < 0) { onTargetDone(); return@LaunchedEffect }
         // The header, and the clean-up line when it is showing, sit above the first track.
         val above = 1 + if (goneHere > 0 && !selecting) 1 else 0
-        listState.animateScrollToItem(above + i)
+        // Straight there: animated, it drew every row between, hundreds in a long list.
+        listState.scrollToItem(above + i)
         vm.playPlaylistTrack(list.id, t.path)
         kotlinx.coroutines.delay(dev.niccc2007.filet.ui.PULSE_MS.toLong())
         onTargetDone()
@@ -1533,7 +1534,8 @@ private fun AllMusicDetail(
         if (read == null) return@LaunchedEffect
         val i = rows.indexOfFirst { it.node.path == t.path }
         if (i < 0) { onTargetDone(); return@LaunchedEffect }
-        listState.animateScrollToItem(1 + i)
+        // Straight there: animated, it drew every row between, hundreds in a long list.
+        listState.scrollToItem(1 + i)
         playFrom(i, maximise = false)
         kotlinx.coroutines.delay(dev.niccc2007.filet.ui.PULSE_MS.toLong())
         onTargetDone()
