@@ -28,6 +28,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -45,6 +47,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.selected
@@ -56,6 +59,11 @@ import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FileThumb
 import dev.niccc2007.filet.browser.FiletIcons
+import dev.niccc2007.filet.browser.Tap
+import dev.niccc2007.filet.browser.TapCounter
+import dev.niccc2007.filet.browser.TapDo
+import dev.niccc2007.filet.browser.TapPlan
+import dev.niccc2007.filet.browser.TapView
 import dev.niccc2007.filet.media.Thumbnails
 import dev.niccc2007.filet.ui.WarmAhead
 import dev.niccc2007.filet.ui.theme.Filet
@@ -105,6 +113,8 @@ internal fun CategoryGallery(
     onPeek: (VNode) -> Unit,
     /** Put the peek away: the finger moved after the hold, which makes it a slide. */
     onUnpeek: () -> Unit,
+    /** The tile's More sheet, for a tap or hold set to Menu. */
+    onMenu: (VNode) -> Unit,
 ) {
     val context = LocalContext.current
     // A cover with its title under it for audio, since two covers from one album are the same
@@ -117,6 +127,14 @@ internal fun CategoryGallery(
     val slide = remember { Slide() }
     // Cancelled with the screen: an edge scroll left running would scroll a grid nobody holds.
     DisposableEffect(slide) { onDispose { slide.auto?.cancel() } }
+
+    // What a tap, two, three and a hold do here (#34), from the gallery's own row of the tap
+    // table. Only with no selection running: while selecting a tap toggles and a hold extends,
+    // whatever the table says, as in every other list.
+    val tapsStored by vm.prefs.tapStored(TapView.GALLERY).collectAsState()
+    val taps = remember(tapsStored) { TapPlan.decode(TapView.GALLERY, tapsStored) }
+    val window = LocalViewConfiguration.current.doubleTapTimeoutMillis
+    val counter = remember(scope, window) { TapCounter(scope, window) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val grid = GalleryCells.grid(maxWidth, captioned)
@@ -155,10 +173,32 @@ internal fun CategoryGallery(
             pick.pane.dragSelectTo(slide.before, start, tile.node.path, slide.adding)
         }
 
+        // One tile's action from the tap table. Each is something the gallery already offered -
+        // the peek, its More sheet, Details - so a tap set moves an action, never invents one.
+        // Focus and Expand are a tree's; the table never offers them here.
+        fun run(node: VNode, act: TapDo) {
+            when (act) {
+                TapDo.OPEN -> vm.openHomeEntry(node, cells.mapNotNull { (it as? GalleryCell.Tile)?.node })
+                TapDo.SELECT -> if (pick.pane.state.value.selecting) pick.toggle(node) else pick.selectOnly(node)
+                TapDo.MENU -> onMenu(node)
+                TapDo.PEEK -> onPeek(node)
+                TapDo.OPEN_LOCATION -> vm.revealInFolder(node)
+                TapDo.OPEN_WITH -> vm.openChooser(node)
+                TapDo.DETAILS -> vm.showProperties(node)
+                TapDo.FOCUS, TapDo.EXPAND, TapDo.NOTHING -> Unit
+            }
+        }
+
         val hands = GalleryHands(
             tileAt = ::tileAt,
             tap = { t ->
-                pick.tap(t.node) { vm.openHomeEntry(t.node, cells.mapNotNull { (it as? GalleryCell.Tile)?.node }) }
+                // Counted per tile and acted on once settled: at once when the count reaches the
+                // most this set listens for, so with Two and Three on Nothing a tap never waits.
+                pick.tap(t.node) {
+                    counter.tap(t.node.path, taps.listensFor(false)) { n ->
+                        run(t.node, taps.of(false, if (n == 1) Tap.ONE else if (n == 2) Tap.TWO else Tap.THREE))
+                    }
+                }
             },
             hold = { t ->
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -167,10 +207,22 @@ internal fun CategoryGallery(
                 // Decided once, at the press, by what it found: see `longPressAction`. Against
                 // `selectionNow`, so during a pick the pick's list is what it found.
                 when (pick.pane.holdAction(t.node.path)) {
-                    dev.niccc2007.filet.browser.LongPressAction.MENU -> {
-                        slide.adding = true
-                        slide.peeking = true
-                        onPeek(t.node)
+                    // A fresh press does what Hold is set to. Peek and Select keep the slide that
+                    // selects the run the finger crosses; anything else acts now and has no slide.
+                    dev.niccc2007.filet.browser.LongPressAction.MENU -> when (val d = taps.of(false, Tap.HOLD)) {
+                        TapDo.PEEK -> {
+                            slide.adding = true
+                            slide.peeking = true
+                            onPeek(t.node)
+                        }
+                        TapDo.SELECT -> {
+                            slide.adding = true
+                            pick.selectOnly(t.node)
+                        }
+                        else -> {
+                            slide.start = null
+                            run(t.node, d)
+                        }
                     }
                     dev.niccc2007.filet.browser.LongPressAction.MENU_FOR_SELECTION -> {
                         // A slide from a selected tile takes the run back out.
@@ -185,7 +237,9 @@ internal fun CategoryGallery(
                 }
                 slide.before = pick.pane.selectionNow()
             },
-            slideStart = { at ->
+            slideStart = slideStart@{ at ->
+                // A hold that acted rather than peeked or selected has no slide after it.
+                if (slide.start == null) return@slideStart
                 if (slide.peeking) {
                     slide.peeking = false
                     onUnpeek()

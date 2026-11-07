@@ -190,6 +190,8 @@ fun CategoryScreen(vm: BrowserViewModel, pane: dev.niccc2007.filet.browser.PaneC
             // A held tile lifts into its peek; the row sheet is one tap on from it (More).
             onPeek = { peekFor = it },
             onUnpeek = { peekFor = null },
+            // The same sheet a held list row opens, for a tap or hold set to Menu (#34).
+            onMenu = { menuFor = it },
         )
     }
 
