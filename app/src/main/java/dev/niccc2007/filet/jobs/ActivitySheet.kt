@@ -321,29 +321,26 @@ private fun JobRow(
     }
 }
 
-/** The opened row: where from, where to, how much, how fast, how long, and what it offers. */
+/**
+ * The opened row: everything Copy details copies, as label and value, then what it offers. The
+ * rows are [JobText.rows], the same list Copy details writes out; only a location is shortened
+ * here, so it reads as a place rather than a URI.
+ */
 @Composable
 private fun JobFigures(job: Job, now: Long, onAction: (JobAction) -> Unit) {
     val colors = Filet.colors
     Column(Modifier.fillMaxWidth().padding(start = 28.dp, top = 6.dp)) {
-        @Composable
-        fun line(label: String, value: String?) {
-            if (value.isNullOrEmpty()) return
+        for (row in JobText.rows(job, now)) {
+            if (row.value.isEmpty()) continue
             Row(Modifier.padding(vertical = 1.dp)) {
-                Text(label, fontSize = 10.5.sp, color = colors.fg3, modifier = Modifier.width(54.dp))
-                Text(value, fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text(row.label, fontSize = 10.5.sp, color = colors.fg3, modifier = Modifier.width(58.dp))
+                Text(
+                    if (row.path) readablePath(row.value) else row.value,
+                    fontSize = 10.5.sp,
+                    color = if (row.label == "Error") colors.bad else MaterialTheme.colorScheme.onSurface,
+                )
             }
         }
-        line("From", job.from.ifEmpty { null }?.let(::readablePath))
-        line("To", job.to.ifEmpty { null }?.let(::readablePath))
-        line("Items", JobText.items(job))
-        line("Data", JobText.amount(job))
-        if (job.running) {
-            line("Speed", job.bytesPerSec?.takeIf { it > 1.0 }?.let(JobText::rate))
-            line("Left", if (job.paused) "paused" else JobRate.etaMs(job, now)?.let(JobText::eta))
-        }
-        if (job.detail.isNotEmpty() && !job.running) line("Result", job.detail)
-        job.error?.let { line("Error", it) }
         val offered = JobActions.of(job)
         if (offered.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))

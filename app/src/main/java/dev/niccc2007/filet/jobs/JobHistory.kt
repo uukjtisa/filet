@@ -178,21 +178,58 @@ object JobText {
         return if (total != null && total > 0) bytes(done) + " of " + bytes(total) else bytes(done) + " so far"
     }
 
-    /** Everything about a job as plain text, for Copy details. */
+    /** One fact about a job. [path] marks a value that is a location, which the sheet shortens. */
+    data class Row(val label: String, val value: String, val path: Boolean = false)
+
+    /**
+     * Everything known about a job, in order. The one list both the opened row in Activity and
+     * Copy details are made from.
+     *
+     * Bug identified here: the opened row picked its own few fields and Copy details another,
+     * so a job with no From or To opened onto nothing but its buttons, while the text it copied
+     * had the times, the source and the result. One list, so they cannot differ again.
+     */
+    fun rows(job: Job, now: Long): List<Row> = buildList {
+        add(Row("State", job.state.name.lowercase() + if (job.paused) " (paused)" else ""))
+        if (job.from.isNotEmpty()) add(Row("From", job.from, path = true))
+        if (job.to.isNotEmpty()) add(Row("To", job.to, path = true))
+        items(job)?.let { add(Row("Items", it)) }
+        amount(job)?.let { add(Row("Data", it)) }
+        if (job.running) {
+            job.bytesPerSec?.takeIf { it > 1.0 }?.let { add(Row("Speed", rate(it))) }
+            (if (job.paused) "paused" else JobRate.etaMs(job, now)?.let(::eta))?.let { add(Row("Left", it)) }
+        }
+        if (job.detail.isNotEmpty()) add(Row("Detail", job.detail))
+        job.error?.let { add(Row("Error", it)) }
+        if (job.startedAt > 0) add(Row("Started", STAMP.format(Instant.ofEpochMilli(job.startedAt))))
+        if (job.endedAt > 0) add(Row("Ended", STAMP.format(Instant.ofEpochMilli(job.endedAt))))
+        took(job, now)?.let { add(Row("Duration", it)) }
+        if (job.opened.isNotEmpty()) add(Row("Result", job.opened, path = true))
+        add(Row("Source", job.source))
+    }
+
+    /** Everything about a job as plain text, for Copy details: its title, then [rows]. */
     fun details(job: Job, now: Long): String = buildString {
         appendLine(job.title + if (job.subtitle.isNotEmpty()) " - " + job.subtitle else "")
-        appendLine("State: " + job.state.name.lowercase() + if (job.paused) " (paused)" else "")
-        if (job.from.isNotEmpty()) appendLine("From: " + job.from)
-        if (job.to.isNotEmpty()) appendLine("To: " + job.to)
-        items(job)?.let { appendLine("Items: $it") }
-        amount(job)?.let { appendLine("Data: $it") }
-        if (job.detail.isNotEmpty()) appendLine("Detail: " + job.detail)
-        job.error?.let { appendLine("Error: $it") }
-        appendLine("Started: " + Instant.ofEpochMilli(job.startedAt))
-        if (job.endedAt > 0) appendLine("Ended: " + Instant.ofEpochMilli(job.endedAt))
-        if (job.opened.isNotEmpty()) appendLine("Result: " + job.opened)
-        append("Source: " + job.source)
+        append(rows(job, now).joinToString("\n") { "${it.label}: ${it.value}" })
     }
+
+    /** How long it ran, or has run so far; null with no start recorded. */
+    fun took(job: Job, now: Long): String? {
+        if (job.startedAt <= 0) return null
+        val end = if (job.endedAt > 0) job.endedAt else if (job.running) now else return null
+        val s = ((end - job.startedAt).coerceAtLeast(0)) / 1000
+        return when {
+            s < 1 -> "under a second"
+            s < 60 -> "$s s"
+            s < 3600 -> "${s / 60} min ${s % 60} s"
+            else -> "${s / 3600} h ${(s % 3600) / 60} min"
+        }
+    }
+
+    /** Local time to the second: what the person was looking at the clock for. */
+    private val STAMP: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.US).withZone(ZoneId.systemDefault())
 }
 
 /** The ledger's history as stored. Pure; tolerant of rows it cannot read, which are dropped. */
