@@ -121,6 +121,7 @@ object ConfigKeys {
         act("browse.hidden", ConfigType.BOOL),
         act("files.rootVolumes", ConfigType.BOOL),
         act("view.tree", ConfigType.BOOL),
+        act("view.tree.backFolds", ConfigType.BOOL),
         // Whether a document fetches its pictures from the web: what the phone does, not how it looks.
         act("read.webPictures", ConfigType.BOOL),
         act("view.reachMode", ConfigType.BOOL),

@@ -175,6 +175,16 @@ object TreeRows {
         open.maxWithOrNull(compareBy({ it.path.count { c -> c == '/' } }, { it.path }))
 
     /**
+     * The folds after Back leaves [left] for [landing], with the setting that folds the folder
+     * left behind (#12): [left] closed, and everything under it, unless it is one of [keep] - the
+     * folders down to where Back lands, which have to stay open for that to be seen.
+     */
+    fun foldLeft(open: Set<VPath>, left: VPath?, landing: VPath?, keep: Set<VPath>): Set<VPath> {
+        if (left == null || left == landing || left in keep || left !in open) return open
+        return open.filterNot { TreeBranch.under(left, it) }.toSet()
+    }
+
+    /**
      * Every folder between [root] and [target], so a jump can land with the tree already open
      * down to where it went.
      *

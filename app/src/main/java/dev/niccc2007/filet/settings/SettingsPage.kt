@@ -234,6 +234,7 @@ fun SettingsPage(vm: BrowserViewModel) {
     val waveGap by prefs.waveGap.collectAsState()
     val glowSpill by prefs.glowSpill.collectAsState()
     val treeView by prefs.treeView.collectAsState()
+    val treeBackFolds by prefs.treeBackFolds.collectAsState()
     val reachMode by prefs.reachMode.collectAsState()
     val splitFit by prefs.splitFit.collectAsState()
     val deviceTier by prefs.deviceTier.collectAsState()
@@ -519,6 +520,18 @@ fun SettingsPage(vm: BrowserViewModel) {
                 treeView,
                 key = Prefs.K_TREE_VIEW,
             ) { prefs.setTreeView(it) }
+        }
+        if (treeView) {
+            anchor(Prefs.K_TREE_BACK_FOLDS)
+            item {
+                ToggleRow(
+                    "Back closes the folder you leave",
+                    "In the tree view. Folders open inside it close with it.",
+                    treeBackFolds,
+                    sub = true,
+                    key = Prefs.K_TREE_BACK_FOLDS,
+                ) { prefs.setTreeBackFolds(it) }
+            }
         }
         anchor(Prefs.K_FOLDERS_FIRST)
         item {

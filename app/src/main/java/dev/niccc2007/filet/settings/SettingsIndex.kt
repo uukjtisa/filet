@@ -99,6 +99,14 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
         text = "Tree view Shows folders as an expandable tree.",
     ),
     SettingsEntry(
+        key = Prefs.K_TREE_BACK_FOLDS,
+        title = "Back closes the folder you leave",
+        tab = SettingsGroup.BROWSING,
+        section = "Viewing options",
+        text = "Back closes the folder you leave In the tree view. Folders open inside it " +
+            "close with it.",
+    ),
+    SettingsEntry(
         key = Prefs.K_FOLDERS_FIRST,
         title = "Folders first",
         tab = SettingsGroup.BROWSING,

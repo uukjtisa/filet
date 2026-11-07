@@ -1086,6 +1086,18 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
     }
 
     /**
+     * Whether Back, in the tree, folds away the folder it leaves (#12). Off keeps what Back has
+     * always done there: the folder stays open behind you, to go back into. Both have a use.
+     */
+    private val _treeBackFolds = stored { sp.getBoolean(K_TREE_BACK_FOLDS, false) }
+    val treeBackFolds: StateFlow<Boolean> = _treeBackFolds.asStateFlow()
+
+    fun setTreeBackFolds(on: Boolean) {
+        _treeBackFolds.value = on
+        sp.edit().putBoolean(K_TREE_BACK_FOLDS, on).apply()
+    }
+
+    /**
      * Turning the record makes the sound follow the hand. See `ScratchEngine`.
      *
      * OFF by default, deliberately: it decodes a window of the track the moment a finger
@@ -1758,6 +1770,7 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         const val K_DRAWER_RECENT_NEW = "drawer.recentNew"
         const val K_HOME_FOLDS = "home.folds"
         const val K_TREE_VIEW = "view.tree"
+        const val K_TREE_BACK_FOLDS = "view.tree.backFolds"
         const val K_REACH_MODE = "view.reachMode"
         const val K_SPLIT_FIT = "view.splitFit"
         const val K_BLOCKED_FOLDERS = "home.blockedFolders"

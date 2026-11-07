@@ -139,7 +139,7 @@ data class PaneState(
     /**
      * A file the listing should scroll to once it has one.
      *
-     * Set by "go to containing folder" and cleared by the list the moment it has acted. It is
+     * Set by Open location and cleared by the list the moment it has acted. It is
      * state rather than a delay because the listing takes as long as it takes - a fixed wait
      * is either too short on a big folder or a stall on a small one, and the previous version
      * guessed 160ms and then never scrolled at all.
@@ -604,9 +604,15 @@ class PaneController(
             TreeRows.pathTo(cwd, a).filter { it != a || a in s.open }.filter { it != cwd }
         }.orEmpty()
         val hidden = chain.any { it !in now.open }
+        // With the setting on, the folder Back leaves is folded away behind you (#12).
+        val open = if (prefs.treeBackFolds.value) {
+            TreeRows.foldLeft(now.open + chain, left = now.active, landing = at, keep = chain.toSet())
+        } else {
+            now.open + chain
+        }
         _state.value = now.copy(
             active = at,
-            open = now.open + chain,
+            open = open,
             canGoBack = back.isNotEmpty(),
             canGoForward = forward.isNotEmpty(),
             revealTarget = at ?: now.revealTarget,

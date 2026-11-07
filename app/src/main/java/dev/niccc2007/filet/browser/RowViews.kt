@@ -271,8 +271,12 @@ private fun FileRowBody(
                 // exactly as `.background()` did.
                 val fill = bg.value
                 if (fill != Color.Transparent) drawRect(fill)
-                if (treeRow) treeGuides(depth, spines, lastOfSiblings, openInPlace, steps, accent)
                 val lit = framed.value
+                // The folder you are in, lit while it is unfolded (#12): the head of the rail's
+                // block, under the guides, fading with the rail.
+                val head = heldEdge == ActiveEdge.TOP || (heldEdge == ActiveEdge.ONLY && openInPlace == true)
+                if (treeRow && head && lit > 0.01f) drawRect(accent.copy(alpha = 0.12f * lit))
+                if (treeRow) treeGuides(depth, spines, lastOfSiblings, openInPlace, steps, accent)
                 heldEdge?.takeIf { lit > 0.01f }?.let { activeRail(it, accent, lit) }
             }
             .padding(
