@@ -60,7 +60,8 @@ class StreamServer private constructor(private val vfs: Vfs) {
     private var socket: ServerSocket? = null
     private var lastPort = 0
     private var idle: Job? = null
-    private val parked = HashMap<String, Parked>()
+    private val parked = HashMap<String, ArrayDeque<Parked>>()
+    private val cache = PieceCache(CACHE_BYTES)
 
     private class Parked(val reader: ReadAhead, val expiry: Job)
 
@@ -114,7 +115,7 @@ class StreamServer private constructor(private val vfs: Vfs) {
         }
         socket?.let { runCatching { it.close() } }
         socket = null
-        for (p in parked.values) {
+        for (p in parked.values.flatten()) {
             p.expiry.cancel()
             p.reader.close()
         }
@@ -170,11 +171,35 @@ class StreamServer private constructor(private val vfs: Vfs) {
     }
 
     private suspend fun pump(token: String, path: VPath, size: Long, start: Long, end: Long, out: OutputStream) {
-        val reader = take(token, start) ?: ReadAhead(scope, { at -> vfs.openReadAt(path, at) }, start, size)
+        val began = System.nanoTime()
+        var at = start
+        // Somewhere already watched - a jump back - is answered from memory, with no drive at all.
+        while (at <= end) {
+            val base = at - at % PIECE_BYTES
+            val piece = cache.get(token, base) ?: break
+            val n = minOf(piece.size - (at - base), end - at + 1).toInt()
+            if (n <= 0) break
+            out.write(piece, (at - base).toInt(), n)
+            at += n
+        }
+        val remembered = at - start
+        if (at > end) {
+            out.flush()
+            log(start, end, remembered, began, "memory")
+            return
+        }
+        val kept = take(token, at)
+        // A new reader starts on a piece boundary, so every piece it reads is one the memory can
+        // file and find again; the bytes before the request are skipped, not sent.
+        val reader = kept ?: run {
+            val aligned = at - at % PIECE_BYTES
+            ReadAhead(scope, { o -> vfs.openReadAt(path, o) }, aligned, size) { o, bytes -> cache.put(token, o, bytes) }
+                .also { if (at > aligned) it.skipLater(at - aligned) }
+        }
         // A reader the drive failed under is not kept: the next request would only fail on it again.
         var keep = true
         try {
-            var left = end - start + 1
+            var left = end - at + 1
             while (left > 0) {
                 val piece = reader.next(left) ?: break
                 out.write(piece.bytes, piece.from, piece.length)
@@ -186,39 +211,61 @@ class StreamServer private constructor(private val vfs: Vfs) {
             throw e
         } finally {
             if (keep) park(token, reader) else reader.close()
+            log(start, end, remembered, began, if (kept != null) "kept reader" else "new reader")
         }
     }
 
-    /** The parked reader of [token], when it stands at [start] or a little before it. */
+    /**
+     * One line a request, for telling a slow drive from a player that keeps jumping: where it
+     * asked, how much came from memory, how long it was open, and which reader served it.
+     */
+    private fun log(start: Long, end: Long, remembered: Long, began: Long, how: String) {
+        val ms = (System.nanoTime() - began) / 1_000_000
+        FiletLog.i("stream", "bytes $start-$end, ${remembered / 1024} KB from memory, $how, open $ms ms")
+    }
+
+    /**
+     * The kept reader that reaches [start] with the least skipping, taken out of the keep and
+     * woken - see [ReadAhead.hold].
+     */
     @Synchronized
     private fun take(token: String, start: Long): ReadAhead? {
-        val p = parked.remove(token) ?: return null
+        val list = parked[token] ?: return null
+        val i = nearestBehind(list.map { it.reader.position }, start, REUSE_GAP_BYTES) ?: return null
+        val p = list.removeAt(i)
+        if (list.isEmpty()) parked.remove(token)
         p.expiry.cancel()
         val gap = start - p.reader.position
-        if (gap < 0 || gap > REUSE_GAP_BYTES) {
-            p.reader.close()
-            return null
-        }
-        return p.reader.also { if (gap > 0) it.skipLater(gap) }
+        if (gap > 0) p.reader.skipLater(gap)
+        p.reader.hold = false
+        return p.reader
     }
 
+    /**
+     * Keep [reader] for the request that follows a seek. Several a link, because a player that
+     * reads two places in turn - the picture in one part of a file and its sound in another -
+     * otherwise threw away the other reader on every switch and started from nothing. A kept
+     * reader holds what it has and reads no more: abandoned readers fetching ahead are exactly
+     * what starves the one being watched when somebody jumps about.
+     */
     @Synchronized
     private fun park(token: String, reader: ReadAhead) {
-        parked.remove(token)?.let {
-            it.expiry.cancel()
-            it.reader.close()
-        }
+        reader.hold = true
+        val list = parked.getOrPut(token) { ArrayDeque() }
         val expiry = scope.launch {
             delay(KEEP_MS)
             synchronized(this@StreamServer) {
-                if (parked[token]?.reader === reader) parked.remove(token)
+                parked[token]?.let { l ->
+                    l.removeAll { it.reader === reader }
+                    if (l.isEmpty()) parked.remove(token)
+                }
             }
             reader.close()
         }
-        parked[token] = Parked(reader, expiry)
+        list.addLast(Parked(reader, expiry))
+        while (list.size > PARKED_PER_FILE) list.removeFirst().let { it.expiry.cancel(); it.reader.close() }
     }
 
-    /** One line of the request head, without its CR LF; null when the connection ends first. */
     private fun readLine(input: InputStream): String? {
         val sb = StringBuilder()
         while (true) {
@@ -235,13 +282,30 @@ class StreamServer private constructor(private val vfs: Vfs) {
         const val PIECE_BYTES = 256 * 1024
 
         /** How far ahead of the player a connection reads. */
-        const val AHEAD_BYTES = 32 * 1024 * 1024
+        const val AHEAD_BYTES = 24 * 1024 * 1024
 
         /** How far past where a kept reader stands a new request may start and still take it. */
         const val REUSE_GAP_BYTES = 8L * 1024 * 1024
 
         /** How long the last reader of a link is kept for the request that follows a seek. */
         const val KEEP_MS = 5_000L
+
+        /** Kept readers a link may have at once. See [park]. */
+        const val PARKED_PER_FILE = 3
+
+        /**
+         * Pieces already sent, kept for a jump back. Bounded for a phone with little memory:
+         * with the read-ahead of the reader in use and the kept ones, the server's worst case
+         * stays near a hundred megabytes, and is usually far below it.
+         */
+        const val CACHE_BYTES = 24L * 1024 * 1024
+
+        /**
+         * The index in [positions] of the reader that reaches [start] with the least skipping,
+         * or null where none stands at or behind it within [maxGap].
+         */
+        fun nearestBehind(positions: List<Long>, start: Long, maxGap: Long): Int? =
+            positions.withIndex().filter { start - it.value in 0..maxGap }.minByOrNull { start - it.value }?.index
 
         /**
          * No connection for this long stops the server. Long, because a paused player holds a
@@ -268,6 +332,7 @@ internal class ReadAhead(
     open: suspend (Long) -> InputStream,
     start: Long,
     private val size: Long,
+    private val onPiece: (at: Long, bytes: ByteArray) -> Unit = { _, _ -> },
 ) {
     class Piece(val bytes: ByteArray, val from: Int, val length: Int)
 
@@ -280,6 +345,12 @@ internal class ReadAhead(
     private var headAt = 0
     private var skip = 0L
 
+    /**
+     * While true the reader keeps what it has read and reads no further - set while it is kept
+     * between requests, so only the reader somebody is watching uses the network.
+     */
+    @Volatile var hold = false
+
     /** The next byte [next] hands out. */
     var position: Long = start
         private set
@@ -290,6 +361,8 @@ internal class ReadAhead(
                 stream = input
                 var at = start
                 while (at < size && isActive) {
+                    while (hold && isActive) delay(HOLD_POLL_MS)
+                    val t0 = System.nanoTime()
                     val buf = ByteArray(minOf(StreamServer.PIECE_BYTES.toLong(), size - at).toInt())
                     var got = 0
                     while (got < buf.size) {
@@ -298,7 +371,11 @@ internal class ReadAhead(
                         got += n
                     }
                     if (got == 0) break
-                    pieces.send(if (got == buf.size) buf else buf.copyOf(got))
+                    val ms = (System.nanoTime() - t0) / 1_000_000
+                    if (ms > SLOW_PIECE_MS) FiletLog.w("stream", "the drive took $ms ms for ${got / 1024} KB at $at")
+                    val piece = if (got == buf.size) buf else buf.copyOf(got)
+                    onPiece(at, piece)
+                    pieces.send(piece)
                     at += got
                 }
             }
@@ -339,10 +416,47 @@ internal class ReadAhead(
         }
     }
 
+    private companion object {
+        const val HOLD_POLL_MS = 40L
+
+        /** A piece slower than this is logged: a drive that cannot keep up with the video. */
+        const val SLOW_PIECE_MS = 1_500L
+    }
+
     fun close() {
         job.cancel()
         pieces.cancel()
         // A read blocked on the network does not see the cancel; closing its stream does.
         runCatching { stream?.close() }
     }
+}
+
+/**
+ * Pieces of streamed files already sent, the most recently used kept, up to [maxBytes]. Keyed by
+ * link and the piece's offset, which is always a multiple of [StreamServer.PIECE_BYTES].
+ */
+internal class PieceCache(private val maxBytes: Long) {
+    private val map = LinkedHashMap<String, ByteArray>(64, 0.75f, true)
+    private var bytes = 0L
+
+    @Synchronized
+    fun get(token: String, at: Long): ByteArray? = map["$token@$at"]
+
+    @Synchronized
+    fun put(token: String, at: Long, piece: ByteArray) {
+        if (piece.size > maxBytes) return
+        val key = "$token@$at"
+        map.put(key, piece)?.let { bytes -= it.size }
+        bytes += piece.size
+        val i = map.entries.iterator()
+        while (bytes > maxBytes && i.hasNext()) {
+            val e = i.next()
+            if (e.key == key) continue
+            bytes -= e.value.size
+            i.remove()
+        }
+    }
+
+    @Synchronized
+    fun size(): Long = bytes
 }

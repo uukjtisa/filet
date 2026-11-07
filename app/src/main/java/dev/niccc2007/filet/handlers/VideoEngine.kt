@@ -89,6 +89,13 @@ internal interface VideoEngine {
 
         /** The last seek has landed. */
         fun onSeekDone()
+
+        /**
+         * Playback is waiting for data ([waiting] true) or has it again. Streamed files only in
+         * practice: a local file never runs dry. Defaulted, so an engine that cannot tell is
+         * simply never shown as waiting.
+         */
+        fun onBuffering(waiting: Boolean) {}
     }
 }
 
@@ -130,6 +137,15 @@ internal class VideoViewEngine(context: Context, uri: Uri, events: VideoEngine.E
             )
         }
         view.setOnCompletionListener { events.onCompletion() }
+        // The platform's own buffering signal: 701 when it stops for data, 702 when it has it.
+        // Returning false leaves VideoView's own handling of the other codes untouched.
+        view.setOnInfoListener { _, what, _ ->
+            when (what) {
+                MediaPlayer.MEDIA_INFO_BUFFERING_START -> events.onBuffering(true)
+                MediaPlayer.MEDIA_INFO_BUFFERING_END -> events.onBuffering(false)
+            }
+            false
+        }
         view.setOnErrorListener { _, what, extra ->
             events.onError(what, extra)
             true

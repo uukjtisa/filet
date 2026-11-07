@@ -58,6 +58,7 @@ internal class Media3Engine(context: Context, uri: Uri, private val events: Vide
 
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
+            events.onBuffering(playbackState == Player.STATE_BUFFERING && prepared)
             when (playbackState) {
                 Player.STATE_READY -> {
                     if (!prepared) {

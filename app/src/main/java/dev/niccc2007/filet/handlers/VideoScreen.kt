@@ -310,6 +310,9 @@ private fun VideoPlayer(
     var duration by remember(node.path) { mutableLongStateOf(0L) }
     var position by remember(node.path) { mutableLongStateOf(0L) }
     var buffered by remember(node.path) { mutableIntStateOf(0) }
+    // Waiting for data, as the engine reports it. Drawn as a spinner over the picture: a frozen
+    // frame with no sign of why reads as the player having hung.
+    var stalled by remember(node.path) { mutableStateOf(false) }
     var playing by remember(node.path) { mutableStateOf(false) }
     var ready by remember(node.path) { mutableStateOf(false) }
     var scrubTo by remember(node.path) { mutableStateOf<Long?>(null) }
@@ -1301,11 +1304,22 @@ private fun VideoPlayer(
                         override fun onSeekDone() {
                             handle.seekDoneAt = android.os.SystemClock.uptimeMillis()
                         }
+
+                        override fun onBuffering(waiting: Boolean) {
+                            stalled = waiting
+                        }
                     }
                     // Made only in the branch where the file is staged: `uri` is set by then. The
                     // engine is the default, or in a debug build the Developer tab's choice.
                     VideoEngines.open(ctx, checkNotNull(uri), events).also { handle.engine = it }.surface
                 },
+            )
+        }
+
+        // Over the picture, not instead of it: the last frame stays, with the sign that more is coming.
+        if (stalled && error == null && uri != null) {
+            CircularProgressIndicator(
+                Modifier.align(Alignment.Center).size(34.dp), strokeWidth = 2.5.dp, color = Color.White,
             )
         }
 
