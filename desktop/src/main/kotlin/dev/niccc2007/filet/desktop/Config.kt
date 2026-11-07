@@ -26,6 +26,8 @@ data class Config(
     val deviceId: String,
     /** The LAN address picked by hand when the PC has several, or null to choose automatically. */
     val host: String? = null,
+    /** Every phone share mounted on this PC, for the Phones list. */
+    val phones: List<KnownPhone> = emptyList(),
 ) {
     companion object {
         /**
@@ -59,6 +61,20 @@ object ConfigCodec {
                 put("writable", s.writable)
                 put("tag", s.tag)
                 if (s.code.isNotBlank()) put("code", s.code)
+            })
+        })
+        put("phones", JSONArray().apply {
+            for (p in c.phones) put(JSONObject().apply {
+                put("id", p.id)
+                put("name", p.name)
+                put("label", p.label)
+                put("host", p.host)
+                put("port", p.port)
+                put("code", p.code)
+                put("secure", p.secure)
+                put("base", p.base)
+                if (p.deviceId.isNotBlank()) put("deviceId", p.deviceId)
+                p.letter?.let { put("letter", it.toString()) }
             })
         })
     }.toString(2)
@@ -98,10 +114,32 @@ object ConfigCodec {
         }
         val shares = Shares.withTags(read)
         if (shares != read) repaired = true
+        val pa = o.optJSONArray("phones") ?: JSONArray()
+        val phones = (0 until pa.length()).mapNotNull { i ->
+            val p = pa.optJSONObject(i) ?: return@mapNotNull null
+            val host = p.optString("host")
+            val port = p.optInt("port", -1)
+            val code = p.optString("code")
+            // An entry that cannot name a share is dropped, rather than kept as a row whose
+            // every Mount can only fail.
+            if (host.isBlank() || port !in 1..65535 || !AccessCode.acceptable(code)) { repaired = true; return@mapNotNull null }
+            val name = p.optString("name").ifBlank { "$host:$port" }
+            KnownPhone(
+                id = p.optString("id").ifBlank { "$host:$port/$name" },
+                name = name,
+                label = p.optString("label").ifBlank { name },
+                host = host, port = port, code = code,
+                secure = p.optBoolean("secure", false),
+                base = p.optString("base").ifBlank { "/a/" },
+                deviceId = p.optString("deviceId"),
+                letter = p.optString("letter").firstOrNull()?.uppercaseChar()?.takeIf { it in 'A'..'Z' },
+            )
+        }.distinctBy { it.id }
         return Decoded(
             Config(
                 shares, Account(password), port, o.optBoolean("autostart", false), id,
                 host = o.optString("host").takeIf { it.isNotBlank() },
+                phones = phones,
             ),
             repaired,
         )

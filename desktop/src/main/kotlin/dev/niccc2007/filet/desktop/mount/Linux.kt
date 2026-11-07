@@ -37,7 +37,7 @@ class LinuxMounter(
         return dav + gvfs
     }
 
-    override fun mount(target: DavTarget, label: String): MountResult {
+    override fun mount(target: DavTarget, label: String, letter: Char?): MountResult {
         attached().firstOrNull { it.target == target }?.let { return MountResult.Ok(it.where) }
         val d = davfs
         val line = LinuxMounts.fstabLine(fstab(), target.url)

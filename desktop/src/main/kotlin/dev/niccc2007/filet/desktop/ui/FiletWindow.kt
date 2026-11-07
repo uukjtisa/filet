@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,8 +29,10 @@ import androidx.compose.ui.unit.dp
 import dev.niccc2007.filet.desktop.Autostart
 import dev.niccc2007.filet.desktop.HostService
 import dev.niccc2007.filet.desktop.Peer
+import dev.niccc2007.filet.desktop.mount.DriveLetters
 import dev.niccc2007.filet.desktop.mount.Probe
 import dev.niccc2007.filet.desktop.mount.WebClientLimit
+import dev.niccc2007.filet.webdav.AccessCode
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 
@@ -222,17 +225,20 @@ private fun SharingSection(host: HostService) {
 @Composable
 private fun PhonesSection(peerFlow: StateFlow<List<Peer>>, ctl: MountController, rescan: () -> Unit) {
     val peers by peerFlow.collectAsState()
+    val known by ctl.known.collectAsState()
     val mounts by ctl.mounts.collectAsState()
+    val taken by ctl.taken.collectAsState()
     val problem by ctl.problem.collectAsState()
     val letterFree by ctl.letterFree.collectAsState()
     val busy by ctl.busy.collectAsState()
     val errors by ctl.errors.collectAsState()
-    val remembered by ctl.remembered.collectAsState()
     val limit by ctl.limit.collectAsState()
-    val codes = remember { mutableStateMapOf<String, String>() }
+    // One editor open at a time, named "<what>:<row id>" where what is mount, rename or letter.
     var open by remember { mutableStateOf<String?>(null) }
+    val drafts = remember { mutableStateMapOf<String, String>() }
+    val picks = remember { mutableStateMapOf<String, Char>() }
 
-    SectionHead("PHONES ON THIS NETWORK") {
+    SectionHead("PHONES") {
         // Discovery only hears what is announced; this asks again instead of waiting.
         Btn(if ("refresh" in busy) "Looking..." else "Refresh", enabled = "refresh" !in busy) { ctl.refreshNow(rescan) }
     }
@@ -250,64 +256,115 @@ private fun PhonesSection(peerFlow: StateFlow<List<Peer>>, ctl: MountController,
         }
     }
 
-    if (peers.isEmpty()) Txt("Looking for phones running Filet with sharing on...", 13, Ink.muted)
-    // Rows come straight off the live list. A device that leaves takes its row - and any open code
-    // field - with it, so nothing stays on screen offering a mount of something that is gone.
-    for (p in peers) {
-        val mine = MountModel.mountedAs(p, mounts.map { it.attached }, remembered)
+    // Saved phones stay listed while offline; a phone on the network never mounted here follows.
+    // Rows are rebuilt from the live list and the OS's drives on every change, so a phone that
+    // leaves turns its row offline, and any open mount dialog under it stops offering Mount.
+    val rows = MountModel.rows(known, peers, mounts.map { it.attached })
+    if (rows.isEmpty()) Txt("Looking for phones running Filet with sharing on...", 13, Ink.muted)
+    val filetLetters = rows.mapNotNull { r -> r.drive?.let { d -> DriveLetters.letterOf(d.where)?.let { it to r.label } } }.toMap()
+
+    for (r in rows) key(r.id) {
+        val id = r.id
+        val view = r.drive?.let { d -> mounts.firstOrNull { it.attached == d } }
+        val dead = view?.answering == false
+        val working = id in busy
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.size(8.dp).background(Ink.accent, CircleShape))
-                Txt(p.name, bold = true)
-                Txt("${p.host}:${p.port}", 13, Ink.muted, mono = true, modifier = Modifier.weight(1f))
-                when {
-                    mine != null -> Txt("mounted as ${mine.where}", 13, Ink.accent)
-                    open == p.key -> Btn("Cancel") { open = null }
-                    else -> Btn("Mount", enabled = problem == null && letterFree, primary = true) { open = p.key }
-                }
+                Box(Modifier.size(8.dp).background(if (r.online) Ink.accent else Ink.muted, CircleShape))
+                Txt(r.label, bold = true)
+                Txt(MountModel.stateLine(r), 13, if (r.state == MountModel.State.MOUNTED) Ink.accent else Ink.muted, modifier = Modifier.weight(1f))
             }
-            Txt(listOf(p.scope.ifBlank { "Shared folder" }, if (p.writable) "read+write" else "read only").joinToString(" · "), 13, Ink.muted,
+            val name = r.peer?.name ?: r.phone?.name
+            val address = r.peer?.let { "${it.host}:${it.port}" } ?: r.phone?.let { "${it.host}:${it.port}" }
+            val what = r.peer?.let { p -> listOf(p.scope.ifBlank { "Shared folder" }, if (p.writable) "read+write" else "read only").joinToString(" · ") }
+            Txt(listOfNotNull(name?.takeIf { it != r.label }, address, what).joinToString(" · "), 13, Ink.muted,
                 modifier = Modifier.padding(start = 16.dp))
-            if (open == p.key && mine == null) {
-                val code = codes[p.key].orEmpty()
-                val blocker = MountModel.mountBlocker(p, peers, code, problem, letterFree, p.key in busy)
-                Row(Modifier.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Field(code, { codes[p.key] = it }, "access code", Modifier.width(160.dp))
-                    Btn(if (p.key in busy) "Mounting..." else "Mount", enabled = blocker == null, primary = true) {
-                        ctl.mount(p, code) { err -> if (err == null) { open = null; codes.remove(p.key) } }
+
+            Row(Modifier.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (r.state == MountModel.State.MOUNTED) {
+                    Btn(if (ctl.usesLetters) "Open in Explorer" else "Open", enabled = !dead) { openFolder(r.drive!!.where) }
+                    Btn(if (working) "Working..." else "Unmount", enabled = !working) { ctl.unmount(r, view) }
+                } else {
+                    Btn("Mount", enabled = r.online && problem == null && !working, primary = true) {
+                        drafts["name:$id"] = r.label
+                        drafts["code:$id"] = r.phone?.code.orEmpty()
+                        open = "mount:$id"
                     }
                 }
-                val err = errors[p.key]?.message
-                Txt(err ?: blocker ?: "The code is on the device's sharing screen. It is never broadcast.", 12,
-                    if (err != null) Ink.warn else Ink.muted, modifier = Modifier.padding(start = 16.dp))
+                if (r.phone != null) Btn("Rename", enabled = !working) { drafts["name:$id"] = r.label; open = "rename:$id" }
+                if (r.state == MountModel.State.MOUNTED && ctl.usesLetters) Btn("Change letter", enabled = !working && !dead) { open = "letter:$id" }
+                if (r.phone != null && r.state != MountModel.State.MOUNTED) Btn("Forget", enabled = !working) { ctl.forget(r) }
+                if (open?.endsWith(":$id") == true) Btn("Cancel") { open = null }
+            }
+
+            val pad = Modifier.padding(start = 16.dp)
+            when (open) {
+                "mount:$id" -> if (r.state != MountModel.State.MOUNTED) {
+                    val choices = if (ctl.usesLetters) MountModel.letterChoices(taken, filetLetters) else emptyList()
+                    val pick = choices.firstOrNull { it.letter == picks[id] } ?: MountModel.firstChoice(choices, r.phone?.letter)
+                    val label = drafts["name:$id"].orEmpty()
+                    val code = drafts["code:$id"].orEmpty()
+                    val blocker = MountModel.mountBlocker(r.online, code, problem, !ctl.usesLetters || pick != null, working)
+                    Row(pad, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Txt("Name", 13, Ink.muted, modifier = Modifier.width(84.dp))
+                        Field(label, { drafts["name:$id"] = it }, name ?: "name", Modifier.width(220.dp))
+                    }
+                    if (ctl.usesLetters) LetterPicker(choices, pick, pad) { picks[id] = it }
+                    Row(pad, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Txt("Access code", 13, Ink.muted, modifier = Modifier.width(84.dp))
+                        Field(code, { drafts["code:$id"] = AccessCode.typing(it) }, "access code", Modifier.width(160.dp))
+                        Btn(if (working) "Mounting..." else "Mount", enabled = blocker == null, primary = true) {
+                            ctl.mount(r, label, code, pick) { err -> if (err == null) open = null }
+                        }
+                    }
+                    if (errors[id] == null) Txt(blocker ?: "The code is on the device's sharing screen. It is never broadcast.", 12, Ink.muted, modifier = pad)
+                }
+                "rename:$id" -> Row(pad, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val label = drafts["name:$id"].orEmpty()
+                    Field(label, { drafts["name:$id"] = it }, name ?: "name", Modifier.width(220.dp))
+                    Btn("Save", enabled = label.isNotBlank() && !working, primary = true) {
+                        ctl.rename(r, label) { err -> if (err == null) open = null }
+                    }
+                }
+                "letter:$id" -> r.drive?.let { d ->
+                    val choices = MountModel.letterChoices(taken, filetLetters, own = DriveLetters.letterOf(d.where))
+                    val pick = choices.firstOrNull { it.letter == picks[id] } ?: MountModel.firstChoice(choices, null)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LetterPicker(choices, pick, pad) { picks[id] = it }
+                        Btn(if (working) "Moving..." else "Move", enabled = pick != null && !working, primary = true) {
+                            ctl.changeLetter(r, pick!!) { err -> if (err == null) open = null }
+                        }
+                    }
+                }
+            }
+
+            if (r.state == MountModel.State.MOUNTED) {
+                val status = when {
+                    dead -> view?.note ?: "Not answering - the device may have left the network or stopped sharing."
+                    view?.space != null -> Probe.describe(view.space) + " on the device. Explorer shows this PC's own free space instead."
+                    else -> null
+                }
+                status?.let { Txt(it, 12, if (dead) Ink.warn else Ink.muted, modifier = pad) }
+            }
+            errors[id]?.let { f ->
+                Row(pad, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Txt(f.message, 12, Ink.warn, modifier = Modifier.weight(1f))
+                    if (f.canForce && r.drive != null) Btn("Unmount anyway") { ctl.unmount(r, view, force = true) }
+                }
             }
         }
     }
+}
 
-    if (mounts.isNotEmpty()) Spacer(Modifier.height(6.dp))
-    for (m in mounts) {
-        val key = m.attached.where
-        val dead = m.answering == false
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Txt(m.attached.where, bold = true, mono = true)
-                Txt(m.label, modifier = Modifier.weight(1f))
-                Btn("Open", enabled = !dead) { openFolder(m.attached.where) }
-                Btn(if (key in busy) "Unmounting..." else "Unmount", enabled = key !in busy) { ctl.unmount(m) }
-            }
-            val status = when {
-                dead -> m.note ?: "Not answering - the device may have left the network or stopped sharing."
-                m.space != null -> Probe.describe(m.space) + " on the device. Explorer shows this PC's own free space instead."
-                else -> null
-            }
-            status?.let { Txt(it, 12, if (dead) Ink.warn else Ink.muted) }
-            errors[key]?.let { f ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Txt(f.message, 12, Ink.warn, modifier = Modifier.weight(1f))
-                    if (f.canForce) Btn("Unmount anyway") { ctl.unmount(m, force = true) }
-                }
-            }
-        }
+/** Steps through [choices]; a replacement is drawn in the warning colour, since it unmounts a drive. */
+@Composable
+private fun LetterPicker(choices: List<MountModel.LetterChoice>, pick: MountModel.LetterChoice?, modifier: Modifier, onPick: (Char) -> Unit) {
+    val i = choices.indexOf(pick)
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Txt("Drive letter", 13, Ink.muted, modifier = Modifier.width(84.dp))
+        Btn("<", enabled = i > 0) { onPick(choices[i - 1].letter) }
+        Txt(pick?.text ?: "no letter free", 13, if (pick?.replaces != null) Ink.warn else Ink.text, mono = true)
+        Btn(">", enabled = i in 0 until choices.lastIndex) { onPick(choices[i + 1].letter) }
     }
 }
 

@@ -25,7 +25,22 @@ interface Mounter {
     /** What is attached right now, read from the OS every time - never from memory. */
     fun attached(): List<Attached>
 
-    fun mount(target: DavTarget, label: String): MountResult
+    /**
+     * Attach [target] and name it [label].
+     *
+     * [letter] is the drive letter to take on Windows, or null for the next free one from `Z:`
+     * down. Ignored elsewhere, where the OS picks the folder.
+     */
+    fun mount(target: DavTarget, label: String, letter: Char? = null): MountResult
+
+    /**
+     * Show [mount] as [label] in the file manager.
+     *
+     * Windows only. On macOS and Linux the name a drive shows is its mount folder's, which NetFS,
+     * gio or the fstab line chooses and which cannot change while it is mounted, so the default
+     * leaves the OS alone and the name lives in Filet's own list.
+     */
+    fun relabel(mount: Attached, label: String): MountResult = MountResult.Ok(mount.where)
 
     /** [force] closes the connection even with files open on it. */
     fun unmount(mount: Attached, force: Boolean = false): MountResult
@@ -41,6 +56,12 @@ data class Attached(
      * after its server leaves. Shown, so it can be removed, and never presented as working.
      */
     val connected: Boolean = true,
+    /**
+     * The path exactly as the OS reports it, when it has one: the UNC path on Windows. Explorer
+     * keys a drive's name by this string, so a drive mapped by something else is named by its
+     * own spelling rather than one rebuilt from [target].
+     */
+    val remote: String? = null,
 )
 
 sealed interface MountResult {
@@ -93,6 +114,6 @@ class Unsupported(private val osName: String) : Mounter {
     override val platform = Platform.OTHER
     override fun unavailable() = "Mounting is not supported on ${osName.ifBlank { "this system" }} yet. Sharing still works."
     override fun attached(): List<Attached> = emptyList()
-    override fun mount(target: DavTarget, label: String) = MountResult.Failed(unavailable())
+    override fun mount(target: DavTarget, label: String, letter: Char?) = MountResult.Failed(unavailable())
     override fun unmount(mount: Attached, force: Boolean) = MountResult.Failed(unavailable())
 }

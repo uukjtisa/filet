@@ -37,6 +37,29 @@ class ConfigTest {
         assertFalse(back.repaired)
     }
 
+    @Test fun `saved phones survive a restart, letter and rename included`() {
+        val c = fixed.copy(phones = listOf(
+            KnownPhone("dev-9/Phone", "Phone", "Work phone", "192.168.100.6", 11111, "Tres3", deviceId = "dev-9", letter = 'Y'),
+            KnownPhone("192.168.100.14:8321/Tablet", "Tablet", "Tablet", "192.168.100.14", 8321, "b2"),
+        ))
+        val back = ConfigCodec.decode(ConfigCodec.encode(c)) { fixed }
+        assertEquals(c, back.config)
+        assertFalse(back.repaired)
+    }
+
+    @Test fun `a saved phone that cannot name a share is dropped, and an old file has none`() {
+        val raw = "{\"password\":\"bcd234fgh5\",\"deviceId\":\"x\",\"phones\":[" +
+            "{\"host\":\"10.0.0.2\",\"port\":8321,\"code\":\"has-dash\"}," +
+            "{\"host\":\"\",\"port\":8321,\"code\":\"ok1\"}," +
+            "{\"host\":\"10.0.0.3\",\"port\":8321,\"code\":\"ok2\",\"letter\":\"q\"}]}"
+        val d = ConfigCodec.decode(raw) { fixed }
+        val kept = d.config.phones.single()
+        assertEquals("10.0.0.3:8321", kept.label)
+        assertEquals('Q', kept.letter)
+        assertTrue(d.repaired)
+        assertEquals(emptyList<KnownPhone>(), ConfigCodec.decode("{\"password\":\"bcd234fgh5\",\"deviceId\":\"x\"}") { fixed }.config.phones)
+    }
+
     @Test fun `an invalid hand-set code in the file falls back to the account's`() {
         val raw = "{\"password\":\"bcd234fgh5\",\"deviceId\":\"x\",\"shares\":[" +
             "{\"path\":\"D:\\\\Docs\",\"name\":\"Docs\",\"tag\":\"docs\",\"code\":\"has-dash\"}]}"

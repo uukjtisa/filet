@@ -313,6 +313,14 @@ class HostService(
         start()
     }
 
+    /** The phones this PC has mounted, for the Phones list. */
+    val phones: List<KnownPhone> get() = config.phones
+
+    @Synchronized
+    fun savePhones(phones: List<KnownPhone>) {
+        if (phones != config.phones) update(config.copy(phones = phones))
+    }
+
     private fun update(c: Config) {
         config = c
         store.save(c)

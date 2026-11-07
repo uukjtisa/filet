@@ -1,16 +1,18 @@
 package dev.niccc2007.filet.desktop.ui
 
+import dev.niccc2007.filet.desktop.KnownPhone
 import dev.niccc2007.filet.desktop.Peer
 import dev.niccc2007.filet.desktop.mount.Attached
 import dev.niccc2007.filet.desktop.mount.DavTarget
+import dev.niccc2007.filet.desktop.mount.DriveLetters
 import dev.niccc2007.filet.desktop.mount.ProbeResult
 
 /**
- * The decisions behind the "Phones on this network" section, as pure functions.
+ * The decisions behind the Phones section, as pure functions.
  *
  * Each is something the window can get wrong while looking fine, so none of them lives in a
- * Composable: whether a Mount button is enabled, which device a mounted drive belongs to, and what
- * address a code turns a peer into.
+ * Composable: which drive belongs to which row, whether a Mount button is enabled, which letters
+ * a mount may take, and what address a code turns a phone into.
  */
 object MountModel {
 
@@ -19,50 +21,160 @@ object MountModel {
         DavTarget.cleanCode(code)?.let { DavTarget(peer.host, peer.port, peer.secure, peer.base.ifBlank { "/a/" }, it) }
 
     /**
-     * Why Mount cannot be pressed for [peer], or null when it can.
+     * Why the mount dialog's Mount cannot be pressed, or null when it can.
      *
-     * The first rule is R1. The peer list is live, so a device that leaves the network drops out
-     * of [current] - and a code field still open under its row must stop offering a Mount that
-     * will run for twenty seconds against an address nothing answers on.
+     * The first rule is R1. Rows are rebuilt from the live list, so a phone that leaves the
+     * network turns its row offline - and a dialog still open under it must stop offering a Mount
+     * that will run for twenty seconds against an address nothing answers on.
      */
     fun mountBlocker(
-        peer: Peer,
-        current: List<Peer>,
+        online: Boolean,
         code: String,
         platformProblem: String?,
         letterFree: Boolean,
         busy: Boolean,
     ): String? = when {
-        current.none { it.key == peer.key } -> "This device has left the network."
+        !online -> "This device has left the network."
         platformProblem != null -> platformProblem
         !letterFree -> "Every drive letter from D: to Z: is in use. Disconnect one first."
         busy -> "Mounting..."
-        targetOf(peer, code) == null -> "Type the access code shown on the device."
+        DavTarget.cleanCode(code) == null -> "Type the access code shown on the device."
         else -> null
     }
 
+    // ── rows ──
+
+    enum class State { MOUNTED, NOT_MOUNTED, OFFLINE }
+
     /**
-     * The name to show for a mounted drive.
+     * One line of the Phones list.
      *
-     * The target remembered at mount time wins, because one device can offer several shares on
-     * one port and only the code tells them apart. A drive mapped in an earlier run has no such
-     * memory, so it falls back to whichever device is answering on that host and port, and then
-     * to the address itself - never blank, never a guess presented as certain.
+     * [phone] is null for a share on the network that this PC has never mounted, [peer] is null
+     * for a saved one that is not on the network now, and [drive] is the OS's own report of it.
      */
-    fun labelFor(mount: Attached, peers: List<Peer>, remembered: Map<String, DavTarget>): String {
-        remembered.entries.firstOrNull { it.value == mount.target }?.let { (key, _) ->
-            peers.firstOrNull { it.key == key }?.let { return it.name }
-            return key.substringAfter('/')
-        }
-        return peers.firstOrNull { it.host == mount.target.host && it.port == mount.target.port }?.name
-            ?: "${mount.target.host}:${mount.target.port}"
+    data class PhoneRow(val id: String, val phone: KnownPhone?, val peer: Peer?, val drive: Attached?) {
+        val state: State
+            get() = when {
+                drive != null -> State.MOUNTED
+                peer != null -> State.NOT_MOUNTED
+                else -> State.OFFLINE
+            }
+        val online: Boolean get() = peer != null
+        val label: String get() = phone?.label ?: peer?.name.orEmpty()
     }
 
-    /** The drive [peer] is mounted as, if this run mounted it and the OS still has it. */
-    fun mountedAs(peer: Peer, attached: List<Attached>, remembered: Map<String, DavTarget>): Attached? {
-        val t = remembered[peer.key] ?: return null
-        return attached.firstOrNull { it.target == t }
+    fun stateLine(row: PhoneRow): String = when (row.state) {
+        State.MOUNTED -> "Mounted on ${row.drive!!.where}"
+        State.NOT_MOUNTED -> "Not mounted"
+        State.OFFLINE -> "Offline"
     }
+
+    /** A live share's row identity: its device's id and share name, or its address when it sent no id. */
+    fun idOf(peer: Peer): String = if (peer.deviceId.isNotBlank()) "${peer.deviceId}/${peer.name}" else peer.key
+
+    /** Whether [peer] is the share [phone] was saved from. */
+    fun isPeer(phone: KnownPhone, peer: Peer): Boolean = phone.id == idOf(peer) ||
+        (phone.name == peer.name && phone.host.equals(peer.host, ignoreCase = true) && phone.port == peer.port)
+
+    /** The same share: host as DNS compares it, port, scheme and code. The base is always `/a/`. */
+    fun sameShare(a: DavTarget, b: DavTarget): Boolean =
+        a.host.equals(b.host, ignoreCase = true) && a.port == b.port && a.secure == b.secure && a.code == b.code
+
+    /**
+     * The drive the OS reports for [phone], if it has one.
+     *
+     * Bug identified here: after a mount succeeded, the row offered Mount again. A row found its
+     * drive only through a map that lived for one run, keyed by the peer's `host:port/name`, and
+     * compared whole targets including the base path. A restart, the phone resolving to another
+     * of its addresses, or a base spelled differently from the one read back out of the UNC path
+     * each broke that link while the drive itself stayed mounted. The row now owns a saved target
+     * and is matched on what the OS reports. The letter it was mounted on is the fallback, for a
+     * host the OS spells differently.
+     */
+    fun driveOf(phone: KnownPhone, attached: List<Attached>): Attached? =
+        attached.firstOrNull { sameShare(phone.target, it.target) }
+            ?: phone.letter?.let { l -> attached.firstOrNull { DriveLetters.letterOf(it.where) == l && it.target.code == phone.code } }
+
+    /**
+     * Every saved phone in saved order, then every share on the network that none of them is.
+     *
+     * Saved phones stay listed while offline, so a stale one can be forgotten and a mounted one
+     * whose phone has gone can still be unmounted.
+     */
+    fun rows(known: List<KnownPhone>, live: List<Peer>, attached: List<Attached>): List<PhoneRow> {
+        val claimed = HashSet<String>()
+        val saved = known.map { k ->
+            val p = live.firstOrNull { it.key !in claimed && isPeer(k, it) }?.also { claimed += it.key }
+            PhoneRow(k.id, k, p, driveOf(k, attached))
+        }
+        return saved + live.filter { it.key !in claimed }.map { PhoneRow(idOf(it), null, it, null) }
+    }
+
+    /**
+     * [known] plus a saved entry for every Filet drive the OS has that no entry claims.
+     *
+     * Those are drives mapped before this list was saved, or by `--mount` from a terminal, and
+     * Windows reattaches them at every login; without this they would be mounted with no row to
+     * unmount them from. The name comes from the one live share on that host and port. With
+     * several, or none, the address stands in: shares on one port differ only by their code,
+     * which is never announced, so picking one would show a name that may be wrong.
+     */
+    fun adopt(known: List<KnownPhone>, attached: List<Attached>, live: List<Peer>): List<KnownPhone> {
+        var out = known
+        for (a in attached) {
+            if (out.any { driveOf(it, listOf(a)) != null }) continue
+            val t = a.target
+            val peer = live.singleOrNull { it.host.equals(t.host, ignoreCase = true) && it.port == t.port }
+            val name = peer?.name ?: "${t.host}:${t.port}"
+            val id = peer?.let(::idOf)?.takeIf { w -> out.none { it.id == w } } ?: "${t.host}:${t.port}/${t.code}"
+            out = out + KnownPhone(id, name, name, t.host, t.port, t.code, t.secure, t.base, peer?.deviceId.orEmpty(), DriveLetters.letterOf(a.where))
+        }
+        return out
+    }
+
+    /** [known] with [phone] saved, in place of its own entry and of any other entry for the same share. */
+    fun upsert(known: List<KnownPhone>, phone: KnownPhone): List<KnownPhone> {
+        fun mine(k: KnownPhone) = k.id == phone.id || sameShare(k.target, phone.target)
+        val at = known.indexOfFirst(::mine)
+        if (at < 0) return known + phone
+        return known.mapIndexedNotNull { i, k -> if (i == at) phone else k.takeUnless(::mine) }
+    }
+
+    // ── drive letters ──
+
+    /** One choice in the letter picker. [replaces] names the Filet drive that is unmounted first. */
+    data class LetterChoice(val letter: Char, val replaces: String? = null) {
+        val text: String get() = if (replaces == null) "$letter:" else "replace $letter: ($replaces)"
+    }
+
+    /**
+     * The letters a mount may take, from `Z:` down: every free one, and every one a Filet drive
+     * holds, which is unmounted first. A letter any other drive holds is never offered - a USB
+     * stick, an office share, a remembered drive whose server is away. [own] is the letter the
+     * drive being moved is on, and is left out.
+     *
+     * [taken] is every letter in use, Filet's included; [filet] is Filet's own, with their names.
+     */
+    fun letterChoices(taken: Set<Char>, filet: Map<Char, String>, own: Char? = null): List<LetterChoice> =
+        DriveLetters.CANDIDATES.mapNotNull { l ->
+            when {
+                l == own -> null
+                l in filet -> LetterChoice(l, filet.getValue(l))
+                l in taken -> null
+                else -> LetterChoice(l)
+            }
+        }
+
+    /**
+     * The choice a picker starts on: [preferred] when it is free, else the first free letter.
+     * Only when nothing is free does it start on a replacement, which its text spells out.
+     */
+    fun firstChoice(choices: List<LetterChoice>, preferred: Char?): LetterChoice? =
+        choices.firstOrNull { it.letter == preferred && it.replaces == null }
+            ?: choices.firstOrNull { it.replaces == null }
+            ?: choices.firstOrNull()
+
+    // ── health ──
 
     /**
      * A mounted share's state, carried from one probe to the next.

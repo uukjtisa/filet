@@ -46,7 +46,7 @@ class WindowsMounter : Mounter {
             .mapNotNull { (local, remote) ->
                 val letter = DriveLetters.letterOf(local) ?: return@mapNotNull null
                 val target = remote?.let { DavTarget.parseUnc(it) } ?: return@mapNotNull null
-                Attached(target, "$letter:", connected = letter in live)
+                Attached(target, "$letter:", connected = letter in live, remote = remote)
             }
             .sortedBy { it.where }
     }
@@ -56,14 +56,19 @@ class WindowsMounter : Mounter {
         File.listRoots().mapNotNull { DriveLetters.letterOf(it.path) }.toSet() +
             (enumerate(RESOURCE_CONNECTED) + enumerate(RESOURCE_REMEMBERED)).mapNotNull { DriveLetters.letterOf(it.first) }
 
-    override fun mount(target: DavTarget, label: String): MountResult {
+    override fun mount(target: DavTarget, label: String, letter: Char?): MountResult {
         // Already mapped - a second mapping of the same share on another letter is never wanted,
         // and the redirector would happily make one.
-        attached().firstOrNull { it.target == target }?.let { return MountResult.Ok(it.where) }
+        attached().firstOrNull { it.target == target }?.let { relabel(it, label); return MountResult.Ok(it.where) }
 
-        val letter = DriveLetters.pick(takenLetters())
-            ?: return MountResult.Failed("Every drive letter from D: to Z: is in use. Disconnect one first.")
-        val local = "$letter:"
+        val taken = takenLetters()
+        val chosen = if (letter == null) {
+            DriveLetters.pick(taken) ?: return MountResult.Failed("Every drive letter from D: to Z: is in use. Disconnect one first.")
+        } else {
+            letter.uppercaseChar().takeIf { it in DriveLetters.CANDIDATES && it !in taken }
+                ?: return MountResult.Failed("${letter.uppercaseChar()}: is already in use. Pick another letter.")
+        }
+        val local = "$chosen:"
         val res = Winnetwk.NETRESOURCE().apply {
             dwType = Winnetwk.RESOURCETYPE.RESOURCETYPE_DISK
             lpLocalName = local
@@ -74,8 +79,34 @@ class WindowsMounter : Mounter {
         // sign-in. Not CONNECT_INTERACTIVE, so Windows never puts up a credential prompt that
         // has no right answer.
         val rc = Mpr.INSTANCE.WNetAddConnection3(null, res, null, null, Winnetwk.ConnectFlag.CONNECT_UPDATE_PROFILE)
-        return if (rc == WinNetErrors.NO_ERROR) MountResult.Ok(local)
-        else MountResult.Failed(WinNetErrors.message(rc), rc)
+        if (rc != WinNetErrors.NO_ERROR) return MountResult.Failed(WinNetErrors.message(rc), rc)
+        // The name is cosmetic: a mount that worked is not reported as failed because of it.
+        relabel(Attached(target, local, remote = target.unc), label)
+        return MountResult.Ok(local)
+    }
+
+    /**
+     * Name the drive in Explorer through `_LabelFromReg`; see [ExplorerLabel].
+     *
+     * The value lives on after an unmount, so mounting the same share again brings its name back
+     * even before this sets it.
+     */
+    override fun relabel(mount: Attached, label: String): MountResult {
+        val key = ExplorerLabel.keyFor(mount.remote ?: mount.target.unc)
+        val path = ExplorerLabel.PARENT + "\\" + key
+        val stored = runCatching {
+            if (!Advapi32Util.registryKeyExists(WinReg.HKEY_CURRENT_USER, path)) {
+                Advapi32Util.registryCreateKey(WinReg.HKEY_CURRENT_USER, ExplorerLabel.PARENT, key)
+            }
+            Advapi32Util.registrySetStringValue(WinReg.HKEY_CURRENT_USER, path, ExplorerLabel.VALUE, label)
+        }
+        if (stored.isFailure) return MountResult.Failed("Windows would not store the name for ${mount.where}.")
+        // Explorer caches drive names; this asks it to read this one again.
+        runCatching {
+            ShellNotify.INSTANCE.SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, WString("${mount.where}\\"), null)
+            ShellNotify.INSTANCE.SHChangeNotify(SHCNE_UPDATEDIR, SHCNF_PATHW, WString("${mount.where}\\"), null)
+        }
+        return MountResult.Ok(mount.where)
     }
 
     override fun unmount(mount: Attached, force: Boolean): MountResult {
@@ -155,6 +186,8 @@ class WindowsMounter : Mounter {
         const val RESOURCE_REMEMBERED = 3
         const val BUFFER = 16 * 1024
         const val SHCNE_DRIVEREMOVED = 0x00000080
+        const val SHCNE_UPDATEDIR = 0x00001000
+        const val SHCNE_UPDATEITEM = 0x00002000
         const val SHCNF_PATHW = 0x0005
     }
 }

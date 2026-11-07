@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.desktop.ui
 
+import dev.niccc2007.filet.desktop.KnownPhone
 import dev.niccc2007.filet.desktop.Peer
 import dev.niccc2007.filet.desktop.mount.Attached
 import dev.niccc2007.filet.desktop.mount.DavTarget
@@ -28,7 +29,6 @@ import java.util.concurrent.ConcurrentHashMap
 /** One mounted drive as the window shows it. */
 data class MountView(
     val attached: Attached,
-    val label: String,
     /** The share's own figure; see [Probe] for why Explorer's cannot be trusted. Null until read. */
     val space: Space? = null,
     /** Null until probed. False means the OS still holds the drive and nothing answers behind it. */
@@ -38,19 +38,36 @@ data class MountView(
 )
 
 /**
- * The mounting half's state, kept current from the OS.
+ * The mounting half's state: the saved phones, and the drives as the OS reports them.
  *
  * The list of drives is re-read from the OS every [POLL_MS] and never edited in place. That is
  * what keeps a drive disconnected from Explorer, or reattached by Windows at login, from leaving
- * the window out of step: there is no second copy of "what is mounted" here to go stale.
+ * the window out of step: there is no second copy of "what is mounted" here to go stale. What is
+ * kept is the other half, which the OS cannot say - which phone a drive is and what it is called -
+ * in [known], saved through [savePhones] on every change.
+ *
+ * Every state change happens on [scope]'s thread, the window's; only the OS calls go to IO.
  */
 class MountController(
     private val mounter: Mounter,
     private val peers: StateFlow<List<Peer>>,
     private val scope: CoroutineScope,
+    loadPhones: () -> List<KnownPhone> = { emptyList() },
+    private val savePhones: (List<KnownPhone>) -> Unit = {},
 ) {
+    /** Windows mounts on a drive letter; everywhere else the OS picks a folder. */
+    val usesLetters: Boolean = mounter.platform == Platform.WINDOWS
+
+    private val _known = MutableStateFlow(loadPhones())
+    /** Every phone share mounted here, mounted now or not. */
+    val known: StateFlow<List<KnownPhone>> = _known.asStateFlow()
+
     private val _mounts = MutableStateFlow<List<MountView>>(emptyList())
     val mounts: StateFlow<List<MountView>> = _mounts.asStateFlow()
+
+    private val _taken = MutableStateFlow<Set<Char>>(emptySet())
+    /** Every drive letter in use, Filet's own included. Empty off Windows. */
+    val taken: StateFlow<Set<Char>> = _taken.asStateFlow()
 
     private val _problem = MutableStateFlow<String?>(null)
     /** Why this platform cannot mount, or null. Read once off the event thread. */
@@ -64,16 +81,12 @@ class MountController(
     val limit: StateFlow<WebClientLimit.Verdict?> = _limit.asStateFlow()
 
     private val _busy = MutableStateFlow<Set<String>>(emptySet())
-    /** Peer keys and drive names with an operation in flight. */
+    /** Row ids with an operation in flight, plus "refresh" and "limit". */
     val busy: StateFlow<Set<String>> = _busy.asStateFlow()
 
     private val _errors = MutableStateFlow<Map<String, MountResult.Failed>>(emptyMap())
-    /** The last refusal per peer key or drive name, cleared by the next attempt. */
+    /** The last refusal per row id, cleared by the next attempt. */
     val errors: StateFlow<Map<String, MountResult.Failed>> = _errors.asStateFlow()
-
-    /** Peer key -> the target mounted for it, so a row knows which drive is its own. */
-    private val _remembered = MutableStateFlow<Map<String, DavTarget>>(emptyMap())
-    val remembered: StateFlow<Map<String, DavTarget>> = _remembered.asStateFlow()
 
     private val spaces = ConcurrentHashMap<DavTarget, Pair<Space?, MountModel.Health>>()
 
@@ -103,28 +116,36 @@ class MountController(
             }
         }
         spaces.keys.retainAll(attached.map { it.target }.toSet())
-        _letterFree.value = (mounter as? WindowsMounter)?.let { m ->
-            withContext(Dispatchers.IO) { runCatching { DriveLetters.pick(m.takenLetters()) != null }.getOrDefault(true) }
-        } ?: true
-        val p = peers.value
-        val rem = _remembered.value
+        val taken = (mounter as? WindowsMounter)?.let { m ->
+            withContext(Dispatchers.IO) { runCatching { m.takenLetters() }.getOrDefault(emptySet()) }
+        } ?: emptySet()
+        _taken.value = taken
+        _letterFree.value = !usesLetters || DriveLetters.pick(taken) != null
+        // A drive mapped before the list was saved still gets a row, so it can be unmounted here.
+        MountModel.adopt(_known.value, attached, peers.value).let { if (it != _known.value) save(it) }
         _mounts.value = attached.map { a ->
             val s = spaces[a.target]
             val h = s?.second
-            MountView(
-                a, MountModel.labelFor(a, p, rem), s?.first,
-                answering = if (!a.connected) false else h?.answering,
-                note = h?.note,
-            )
+            MountView(a, s?.first, answering = if (!a.connected) false else h?.answering, note = h?.note)
         }
     }
 
-    /** Probe, then mount. [onDone] runs on the event thread with null on success. */
-    fun mount(peer: Peer, code: String, onDone: (String?) -> Unit) {
-        val target = MountModel.targetOf(peer, code) ?: return onDone("Type the access code shown on the device.")
-        if (peer.key in _busy.value) return
-        _busy.update { it + peer.key }
-        _errors.update { it - peer.key }
+    /**
+     * Probe, free the letter if another Filet drive holds it, mount, and save the row.
+     *
+     * The address comes from the live peer when there is one, so a phone that came back on a new
+     * address is mounted there, and from the saved entry otherwise. [onDone] runs on the event
+     * thread with null on success.
+     */
+    fun mount(row: MountModel.PhoneRow, label: String, code: String, letter: MountModel.LetterChoice?, onDone: (String?) -> Unit) {
+        val clean = DavTarget.cleanCode(code) ?: return onDone("Type the access code shown on the device.")
+        val target = row.peer?.let { MountModel.targetOf(it, clean) } ?: row.phone?.target?.copy(code = clean)
+            ?: return onDone("This device has left the network.")
+        val name = label.trim().ifEmpty { row.peer?.name ?: row.phone?.name.orEmpty() }
+        val id = row.id
+        if (id in _busy.value) return
+        _busy.update { it + id }
+        _errors.update { it - id }
         scope.launch {
             val result = withContext(Dispatchers.IO) {
                 // Probe first: the share answers a wrong code with a distinct status in a second,
@@ -134,30 +155,95 @@ class MountController(
                     ProbeResult.Unreachable -> MountResult.Failed(ProbeErrors.UNREACHABLE)
                     is ProbeResult.Ok -> {
                         spaces[target] = pr.space to MountModel.Health(true)
-                        mounter.mount(target, peer.name)
+                        free(letter) ?: mounter.mount(target, name, letter?.letter)
                     }
                 }
             }
-            if (result is MountResult.Ok) _remembered.update { it + (peer.key to target) }
-            if (result is MountResult.Failed) _errors.update { it + (peer.key to result) }
-            _busy.update { it - peer.key }
-            refresh()
+            if (result is MountResult.Ok) {
+                val peer = row.peer
+                save(MountModel.upsert(_known.value, KnownPhone(
+                    id = id,
+                    name = peer?.name ?: row.phone?.name ?: name,
+                    label = name,
+                    host = target.host, port = target.port, code = target.code,
+                    secure = target.secure, base = target.base,
+                    deviceId = peer?.deviceId?.takeIf { it.isNotBlank() } ?: row.phone?.deviceId.orEmpty(),
+                    letter = DriveLetters.letterOf(result.where) ?: row.phone?.letter,
+                )))
+            }
+            finish(id, result)
             onDone((result as? MountResult.Failed)?.message)
         }
     }
 
-    fun unmount(view: MountView, force: Boolean = false) {
-        val key = view.attached.where
-        if (key in _busy.value) return
-        _busy.update { it + key }
-        _errors.update { it - key }
+    fun unmount(row: MountModel.PhoneRow, view: MountView?, force: Boolean = false) {
+        val drive = row.drive ?: return
+        val id = row.id
+        if (id in _busy.value) return
+        _busy.update { it + id }
+        _errors.update { it - id }
         scope.launch {
             // A drive nothing answers behind cannot have open files worth waiting on.
-            val r = withContext(Dispatchers.IO) { mounter.unmount(view.attached, force || view.answering == false) }
-            if (r is MountResult.Failed) _errors.update { it + (key to r) }
-            _busy.update { it - key }
-            refresh()
+            val r = withContext(Dispatchers.IO) { mounter.unmount(drive, force || view?.answering == false) }
+            finish(id, r)
         }
+    }
+
+    /**
+     * Call the drive [label] here, and in Explorer when it is mounted.
+     *
+     * The saved name changes even if the OS refuses, so the row shows what was asked for and the
+     * refusal says why Explorer does not.
+     */
+    fun rename(row: MountModel.PhoneRow, label: String, onDone: (String?) -> Unit) {
+        val name = label.trim().ifEmpty { return onDone("Type a name.") }
+        val phone = row.phone ?: return onDone("Mount it first; the name is set in the mount dialog.")
+        save(_known.value.map { if (it.id == phone.id) it.copy(label = name) else it })
+        val drive = row.drive ?: return onDone(null)
+        val id = row.id
+        if (id in _busy.value) return
+        _busy.update { it + id }
+        _errors.update { it - id }
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { mounter.relabel(drive, name) }
+            finish(id, r)
+            onDone((r as? MountResult.Failed)?.message)
+        }
+    }
+
+    /**
+     * Move a mounted drive to another letter: unmount, free the new letter if a Filet drive holds
+     * it, and mount again.
+     *
+     * Windows has no call that moves a mapping, so this is the only way. If the second mount
+     * fails, the drive is put back on its old letter, so a refused move does not also lose it.
+     */
+    fun changeLetter(row: MountModel.PhoneRow, choice: MountModel.LetterChoice, onDone: (String?) -> Unit) {
+        val drive = row.drive ?: return onDone("It is not mounted.")
+        val phone = row.phone ?: return onDone("It is not mounted.")
+        val id = row.id
+        if (id in _busy.value) return
+        _busy.update { it + id }
+        _errors.update { it - id }
+        scope.launch {
+            val r = withContext(Dispatchers.IO) {
+                (mounter.unmount(drive) as? MountResult.Failed) ?: run {
+                    val moved = free(choice) ?: mounter.mount(drive.target, phone.label, choice.letter)
+                    if (moved is MountResult.Failed) mounter.mount(drive.target, phone.label, DriveLetters.letterOf(drive.where))
+                    moved
+                }
+            }
+            if (r is MountResult.Ok) save(_known.value.map { if (it.id == phone.id) it.copy(letter = DriveLetters.letterOf(r.where)) else it })
+            finish(id, r)
+            onDone((r as? MountResult.Failed)?.message)
+        }
+    }
+
+    /** Drop a saved phone that is not mounted. A mounted one has to be unmounted first. */
+    fun forget(row: MountModel.PhoneRow) {
+        if (row.drive != null || row.phone == null) return
+        _errors.update { it - row.id }
+        save(_known.value.filterNot { it.id == row.phone.id })
     }
 
     /**
@@ -183,6 +269,25 @@ class MountController(
             _limit.value = withContext(Dispatchers.IO) { WebClientLimit.raise() }
             _busy.update { it - "limit" }
         }
+    }
+
+    /** Unmount the Filet drive on [choice]'s letter when it replaces one. Null when nothing failed. */
+    private fun free(choice: MountModel.LetterChoice?): MountResult.Failed? {
+        val holder = choice?.replaces ?: return null
+        val drive = mounter.attached().firstOrNull { DriveLetters.letterOf(it.where) == choice.letter } ?: return null
+        val r = mounter.unmount(drive) as? MountResult.Failed ?: return null
+        return r.copy(message = "${choice.letter}: ($holder) could not be unmounted. ${r.message}")
+    }
+
+    private fun save(phones: List<KnownPhone>) {
+        _known.value = phones
+        runCatching { savePhones(phones) }
+    }
+
+    private suspend fun finish(id: String, r: MountResult) {
+        if (r is MountResult.Failed) _errors.update { it + (id to r) }
+        _busy.update { it - id }
+        refresh()
     }
 
     private companion object {

@@ -61,7 +61,7 @@ class MacMounter : Mounter {
         }
     }.getOrDefault(emptyList())
 
-    override fun mount(target: DavTarget, label: String): MountResult {
+    override fun mount(target: DavTarget, label: String, letter: Char?): MountResult {
         attached().firstOrNull { it.target == target }?.let { return MountResult.Ok(it.where) }
         val str = cf.CFStringCreateWithCString(null, target.url, UTF8) ?: return MountResult.Failed("Could not build the address.")
         val url = cf.CFURLCreateWithString(null, str, null)

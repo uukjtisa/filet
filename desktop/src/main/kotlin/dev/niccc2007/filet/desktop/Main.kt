@@ -42,7 +42,9 @@ fun main(args: Array<String>) {
     application {
         val state = rememberWindowState(size = DpSize(620.dp, 760.dp), isMinimized = Autostart.FLAG in args)
         val scope = rememberCoroutineScope()
-        val mounts = remember { MountController(mounter, watch.peers, scope).also { it.start() } }
+        val mounts = remember {
+            MountController(mounter, watch.peers, scope, loadPhones = { host.phones }, savePhones = host::savePhones).also { it.start() }
+        }
         // The host picks its address from the subnet a discovered peer is on, so it has to hear
         // every change to the peer list - without this it has nothing to choose with.
         androidx.compose.runtime.LaunchedEffect(Unit) { watch.peers.collect { host.notePeers(it) } }
