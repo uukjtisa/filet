@@ -3353,7 +3353,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     private fun launchIn(node: VNode, app: ExternalApp) {
         viewModelScope.launch {
-            val uri = runCatching { localUriForShare(node) }.getOrNull()
+            val mime = dev.niccc2007.filet.handlers.mimeOf(node)
+            val media = mime.startsWith("video/") || mime.startsWith("audio/")
+            val uri = runCatching { localUriForShare(node, link = media) }.getOrNull()
             if (uri == null) { toast("This file cannot be handed to another app."); return@launch }
             val i = android.content.Intent(android.content.Intent.ACTION_VIEW)
                 .setDataAndType(uri, dev.niccc2007.filet.handlers.mimeOf(node))
@@ -4213,10 +4215,20 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     suspend fun localUriFor(node: VNode): android.net.Uri? =
         dev.niccc2007.filet.playback.TrackMedia.uriFor(graph.vfs, graph.files, node)
 
-    /** Like [localUriFor] but always a FileProvider URI, because this one leaves the process. */
-    private suspend fun localUriForShare(node: VNode): android.net.Uri? {
-        val os = osPathOf(node) ?: localUriFor(node)?.path ?: return null
-        return graph.files.shareUri(graph.files.fileAt(os))
+    /**
+     * Like [localUriFor] but one another app can read, because this one leaves the process.
+     *
+     * With [link], media on a network drive that streams goes over as its stream link: another
+     * app's player seeks in it as Filet's does, and nothing is copied. Without it - a share,
+     * which keeps the file - it is copied in, since a link to this phone's loopback is nothing
+     * to keep.
+     */
+    private suspend fun localUriForShare(node: VNode, link: Boolean = false): android.net.Uri? {
+        osPathOf(node)?.let { return graph.files.shareUri(graph.files.fileAt(it)) }
+        val u = dev.niccc2007.filet.playback.TrackMedia.uriFor(graph.vfs, graph.files, node, stream = link)
+            ?: return null
+        if (u.scheme == "http") return u
+        return graph.files.shareUri(graph.files.fileAt(u.path ?: return null))
     }
 
     /** Grantable URIs for a selection. The Activity turns these into a chooser. */

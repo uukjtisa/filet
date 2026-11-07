@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Filet talks HTTP, in plain text, to two things and nothing else:
+  Filet talks HTTP, in plain text, to three things and nothing else:
 
   1. **Another phone on the same network**, serving its shared set.
   2. **This device's own server**, which a browser on the LAN opens.
+  3. **This device's stream server** on 127.0.0.1, which plays a file on a network drive
+     without copying it (stream/StreamServer.kt). Named on its own below, so it stays allowed
+     if the base config is ever narrowed.
 
   NEARBY.md §4.1 explains why that transport is plain HTTP rather than HTTPS: a self-signed
   certificate makes every browser show a full-page "Your connection is not private"
@@ -23,4 +26,7 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
 </network-security-config>

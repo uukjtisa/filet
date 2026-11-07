@@ -37,9 +37,19 @@ object TrackMedia {
      */
     const val CACHE_COPY_LIMIT = 256L * 1024 * 1024
 
-    /** A `Uri` a player can seek in, or null when the file is too large to stage. */
-    suspend fun uriFor(vfs: Vfs, files: AppFiles, node: VNode): Uri? {
+    /**
+     * A `Uri` a player can seek in, or null when the file is too large to stage.
+     *
+     * A file on a network drive that can be read from any offset is not copied at all when
+     * [stream]: it plays from a link to the stream server, whatever its size. See `StreamServer`.
+     * Only a drive that cannot do that still goes through the copy, and the size limit with it.
+     */
+    suspend fun uriFor(vfs: Vfs, files: AppFiles, node: VNode, stream: Boolean = true): Uri? {
         vfs.osPath(node.path)?.let { return files.localUri(files.fileAt(it)) }
+        if (stream && vfs.isRemote(node.path) && runCatching { vfs.supportsRanges(node.path) }.getOrDefault(false)) {
+            // Off the main thread: the first link binds the server's socket.
+            return withContext(Dispatchers.IO) { dev.niccc2007.filet.stream.StreamServer.of(vfs).linkFor(node) }
+        }
         if (node.size > CACHE_COPY_LIMIT) return null
         return withContext(Dispatchers.IO) {
             val out = files.playCache(node.name)
