@@ -364,7 +364,7 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
                     )
                 }
             } else {
-                item(key = "end") { Spacer(Modifier.height(24.dp)) }
+                item(key = "end") { Spacer(Modifier.height(24.dp + dev.niccc2007.filet.browser.LocalPickInset.current)) }
             }
         }
     }

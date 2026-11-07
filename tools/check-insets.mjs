@@ -55,7 +55,7 @@ export const EDGES = [
   { file: "browser/BrowserScreen.kt", must: /windowInsetsBottomHeight\(\s*WindowInsets\.navigationBars\s*\)/, why: "the one strip under the browser's last bar" },
   { file: "browser/BrowserScreen.kt", must: /WindowInsets\.safeDrawing\.only\(\s*WindowInsetsSides\.Horizontal\s*\)/, why: "the browser clear of a side navigation bar and the cutout, sideways" },
   { file: "browser/BrowserScreen.kt", fn: "BottomNav", mustNot: INSET, why: "in the stack: the strip after the last bar clears it, an inset of its own pads twice" },
-  { file: "browser/BrowserScreen.kt", fn: "SelectionBar", mustNot: INSET, why: "in the stack: the strip after the last bar clears it, an inset of its own pads twice" },
+  { file: "browser/BrowserScreen.kt", fn: "SelectionBar", mustNot: INSET, why: "a pill floating over the body, which ends above the strip: an inset of its own lifts it twice" },
   { file: "playback/NowPlayingStrip.kt", fn: "NowPlayingStrip", mustNot: INSET, why: "in the browser's stack: the strip after the last bar clears it" },
   { file: "browser/BrowserScreen.kt", fn: "Toast", must: INSET, why: "measured from above the bar, not from the screen's edge" },
   { file: "handlers/HandlerHost.kt", fn: "HandlerHost", must: /WindowInsets\.navigationBars/, why: "every viewer but the picture and the player stops at the bar" },
@@ -72,6 +72,7 @@ export const EDGES = [
 /** Bottom anchors that need no inset where they are, by file under SRC. See the header. */
 export const KNOWN = {
   "about/AboutPage.kt": [{ n: 1, kind: "inner", why: "the mark drawn over the corner of the About card" }],
+  "browser/BrowserScreen.kt": [{ n: 1, kind: "host", why: "the selection pill, floating over the foot of the body: the nav bar and the browser's strip are under it" }],
   "browser/Dock.kt": [{ n: 2, kind: "host", why: "the paste pill and its scrim, inside a pane: the browser's strip is under it" }],
   "browser/ExtractSheet.kt": [{ n: 1, kind: "host", why: "a card inside a pane like PickDock (it has no caller today)" }],
   "browser/PickDock.kt": [{ n: 1, kind: "host", why: "the pick card, inside a pane: the browser's strip is under it" }],
@@ -228,7 +229,7 @@ if (process.argv.includes("--selftest")) {
   const CASES = [
     // The defect itself, both halves: the stack's strip gone, and a bar in it padding twice.
     ["the browser's strip removed", () => edit("browser/BrowserScreen.kt", /windowInsetsBottomHeight\(WindowInsets\.navigationBars\)/, "height(0.dp)")],
-    ["the selection bar padding itself", () => edit("browser/BrowserScreen.kt", /(private fun SelectionBar\([^)]*\)\s*\{)/, "$1\n    Modifier.windowInsetsPadding(WindowInsets.navigationBars)")],
+    ["the selection bar padding itself", () => edit("browser/BrowserScreen.kt", /(private fun SelectionBar\([\s\S]*?\n\)\s*\{)/, "$1\n    Modifier.windowInsetsPadding(WindowInsets.navigationBars)")],
     ["the player's frame losing its inset", () => edit("handlers/PlayerParts.kt", /\.windowInsetsPadding\(WindowInsets\.safeDrawing\)/, "")],
     ["the inset only in a comment", () => edit("handlers/HandlerHost.kt", /Modifier\.windowInsetsPadding\(WindowInsets\.navigationBars\)/, "Modifier /* .windowInsetsPadding(WindowInsets.navigationBars) */")],
     ["Up next losing its inset", () => edit("handlers/PlayerParts.kt", /\.windowInsetsPadding\(WindowInsets\.navigationBars\),/, ",")],

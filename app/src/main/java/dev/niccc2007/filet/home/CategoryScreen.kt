@@ -175,7 +175,7 @@ fun CategoryScreen(vm: BrowserViewModel, pane: dev.niccc2007.filet.browser.PaneC
                 }
             }
 
-            item(key = "end") { Spacer(Modifier.height(28.dp)) }
+            item(key = "end") { Spacer(Modifier.height(28.dp + dev.niccc2007.filet.browser.LocalPickInset.current)) }
         }
 
         CategoryLayout.GALLERY -> CategoryGallery(

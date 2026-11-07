@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -31,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -78,6 +81,12 @@ fun ActionsPopup(
     actions: List<SelectionAction>,
     onBlocked: (String) -> Unit,
     onDismiss: () -> Unit,
+    /**
+     * How far up from the bottom of the window the thing it opens from reaches: the card opens
+     * just over it. Null puts it over a bar at the very bottom, as it was before the selection
+     * became a pill floating over whatever bars are under it.
+     */
+    above: androidx.compose.ui.unit.Dp? = null,
 ) {
     val colors = Filet.colors
 
@@ -109,19 +118,24 @@ fun ActionsPopup(
                         indication = null,
                         onClick = onDismiss,
                     )
-                    .windowInsetsPadding(WindowInsets.safeDrawing),
+                    // Measured from the window's bottom when anchored, so not inset there too.
+                    .windowInsetsPadding(
+                        if (above == null) WindowInsets.safeDrawing
+                        else WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                    ),
             ) {
                 val room = maxWidth
                 Column(
                     Modifier
                         .align(Alignment.BottomEnd)
-                        // right:8px; bottom:56px - it opens above the bar it came from rather
-                        // than over it.
-                        .padding(end = 8.dp, bottom = 56.dp)
+                        // It opens above the pill it came from rather than over it, and in the
+                        // pill's own shape and colour, so the two read as one control.
+                        .padding(end = 8.dp, bottom = above?.let { it + 8.dp } ?: 56.dp)
                         .widthIn(max = minOf(268.dp, room - 20.dp))
-                        .clip(RoundedCornerShape(14.dp))
+                        .shadow(6.dp, PillShape)
+                        .clip(PillShape)
                         .background(colors.raised)
-                        .border(1.dp, colors.lineSoft, RoundedCornerShape(14.dp))
+                        .border(1.dp, colors.lineSoft, PillShape)
                         // Taps inside must not reach the scrim behind it.
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },

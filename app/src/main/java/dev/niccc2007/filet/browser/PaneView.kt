@@ -246,8 +246,12 @@ fun PaneView(
                 }
                 // The tab's one back-to-top pill, over whichever list the body draws.
                 val backToTop = remember(pane) { BackToTop.Holder() }
+                // Everything floating over the foot of the listing: the pick card here, or the
+                // selection pill the screen draws. Never both, since a pick puts the pill away,
+                // so the one inset carries either and every list pads for it the same way.
+                val floating = pickInset + LocalSelectionInset.current
                 androidx.compose.runtime.CompositionLocalProvider(
-                    LocalPickInset provides pickInset,
+                    LocalPickInset provides floating,
                     LocalBackToTop provides backToTop,
                 ) {
                 when {
@@ -274,7 +278,7 @@ fun PaneView(
                 // Lifted clear of the pick card when one is up, so the two floating things do
                 // not land on top of each other. New folder stays reachable while choosing a
                 // destination, which is exactly when somebody wants it.
-                Dock(pane, vm, s, app, liftBy = pickInset)
+                Dock(pane, vm, s, app, liftBy = floating)
                 // The pick, as a floating card in the listing it is asking about rather than a
                 // band of chrome above it. It reports its own height so the dock clears it
                 // exactly. See `PickDock`.
@@ -1205,7 +1209,7 @@ private fun FolderBody(
                 start = 6.dp,
                 top = 6.dp + gap,
                 end = 6.dp + padEnd,
-                bottom = 6.dp + padBottom,
+                bottom = 6.dp + padBottom + LocalPickInset.current,
             ),
         ) {
             items(rows, key = { it.path.toString() }) { node ->
@@ -1229,13 +1233,13 @@ private fun FolderBody(
             }
         }
     } else {
-        // The selection bar takes layout space, so the pane shrinks the moment something is
-        // selected - and a list anchors its FIRST visible item, so everything below slides out
-        // of view. Selecting the last row therefore hid the row you had just selected.
+        // Anything that takes layout space under the pane shrinks it - the player strip coming
+        // up, say - and a list anchors its FIRST visible item, so everything below slides out
+        // of view, the last row first. The selection bar used to be the main case; it floats
+        // as a pill now and leaves the pane's size alone.
         //
         // Give the scroll position back the height the viewport lost. Measured rather than
-        // assumed from the bar's size: the bar is one line or two depending on what is
-        // selected, and a hard-coded height would be wrong half the time.
+        // assumed from what took it, which varies.
         var lastViewport by remember { mutableStateOf(0) }
         LaunchedEffect(listState) {
             snapshotFlow { listState.layoutInfo.viewportSize.height }

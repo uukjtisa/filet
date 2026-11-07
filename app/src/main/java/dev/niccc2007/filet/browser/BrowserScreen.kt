@@ -73,6 +73,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -83,6 +84,8 @@ import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.layout.positionInParent
@@ -288,6 +291,16 @@ private fun BrowserBody(vm: BrowserViewModel) {
                     )
                 }
 
+                // Not during a pick. The pick card is the bottom control then and it carries
+                // the confirm; drawing the selection bar as well put two bars over each other,
+                // both claiming the same gesture, and the one on top was the one for the
+                // operation nobody was doing.
+                val selectionUp = activeState?.selecting == true && livePick == null && !vm.picking && active != null
+                // The pill's height as last measured, for the room the lists leave under their
+                // last row. Only while it is up: a stale height after it goes is harmless.
+                var pillPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+                val pillInset = if (!selectionUp) 0.dp else with(LocalDensity.current) { pillPx.toDp() } + PILL_GAP * 2
+
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     if (wide) {
                         Rail(vm, app, railDp)
@@ -300,33 +313,35 @@ private fun BrowserBody(vm: BrowserViewModel) {
                             line = true,
                         )
                     }
-                    Body(vm, app, paneA, paneB, registry) { ghost = it }
+                    // The selection floats over the foot of the body as a pill. It used to be a
+                    // bar in this column, under the body, so selecting the first row shrank the
+                    // body by the bar's height and the list jumped; the nav bar stepping aside at
+                    // the same moment made it a second jump. Now the body never changes size: the
+                    // lists gain the pill's height as bottom room, through the same inset the pick
+                    // card uses (see `LocalSelectionInset`), and the nav bar stays where it is.
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        androidx.compose.runtime.CompositionLocalProvider(LocalSelectionInset provides pillInset) {
+                            Body(vm, app, paneA, paneB, registry) { ghost = it }
+                        }
+                        if (selectionUp && activeState != null && active != null) {
+                            // Off a folder - a category, New files - the rows are the ones its
+                            // screen drew, and the writes are asked of the folders the files are in.
+                            val shown by active.shown.collectAsState()
+                            SelectionBar(
+                                vm,
+                                activeState.selected.size,
+                                if (activeState.kind == PaneKind.FOLDER) activeState.visible.size else shown.size,
+                                vm.selectionWriteBlock(),
+                                Modifier.align(Alignment.BottomCenter).padding(PILL_GAP),
+                            ) { pillPx = it }
+                        }
+                    }
                 }
 
                 if (reach) {
                     HorizontalDivider(color = colors.lineSoft)
                     TopBar(vm, app, active, wide) { backPress(false) }
                     TabStrip(vm, tabs, app, showMenu = !wide)
-                }
-
-                // Under the moved bars in reach mode as well, and that ordering is deliberate:
-                // in a selection the action bar is what a thumb needs most, so it stays
-                // nearest it in both modes.
-                // Not during a pick. The pick card is the bottom control then and it carries
-                // the confirm; drawing the selection bar as well put two bars over each other,
-                // both claiming the same gesture, and the one on top was the one for the
-                // operation nobody was doing.
-                val selectionUp = activeState?.selecting == true && livePick == null && !vm.picking && active != null
-                if (selectionUp && activeState != null && active != null) {
-                    // Off a folder - a category, New files - the rows are the ones its screen
-                    // drew, and the writes are asked of the folders the files are in.
-                    val shown by active.shown.collectAsState()
-                    SelectionBar(
-                        vm,
-                        activeState.selected.size,
-                        if (activeState.kind == PaneKind.FOLDER) activeState.visible.size else shown.size,
-                        vm.selectionWriteBlock(),
-                    )
                 }
 
                 // Above the bottom bar and below everything else, so it is present on every
@@ -339,15 +354,10 @@ private fun BrowserBody(vm: BrowserViewModel) {
                 // screens with room for it.
                 dev.niccc2007.filet.playback.NowPlayingStrip(vm)
 
-                // The nav bar steps aside while a selection is running, so only the selection
-                // bar covers the list. Clear is pinned on that bar and Back still ends the
-                // selection, so nothing is unreachable while it is away.
-                //
-                // This was a three-way setting. It is gone: HIDDEN was the default, nobody
-                // needs to express an opinion about how far a bar moves during a selection,
-                // and a preference whose off state is "slightly different bar" is not a
-                // preference worth maintaining.
-                val navUp = !wide && activeState?.selecting != true
+                // The nav bar stays while a selection runs. It used to step aside for the
+                // selection bar, and the two swapping places was the jump the pill was made to
+                // end; the pill floats above it instead.
+                val navUp = !wide
                 if (navUp) BottomNav(vm, app, active)
 
                 // The navigation bar's own strip, ONE for the whole stack, in the colour of the
@@ -359,7 +369,7 @@ private fun BrowserBody(vm: BrowserViewModel) {
                 // Back, Home and Recents. Inset on every bar, two of them would pad twice when
                 // stacked; here it is one strip after whichever is last, and none of them does it.
                 val edge = when {
-                    navUp || selectionUp || dev.niccc2007.filet.playback.nowPlayingShown(vm) -> colors.raised
+                    navUp || dev.niccc2007.filet.playback.nowPlayingShown(vm) -> colors.raised
                     reach -> colors.sunken
                     else -> MaterialTheme.colorScheme.background
                 }
@@ -1444,10 +1454,21 @@ private fun NavItem(
  * instead of by the width of a row, so it always fits and every action is readable at once.
  */
 @Composable
-private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly: String?) {
+private fun SelectionBar(
+    vm: BrowserViewModel,
+    count: Int,
+    total: Int,
+    readOnly: String?,
+    modifier: Modifier,
+    onHeight: (Int) -> Unit,
+) {
     val colors = Filet.colors
     val onBar = SelectionBarConfig.normalise(vm.prefs.selectionBar.collectAsState().value)
     var moreOpen by remember { mutableStateOf(false) }
+    // How far up from the bottom of the window the pill's top edge is: More's card opens there,
+    // over the pill, wherever the bars under it have put it.
+    var above by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
 
     val actions = selectionActions(
         count = count,
@@ -1495,8 +1516,20 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
         elsewhere = vm.selectionIsElsewhere(),
     )
 
-    Column(Modifier.fillMaxWidth().background(colors.raised)) {
-        HorizontalDivider(color = colors.lineSoft)
+    // A pill as wide as its actions, not a band across the screen: it floats, so it can be.
+    Column(
+        modifier
+            .widthIn(max = PILL_MAX_WIDTH)
+            .onGloballyPositioned { c ->
+                onHeight(c.size.height)
+                val window = c.findRootCoordinates().size.height
+                above = with(density) { (window - c.boundsInWindow().top).toDp() }
+            }
+            .shadow(6.dp, PillShape)
+            .clip(PillShape)
+            .background(colors.raised)
+            .border(1.dp, colors.lineSoft, PillShape),
+    ) {
         // Everything not on the bar, behind one button. The bar cannot hold fifteen actions and
         // a menu puts the four anybody uses two taps away, so the split is the answer and WHICH
         // four is the setting. Taken out here because the trailing group needs it too: More is
@@ -1525,10 +1558,10 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
         // the bar being there at all already say that something is selected, so the word only
         // added width - and it was most of what pushed the actions into scrolling.
         Row(
-            Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 5.dp, bottom = 5.dp),
+            Modifier.padding(start = 4.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BarGlyph(FiletIcons.Close, "Clear selection") { vm.focusedPane()?.clearSelection() }
+            // The pill's own segment: how many, and the way out, then a rule before the actions.
             Text(
                 count.toString(),
                 fontSize = 14.sp,
@@ -1537,10 +1570,12 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
                 maxLines = 1,
                 softWrap = false,
                 modifier = Modifier
-                    .padding(end = 8.dp)
+                    .padding(start = 10.dp)
                     // Read out as what it means, not as a bare number.
                     .semantics { contentDescription = "$count selected" },
             )
+            BarGlyph(FiletIcons.Close, "Clear selection") { vm.focusedPane()?.clearSelection() }
+            FootDivider()
             /**
              * The actions SCROLL. They used to be inflexible children of a `fillMaxWidth` Row,
              * and that is the whole of the reported fault.
@@ -1556,7 +1591,9 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
              * `check-scrollcue.mjs` requires, so the row says there is more of it. It takes
              * what the two ends leave, and the ends are never squeezed: they hold the way out.
              */
-            Box(Modifier.weight(1f)) {
+            // Not filled: with few actions the pill closes up around them, and only past the
+            // width it is allowed does the row take what is left and scroll.
+            Box(Modifier.weight(1f, fill = false)) {
                 dev.niccc2007.filet.ui.HScroll(
                     ground = colors.raised,
                     spacing = 6.dp,
@@ -1609,9 +1646,27 @@ private fun SelectionBar(vm: BrowserViewModel, count: Int, total: Int, readOnly:
             actions = more,
             onBlocked = vm::toast,
             onDismiss = { moreOpen = false },
+            above = above,
         )
     }
 }
+
+/** The selection pill's corners, and the card its More opens, so the two read as one thing. */
+internal val PILL_CORNER = 18.dp
+internal val PillShape = RoundedCornerShape(PILL_CORNER)
+
+/** Between the pill and the edges around it, and between it and the last row above it. */
+private val PILL_GAP = 8.dp
+
+/** Wide enough for a tablet's row of actions, not so wide it reads as a band again. */
+private val PILL_MAX_WIDTH = 640.dp
+
+/**
+ * The room the selection pill takes over the foot of the lists, for their bottom padding: its
+ * height and the gaps round it while it is up, nothing otherwise. Folded by `PaneView` into the
+ * inset the pick card already gives every list, so no list pads for the pill on its own.
+ */
+val LocalSelectionInset = androidx.compose.runtime.compositionLocalOf { 0.dp }
 
 /** A glyph button at either end of the selection bar: Clear at the start, More at the edge. */
 @Composable
