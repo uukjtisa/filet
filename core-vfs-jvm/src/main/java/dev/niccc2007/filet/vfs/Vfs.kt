@@ -90,6 +90,9 @@ class Vfs(providers: List<FileSystemProvider>) {
     /** Bytes `[from, until)` of [path]. Only where [supportsRanges] is true. */
     suspend fun readRange(path: VPath, from: Long, until: Long): ByteArray =
         p(path).readRange(path, from, until)
+
+    /** [path] from byte [offset] on, for streaming. See the provider doc. */
+    suspend fun openReadAt(path: VPath, offset: Long): InputStream = p(path).openReadAt(path, offset)
     suspend fun create(path: VPath, isDir: Boolean): VNode = p(path).create(path, isDir)
     suspend fun delete(path: VPath, recursive: Boolean = false) = p(path).delete(path, recursive)
     suspend fun rename(path: VPath, newName: String): VNode =

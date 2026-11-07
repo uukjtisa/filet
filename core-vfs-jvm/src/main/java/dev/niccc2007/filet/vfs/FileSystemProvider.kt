@@ -116,6 +116,26 @@ interface FileSystemProvider {
     suspend fun readRange(path: VPath, from: Long, until: Long): ByteArray =
         throw VfsException.Unsupported("ranged reads")
 
+    /**
+     * [path] from byte [offset] to its end - what a player asks for on every seek into a file
+     * it is streaming from another device.
+     *
+     * The default starts mid-file through [readRange], a chunk at a time, where ranges are
+     * supported; otherwise it skips, which reads and drops everything before [offset] - right,
+     * but only fit for a small offset. A backend that can start mid-file in one request
+     * overrides this, and every network provider does: one request per seek rather than one per
+     * chunk is the difference between a seek that lands and one that stalls.
+     */
+    suspend fun openReadAt(path: VPath, offset: Long): InputStream {
+        require(offset >= 0) { "bad offset $offset" }
+        if (offset == 0L) return openRead(path)
+        if (supportsRanges(path)) {
+            val size = stat(path)?.size ?: throw VfsException.NotFound(path)
+            return RangedInput(offset, size) { from, until -> readRange(path, from, until) }
+        }
+        return openRead(path).also { RangedInput.skipFully(it, offset) }
+    }
+
     /** @throws VfsException.AlreadyExists */
     suspend fun create(path: VPath, isDir: Boolean): VNode
 
