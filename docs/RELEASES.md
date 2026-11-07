@@ -95,10 +95,10 @@ the network work in it — one remote holding several addresses, and archives an
 a share — was worth more to somebody on a second device than waiting for the redesign to finish
 was worth to anybody. The staging line moves on rather than being deleted; 0.2.0 is unchanged.
 
-**NEXT: 0.3.1.** A patch: the Activity page's stuck swipe and its entries expanding instead
-of jumping away, the on-screen back button doing exactly what the phone's Back does, and the
-metadata writer holding a replaced picture until it is applied. Repairs to screens that
-already exist, nothing to relearn, so PATCH by the table below.
+**NEXT: 0.4.0.** The 0.3.1 patch never shipped on its own: the batch after it added new
+functionality - tap actions per view, streaming from network drives, the floating selection
+pill, Details for several items, the icon size slider, the back-to-top pill - so the release
+that carries both is MINOR by the table below, and 0.3.1 is folded into it rather than spent.
 
 0.3.0 followed the bump table as written, with no exceptions for a number being reserved: the
 staging habit above spent 0.1.9 to 0.1.19 on releases the table called MINOR, and a version
