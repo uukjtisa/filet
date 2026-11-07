@@ -187,20 +187,6 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
         }
 
         LazyColumn(Modifier.fillMaxSize()) {
-            item { SupportBanner(format, readable, node.extension) { matrixOpen = !matrixOpen } }
-            kind?.misnamed?.let { real ->
-                item {
-                    Text(
-                        "Its name ends in .${node.extension}, but it is really ${real.name}, " +
-                            "so that is how its tags are written.",
-                        fontSize = 10.5.sp,
-                        color = colors.fg2,
-                        lineHeight = 14.5.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    )
-                }
-            }
-
             // Above the fields, as the mock has it: a picture is the first thing anyone looks for
             // in a music file's metadata, and the one part of it that is not a line of text.
             if (format?.binary == true) {
@@ -282,6 +268,22 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
                             sub = "Copied beside it as ${node.name}.bak.",
                         ) { backup = !backup }
                     }
+                }
+            }
+
+            // What the format can hold, at the bottom beside the table of every format: the fields
+            // and the picture come first, the notes about them after.
+            item { SupportBanner(format, readable, node.extension) { matrixOpen = !matrixOpen } }
+            kind?.misnamed?.let { real ->
+                item {
+                    Text(
+                        "Its name ends in .${node.extension}, but it is really ${real.name}, " +
+                            "so that is how its tags are written.",
+                        fontSize = 10.5.sp,
+                        color = colors.fg2,
+                        lineHeight = 14.5.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    )
                 }
             }
 
@@ -414,9 +416,8 @@ private fun Chip(label: String, enabled: Boolean, onClick: () -> Unit) {
 /**
  * What this file's format can actually hold.
  *
- * First on the screen because it decides whether anything below it is worth reading, and because
- * the honest answer for some formats is "not much" - which somebody should be told before they
- * fill in four fields.
+ * At the bottom, beside the table of what every format holds, with the other notes about the
+ * file: the fields and the picture are what the screen is for, and come first.
  */
 @Composable
 private fun SupportBanner(
