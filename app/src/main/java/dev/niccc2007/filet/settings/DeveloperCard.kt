@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -71,6 +75,26 @@ fun DeveloperCard(vm: BrowserViewModel) {
             dev.niccc2007.filet.ui.tabs.HoldHint("Also stops playback, sharing and running jobs.") {
                 SmallButton("Shut down") { vm.shutDownEverything() }
             }
+        }
+        // Which player videos open in, for trying Media3 on a phone before it can be anybody's.
+        // See VideoParity: it becomes the default in a commit of its own, never from here.
+        val kinds = dev.niccc2007.filet.handlers.EngineKind.MEDIA3
+        var media3 by remember { mutableStateOf(dev.niccc2007.filet.handlers.VideoEngines.chosen(context) == kinds) }
+        Column(Modifier.padding(top = 10.dp)) {
+            dev.niccc2007.filet.ui.tabs.ToggleRow("Play videos with Media3", media3) { on ->
+                media3 = on
+                dev.niccc2007.filet.handlers.VideoEngines.choose(
+                    context,
+                    if (on) kinds else dev.niccc2007.filet.handlers.EngineKind.PLATFORM,
+                )
+            }
+            val missing = dev.niccc2007.filet.handlers.VideoParity.missing(kinds).size
+            val all = dev.niccc2007.filet.handlers.VideoFeature.entries.size
+            Text(
+                "The next video opened plays in it. Checked on a phone so far: ${all - missing} of $all.",
+                fontSize = 10.5.sp,
+                color = colors.fg3,
+            )
         }
     }
 }

@@ -1221,8 +1221,7 @@ private fun VideoPlayer(
                         translationX = picture.offsetX; translationY = picture.offsetY
                     },
                 factory = { ctx ->
-                    // Made only in the branch where the file is staged: `uri` is set by then.
-                    VideoViewEngine(ctx, checkNotNull(uri), object : VideoEngine.Events {
+                    val events = object : VideoEngine.Events {
                         override fun onPrepared(prepared: VideoEngine.Prepared) {
                             val engine = handle.engine ?: return
                             videoSize = prepared.width to prepared.height
@@ -1302,7 +1301,10 @@ private fun VideoPlayer(
                         override fun onSeekDone() {
                             handle.seekDoneAt = android.os.SystemClock.uptimeMillis()
                         }
-                    }).also { handle.engine = it }.surface
+                    }
+                    // Made only in the branch where the file is staged: `uri` is set by then. The
+                    // engine is the default, or in a debug build the Developer tab's choice.
+                    VideoEngines.open(ctx, checkNotNull(uri), events).also { handle.engine = it }.surface
                 },
             )
         }

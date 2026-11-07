@@ -6,6 +6,7 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.view.SurfaceView
 import android.widget.VideoView
+import dev.niccc2007.filet.BuildConfig
 
 /**
  * What the video viewer asks of whatever plays the video, and nothing more.
@@ -248,4 +249,38 @@ internal object VideoParity {
 
     /** Only an engine that misses nothing may be the one every video opens in. */
     fun canBeDefault(engine: EngineKind): Boolean = missing(engine).isEmpty()
+}
+
+// ── which engine a video opens in ─────────────────────────────────────────────────
+
+/**
+ * Which engine a video opens in: [VideoParity.DEFAULT], or in a debug build the one the
+ * Developer tab picked.
+ *
+ * A release has no Developer tab and reads nothing here, so nothing a user sees changes until
+ * the default itself does - in a commit of its own, once [VideoParity.canBeDefault] says so.
+ */
+internal object VideoEngines {
+    private const val FILE = "filet.videoengine"
+    private const val KEY = "engine"
+
+    fun chosen(context: Context): EngineKind {
+        if (!BuildConfig.DEBUG) return VideoParity.DEFAULT
+        val name = context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(KEY, null)
+        return EngineKind.entries.firstOrNull { it.name == name } ?: VideoParity.DEFAULT
+    }
+
+    fun choose(context: Context, kind: EngineKind) {
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(KEY, kind.name).apply()
+    }
+
+    /** The engine for one video. On the main thread, where both players want to be made. */
+    fun open(context: Context, uri: Uri, events: VideoEngine.Events): VideoEngine {
+        val kind = chosen(context)
+        dev.niccc2007.filet.log.FiletLog.i("video") { "opened in $kind" }
+        return when (kind) {
+            EngineKind.PLATFORM -> VideoViewEngine(context, uri, events)
+            EngineKind.MEDIA3 -> Media3Engine(context, uri, events)
+        }
+    }
 }
