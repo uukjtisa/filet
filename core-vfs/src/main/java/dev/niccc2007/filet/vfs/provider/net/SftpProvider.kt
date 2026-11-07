@@ -3,6 +3,7 @@ package dev.niccc2007.filet.vfs.provider.net
 import dev.niccc2007.filet.vfs.Capability
 import dev.niccc2007.filet.vfs.FileSystemProvider
 import dev.niccc2007.filet.vfs.VNode
+import dev.niccc2007.filet.vfs.RangedInput
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.VfsException
 import kotlinx.coroutines.Dispatchers
@@ -76,6 +77,32 @@ class SftpProvider(private val connections: NetConnections) : FileSystemProvider
         runCatching {
             val file = sftp.open(remote, EnumSet.of(OpenMode.READ))
             val stream = file.RemoteFileInputStream()
+            object : InputStream() {
+                override fun read() = stream.read()
+                override fun read(b: ByteArray, off: Int, len: Int) = stream.read(b, off, len)
+                override fun close() { stream.close(); file.close() }
+            }
+        }.getOrElse { throw translate(it, path) }
+    }
+
+    /** SFTP reads at an offset by design. */
+    override suspend fun supportsRanges(path: VPath): Boolean = true
+
+    override suspend fun readRange(path: VPath, from: Long, until: Long): ByteArray {
+        require(from >= 0 && until > from) { "bad range $from..$until" }
+        return openReadAt(path, from).use { RangedInput.readExactly(it, (until - from).toInt()) }
+    }
+
+    /**
+     * The file from [offset], with sshj's read-ahead: it keeps several reads in flight rather
+     * than waiting out a round trip for each, which is what makes SFTP fast enough to play from.
+     */
+    override suspend fun openReadAt(path: VPath, offset: Long): InputStream = withContext(Dispatchers.IO) {
+        val (id, remote) = splitNetPath(path)
+        val sftp = clientFor(id, path)
+        runCatching {
+            val file = sftp.open(remote, EnumSet.of(OpenMode.READ))
+            val stream = file.ReadAheadRemoteFileInputStream(16, offset)
             object : InputStream() {
                 override fun read() = stream.read()
                 override fun read(b: ByteArray, off: Int, len: Int) = stream.read(b, off, len)

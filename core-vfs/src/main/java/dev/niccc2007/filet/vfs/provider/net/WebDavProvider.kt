@@ -4,6 +4,7 @@ import android.util.Base64
 import dev.niccc2007.filet.vfs.Capability
 import dev.niccc2007.filet.vfs.FileSystemProvider
 import dev.niccc2007.filet.vfs.VNode
+import dev.niccc2007.filet.vfs.RangedInput
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.VfsException
 import kotlinx.coroutines.Dispatchers
@@ -231,6 +232,34 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
      * nothing has to rely on chunked encoding, which several WebDAV servers reject. The file is
      * streamed out through a buffer and deleted afterwards, on failure as well as success.
      */
+    /**
+     * The file from [offset], asked for with `Range: bytes=offset-`. A server that ignores the
+     * header sends the whole file; the bytes before [offset] are then dropped here, so the answer
+     * is right either way and only slower on a server without ranges.
+     */
+    override suspend fun openReadAt(path: VPath, offset: Long): InputStream = withContext(Dispatchers.IO) {
+        if (offset == 0L) return@withContext openRead(path)
+        val (id, remote) = splitNetPath(path)
+        onAddress(id, path) { c ->
+            val http = open(c, remote, "GET", path)
+            http.setRequestProperty("Range", "bytes=$offset-")
+            val code = http.responseCode
+            if (code !in 200..299) {
+                http.disconnect()
+                throw status(code, path, "GET")
+            }
+            val stream = object : InputStream() {
+                private val src = http.inputStream
+                override fun read() = src.read()
+                override fun read(b: ByteArray, off: Int, len: Int) = src.read(b, off, len)
+                override fun available() = src.available()
+                override fun close() { src.close(); http.disconnect() }
+            }
+            if (code != 206) RangedInput.skipFully(stream, offset)
+            stream
+        }
+    }
+
     override suspend fun openWrite(path: VPath, append: Boolean): OutputStream = withContext(Dispatchers.IO) {
         if (append) throw VfsException.Unsupported("WebDAV has no append")
         val (id, remote) = splitNetPath(path)

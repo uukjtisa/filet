@@ -53,6 +53,21 @@ class RangedInput(
         const val CHUNK = 1 shl 20
 
         /**
+         * Exactly [n] bytes from [input], or fewer only where the file ends first - the shape of
+         * `readRange` for a backend that reads ranges by starting a stream mid-file.
+         */
+        fun readExactly(input: InputStream, n: Int): ByteArray {
+            val out = ByteArray(n)
+            var got = 0
+            while (got < n) {
+                val r = input.read(out, got, n - got)
+                if (r < 0) break
+                got += r
+            }
+            return if (got == n) out else out.copyOf(got)
+        }
+
+        /**
          * Drop [n] bytes from [input]. `skip` may skip fewer than asked, or none at all on a
          * network stream, so it is retried and backed by reading.
          */

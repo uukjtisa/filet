@@ -3,6 +3,7 @@ package dev.niccc2007.filet.vfs.provider.net
 import dev.niccc2007.filet.vfs.Capability
 import dev.niccc2007.filet.vfs.FileSystemProvider
 import dev.niccc2007.filet.vfs.VNode
+import dev.niccc2007.filet.vfs.RangedInput
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.VfsException
 import kotlinx.coroutines.Dispatchers
@@ -87,6 +88,46 @@ class FtpProvider(private val connections: NetConnections) : FileSystemProvider 
                     quit(client)
                 }
             }
+        }.getOrElse { quit(client); throw translate(it, path) }
+    }
+
+    /** FTP starts a download mid-file with REST, which every server worth connecting to has. */
+    override suspend fun supportsRanges(path: VPath): Boolean = true
+
+    override suspend fun readRange(path: VPath, from: Long, until: Long): ByteArray {
+        require(from >= 0 && until > from) { "bad range $from..$until" }
+        return openReadAt(path, from).use { RangedInput.readExactly(it, (until - from).toInt()) }
+    }
+
+    /**
+     * A download that starts at [offset] (REST, then RETR). A server that refuses REST still
+     * gets the file, from the start, with the bytes before [offset] dropped - slower, never wrong.
+     */
+    override suspend fun openReadAt(path: VPath, offset: Long): InputStream = withContext(Dispatchers.IO) {
+        if (offset == 0L) return@withContext openRead(path)
+        val (id, remote) = splitNetPath(path)
+        val client = connect(id, path)
+        runCatching {
+            client.setRestartOffset(offset)
+            var skip = 0L
+            val stream = client.retrieveFileStream(remote) ?: run {
+                client.setRestartOffset(0)
+                skip = offset
+                client.retrieveFileStream(remote)
+            } ?: throw VfsException.NotFound(path)
+            val wrapped = object : InputStream() {
+                override fun read() = stream.read()
+                override fun read(b: ByteArray, off: Int, len: Int) = stream.read(b, off, len)
+                override fun close() {
+                    stream.close()
+                    // Closed early by a seek, the server answers 426; read it all the same so
+                    // the control channel stays in step, then let the connection go.
+                    runCatching { client.completePendingCommand() }
+                    quit(client)
+                }
+            }
+            if (skip > 0) RangedInput.skipFully(wrapped, skip)
+            wrapped
         }.getOrElse { quit(client); throw translate(it, path) }
     }
 

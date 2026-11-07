@@ -3,6 +3,7 @@ package dev.niccc2007.filet.vfs.provider.net
 import dev.niccc2007.filet.vfs.Capability
 import dev.niccc2007.filet.vfs.FileSystemProvider
 import dev.niccc2007.filet.vfs.VNode
+import dev.niccc2007.filet.vfs.RangedInput
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.VfsException
 import kotlinx.coroutines.Dispatchers
@@ -106,6 +107,36 @@ class PeerProvider(
      * The name has to be known up front, so the VPath's own name carries it - which is why a
      * copy *to* a peer targets `peer:///<uuid>/<filename>` rather than a token.
      */
+    /** Filet's own server answers ranges (see `nearby/HttpServer`). */
+    override suspend fun supportsRanges(path: VPath): Boolean = true
+
+    override suspend fun readRange(path: VPath, from: Long, until: Long): ByteArray {
+        require(from >= 0 && until > from) { "bad range $from..$until" }
+        return openReadAt(path, from).use { RangedInput.readExactly(it, (until - from).toInt()) }
+    }
+
+    /** The file from [offset]; as for WebDAV, a whole-file answer is skipped into rather than trusted. */
+    override suspend fun openReadAt(path: VPath, offset: Long): InputStream = withContext(Dispatchers.IO) {
+        if (offset == 0L) return@withContext openRead(path)
+        val segs = path.segments
+        if (segs.size < 2) throw VfsException.IsADirectory(path)
+        val e = endpointFor(segs[0], path)
+        val http = connect(e, "/f/${URLEncoder.encode(segs[1], "UTF-8")}", "GET", path)
+        http.setRequestProperty("Range", "bytes=$offset-")
+        val code = http.responseCode
+        if (code == 410) { http.disconnect(); throw VfsException.NotFound(path) }
+        if (code !in 200..299) { http.disconnect(); throw VfsException.Io(path, IllegalStateException("HTTP $code")) }
+        val stream = object : InputStream() {
+            private val src = http.inputStream
+            override fun read() = src.read()
+            override fun read(b: ByteArray, off: Int, len: Int) = src.read(b, off, len)
+            override fun available() = src.available()
+            override fun close() { src.close(); http.disconnect() }
+        }
+        if (code != 206) RangedInput.skipFully(stream, offset)
+        stream
+    }
+
     override suspend fun openWrite(path: VPath, append: Boolean): OutputStream = withContext(Dispatchers.IO) {
         if (append) throw VfsException.Unsupported("a peer cannot append")
         val segs = path.segments

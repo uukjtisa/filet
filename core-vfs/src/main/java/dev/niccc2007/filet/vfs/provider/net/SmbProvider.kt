@@ -12,6 +12,7 @@ import com.hierynomus.smbj.share.DiskShare
 import dev.niccc2007.filet.vfs.Capability
 import dev.niccc2007.filet.vfs.FileSystemProvider
 import dev.niccc2007.filet.vfs.VNode
+import dev.niccc2007.filet.vfs.RangedInput
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.VfsException
 import kotlinx.coroutines.Dispatchers
@@ -107,6 +108,50 @@ class SmbProvider(private val connections: NetConnections) : FileSystemProvider 
                 override fun available() = src.available()
                 override fun close() { src.close(); file.close() }
             }
+        }.getOrElse { throw translate(it, path) }
+    }
+
+    /** SMB reads at any offset by design: every read on a handle names its own position. */
+    override suspend fun supportsRanges(path: VPath): Boolean = true
+
+    override suspend fun readRange(path: VPath, from: Long, until: Long): ByteArray {
+        require(from >= 0 && until > from) { "bad range $from..$until" }
+        return openReadAt(path, from).use { RangedInput.readExactly(it, (until - from).toInt()) }
+    }
+
+    /**
+     * One handle, read from [offset] on - a seek into a 4 GB video is one open, not a download of
+     * everything before it. Buffered a megabyte at a time, because each read is a round trip and
+     * a player asks in small pieces.
+     */
+    override suspend fun openReadAt(path: VPath, offset: Long): InputStream = withContext(Dispatchers.IO) {
+        if (offset == 0L) return@withContext openRead(path)
+        val (id, remote) = splitNetPath(path)
+        val share = shareFor(id, path)
+        runCatching {
+            val file = share.openFile(
+                smbPath(remote),
+                EnumSet.of(AccessMask.GENERIC_READ),
+                null,
+                SMB2ShareAccess.ALL,
+                SMB2CreateDisposition.FILE_OPEN,
+                null,
+            )
+            val raw = object : InputStream() {
+                private var pos = offset
+                private val one = ByteArray(1)
+                override fun read(): Int = if (read(one, 0, 1) < 0) -1 else one[0].toInt() and 0xff
+                override fun read(b: ByteArray, off: Int, len: Int): Int {
+                    if (len == 0) return 0
+                    val n = file.read(b, pos, off, len)
+                    if (n <= 0) return -1
+                    pos += n
+                    return n
+                }
+                // The handle closes with the stream, as in [openRead].
+                override fun close() { file.close() }
+            }
+            java.io.BufferedInputStream(raw, 1 shl 20)
         }.getOrElse { throw translate(it, path) }
     }
 
