@@ -260,15 +260,14 @@ fun selectionActions(
                 ),
             )
         }
-        // Details describe one item, file or folder.
-        if (single) {
-            add(
-                SelectionAction(
-                    "details", "Details", icons.info,
-                    group = SelectionAction.Group.EDIT, run = on.details,
-                ),
-            )
-        }
+        // Details describe one item, or sum up several: their size together, and the type,
+        // folder and dates they share.
+        add(
+            SelectionAction(
+                "details", "Details", icons.info,
+                group = SelectionAction.Group.EDIT, run = on.details,
+            ),
+        )
         // Any number of files and folders, one path a line - what is wanted on the way to pasting
         // them into a script.
         on.copyPath?.let { run ->

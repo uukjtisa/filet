@@ -33,13 +33,13 @@ that surface which is easiest to lose on the way across.
 | **Context menu quick row** | `app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt:176` | `.ctxbar` | N67 | Which actions get an icon button and which go in the list. Already a pure function - QUICK_IDS is copy, move, rename, send, delete. RELABEL ONLY: move is shown as Cut with scissors. The id stays move; do not add a second action. |
 | **Actions popup** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:1941` | `actionsHTML` | N54 | Same icon row, then grouped entries, destructive last and separated. |
 | **Open with** | `app/src/main/java/dev/niccc2007/filet/handlers/OpenWith.kt:70` | `openWithHTML` | N81 | One dialogue. Filet viewers above, apps below, remember control in the footer beside Open. |
-| **New folder** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:350` | `DIALOGS.newfolder` | N59 | Warns that a dot-prefixed name is never indexed by Android. |
-| **Rename** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:350` | `DIALOGS.rename` | N59 | Selection stops at the dot, so typing replaces the name and keeps the extension. |
-| **Delete** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:420` | `DIALOGS.delete` | N59 | Says there is no bin, and offers the holding folder instead. |
-| **Properties** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:451` | `DIALOGS.properties` | N59 | Says creation time is not recorded rather than showing the modification time twice. |
-| **Create archive** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:551` | `DIALOGS.archive` | N59 | Says zip leaves names readable and 7z does not. |
+| **New folder** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:353` | `DIALOGS.newfolder` | N59 | Warns that a dot-prefixed name is never indexed by Android. |
+| **Rename** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:353` | `DIALOGS.rename` | N59 | Selection stops at the dot, so typing replaces the name and keeps the extension. |
+| **Delete** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:423` | `DIALOGS.delete` | N59 | Says there is no bin, and offers the holding folder instead. |
+| **Properties** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:454` | `DIALOGS.properties` | N59 | Says creation time is not recorded rather than showing the modification time twice. |
+| **Create archive** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:598` | `DIALOGS.archive` | N59 | Says zip leaves names readable and 7z does not. |
 | **Extract** | `app/src/main/java/dev/niccc2007/filet/browser/ExtractSheet.kt:64` | `DIALOGS.extract` | N59 | Shows the plan before writing anything, so a clash is a question not a surprise. |
-| **Archive save** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:420` | `DIALOGS.archsave` | N59 | Names the backup and the re-sign as steps, because both happen and neither is obvious. |
+| **Archive save** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:423` | `DIALOGS.archsave` | N59 | Names the backup and the re-sign as steps, because both happen and neither is obvious. |
 | **Folder picker** | `app/src/main/java/dev/niccc2007/filet/browser/PickDock.kt:79` | `DIALOGS.folder` | N59 | The browser itself in a pick tab, with a floating card in the pane rather than a band of chrome; the dialogue is gone. |
 | **APK inspector** | `app/src/main/java/dev/niccc2007/filet/apk/ApkInspectorScreen.kt:60` | `DIALOGS.apk` | N64 | Needs a full-screen form as well as the sheet: it is a tool, not a question. |
 | **XAPK inspector** | _new, nothing to replace_ | `DIALOGS.xapk` | N64 | New. Says plainly it is not an archive, which is why it could not be installed before. |

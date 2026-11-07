@@ -64,13 +64,18 @@ class SelectionActionsTest {
         // The rule since the menu review: a row that cannot act on this selection is not shown.
         // Rename on four files is not unavailable, it is meaningless.
         val many = actions(4).map { it.id }
-        for (id in listOf("rename", "openwith", "details", "shortcut")) {
+        for (id in listOf("rename", "openwith", "shortcut")) {
             assertTrue("$id should be absent for a multi-selection", id !in many)
         }
         val one = actions(1).map { it.id }
         for (id in listOf("rename", "openwith", "details", "shortcut")) {
             assertTrue("$id should be offered for one file", id in one)
         }
+    }
+
+    @Test fun details_sums_up_a_multi_selection() {
+        // Several items get one summary card: their size together and what they share.
+        assertTrue("details" in actions(4).map { it.id })
     }
 
     @Test fun every_action_has_a_unique_id_and_a_label() {

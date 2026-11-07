@@ -6006,11 +6006,19 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     fun detailsForSelection() {
-        val node = focusedPane()?.selectedNodes()?.singleOrNull() ?: run {
-            toast("Details are for one file at a time.")
-            return
+        val nodes = focusedPane()?.selectedNodes().orEmpty()
+        when (nodes.size) {
+            0 -> return
+            1 -> showProperties(nodes[0])
+            // One summary over all of them. A file nobody has stat'd yet is stat'd first, as
+            // the single card does, so the total is not short by it.
+            else -> viewModelScope.launch {
+                val real = nodes.map { n ->
+                    if (n.isDir || n.size >= 0) n else runCatching { graph.vfs.stat(n.path) }.getOrNull() ?: n
+                }
+                _dialog.update { Dialog.PropertiesMany(real) }
+            }
         }
-        showProperties(node)
     }
 
     /** The home-screen shortcut flow, which opens its own settings sheet. */

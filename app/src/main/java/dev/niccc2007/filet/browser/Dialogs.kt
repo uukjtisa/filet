@@ -86,6 +86,8 @@ sealed interface Dialog {
         val then: (() -> Unit)? = null,
     ) : Dialog
     data class Properties(val node: VNode) : Dialog
+    /** Details over several selected items at once. See `SelectionSummary`. */
+    data class PropertiesMany(val nodes: List<VNode>) : Dialog
     /** A Wi-Fi network from a code turned out to be saved already. See `WifiSavedDialog`. */
     data class WifiSaved(val ssid: String, val password: String) : Dialog
 }
@@ -208,6 +210,7 @@ fun FiletDialogs(vm: BrowserViewModel) {
             d.then?.invoke()
         }
         is Dialog.Properties -> PropertiesDialog(vm, d.node, vm::dismissDialog)
+        is Dialog.PropertiesMany -> PropertiesManyDialog(d.nodes, vm::dismissDialog)
         is Dialog.WifiSaved -> dev.niccc2007.filet.qr.WifiSavedDialog(d.ssid, d.password, vm, vm::dismissDialog)
     }
 }
@@ -509,6 +512,50 @@ private fun PropertiesDialog(vm: BrowserViewModel, node: VNode, onDismiss: () ->
                     }
                 }
             }
+        }
+        DlgFooter {
+            DlgSpacer()
+            DlgBtn("Close", fill = false, onClick = onDismiss)
+        }
+    }
+}
+
+/**
+ * Details for several items: one summary in the single card's look rather than a card each.
+ * Folders are measured while it is open, the same walk a single folder's card starts, and the
+ * size counts up as they go.
+ */
+@Composable
+private fun PropertiesManyDialog(nodes: List<VNode>, onDismiss: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val sum = remember(nodes) { SelectionSummary.of(nodes) }
+    val measure = remember { FolderMeasure.of(dev.niccc2007.filet.FiletApp.graphOf(context)) }
+    val flows = remember(nodes) {
+        nodes.filter { it.isDir }.map { n ->
+            runCatching { measure.walk(n.path) }
+                .getOrElse { kotlinx.coroutines.flow.MutableStateFlow(WalkState.Failed(it.message ?: "cannot measure")) }
+        }
+    }
+    val walks by remember(flows) {
+        if (flows.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList())
+        else kotlinx.coroutines.flow.combine(flows) { it.toList() }
+    }.collectAsState(initial = flows.map { it.value })
+    val size = SelectionSize.of(sum.fileBytes, sum.unknown, walks)
+
+    Dlg(onDismiss = onDismiss) {
+        DlgHeader(
+            FiletIcons.Info,
+            "${nodes.size} items",
+            sub = sum.parent?.path ?: "In ${sum.parents} folders",
+            onClose = onDismiss,
+        )
+        DlgBody {
+            DlgKv("Selected", sum.countLine)
+            DlgKv("Size", size.text)
+            DlgKv("Type", sum.typeLine)
+            DlgKv("Folder", sum.parent?.path ?: "${sum.parents} different", mono = sum.parent != null)
+            sum.newest?.let { DlgKv("Newest", STAMP.format(Date(it.mtime)) + "  " + it.name) }
+            sum.oldest?.takeIf { it !== sum.newest }?.let { DlgKv("Oldest", STAMP.format(Date(it.mtime)) + "  " + it.name) }
         }
         DlgFooter {
             DlgSpacer()
