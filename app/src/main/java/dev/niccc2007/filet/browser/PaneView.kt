@@ -244,7 +244,12 @@ fun PaneView(
                 val pickInset = with(androidx.compose.ui.platform.LocalDensity.current) {
                     (pickHeight + extractHeight).toDp()
                 }
-                androidx.compose.runtime.CompositionLocalProvider(LocalPickInset provides pickInset) {
+                // The tab's one back-to-top pill, over whichever list the body draws.
+                val backToTop = remember(pane) { BackToTop.Holder() }
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalPickInset provides pickInset,
+                    LocalBackToTop provides backToTop,
+                ) {
                 when {
                     s.loading && s.entries.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                         CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp)
@@ -262,6 +267,7 @@ fun PaneView(
                     else -> SpecialBody(pane, vm, s, widthDp)
                 }
                 }
+                BackToTopPill(backToTop)
                 // Floating, and in EVERY pane rather than only the focused one. The
                 // per-pane part is what makes split view unambiguous: "Paste" then means
                 // THIS side and there is nothing to work out.
@@ -1189,6 +1195,7 @@ private fun FolderBody(
                 }
             }
         }
+        FollowBackToTop(gridState)
         LazyVerticalGrid(
             columns = TileGrid.cells(metrics.step.tile!!.dp),
             modifier = Modifier.fillMaxSize().then(measure).then(pull),
@@ -1341,6 +1348,7 @@ private fun FolderBody(
             }
         }
 
+        FollowBackToTop(listState)
         LazyColumn(
             Modifier.fillMaxSize().then(measure).then(pull),
             state = listState,

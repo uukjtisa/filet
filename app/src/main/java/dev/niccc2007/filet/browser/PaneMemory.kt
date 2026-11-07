@@ -12,10 +12,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
+import dev.niccc2007.filet.log.FiletLog
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -82,6 +82,7 @@ fun rememberKeptListState(place: String): LazyListState {
         scrollTo = { i, o -> state.scrollToItem(i, o) },
         file = { m, old -> (old ?: ScrollMemory.Marks()).copy(list = m) },
     )
+    FollowBackToTop(state)
     return state
 }
 
@@ -101,6 +102,7 @@ fun rememberKeptGridState(place: String): LazyGridState {
         scrollTo = { i, o -> state.scrollToItem(i, o) },
         file = { m, old -> (old ?: ScrollMemory.Marks()).copy(grid = m) },
     )
+    FollowBackToTop(state)
     return state
 }
 
@@ -119,6 +121,13 @@ fun rememberKeptGridState(place: String): LazyGridState {
  * nothing. A list shorter than its saved position, scrolled by hand in those four seconds and
  * then left, came back where it had been before rather than where it was put. Somebody
  * scrolling it ends the wait - they have chosen where it is - and it files from then on.
+ *
+ * Bug identified here, in the third shape: a list read again while it is on screen - a category
+ * after a change, which reads a short first page before the whole - is cut short for a moment.
+ * A list cut shorter than where it stood clamps to its new end, and that end was filed as the
+ * place, so the list stayed there when the rest came back, and so did the next return. A list
+ * cut short under where it stood now files nothing, and goes back to where it stood when it
+ * grows past it again, unless somebody has scrolled it in between.
  */
 @Composable
 private fun KeepPosition(
@@ -133,6 +142,7 @@ private fun KeepPosition(
 ) {
     if (memory == null) return
     var restored by remember(memory, place) { mutableStateOf(saved == null || saved.index == 0 && saved.offset == 0) }
+    var shrunk by remember(memory, place) { mutableStateOf(false) }
     LaunchedEffect(memory, place) {
         if (!restored && saved != null) {
             withTimeoutOrNull(RESTORE_WAIT_MS) { snapshotFlow { count() > saved.index || moving() }.first { it } }
@@ -140,16 +150,38 @@ private fun KeepPosition(
             if (count() > saved.index && !moving()) scrollTo(saved.index, saved.offset)
             restored = true
         }
-        snapshotFlow { moving() to mark() }
-            .filter { !it.first }
-            .map { it.second }
+        // The last place filed: where the list stood while it was whole.
+        var stood: ScrollMemory.Mark? = null
+        snapshotFlow { Triple(moving(), mark(), count()) }
             .distinctUntilChanged()
-            .collect { memory.park(place, file(it, memory.marks(place))) }
+            .collect { (busy, at, rows) ->
+                val was = stood
+                when {
+                    // Being scrolled: wherever it comes to rest is the place now.
+                    busy -> {
+                        shrunk = false
+                        stood = null
+                    }
+                    // Cut short under where it stood: where it clamped to is not a place.
+                    was != null && was.index > 0 && rows <= was.index -> shrunk = true
+                    shrunk && was != null -> {
+                        shrunk = false
+                        FiletLog.i("scroll", "$place grew back past ${was.index}; put back")
+                        // Its own child, so a finger landing mid-jump stops the jump, not this.
+                        launch { scrollTo(was.index, was.offset) }
+                    }
+                    at != was -> {
+                        stood = at
+                        memory.park(place, file(at, memory.marks(place)))
+                    }
+                }
+            }
     }
     // Leaving - a tab switch, a sub-page change - files where it stood, in case it never came
-    // to rest after the last frame the collector saw.
+    // to rest after the last frame the collector saw. Not while cut short: what is filed is
+    // where it stood before.
     DisposableEffect(memory, place) {
-        onDispose { if (restored) memory.park(place, file(mark(), memory.marks(place))) }
+        onDispose { if (restored && !shrunk) memory.park(place, file(mark(), memory.marks(place))) }
     }
 }
 
