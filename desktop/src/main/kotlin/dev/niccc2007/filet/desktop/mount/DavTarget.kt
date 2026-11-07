@@ -71,13 +71,24 @@ data class DavTarget(
          * This is how a drive mapped in an earlier run - Windows remembers it across logins -
          * shows up in the list again, and how a drive disconnected from Explorer drops out of
          * it: the list is whatever Windows says is mapped, not what this process remembers.
+         *
+         * Bug identified here: every mapped phone drive read as not mounted. Windows reports a
+         * WebDAV drive in two spellings. The remembered entry under `HKCU\Network` keeps the
+         * `DavWWWRoot` marker, `\\192.168.5.23@8321\DavWWWRoot\a\tres33`, but the redirector's
+         * own name for a connected drive drops it, `\\192.168.5.23@8321\a\tres33` - and that is
+         * the one `WNetEnumResource` returns, and what `net use` prints. Only the first was
+         * accepted, so every connected drive was invisible. Both are read now. The short form
+         * needs the `@port` (or `@SSL`) a redirector name always carries for a phone, so an SMB
+         * mapping of a folder that happens to be called `a` is not mistaken for one.
          */
         fun parseUnc(unc: String): DavTarget? {
             if (!unc.startsWith("\\\\")) return null
-            val parts = unc.substring(2).split('\\')
-            if (parts.size < 4 || !parts[1].equals("DavWWWRoot", ignoreCase = true)) return null
-            if (parts[2] != "a") return null
-            val code = parts[3].takeIf { it.isNotEmpty() } ?: return null
+            val all = unc.substring(2).split('\\')
+            val marked = all.getOrNull(1).equals("DavWWWRoot", ignoreCase = true)
+            if (!marked && '@' !in all[0]) return null
+            val parts = if (marked) all.take(1) + all.drop(2) else all
+            if (parts.size < 3 || !parts[1].equals("a", ignoreCase = true)) return null
+            val code = parts[2].takeIf { it.isNotEmpty() } ?: return null
             val hostPart = parts[0].split('@')
             val host0 = hostPart[0]
             val secure = hostPart.drop(1).any { it.equals("SSL", ignoreCase = true) }

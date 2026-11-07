@@ -17,4 +17,12 @@ class ExplorerLabelTest {
         assertEquals("##phone.lan@SSL@443#DavWWWRoot#a#c0de", key)
         assertEquals(-1, key.indexOf('\\'))
     }
+
+    @Test
+    fun `a name goes under both of Explorer's keys, from either spelling of the drive`() {
+        // The two keys Explorer holds for one phone drive on this PC, read from MountPoints2.
+        val both = listOf("##192.168.5.23@8321#a#tres33", "##192.168.5.23@8321#DavWWWRoot#a#tres33")
+        assertEquals(both, ExplorerLabel.keysFor("\\\\192.168.5.23@8321\\a\\tres33"))
+        assertEquals(both, ExplorerLabel.keysFor("\\\\192.168.5.23@8321\\DavWWWRoot\\a\\tres33"))
+    }
 }

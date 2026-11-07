@@ -41,13 +41,16 @@ class WindowsMounter : Mounter {
         val live = connected.mapNotNull { DriveLetters.letterOf(it.first) }.toSet()
         // A remembered mapping that is not also connected is one whose server has gone: Windows
         // keeps it, Explorer draws it with a red cross, and it still holds its letter.
+        // Parsed before the duplicates go, not after: a connected drive and its remembered entry
+        // share a letter but not a spelling (see `DavTarget.parseUnc`), and dropping the second
+        // copy first threw away the one spelling that could be read.
         return (connected + remembered)
-            .distinctBy { DriveLetters.letterOf(it.first) }
             .mapNotNull { (local, remote) ->
                 val letter = DriveLetters.letterOf(local) ?: return@mapNotNull null
                 val target = remote?.let { DavTarget.parseUnc(it) } ?: return@mapNotNull null
                 Attached(target, "$letter:", connected = letter in live, remote = remote)
             }
+            .distinctBy { it.where }
             .sortedBy { it.where }
     }
 
@@ -92,15 +95,16 @@ class WindowsMounter : Mounter {
      * even before this sets it.
      */
     override fun relabel(mount: Attached, label: String): MountResult {
-        val key = ExplorerLabel.keyFor(mount.remote ?: mount.target.unc)
-        val path = ExplorerLabel.PARENT + "\\" + key
-        val stored = runCatching {
-            if (!Advapi32Util.registryKeyExists(WinReg.HKEY_CURRENT_USER, path)) {
-                Advapi32Util.registryCreateKey(WinReg.HKEY_CURRENT_USER, ExplorerLabel.PARENT, key)
+        val stored = ExplorerLabel.keysFor(mount.remote ?: mount.target.unc).map { key ->
+            val path = ExplorerLabel.PARENT + "\\" + key
+            runCatching {
+                if (!Advapi32Util.registryKeyExists(WinReg.HKEY_CURRENT_USER, path)) {
+                    Advapi32Util.registryCreateKey(WinReg.HKEY_CURRENT_USER, ExplorerLabel.PARENT, key)
+                }
+                Advapi32Util.registrySetStringValue(WinReg.HKEY_CURRENT_USER, path, ExplorerLabel.VALUE, label)
             }
-            Advapi32Util.registrySetStringValue(WinReg.HKEY_CURRENT_USER, path, ExplorerLabel.VALUE, label)
         }
-        if (stored.isFailure) return MountResult.Failed("Windows would not store the name for ${mount.where}.")
+        if (stored.all { it.isFailure }) return MountResult.Failed("Windows would not store the name for ${mount.where}.")
         // Explorer caches drive names; this asks it to read this one again.
         runCatching {
             ShellNotify.INSTANCE.SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, WString("${mount.where}\\"), null)

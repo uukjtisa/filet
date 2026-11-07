@@ -275,15 +275,18 @@ private fun PhonesSection(peerFlow: StateFlow<List<Peer>>, ctl: MountController,
                 Txt(MountModel.stateLine(r), 13, if (r.state == MountModel.State.MOUNTED) Ink.accent else Ink.muted, modifier = Modifier.weight(1f))
             }
             val name = r.peer?.name ?: r.phone?.name
-            val address = r.peer?.let { "${it.host}:${it.port}" } ?: r.phone?.let { "${it.host}:${it.port}" }
+            val address = MountModel.addressLine(r)
             val what = r.peer?.let { p -> listOf(p.scope.ifBlank { "Shared folder" }, if (p.writable) "read+write" else "read only").joinToString(" · ") }
-            Txt(listOfNotNull(name?.takeIf { it != r.label }, address, what).joinToString(" · "), 13, Ink.muted,
+            Txt(listOfNotNull(name?.takeIf { it != r.label }, address.takeIf { it.isNotEmpty() }, what).joinToString(" · "), 13, Ink.muted,
                 modifier = Modifier.padding(start = 16.dp))
 
             Row(Modifier.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (r.state == MountModel.State.MOUNTED) {
                     Btn(if (ctl.usesLetters) "Open in Explorer" else "Open", enabled = !dead) { openFolder(r.drive!!.where) }
                     Btn(if (working) "Working..." else "Unmount", enabled = !working) { ctl.unmount(r, view) }
+                    MountModel.movedTo(r)?.let { p ->
+                        Btn("Remount at ${p.host}:${p.port}", enabled = !working, primary = true) { ctl.remount(r, view) { } }
+                    }
                 } else {
                     Btn("Mount", enabled = r.online && problem == null && !working, primary = true) {
                         drafts["name:$id"] = r.label

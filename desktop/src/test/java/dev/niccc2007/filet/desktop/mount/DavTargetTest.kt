@@ -53,6 +53,20 @@ class DavTargetTest {
         assertNull(DavTarget.parseUnc("\\\\host@80\\DavWWWRoot\\other\\x"))
         assertNull(DavTarget.parseUnc("\\\\host@80\\DavWWWRoot\\a\\"))
         assertNull(DavTarget.parseUnc("Z:"))
+        // Without the marker, a name with no @port is an SMB share, even one called `a`.
+        assertNull(DavTarget.parseUnc("\\\\nas\\a\\tres3"))
+    }
+
+    @Test
+    fun `parseUnc reads a connected drive, which Windows names without DavWWWRoot`() {
+        // The exact strings `net use` and Win32_MappedLogicalDisk gave for the two drives that
+        // read as not mounted: the first spelling is what WNetEnumResource returns.
+        val honor = DavTarget("192.168.5.23", 8321, false, "/a/", "tres33")
+        assertEquals(honor, DavTarget.parseUnc("\\\\192.168.5.23@8321\\a\\tres33"))
+        assertEquals(honor, DavTarget.parseUnc("\\\\192.168.5.23@8321\\DavWWWRoot\\a\\tres33"))
+        val nova = DavTarget("192.168.5.15", 11111, false, "/a/", "tres3")
+        assertEquals(nova, DavTarget.parseUnc("\\\\192.168.5.15@11111\\a\\tres3"))
+        assertEquals(nova, DavTarget.parseUnc("\\\\192.168.5.15@11111\\davwwwroot\\a\\tres3"))
     }
 
     @Test

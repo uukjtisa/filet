@@ -68,6 +68,51 @@ class MountModelTest {
         assertNull(MountModel.driveOf(saved(phone, "Tres3"), listOf(drive("192.168.100.6", 11111, "tres3"))))
     }
 
+    // ── two mapped drives that read as not mounted, as Windows reported them ──
+
+    private val honor = Peer("LGN-LX2-Whole Phone", "192.168.5.23", 8321, false, "/a/", "Whole phone", true, deviceId = "honor")
+    private val nova = Peer("NCO-LX1-Whole Phone", "192.168.5.15", 11111, false, "/a/", "Whole phone", true, deviceId = "nova")
+
+    /** A drive as Windows reports a connected one: the UNC path with no DavWWWRoot. */
+    private fun connected(unc: String, where: String) = Attached(DavTarget.parseUnc(unc)!!, where, remote = unc)
+
+    @Test
+    fun `a drive mapped before the list existed is adopted and its row reads mounted`() {
+        val z = connected("\\\\192.168.5.23@8321\\a\\tres33", "Z:")
+        val known = MountModel.adopt(emptyList(), listOf(z), listOf(honor, nova))
+        val rows = MountModel.rows(known, listOf(honor, nova), listOf(z))
+        val row = rows.first { it.peer == honor }
+        assertEquals(State.MOUNTED, row.state)
+        assertEquals("Mounted on Z:", MountModel.stateLine(row))
+        assertEquals("192.168.5.23:8321", MountModel.addressLine(row))
+        assertEquals(State.NOT_MOUNTED, rows.first { it.peer == nova }.state)
+    }
+
+    @Test
+    fun `a drive left on the phone's old address is listed, mounted, and says the phone is not there`() {
+        val y = connected("\\\\192.168.5.11@11111\\a\\tres3", "Y:")
+        val known = MountModel.adopt(emptyList(), listOf(y), listOf(honor, nova))
+        val rows = MountModel.rows(known, listOf(honor, nova), listOf(y))
+        val orphan = rows.single { it.drive != null }
+        assertEquals(State.MOUNTED, orphan.state)
+        assertNull(orphan.peer)
+        assertEquals("Filet drive at 192.168.5.11:11111, phone not found there", MountModel.addressLine(orphan))
+        // The phone itself still has its own row at its new address.
+        assertEquals(State.NOT_MOUNTED, rows.first { it.peer == nova }.state)
+    }
+
+    @Test
+    fun `a saved phone whose drive is on its old address offers a remount at the new one`() {
+        val y = connected("\\\\192.168.5.11@11111\\a\\tres3", "Y:")
+        val saved = KnownPhone(MountModel.idOf(nova), nova.name, nova.name, "192.168.5.11", 11111, "tres3", deviceId = "nova", letter = 'Y')
+        val row = MountModel.rows(listOf(saved), listOf(nova), listOf(y)).single()
+        assertEquals(State.MOUNTED, row.state)
+        assertEquals(nova, MountModel.movedTo(row))
+        assertEquals("Drive at 192.168.5.11:11111; the phone is now at 192.168.5.15:11111", MountModel.addressLine(row))
+        assertNull(MountModel.movedTo(MountModel.rows(listOf(saved.copy(host = "192.168.5.15")), listOf(nova),
+            listOf(connected("\\\\192.168.5.15@11111\\a\\tres3", "Y:"))).single()))
+    }
+
     // ── rows ──
 
     @Test

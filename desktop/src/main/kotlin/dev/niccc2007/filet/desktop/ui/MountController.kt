@@ -239,6 +239,44 @@ class MountController(
         }
     }
 
+    /**
+     * Move a drive left on an old address to the one its phone answers on now: probe the new
+     * address with the same code, unmount the old drive, and mount on the same letter.
+     *
+     * A button, not automatic, until moved devices are detected on their own.
+     */
+    fun remount(row: MountModel.PhoneRow, view: MountView?, onDone: (String?) -> Unit) {
+        val drive = row.drive ?: return onDone("It is not mounted.")
+        val peer = MountModel.movedTo(row) ?: return onDone("The phone is already at that address.")
+        val phone = row.phone ?: return onDone("It is not mounted.")
+        val target = drive.target.copy(host = peer.host, port = peer.port, secure = peer.secure)
+        val id = row.id
+        if (id in _busy.value) return
+        _busy.update { it + id }
+        _errors.update { it - id }
+        scope.launch {
+            val r = withContext(Dispatchers.IO) {
+                when (val pr = Probe.check(target)) {
+                    is ProbeResult.Refused -> MountResult.Failed(pr.message, pr.status)
+                    ProbeResult.Unreachable -> MountResult.Failed(ProbeErrors.UNREACHABLE)
+                    is ProbeResult.Ok -> {
+                        spaces[target] = pr.space to MountModel.Health(true)
+                        // The old address answers nothing, so nothing open on it can be saved by waiting.
+                        (mounter.unmount(drive, force = view?.answering == false) as? MountResult.Failed)
+                            ?: mounter.mount(target, phone.label, DriveLetters.letterOf(drive.where))
+                    }
+                }
+            }
+            if (r is MountResult.Ok) save(MountModel.upsert(_known.value, phone.copy(
+                host = target.host, port = target.port, secure = target.secure,
+                deviceId = peer.deviceId.ifBlank { phone.deviceId },
+                letter = DriveLetters.letterOf(r.where) ?: phone.letter,
+            )))
+            finish(id, r)
+            onDone((r as? MountResult.Failed)?.message)
+        }
+    }
+
     /** Drop a saved phone that is not mounted. A mounted one has to be unmounted first. */
     fun forget(row: MountModel.PhoneRow) {
         if (row.drive != null || row.phone == null) return

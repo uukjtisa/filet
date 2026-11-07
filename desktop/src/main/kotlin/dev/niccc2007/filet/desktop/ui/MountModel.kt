@@ -69,6 +69,34 @@ object MountModel {
         State.OFFLINE -> "Offline"
     }
 
+    /**
+     * The live phone [row]'s drive should be on, when the phone now answers at another address
+     * than the one its drive was mapped to. Null otherwise.
+     */
+    fun movedTo(row: PhoneRow): Peer? {
+        val d = row.drive?.target ?: return null
+        val p = row.peer ?: return null
+        return p.takeUnless { it.host.equals(d.host, ignoreCase = true) && it.port == d.port }
+    }
+
+    /**
+     * The address line under a row.
+     *
+     * A drive is never hidden for being somewhere the phone is not: it is still mapped, still
+     * holds a letter, and still needs Unmount. It says where it points and that no phone
+     * answers to it there.
+     */
+    fun addressLine(row: PhoneRow): String {
+        val d = row.drive?.target
+        val p = row.peer
+        return when {
+            d != null && p == null -> "Filet drive at ${d.host}:${d.port}, phone not found there"
+            d != null && movedTo(row) != null -> "Drive at ${d.host}:${d.port}; the phone is now at ${p!!.host}:${p.port}"
+            p != null -> "${p.host}:${p.port}"
+            else -> row.phone?.let { "${it.host}:${it.port}" }.orEmpty()
+        }
+    }
+
     /** A live share's row identity: its device's id and share name, or its address when it sent no id. */
     fun idOf(peer: Peer): String = if (peer.deviceId.isNotBlank()) "${peer.deviceId}/${peer.name}" else peer.key
 
