@@ -173,7 +173,12 @@ private fun BrowserBody(vm: BrowserViewModel) {
     val active = if (app.focused == Side.A || app.split == SplitMode.OFF) paneA else paneB
     val activeState = active?.state?.collectAsState()?.value
 
-    BackHandler(enabled = true) {
+    // ONE back, for the phone's gesture and the on-screen arrow alike. Bug identified here: the
+    // arrow called the pane's history alone, so everything this chain learnt first - an open
+    // playlist, search, the selection, a tree fold - was the phone's Back only, and every change
+    // to one had to be made twice. The arrow passes `exit = false`: with nothing left to undo,
+    // the phone's Back leaves the app and the arrow does nothing.
+    val backPress: (Boolean) -> Unit = { exit ->
         when {
             app.switcherOpen -> vm.openSwitcher(false)
             // A screen INSIDE the pane that has a level to close gets the press before the
@@ -194,9 +199,10 @@ private fun BrowserBody(vm: BrowserViewModel) {
             // push = false: see PaneController.goUp. Pushing here makes back and up fight each
             // other and the screen never closes.
             active?.goUp(push = false) == true -> Unit
-            else -> vm.requestExit()
+            exit -> vm.requestExit()
         }
     }
+    BackHandler(enabled = true) { backPress(true) }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         val wide = maxWidth.value >= RAIL_AT_DP
@@ -258,7 +264,7 @@ private fun BrowserBody(vm: BrowserViewModel) {
             Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
                 if (!reach) {
                     TabStrip(vm, tabs, app, showMenu = !wide)
-                    TopBar(vm, app, active, wide)
+                    TopBar(vm, app, active, wide) { backPress(false) }
                     HorizontalDivider(color = colors.lineSoft)
                 }
 
@@ -299,7 +305,7 @@ private fun BrowserBody(vm: BrowserViewModel) {
 
                 if (reach) {
                     HorizontalDivider(color = colors.lineSoft)
-                    TopBar(vm, app, active, wide)
+                    TopBar(vm, app, active, wide) { backPress(false) }
                     TabStrip(vm, tabs, app, showMenu = !wide)
                 }
 
@@ -708,7 +714,7 @@ private fun tabIcon(s: PaneState) = when (s.kind) {
 // ────────────────────────────────── top bar ──────────────────────────────────
 
 @Composable
-private fun TopBar(vm: BrowserViewModel, app: AppState, active: PaneController?, wide: Boolean) {
+private fun TopBar(vm: BrowserViewModel, app: AppState, active: PaneController?, wide: Boolean, onBack: () -> Unit) {
     val colors = Filet.colors
     var viewPopup by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
@@ -719,7 +725,7 @@ private fun TopBar(vm: BrowserViewModel, app: AppState, active: PaneController?,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // The menu button now lives on the tab row, level with the tabs.
-        NavCluster(vm, active, s, wide)
+        NavCluster(vm, active, s, wide, onBack)
         PathBar(vm, active, s, Modifier.weight(1f))
 
         Box {
@@ -765,12 +771,17 @@ private fun NavCluster(
     active: PaneController?,
     s: PaneState?,
     wide: Boolean,
+    /** The same back the phone fires, without the final exit. See `backPress` in [BrowserScreen]. */
+    onBack: () -> Unit,
 ) {
     val colors = Filet.colors
     val folder = s?.kind == PaneKind.FOLDER
     val size = if (wide) 32.dp else 28.dp
 
-    NavButton(FiletIcons.Back, "Back", size, enabled = s?.canGoBack == true) { active?.goBack() }
+    // Always live: what it undoes is decided by the chain at the press, which can be an open
+    // playlist or a selection with no history behind them. Greyed by history alone, it was off
+    // in exactly the places the phone's Back still had something to do.
+    NavButton(FiletIcons.Back, "Back", size, enabled = s != null) { onBack() }
     NavButton(FiletIcons.Forward, "Forward", size, enabled = s?.canGoForward == true) {
         active?.goForward()
     }
