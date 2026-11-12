@@ -22,9 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,8 +35,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import dev.niccc2007.filet.desktop.Autostart
 import dev.niccc2007.filet.desktop.Endpoint
@@ -74,21 +72,28 @@ fun FiletWindow(host: HostService, peers: StateFlow<List<Peer>>, mounts: MountCo
     // The mount and letter dialogs sit over the whole window, so they are held here, by row id:
     // the row itself is re-read on every change rather than captured when the dialog opened.
     var sheet by remember { mutableStateOf<Sheet?>(null) }
+    var picking by remember { mutableStateOf<PickRequest?>(null) }
 
     Box(Modifier.fillMaxSize().background(Ink.bg)) {
         Column(Modifier.fillMaxSize()) {
             StatusStrip(host, rows, views.size)
             Box(Modifier.fillMaxWidth().height(1.dp).background(Ink.line))
-            Row(Modifier.fillMaxSize()) {
-                Column(
-                    Modifier.width(430.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) { SharingColumn(host) }
-                Box(Modifier.width(1.dp).fillMaxHeight().background(Ink.line))
-                Column(
-                    Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) { NetworkColumn(rows, mounts, rescan) { sheet = it } }
+            // Two columns while they fit; one scrolling column in a narrow window.
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                val wide = maxWidth
+                if (wide >= 820.dp) {
+                    Row(Modifier.fillMaxSize()) {
+                        ScrollPane(Modifier.width((wide * 0.42f).coerceIn(380.dp, 480.dp)).fillMaxHeight()) { SharingColumn(host) { picking = it } }
+                        Box(Modifier.width(1.dp).fillMaxHeight().background(Ink.line))
+                        ScrollPane(Modifier.weight(1f).fillMaxHeight()) { NetworkColumn(rows, mounts, rescan) { sheet = it } }
+                    }
+                } else {
+                    ScrollPane(Modifier.fillMaxSize()) {
+                        SharingColumn(host) { picking = it }
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(Ink.line))
+                        NetworkColumn(rows, mounts, rescan) { sheet = it }
+                    }
+                }
             }
         }
         sheet?.let { s ->
@@ -108,6 +113,13 @@ fun FiletWindow(host: HostService, peers: StateFlow<List<Peer>>, mounts: MountCo
                     }
                 }
             }
+        }
+        picking?.let { p ->
+            Box(
+                Modifier.fillMaxSize().background(Color(0x9E04080A))
+                    .clickable(remember { MutableInteractionSource() }, indication = null) {},
+                contentAlignment = Alignment.Center,
+            ) { FolderPicker(p) { picking = null } }
         }
     }
 }
@@ -130,10 +142,11 @@ private fun StatusStrip(host: HostService, rows: List<MountModel.PhoneRow>, driv
     val addresses by host.addresses.collectAsState()
     val port by host.port.collectAsState()
     val folders = plural(shares.size, "folder")
-    Row(
+    // Wraps in a narrow window rather than pushing the switch off the edge.
+    FlowRow(
         Modifier.fillMaxWidth().background(Ink.strip).padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Stat("SHARING", if (running) "On · $folders" else "Off · $folders", if (running) Ink.ok else Ink.muted)
         Stat(
@@ -149,12 +162,17 @@ private fun StatusStrip(host: HostService, rows: List<MountModel.PhoneRow>, driv
         Stat("ON THIS NETWORK", "${rows.count { it.online }} online · ${plural(drives, "drive")}")
         Spacer(Modifier.weight(1f))
         val why = remember { Autostart.unavailable() }
-        // Read back from the OS, not from the saved preference: the switch shows what is written.
-        var on by remember { mutableStateOf(Autostart.isEnabled()) }
-        Toggle(on, "Start with this computer", enabled = why == null) { want ->
-            on = Autostart.set(want)
-            host.autostart = on
-        }
+        Box(Modifier.align(Alignment.CenterVertically)) { StartToggle(host, why) }
+    }
+}
+
+@Composable
+private fun StartToggle(host: HostService, why: String?) {
+    // Read back from the OS, not from the saved preference: the switch shows what is written.
+    var on by remember { mutableStateOf(Autostart.isEnabled()) }
+    Toggle(on, "Start with this computer", enabled = why == null) { want ->
+        on = Autostart.set(want)
+        host.autostart = on
     }
 }
 
@@ -174,7 +192,7 @@ private fun plural(n: Int, what: String) = "$n $what" + if (n == 1) "" else "s"
 // ── left: what this PC offers ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun SharingColumn(host: HostService) {
+private fun SharingColumn(host: HostService, pick: (PickRequest) -> Unit) {
     val shares by host.shares.collectAsState()
     val running by host.running.collectAsState()
     val endpoints by host.endpoints.collectAsState()
@@ -202,7 +220,7 @@ private fun SharingColumn(host: HostService) {
         // Disabled with nothing to share, rather than pressed and then refused.
         else Btn("Start", enabled = shares.isNotEmpty(), primary = true) { note = host.start() }
         Btn("+ Add a folder", primary = running || shares.isEmpty()) {
-            pickFolder()?.let { note = host.addShare(it.path, writable = false) }
+            pick(PickRequest("Share a folder", "Share this folder", null) { note = host.addShare(it.path, writable = false) })
         }
     }
     netWarn?.let { w ->
@@ -236,6 +254,7 @@ private fun SharingColumn(host: HostService) {
             onDone = { editing = null },
             onQr = { qr = if (qr == s.path) null else s.path },
             onNote = { note = it },
+            pick = pick,
         )
     }
 
@@ -291,6 +310,7 @@ private fun SharePanel(
     onDone: () -> Unit,
     onQr: () -> Unit,
     onNote: (String?) -> Unit,
+    pick: (PickRequest) -> Unit,
 ) {
     Panel {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -338,7 +358,9 @@ private fun SharePanel(
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Btn("Rename") { onEdit("name:${s.path}", s.name) }
             // Same name, code and address; only the folder behind it changes.
-            Btn("Change folder") { pickFolder()?.let { onNote(host.moveShare(s.path, it.path)) } }
+            Btn("Change folder") {
+                pick(PickRequest("Move ${s.name} to another folder", "Use this folder", s.path) { onNote(host.moveShare(s.path, it.path)) })
+            }
             if (e != null) Btn("Change code") { onEdit("code:${s.path}", "") }
             Btn(if (s.writable) "Make read only" else "Make writable") { host.setWritable(s.path, !s.writable) }
             if (link != null) {
@@ -550,26 +572,16 @@ private fun DeviceIcon(look: IconLook) {
         Modifier.size(40.dp).background(if (look == IconLook.WARN) Color(0xFF2A2116) else Ink.tile, RoundedCornerShape(10.dp)),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(22.dp)) {
-            if (look == IconLook.WARN) {
+        if (look == IconLook.WARN) {
+            Canvas(Modifier.size(22.dp)) {
                 scale(size.width / 24f, pivot = androidx.compose.ui.geometry.Offset.Zero) { drawPath(WARN_SIGN, Ink.warn) }
-            } else {
-                val dim = look == IconLook.DIM
-                scale(size.width / 84f, pivot = androidx.compose.ui.geometry.Offset.Zero) {
-                    translate(-12f, -12f) {
-                        drawPath(FOLDER_BACK, if (dim) Color(0xFF3B4A50) else Ink.primary)
-                        drawPath(FOLDER_FRONT, if (dim) Color(0xFF56676E) else Ink.accent)
-                    }
-                }
             }
+        } else {
+            FolderMark(Modifier.size(22.dp), dim = look == IconLook.DIM)
         }
     }
 }
 
-private val FOLDER_BACK = PathParser().parsePathString("M26,24h16l6,8h30a6,6 0 0 1 6,6v8H16V30a6,6 0 0 1 6,-6z").toPath()
-private val FOLDER_FRONT = PathParser().parsePathString(
-    "M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z",
-).toPath()
 private val WARN_SIGN = PathParser().parsePathString(
     "M12 2 1 21h22L12 2zm0 6 1 7h-2l1-7zm0 9.5a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4z",
 ).toPath()
@@ -698,15 +710,6 @@ private fun filetLetters(rows: List<MountModel.PhoneRow>): Map<Char, String> =
     rows.mapNotNull { r -> r.drive?.let { d -> DriveLetters.letterOf(d.where)?.let { it to r.label } } }.toMap()
 
 // ── outside the window ──────────────────────────────────────────────────────────────────────
-
-/** A folder picker. Swing's, because AWT's `FileDialog` cannot pick a directory on Windows. */
-private fun pickFolder(): File? {
-    val ch = javax.swing.JFileChooser().apply {
-        fileSelectionMode = javax.swing.JFileChooser.DIRECTORIES_ONLY
-        dialogTitle = "Share a folder"
-    }
-    return if (ch.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) ch.selectedFile else null
-}
 
 /** Off the event thread: opening a drive whose server just went quiet blocks until it times out. */
 private fun openFolder(where: String) {

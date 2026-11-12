@@ -1,7 +1,19 @@
 package dev.niccc2007.filet.desktop.ui
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollbarStyle
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -175,6 +187,58 @@ fun SectionHead(title: String, trailing: @Composable RowScope.() -> Unit = {}) {
         trailing()
     }
 }
+
+/** The scrollbars, in the panel colours: an edge-grey thumb that lights to the accent under the pointer. */
+val ScrollStyle = ScrollbarStyle(
+    minimalHeight = 28.dp,
+    thickness = 8.dp,
+    shape = RoundedCornerShape(4.dp),
+    hoverDurationMillis = 250,
+    unhoverColor = Ink.edge,
+    hoverColor = Ink.accent,
+)
+
+/**
+ * A column that scrolls, with a scrollbar that shows it does.
+ *
+ * Bug identified here: the columns scrolled by wheel only, with nothing on screen to say so, so
+ * whatever sat below the window's bottom edge read as missing until the window was made bigger.
+ */
+@Composable
+fun ScrollPane(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    val state = rememberScrollState()
+    Box(modifier) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(state).padding(start = 18.dp, end = 20.dp, top = 16.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = content,
+        )
+        VerticalScrollbar(
+            rememberScrollbarAdapter(state),
+            Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 4.dp, horizontal = 3.dp),
+            style = ScrollStyle,
+        )
+    }
+}
+
+/** The Filet folder mark, drawn: the back in [Ink.primary] and the front in [Ink.accent], greyed when [dim]. */
+@Composable
+fun FolderMark(modifier: Modifier, dim: Boolean = false) {
+    Canvas(modifier) {
+        scale(size.width / 84f, pivot = Offset.Zero) {
+            translate(-12f, -12f) {
+                drawPath(FOLDER_BACK, if (dim) Color(0xFF3B4A50) else Ink.primary)
+                drawPath(FOLDER_FRONT, if (dim) Color(0xFF56676E) else Ink.accent)
+            }
+        }
+    }
+}
+
+// The mark's two paths, in its own 84-unit box starting at 12,12.
+private val FOLDER_BACK = PathParser().parsePathString("M26,24h16l6,8h30a6,6 0 0 1 6,6v8H16V30a6,6 0 0 1 6,-6z").toPath()
+private val FOLDER_FRONT = PathParser().parsePathString(
+    "M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z",
+).toPath()
 
 /** Puts [s] on the system clipboard. AWT's, which needs no Compose clipboard API version. */
 fun copy(s: String) {

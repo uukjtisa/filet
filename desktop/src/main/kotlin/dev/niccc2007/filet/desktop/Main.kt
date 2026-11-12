@@ -4,7 +4,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import dev.niccc2007.filet.desktop.mount.LinuxMounts
@@ -39,8 +41,13 @@ fun main(args: Array<String>) {
     watch.start()
     val mounter = Mounters.forThisOs()
 
-    application {
-        val state = rememberWindowState(size = DpSize(1040.dp, 720.dp), isMinimized = Autostart.FLAG in args)
+    // The process outlives the window by the shutdown below, so the application must not end it.
+    application(exitProcessOnExit = false) {
+        val state = rememberWindowState(
+            size = fitted(DpSize(1100.dp, 860.dp)),
+            position = WindowPosition(Alignment.Center),
+            isMinimized = Autostart.FLAG in args,
+        )
         val scope = rememberCoroutineScope()
         val mounts = remember {
             MountController(mounter, watch.peers, scope, loadPhones = { host.phones }, savePhones = host::savePhones, selfId = host.deviceId).also { it.start() }
@@ -49,22 +56,46 @@ fun main(args: Array<String>) {
         // every change to the peer list - without this it has nothing to choose with.
         androidx.compose.runtime.LaunchedEffect(Unit) { watch.peers.collect { host.notePeers(it) } }
         Window(
-            onCloseRequest = {
-                // Goodbye packets before exit, so phones drop this PC's rows now rather than at TTL.
-                host.close()
-                watch.stop()
-                mdns.close()
-                exitApplication()
-            },
+            // The window goes at once. Stopping the server and the goodbyes happen after it, below.
+            onCloseRequest = ::exitApplication,
             title = "Filet Desktop",
             // The phone's folder mark, so the window and the taskbar say Filet rather than Java.
             // Rasterised from desktop/icons/filet.svg by make_icons.py there.
             icon = androidx.compose.ui.res.painterResource("filet.png"),
             state = state,
         ) {
+            // Small enough for a half-screen window; below the two-column width the window stacks.
+            androidx.compose.runtime.LaunchedEffect(Unit) { window.minimumSize = java.awt.Dimension(640, 480) }
             FiletWindow(host, watch.peers, mounts, rescan = { watch.rescan() })
         }
     }
+    shutdown({ host.close() }, { watch.stop() }, { mdns.close() })
+    exitProcess(0)
+}
+
+/**
+ * Closing, after the window is gone: goodbye packets so phones drop this PC's rows now rather
+ * than at TTL, then the server and discovery stopped.
+ *
+ * Bug identified here: all of this ran inside the close handler, on the thread that draws the
+ * window, so the window sat frozen for the goodbye wait plus mDNS closing one responder per network
+ * adapter - several seconds, read as a hang. Now nothing is on screen while it runs, and it is
+ * capped: a goodbye that cannot leave in a few seconds is not worth a process left behind.
+ */
+private fun shutdown(vararg steps: () -> Unit) {
+    val t = Thread({ for (s in steps) runCatching { s() } }, "filet-shutdown").apply { isDaemon = true }
+    t.start()
+    t.join(4_000)
+}
+
+/**
+ * [want], shrunk to the screen's usable area less a margin, so the window never opens with its
+ * bottom under the taskbar. AWT reports that area in the same units Compose sizes windows in.
+ */
+private fun fitted(want: DpSize): DpSize {
+    val area = runCatching { java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds }.getOrNull()
+        ?: return want
+    return DpSize(minOf(want.width, (area.width - 40).dp), minOf(want.height, (area.height - 40).dp))
 }
 
 /** Null when [args] is not a mount command; otherwise runs it and returns the exit status. */
