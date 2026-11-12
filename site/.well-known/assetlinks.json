@@ -1,0 +1,22 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "dev.niccc2007.filet",
+      "sha256_cert_fingerprints": [
+        "D7:6F:D2:68:EC:F4:10:FC:F1:EA:11:32:E8:53:65:4F:AD:B0:AD:01:92:B3:C2:89:74:9F:06:12:34:AC:2C:E7"
+      ]
+    }
+  },
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "dev.niccc2007.filet.debug",
+      "sha256_cert_fingerprints": [
+        "79:B9:5E:5A:A6:7E:22:B0:AF:31:5E:A0:43:05:4F:A4:E8:9F:47:32:D3:90:1C:0F:39:4A:1A:5B:D0:42:80:B8"
+      ]
+    }
+  }
+]

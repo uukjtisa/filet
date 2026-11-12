@@ -345,7 +345,11 @@ class MainActivity : ComponentActivity() {
         val viewer = dev.niccc2007.filet.open.InboundViewer.of(intent?.component?.className)
         when (intent?.action) {
             Intent.ACTION_VIEW -> intent.data?.let {
-                browser.openIncoming(it, intent.type, viewer = viewer?.handler)
+                // A Filet link - a drive's QR or its Copy link - is not a file to open: it is
+                // the drive to add, decided in the same sheet the scanner shows.
+                if (!browser.takeFiletLink(it.toString())) {
+                    browser.openIncoming(it, intent.type, viewer = viewer?.handler)
+                }
             }
             // EDIT is VIEW with an opinion about which handler. Routed to the same place so
             // there is one path for an incoming file, with a flag rather than a second copy

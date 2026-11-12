@@ -117,6 +117,29 @@
             </intent-filter>
 
             <!--
+              Filet's own links (FiletLink): a network drive's QR, or its Copy link. The https form
+              is what a camera app or a chat makes tappable; autoVerify asks Android to check the
+              site's assetlinks.json so the link opens here directly instead of in the browser.
+              The details ride in the fragment, which no filter matches and no server is sent.
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="uukjtisa.github.io" />
+                <data android:path="/filet/l" />
+                <data android:path="/filet/l/" />
+            </intent-filter>
+            <!-- The filet:// form: the link page's Open in Filet button, and places that know Filet is there. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="filet" />
+            </intent-filter>
+
+            <!--
               The types Filet has a screen for are NOT declared here any more: each viewer is
               its own activity-alias below, named for what it is ("Filet Video Player"), so
               the chooser can list it by name and "always" can be set against it. See

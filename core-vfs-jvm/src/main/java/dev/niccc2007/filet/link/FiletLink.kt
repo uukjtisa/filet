@@ -43,6 +43,18 @@ data class FiletLink(val kind: LinkKind, val fields: Map<String, String>) {
         const val SCHEME = "filet"
         const val VERSION = 1
 
+        /**
+         * Whether [text] is addressed to Filet at all, readable or not.
+         *
+         * Separate from [parse] because the two answers differ for a link from a newer Filet:
+         * that one is Filet's, so it must not be opened as a web page or a file, and it cannot be
+         * read, so the answer to it is "update Filet" rather than nothing.
+         */
+        fun claims(text: String): Boolean {
+            val t = text.trim()
+            return t.startsWith(WEB) || t.startsWith("$SCHEME://", ignoreCase = true)
+        }
+
         fun parse(text: String): FiletLink? {
             val t = text.trim()
             val body = when {

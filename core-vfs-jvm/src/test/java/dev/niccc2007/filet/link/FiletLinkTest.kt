@@ -34,6 +34,18 @@ class FiletLinkTest {
     }
 
     @Test
+    fun `a link from a newer Filet is still Filet's, so it is never opened as a page or a file`() {
+        val newer = FiletLink.WEB + "#drive?v=2&h=1.2.3.4&p=1&s=a/x"
+        assertNull(FiletLink.parse(newer))
+        assertTrue(FiletLink.claims(newer))
+        assertTrue(FiletLink.claims(drive.link().app()))
+        assertTrue(FiletLink.claims("FILET://drive?v=1"))
+        assertTrue(FiletLink.claims(FiletLink.WEB + "/#drive?v=1"))
+        assertEquals(false, FiletLink.claims("https://example.com/filet/l#drive?v=1"))
+        assertEquals(false, FiletLink.claims("content://com.android.providers.downloads.documents/document/12"))
+    }
+
+    @Test
     fun `a drive refuses hosts, ports and shares that are not one`() {
         fun d(h: String, p: String, s: String) =
             DriveLink.of(FiletLink(LinkKind.DRIVE, mapOf("h" to h, "p" to p, "s" to s)))

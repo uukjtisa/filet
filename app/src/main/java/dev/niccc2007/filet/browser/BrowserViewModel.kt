@@ -6710,6 +6710,35 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     /**
+     * A Filet link that arrived from outside - tapped in a chat, opened by a camera app, the
+     * Copy link of a share on a PC - until its sheet is closed. The same sheet the scanner shows,
+     * so a link and a scan of the same code are one path with one set of answers.
+     *
+     * Bug identified here: Filet claimed none of its own links, so every one of them opened in
+     * the browser, and the page it pointed at did not exist yet either.
+     */
+    private val _linkFound = MutableStateFlow<String?>(null)
+    val linkFound: StateFlow<String?> = _linkFound.asStateFlow()
+
+    /**
+     * Take [text] when it is a Filet link; false leaves it to be opened as a file. A link from a
+     * newer Filet is taken too, and answered with the update it needs rather than a web page.
+     */
+    fun takeFiletLink(text: String): Boolean {
+        if (!dev.niccc2007.filet.link.FiletLink.claims(text)) return false
+        if (dev.niccc2007.filet.link.FiletLink.parse(text) == null) {
+            toast("This link is from a newer Filet. Update Filet to open it.")
+        } else {
+            _linkFound.value = text
+        }
+        return true
+    }
+
+    fun linkClosed() {
+        _linkFound.value = null
+    }
+
+    /**
      * Choose a picture in Filet's own picker and read the code in it, for the scanner.
      *
      * A picture with no code says so here, naming it, rather than handing the screen a null it

@@ -398,6 +398,14 @@ private fun BrowserBody(vm: BrowserViewModel) {
         // Overlays ride above the pushed card so a sheet is never sliced by the transform.
         ghost?.let { pos -> DragGhost(vm, pos) }
 
+        // A Filet link opened from outside: the scanner's own sheet, over whatever tab is open.
+        val link by vm.linkFound.collectAsState()
+        link?.let { text ->
+            dev.niccc2007.filet.qr.QrDialog(dev.niccc2007.filet.qr.QrParse.parse(text), vm, fromPicture = false) {
+                vm.linkClosed()
+            }
+        }
+
         app.toast?.let { msg ->
             Toast(msg) { vm.consumeToast() }
         }
