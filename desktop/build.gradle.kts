@@ -65,6 +65,23 @@ compose.desktop {
     application {
         mainClass = "dev.niccc2007.filet.desktop.MainKt"
 
+        /**
+         * The JDK `jlink` and `jpackage` come from, as a toolchain and not a path.
+         *
+         * Left alone it is the JVM Gradle runs on, and from Android Studio that is its JBR - a JDK
+         * 21 with no `jpackage`, so every installer task stopped at `checkRuntime`. Adoptium by
+         * vendor, because "any 21" matches the JBR again; the foojay resolver in settings fetches
+         * it where it is not installed. A machine that cannot resolve one at all (offline, nothing
+         * installed) keeps the old default, so tests and the jar still build there - only the
+         * installers need it.
+         */
+        runCatching {
+            javaToolchains.launcherFor {
+                languageVersion = JavaLanguageVersion.of(21)
+                vendor = JvmVendorSpec.ADOPTIUM
+            }.get().metadata.installationPath.asFile.absolutePath
+        }.getOrNull()?.let { javaHome = it }
+
         nativeDistributions {
             /**
              * What `jpackage` is allowed to build here.
