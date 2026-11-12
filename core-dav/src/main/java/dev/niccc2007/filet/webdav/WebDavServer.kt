@@ -111,6 +111,11 @@ class WebDavServer(
      * and the caller decides what "everything" means and what it costs.
      */
     private val indexed: (() -> List<DavViews.Entry>)? = null,
+    /**
+     * Who this host is, for `GET /.well-known/filet`; see [FiletHello]. Read per request, so a
+     * renamed device answers with its new name. Null leaves the path a 404.
+     */
+    private val identity: (() -> FiletHello.Identity)? = null,
 ) {
     /**
      * One thread per live connection, created on demand and reaped when idle.
@@ -545,6 +550,9 @@ class WebDavServer(
         // the server to find out whether it speaks WebDAV at all, and a 403 there ends the
         // conversation before the mount is ever attempted.
         if (method == "OPTIONS") return options(out)
+        // Outside `/a/` and before any code is asked for: the answer is what the beacon already
+        // broadcasts, for a client that could not hear the beacon.
+        FiletHello.route(target)?.let { return hello(it, method, input, headers, out) }
 
         when (val r = DavPath.resolve(target, live.values.map { it.code })) {
             is DavPath.Resolved.Forbidden -> return refuse(out, input, headers, 403, "Forbidden")
@@ -601,6 +609,21 @@ class WebDavServer(
     }
 
     // ── verbs ───────────────────────────────────────────────────────────────────────────
+
+    private fun hello(route: FiletHello.Route, method: String, input: InputStream, headers: Map<String, String>, out: OutputStream) {
+        val me = identity?.invoke()
+        if (route == FiletHello.Route.NOT_FOUND || me == null) return refuse(out, input, headers, 404, "Not Found")
+        if (method != "GET" && method != "HEAD") {
+            return refuse(out, input, headers, 405, "Method Not Allowed")
+        }
+        val shares = live.values.sortedBy { it.id }.map { it.share to it.writable }
+        val body = FiletHello.json(me, port, shares).toByteArray(Charsets.UTF_8)
+        status(
+            out, 200, "OK",
+            listOf("Content-Type: application/json; charset=utf-8", "Content-Length: ${body.size}", "Cache-Control: no-store"),
+        )
+        if (method == "GET") out.write(body)
+    }
 
     private fun options(out: OutputStream) {
         status(
