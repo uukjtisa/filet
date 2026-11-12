@@ -18,6 +18,19 @@ val toolVersion = "0.1.1"
 version = toolVersion
 
 /**
+ * The version as a resource, so a jar run knows it too and the updater compares against the
+ * number this build was given rather than one read from a launcher that may not exist.
+ */
+val versionResource = tasks.register("versionResource") {
+    val out = layout.buildDirectory.dir("generated/version")
+    val v = toolVersion
+    inputs.property("version", v)
+    outputs.dir(out)
+    doLast { out.get().file("filet-desktop.version").asFile.apply { parentFile.mkdirs(); writeText(v) } }
+}
+sourceSets.main { resources.srcDir(versionResource) }
+
+/**
  * 21, not the 17 the shared modules target.
  *
  * Those two are consumed by an Android build and are pinned to its floor. Nothing consumes this
@@ -144,7 +157,18 @@ compose.desktop {
                 // The phone's folder mark at every size Explorer asks for; see icons/make_icons.py.
                 iconFile.set(project.file("icons/filet.ico"))
                 shortcut = true
-                dirChooser = true
+                /**
+                 * Per user, in the profile, not Program Files.
+                 *
+                 * Decision: an app that updates itself must be able to replace its own files, and
+                 * under Program Files every update needed an administrator - a UAC prompt for each
+                 * build installed here and each release from GitHub. In the profile no update asks
+                 * for anything, as with the user installers of VS Code or Discord. No folder choice
+                 * either: an upgrade installs to the default folder, so a chosen one would be left
+                 * behind with the old copy in it.
+                 */
+                perUserInstall = true
+                dirChooser = false
             }
             linux {
                 packageName = "filet-desktop"
@@ -157,3 +181,30 @@ compose.desktop {
         }
     }
 }
+
+/**
+ * Installs each installer this machine builds over the copy installed here, so a build is never
+ * left waiting for someone to find it and run it.
+ *
+ * Runs after `packageMsi` or `packageExe` on Windows, from the MSI: it closes Filet Desktop if it
+ * is open, replaces the per-user install, and opens it again, sharing again if it was sharing.
+ * See packaging/install-here.ps1. Never on CI (`CI` is set there), and `-PnoInstall` skips it.
+ */
+val installHere = tasks.register<Exec>("installHere") {
+    group = "distribution"
+    description = "Installs the MSI just built over the copy installed on this machine."
+    dependsOn("packageMsi")
+    val skip = providers.environmentVariable("CI").isPresent || providers.gradleProperty("noInstall").isPresent ||
+        !System.getProperty("os.name").startsWith("Windows")
+    onlyIf("on Windows, not CI, not -PnoInstall") { !skip }
+    val msiDir = layout.buildDirectory.dir("compose/binaries/main/msi")
+    val script = layout.projectDirectory.file("packaging/install-here.ps1").asFile
+    val v = toolVersion
+    doFirst {
+        val msi = msiDir.get().asFile.listFiles { f -> f.name.endsWith("-$v.msi") }?.singleOrNull()
+            ?: throw GradleException("No MSI for $v in ${msiDir.get().asFile}")
+        commandLine("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script.path, "-Msi", msi.path)
+    }
+}
+tasks.matching { it.name == "packageMsi" || it.name == "packageExe" }.configureEach { finalizedBy(installHere) }
+

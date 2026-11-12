@@ -47,6 +47,8 @@ import dev.niccc2007.filet.desktop.mount.DriveLetters
 import dev.niccc2007.filet.desktop.mount.MountResult
 import dev.niccc2007.filet.desktop.mount.Probe
 import dev.niccc2007.filet.desktop.mount.WebClientLimit
+import dev.niccc2007.filet.desktop.update.Offer
+import dev.niccc2007.filet.desktop.update.Updater
 import dev.niccc2007.filet.webdav.AccessCode
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
@@ -60,7 +62,14 @@ import java.io.File
  * no scrolling between them.
  */
 @Composable
-fun FiletWindow(host: HostService, peers: StateFlow<List<Peer>>, mounts: MountController, rescan: () -> Unit) {
+fun FiletWindow(
+    host: HostService,
+    peers: StateFlow<List<Peer>>,
+    mounts: MountController,
+    rescan: () -> Unit,
+    updater: Updater,
+    install: (Offer) -> Unit,
+) {
     val live by peers.collectAsState()
     val known by mounts.known.collectAsState()
     val views by mounts.mounts.collectAsState()
@@ -76,8 +85,9 @@ fun FiletWindow(host: HostService, peers: StateFlow<List<Peer>>, mounts: MountCo
 
     Box(Modifier.fillMaxSize().background(Ink.bg)) {
         Column(Modifier.fillMaxSize()) {
-            StatusStrip(host, rows, views.size)
+            StatusStrip(host, rows, views.size, updater)
             Box(Modifier.fillMaxWidth().height(1.dp).background(Ink.line))
+            UpdateBar(updater, install)
             // Two columns while they fit; one scrolling column in a narrow window.
             androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
                 val wide = maxWidth
@@ -135,7 +145,7 @@ private sealed interface Sheet {
 
 /** "Is it working", at a glance: sharing, this PC's address, what is on the network, autostart. */
 @Composable
-private fun StatusStrip(host: HostService, rows: List<MountModel.PhoneRow>, drives: Int) {
+private fun StatusStrip(host: HostService, rows: List<MountModel.PhoneRow>, drives: Int, updater: Updater) {
     val shares by host.shares.collectAsState()
     val running by host.running.collectAsState()
     val chosen by host.chosenAddress.collectAsState()
@@ -163,6 +173,7 @@ private fun StatusStrip(host: HostService, rows: List<MountModel.PhoneRow>, driv
         Spacer(Modifier.weight(1f))
         val why = remember { Autostart.unavailable() }
         Box(Modifier.align(Alignment.CenterVertically)) { StartToggle(host, why) }
+        Box(Modifier.align(Alignment.CenterVertically).padding(start = 8.dp)) { VersionChip(updater) }
     }
 }
 

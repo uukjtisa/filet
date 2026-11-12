@@ -77,6 +77,29 @@ object Autostart {
             if (platform == Platform.WINDOWS) existing.trim() == want else existing.contains(if (platform == Platform.MAC) xml(exe) else exe)
         } == true
 
+    /**
+     * Whether the Windows entry [existing] should be pointed at [exe]: it starts a Filet Desktop
+     * launcher that is no longer there. Pure.
+     *
+     * The case it exists for: the install moved from Program Files to the user's profile, so
+     * updates need no administrator, and the old entry kept starting a path that was gone - at
+     * every login, silently. An entry for a launcher that still exists is another install's, and
+     * is left alone.
+     */
+    fun stale(platform: Platform, existing: String?, exe: String, exists: (String) -> Boolean): Boolean {
+        if (platform != Platform.WINDOWS) return false
+        val e = existing?.trim() ?: return false
+        if (matches(platform, e, exe)) return false
+        val target = Regex("^\"([^\"]+)\"").find(e)?.groupValues?.get(1) ?: return false
+        return target.endsWith("\\$NAME.exe", ignoreCase = true) && !exists(target)
+    }
+
+    /** Re-points a stale entry at this launcher; see [stale]. Called once at launch. */
+    fun repair(platform: Platform = Platform.current) {
+        val exe = launcher() ?: return
+        if (stale(platform, read(platform), exe) { File(it).exists() }) set(true, platform)
+    }
+
     /** Null when the checkbox can be used, or the reason it is disabled. */
     fun unavailable(platform: Platform = Platform.current): String? = when {
         platform == Platform.OTHER -> "Starting with the computer is not supported on this system."

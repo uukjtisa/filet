@@ -151,9 +151,11 @@ object ConfigCodec {
 /**
  * Where the config lives, per OS, and how it is written.
  *
- * - **Windows:** `%LOCALAPPDATA%\Filet Desktop\config.json`. Local, not roaming: shares name
- *   folders on THIS machine's disks, and a roaming profile would carry `D:\Pictures` to a PC
- *   where it means nothing or something else.
+ * - **Windows:** `%LOCALAPPDATA%\Filet Desktop Data\config.json`. Local, not roaming: shares
+ *   name folders on THIS machine's disks, and a roaming profile would carry `D:\Pictures` to a
+ *   PC where it means nothing or something else. Not `%LOCALAPPDATA%\Filet Desktop`: that is
+ *   where the per-user installer puts the app, and installing or removing the app empties that
+ *   folder whole - a config kept there was deleted by the first per-user install.
  * - **macOS:** `~/Library/Application Support/Filet Desktop/config.json`, the platform's place.
  * - **Linux and the rest:** `$XDG_CONFIG_HOME/filet-desktop/config.json`, else `~/.config/...`.
  *
@@ -205,7 +207,7 @@ class ConfigStore(val file: Path = defaultFile()) {
             val name = os.lowercase()
             return when {
                 name.startsWith("windows") ->
-                    Paths.get(env("LOCALAPPDATA")?.takeIf { it.isNotBlank() } ?: "$home/AppData/Local", "Filet Desktop")
+                    Paths.get(env("LOCALAPPDATA")?.takeIf { it.isNotBlank() } ?: "$home/AppData/Local", "Filet Desktop Data")
                 name.startsWith("mac") || name.contains("darwin") ->
                     Paths.get(home, "Library", "Application Support", "Filet Desktop")
                 else ->

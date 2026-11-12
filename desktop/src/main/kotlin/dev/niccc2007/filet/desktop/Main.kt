@@ -16,6 +16,7 @@ import dev.niccc2007.filet.desktop.mount.Probe
 import dev.niccc2007.filet.desktop.mount.ProbeResult
 import dev.niccc2007.filet.desktop.ui.FiletWindow
 import dev.niccc2007.filet.desktop.ui.MountController
+import dev.niccc2007.filet.desktop.update.Updater
 import kotlin.system.exitProcess
 
 /**
@@ -40,6 +41,10 @@ fun main(args: Array<String>) {
     val watch = PeerWatch(mdns, host.deviceId)
     watch.start()
     val mounter = Mounters.forThisOs()
+    // An install that moved leaves a login entry pointing at the old path; point it here.
+    runCatching { Autostart.repair() }
+    // Passed by the updater when it reopens the app after installing: sharing was on before.
+    if ("--share" in args) host.start()?.let { System.err.println(it) }
 
     // The process outlives the window by the shutdown below, so the application must not end it.
     application(exitProcessOnExit = false) {
@@ -55,6 +60,15 @@ fun main(args: Array<String>) {
         // The host picks its address from the subnet a discovered peer is on, so it has to hear
         // every change to the peer list - without this it has nothing to choose with.
         androidx.compose.runtime.LaunchedEffect(Unit) { watch.peers.collect { host.notePeers(it) } }
+        val updater = remember { Updater(scope).also { it.noteArgs(args) } }
+        // A first look shortly after opening, then twice a day for a window left open for days.
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            kotlinx.coroutines.delay(8_000)
+            while (true) {
+                updater.check(manual = false)
+                kotlinx.coroutines.delay(12 * 60 * 60 * 1000L)
+            }
+        }
         Window(
             // The window goes at once. Stopping the server and the goodbyes happen after it, below.
             onCloseRequest = ::exitApplication,
@@ -66,7 +80,11 @@ fun main(args: Array<String>) {
         ) {
             // Small enough for a half-screen window; below the two-column width the window stacks.
             androidx.compose.runtime.LaunchedEffect(Unit) { window.minimumSize = java.awt.Dimension(640, 480) }
-            FiletWindow(host, watch.peers, mounts, rescan = { watch.rescan() })
+            FiletWindow(
+                host, watch.peers, mounts, rescan = { watch.rescan() },
+                updater = updater,
+                install = { offer -> updater.install(offer, share = host.running.value, quit = ::exitApplication) },
+            )
         }
     }
     shutdown({ host.close() }, { watch.stop() }, { mdns.close() })

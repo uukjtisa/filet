@@ -96,7 +96,7 @@ class ConfigTest {
     @Test fun `config location per OS`() {
         val env = mapOf("LOCALAPPDATA" to "C:/Users/u/AppData/Local", "XDG_CONFIG_HOME" to "/x/cfg")
         assertEquals(
-            Paths.get("C:/Users/u/AppData/Local", "Filet Desktop"),
+            Paths.get("C:/Users/u/AppData/Local", "Filet Desktop Data"),
             ConfigStore.configDir("Windows 11", env::get, "C:/Users/u"),
         )
         assertEquals(
