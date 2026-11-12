@@ -76,6 +76,10 @@ private val CREDITS = listOf(
     Credit("LuaJ", "script runtime", "BSD"),
     Credit("ZXing", "QR codes, drawn and read", "Apache-2.0"),
     Credit("Media3 ExoPlayer", "a second video player, for what the first cannot decode", "Apache-2.0"),
+) + (if (dev.niccc2007.filet.BuildConfig.FLAVOR_LABEL == "github") listOf(
+    // Only where it is in the build: the F-Droid build leaves FFmpeg out.
+    Credit("FFmpeg, through NextLib", "decoders for the video and sound the phone has none for", "GPL-3.0"),
+) else emptyList()) + listOf(
     Credit("BeatRoot / TarsosDSP", "where the beats are, for the pulse", "GPL-3.0"),
     Credit("commonmark-java", "Markdown, with GitHub's tables, alerts, task lists, footnotes and front matter", "BSD-2-Clause"),
     Credit("autolink-java", "bare web addresses in Markdown as links", "MIT"),

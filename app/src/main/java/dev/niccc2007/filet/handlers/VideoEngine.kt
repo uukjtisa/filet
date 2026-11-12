@@ -96,6 +96,12 @@ internal interface VideoEngine {
          * simply never shown as waiting.
          */
         fun onBuffering(waiting: Boolean) {}
+
+        /**
+         * Frames are being dropped steadily: the phone cannot decode this file as fast as it
+         * plays. Said once per engine. Defaulted, so an engine that cannot count is never heavy.
+         */
+        fun onHeavy() {}
     }
 }
 
@@ -137,21 +143,21 @@ internal class VideoViewEngine(context: Context, uri: Uri, events: VideoEngine.E
             )
         }
         view.setOnCompletionListener { events.onCompletion() }
-        // The platform's own buffering signal: 701 when it stops for data, 702 when it has it.
-        // Returning false leaves VideoView's own handling of the other codes untouched.
-        view.setOnInfoListener { _, what, _ ->
-            when (what) {
-                MediaPlayer.MEDIA_INFO_BUFFERING_START -> events.onBuffering(true)
-                MediaPlayer.MEDIA_INFO_BUFFERING_END -> events.onBuffering(false)
-            }
-            false
-        }
         view.setOnErrorListener { _, what, extra ->
             events.onError(what, extra)
             true
         }
+        // One info listener, holding every code. Bug identified here: there were two, and a
+        // VideoView keeps only the last one set, so the buffering half was silently replaced by
+        // the first-frame half and the waiting spinner never showed on this engine. 701 is
+        // "stopped for data", 702 "has it again"; returning false leaves VideoView's own handling
+        // of the other codes untouched.
         view.setOnInfoListener { _, what, _ ->
-            if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) events.onFirstFrame()
+            when (what) {
+                MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START -> events.onFirstFrame()
+                MediaPlayer.MEDIA_INFO_BUFFERING_START -> events.onBuffering(true)
+                MediaPlayer.MEDIA_INFO_BUFFERING_END -> events.onBuffering(false)
+            }
             false
         }
     }
@@ -290,13 +296,16 @@ internal object VideoEngines {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(KEY, kind.name).apply()
     }
 
-    /** The engine for one video. On the main thread, where both players want to be made. */
-    fun open(context: Context, uri: Uri, events: VideoEngine.Events): VideoEngine {
-        val kind = chosen(context)
-        dev.niccc2007.filet.log.FiletLog.i("video") { "opened in $kind" }
-        return when (kind) {
-            EngineKind.PLATFORM -> VideoViewEngine(context, uri, events)
-            EngineKind.MEDIA3 -> Media3Engine(context, uri, events)
+    /** The rung a video starts on: the chosen engine's. See [VideoLadder]. */
+    fun firstRung(context: Context): VideoRung = VideoLadder.first(chosen(context))
+
+    /** The engine for one video on [rung]. On the main thread, where both players want to be made. */
+    fun open(context: Context, uri: Uri, events: VideoEngine.Events, rung: VideoRung): VideoEngine {
+        dev.niccc2007.filet.log.FiletLog.i("video") { "opened on $rung" }
+        return when (rung) {
+            VideoRung.PLATFORM -> VideoViewEngine(context, uri, events)
+            VideoRung.MEDIA3 -> Media3Engine(context, uri, events, forcePicture = false)
+            VideoRung.FFMPEG -> Media3Engine(context, uri, events, forcePicture = true)
         }
     }
 }

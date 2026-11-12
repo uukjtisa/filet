@@ -148,6 +148,17 @@ android {
                 "META-INF/INDEX.LIST",
             )
         }
+        // FFmpeg on ARM only. Phones are ARM; the x86 copies would add about 10 MB for emulators
+        // and a few Chromebooks, where the player falls back to the phone's own decoders because
+        // `FfmpegLibrary.isAvailable()` is false. Only FFmpeg's libraries: the app's own native
+        // code keeps every ABI.
+        jniLibs {
+            for (abi in listOf("x86", "x86_64")) {
+                for (lib in listOf("libavcodec", "libavutil", "libswscale", "libswresample", "libass", "libmedia3ext")) {
+                    excludes += "lib/$abi/$lib.so"
+                }
+            }
+        }
     }
 }
 
@@ -198,6 +209,10 @@ dependencies {
     implementation(libs.camerax.view)
     // The second video player. Apache-2.0. See `Media3Engine`.
     implementation(libs.media3.exoplayer)
+    // FFmpeg's decoders, on the GitHub build only. F-Droid builds everything from source and this
+    // ships prebuilt native libraries, so that flavour gets a stub (src/fdroid) and plays through
+    // the phone's decoders as before. See handlers/FfmpegDecoders.kt in each flavour.
+    "githubImplementation"(libs.nextlib.media3ext)
     implementation(libs.kotlinx.coroutines.android)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)

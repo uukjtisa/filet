@@ -126,6 +126,9 @@ private const val FLASH_MS = 700L
 /** How long the ticker trusts a frame step over the player's own position. See `steppedAt`. */
 private const val STEP_SETTLE_MS = 400L
 
+/** How long the line saying which player took over stays up. Long enough to read twice. */
+private const val NOTICE_MS = 5_000L
+
 /** The longest a held step waits for the last seek to land before stepping anyway. */
 private const val SEEK_WAIT_MS = 600L
 
@@ -1137,6 +1140,42 @@ private fun VideoPlayer(
         }
     }
 
+    // Which player this video is on now, and the line saying it moved. See VideoLadder.
+    var rung by remember(node.path) { mutableStateOf(VideoEngines.firstRung(context)) }
+    var notice by remember(node.path) { mutableStateOf<String?>(null) }
+    LaunchedEffect(notice) {
+        if (notice != null) {
+            delay(NOTICE_MS)
+            notice = null
+        }
+    }
+
+    /**
+     * Move to the next player, at the same place, when this one cannot play the file. False when
+     * there is none left, which is when the error or the No picture dialog is shown, as before.
+     */
+    fun stepDown(why: String): Boolean {
+        val next = VideoLadder.next(rung, FfmpegDecoders.available) ?: return false
+        val at = handle.engine?.position?.coerceAtLeast(0L) ?: position
+        dev.niccc2007.filet.log.FiletLog.i("video") { "$rung could not play it ($why); moving to $next at $at ms" }
+        runCatching {
+            handle.sound?.close()
+            handle.sound = null
+            handle.engine?.release()
+            handle.engine = null
+        }
+        resumeAt = at
+        position = at
+        ready = false
+        playing = false
+        stalled = false
+        watch = null
+        error = null
+        rung = next
+        notice = VideoLadder.notice(next)
+        return true
+    }
+
     // The first-frame watch's clock. It stops for good once a frame is drawn or it has spoken,
     // and it counts only time the video really runs. See PictureWatch.
     LaunchedEffect(watch) {
@@ -1150,6 +1189,8 @@ private fun VideoPlayer(
             seekSeen = handle.seekDoneAt
             val going = playing && scrubTo == null && run == null && !handingOver && !inPip
             if (w.tick(PictureWatch.TICK_MS, going, advanced = last >= 0 && now > last, seeked = seeked)) {
+                // Sound and no picture: the next player first, the dialog only when none is left.
+                if (stepDown("no picture")) break
                 runCatching { handle.engine?.pause() }
                 playing = false
                 val at = uri
@@ -1208,7 +1249,8 @@ private fun VideoPlayer(
                 Modifier.align(Alignment.Center).size(26.dp), strokeWidth = 2.dp,
             )
 
-            else -> AndroidView(
+            // Keyed on the rung: moving to the next player is a new view with a new engine in it.
+            else -> androidx.compose.runtime.key(rung) { AndroidView(
                 // The zoom lives HERE and only here. The requirement is explicit: "the
                 // controls are still on the proper size and orientation.. so it's like I'm only
                 // zooming the playback". The transport, the seek bar, the flash readout and the
@@ -1292,9 +1334,15 @@ private fun VideoPlayer(
                         }
 
                         override fun onError(what: Int, extra: Int) {
-                            error = "This video would not play (error $what/$extra). " +
-                                "Try opening it in another app."
+                            if (stepDown("error $what/$extra")) return
+                            error = "This video would not play on any of Filet's players " +
+                                "(error $what/$extra). Try opening it in another app."
                             ready = false
+                        }
+
+                        override fun onHeavy() {
+                            notice = "This video is heavier than this phone can decode smoothly. " +
+                                "Some frames are skipped to keep the sound in time."
                         }
 
                         override fun onFirstFrame() {
@@ -1310,9 +1358,25 @@ private fun VideoPlayer(
                         }
                     }
                     // Made only in the branch where the file is staged: `uri` is set by then. The
-                    // engine is the default, or in a debug build the Developer tab's choice.
-                    VideoEngines.open(ctx, checkNotNull(uri), events).also { handle.engine = it }.surface
+                    // rung starts at the default engine (or a debug build's Developer choice) and
+                    // moves down when that one cannot play the file.
+                    VideoEngines.open(ctx, checkNotNull(uri), events, rung).also { handle.engine = it }.surface
                 },
+            ) }
+        }
+
+        // Which player took over, or that the phone is struggling. Over the top of the picture,
+        // out of the way of the transport, and gone on its own.
+        notice?.let { line ->
+            Text(
+                line,
+                fontSize = 11.5.sp,
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 64.dp, start = 24.dp, end = 24.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
             )
         }
 

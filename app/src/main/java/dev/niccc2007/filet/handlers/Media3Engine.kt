@@ -28,28 +28,92 @@ import kotlin.math.roundToInt
  * decoder when one fails to start, and try a decoder even on a file past its declared limits
  * (the track selector's default, kept). That is what the phone's gallery does.
  *
- * ## What it is not, yet
+ * ## Where it is used
  *
- * Not the default, and not reachable outside a debug build: see `VideoParity`, which holds it
- * back until every feature of the viewer has been tried on it on a phone. One is known to be
- * missing - 8D pan, which needs each side's level and this player has one volume for both. Its
- * way in is an audio processor in the renderer chain, not yet written; the level and the mute
- * work as they are.
+ * Not the default: see `VideoParity`, which holds it back until every feature of the viewer has
+ * been tried on it on a phone. It is the second and third rungs of [VideoLadder], so a video the
+ * phone's player cannot play moves here on its own, in every build. With FFmpeg in the build it
+ * also decodes what the phone has no decoder for (see [FfmpegDecoders]).
+ *
+ * One feature is known to be missing - 8D pan, which needs each side's level and this player has
+ * one volume for both. Its way in is an audio processor in the renderer chain, not yet written;
+ * the level and the mute work as they are.
  *
  * Like the platform engine it asks for no audio focus and ignores headphones coming out: the
  * screen does both, through `VideoFocus` and its noisy watch.
  */
 @OptIn(UnstableApi::class)
-internal class Media3Engine(context: Context, uri: Uri, private val events: VideoEngine.Events) : VideoEngine {
+internal class Media3Engine(
+    context: Context,
+    uri: Uri,
+    private val events: VideoEngine.Events,
+    /** FFmpeg decodes the picture rather than the phone. See [FfmpegDecoders] and [VideoLadder]. */
+    forcePicture: Boolean = false,
+) : VideoEngine {
 
     private val view = FittedSurface(context)
+
+    // FFmpeg where the build has it, the plain factory where it does not (F-Droid, x86).
+    private val ffmpeg = FfmpegDecoders.setup(context, forcePicture)
     private val player: ExoPlayer = ExoPlayer.Builder(
         context,
-        DefaultRenderersFactory(context).setEnableDecoderFallback(true),
+        ffmpeg?.factory ?: DefaultRenderersFactory(context).setEnableDecoderFallback(true),
     )
         // To the frame asked for, not the keyframe before it: see VideoEngine.seekExactly.
         .setSeekParameters(SeekParameters.EXACT)
         .build()
+
+    /** Dropped frames inside the current window, for [VideoEngine.Events.onHeavy]. */
+    private var droppedInWindow = 0
+    private var windowStartedAt = 0L
+    private var saidHeavy = false
+
+    /**
+     * Which decoder really started, in the log: the file says what it wants, and this says what it
+     * got, which is the half a bug report about a black picture needs. Dropped frames are counted
+     * here too, because on a weak phone software decoding shows up as frames dropped and nowhere
+     * else - Media3 keeps the sound in time and drops late pictures rather than stalling.
+     */
+    private val decoders = object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+        override fun onVideoDecoderInitialized(
+            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+            decoderName: String,
+            initializedTimestampMs: Long,
+            initializationDurationMs: Long,
+        ) {
+            dev.niccc2007.filet.log.FiletLog.i("video") {
+                "picture decoder $decoderName (${initializationDurationMs} ms)" +
+                    (FfmpegDecoders.version?.let { ", ffmpeg $it" } ?: "")
+            }
+        }
+
+        override fun onAudioDecoderInitialized(
+            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+            decoderName: String,
+            initializedTimestampMs: Long,
+            initializationDurationMs: Long,
+        ) {
+            dev.niccc2007.filet.log.FiletLog.i("video") { "sound decoder $decoderName" }
+        }
+
+        override fun onDroppedVideoFrames(
+            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+            droppedFrames: Int,
+            elapsedMs: Long,
+        ) {
+            dev.niccc2007.filet.log.FiletLog.i("video") { "dropped $droppedFrames frames in $elapsedMs ms" }
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - windowStartedAt > HEAVY_WINDOW_MS) {
+                windowStartedAt = now
+                droppedInWindow = 0
+            }
+            droppedInWindow += droppedFrames
+            if (!saidHeavy && droppedInWindow >= HEAVY_DROPS) {
+                saidHeavy = true
+                events.onHeavy()
+            }
+        }
+    }
 
     private var prepared = false
     private var drawn = false
@@ -99,6 +163,10 @@ internal class Media3Engine(context: Context, uri: Uri, private val events: Vide
             ?.takeIf { it > 0 }
             ?.let { player.audioSessionId = it }
         player.addListener(listener)
+        player.addAnalyticsListener(decoders)
+        // Before prepare, on this thread, which is the player's: the manager applies its modes by
+        // turning renderers on and off in the track selector.
+        ffmpeg?.attach(player)
         player.setVideoSurfaceView(view)
         player.setMediaItem(MediaItem.fromUri(uri))
         player.prepare()
@@ -163,7 +231,18 @@ internal class Media3Engine(context: Context, uri: Uri, private val events: Vide
         if (released) return
         released = true
         player.removeListener(listener)
+        player.removeAnalyticsListener(decoders)
+        ffmpeg?.detach()
         player.release()
+    }
+
+    private companion object {
+        /**
+         * "Too heavy for this phone": this many frames dropped inside one window. A frame or two
+         * dropped on a seek is normal; a quarter of the frames for ten seconds is not.
+         */
+        const val HEAVY_DROPS = 60
+        const val HEAVY_WINDOW_MS = 10_000L
     }
 }
 

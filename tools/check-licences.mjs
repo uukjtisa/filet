@@ -61,6 +61,18 @@ const KNOWN = {
   jmdns: { licence: "Apache-2.0", ok: true },
 
   /**
+   * FFmpeg's decoders for Media3, GitHub build only. GPL-3.0, read off the 1.11.1-0.18.0 POM,
+   * which is Filet's own licence. The FFmpeg inside is built with GPL parts enabled, which is
+   * also why the F-Droid flavour leaves it out for now: its native libraries come prebuilt from
+   * Maven rather than from source.
+   */
+  "nextlib-media3ext": {
+    licence: "GPL-3.0 (FFmpeg, libass and their dependencies inside)",
+    ok: true,
+    note: "GitHub flavour only; prebuilt native libraries",
+  },
+
+  /**
    * JNA, for the mount calls - `WNetAddConnection2`, `mount.davfs`, `NetFSMountURLSync`.
    *
    * Dual-licensed Apache-2.0 **or** LGPL-2.1-or-later, at the recipient's choice. GPL-3 takes
