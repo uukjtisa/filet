@@ -44,6 +44,33 @@ class SafChildPathTest {
         assertEquals(SafAnchor.SELF, SafProvider.anchorOf(2, null, ownName = "notes.txt"))
     }
 
+    // A name is shown from its path, so it is written as it is: "my notes.txt", not "my%20notes.txt".
+
+    @Test fun `a name with spaces and symbols is its own segment`() {
+        for (name in listOf("my notes.txt", "a+b #1 (final) 100%.txt", "ünïcødé ✓.md")) {
+            assertEquals(name, SafProvider.segmentOf(name))
+            assertEquals(name, SafProvider.nameOf(SafProvider.segmentOf(name)))
+        }
+    }
+
+    @Test fun `a slash in a name cannot split the path`() {
+        val seg = SafProvider.segmentOf("a/b")
+        assertEquals(false, seg.contains('/'))
+        assertEquals("a/b", SafProvider.nameOf(seg))
+    }
+
+    @Test fun `a path saved with the old encoding still names its file`() {
+        assertEquals("my notes.txt", SafProvider.legacyName("my%20notes.txt"))
+        assertEquals(SafAnchor.SELF, SafProvider.anchorOf(3, "my%20notes.txt", ownName = "my notes.txt"))
+        assertEquals(SafAnchor.SELF, SafProvider.anchorOf(3, "my notes.txt", ownName = "my notes.txt"))
+    }
+
+    @Test fun `a plus is a plus, and a name with no percent is not decoded`() {
+        assertEquals("a+b.txt", SafProvider.legacyName("a%2Bb.txt"))
+        assertEquals(null, SafProvider.legacyName("a+b.txt"))
+        assertEquals(null, SafProvider.legacyName("plain.txt"))
+    }
+
     @Test fun `the top of a tree that gives no name is still the top`() {
         assertEquals(SafAnchor.SELF, SafProvider.anchorOf(3, "home", ownName = null, isRoot = true))
         assertEquals(SafAnchor.SIBLING, SafProvider.anchorOf(3, "elsewhere", ownName = "home", isRoot = true))

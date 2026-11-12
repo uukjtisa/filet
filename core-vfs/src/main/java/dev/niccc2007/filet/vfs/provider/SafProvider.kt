@@ -60,10 +60,21 @@ class SafProvider(private val context: Context) : FileSystemProvider {
     private fun resolve(path: VPath): Pair<Uri, String>? {
         val (tree, docId) = parse(path)
         var id = anchor(tree, docId, path) ?: return null
-        for (name in childSegments(path)) {
-            id = childId(tree, id, Uri.decode(name)) ?: return null
+        for (segment in childSegments(path)) {
+            id = childNamed(tree, id, segment) ?: return null
         }
         return tree to id
+    }
+
+    /**
+     * The child a path segment names: the segment as the name, and for a path stored before names
+     * were written plainly, the segment decoded. See [pathOf].
+     */
+    private fun childNamed(tree: Uri, parentId: String, segment: String): String? {
+        val plain = nameOf(segment)
+        childId(tree, parentId, plain)?.let { return it }
+        val legacy = legacyName(segment)
+        return if (legacy != null && legacy != plain) childId(tree, parentId, legacy) else null
     }
 
     /**
@@ -83,10 +94,10 @@ class SafProvider(private val context: Context) : FileSystemProvider {
      */
     private fun anchor(tree: Uri, docId: String, path: VPath): String? {
         val segs = path.segments
-        val third = segs.getOrNull(2)?.let { Uri.decode(it) }
+        val third = segs.getOrNull(2)
         return when (anchorOf(segs.size, third, third?.let { ownName(tree, docId) }, isRoot(tree, docId))) {
             SafAnchor.SELF -> docId
-            SafAnchor.SIBLING -> parentOf(tree, docId)?.let { childId(tree, it, third!!) }
+            SafAnchor.SIBLING -> parentOf(tree, docId)?.let { childNamed(tree, it, third!!) }
         }
     }
 
@@ -129,8 +140,7 @@ class SafProvider(private val context: Context) : FileSystemProvider {
         if (segs.size < 3) throw VfsException.Unsupported("cannot create a volume root")
         if (segs.size > 3) return resolveOrThrow(path.parent ?: throw VfsException.NotFound(path))
         val (tree, docId) = parse(path)
-        val third = Uri.decode(segs[2])
-        return when (anchorOf(3, third, ownName(tree, docId), isRoot(tree, docId))) {
+        return when (anchorOf(3, segs[2], ownName(tree, docId), isRoot(tree, docId))) {
             SafAnchor.SELF -> throw VfsException.AlreadyExists(path)
             SafAnchor.SIBLING -> tree to (parentOf(tree, docId) ?: throw VfsException.NotFound(path))
         }
@@ -240,8 +250,8 @@ class SafProvider(private val context: Context) : FileSystemProvider {
 
     override suspend fun create(path: VPath, isDir: Boolean): VNode = withContext(Dispatchers.IO) {
         val (tree, parentId) = container(path)
-        // The name as a person typed it: a name taken from another SAF path arrives encoded.
-        val name = Uri.decode(path.name)
+        // The name as written. Decoding it here turned a name holding "%41" into one holding "A".
+        val name = nameOf(path.name)
         val mime = if (isDir) DocumentsContract.Document.MIME_TYPE_DIR else mimeOf(name)
         val created = DocumentsContract.createDocument(
             context.contentResolver,
@@ -357,7 +367,8 @@ class SafProvider(private val context: Context) : FileSystemProvider {
          */
         internal fun anchorOf(size: Int, third: String?, ownName: String?, isRoot: Boolean = false): SafAnchor = when {
             size < 3 || third == null -> SafAnchor.SELF
-            ownName != null -> if (third == ownName) SafAnchor.SELF else SafAnchor.SIBLING
+            ownName != null ->
+                if (nameOf(third) == ownName || legacyName(third) == ownName) SafAnchor.SELF else SafAnchor.SIBLING
             // The top of a granted tree that gives no name: nothing beside it is inside the
             // grant, so the path can only mean the top itself.
             isRoot -> SafAnchor.SELF
@@ -393,9 +404,36 @@ class SafProvider(private val context: Context) : FileSystemProvider {
         fun pathOf(tree: Uri, docId: String, name: String? = null): VPath {
             val enc = Uri.encode(tree.toString())
             val encId = Uri.encode(docId)
-            val tail = name?.let { "/" + Uri.encode(it) } ?: ""
+            val tail = name?.let { "/" + segmentOf(it) } ?: ""
             return VPath(SCHEME, "/$enc/$encId$tail")
         }
+
+        /**
+         * A name as a path segment: as it is, but for the one character a segment cannot hold.
+         *
+         * Bug identified here: the name was percent-encoded, and a node's name is its path's last
+         * segment, so every file in another app's folder showed "my%20notes.txt" for "my
+         * notes.txt" - in the list, in the rename box, and in the name of a copy taken out of it.
+         * The tree and the document id stay encoded; nobody reads those.
+         */
+        internal fun segmentOf(name: String): String = name.replace("/", SLASH)
+
+        /** The name a segment written by [segmentOf] holds. */
+        internal fun nameOf(segment: String): String = segment.replace(SLASH, "/")
+
+        /**
+         * The name in a segment written before names were plain, when it decodes to something
+         * else; null otherwise. A bookmark or a tab saved then still finds its file.
+         */
+        internal fun legacyName(segment: String): String? {
+            if ('%' !in segment) return null
+            // "+" protected: URLDecoder reads it as a space, which the old encoding never meant.
+            return runCatching { java.net.URLDecoder.decode(segment.replace("+", "%2B"), "UTF-8") }
+                .getOrNull()?.takeIf { it != segment }
+        }
+
+        /** Stands for "/" in a name: a document name that holds one would otherwise split the path. */
+        private const val SLASH = "∕"
 
         /**
          * The VPath for a `content://` document URI handed to us by another app.

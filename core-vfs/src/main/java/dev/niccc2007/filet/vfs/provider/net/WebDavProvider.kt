@@ -528,7 +528,10 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
                     val name = parser.name.substringAfterLast(':').lowercase()
                     if (name == "prop") inProp = false
                     if (name == "response") {
-                        val decoded = href?.let { URLDecoder.decode(it, "UTF-8") }
+                        // Bug identified here: `URLDecoder` reads "+" as a space, which is form
+                        // encoding and not a path's. A server that leaves "+" bare in an href (most
+                        // do) listed "a+b.txt" as "a b.txt", which then could not be opened.
+                        val decoded = href?.let { hrefPath(it) }
                         val fileName = decoded?.trimEnd('/')?.substringAfterLast('/')
                         // The first response in a Depth:1 body is the collection itself.
                         if (!fileName.isNullOrEmpty() && !samePath(decoded, parentRemote)) {
@@ -628,3 +631,10 @@ class WebDavProvider(private val connections: NetConnections) : FileSystemProvid
         """.trimIndent()
     }
 }
+
+/**
+ * A `<href>` as the path it names: percent sequences decoded, "+" left as itself. A path is not a
+ * form body, and a malformed sequence leaves the href as it came rather than failing the listing.
+ */
+internal fun hrefPath(href: String): String =
+    runCatching { URLDecoder.decode(href.replace("+", "%2B"), "UTF-8") }.getOrDefault(href)
