@@ -24,4 +24,28 @@ class SafChildPathTest {
     @Test fun `a folder copied in keeps its children under it`() {
         assertEquals(listOf("pics", "a.jpg"), SafProvider.childSegments(folder.child("pics").child("a.jpg")))
     }
+
+    // A file's path is tree/fileId/name, so its parent is the file without its name, and a name
+    // added back for a save's hidden copy must not land on the file: that deleted it.
+
+    @Test fun `a listed file's own path names the file`() {
+        assertEquals(SafAnchor.SELF, SafProvider.anchorOf(3, "notes.txt", ownName = "notes.txt"))
+    }
+
+    @Test fun `the hidden copy beside a file is a sibling, never the file`() {
+        assertEquals(SafAnchor.SIBLING, SafProvider.anchorOf(3, ".filet-saving-notes.txt", ownName = "notes.txt"))
+    }
+
+    @Test fun `a name beside a file that is gone is still read as beside it`() {
+        assertEquals(SafAnchor.SIBLING, SafProvider.anchorOf(3, "notes.txt", ownName = null))
+    }
+
+    @Test fun `a path with no name part is the document itself`() {
+        assertEquals(SafAnchor.SELF, SafProvider.anchorOf(2, null, ownName = "notes.txt"))
+    }
+
+    @Test fun `the top of a tree that gives no name is still the top`() {
+        assertEquals(SafAnchor.SELF, SafProvider.anchorOf(3, "home", ownName = null, isRoot = true))
+        assertEquals(SafAnchor.SIBLING, SafProvider.anchorOf(3, "elsewhere", ownName = "home", isRoot = true))
+    }
 }

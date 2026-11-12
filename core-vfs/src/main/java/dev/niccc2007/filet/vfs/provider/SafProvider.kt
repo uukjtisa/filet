@@ -24,6 +24,9 @@ import java.io.OutputStream
  * Children are fetched with ONE cursor per directory (SEARCH.md §4.6) rather than per-file IPC,
  * which is the difference between a usable SD card and an unusable one.
  */
+/** What the first three parts of a SAF path name: the document itself, or the name beside it. */
+internal enum class SafAnchor { SELF, SIBLING }
+
 class SafProvider(private val context: Context) : FileSystemProvider {
 
     override val scheme: String = SCHEME
@@ -56,11 +59,81 @@ class SafProvider(private val context: Context) : FileSystemProvider {
      */
     private fun resolve(path: VPath): Pair<Uri, String>? {
         val (tree, docId) = parse(path)
-        var id = docId
+        var id = anchor(tree, docId, path) ?: return null
         for (name in childSegments(path)) {
             id = childId(tree, id, Uri.decode(name)) ?: return null
         }
         return tree to id
+    }
+
+    /**
+     * The document the first three parts of a path name: the document itself, or a sibling of it.
+     *
+     * Bug identified here: the text editor saved a file in Termux's home by writing a hidden copy
+     * beside it, and "beside" was `file.parent.child(".filet-saving-name")`. A SAF path carries
+     * the document's OWN id, so its parent is that same document without its name, and adding a
+     * name back gave `tree/fileId/.filet-saving-name`, which was read as the file itself. The
+     * save checked whether the hidden copy existed, found the file, and deleted it. Each save
+     * destroyed the document being saved, which then showed as "no longer exists".
+     *
+     * A listed path's third part is always the document's own name, because [pathOf] writes it.
+     * So a third part that is NOT the document's name was built as a sibling, and is read as one:
+     * that name in the document's folder. The same holds when the document no longer exists,
+     * which is what a save that copies under a new name leaves behind.
+     */
+    private fun anchor(tree: Uri, docId: String, path: VPath): String? {
+        val segs = path.segments
+        val third = segs.getOrNull(2)?.let { Uri.decode(it) }
+        return when (anchorOf(segs.size, third, third?.let { ownName(tree, docId) }, isRoot(tree, docId))) {
+            SafAnchor.SELF -> docId
+            SafAnchor.SIBLING -> parentOf(tree, docId)?.let { childId(tree, it, third!!) }
+        }
+    }
+
+    private fun isRoot(tree: Uri, docId: String): Boolean =
+        runCatching { DocumentsContract.getTreeDocumentId(tree) == docId }.getOrDefault(false)
+
+    /** The document's display name, from the last listing when it was seen, otherwise asked. Null when it is gone. */
+    private fun ownName(tree: Uri, docId: String): String? {
+        names["$tree|$docId"]?.let { return it }
+        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, docId)
+        val cols = arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+        return runCatching {
+            context.contentResolver.query(uri, cols, null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            }
+        }.getOrNull()?.also { names["$tree|$docId"] = it }
+    }
+
+    /**
+     * The folder a document was listed in. The listing is where nearly every path comes from; for
+     * one that did not (a tab restored after a restart), the provider is asked for the document's
+     * path from the top of the tree, which providers may decline.
+     */
+    private fun parentOf(tree: Uri, docId: String): String? {
+        parents["$tree|$docId"]?.let { return it }
+        val uri = DocumentsContract.buildDocumentUriUsingTree(tree, docId)
+        val chain = runCatching { DocumentsContract.findDocumentPath(context.contentResolver, uri)?.path }.getOrNull()
+        val parent = chain?.takeIf { it.size >= 2 }?.let { it[it.size - 2] } ?: return null
+        remember(tree, docId, parent)
+        return parent
+    }
+
+    /**
+     * The folder a NEW path's last name goes into. For `tree/docId/name` that is the folder
+     * holding the document when the name is a sibling's; the document itself is not a folder to
+     * create in, and treating it as one is the same misreading as [anchor]'s.
+     */
+    private fun container(path: VPath): Pair<Uri, String> {
+        val segs = path.segments
+        if (segs.size < 3) throw VfsException.Unsupported("cannot create a volume root")
+        if (segs.size > 3) return resolveOrThrow(path.parent ?: throw VfsException.NotFound(path))
+        val (tree, docId) = parse(path)
+        val third = Uri.decode(segs[2])
+        return when (anchorOf(3, third, ownName(tree, docId), isRoot(tree, docId))) {
+            SafAnchor.SELF -> throw VfsException.AlreadyExists(path)
+            SafAnchor.SIBLING -> tree to (parentOf(tree, docId) ?: throw VfsException.NotFound(path))
+        }
     }
 
     private fun resolveOrThrow(path: VPath): Pair<Uri, String> = resolve(path) ?: throw VfsException.NotFound(path)
@@ -73,7 +146,7 @@ class SafProvider(private val context: Context) : FileSystemProvider {
             while (c.moveToNext()) {
                 val id = c.getString(0) ?: continue
                 if (c.getString(1) == name) {
-                    remember(tree, id, parentId)
+                    remember(tree, id, parentId, name)
                     return id
                 }
             }
@@ -88,9 +161,14 @@ class SafProvider(private val context: Context) : FileSystemProvider {
      */
     private val parents = java.util.concurrent.ConcurrentHashMap<String, String>()
 
-    private fun remember(tree: Uri, childId: String, parentId: String) {
+    /** Each document's display name as last seen, so telling a document's own path from a sibling's costs no query. */
+    private val names = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun remember(tree: Uri, childId: String, parentId: String, name: String? = null) {
         if (parents.size > PARENTS_MAX) parents.clear()
+        if (names.size > PARENTS_MAX) names.clear()
         parents["$tree|$childId"] = parentId
+        if (name != null) names["$tree|$childId"] = name
     }
 
     override suspend fun list(path: VPath): List<VNode> = withContext(Dispatchers.IO) {
@@ -109,7 +187,7 @@ class SafProvider(private val context: Context) : FileSystemProvider {
                 val id = c.getString(iId) ?: continue
                 val name = c.getString(iName) ?: continue
                 val isDir = c.getString(iMime) == DocumentsContract.Document.MIME_TYPE_DIR
-                remember(tree, id, docId)
+                remember(tree, id, docId, name)
                 out += VNode(
                     path = pathOf(tree, id, name),
                     isDir = isDir,
@@ -128,6 +206,7 @@ class SafProvider(private val context: Context) : FileSystemProvider {
         context.contentResolver.query(uri, COLS, null, null, null)?.use { c ->
             if (!c.moveToFirst()) return@use null
             val name = c.getString(c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME))
+            names["$tree|$docId"] = name
             val isDir = c.getString(c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)) ==
                 DocumentsContract.Document.MIME_TYPE_DIR
             VNode(
@@ -160,8 +239,7 @@ class SafProvider(private val context: Context) : FileSystemProvider {
     }
 
     override suspend fun create(path: VPath, isDir: Boolean): VNode = withContext(Dispatchers.IO) {
-        val parent = path.parent ?: throw VfsException.Unsupported("cannot create a volume root")
-        val (tree, parentId) = resolveOrThrow(parent)
+        val (tree, parentId) = container(path)
         // The name as a person typed it: a name taken from another SAF path arrives encoded.
         val name = Uri.decode(path.name)
         val mime = if (isDir) DocumentsContract.Document.MIME_TYPE_DIR else mimeOf(name)
@@ -172,7 +250,7 @@ class SafProvider(private val context: Context) : FileSystemProvider {
             name,
         ) ?: throw VfsException.AccessDenied(path)
         val id = DocumentsContract.getDocumentId(created)
-        remember(tree, id, parentId)
+        remember(tree, id, parentId, name)
         stat(pathOf(tree, id, name))
             ?: throw VfsException.Io(path, IllegalStateException("created then vanished"))
     }
@@ -183,6 +261,9 @@ class SafProvider(private val context: Context) : FileSystemProvider {
             context.contentResolver, DocumentsContract.buildDocumentUriUsingTree(tree, docId)
         )
         if (!ok) throw VfsException.AccessDenied(path)
+        // Its name goes, its folder stays: a path still naming it is now read by name in that folder.
+        names.remove("$tree|$docId")
+        Unit
     }
 
     /**
@@ -206,7 +287,8 @@ class SafProvider(private val context: Context) : FileSystemProvider {
         val renamed = attempt.getOrNull()
         if (renamed != null) {
             val id = DocumentsContract.getDocumentId(renamed)
-            parents["$tree|$docId"]?.let { remember(tree, id, it) }
+            names.remove("$tree|$docId")
+            parents["$tree|$docId"]?.let { remember(tree, id, it, newName) }
             return@withContext stat(pathOf(tree, id, newName))
                 ?: throw VfsException.Io(path, IllegalStateException("renamed then vanished"))
         }
@@ -240,8 +322,9 @@ class SafProvider(private val context: Context) : FileSystemProvider {
             // Both exist now. Say so rather than leave a silent duplicate.
             throw VfsException.Io(path, IllegalStateException("copied to $newName but the original could not be removed"))
         }
+        names.remove("$tree|$docId")
         val id = DocumentsContract.getDocumentId(made)
-        remember(tree, id, parentId)
+        remember(tree, id, parentId, newName)
         return stat(pathOf(tree, id, newName))
             ?: throw VfsException.Io(path, IllegalStateException("renamed then vanished"))
     }
@@ -265,6 +348,23 @@ class SafProvider(private val context: Context) : FileSystemProvider {
         internal fun childSegments(path: VPath): List<String> = path.segments.drop(3)
 
         /**
+         * Whether `tree/docId/third` names the document or a sibling of it. Pure, because getting
+         * it wrong deletes files: see [anchor].
+         *
+         * @param size how many parts the path has.
+         * @param third its third part, decoded; null when there is none.
+         * @param ownName the document's display name, or null when it no longer exists.
+         */
+        internal fun anchorOf(size: Int, third: String?, ownName: String?, isRoot: Boolean = false): SafAnchor = when {
+            size < 3 || third == null -> SafAnchor.SELF
+            ownName != null -> if (third == ownName) SafAnchor.SELF else SafAnchor.SIBLING
+            // The top of a granted tree that gives no name: nothing beside it is inside the
+            // grant, so the path can only mean the top itself.
+            isRoot -> SafAnchor.SELF
+            else -> SafAnchor.SIBLING
+        }
+
+        /**
          * A document URI for another app's DocumentsProvider, to hint the picker where to open.
          *
          * Here rather than in the app layer because `DocumentsContract` is a storage API and
@@ -286,8 +386,9 @@ class SafProvider(private val context: Context) : FileSystemProvider {
         /**
          * `saf:///<enc tree>/<enc docId>/<display name>`
          *
-         * The display name is carried as the last segment purely so breadcrumbs and row labels
-         * read as names rather than as document ids; only the first two segments are addressed.
+         * The display name is carried as the third segment so breadcrumbs and row labels read as
+         * names, and so a path built beside a document can be told from the document's own: see
+         * [anchorOf].
          */
         fun pathOf(tree: Uri, docId: String, name: String? = null): VPath {
             val enc = Uri.encode(tree.toString())
