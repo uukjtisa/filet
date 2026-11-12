@@ -61,3 +61,27 @@ object DavQuota {
             "<D:quota-available-bytes>" + report.availableBytes + "</D:quota-available-bytes>\n"
     }
 }
+
+/**
+ * Each share's report, remembered for [windowMs].
+ *
+ * Bug identified here: a client showed one shared drive's free and used space on another, and
+ * which way round drifted. The server kept ONE cached report for all of its shares, so inside
+ * each window the first share asked answered for every other - C:'s figures on D:, or D:'s on C:,
+ * depending on which folder the client happened to open first. The same held for a phone sharing
+ * internal storage and an SD card. Reports are now kept per share root.
+ *
+ * A null report is not kept: an unreadable volume is asked again next time, as before.
+ */
+class QuotaCache(private val windowMs: Long) {
+    private class Entry(val at: Long, val report: DavQuota.Report)
+
+    private val entries = java.util.concurrent.ConcurrentHashMap<String, Entry>()
+
+    fun get(root: String, now: Long, read: () -> DavQuota.Report?): DavQuota.Report? {
+        entries[root]?.let { if (now - it.at < windowMs) return it.report }
+        val report = read()
+        if (report != null) entries[root] = Entry(now, report) else entries.remove(root)
+        return report
+    }
+}

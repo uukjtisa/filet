@@ -777,28 +777,23 @@ class WebDavServer(
     /**
      * Free and used for a share, as RFC 4331 wants it.
      *
-     * Read from the volume the share is rooted on, and cached briefly: Explorer asks for it on
-     * every folder it opens, and reading free space is a syscall each time.
+     * Read from the volume the share is rooted on, and cached briefly per share: Explorer asks
+     * for it on every folder it opens, and reading free space is a syscall each time. Per share,
+     * because two shares on two volumes have two answers; see [QuotaCache].
      */
-    private fun quotaFor(sh: LiveShare): DavQuota.Report? {
-        val now = System.currentTimeMillis()
-        val cached = quotaCache
-        if (cached != null && now - quotaAt < QUOTA_CACHE_MS) return cached
-        val report = runCatching {
-            runBlocking {
-                DavQuota.of(
-                    totalBytes = vfs.totalSpace(sh.root),
-                    usableBytes = vfs.freeSpace(sh.root),
-                )
-            }
-        }.getOrNull()
-        quotaCache = report
-        quotaAt = now
-        return report
-    }
+    private fun quotaFor(sh: LiveShare): DavQuota.Report? =
+        quotas.get(sh.root.toString(), System.currentTimeMillis()) {
+            runCatching {
+                runBlocking {
+                    DavQuota.of(
+                        totalBytes = vfs.totalSpace(sh.root),
+                        usableBytes = vfs.freeSpace(sh.root),
+                    )
+                }
+            }.getOrNull()
+        }
 
-    @Volatile private var quotaCache: DavQuota.Report? = null
-    @Volatile private var quotaAt: Long = 0L
+    private val quotas = QuotaCache(QUOTA_CACHE_MS)
 
     private fun stream(path: VPath, out: OutputStream, skip: Long, length: Long) {
         runCatching {

@@ -13,6 +13,30 @@ import org.junit.Test
  */
 class DavQuotaTest {
 
+    // ── the cache: one report per share, never one for the whole server ──
+
+    private val c = DavQuota.Report(usedBytes = 200, availableBytes = 50)
+    private val d = DavQuota.Report(usedBytes = 900, availableBytes = 1100)
+
+    @Test
+    fun `two shares asked inside one window each get their own volume's figures`() {
+        val cache = QuotaCache(5_000)
+        assertEquals(c, cache.get("local:/C:/Users", 1_000) { c })
+        // D: asked a second later, well inside C:'s window: its own figure, not C:'s.
+        assertEquals(d, cache.get("local:/D:/Media", 2_000) { d })
+        assertEquals(c, cache.get("local:/C:/Users", 3_000) { error("C: is still cached") })
+        assertEquals(d, cache.get("local:/D:/Media", 3_000) { error("D: is still cached") })
+    }
+
+    @Test
+    fun `a report is read again after its window, and an unreadable volume is never cached`() {
+        val cache = QuotaCache(5_000)
+        cache.get("r", 0) { c }
+        assertEquals(d, cache.get("r", 5_000) { d })
+        assertNull(cache.get("x", 0) { null })
+        assertEquals(c, cache.get("x", 1) { c })
+    }
+
     private val GB = 1_000_000_000L
 
     @Test
