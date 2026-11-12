@@ -1,0 +1,76 @@
+# The desktop tool's installers, attached to its own releases.
+#
+# Filet Desktop updates itself from these: it reads releases tagged
+# filet-desktop-mount-tool-vX.Y.Z, takes the .msi, and checks it against the SHA-256 GitHub
+# records for the upload before installing. So this job only builds and attaches; it never makes a
+# release or a tag. A release is published the repository's way (through the API, with tag_name,
+# and GitHub makes the tag), and that publish is what starts this.
+#
+# Not on a pushed tag: a hand-pushed tag is the thing that has turned CI red before, and the
+# release, not the tag, is what the updater reads.
+#
+# The app's releases (v0.1.11 and so on) never start it: the job is skipped unless the tag has the
+# desktop prefix.
+
+name: desktop release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'An existing desktop release tag to rebuild and re-attach, e.g. filet-desktop-mount-tool-v0.1.2'
+        required: true
+
+concurrency:
+  group: desktop-release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    if: startsWith(github.event.release.tag_name || inputs.tag, 'filet-desktop-mount-tool-v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The installer's version comes from toolVersion, and the updater compares the tag's. A
+      # release whose tag and build disagree would be offered forever, so it fails here instead.
+      - name: The tag names the version the build carries
+        shell: pwsh
+        run: |
+          $want = $env:TAG -replace '^filet-desktop-mount-tool-v', ''
+          $line = Select-String -Path desktop/build.gradle.kts -Pattern '^val toolVersion = "([^"]+)"' | Select-Object -First 1
+          if (-not $line) { throw 'toolVersion not found in desktop/build.gradle.kts' }
+          $have = $line.Matches[0].Groups[1].Value
+          if ($have -ne $want) { throw "The tag says $want but desktop/build.gradle.kts says $have." }
+          "version $have"
+
+      - name: Desktop tests
+        run: ./gradlew --no-daemon :desktop:test
+
+      # -PnoInstall: installHere installs on the machine that built, which is for a developer's
+      # own PC; CI is set here too, which also skips it.
+      - name: Installers
+        run: ./gradlew --no-daemon -PnoInstall :desktop:packageMsi :desktop:packageExe
+
+      - name: Attach to the release
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem desktop/build/compose/binaries/main/msi/*.msi) + @(Get-ChildItem desktop/build/compose/binaries/main/exe/*.exe)
+          if ($files.Count -ne 2) { throw "expected one .msi and one .exe, found $($files.Count)" }
+          gh release upload $env:TAG @($files.FullName) --clobber
