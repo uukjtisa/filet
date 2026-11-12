@@ -1776,6 +1776,12 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         const val K_VIEWER_ONLY_KIND = "viewer.onlyKind"
         const val K_VIDEO_PIP_HOME = "play.videoPip"
 
+        /**
+         * Settings search's name for the video player choice. The choice itself is kept by
+         * `VideoEngines`, which the player menu writes as well, so the two cannot disagree.
+         */
+        const val K_VIDEO_ENGINE = "play.videoEngine"
+
         /** The double-tap skip's lengths, in seconds. See [videoSkipSeconds]. */
         val VIDEO_SKIP_CHOICES = listOf(2, 5, 10)
         const val VIDEO_SKIP_DEFAULT = 10

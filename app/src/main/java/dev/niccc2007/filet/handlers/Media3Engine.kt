@@ -30,10 +30,10 @@ import kotlin.math.roundToInt
  *
  * ## Where it is used
  *
- * Not the default: see `VideoParity`, which holds it back until every feature of the viewer has
- * been tried on it on a phone. It is the second and third rungs of [VideoLadder], so a video the
- * phone's player cannot play moves here on its own, in every build. With FFmpeg in the build it
- * also decodes what the phone has no decoder for (see [FfmpegDecoders]).
+ * Filet's player: the one every video opens in (see `VideoEngines`), and the rungs of
+ * [VideoLadder] after the phone's player for anyone who has chosen that one. The phone's hardware
+ * decoder is tried first even past its declared limits (see [HardwareFirst]); with FFmpeg in the
+ * build it also decodes what the phone has no decoder for (see [FfmpegDecoders]).
  *
  * One feature is known to be missing - 8D pan, which needs each side's level and this player has
  * one volume for both. Its way in is an audio processor in the renderer chain, not yet written;
@@ -61,7 +61,12 @@ internal class Media3Engine(
     )
         // To the frame asked for, not the keyframe before it: see VideoEngine.seekExactly.
         .setSeekParameters(SeekParameters.EXACT)
+        .setLoadControl(quickStart())
         .build()
+
+    /** Whether FFmpeg is drawing the picture, so the ladder does not move to FFmpeg again. */
+    override var pictureByFfmpeg: Boolean = false
+        private set
 
     /** Dropped frames inside the current window, for [VideoEngine.Events.onHeavy]. */
     private var droppedInWindow = 0
@@ -81,6 +86,7 @@ internal class Media3Engine(
             initializedTimestampMs: Long,
             initializationDurationMs: Long,
         ) {
+            pictureByFfmpeg = decoderName.startsWith("ffmpeg")
             dev.niccc2007.filet.log.FiletLog.i("video") {
                 "picture decoder $decoderName (${initializationDurationMs} ms)" +
                     (FfmpegDecoders.version?.let { ", ffmpeg $it" } ?: "")
@@ -214,6 +220,22 @@ internal class Media3Engine(
     override fun seekExactly(ms: Long) {
         if (released) return
         seeking = true
+        player.setSeekParameters(SeekParameters.EXACT)
+        player.seekTo(ms)
+    }
+
+    /**
+     * To a keyframe within [NEAR_US] of [ms] when there is one, else to [ms] exactly.
+     *
+     * A skip or a scrub that lands exactly decodes forward from the keyframe before the target;
+     * on a long-GOP movie that is seconds of decoding to show one frame, and it is why seeking
+     * felt slow beside VLC, which lands on keyframes. Bounded either side, so a skip of ten seconds
+     * never lands at five or at fifteen; frame steps and resume points stay exact.
+     */
+    override fun seekNear(ms: Long) {
+        if (released) return
+        seeking = true
+        player.setSeekParameters(SeekParameters(NEAR_US, NEAR_US))
         player.seekTo(ms)
     }
 
@@ -243,6 +265,25 @@ internal class Media3Engine(
          */
         const val HEAVY_DROPS = 60
         const val HEAVY_WINDOW_MS = 10_000L
+
+        /** How far from a skip's target a keyframe may be and still be used: two seconds. */
+        const val NEAR_US = 2_000_000L
+
+        /**
+         * Playing starts once a second is buffered, and two after running dry. Media3's own
+         * defaults wait two and a half and five, which is the pause before a picture that VLC does
+         * not have (its network cache is a second). The ceiling, how far ahead it reads while
+         * playing, is Media3's.
+         */
+        fun quickStart(): androidx.media3.exoplayer.LoadControl =
+            androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    androidx.media3.exoplayer.DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                    androidx.media3.exoplayer.DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
+                    1_000,
+                    2_000,
+                )
+                .build()
     }
 }
 

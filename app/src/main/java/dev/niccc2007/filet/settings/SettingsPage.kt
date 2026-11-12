@@ -1050,6 +1050,28 @@ fun SettingsPage(vm: BrowserViewModel) {
         // The video player's own. Every video opens under its silent preview; this is what one
         // reached by a gallery's arrows or swipe does. The same switch as the viewer's menu.
         item { SettingsSection("Video", "") }
+        // The same choice as the PLAYER group in the video player's menu, which is where it is
+        // usually made: it switches there at the same moment of the video.
+        anchor(Prefs.K_VIDEO_ENGINE)
+        item {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var engine by remember { mutableStateOf(dev.niccc2007.filet.handlers.VideoEngines.chosen(context)) }
+            val filets = engine == dev.niccc2007.filet.handlers.EngineKind.MEDIA3
+            SegmentRow(
+                "Video player",
+                listOf("Filet's", "The phone's"),
+                if (filets) 0 else 1,
+                hint = if (filets) {
+                    "Plays the most kinds of video. Uses FFmpeg where the phone has no decoder."
+                } else {
+                    "The phone's own decoder. Lightest on battery."
+                },
+                key = Prefs.K_VIDEO_ENGINE,
+            ) {
+                engine = if (it == 0) dev.niccc2007.filet.handlers.EngineKind.MEDIA3 else dev.niccc2007.filet.handlers.EngineKind.PLATFORM
+                dev.niccc2007.filet.handlers.VideoEngines.choose(context, engine)
+            }
+        }
         anchor(Prefs.K_VIDEO_NEXT_PLAYS)
         item {
             SegmentRow(

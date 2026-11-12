@@ -6,7 +6,6 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.view.SurfaceView
 import android.widget.VideoView
-import dev.niccc2007.filet.BuildConfig
 
 /**
  * What the video viewer asks of whatever plays the video, and nothing more.
@@ -50,6 +49,15 @@ internal interface VideoEngine {
 
     /** To [ms] itself, not the keyframe before it. [Events.onSeekDone] when it has landed. */
     fun seekExactly(ms: Long)
+
+    /**
+     * To the keyframe nearest [ms], when one is close: a skip or a let-go scrub, where landing at
+     * once matters more than the exact frame. Exact where the engine cannot do otherwise.
+     */
+    fun seekNear(ms: Long) = seekExactly(ms)
+
+    /** Whether FFmpeg is the one drawing the picture now, so stepping down to it would change nothing. */
+    val pictureByFfmpeg: Boolean get() = false
 
     /** Each side's volume, 0 to 1: the level, the mute and 8D's sweep all arrive here. */
     fun setVolume(left: Float, right: Float)
@@ -212,7 +220,8 @@ internal class VideoViewEngine(context: Context, uri: Uri, events: VideoEngine.E
  * Written down as a check rather than remembered, because the step that makes Media3 the
  * default is the one that would lose a feature quietly: an engine that plays a file the old one
  * could not is an obvious win, and the speed sheet that no longer moves the pitch is found a week
- * later. [VideoParity] will not let an engine be the default until it passes every one.
+ * later. Media3 became the default before passing every one (see [VideoParity.DEFAULT]), so the
+ * list is now what is left to bring it level, with the phone's player a menu tap away meanwhile.
  */
 internal enum class VideoFeature(val label: String) {
     SEEK("seek"),
@@ -238,8 +247,17 @@ internal enum class EngineKind {
 
 internal object VideoParity {
 
-    /** The engine every video opens in. */
-    val DEFAULT = EngineKind.PLATFORM
+    /**
+     * The engine every video opens in until another is chosen: Filet's player.
+     *
+     * Decision: Media3 is the default before it passes every row below, because the phone's player
+     * is the weaker of the two where it shows - it plays fewer formats, cannot hand the picture to
+     * FFmpeg, and loads and seeks slower - and the rows it still misses are ones the player menu
+     * answers. The phone's player is one tap away in that menu, at the same position, and the
+     * choice is kept. The list stays: it is what is left to bring Filet's player level, and the
+     * menu row under the phone's player is how it is reached meanwhile.
+     */
+    val DEFAULT = EngineKind.MEDIA3
 
     /**
      * Whether [engine] does [feature], as tested on a phone - not as hoped. Exhaustive, so a new
@@ -276,18 +294,17 @@ internal object VideoParity {
 // ── which engine a video opens in ─────────────────────────────────────────────────
 
 /**
- * Which engine a video opens in: [VideoParity.DEFAULT], or in a debug build the one the
- * Developer tab picked.
+ * Which engine a video opens in: the one chosen in the player menu or in Settings › Video, else
+ * [VideoParity.DEFAULT]. Read in every build.
  *
- * A release has no Developer tab and reads nothing here, so nothing a user sees changes until
- * the default itself does - in a commit of its own, once [VideoParity.canBeDefault] says so.
+ * The stored value is the debug-only Developer toggle's, kept under the same file and key, so a
+ * debug build that had picked a player keeps it.
  */
 internal object VideoEngines {
     private const val FILE = "filet.videoengine"
     private const val KEY = "engine"
 
     fun chosen(context: Context): EngineKind {
-        if (!BuildConfig.DEBUG) return VideoParity.DEFAULT
         val name = context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(KEY, null)
         return EngineKind.entries.firstOrNull { it.name == name } ?: VideoParity.DEFAULT
     }

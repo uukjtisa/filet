@@ -4,7 +4,12 @@ import android.content.Context
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.RenderersFactory
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
+import androidx.media3.exoplayer.video.VideoRendererEventListener
+import android.os.Handler
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.DecoderManager
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.DecoderMode
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegLibrary
@@ -48,8 +53,31 @@ internal object FfmpegDecoders {
             if (forcePicture) DecoderMode.FFMPEG else DecoderMode.AUTO,
             DecoderMode.AUTO,
         )
-        val factory = NextRenderersFactory(context).setDecoderManager(manager)
+        // Phone first means the phone's hardware even past its declared limits: see HardwareFirst.
+        val factory = (if (forcePicture) NextRenderersFactory(context) else PhoneFirstFactory(context))
+            .setDecoderManager(manager)
         factory.setEnableDecoderFallback(true)
         return Setup(factory, manager)
+    }
+
+    private class PhoneFirstFactory(context: Context) : NextRenderersFactory(context) {
+        override fun buildVideoRenderers(
+            context: Context,
+            extensionRendererMode: Int,
+            mediaCodecSelector: MediaCodecSelector,
+            enableDecoderFallback: Boolean,
+            eventHandler: Handler,
+            eventListener: VideoRendererEventListener,
+            allowedVideoJoiningTimeMs: Long,
+            out: ArrayList<Renderer>,
+        ) {
+            super.buildVideoRenderers(
+                context, extensionRendererMode, mediaCodecSelector, enableDecoderFallback,
+                eventHandler, eventListener, allowedVideoJoiningTimeMs, out,
+            )
+            for (i in out.indices) {
+                if (out[i] is MediaCodecVideoRenderer) out[i] = HardwareFirst.wrap(out[i])
+            }
+        }
     }
 }

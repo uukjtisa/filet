@@ -312,6 +312,15 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
         text = "Pitch when slowed",
     ),
     SettingsEntry(
+        key = Prefs.K_VIDEO_ENGINE,
+        title = "Video player",
+        tab = SettingsGroup.PLAYBACK,
+        section = "Video",
+        text = "Video player Filet's The phone's Plays the most kinds of video. Uses FFmpeg " +
+            "where the phone has no decoder. The phone's own decoder. Lightest on " +
+            "battery.",
+    ),
+    SettingsEntry(
         key = Prefs.K_VIDEO_NEXT_PLAYS,
         title = "Next video",
         tab = SettingsGroup.PLAYBACK,

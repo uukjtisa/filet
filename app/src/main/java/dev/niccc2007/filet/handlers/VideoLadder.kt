@@ -13,7 +13,8 @@ package dev.niccc2007.filet.handlers
  * alternative was a "Try the other player" button, which only ever has one useful answer.
  *
  * - [PLATFORM]: the phone's built-in player.
- * - [MEDIA3]: Media3, the phone's decoders first, FFmpeg for anything the phone has none for.
+ * - [MEDIA3]: Filet's player - Media3, the phone's decoders first, FFmpeg for anything the phone
+ *   has none for.
  * - [FFMPEG]: Media3 with FFmpeg decoding the picture, for files the phone's decoder claims and
  *   then gets wrong. Only where FFmpeg is in the build and loaded.
  */
@@ -27,17 +28,54 @@ internal object VideoLadder {
         EngineKind.MEDIA3 -> VideoRung.MEDIA3
     }
 
-    /** The rung after [rung] failed, or null when nothing is left to try. */
-    fun next(rung: VideoRung, ffmpeg: Boolean): VideoRung? = when (rung) {
-        VideoRung.PLATFORM -> VideoRung.MEDIA3
-        VideoRung.MEDIA3 -> if (ffmpeg) VideoRung.FFMPEG else null
-        VideoRung.FFMPEG -> null
+    /** The engine a rung runs on: the one the player menu shows ticked. */
+    fun engineOf(rung: VideoRung): EngineKind = when (rung) {
+        VideoRung.PLATFORM -> EngineKind.PLATFORM
+        VideoRung.MEDIA3, VideoRung.FFMPEG -> EngineKind.MEDIA3
     }
 
-    /** The line shown when the video moves to [rung]. */
+    /**
+     * The order a video started on [start] is tried in. Filet's own rungs come first when it is
+     * the one chosen, and the phone's player is still there at the end: a file that Media3 and
+     * FFmpeg both refuse is rare, but the phone's player is the one with the vendor's own decoders,
+     * and the point of the ladder is not to give up while a player is left.
+     */
+    fun order(start: VideoRung): List<VideoRung> = when (start) {
+        VideoRung.PLATFORM -> listOf(VideoRung.PLATFORM, VideoRung.MEDIA3, VideoRung.FFMPEG)
+        VideoRung.MEDIA3 -> listOf(VideoRung.MEDIA3, VideoRung.FFMPEG, VideoRung.PLATFORM)
+        VideoRung.FFMPEG -> listOf(VideoRung.FFMPEG, VideoRung.PLATFORM)
+    }
+
+    /**
+     * The rung after [rung] failed, for a video started on [start], or null when nothing is left.
+     *
+     * [pictureByFfmpeg]: FFmpeg was already drawing the picture on [rung]. Bug identified here: a
+     * video Media3 had handed to FFmpeg played badly, and the step down was to [VideoRung.FFMPEG] -
+     * the same decoder again, at the cost of a reload. The step skips it when it would change
+     * nothing.
+     */
+    fun next(rung: VideoRung, ffmpeg: Boolean, pictureByFfmpeg: Boolean = false, start: VideoRung = VideoRung.PLATFORM): VideoRung? {
+        val order = order(start)
+        val at = order.indexOf(rung)
+        if (at < 0) return null
+        return order.drop(at + 1).firstOrNull { candidate ->
+            when (candidate) {
+                VideoRung.FFMPEG -> ffmpeg && !(rung == VideoRung.MEDIA3 && pictureByFfmpeg)
+                VideoRung.PLATFORM, VideoRung.MEDIA3 -> true
+            }
+        }
+    }
+
+    /** The line shown when the video falls to [rung] because the one before could not play it. */
     fun notice(rung: VideoRung): String = when (rung) {
-        VideoRung.PLATFORM -> "Playing with the phone's player"
+        VideoRung.PLATFORM -> "Filet's player could not play this. Trying the phone's player."
         VideoRung.MEDIA3 -> "The phone's player could not play this. Trying Filet's player."
         VideoRung.FFMPEG -> "Decoding the picture with FFmpeg"
+    }
+
+    /** The line shown when the player menu switches to [kind], carrying on at [at]. */
+    fun switched(kind: EngineKind, at: String): String = when (kind) {
+        EngineKind.MEDIA3 -> "Filet's player · carrying on at $at"
+        EngineKind.PLATFORM -> "The phone's player · carrying on at $at"
     }
 }

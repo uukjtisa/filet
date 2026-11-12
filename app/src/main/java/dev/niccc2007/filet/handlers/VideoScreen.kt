@@ -170,6 +170,20 @@ private class VideoHandle {
         seekAskedAt = android.os.SystemClock.uptimeMillis()
         engine?.seekExactly(target)
     }
+
+    /**
+     * Seek to the keyframe nearest [ms] when one is close, else to [ms] itself.
+     *
+     * For a skip or a let-go scrub, where landing now matters more than the exact frame. An
+     * exact seek decodes forward from the keyframe before the target, which in a 4K film with a
+     * keyframe every few seconds is a visible wait on every double-tap; a keyframe needs no
+     * decoding ahead of it. That difference is most of why VLC feels fast to skip in.
+     */
+    fun seekNear(ms: Long) {
+        val target = ms.coerceAtLeast(0L)
+        seekAskedAt = android.os.SystemClock.uptimeMillis()
+        engine?.seekNear(target)
+    }
 }
 
 /**
@@ -720,6 +734,16 @@ private fun VideoPlayer(
         finished = false
     }
 
+    /**
+     * A skip: double-tap, the skip buttons, a let-go drag or scrub. To the nearest keyframe when
+     * one is close (see `seekNear`); frame steps and resume points stay exact through [seekTo].
+     */
+    fun skipTo(target: Long) {
+        handle.seekNear(target)
+        position = target
+        finished = false
+    }
+
     // Carry on's record of this video. This screen plays on its own player, which the music
     // player's record never sees, so it writes the place down itself. See VideoResume.
     val resumeTrack = remember(node.path) { dev.niccc2007.filet.playback.tracksOf(listOf(node)).first() }
@@ -1140,8 +1164,10 @@ private fun VideoPlayer(
         }
     }
 
-    // Which player this video is on now, and the line saying it moved. See VideoLadder.
+    // Which player this video is on now, the rung it started on (which way the ladder runs), and
+    // the line saying it moved. See VideoLadder.
     var rung by remember(node.path) { mutableStateOf(VideoEngines.firstRung(context)) }
+    var start by remember(node.path) { mutableStateOf(rung) }
     var notice by remember(node.path) { mutableStateOf<String?>(null) }
     LaunchedEffect(notice) {
         if (notice != null) {
@@ -1151,13 +1177,12 @@ private fun VideoPlayer(
     }
 
     /**
-     * Move to the next player, at the same place, when this one cannot play the file. False when
-     * there is none left, which is when the error or the No picture dialog is shown, as before.
+     * Put this video on [target] at the place it has reached: the old engine let go, the new one
+     * made by the view keyed on the rung, and the position carried over as a resume point.
+     * Returns where it carries on from.
      */
-    fun stepDown(why: String): Boolean {
-        val next = VideoLadder.next(rung, FfmpegDecoders.available) ?: return false
+    fun moveTo(target: VideoRung): Long {
         val at = handle.engine?.position?.coerceAtLeast(0L) ?: position
-        dev.niccc2007.filet.log.FiletLog.i("video") { "$rung could not play it ($why); moving to $next at $at ms" }
         runCatching {
             handle.sound?.close()
             handle.sound = null
@@ -1171,9 +1196,35 @@ private fun VideoPlayer(
         stalled = false
         watch = null
         error = null
-        rung = next
+        rung = target
+        return at
+    }
+
+    /**
+     * Move to the next player, at the same place, when this one cannot play the file. False when
+     * there is none left, which is when the error or the No picture dialog is shown, as before.
+     */
+    fun stepDown(why: String): Boolean {
+        val byFfmpeg = handle.engine?.pictureByFfmpeg == true
+        val next = VideoLadder.next(rung, FfmpegDecoders.available, byFfmpeg, start) ?: return false
+        dev.niccc2007.filet.log.FiletLog.i("video") { "$rung could not play it ($why); moving to $next" }
+        moveTo(next)
         notice = VideoLadder.notice(next)
         return true
+    }
+
+    /**
+     * The player menu's choice: this video carries on in [kind] at the same moment, and every
+     * video after opens in it. Choosing the one already playing only keeps the choice.
+     */
+    fun switchPlayer(kind: EngineKind) {
+        VideoEngines.choose(context, kind)
+        if (VideoLadder.engineOf(rung) == kind) return
+        val target = VideoLadder.first(kind)
+        dev.niccc2007.filet.log.FiletLog.i("video") { "switched from $rung to $target" }
+        start = target
+        val at = moveTo(target)
+        notice = VideoLadder.switched(kind, clockOf(at))
     }
 
     // The first-frame watch's clock. It stops for good once a frame is drawn or it has spoken,
@@ -1358,8 +1409,8 @@ private fun VideoPlayer(
                         }
                     }
                     // Made only in the branch where the file is staged: `uri` is set by then. The
-                    // rung starts at the default engine (or a debug build's Developer choice) and
-                    // moves down when that one cannot play the file.
+                    // rung starts at the chosen player and moves on when that one cannot play the
+                    // file, or when the player menu switches.
                     VideoEngines.open(ctx, checkNotNull(uri), events, rung).also { handle.engine = it }.surface
                 },
             ) }
@@ -1444,6 +1495,26 @@ private fun VideoPlayer(
                         vm.prefs.setVideoUninterrupted(!uninterrupted)
                         wake()
                     }
+                    // Which player draws it. Here as well as in Settings, because the moment to
+                    // change it is while watching something the other one plays better - and the
+                    // switch carries on at the same moment rather than starting the video over.
+                    dev.niccc2007.filet.ui.dialogs.PopSeparator()
+                    dev.niccc2007.filet.ui.dialogs.PopGroup("Player")
+                    val filets = VideoLadder.engineOf(rung) == EngineKind.MEDIA3
+                    dev.niccc2007.filet.ui.dialogs.PopRow(
+                        FiletIcons.Video,
+                        "Filet's player",
+                        detail = "Plays the most kinds of video. Uses FFmpeg where the phone has no decoder.",
+                        active = filets,
+                        checked = filets,
+                    ) { overflow = false; switchPlayer(EngineKind.MEDIA3); wake() }
+                    dev.niccc2007.filet.ui.dialogs.PopRow(
+                        FiletIcons.Device,
+                        "The phone's player",
+                        detail = "The phone's own decoder. Lightest on battery.",
+                        active = !filets,
+                        checked = !filets,
+                    ) { overflow = false; switchPlayer(EngineKind.PLATFORM); wake() }
                     dev.niccc2007.filet.ui.dialogs.PopSeparator()
                     // In a run only: it is what the arrows and the swipe do to the next one.
                     if (LocalViewerRun.current != null) {
@@ -1482,7 +1553,7 @@ private fun VideoPlayer(
                                     val next = advanceRun(run, zone, System.currentTimeMillis())
                                     run = next
                                     flashAt = System.currentTimeMillis()
-                                    seekTo(doubleTapTarget(position, duration, zone, next.taps, skipSeconds * 1000L))
+                                    skipTo(doubleTapTarget(position, duration, zone, next.taps, skipSeconds * 1000L))
                                     // Deliberately no wake(): the gesture exists so the picture
                                     // can be moved without the chrome coming back over it.
                                 }
@@ -1521,7 +1592,7 @@ private fun VideoPlayer(
                                 wake()
                             },
                             onDragEnd = {
-                                if (kind == PlayerGesture.Drag.SEEK) scrubTo?.let { seekTo(it) }
+                                if (kind == PlayerGesture.Drag.SEEK) scrubTo?.let { skipTo(it) }
                                 scrubTo = null
                                 seek = null
                                 seekGear = dev.niccc2007.filet.playback.Scrub.Mode.NORMAL
@@ -1644,11 +1715,11 @@ private fun VideoPlayer(
                     playing = playing,
                     skipSeconds = skipSeconds,
                     onBack = {
-                        seekTo(doubleTapTarget(position, duration, TapZone.BACK, stepMs = skipSeconds * 1000L))
+                        skipTo(doubleTapTarget(position, duration, TapZone.BACK, stepMs = skipSeconds * 1000L))
                         wake()
                     },
                     onForward = {
-                        seekTo(doubleTapTarget(position, duration, TapZone.FORWARD, stepMs = skipSeconds * 1000L))
+                        skipTo(doubleTapTarget(position, duration, TapZone.FORWARD, stepMs = skipSeconds * 1000L))
                         wake()
                     },
                     onToggle = {
@@ -1812,7 +1883,7 @@ private fun VideoPlayer(
                         onScrub = { scrubTo = it; wake() },
                         onScrubEnd = { target ->
                             scrubTo = null
-                            seekTo(target)
+                            skipTo(target)
                             wake()
                         },
                     )
