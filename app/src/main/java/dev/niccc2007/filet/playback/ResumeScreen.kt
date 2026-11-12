@@ -48,6 +48,7 @@ import dev.niccc2007.filet.ui.tabs.EmptyTab
 import dev.niccc2007.filet.ui.tabs.Pill
 import dev.niccc2007.filet.ui.tabs.PillTone
 import dev.niccc2007.filet.ui.tabs.SectionRow
+import dev.niccc2007.filet.ui.tabs.SmallBtn
 import dev.niccc2007.filet.ui.tabs.TabHeader
 import dev.niccc2007.filet.ui.theme.Filet
 import kotlinx.coroutines.Dispatchers
@@ -87,40 +88,39 @@ fun ResumeScreen(vm: BrowserViewModel) {
     val revision by vm.resumeRevision.collectAsStateWithLifecycle()
     val changed by store.changes.collectAsStateWithLifecycle()
     var filter by dev.niccc2007.filet.browser.rememberKeptEnum("resume.filter", ResumeFilter.ALL)
+    // Bug identified here: every stop was kept, the end included, so after a few days of
+    // listening the finished rows outnumbered the unfinished ones and buried them. Finished rows
+    // still have a use as a record of what was watched, so they are filtered rather than dropped,
+    // and the list opens on the unfinished ones because that is what it is for.
+    var progress by dev.niccc2007.filet.browser.rememberKeptEnum("resume.progress", ResumeProgress.UNFINISHED)
     val all = remember(revision, changed) { store.all() }
     // The kind chips first, then the pane's search box: title or where it is.
     val query = dev.niccc2007.filet.ui.LocalPaneQuery.current
-    val rows = remember(all, filter, query) {
-        all.filter(filter::accepts).filter { dev.niccc2007.filet.ui.TextMatch.matches(query, it.title, it.path) }
+    val rows = remember(all, filter, progress, query) {
+        all.filter(filter::accepts).filter(progress::accepts)
+            .filter { dev.niccc2007.filet.ui.TextMatch.matches(query, it.title, it.path) }
     }
+    // Several at once. Forgetting one row at a time through its hold menu does not scale to a
+    // list that grows by every song played, so holding a row offers Select, and while anything
+    // is selected a tap toggles instead of playing. Keyed by path, the store's own key.
+    var selected by remember { mutableStateOf(emptySet<String>()) }
+    val selecting = selected.isNotEmpty()
+    // A row that leaves the list (forgotten elsewhere, or filtered out) leaves the selection too,
+    // so the count never includes something that is not on screen.
+    LaunchedEffect(rows) {
+        val shown = rows.mapTo(HashSet()) { it.path }
+        if (!shown.containsAll(selected)) selected = selected.filterTo(HashSet()) { it in shown }
+    }
+    dev.niccc2007.filet.browser.InnerBack(vm, enabled = selecting) { selected = emptySet() }
+    val toggle = { path: String -> selected = if (path in selected) selected - path else selected + path }
     // A tap carries on at once. Decision: no Continue / From the start question in between. The
     // row IS the request to carry on, and a dialog asking it again made every visit two taps;
     // starting over is in the row's hold menu, and a finished row starts over on its own.
 
     LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("resume")) {
         item { TabHeader("Carry on") }
-        item {
-            Row(
-                Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                for (f in ResumeFilter.entries) {
-                    val lit = f == filter
-                    Text(
-                        f.label,
-                        fontSize = 11.5.sp,
-                        color = if (lit) colors.accent else colors.fg2,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(if (lit) colors.accent.copy(alpha = 0.14f) else colors.sunken)
-                            .combinedClickable(onClick = { filter = f })
-                            .padding(horizontal = 11.dp, vertical = 6.dp),
-                    )
-                    Spacer(Modifier.width(7.dp))
-                }
-                Spacer(Modifier.fillMaxWidth(0f))
-            }
-        }
+        item { ResumeChips(ResumeFilter.entries, filter, { it.label }) { filter = it } }
+        item { ResumeChips(ResumeProgress.entries, progress, { it.label }) { progress = it } }
 
         if (rows.isEmpty() && query.isNotBlank() && all.isNotEmpty()) {
             item { dev.niccc2007.filet.ui.NoMatch(query) }
@@ -128,12 +128,33 @@ fun ResumeScreen(vm: BrowserViewModel) {
             item {
                 EmptyTab(
                     FiletIcons.Clock,
-                    if (all.isEmpty()) {
-                        "Nothing to carry on with"
-                    } else {
-                        "Nothing ${filter.label.lowercase()} to carry on with"
-                    },
+                    if (all.isEmpty()) "Nothing to carry on with" else "Nothing here with these filters",
                 )
+            }
+        } else if (selecting) {
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "${selected.size} selected",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    SmallBtn(if (selected.size == rows.size) "None" else "All") {
+                        selected = if (selected.size == rows.size) emptySet() else rows.mapTo(HashSet()) { it.path }
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    SmallBtn("Forget") {
+                        for (p in selected) store.forget(p)
+                        selected = emptySet()
+                        vm.bumpResume()
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    SmallBtn("Cancel") { selected = emptySet() }
+                }
             }
         } else {
             item { SectionRow("Where you left off", note = "${rows.size}") }
@@ -142,12 +163,14 @@ fun ResumeScreen(vm: BrowserViewModel) {
         items(rows.size) { i ->
             val point = rows[i]
             var menu by remember(point.path) { mutableStateOf(false) }
+            val chosen = point.path in selected
             Row(
                 Modifier
                     .fillMaxWidth()
+                    .background(if (chosen) colors.accent.copy(alpha = 0.12f) else Color.Transparent)
                     .combinedClickable(
-                        onClick = { vm.resumePoint(point) },
-                        onLongClick = { menu = true },
+                        onClick = { if (selecting) toggle(point.path) else vm.resumePoint(point) },
+                        onLongClick = { if (selecting) toggle(point.path) else menu = true },
                     )
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -170,6 +193,7 @@ fun ResumeScreen(vm: BrowserViewModel) {
                             }
                         }
                         PopSeparator()
+                        PopRow(FiletIcons.Check, "Select") { menu = false; toggle(point.path) }
                         PopRow(FiletIcons.Close, "Forget this one") {
                             menu = false
                             store.forget(point.path)
@@ -197,7 +221,11 @@ fun ResumeScreen(vm: BrowserViewModel) {
                 }
                 Spacer(Modifier.fillMaxWidth(0f))
                 val tag = finishedTag(point)
-                if (tag != null) FinishedTag(tag) else Pill(resumePercent(point), PillTone.Plain)
+                when {
+                    chosen -> Icon(FiletIcons.Check, null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                    tag != null -> FinishedTag(tag)
+                    else -> Pill(resumePercent(point), PillTone.Plain)
+                }
             }
             // A hairline of how far in it is, under the row. The number says it exactly and
             // this says it at a glance, which is the thing a list is scanned for.
@@ -471,6 +499,48 @@ class Lru<K, V>(val max: Int) {
 
     val size: Int
         @Synchronized get() = map.size
+}
+
+/** One row of filter chips, the current one lit. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun <T> ResumeChips(options: List<T>, current: T, label: (T) -> String, onPick: (T) -> Unit) {
+    val colors = Filet.colors
+    Row(
+        Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for (f in options) {
+            val lit = f == current
+            Text(
+                label(f),
+                fontSize = 11.5.sp,
+                color = if (lit) colors.accent else colors.fg2,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (lit) colors.accent.copy(alpha = 0.14f) else colors.sunken)
+                    .combinedClickable(onClick = { onPick(f) })
+                    .padding(horizontal = 11.dp, vertical = 6.dp),
+            )
+            Spacer(Modifier.width(7.dp))
+        }
+    }
+}
+
+/**
+ * How far through: the rows still part way, the ones played to the end, or both. Where "the end"
+ * starts is [Finished]'s, the same line the tag and the players use.
+ */
+enum class ResumeProgress(val label: String) {
+    UNFINISHED("Unfinished"),
+    FINISHED("Finished"),
+    BOTH("Both");
+
+    fun accepts(point: ResumeStore.Point): Boolean = when (this) {
+        UNFINISHED -> !Finished.at(point.positionMs, point.durationMs)
+        FINISHED -> Finished.at(point.positionMs, point.durationMs)
+        BOTH -> true
+    }
 }
 
 /** The two halves of the media this app plays, plus everything. */
