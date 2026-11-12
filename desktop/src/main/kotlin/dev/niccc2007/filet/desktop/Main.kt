@@ -57,6 +57,9 @@ fun main(args: Array<String>) {
                 exitApplication()
             },
             title = "Filet Desktop",
+            // The phone's folder mark, so the window and the taskbar say Filet rather than Java.
+            // Rasterised from desktop/icons/filet.svg by make_icons.py there.
+            icon = androidx.compose.ui.res.painterResource("filet.png"),
             state = state,
         ) {
             FiletWindow(host, watch.peers, mounts, rescan = { watch.rescan() })

@@ -70,7 +70,7 @@ compose.desktop {
              * What `jpackage` is allowed to build here.
              *
              * `packageDistributionForCurrentOS` picks the one that matches, and each needs a
-             * tool the OS does not ship by default - WiX for MSI, `dpkg-deb` for DEB. So the
+             * tool the OS does not ship by default - WiX for EXE and MSI, `dpkg-deb` for DEB. So the
              * build scripts default to `createDistributable`, which needs nothing but the JDK
              * and produces a runnable folder; the installer is the step after that.
              *
@@ -81,7 +81,7 @@ compose.desktop {
              * cannot be built or tested here anyway. It goes in when there is a Mac to run it
              * on, with a mapped bundle version and a note saying what the mapping is.
              */
-            targetFormats(TargetFormat.Msi, TargetFormat.Deb)
+            targetFormats(TargetFormat.Exe, TargetFormat.Msi, TargetFormat.Deb)
 
             packageName = "Filet Desktop"
             packageVersion = toolVersion
@@ -120,11 +120,14 @@ compose.desktop {
                 // second copy beside the first rather than replacing it.
                 upgradeUuid = "8E3C4C2A-6A5E-4D13-9B0F-7A2D1C4E5F60"
                 menuGroup = "Filet"
+                // The phone's folder mark at every size Explorer asks for; see icons/make_icons.py.
+                iconFile.set(project.file("icons/filet.ico"))
                 shortcut = true
                 dirChooser = true
             }
             linux {
                 packageName = "filet-desktop"
+                iconFile.set(project.file("src/main/resources/filet.png"))
                 menuGroup = "Utility"
             }
             macOS {
