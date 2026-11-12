@@ -305,6 +305,16 @@ class FiletGraph(context: Context) {
                         .also { viewSnapshot = it; viewSnapshotAt = System.currentTimeMillis() }
                 }
             },
+            // Who answers on this port, for a PC or another phone that sweeps the network when
+            // mDNS does not get through. The same id and name the beacon broadcasts, read per
+            // request so a rename shows at once. See FiletHello: never a code, never a path.
+            identity = {
+                dev.niccc2007.filet.webdav.FiletHello.Identity(
+                    id = dev.niccc2007.filet.webdav.DavBeacon.deviceId(app),
+                    name = runCatching { dev.niccc2007.filet.nearby.PairedPeers.selfName(app) }.getOrDefault("phone"),
+                    kind = "phone",
+                )
+            },
         ).also {
             // Setting the store loads the endpoint back out of Prefs and keeps it written from
             // then on. Without it the code, the port and the hosted folder were in-memory only:
