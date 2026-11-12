@@ -48,4 +48,42 @@ class PeerTxtTest {
         val anon = PeerTxt.decode("Filet-PC-Docs", "10.0.0.3", 8322) { null }
         assertFalse(PeerTxt.isSelf(anon, ""))
     }
+
+    @Test fun `our own share heard before its TXT record is still us, by address`() {
+        // JmDNS resolved this PC's own beacon with no attributes, so no id to compare.
+        val local = PeerTxt.localHosts(listOf(java.net.InetAddress.getByName("192.168.5.20"), java.net.InetAddress.getByName("fe80::1%12")))
+        val ownEarly = PeerTxt.decode("Filet-DESKTOP-PC-Documents", "192.168.5.20", 8322) { null }
+        assertTrue(PeerTxt.isSelf(ownEarly, "me", local))
+        assertTrue(PeerTxt.isSelf(PeerTxt.decode("Filet-DESKTOP-PC-D", "fe80::1%eth0", 8322) { null }, "me", local))
+        // A phone on the same network is not.
+        val phone = PeerTxt.decode("Filet-NCO-LX1-Whole Phone", "192.168.5.15", 11111) { null }
+        assertFalse(PeerTxt.isSelf(phone, "me", local))
+    }
+
+    // ── one row per share of one device ──
+
+    private val novaOld = Peer("NCO-LX1-Whole Phone", "192.168.5.11", 11111, false, "/a/", "Whole phone", true, "nova")
+    private val novaNew = novaOld.copy(host = "192.168.5.15")
+
+    @Test fun `one device heard on two addresses is one row, on the newest address, holding both`() {
+        val list = Peers.merge(Peers.merge(emptyList(), novaOld), novaNew)
+        val row = list.single()
+        assertEquals("192.168.5.15", row.host)
+        assertEquals(listOf("192.168.5.15", "192.168.5.11"), row.addresses)
+        // Heard on the old one again: that is now the newest sighting.
+        assertEquals("192.168.5.11", Peers.merge(list, novaOld).single().host)
+    }
+
+    @Test fun `a name re-registered with a suffix is the same share`() {
+        val list = Peers.merge(Peers.merge(emptyList(), novaOld), novaNew.copy(name = "NCO-LX1-Whole Phone (2)"))
+        assertEquals("NCO-LX1-Whole Phone", list.single().name)
+    }
+
+    @Test fun `two shares of one phone stay two rows, and hosts with no id are told apart by address`() {
+        val music = novaOld.copy(name = "NCO-LX1-Music", port = 22222)
+        assertEquals(2, Peers.merge(Peers.merge(emptyList(), novaOld), music).size)
+        val old1 = Peer("Tablet", "10.0.0.5", 8321, false, "/a/")
+        assertEquals(2, Peers.merge(Peers.merge(emptyList(), old1), old1.copy(host = "10.0.0.6")).size)
+        assertEquals(1, Peers.merge(Peers.merge(emptyList(), old1), old1.copy(scope = "x")).size)
+    }
 }

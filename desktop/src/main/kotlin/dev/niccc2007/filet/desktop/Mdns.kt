@@ -33,6 +33,8 @@ data class Peer(
     val writable: Boolean = false,
     /** TXT `id`, stable across networks; empty from a host too old to send it. */
     val deviceId: String = "",
+    /** Every address this share has been heard on, newest first. [host] is the first. */
+    val addresses: List<String> = emptyList(),
 ) {
     /** Same identity rule as [DavHost.key]: one device can offer several shares on one port. */
     val key: String get() = "$host:$port/$name"
@@ -86,7 +88,64 @@ object PeerTxt {
      * By device id, not by name: names are clipped to 20 characters and two PCs called
      * `DESKTOP-...` collide, which would hide a real peer. An empty id proves nothing.
      */
-    fun isSelf(h: DavHost, selfId: String): Boolean = selfId.isNotEmpty() && h.deviceId == selfId
+    fun isSelf(h: DavHost, selfId: String, localHosts: Set<String> = emptySet()): Boolean =
+        (selfId.isNotEmpty() && h.deviceId == selfId) || bare(h.host) in localHosts
+
+    /**
+     * This PC's own addresses, as [isSelf] compares them.
+     *
+     * Bug identified here: the tool listed itself among the phones. The id check alone misses a
+     * resolution that arrives before its TXT record - JmDNS hands those over with no attributes
+     * at all, so the id is empty and proves nothing - and the beacon's own announcement then sat
+     * in the list. A share heard on one of this PC's own addresses is this PC whatever its TXT
+     * says; no phone can hold an address this PC has.
+     */
+    fun localHosts(addresses: List<java.net.InetAddress> = LanAddress.all()): Set<String> =
+        (addresses.mapNotNull { it.hostAddress?.let(::bare) } + listOf("127.0.0.1", "0:0:0:0:0:0:0:1", "::1")).toSet()
+
+    /**
+     * An address in one spelling: without its IPv6 zone, which one end writes as `%12` and
+     * another as `%eth0`, and with an IPv6 literal in Java's long form, so `fe80::1` and
+     * `fe80:0:0:0:0:0:0:1` compare equal. A literal parses without a DNS lookup.
+     */
+    private fun bare(host: String): String {
+        val h = host.substringBefore('%').trim('[', ']').lowercase()
+        if (':' !in h) return h
+        return runCatching { java.net.InetAddress.getByName(h).hostAddress.substringBefore('%').lowercase() }.getOrDefault(h)
+    }
+}
+
+/** The live list of heard shares, as pure functions over it. */
+object Peers {
+
+    /**
+     * Whether [a] and [b] are one share of one device.
+     *
+     * Bug identified here: the same phone was listed more than once. Rows were keyed by
+     * `host:port/name`, so the phone heard on a second address - a new DHCP lease while the old
+     * record had not expired yet, or a second interface on this PC resolving it differently -
+     * was a second row. With a device id on both, the id and the share name decide, and the
+     * address does not. The name is compared without the ` (2)` an mDNS responder appends when it
+     * re-registers a name it still sees cached, which is the same share again.
+     *
+     * Per share and not per device: a phone registers one service per share, each its own
+     * folder and its own code, and folding them into one row would hide all but one.
+     */
+    fun same(a: Peer, b: Peer): Boolean =
+        if (a.deviceId.isNotBlank() && b.deviceId.isNotBlank()) a.deviceId == b.deviceId && plain(a.name) == plain(b.name)
+        else a.key == b.key
+
+    /** [list] after hearing [heard]: one row per share, holding every address, the newest sighting first. */
+    fun merge(list: List<Peer>, heard: Peer): List<Peer> {
+        val before = list.filter { same(it, heard) }
+        val addresses = (listOf(heard.host) + before.flatMap { it.addresses.ifEmpty { listOf(it.host) } }).distinct()
+        val row = heard.copy(name = plain(heard.name), addresses = addresses)
+        return (list.filterNot { same(it, heard) } + row).sortedBy { it.name.lowercase() }
+    }
+
+    private val RENAMED = Regex(" \\(\\d+\\)$")
+
+    fun plain(name: String) = name.replace(RENAMED, "")
 }
 
 /**
@@ -189,7 +248,7 @@ class PeerWatch(private val mdns: Mdns, private val selfId: String) {
             }
 
             override fun serviceRemoved(e: ServiceEvent) {
-                val gone = DavDiscovery.displayName(e.name)
+                val gone = Peers.plain(DavDiscovery.displayName(e.name))
                 _peers.update { list -> list.filterNot { it.name == gone } }
             }
 
@@ -197,9 +256,8 @@ class PeerWatch(private val mdns: Mdns, private val selfId: String) {
                 val info = e.info ?: return
                 val host = DavDiscovery.pickAddress((info.inetAddresses ?: emptyArray<InetAddress>()).toList()) ?: return
                 val h = PeerTxt.decode(info.name, host, info.port) { k -> info.getPropertyString(k) }
-                if (PeerTxt.isSelf(h, selfId)) return
-                val p = Peer.of(h)
-                _peers.update { list -> (list.filterNot { it.key == p.key } + p).sortedBy { it.name.lowercase() } }
+                if (PeerTxt.isSelf(h, selfId, PeerTxt.localHosts())) return
+                _peers.update { list -> Peers.merge(list, Peer.of(h)) }
             }
         }
         listener = l
