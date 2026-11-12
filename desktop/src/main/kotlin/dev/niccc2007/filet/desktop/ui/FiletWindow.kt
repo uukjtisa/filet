@@ -233,6 +233,8 @@ private fun PhonesSection(peerFlow: StateFlow<List<Peer>>, ctl: MountController,
     val busy by ctl.busy.collectAsState()
     val errors by ctl.errors.collectAsState()
     val limit by ctl.limit.collectAsState()
+    val swept by ctl.swept.collectAsState()
+    val notices by ctl.notices.collectAsState()
     // One editor open at a time, named "<what>:<row id>" where what is mount, rename or letter.
     var open by remember { mutableStateOf<String?>(null) }
     val drafts = remember { mutableStateMapOf<String, String>() }
@@ -240,7 +242,14 @@ private fun PhonesSection(peerFlow: StateFlow<List<Peer>>, ctl: MountController,
 
     SectionHead("PHONES") {
         // Discovery only hears what is announced; this asks again instead of waiting.
-        Btn(if ("refresh" in busy) "Looking..." else "Refresh", enabled = "refresh" !in busy) { ctl.refreshNow(rescan) }
+        val looking = "refresh" in busy || "sweep" in busy
+        Btn(if (looking) "Looking..." else "Refresh", enabled = !looking) { ctl.refreshNow(rescan) }
+    }
+    for (n in notices) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Txt(n, 13, Ink.accent, modifier = Modifier.weight(1f))
+            Btn("OK") { ctl.dismiss(n) }
+        }
     }
     problem?.let { Txt(it, 13, Ink.warn) }
     if (problem == null && !letterFree) Txt("Every drive letter from D: to Z: is in use. Disconnect one to mount another.", 13, Ink.warn)
@@ -259,7 +268,7 @@ private fun PhonesSection(peerFlow: StateFlow<List<Peer>>, ctl: MountController,
     // Saved phones stay listed while offline; a phone on the network never mounted here follows.
     // Rows are rebuilt from the live list and the OS's drives on every change, so a phone that
     // leaves turns its row offline, and any open mount dialog under it stops offering Mount.
-    val rows = MountModel.rows(known, peers, mounts.map { it.attached })
+    val rows = MountModel.rows(known, MountModel.seen(peers, swept), mounts.map { it.attached })
     if (rows.isEmpty()) Txt("Looking for phones running Filet with sharing on...", 13, Ink.muted)
     val filetLetters = rows.mapNotNull { r -> r.drive?.let { d -> DriveLetters.letterOf(d.where)?.let { it to r.label } } }.toMap()
 

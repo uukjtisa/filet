@@ -1,5 +1,7 @@
 package dev.niccc2007.filet.desktop.ui
 
+import dev.niccc2007.filet.desktop.Sweep
+import dev.niccc2007.filet.desktop.LanAddress
 import dev.niccc2007.filet.desktop.KnownPhone
 import dev.niccc2007.filet.desktop.Peer
 import dev.niccc2007.filet.desktop.mount.Attached
@@ -54,6 +56,10 @@ class MountController(
     private val scope: CoroutineScope,
     loadPhones: () -> List<KnownPhone> = { emptyList() },
     private val savePhones: (List<KnownPhone>) -> Unit = {},
+    /** This PC's device id, so the sweep does not list this PC's own shares. */
+    private val selfId: String = "",
+    /** The sweep itself, replaceable so the controller can be driven without a network. */
+    private val sweep: (Set<Int>) -> List<Peer> = { ports -> Sweep.run(LanAddress.candidates(), ports, selfId) },
 ) {
     /** Windows mounts on a drive letter; everywhere else the OS picks a folder. */
     val usesLetters: Boolean = mounter.platform == Platform.WINDOWS
@@ -89,6 +95,20 @@ class MountController(
     val errors: StateFlow<Map<String, MountResult.Failed>> = _errors.asStateFlow()
 
     private val spaces = ConcurrentHashMap<DavTarget, Pair<Space?, MountModel.Health>>()
+
+    private val _swept = MutableStateFlow<List<Peer>>(emptyList())
+    /** Shares the last sweep found; merged with mDNS's in [MountModel.seen]. */
+    val swept: StateFlow<List<Peer>> = _swept.asStateFlow()
+
+    private val _notices = MutableStateFlow<List<String>>(emptyList())
+    /** What happened on its own - a moved phone reconnected, or could not be - until dismissed. */
+    val notices: StateFlow<List<String>> = _notices.asStateFlow()
+
+    fun dismiss(notice: String) = _notices.update { it - notice }
+
+    /** Moves already tried, by [MountModel.attemptKey], so a failed one is not retried in a loop. */
+    private val tried = HashSet<String>()
+    private var sweptAt = 0L
 
     fun start() {
         scope.launch {
@@ -127,6 +147,52 @@ class MountController(
             val s = spaces[a.target]
             val h = s?.second
             MountView(a, s?.first, answering = if (!a.connected) false else h?.answering, note = h?.note)
+        }
+        followMoves()
+    }
+
+    /**
+     * A phone that moved reconnects on its own, and the window says so afterwards.
+     *
+     * A dead drive whose phone is seen by id elsewhere is remounted there; a dead drive whose
+     * phone is seen nowhere starts a sweep, at most once a minute, to look for it.
+     */
+    private fun followMoves() {
+        val rows = MountModel.rows(_known.value, MountModel.seen(peers.value, _swept.value), _mounts.value.map { it.attached })
+        val views = _mounts.value.associateBy { it.attached }
+        var lost = false
+        for (row in rows) {
+            val view = row.drive?.let { views[it] }
+            if (MountModel.shouldAutoRemount(row, view?.answering, tried)) {
+                val to = MountModel.movedTo(row) ?: continue
+                tried += MountModel.attemptKey(row, to)
+                val label = row.label
+                remount(row, view) { err ->
+                    val where = DriveLetters.letterOf(row.drive?.where)?.let { "$it:" } ?: "The drive"
+                    val notice = when {
+                        err == null -> MountModel.movedNotice(label, to, where)
+                        (_errors.value[row.id]?.code) == 403 -> MountModel.codeChangedNotice(label, to)
+                        else -> "$label moved to ${to.host}:${to.port}, and reconnecting failed: $err"
+                    }
+                    _notices.update { it + notice }
+                }
+            } else if (view?.answering == false && row.phone?.deviceId?.isNotBlank() == true && MountModel.movedTo(row) == null) {
+                lost = true
+            }
+        }
+        if (lost && System.currentTimeMillis() - sweptAt > SWEEP_EVERY_MS) runSweep()
+    }
+
+    /** Look for phones on this PC's subnets; see [Sweep]. */
+    private fun runSweep() {
+        if ("sweep" in _busy.value) return
+        sweptAt = System.currentTimeMillis()
+        _busy.update { it + "sweep" }
+        val ports = setOf(Sweep.PHONE_PORT) + _known.value.map { it.port } + peers.value.map { it.port }
+        scope.launch {
+            _swept.value = withContext(Dispatchers.IO) { runCatching { sweep(ports) }.getOrDefault(_swept.value) }
+            _busy.update { it - "sweep" }
+            refresh()
         }
     }
 
@@ -297,6 +363,8 @@ class MountController(
             withContext(Dispatchers.IO) { runCatching { rescan() } }
             refresh(probe = true)
             _busy.update { it - "refresh" }
+            // Refresh is the one place a person asks to look harder, so it also sweeps.
+            runSweep()
         }
     }
 
@@ -332,5 +400,6 @@ class MountController(
         const val POLL_MS = 3_000L
         /** Probe every share every this-many polls: about thirty seconds. */
         const val PROBE_EVERY = 10
+        const val SWEEP_EVERY_MS = 60_000L
     }
 }

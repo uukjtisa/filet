@@ -22,6 +22,7 @@
  */
 package dev.niccc2007.filet.desktop
 
+import dev.niccc2007.filet.webdav.FiletHello
 import dev.niccc2007.filet.webdav.AccessCode
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
@@ -79,6 +80,8 @@ class HostService(
         // Never consulted: every share is given a customRoot, which the server prefers.
         rootFor = { null },
         onEvent = { publish(it) },
+        // What `/.well-known/filet` says this PC is, so a phone's sweep can find it by id.
+        identity = { FiletHello.Identity(config.deviceId, selfName, "pc") },
     )
 
     val beacon: MdnsBeacon? = mdns?.let { MdnsBeacon(it, selfName, config.deviceId) }

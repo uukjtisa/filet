@@ -113,6 +113,54 @@ class MountModelTest {
             listOf(connected("\\\\192.168.5.15@11111\\a\\tres3", "Y:"))).single()))
     }
 
+    // ── a phone that moved reconnects on its own ──
+
+    private fun movedRow(): MountModel.PhoneRow {
+        val y = connected("\\\\192.168.5.11@11111\\a\\tres3", "Y:")
+        val saved = KnownPhone(MountModel.idOf(nova), nova.name, "Nova", "192.168.5.11", 11111, "tres3", deviceId = "nova", letter = 'Y')
+        return MountModel.rows(listOf(saved), listOf(nova), listOf(y)).single()
+    }
+
+    @Test
+    fun `a dead drive whose phone is seen by id elsewhere is remounted once, without asking`() {
+        val row = movedRow()
+        assertTrue(MountModel.shouldAutoRemount(row, answering = false, tried = emptySet()))
+        val key = MountModel.attemptKey(row, nova)
+        assertEquals("nova/NCO-LX1-Whole Phone@192.168.5.15:11111", key)
+        // Tried already: reported once, not retried every poll.
+        assertEquals(false, MountModel.shouldAutoRemount(row, false, setOf(key)))
+    }
+
+    @Test
+    fun `a drive that still answers, or has not been probed, is left alone`() {
+        val row = movedRow()
+        assertEquals(false, MountModel.shouldAutoRemount(row, answering = true, tried = emptySet()))
+        assertEquals(false, MountModel.shouldAutoRemount(row, answering = null, tried = emptySet()))
+    }
+
+    @Test
+    fun `without a device id there is no move to follow`() {
+        val y = connected("\\\\192.168.5.11@11111\\a\\tres3", "Y:")
+        val anon = nova.copy(deviceId = "")
+        val saved = KnownPhone(MountModel.idOf(anon), anon.name, "Nova", "192.168.5.11", 11111, "tres3", letter = 'Y')
+        val row = MountModel.rows(listOf(saved), listOf(anon), listOf(y)).first { it.drive != null }
+        assertEquals(false, MountModel.shouldAutoRemount(row, false, emptySet()))
+    }
+
+    @Test
+    fun `the sweep's sighting is merged with mDNS's, and the fresher address wins`() {
+        val stale = nova.copy(host = "192.168.5.11")
+        val seen = MountModel.seen(listOf(stale, honor), listOf(nova))
+        assertEquals(2, seen.size)
+        assertEquals("192.168.5.15", seen.first { it.deviceId == "nova" }.host)
+    }
+
+    @Test
+    fun `the notices say what happened and where`() {
+        assertEquals("Nova moved to 192.168.5.15:11111. Y: reconnected.", MountModel.movedNotice("Nova", nova, "Y:"))
+        assertTrue(MountModel.codeChangedNotice("Nova", nova).startsWith("Nova is now at 192.168.5.15:11111, but its code changed."))
+    }
+
     // ── rows ──
 
     @Test

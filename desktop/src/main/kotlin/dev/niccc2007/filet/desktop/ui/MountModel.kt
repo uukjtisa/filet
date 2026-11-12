@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.desktop.ui
 
+import dev.niccc2007.filet.desktop.Peers
 import dev.niccc2007.filet.desktop.KnownPhone
 import dev.niccc2007.filet.desktop.Peer
 import dev.niccc2007.filet.desktop.mount.Attached
@@ -96,6 +97,38 @@ object MountModel {
             else -> row.phone?.let { "${it.host}:${it.port}" }.orEmpty()
         }
     }
+
+    /**
+     * The peers to build rows from: mDNS's, with the sweep's merged in.
+     *
+     * The sweep's sighting wins for a share both saw, because it is the fresher of the two: mDNS
+     * can still hold a phone's old address from a record that has not expired.
+     */
+    fun seen(mdns: List<Peer>, swept: List<Peer>): List<Peer> = swept.fold(mdns) { list, p -> Peers.merge(list, p) }
+
+    /**
+     * Whether [row]'s drive is moved to its phone's new address without asking.
+     *
+     * Only when all three hold: the drive has stopped answering, the phone is seen by its device id
+     * at another address, and this exact move has not been tried before - so a move that fails is
+     * reported once and not retried every few seconds. A drive that still answers is left alone,
+     * even if the phone is also heard elsewhere: two addresses can both be right.
+     */
+    fun shouldAutoRemount(row: PhoneRow, answering: Boolean?, tried: Set<String>): Boolean {
+        val to = movedTo(row) ?: return false
+        if (answering != false) return false
+        if (row.phone?.deviceId.isNullOrBlank()) return false
+        return attemptKey(row, to) !in tried
+    }
+
+    fun attemptKey(row: PhoneRow, to: Peer): String = "${row.id}@${to.host}:${to.port}"
+
+    /** What the window says after a move it made on its own. */
+    fun movedNotice(label: String, to: Peer, where: String): String =
+        "$label moved to ${to.host}:${to.port}. $where reconnected."
+
+    fun codeChangedNotice(label: String, to: Peer): String =
+        "$label is now at ${to.host}:${to.port}, but its code changed. Unmount it and mount it again with the new code."
 
     /** A live share's row identity: its device's id and share name, or its address when it sent no id. */
     fun idOf(peer: Peer): String = if (peer.deviceId.isNotBlank()) "${peer.deviceId}/${peer.name}" else peer.key
