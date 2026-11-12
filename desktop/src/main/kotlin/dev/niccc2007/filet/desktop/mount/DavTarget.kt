@@ -46,6 +46,14 @@ data class DavTarget(
                 (segs + code).joinToString("\\")
         }
 
+    /**
+     * The same share as [other]: host as DNS compares it, port, scheme and code. Not `==`, which
+     * also compares the base and the host's case - and Windows hands a UNC back with the host
+     * spelled however it pleases.
+     */
+    fun sameShare(other: DavTarget): Boolean =
+        host.equals(other.host, ignoreCase = true) && port == other.port && secure == other.secure && code == other.code
+
     companion object {
         private fun normBase(b: String): String {
             val t = b.trim().ifEmpty { "/a/" }

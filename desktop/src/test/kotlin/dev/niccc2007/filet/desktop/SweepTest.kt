@@ -45,6 +45,16 @@ class SweepTest {
     }
 
     @Test
+    fun `where a device was seen before is asked first, even off this PC's subnet, and never twice`() {
+        val t = Sweep.targets(listOf(wifi), setOf(8321), known = listOf("192.168.4.30", "192.168.5.15", "192.168.5.20", "fe80::1"))
+        assertEquals("192.168.4.30" to 8321, t[0])
+        assertEquals("192.168.5.15" to 8321, t[1])
+        assertEquals(254, t.size)
+        assertEquals(1, t.count { it.first == "192.168.5.15" })
+        assertFalse(t.any { it.first == "192.168.5.20" })
+    }
+
+    @Test
     fun `what the server writes, the sweep reads back as the peers mDNS would list`() {
         val body = FiletHello.json(
             FiletHello.Identity("nova", "NCO-LX1", "phone"), 11111,

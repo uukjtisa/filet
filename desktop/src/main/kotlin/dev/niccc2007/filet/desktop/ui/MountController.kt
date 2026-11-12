@@ -59,7 +59,8 @@ class MountController(
     /** This PC's device id, so the sweep does not list this PC's own shares. */
     private val selfId: String = "",
     /** The sweep itself, replaceable so the controller can be driven without a network. */
-    private val sweep: (Set<Int>) -> List<Peer> = { ports -> Sweep.run(LanAddress.candidates(), ports, selfId) },
+    private val sweep: (ports: Set<Int>, known: Set<String>) -> List<Peer> =
+        { ports, known -> Sweep.run(LanAddress.candidates(), ports, selfId, known) },
 ) {
     /** Windows mounts on a drive letter; everywhere else the OS picks a folder. */
     val usesLetters: Boolean = mounter.platform == Platform.WINDOWS
@@ -140,7 +141,8 @@ class MountController(
             withContext(Dispatchers.IO) { runCatching { m.takenLetters() }.getOrDefault(emptySet()) }
         } ?: emptySet()
         _taken.value = taken
-        _letterFree.value = !usesLetters || DriveLetters.pick(taken) != null
+        _letterFree.value = !usesLetters ||
+            MountModel.canTakeLetter(taken, attached.mapNotNull { DriveLetters.letterOf(it.where) }.toSet())
         // A drive mapped before the list was saved still gets a row, so it can be unmounted here.
         MountModel.adopt(_known.value, attached, peers.value).let { if (it != _known.value) save(it) }
         _mounts.value = attached.map { a ->
@@ -189,8 +191,11 @@ class MountController(
         sweptAt = System.currentTimeMillis()
         _busy.update { it + "sweep" }
         val ports = setOf(Sweep.PHONE_PORT) + _known.value.map { it.port } + peers.value.map { it.port }
+        // Wherever a device has been: saved drives' hosts and every address a share was heard on.
+        val seen = peers.value + _swept.value
+        val known = _known.value.map { it.host }.toSet() + seen.flatMap { it.addresses.ifEmpty { listOf(it.host) } }
         scope.launch {
-            _swept.value = withContext(Dispatchers.IO) { runCatching { sweep(ports) }.getOrDefault(_swept.value) }
+            _swept.value = withContext(Dispatchers.IO) { runCatching { sweep(ports, known) }.getOrDefault(_swept.value) }
             _busy.update { it - "sweep" }
             refresh()
         }
@@ -313,7 +318,7 @@ class MountController(
      */
     fun remount(row: MountModel.PhoneRow, view: MountView?, onDone: (String?) -> Unit) {
         val drive = row.drive ?: return onDone("It is not mounted.")
-        val peer = MountModel.movedTo(row) ?: return onDone("The phone is already at that address.")
+        val peer = MountModel.movedTo(row) ?: return onDone("The device is already at that address.")
         val phone = row.phone ?: return onDone("It is not mounted.")
         val target = drive.target.copy(host = peer.host, port = peer.port, secure = peer.secure)
         val id = row.id

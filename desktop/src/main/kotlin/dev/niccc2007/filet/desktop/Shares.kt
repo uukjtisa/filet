@@ -6,7 +6,7 @@ import java.nio.file.Path
 import java.nio.file.Paths
 
 /**
- * One folder offered to the network. Never a drive root - see SPEC.md §1.
+ * One folder, or a whole drive, offered to the network. See [ShareGuard] for what may be one.
  *
  * [tag] is the part of the share's access code that is not the account password, assigned once
  * when the share is added and never re-derived. It cannot come from [name] at serve time: renaming
@@ -41,11 +41,9 @@ data class Share(
  * everything on it, read and write, to anyone with the address - which is the point, and is the
  * caller's decision to make rather than this function's.
  *
- * Still lexical rather than `Path.getParent() == null`. `Paths.get` parses with the running OS's
- * rules, so on Linux `C:\` is an ordinary relative name with a null parent and on Windows `/`
- * means "the current drive" - a guard built on it would answer differently per machine and its
- * tests would only prove one of them. `..` is still resolved before asking, so `D:\Docs\..` is
- * recognised as the drive root it is.
+ * Lexical rather than `Path.isAbsolute`. `Paths.get` parses with the running OS's rules, so on
+ * Linux `C:\` is an ordinary relative name and on Windows `/` means "the current drive" - a guard
+ * built on it would answer differently per machine and its tests would only prove one of them.
  */
 object ShareGuard {
 
@@ -53,48 +51,22 @@ object ShareGuard {
     fun refusal(raw: String): String? {
         val p = raw.trim()
         if (p.isEmpty()) return "No folder was given."
-        val parsed = parse(p) ?: return "Not a full path: $p"
+        if (!full(p)) return "Not a full path: $p"
         return null
     }
 
-    /** True when [raw] names the root of a volume, after `.` and `..` are resolved. */
-    fun isRoot(raw: String): Boolean = parse(raw.trim())?.segments?.isEmpty() == true
-
-    private class Parsed(val segments: List<String>)
-
     /**
-     * The path's segments below its volume prefix, or null for a path with no volume prefix.
-     *
-     * The prefixes are a drive (`C:`), a UNC share (`\\server\share`, whose own root is a root for
-     * the same reason a drive's is) and POSIX `/`. The `\\?\` long-path form is unwrapped first,
-     * since `\\?\C:\` is `C:\` spelled so that Windows skips its own normalisation.
+     * Whether [raw] starts at a volume: a drive (`C:`), a UNC share (`\\server\share`) or POSIX
+     * `/`. The `\\?\` long-path form is unwrapped first, since `\\?\C:\` is `C:\` spelled so that
+     * Windows skips its own normalisation.
      */
-    private fun parse(raw: String): Parsed? {
+    private fun full(raw: String): Boolean {
         var s = raw.replace('\\', '/')
         if (s.startsWith("//?/UNC/", ignoreCase = true)) s = "//" + s.substring(8)
         else if (s.startsWith("//?/")) s = s.substring(4)
-        val rest: String = when {
-            DRIVE.matches(s.take(2)) && (s.length == 2 || s[2] == '/') -> s.drop(2)
-            s.startsWith("//") -> {
-                val parts = s.drop(2).split('/').filter { it.isNotEmpty() }
-                // `\\server` alone is not a folder at all, and `\\server\share` is the share's root.
-                if (parts.size < 2) return Parsed(emptyList())
-                parts.drop(2).joinToString("/")
-            }
-            s.startsWith("/") -> s
-            // `C:Docs` is relative to the current directory ON drive C, and anything else with
-            // no prefix is relative to wherever the process was started. Neither is a folder.
-            else -> return null
-        }
-        val out = ArrayDeque<String>()
-        for (seg in rest.split('/')) {
-            when (seg) {
-                "", "." -> Unit
-                ".." -> if (out.isNotEmpty()) out.removeLast()
-                else -> out.addLast(seg)
-            }
-        }
-        return Parsed(out.toList())
+        // `C:Docs` is relative to the current directory ON drive C, and anything else with no
+        // prefix is relative to wherever the process was started. Neither is a folder.
+        return if (DRIVE.matches(s.take(2))) s.length == 2 || s[2] == '/' else s.startsWith("/")
     }
 
     private val DRIVE = Regex("[A-Za-z]:")

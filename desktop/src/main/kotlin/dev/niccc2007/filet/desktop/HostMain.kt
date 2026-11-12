@@ -108,8 +108,8 @@ private fun printAddresses(host: HostService) {
         }
         return
     }
-    println("This PC has ${all.size} network addresses and it is not yet known which one the phone can reach.")
-    println("Use the one on the same network as the phone:")
+    println("This PC has ${all.size} network addresses and it is not yet known which one other devices can reach.")
+    println("Use the one on the same network as the phone or PC that will connect:")
     for (e in host.endpoints.value) {
         println("  ${e.name}  ${if (e.writable) "read+write" else "read only"}")
         for (u in e.urls) println("    ${u.adapter.take(32).padEnd(32)}  ${u.url}")

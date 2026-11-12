@@ -62,7 +62,7 @@ class WindowsMounter : Mounter {
     override fun mount(target: DavTarget, label: String, letter: Char?): MountResult {
         // Already mapped - a second mapping of the same share on another letter is never wanted,
         // and the redirector would happily make one.
-        attached().firstOrNull { it.target == target }?.let { relabel(it, label); return MountResult.Ok(it.where) }
+        attached().firstOrNull { it.target.sameShare(target) }?.let { relabel(it, label); return MountResult.Ok(it.where) }
 
         val taken = takenLetters()
         val chosen = if (letter == null) {

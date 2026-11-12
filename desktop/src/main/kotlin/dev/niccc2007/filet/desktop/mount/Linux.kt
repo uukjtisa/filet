@@ -109,7 +109,7 @@ object LinuxMounts {
     }.firstOrNull()
 
     fun suggestedFstab(url: String, label: String): String {
-        val dir = "/media/filet/" + label.filter { it.isLetterOrDigit() || it == '-' }.ifEmpty { "phone" }
+        val dir = "/media/filet/" + label.filter { it.isLetterOrDigit() || it == '-' }.ifEmpty { "filet-drive" }
         return "$url  $dir  davfs  user,noauto,rw  0  0"
     }
 

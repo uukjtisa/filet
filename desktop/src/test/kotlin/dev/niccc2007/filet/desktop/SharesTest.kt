@@ -16,21 +16,11 @@ class SharesTest {
         // roots badly: it was entries inside `C:\` that cannot be statted even from an
         // administrator shell, so the listing died part way through. That is fixed where the
         // fault is, in `LocalProvider.toNodeOrNull`.
-        //
-        // Every spelling here resolves to a root, including the `..` forms, so this still pins
-        // that the parser resolves before it judges.
         for (p in listOf(
             "C:\\", "C:", "c:/", "/", "\\\\server\\share", "\\\\server\\share\\", "\\\\server",
             "\\\\?\\C:\\", "\\\\?\\UNC\\server\\share", "D:\\Docs\\..", "/home/..", "/home/./..",
             "D:\\a\\b\\..\\..",
         )) assertNull(p, ShareGuard.refusal(p))
-    }
-
-    @Test fun `a root is still recognised as a root`() {
-        // `isRoot` keeps its meaning even though a root is no longer refused: a caller that
-        // wants to label a share "all of D:" rather than "D:\" still has to know.
-        for (p in listOf("C:\\", "c:/", "/", "D:\\Docs\\..")) assertTrue(p, ShareGuard.isRoot(p))
-        for (p in listOf("D:\\Docs", "/home/me")) assertFalse(p, ShareGuard.isRoot(p))
     }
 
     @Test fun `relative and blank paths are refused`() {

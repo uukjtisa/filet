@@ -9,7 +9,7 @@ import dev.niccc2007.filet.desktop.mount.DriveLetters
 import dev.niccc2007.filet.desktop.mount.ProbeResult
 
 /**
- * The decisions behind the Phones section, as pure functions.
+ * The decisions behind the On This Network section, as pure functions.
  *
  * Each is something the window can get wrong while looking fine, so none of them lives in a
  * Composable: which drive belongs to which row, whether a Mount button is enabled, which letters
@@ -91,8 +91,8 @@ object MountModel {
         val d = row.drive?.target
         val p = row.peer
         return when {
-            d != null && p == null -> "Filet drive at ${d.host}:${d.port}, phone not found there"
-            d != null && movedTo(row) != null -> "Drive at ${d.host}:${d.port}; the phone is now at ${p!!.host}:${p.port}"
+            d != null && p == null -> "Filet drive at ${d.host}:${d.port}, device not found there"
+            d != null && movedTo(row) != null -> "Drive at ${d.host}:${d.port}; the device is now at ${p!!.host}:${p.port}"
             p != null -> "${p.host}:${p.port}"
             else -> row.phone?.let { "${it.host}:${it.port}" }.orEmpty()
         }
@@ -137,9 +137,8 @@ object MountModel {
     fun isPeer(phone: KnownPhone, peer: Peer): Boolean = phone.id == idOf(peer) ||
         (phone.name == peer.name && phone.host.equals(peer.host, ignoreCase = true) && phone.port == peer.port)
 
-    /** The same share: host as DNS compares it, port, scheme and code. The base is always `/a/`. */
-    fun sameShare(a: DavTarget, b: DavTarget): Boolean =
-        a.host.equals(b.host, ignoreCase = true) && a.port == b.port && a.secure == b.secure && a.code == b.code
+    /** The same share; see [DavTarget.sameShare]. */
+    fun sameShare(a: DavTarget, b: DavTarget): Boolean = a.sameShare(b)
 
     /**
      * The drive the OS reports for [phone], if it has one.
@@ -177,8 +176,9 @@ object MountModel {
      * Those are drives mapped before this list was saved, or by `--mount` from a terminal, and
      * Windows reattaches them at every login; without this they would be mounted with no row to
      * unmount them from. The name comes from the one live share on that host and port. With
-     * several, or none, the address stands in: shares on one port differ only by their code,
-     * which is never announced, so picking one would show a name that may be wrong.
+     * several, or none, the drive's letter stands in: shares on one port differ only by their
+     * code, which is never announced, so picking one would show a name that may be wrong. Not the
+     * address, which the line under the row already says - the row read it twice.
      */
     fun adopt(known: List<KnownPhone>, attached: List<Attached>, live: List<Peer>): List<KnownPhone> {
         var out = known
@@ -186,7 +186,7 @@ object MountModel {
             if (out.any { driveOf(it, listOf(a)) != null }) continue
             val t = a.target
             val peer = live.singleOrNull { it.host.equals(t.host, ignoreCase = true) && it.port == t.port }
-            val name = peer?.name ?: "${t.host}:${t.port}"
+            val name = peer?.name ?: DriveLetters.letterOf(a.where)?.let { "Drive $it:" } ?: "${t.host}:${t.port}"
             val id = peer?.let(::idOf)?.takeIf { w -> out.none { it.id == w } } ?: "${t.host}:${t.port}/${t.code}"
             out = out + KnownPhone(id, name, name, t.host, t.port, t.code, t.secure, t.base, peer?.deviceId.orEmpty(), DriveLetters.letterOf(a.where))
         }
@@ -225,6 +225,14 @@ object MountModel {
                 else -> LetterChoice(l)
             }
         }
+
+    /**
+     * Whether a mount can get a letter at all: one is free, or one of Filet's own drives ([filet])
+     * holds one it may replace. Every letter being in use is only a dead end when none of them is
+     * Filet's - the picker offers to replace those.
+     */
+    fun canTakeLetter(taken: Set<Char>, filet: Set<Char>): Boolean =
+        letterChoices(taken, filet.associateWith { "" }).isNotEmpty()
 
     /**
      * The choice a picker starts on: [preferred] when it is free, else the first free letter.

@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -120,12 +122,12 @@ private fun SharingSection(host: HostService) {
     if (running) {
         Spacer(Modifier.height(4.dp))
         val chosen by host.chosenAddress.collectAsState()
-        // Several addresses and no evidence which one the phone shares: said in words, because
+        // Several addresses and no evidence which one other devices reach: said in words, because
         // three unexplained URLs is the state in which the wrong one got copied.
         if (endpoints.any { !it.confident && it.urls.size > 1 }) {
             Txt(
-                "This PC has more than one network address and Filet cannot tell which one your phone can reach. " +
-                    "Pick the one matching your phone's network.",
+                "This PC has more than one network address and Filet cannot tell which one other devices can reach. " +
+                    "Pick the one on the same network as the phone or PC that will connect.",
                 12, Ink.warn,
             )
         }
@@ -222,6 +224,7 @@ private fun SharingSection(host: HostService) {
     note?.let { Txt(it, 13, Ink.warn) }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PhonesSection(peerFlow: StateFlow<List<Peer>>, ctl: MountController, rescan: () -> Unit) {
     val peers by peerFlow.collectAsState()
@@ -240,7 +243,7 @@ private fun PhonesSection(peerFlow: StateFlow<List<Peer>>, ctl: MountController,
     val drafts = remember { mutableStateMapOf<String, String>() }
     val picks = remember { mutableStateMapOf<String, Char>() }
 
-    SectionHead("PHONES") {
+    SectionHead("ON THIS NETWORK") {
         // Discovery only hears what is announced; this asks again instead of waiting.
         val looking = "refresh" in busy || "sweep" in busy
         Btn(if (looking) "Looking..." else "Refresh", enabled = !looking) { ctl.refreshNow(rescan) }
@@ -269,7 +272,7 @@ private fun PhonesSection(peerFlow: StateFlow<List<Peer>>, ctl: MountController,
     // Rows are rebuilt from the live list and the OS's drives on every change, so a phone that
     // leaves turns its row offline, and any open mount dialog under it stops offering Mount.
     val rows = MountModel.rows(known, MountModel.seen(peers, swept), mounts.map { it.attached })
-    if (rows.isEmpty()) Txt("Looking for phones running Filet with sharing on...", 13, Ink.muted)
+    if (rows.isEmpty()) Txt("Looking for phones and PCs running Filet with sharing on...", 13, Ink.muted)
     val filetLetters = rows.mapNotNull { r -> r.drive?.let { d -> DriveLetters.letterOf(d.where)?.let { it to r.label } } }.toMap()
 
     for (r in rows) key(r.id) {
@@ -289,7 +292,13 @@ private fun PhonesSection(peerFlow: StateFlow<List<Peer>>, ctl: MountController,
             Txt(listOfNotNull(name?.takeIf { it != r.label }, address.takeIf { it.isNotEmpty() }, what).joinToString(" · "), 13, Ink.muted,
                 modifier = Modifier.padding(start = 16.dp))
 
-            Row(Modifier.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Wraps rather than runs off the card: a mounted, moved row carries five buttons, one
+            // of them with an address in its label.
+            FlowRow(
+                Modifier.padding(start = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 if (r.state == MountModel.State.MOUNTED) {
                     Btn(if (ctl.usesLetters) "Open in Explorer" else "Open", enabled = !dead) { openFolder(r.drive!!.where) }
                     Btn(if (working) "Working..." else "Unmount", enabled = !working) { ctl.unmount(r, view) }

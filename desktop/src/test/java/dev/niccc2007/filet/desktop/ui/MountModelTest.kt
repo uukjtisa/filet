@@ -7,6 +7,7 @@ import dev.niccc2007.filet.desktop.mount.DavTarget
 import dev.niccc2007.filet.desktop.ui.MountModel.LetterChoice
 import dev.niccc2007.filet.desktop.ui.MountModel.State
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -96,7 +97,9 @@ class MountModelTest {
         val orphan = rows.single { it.drive != null }
         assertEquals(State.MOUNTED, orphan.state)
         assertNull(orphan.peer)
-        assertEquals("Filet drive at 192.168.5.11:11111, phone not found there", MountModel.addressLine(orphan))
+        assertEquals("Filet drive at 192.168.5.11:11111, device not found there", MountModel.addressLine(orphan))
+        // Named for its letter, so the title and the address line do not say the same thing.
+        assertEquals("Drive Y:", orphan.label)
         // The phone itself still has its own row at its new address.
         assertEquals(State.NOT_MOUNTED, rows.first { it.peer == nova }.state)
     }
@@ -108,7 +111,7 @@ class MountModelTest {
         val row = MountModel.rows(listOf(saved), listOf(nova), listOf(y)).single()
         assertEquals(State.MOUNTED, row.state)
         assertEquals(nova, MountModel.movedTo(row))
-        assertEquals("Drive at 192.168.5.11:11111; the phone is now at 192.168.5.15:11111", MountModel.addressLine(row))
+        assertEquals("Drive at 192.168.5.11:11111; the device is now at 192.168.5.15:11111", MountModel.addressLine(row))
         assertNull(MountModel.movedTo(MountModel.rows(listOf(saved.copy(host = "192.168.5.15")), listOf(nova),
             listOf(connected("\\\\192.168.5.15@11111\\a\\tres3", "Y:"))).single()))
     }
@@ -218,10 +221,13 @@ class MountModelTest {
     }
 
     @Test
-    fun `with several shares on that port, or none, the address names it rather than a guess`() {
+    fun `with several shares on that port, or none, the drive letter names it rather than a guess`() {
         val d = listOf(drive(phone.host, phone.port, "a1"))
-        assertEquals("192.168.100.6:11111", MountModel.adopt(emptyList(), d, listOf(phone, phone.copy(name = "Music"))).single().label)
-        assertEquals("192.168.100.6:11111", MountModel.adopt(emptyList(), d, emptyList()).single().label)
+        assertEquals("Drive Z:", MountModel.adopt(emptyList(), d, listOf(phone, phone.copy(name = "Music"))).single().label)
+        assertEquals("Drive Z:", MountModel.adopt(emptyList(), d, emptyList()).single().label)
+        // A mount with no letter, as on a Mac or Linux, has only its address to go by.
+        val mac = listOf(drive(phone.host, phone.port, "a1", where = "/Volumes/a1"))
+        assertEquals("192.168.100.6:11111", MountModel.adopt(emptyList(), mac, emptyList()).single().label)
     }
 
     @Test
@@ -269,5 +275,21 @@ class MountModelTest {
         val full = MountModel.letterChoices(('D'..'Z').toSet(), mapOf('Q' to "Tablet"))
         assertEquals(LetterChoice('Q', "Tablet"), MountModel.firstChoice(full, null))
         assertNull(MountModel.firstChoice(emptyList(), 'Z'))
+    }
+
+    @Test
+    fun `every letter in use is a dead end only when none of them is a Filet drive`() {
+        val all = ('D'..'Z').toSet()
+        assertTrue(MountModel.canTakeLetter(all, setOf('Q')))
+        assertFalse(MountModel.canTakeLetter(all, emptySet()))
+        assertTrue(MountModel.canTakeLetter(all - 'M', emptySet()))
+    }
+
+    @Test
+    fun `one share whatever case the OS spells its host in`() {
+        val a = DavTarget("Nova-10.local", 8321, false, "/a/", "tres3")
+        assertTrue(a.sameShare(a.copy(host = "nova-10.LOCAL", base = "/A/")))
+        assertFalse(a.sameShare(a.copy(code = "tres4")))
+        assertFalse(a.sameShare(a.copy(port = 8322)))
     }
 }

@@ -33,7 +33,7 @@ object NetCheck {
     fun warning(profiles: List<Profile>): String? {
         val pub = profiles.filter { it.public }.map { it.alias }
         if (pub.isEmpty()) return null
-        return "Windows has ${pub.joinToString(" and ")} set as a Public network, so it hides this PC from phones " +
+        return "Windows has ${pub.joinToString(" and ")} set as a Public network, so it hides this PC from other devices " +
             "and blocks its shares. If this is your home network, set it to Private: Network settings, open " +
             "that network, choose Private network."
     }

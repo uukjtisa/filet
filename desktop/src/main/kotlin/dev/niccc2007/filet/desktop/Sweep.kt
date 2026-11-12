@@ -32,10 +32,18 @@ object Sweep {
     data class Hello(val id: String, val name: String, val kind: String, val port: Int, val shares: List<HelloShare>)
     data class HelloShare(val label: String, val scope: String, val writable: Boolean)
 
-    /** Every (host, port) to ask: each host on each adapter's subnet, capped to a /24, never this PC's own. */
-    fun targets(subnets: List<HostAddress>, ports: Set<Int>): List<Pair<String, Int>> {
+    /**
+     * Every (host, port) to ask: each host on each adapter's subnet, capped to a /24, never this
+     * PC's own - and every address in [known] as well.
+     *
+     * [known] is where devices have been seen before: saved drives' hosts and every address a
+     * share was heard on. Those are asked first, and asked even when they sit outside this PC's
+     * /24, which a device on a wider subnet or a routed second network does.
+     */
+    fun targets(subnets: List<HostAddress>, ports: Set<Int>, known: Collection<String> = emptyList()): List<Pair<String, Int>> {
         val own = subnets.mapNotNull { v4(it.ip) }.toSet()
         val hosts = LinkedHashSet<Long>()
+        for (k in known) v4(k)?.takeIf { it !in own }?.let { hosts += it }
         for (c in subnets) {
             val ip = v4(c.ip) ?: continue
             val prefix = c.prefix.coerceIn(24, 30)
@@ -89,8 +97,8 @@ object Sweep {
     }.getOrNull()
 
     /** Ask every target and return the shares found, leaving out this PC's own [selfId]. */
-    fun run(subnets: List<HostAddress>, ports: Set<Int>, selfId: String): List<Peer> {
-        val targets = targets(subnets, ports)
+    fun run(subnets: List<HostAddress>, ports: Set<Int>, selfId: String, known: Collection<String> = emptyList()): List<Peer> {
+        val targets = targets(subnets, ports, known)
         if (targets.isEmpty()) return emptyList()
         val pool = Executors.newFixedThreadPool(PARALLEL) { r -> Thread(r, "filet-sweep").apply { isDaemon = true } }
         return try {
