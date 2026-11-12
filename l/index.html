@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<meta name="robots" content="noindex">
+<title>Open in Filet</title>
+<!--
+  The page a Filet link lands on when the phone did not hand it to Filet directly: a computer, a
+  phone without Filet, or a phone where Android has not confirmed the link belongs to Filet yet.
+
+  Everything a link carries is after the #, in the fragment, which a browser never sends to a
+  server - so a share's access code reaches neither GitHub nor anything else. This page reads it
+  in the browser, shows only the drive's name, and loads nothing from anywhere. The source is
+  site/l/index.html in the Filet repository; the format is FiletLink.kt's.
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #161614; color: #E8E6E1;
+    font: 15px/1.45 system-ui, "Segoe UI", Roboto, sans-serif; padding: 24px; }
+  main { width: 100%; max-width: 380px; }
+  .mark { width: 44px; height: 44px; border-radius: 12px; background: #7FA8B8; color: #0E1417; display: grid; place-items: center;
+    font-weight: 800; font-size: 22px; margin-bottom: 18px; }
+  .kind { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: #6B6860; }
+  h1 { font-size: 22px; margin: 4px 0 6px; font-weight: 650; word-break: break-word; }
+  p { color: #9A968D; margin: 0 0 18px; }
+  a.btn { display: block; text-align: center; text-decoration: none; border-radius: 12px; padding: 13px 16px; font-weight: 600; margin-bottom: 10px; }
+  a.go { background: #7FA8B8; color: #0E1417; }
+  a.get { background: #2A2A26; color: #E8E6E1; }
+  .small { font-size: 12.5px; color: #6B6860; margin-top: 16px; }
+  .hide { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <div class="mark">F</div>
+  <div class="kind" id="kind">Filet link</div>
+  <h1 id="title">Open this in Filet</h1>
+  <p id="line">This link is for Filet, a file manager for Android.</p>
+  <a class="btn go hide" id="open" href="#">Open in Filet</a>
+  <a class="btn get" id="get" href="https://github.com/uukjtisa/filet/releases/latest">Get Filet</a>
+  <div class="small" id="note"></div>
+</main>
+<script>
+(function () {
+  var RELEASES = "https://github.com/uukjtisa/filet/releases/latest";
+  var KINDS = { drive: "Network drive" };
+  var VERSION = 1;
+  var body = location.hash.replace(/^#/, "");
+  var kind = body.split("?")[0];
+  var query = body.indexOf("?") >= 0 ? body.slice(body.indexOf("?") + 1) : "";
+  var fields = {};
+  query.split("&").forEach(function (pair) {
+    var i = pair.indexOf("=");
+    if (i < 0) return;
+    try { fields[decodeURIComponent(pair.slice(0, i))] = decodeURIComponent(pair.slice(i + 1)); } catch (e) {}
+  });
+  var android = /Android/i.test(navigator.userAgent);
+  var $ = function (id) { return document.getElementById(id); };
+
+  if (!KINDS[kind]) {
+    $("note").textContent = body ? "This link is not one this page knows. It may be from a newer Filet." : "";
+    return;
+  }
+  $("kind").textContent = KINDS[kind];
+  // Only the name. The addresses and the access code stay in the link, never on the page.
+  $("title").textContent = (fields.n || "A shared drive").slice(0, 80);
+  if (Number(fields.v) > VERSION) {
+    $("line").textContent = "This link is from a newer Filet. Update Filet, then open it again.";
+    $("get").textContent = "Update Filet";
+    return;
+  }
+  if (!android) {
+    $("line").textContent = "Open this link on the Android phone that has Filet, and it adds the drive.";
+    return;
+  }
+  $("line").textContent = "Filet adds it to Remotes. Nothing is added until you say so there.";
+  var open = $("open");
+  // Chrome, Samsung Internet, Edge and Firefox on Android all take an intent: link, and fall back to
+  // the download when no app answers. The plain filet:// form is the same request for the rest.
+  open.href = "intent://" + body + "#Intent;scheme=filet;S.browser_fallback_url=" + encodeURIComponent(RELEASES) + ";end";
+  open.classList.remove("hide");
+  $("get").textContent = "Don't have Filet? Get it";
+  $("note").textContent = "If Open in Filet does nothing, update Filet to its newest version.";
+})();
+</script>
+</body>
+</html>
