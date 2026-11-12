@@ -28,6 +28,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import dev.niccc2007.filet.link.DriveLink
+import dev.niccc2007.filet.qr.FiletQr
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -66,7 +69,7 @@ import dev.niccc2007.filet.webdav.DavState
 import dev.niccc2007.filet.webdav.WebDavServer
 
 /**
- * Mount this phone on a computer.
+ * Host a network drive: this phone's folders, offered to anything on the same network.
  *
  * The other half of the Remotes tab. Everything above it on that screen connects Filet TO
  * something; this one makes Filet the thing being connected to, which is why it is here and
@@ -269,6 +272,7 @@ private fun ShareRow(
     val colors = Filet.colors
     val s = state.share
     val shape = RoundedCornerShape(11.dp)
+    var showQr by remember(s.id) { mutableStateOf(false) }
     Column(
         Modifier
             .fillMaxWidth()
@@ -310,53 +314,78 @@ private fun ShareRow(
 
         if (state.running && reachable.isNotEmpty()) {
             Spacer(Modifier.height(9.dp))
-            MicroLabel("Windows", Modifier.padding(bottom = 4.dp))
-            for (ip in reachable) {
-                // The UNC form, not the URL. Explorer will not accept an http:// address in
-                // its address bar for a drive mapping - the @port and DavWWWRoot spelling is
-                // what makes Windows route it to its WebDAV client instead of to a web fetch.
-                UncRow(ip, "\\\\$ip@$port\\DavWWWRoot\\a\\${state.code}", onCopy)
-            }
-            // ── the same two fields the other phone is going to ask for ──────────────
-            //
-            // This card and the add-a-place form on the other device are two halves of one
-            // job, and they did not agree about what the thing being copied IS. The card
-            // printed one string with the code buried in the middle of it; the form asks for
-            // an Address and an Access code, in two boxes, under those two headings. So
-            // somebody reading this card had to work out which part of one URL was which
-            // before they could fill in a form that had already split them.
-            //
-            // They are the same labels now, in the same order, so the card reads as the
-            // instructions for the form. The whole string stays underneath, because pasting
-            // one thing is still fewer steps when the two devices can share a clipboard.
-            //
-            // One value underneath, as always: `ShareAddress` splits for display and joins
-            // straight back, and the form does the same thing with the same code. Two
-            // editors onto one string, never two strings to keep in step.
-            MicroLabel(
-                "On the other phone: Add a place",
-                Modifier.padding(top = 9.dp, bottom = 4.dp),
-            )
-            for (ip in reachable) {
-                val whole = DavShares.endpoint(ip, port, state.code)
-                val parts = ShareAddress.split(whole)
-                UncRow("Address", parts.prefix, onCopy)
-                UncRow("Access code", parts.code, onCopy)
-            }
-
-            MicroLabel(
-                "Mac, Linux, or one thing to paste",
-                Modifier.padding(top = 6.dp, bottom = 4.dp),
-            )
-            for (ip in reachable) {
-                UncRow(ip, DavShares.endpoint(ip, port, state.code), onCopy)
-            }
-            Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
+                SmallBtn("Show QR") { showQr = true }
+                Spacer(Modifier.width(6.dp))
                 SmallBtn(if (state.writable) "Switch to read only" else "Allow changes") {
                     onWritable(!state.writable)
                 }
             }
+
+            // A command rather than a bare UNC path. The bare path told somebody what to type
+            // but not where, and the place it works is Command Prompt, not the Explorer
+            // address bar. `*` takes the next free letter; the drive only survives a restart
+            // when the code is pinned, so `/persistent:yes` is offered only then.
+            MicroLabel("Windows · paste into Command Prompt", Modifier.padding(top = 9.dp, bottom = 4.dp))
+            for (ip in reachable) {
+                UncRow(ip, WindowsMount.command(ip, port, state.code.orEmpty(), s.code != null), onCopy)
+            }
+
+            // One rule for every other device - Filet, a Mac, Linux, a browser: the address,
+            // with the access code typed straight after it. The code is printed once, not once
+            // per address, because it is the same code on every address.
+            MicroLabel("Anywhere else", Modifier.padding(top = 9.dp, bottom = 2.dp))
+            DlgCaption("Type the address, then the access code straight after it.")
+            Spacer(Modifier.height(4.dp))
+            for (ip in reachable) {
+                UncRow("Address", ShareAddress.split(DavShares.endpoint(ip, port, state.code)).prefix, onCopy)
+            }
+            UncRow("Access code", state.code.orEmpty(), onCopy)
+        }
+    }
+
+    if (showQr && state.running && reachable.isNotEmpty()) {
+        ShareQrDialog(state, port, reachable) { showQr = false }
+    }
+}
+
+/**
+ * One share as a Filet link, for another Filet to scan.
+ *
+ * Per share and never per phone: each share is its own root, code and permission, so a QR for
+ * "the phone" would have to pick one of them. Behind a tap rather than on the card, because the
+ * code in it is the password, the same as a Wi-Fi QR.
+ */
+@Composable
+private fun ShareQrDialog(state: DavShareState, port: Int, hosts: List<String>, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val link = remember(state.code, port, hosts) {
+        DriveLink(
+            name = "${dev.niccc2007.filet.nearby.PairedPeers.selfName(context)} · ${state.share.label}",
+            deviceId = dev.niccc2007.filet.webdav.DavBeacon.deviceId(context),
+            hosts = hosts,
+            port = port,
+            share = "a/${state.code.orEmpty()}",
+            tls = false,
+        ).link().web()
+    }
+    Dlg(onDismiss = onDismiss) {
+        DlgHeader(
+            icon = FiletIcons.Wifi,
+            title = state.share.label,
+            sub = "Scan with Filet, or any camera",
+            onClose = onDismiss,
+        )
+        DlgBody {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                FiletQr(link, Modifier.size(240.dp))
+            }
+            Spacer(Modifier.height(10.dp))
+            DlgCaption("Holds the access code. Show it only to devices that should have this share.")
+        }
+        DlgFooter {
+            DlgSpacer()
+            DlgBtn("Done", kind = BtnKind.PRIMARY, onClick = onDismiss)
         }
     }
 }

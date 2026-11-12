@@ -433,7 +433,7 @@ class DavBeacon(private val context: Context) : DavAnnouncer {
     private fun selfName(): String =
         runCatching { dev.niccc2007.filet.nearby.PairedPeers.selfName(context) }.getOrDefault("phone")
 
-    private companion object {
+    internal companion object {
 
         /**
          * The service type every other WebDAV client in the world looks for.

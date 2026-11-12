@@ -230,12 +230,12 @@ private fun ConnectionFields(
                     "",
                     parts.code,
                     { typed -> address = ShareAddress.join(parts.prefix, typed) },
-                    hint = "the four characters the other phone shows",
+                    hint = "shown on the device sharing it",
                     tight = true,
                 )
                 DlgCaption(
                     if (parts.code.isBlank()) {
-                        "On the other phone: Network and root, Mount this phone on your PC. The " +
+                        "On the device sharing it: Network and root, Host a network drive. The " +
                             "code is on that card. It is not broadcast, which is why it cannot be " +
                             "filled in here."
                     } else {

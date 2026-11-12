@@ -424,7 +424,8 @@ fun RemotesScreen(vm: BrowserViewModel) {
         }
 
         // Filet as the thing being connected TO, rather than the thing connecting.
-        item { SectionRow("Mount this phone on your PC", note = "WebDAV") }
+        // Not "on your PC": the same share is reached by another Filet, a PC, a Mac or a browser.
+        item { SectionRow("Host a network drive", note = "WebDAV") }
         item { HostingCard(vm) }
 
         item { SectionRow("Root") }

@@ -32,6 +32,7 @@ const SRC = {
   locks: "core-dav/src/main/java/dev/niccc2007/filet/webdav/DavLocks.kt",
   range: "core-dav/src/main/java/dev/niccc2007/filet/webdav/DavRange.kt",
   card: "app/src/main/java/dev/niccc2007/filet/remotes/HostingCard.kt",
+  mount: "app/src/main/java/dev/niccc2007/filet/remotes/WindowsMount.kt",
   shares: "core-dav/src/main/java/dev/niccc2007/filet/webdav/DavShare.kt",
   screen: "app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt",
 };
@@ -220,10 +221,12 @@ export function problems(src) {
   if (!src.card) {
     found.push("the hosting card is missing, so the feature has no surface");
   } else {
-    if (!/DavWWWRoot/.test(src.card)) {
+    // The command is built in WindowsMount so it can be tested; the card only prints it. Both
+    // halves are checked, because either one going missing leaves no way to map the drive.
+    if (!/DavWWWRoot/.test(src.mount ?? "") || !/WindowsMount\.command/.test(src.card)) {
       found.push("the card does not print the UNC form, so the drive cannot be mapped in Explorer");
     }
-    if (!/@\$port\\\\DavWWWRoot/.test(src.card)) {
+    if (!/@\$port\\\\DavWWWRoot/.test(src.mount ?? "")) {
       found.push("the UNC address carries no port, and Explorer will not reach a non-default one");
     }
     for (const [what, re] of [
@@ -319,8 +322,9 @@ if (process.argv.includes("--selftest")) {
     ["an idle connection holding its worker for the full timeout", () =>
       swap("server", "socket.soTimeout = KEEPALIVE_IDLE_MS", "// left at the full timeout")],
     ["the constant-time compare removed", () => swap("path", "constantTimeEquals", "plainEquals")],
-    ["the UNC form dropped from the card", () => swap("card", "DavWWWRoot", "NotTheMarker")],
-    ["the UNC address losing its port", () => swap("card", "@$port\\\\DavWWWRoot", "\\\\DavWWWRoot")],
+    ["the UNC form dropped from the command", () => swap("mount", "DavWWWRoot", "NotTheMarker")],
+    ["the card no longer printing the command", () => swap("card", "WindowsMount.command", "plainAddress")],
+    ["the UNC address losing its port", () => swap("mount", "@$port\\\\DavWWWRoot", "\\\\DavWWWRoot")],
     ["the 50 MB warning removed", () => swap("card", "50 MB", "some size")],
     ["the WebClient warning removed", () => swap("card", "WebClient", "TheService")],
     ["the no-service promise removed", () => {
