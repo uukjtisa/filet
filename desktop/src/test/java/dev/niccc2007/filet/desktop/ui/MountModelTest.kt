@@ -90,14 +90,14 @@ class MountModelTest {
     }
 
     @Test
-    fun `a drive left on the phone's old address is listed, mounted, and says the phone is not there`() {
+    fun `a drive left on the phone's old address is listed, mounted, and says where it points`() {
         val y = connected("\\\\192.168.5.11@11111\\a\\tres3", "Y:")
         val known = MountModel.adopt(emptyList(), listOf(y), listOf(honor, nova))
         val rows = MountModel.rows(known, listOf(honor, nova), listOf(y))
         val orphan = rows.single { it.drive != null }
         assertEquals(State.MOUNTED, orphan.state)
         assertNull(orphan.peer)
-        assertEquals("Filet drive at 192.168.5.11:11111, device not found there", MountModel.addressLine(orphan))
+        assertEquals("Filet drive at 192.168.5.11:11111", MountModel.addressLine(orphan))
         // Named for its letter, so the title and the address line do not say the same thing.
         assertEquals("Drive Y:", orphan.label)
         // The phone itself still has its own row at its new address.
@@ -228,6 +228,45 @@ class MountModelTest {
         // A mount with no letter, as on a Mac or Linux, has only its address to go by.
         val mac = listOf(drive(phone.host, phone.port, "a1", where = "/Volumes/a1"))
         assertEquals("192.168.100.6:11111", MountModel.adopt(emptyList(), mac, emptyList()).single().label)
+    }
+
+    // ── the bug: a drive adopted before discovery heard its device never found it ──
+
+    @Test
+    fun `a drive adopted before discovery heard anything joins its device once it is heard`() {
+        val x = connected("\\\\192.168.5.23@8321\\a\\tres33", "X:")
+        val early = MountModel.adopt(emptyList(), listOf(x), emptyList())
+        assertEquals("Drive X:", early.single().label)
+        val late = MountModel.adopt(early, listOf(x), listOf(honor, nova))
+        val k = late.single()
+        assertEquals(MountModel.idOf(honor), k.id)
+        assertEquals(honor.name, k.label)
+        assertEquals("honor", k.deviceId)
+        assertEquals("tres33", k.code)
+        assertEquals('X', k.letter)
+        val row = MountModel.rows(late, listOf(honor, nova), listOf(x)).first { it.drive != null }
+        assertEquals(honor, row.peer)
+        assertEquals("192.168.5.23:8321", MountModel.addressLine(row))
+    }
+
+    @Test
+    fun `a late join keeps a name the user gave, and is found on any address the device was heard on`() {
+        val x = connected("\\\\192.168.5.40@8321\\a\\tres33", "X:")
+        val renamed = MountModel.adopt(emptyList(), listOf(x), emptyList()).map { it.copy(label = "Honor") }
+        val heard = honor.copy(addresses = listOf("192.168.5.23", "192.168.5.40"))
+        val k = MountModel.adopt(renamed, listOf(x), listOf(heard)).single()
+        assertEquals("Honor", k.label)
+        assertEquals("honor", k.deviceId)
+    }
+
+    @Test
+    fun `no late join with several shares on that port, with no drive here, or onto a share already saved`() {
+        val x = connected("\\\\192.168.5.23@8321\\a\\tres33", "X:")
+        val early = MountModel.adopt(emptyList(), listOf(x), emptyList())
+        assertEquals(early, MountModel.adopt(early, listOf(x), listOf(honor, honor.copy(name = "Music"))))
+        assertEquals(early, MountModel.adopt(early, emptyList(), listOf(honor)))
+        val mine = KnownPhone(MountModel.idOf(honor), honor.name, honor.name, honor.host, honor.port, "other", deviceId = "honor")
+        assertEquals(early + mine, MountModel.adopt(early + mine, listOf(x), listOf(honor)))
     }
 
     @Test

@@ -84,14 +84,15 @@ object MountModel {
      * The address line under a row.
      *
      * A drive is never hidden for being somewhere the phone is not: it is still mapped, still
-     * holds a letter, and still needs Unmount. It says where it points and that no phone
-     * answers to it there.
+     * holds a letter, and still needs Unmount. It says where it points.
      */
     fun addressLine(row: PhoneRow): String {
         val d = row.drive?.target
         val p = row.peer
         return when {
-            d != null && p == null -> "Filet drive at ${d.host}:${d.port}, device not found there"
+            // No claim about the device here: whether the drive works is the tile's to say, from
+            // the drive itself answering, and a device that is not announcing can still serve.
+            d != null && p == null -> "Filet drive at ${d.host}:${d.port}"
             d != null && movedTo(row) != null -> "Drive at ${d.host}:${d.port}; the device is now at ${p!!.host}:${p.port}"
             p != null -> "${p.host}:${p.port}"
             else -> row.phone?.let { "${it.host}:${it.port}" }.orEmpty()
@@ -189,6 +190,33 @@ object MountModel {
             val name = peer?.name ?: DriveLetters.letterOf(a.where)?.let { "Drive $it:" } ?: "${t.host}:${t.port}"
             val id = peer?.let(::idOf)?.takeIf { w -> out.none { it.id == w } } ?: "${t.host}:${t.port}/${t.code}"
             out = out + KnownPhone(id, name, name, t.host, t.port, t.code, t.secure, t.base, peer?.deviceId.orEmpty(), DriveLetters.letterOf(a.where))
+        }
+        return bindLate(out, attached, live)
+    }
+
+    /**
+     * Entries saved before discovery heard their device, tied to it once it is heard.
+     *
+     * Bug identified here: a drive adopted in the first seconds after launch, before discovery had
+     * heard anything, was saved under its letter with no device id. A row finds its share by id or
+     * by name, and neither could ever match, so the row said the device was not there while the
+     * device answered at that very address and the drive worked. The rule [adopt] names a drive
+     * by is now applied again later: an entry with a drive here, no device id and no share of its
+     * own takes the name and id of the one share heard on its host and port. With several there,
+     * it stays as it is, for the reason [adopt] gives. A label the user chose is kept.
+     */
+    private fun bindLate(known: List<KnownPhone>, attached: List<Attached>, live: List<Peer>): List<KnownPhone> {
+        var out = known
+        for (i in out.indices) {
+            val k = out[i]
+            if (k.deviceId.isNotBlank() || driveOf(k, attached) == null || live.any { isPeer(k, it) }) continue
+            val peer = live.singleOrNull { p ->
+                p.port == k.port && (p.host.equals(k.host, ignoreCase = true) || p.addresses.any { it.equals(k.host, ignoreCase = true) })
+            } ?: continue
+            if (out.indices.any { j -> j != i && isPeer(out[j], peer) }) continue
+            val id = idOf(peer).takeIf { w -> out.none { it.id == w } } ?: k.id
+            val label = if (k.label == k.name) peer.name else k.label
+            out = out.toMutableList().also { it[i] = k.copy(id = id, name = peer.name, label = label, deviceId = peer.deviceId) }
         }
         return out
     }
