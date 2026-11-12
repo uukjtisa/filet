@@ -117,6 +117,26 @@ object TapPlan {
         }
     }
 
+    /**
+     * One line under an action in the settings menu, for the tree's folder column only, where
+     * three actions all open folders and differ in what else they do. Null everywhere else.
+     *
+     * This looked like redundancy: on the folder already focused, Open, Focus and Expand all
+     * toggle it, so trying them on one folder shows no difference. They differ on a folder that
+     * is not focused yet - whether the focus moves (it is where paste and New folder act), whether
+     * Back gets a step, and whether going back up folds the branch left behind - and none of that
+     * was written anywhere a person choosing between them could see it.
+     */
+    fun detail(view: TapView, isDir: Boolean, act: TapDo): String? {
+        if (view != TapView.TREE || !isDir) return null
+        return when (act) {
+            TapDo.OPEN -> "Goes into it: unfolds it, moves the focus there, and Back returns"
+            TapDo.FOCUS -> "Moves the focus there, folded; tap again to unfold"
+            TapDo.EXPAND -> "Folds or unfolds it, and the focus stays where it is"
+            else -> null
+        }
+    }
+
     /** Stored as `f:ONE=OPEN,TWO=MENU,...;d:...` - readable in an exported config. */
     fun encode(set: TapSet): String {
         fun side(m: Map<Tap, TapDo>) = Tap.entries.joinToString(",") { "${it.name}=${(m[it] ?: TapDo.NOTHING).name}" }

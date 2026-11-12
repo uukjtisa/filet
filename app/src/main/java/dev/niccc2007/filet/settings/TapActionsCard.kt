@@ -144,7 +144,7 @@ internal fun TapSetRow(title: String, view: TapView, prefs: Prefs, extra: @Compo
                         for ((n, isDir) in sides.withIndex()) {
                             if (n > 0) Spacer(Modifier.width(6.dp))
                             Box(Modifier.weight(1f)) {
-                                Choice(set.of(isDir, tap), TapPlan.choices(view, isDir)) { act ->
+                                Choice(set.of(isDir, tap), TapPlan.choices(view, isDir), { TapPlan.detail(view, isDir, it) }) { act ->
                                     prefs.setTap(view, TapPlan.encode(set.with(isDir, tap, act)))
                                 }
                             }
@@ -175,7 +175,7 @@ private val LABEL = 78.dp
  * every choice the cell allows and a tick on the one in use.
  */
 @Composable
-private fun Choice(current: TapDo, choices: List<TapDo>, onPick: (TapDo) -> Unit) {
+private fun Choice(current: TapDo, choices: List<TapDo>, detail: (TapDo) -> String?, onPick: (TapDo) -> Unit) {
     val colors = Filet.colors
     var shown by remember { mutableStateOf(false) }
     val quiet = current == TapDo.NOTHING
@@ -204,7 +204,7 @@ private fun Choice(current: TapDo, choices: List<TapDo>, onPick: (TapDo) -> Unit
         }
         PopMenu(expanded = shown, onDismiss = { shown = false }, below = 32.dp) {
             for (act in choices) {
-                PopRow(iconOf(act), act.label, active = act == current, checked = act == current) {
+                PopRow(iconOf(act), act.label, detail = detail(act), active = act == current, checked = act == current) {
                     shown = false
                     onPick(act)
                 }
