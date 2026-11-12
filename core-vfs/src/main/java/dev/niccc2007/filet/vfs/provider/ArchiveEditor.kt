@@ -260,6 +260,9 @@ object ArchiveEditor {
                         val fresh = SevenZArchiveEntry()
                         fresh.name = keep.name
                         fresh.isDirectory = entry.isDirectory
+                        // Same rule as a new archive: a video kept through an edit is stored, not
+                        // run through LZMA2 again for nothing.
+                        if (!entry.isDirectory) fresh.setContentMethods(ArchiveWriter.sevenZMethods(keep.name, null))
                         if (entry.hasLastModifiedDate) fresh.lastModifiedTime = entry.lastModifiedTime
                         out.putArchiveEntry(fresh)
                         if (!entry.isDirectory && entry.hasStream()) {

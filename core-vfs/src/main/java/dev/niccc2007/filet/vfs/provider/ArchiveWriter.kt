@@ -4,7 +4,10 @@ import dev.niccc2007.filet.vfs.types.FileTypes
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry
+import org.apache.commons.compress.archivers.sevenz.SevenZMethod
+import org.apache.commons.compress.archivers.sevenz.SevenZMethodConfiguration
 import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile
+import org.tukaani.xz.LZMA2Options
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream
@@ -66,6 +69,26 @@ object ArchiveWriter {
      */
     internal fun alreadyCompressed(name: String): Boolean =
         FileTypes.isCompressed(FileTypes.extensionOf(name))
+
+    /**
+     * How one 7z member is packed.
+     *
+     * Bug identified here: the 7z path called `SevenZOutputFile` with nothing set, so every
+     * member went through LZMA2 at preset 6 whatever the dialog said. The strength picker was
+     * offered for 7z and then ignored. LZMA2 in pure Java manages well under a megabyte a second
+     * on a phone, and it ran over video that cannot shrink: a 1 GB file moved at about 3% a
+     * minute. 7-Zip itself stores such members, and so does our zip writer.
+     *
+     * Decision: already-compressed members are stored (COPY), and the rest use the chosen preset.
+     * Every member is its own folder in a commons-compress 7z, so mixing methods per member gives
+     * an ordinary archive that 7-Zip opens. A null preset is the encoder's default.
+     */
+    internal fun sevenZMethods(name: String, preset: Int?): List<SevenZMethodConfiguration> =
+        if (alreadyCompressed(name)) {
+            listOf(SevenZMethodConfiguration(SevenZMethod.COPY))
+        } else {
+            listOf(SevenZMethodConfiguration(SevenZMethod.LZMA2, LZMA2Options(preset ?: LZMA2Options.PRESET_DEFAULT)))
+        }
 
     /**
      * Write every source into [out].
@@ -130,6 +153,7 @@ object ArchiveWriter {
             ZipWriter.writeSplit(file, sources, options, onEntry)
             return
         }
+        val preset = options.levelFor(ArchiveCapabilities.of(format))
         SevenZOutputFile(file).use { z ->
             for (s in sources) {
                 currentCoroutineContext().ensureActive()
@@ -137,7 +161,10 @@ object ArchiveWriter {
                 val entry = SevenZArchiveEntry()
                 entry.name = s.entryPath
                 entry.isDirectory = s.isDir
-                if (!s.isDir) entry.size = s.size.coerceAtLeast(0L)
+                if (!s.isDir) {
+                    entry.size = s.size.coerceAtLeast(0L)
+                    entry.setContentMethods(sevenZMethods(s.entryPath, preset))
+                }
                 if (s.mtime > 0) entry.lastModifiedDate = java.util.Date(s.mtime)
                 z.putArchiveEntry(entry)
                 if (!s.isDir) s.open?.invoke()?.use { input -> pump(input) { b, n -> z.write(b, 0, n) } }
