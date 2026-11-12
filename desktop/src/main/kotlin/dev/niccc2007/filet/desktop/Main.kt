@@ -40,7 +40,7 @@ fun main(args: Array<String>) {
     val mounter = Mounters.forThisOs()
 
     application {
-        val state = rememberWindowState(size = DpSize(620.dp, 760.dp), isMinimized = Autostart.FLAG in args)
+        val state = rememberWindowState(size = DpSize(1040.dp, 720.dp), isMinimized = Autostart.FLAG in args)
         val scope = rememberCoroutineScope()
         val mounts = remember {
             MountController(mounter, watch.peers, scope, loadPhones = { host.phones }, savePhones = host::savePhones, selfId = host.deviceId).also { it.start() }

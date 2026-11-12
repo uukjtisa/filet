@@ -13,7 +13,7 @@ plugins {
  * schedules, the tool tags `filet-desktop-mount-tool-vX.Y.Z`, and `ReleaseTags.kt` filters the
  * phone's updater on that shape so a desktop release can never be offered to a phone.
  */
-val toolVersion = "0.1.0"
+val toolVersion = "0.1.1"
 
 version = toolVersion
 
@@ -56,6 +56,10 @@ dependencies {
     // The native mount calls. See `mount/` for which symbol each OS needs.
     implementation(libs.jna)
     implementation(libs.jna.platform)
+
+    // A share's QR, for the phone's scanner. zxing's core, the encoder the phone draws its own
+    // share codes with - pure Java, no camera or platform code.
+    implementation(libs.zxing)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

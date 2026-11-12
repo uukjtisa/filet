@@ -50,6 +50,11 @@ data class Endpoint(
     val writable: Boolean,
     val urls: List<AddressUrl> = emptyList(),
     val confident: Boolean = true,
+    /** The access code this share answers on. */
+    val code: String = "",
+    val port: Int = 0,
+    /** Every address it can be reached on, the chosen one first. What a share's QR carries. */
+    val hosts: List<String> = emptyList(),
 )
 
 /** One way to reach a share: the adapter, its address and the full one-string URL. */
@@ -140,6 +145,8 @@ class HostService(
     val preferredPort: Int get() = config.port
     val password: String get() = config.account.password
     val deviceId: String get() = config.deviceId
+    /** This PC as other devices list it: the name its announcements and its QR codes carry. */
+    val name: String get() = selfName
     val configFile get() = store.file
 
     var autostart: Boolean
@@ -364,6 +371,9 @@ class HostService(
                 writable = live.writable,
                 urls = cands.map { AddressUrl(it.adapter, it.ip, Address.of(it.ip, st.port, live.code)) },
                 confident = chosen != null || cands.size <= 1,
+                code = live.code,
+                port = st.port,
+                hosts = (listOfNotNull(chosen?.ip) + cands.map { it.ip }).distinct().ifEmpty { listOf(fallback) },
             )
         }
     }
