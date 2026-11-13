@@ -35,9 +35,8 @@ import kotlin.math.roundToInt
  * decoder is tried first even past its declared limits (see [HardwareFirst]); with FFmpeg in the
  * build it also decodes what the phone has no decoder for (see [FfmpegDecoders]).
  *
- * One feature is known to be missing - 8D pan, which needs each side's level and this player has
- * one volume for both. Its way in is an audio processor in the renderer chain, not yet written;
- * the level and the mute work as they are.
+ * 8D needs each side's level and this player has one volume for both, so the sides are set by
+ * [SidePan], a step in its sound chain, and the volume carries the louder of the two.
  *
  * Like the platform engine it asks for no audio focus and ignores headphones coming out: the
  * screen does both, through `VideoFocus` and its noisy watch.
@@ -55,10 +54,12 @@ internal class Media3Engine(
 
     // FFmpeg where the build has it, Media3's own factory where it does not (F-Droid, x86) - with
     // the hardware decoder first in both. See HardwareFirst.
-    private val ffmpeg = FfmpegDecoders.setup(context, forcePicture)
+    // Each side's level, for 8D, in the sound of whichever factory is used. See SidePan.
+    private val pan = SidePan()
+    private val ffmpeg = FfmpegDecoders.setup(context, forcePicture, pan)
     private val player: ExoPlayer = ExoPlayer.Builder(
         context,
-        ffmpeg?.factory ?: HardwareFirst.Factory(context).setEnableDecoderFallback(true),
+        ffmpeg?.factory ?: HardwareFirst.Factory(context, pan).setEnableDecoderFallback(true),
     )
         // To the frame asked for, not the keyframe before it: see VideoEngine.seekExactly.
         .setSeekParameters(SeekParameters.EXACT)
@@ -240,9 +241,15 @@ internal class Media3Engine(
         player.seekTo(ms)
     }
 
-    /** One volume for both sides: the louder of the two, so the level and the mute hold. */
+    /**
+     * The louder side as the player's volume, so the level and the mute hold, and each side's share
+     * of it to [SidePan], so 8D moves the sound. At silence the sides are kept for the way back up.
+     */
     override fun setVolume(left: Float, right: Float) {
-        if (!released) player.volume = maxOf(left, right).coerceIn(0f, 1f)
+        if (released) return
+        val top = maxOf(left, right).coerceIn(0f, 1f)
+        player.volume = top
+        if (top > 0f) pan.set(left.coerceIn(0f, 1f) / top, right.coerceIn(0f, 1f) / top)
     }
 
     override fun setSpeed(speed: Float, pitch: Float): Boolean? {

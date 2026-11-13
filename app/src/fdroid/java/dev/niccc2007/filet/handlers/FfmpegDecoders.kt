@@ -20,5 +20,5 @@ internal object FfmpegDecoders {
     }
 
     @Suppress("UNUSED_PARAMETER")
-    fun setup(context: Context, forcePicture: Boolean): Setup? = null
+    fun setup(context: Context, forcePicture: Boolean, pan: SidePan): Setup? = null
 }

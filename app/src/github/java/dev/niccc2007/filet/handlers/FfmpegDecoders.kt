@@ -6,6 +6,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.RenderersFactory
+import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 import android.os.Handler
@@ -28,7 +29,7 @@ import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory
  *   can play a file is picked over FFmpeg every time otherwise.
  *
  * Sound stays phone-first in both, since the phone's sound decoders are not the ones that fail
- * quietly and they cost nothing in battery.
+ * quietly and they cost nothing in battery. Both carry [SidePan] in their sound, for 8D.
  */
 @OptIn(UnstableApi::class)
 internal object FfmpegDecoders {
@@ -46,20 +47,29 @@ internal object FfmpegDecoders {
         fun detach() = runCatching { manager.detach() }
     }
 
-    fun setup(context: Context, forcePicture: Boolean): Setup? {
+    fun setup(context: Context, forcePicture: Boolean, pan: SidePan): Setup? {
         if (!available) return null
         val manager = DecoderManager(
             if (forcePicture) DecoderMode.FFMPEG else DecoderMode.AUTO,
             DecoderMode.AUTO,
         )
         // Phone first means the phone's hardware even past its declared limits: see HardwareFirst.
-        val factory = (if (forcePicture) NextRenderersFactory(context) else PhoneFirstFactory(context))
+        val factory = (if (forcePicture) FfmpegPictureFactory(context, pan) else PhoneFirstFactory(context, pan))
             .setDecoderManager(manager)
         factory.setEnableDecoderFallback(true)
         return Setup(factory, manager)
     }
 
-    private class PhoneFirstFactory(context: Context) : NextRenderersFactory(context) {
+    /** FFmpeg for the picture: nextlib's factory as it is, with 8D in its sound. */
+    private class FfmpegPictureFactory(context: Context, private val pan: SidePan) : NextRenderersFactory(context) {
+        override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioOutputPlaybackParams: Boolean): AudioSink =
+            SidePan.sink(context, enableFloatOutput, enableAudioOutputPlaybackParams, pan)
+    }
+
+    private class PhoneFirstFactory(context: Context, private val pan: SidePan) : NextRenderersFactory(context) {
+        override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioOutputPlaybackParams: Boolean): AudioSink =
+            SidePan.sink(context, enableFloatOutput, enableAudioOutputPlaybackParams, pan)
+
         override fun buildVideoRenderers(
             context: Context,
             extensionRendererMode: Int,

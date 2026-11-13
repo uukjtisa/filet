@@ -9,6 +9,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.RendererCapabilities
+import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
@@ -118,8 +119,14 @@ internal object HardwareFirst {
         }
     }
 
-    /** Media3's own factory with [VideoRenderer] in it: Filet's player where FFmpeg is not in the build. */
-    class Factory(context: Context) : DefaultRenderersFactory(context) {
+    /**
+     * Media3's own factory with [VideoRenderer] in it, and [pan] in its sound: Filet's player where
+     * FFmpeg is not in the build.
+     */
+    class Factory(context: Context, private val pan: SidePan) : DefaultRenderersFactory(context) {
+        override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioOutputPlaybackParams: Boolean): AudioSink =
+            SidePan.sink(context, enableFloatOutput, enableAudioOutputPlaybackParams, pan)
+
         override fun buildVideoRenderers(
             context: Context,
             extensionRendererMode: Int,
