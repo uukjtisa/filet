@@ -127,6 +127,17 @@ class PlaybackStatsTest {
     }
 
     @Test
+    fun `frames skipped before decoding get their own line, once there are any`() {
+        val none = PlaybackStats.lines(snap(1_000, 10, 0), PlaybackStats.Rates(10, 0, 5), null, null).toMap()
+        assertNull(none["Skipped"])
+        val some = snap(2_000, 40, 2).copy(hurried = 25)
+        val r = PlaybackStats.rates(snap(1_000, 10, 0).copy(hurried = 5), some)
+        assertEquals(20, r.hurriedPerSec)
+        val lines = PlaybackStats.lines(some, r, null, null).toMap()
+        assertEquals("20/s before decoding (25 in all)", lines["Skipped"])
+    }
+
+    @Test
     fun `heat is words, and nothing when the phone is cool`() {
         assertNull(PlaybackStats.heat(0))
         assertEquals("warm", PlaybackStats.heat(1))

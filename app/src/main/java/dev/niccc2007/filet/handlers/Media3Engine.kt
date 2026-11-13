@@ -61,6 +61,7 @@ internal class Media3Engine(
         context,
         ffmpeg?.factory ?: HardwareFirst.Factory(context, pan).setEnableDecoderFallback(true),
     )
+        .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context, extractors()))
         // To the frame asked for, not the keyframe before it: see VideoEngine.seekExactly.
         .setSeekParameters(SeekParameters.EXACT)
         .setLoadControl(quickStart())
@@ -119,6 +120,8 @@ internal class Media3Engine(
             val why = HardwareFirst.reason(videoCodecError)
             refusals += listOfNotNull(name, why).joinToString(": ")
             dev.niccc2007.filet.log.FiletLog.i("video") { "decoder ${name ?: "?"} would not start: $why" }
+            // Once per engine: the platform's own lines say what the exception does not.
+            if (refusals.size == 1) CodecLog.captureAfterRefusal()
         }
 
         override fun onAudioDecoderInitialized(
@@ -303,7 +306,8 @@ internal class Media3Engine(
             fps = f?.frameRate?.takeIf { it > 0f } ?: 0f,
             bitrate = f?.let { maxOf(it.averageBitrate, it.peakBitrate, it.bitrate) }?.takeIf { it > 0 } ?: 0,
             shown = c?.renderedOutputBufferCount?.toLong(),
-            dropped = c?.let { (it.droppedBufferCount + it.droppedInputBufferCount).toLong() },
+            dropped = c?.droppedBufferCount?.toLong(),
+            hurried = c?.droppedInputBufferCount?.toLong(),
             toKeyframe = c?.droppedToKeyframeCount?.toLong(),
             offsetUsTotal = c?.totalVideoFrameProcessingOffsetUs,
             offsetCount = c?.videoFrameProcessingOffsetCount?.toLong(),
@@ -332,6 +336,17 @@ internal class Media3Engine(
 
         /** How far from a skip's target a keyframe may be and still be used: two seconds. */
         const val NEAR_US = 2_000_000L
+
+        /**
+         * Media3's extractors, told to mark each H.264 and H.265 frame that no other frame is
+         * decoded from. Those are the frames the video renderer may skip unread when it runs late
+         * (see HardwareFirst.replace), which is how a software decoder keeps up with a file that
+         * is too big for it: fewer pictures, evenly, instead of every picture late. MP4 only, which
+         * is where the extractor can read it.
+         */
+        fun extractors(): androidx.media3.extractor.ExtractorsFactory =
+            androidx.media3.extractor.DefaultExtractorsFactory()
+                .experimentalSetCodecsToParseWithinGopSampleDependencies(C.VIDEO_CODEC_FLAG_H264 or C.VIDEO_CODEC_FLAG_H265)
 
         /**
          * Playing starts once a second is buffered, and two after running dry. Media3's own

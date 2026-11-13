@@ -47,7 +47,10 @@ internal object PlaybackStats {
         val fps: Float,
         val bitrate: Int,
         val shown: Long?,
+        /** Decoded and then thrown away, too late to show. */
         val dropped: Long?,
+        /** Thrown away before decoding: late, and nothing else is decoded from them. */
+        val hurried: Long? = null,
         /** Frames thrown away to reach the next keyframe when the decoder fell far behind. */
         val toKeyframe: Long? = null,
         /** The sum and count of how early each frame was ready, in microseconds. See [Rates.earlyMs]. */
@@ -69,6 +72,7 @@ internal object PlaybackStats {
          * hovers near zero or below, and its frames are the ones dropped.
          */
         val earlyMs: Int?,
+        val hurriedPerSec: Int? = null,
     )
 
     /** Rates over the time between [before] and [now]. Null figures where either side has no count. */
@@ -88,7 +92,12 @@ internal object PlaybackStats {
             val n = n1 - n0
             if (n <= 0L) null else ((s1 - s0) / n / 1000L).toInt()
         }
-        return Rates(perSec(before.shown, now.shown), perSec(before.dropped, now.dropped), early)
+        return Rates(
+            perSec(before.shown, now.shown),
+            perSec(before.dropped, now.dropped),
+            early,
+            perSec(before.hurried, now.hurried),
+        )
     }
 
     /** The codec's everyday name, from its MIME type. */
@@ -145,6 +154,10 @@ internal object PlaybackStats {
             ""
         }
         out += "Frames" to "shown $shown · dropped $dropped$total"
+        // Only once it has happened: on a file the decoder keeps up with, the line would be noise.
+        if ((now.hurried ?: 0L) > 0L) {
+            out += "Skipped" to "${rates.hurriedPerSec?.let { "$it/s" } ?: "…"} before decoding (${now.hurried} in all)"
+        }
         rates.earlyMs?.let { ms ->
             out += "Ready" to if (ms >= 0) "$ms ms before due" else "${-ms} ms late"
         }

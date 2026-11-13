@@ -204,7 +204,17 @@ internal object HardwareFirst {
                         .setEnableDecoderFallback(fallback)
                         .setEventHandler(handler)
                         .setEventListener(listener)
-                        .setMaxDroppedFramesToNotify(DefaultRenderersFactory.MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY),
+                        .setMaxDroppedFramesToNotify(DefaultRenderersFactory.MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
+                        // VLC's "hurry up", done before the decoder rather than after it: a frame
+                        // that is already late and that no other frame is decoded from is thrown
+                        // away unread. Bug identified here: the renderer decoded every frame and
+                        // only then dropped the late ones, so a decoder that could not keep up
+                        // spent all its time on pictures nobody would see and fell further behind,
+                        // a second and more, until it jumped to the next keyframe. Which frames
+                        // nothing depends on is read by the extractor: see Media3Engine.extractors.
+                        .experimentalSetLateThresholdToDropDecoderInputUs(
+                            MediaCodecVideoRenderer.DEFAULT_LATE_THRESHOLD_TO_DROP_DECODER_INPUT_US,
+                        ),
                 )
             }
         }
