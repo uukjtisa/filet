@@ -31,6 +31,7 @@ class PinResultReceiver : BroadcastReceiver() {
         private const val E_LABEL = "filet.pin.label"
         private const val E_TARGET = "filet.pin.target"
         private const val E_HANDLER = "filet.pin.handler"
+        private const val E_DIR = "filet.pin.dir"
 
         /** The result `requestPinShortcut` sends when [record] is placed. One per id, never shared. */
         fun callback(context: Context, record: ShortcutRecord): IntentSender {
@@ -42,6 +43,7 @@ class PinResultReceiver : BroadcastReceiver() {
                 putExtra(E_LABEL, record.label)
                 putExtra(E_TARGET, record.target)
                 record.handler?.let { putExtra(E_HANDLER, it) }
+                record.dir?.let { putExtra(E_DIR, it) }
             }
             return PendingIntent.getBroadcast(
                 context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
@@ -57,6 +59,7 @@ class PinResultReceiver : BroadcastReceiver() {
                 label = intent.getStringExtra(E_LABEL).orEmpty(),
                 target = intent.getStringExtra(E_TARGET).orEmpty(),
                 handler = intent.getStringExtra(E_HANDLER),
+                dir = if (intent.hasExtra(E_DIR)) intent.getBooleanExtra(E_DIR, false) else null,
             )
         }
     }

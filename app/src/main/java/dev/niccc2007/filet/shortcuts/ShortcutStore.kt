@@ -23,6 +23,8 @@ enum class ShortcutKind { FILE, SCRIPT, ACTION, TAB }
  *   [AppAction] name for [ShortcutKind.ACTION], or a `TabTarget` id for [ShortcutKind.TAB].
  * @param unconfirmed placed on a launcher that never says what it placed, so Filet cannot know
  *   whether it was added or turned down. See [PinReconcile].
+ * @param dir for a [ShortcutKind.FILE], whether it is a folder. Null on records made before this
+ *   was kept: the name alone cannot say, so those rows draw a neutral glyph rather than a guess.
  */
 data class ShortcutRecord(
     val id: String,
@@ -32,6 +34,7 @@ data class ShortcutRecord(
     val handler: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val unconfirmed: Boolean = false,
+    val dir: Boolean? = null,
 ) {
     fun kindLabel(): String = when (kind) {
         ShortcutKind.FILE -> "File"
@@ -208,6 +211,29 @@ class ShortcutStore(private val context: Context, private val prefs: Prefs) {
         main.postDelayed({ if (pending.isNotEmpty()) reconcile() }, PinReconcile.GRACE_MS + 250)
     }
 
+    // ── Folds on the Shortcuts tab ──
+    //
+    // Which lists are folded is a choice about this screen, so it is kept with the records rather
+    // than in Settings. Absent means never touched, and gives the defaults: the catalogues of
+    // actions and scripts start folded, the home-screen list and the tabs open.
+
+    private val _folded = MutableStateFlow(loadFolds())
+    val folded: StateFlow<Set<String>> = _folded.asStateFlow()
+
+    fun toggleFold(section: String) {
+        val now = _folded.value.let { if (section in it) it - section else it + section }
+        _folded.value = now
+        prefs.putString(KEY_FOLDS, now.sorted().joinToString(","))
+    }
+
+    /** Open [section], for a link that points into it. */
+    fun unfold(section: String) {
+        if (section in _folded.value) toggleFold(section)
+    }
+
+    private fun loadFolds(): Set<String> =
+        prefs.getString(KEY_FOLDS)?.split(',')?.filterTo(HashSet()) { it.isNotBlank() } ?: DEFAULT_FOLDED
+
     /** Re-read from prefs. Another pane, a widget or the launcher may have changed them. */
     fun reload() { _all.value = load() }
 
@@ -226,6 +252,7 @@ class ShortcutStore(private val context: Context, private val prefs: Prefs) {
                     handler = o.optString("handler").ifEmpty { null },
                     createdAt = o.optLong("at"),
                     unconfirmed = o.optBoolean("unconfirmed", false),
+                    dir = if (o.has("dir")) o.optBoolean("dir") else null,
                 )
             }
         }.getOrElse { emptyList() }
@@ -239,15 +266,25 @@ class ShortcutStore(private val context: Context, private val prefs: Prefs) {
                     .put("id", r.id).put("kind", r.kind.name).put("label", r.label)
                     .put("target", r.target).put("handler", r.handler).put("at", r.createdAt)
                     .put("unconfirmed", r.unconfirmed)
+                    .apply { r.dir?.let { put("dir", it) } }
             )
         }
         prefs.putString(KEY, arr.toString())
     }
 
-    private companion object {
-        const val KEY = "shortcuts.v1"
+    companion object {
+        private const val KEY = "shortcuts.v1"
 
         /** Set once this phone's launcher has reported a pin: from then on, unreported means gone. */
-        const val KEY_REPORTS = "shortcuts.reports.v1"
+        private const val KEY_REPORTS = "shortcuts.reports.v1"
+
+        /** The sections folded on the Shortcuts tab, comma-separated. */
+        private const val KEY_FOLDS = "shortcuts.folds.v1"
+
+        const val FOLD_PLACED = "home"
+        const val FOLD_TABS = "tabs"
+        const val FOLD_ACTIONS = "actions"
+        const val FOLD_SCRIPTS = "scripts"
+        val DEFAULT_FOLDED: Set<String> = setOf(FOLD_ACTIONS, FOLD_SCRIPTS)
     }
 }

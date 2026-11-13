@@ -134,13 +134,15 @@ fun ShortcutRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
+            .padding(start = 12.dp, end = 12.dp, bottom = 7.dp)
             .clip(RoundedCornerShape(10.dp))
             .border(1.dp, colors.lineSoft, RoundedCornerShape(10.dp))
             .background(colors.raised)
-            .padding(11.dp),
+            .padding(horizontal = 11.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        GlyphTile(recordGlyph(record))
+        Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f).clickable(onClick = onOpen)) {
             dev.niccc2007.filet.browser.ListNameText(
                 text = dev.niccc2007.filet.ui.highlighted(record.label, dev.niccc2007.filet.ui.LocalPaneQuery.current, colors.accent),

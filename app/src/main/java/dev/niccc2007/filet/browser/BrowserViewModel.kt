@@ -6172,6 +6172,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 label = label,
                 target = node.path.toString(),
                 handler = handler?.name,
+                dir = node.isDir,
             )
             graph.shortcuts.ask(record)
             val ok = dev.niccc2007.filet.shortcuts.Shortcuts.pin(graph.app, node, fileId, record)
