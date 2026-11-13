@@ -109,7 +109,13 @@ class ActivityActions(
  * - **Swipe** a finished row away to clear it.
  */
 @Composable
-fun ActivityBody(ledger: JobLedger, actions: ActivityActions) {
+fun ActivityBody(
+    ledger: JobLedger,
+    actions: ActivityActions,
+    /** A job to open at - a started card was tapped - or null. */
+    focus: Long? = null,
+    onFocused: () -> Unit = {},
+) {
     val jobs by ledger.jobs.collectAsState()
     val query = LocalPaneQuery.current
     val shown = remember(jobs, query) {
@@ -136,7 +142,17 @@ fun ActivityBody(ledger: JobLedger, actions: ActivityActions) {
     }
     val act: (Job, JobAction) -> Unit = { j, a -> perform(j, a, ledger, actions) }
 
-    LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("activity")) {
+    val list = dev.niccc2007.filet.browser.rememberKeptListState("activity")
+    // At the job a started card named: open, and at the top, where running work and the newest
+    // finished rows are.
+    LaunchedEffect(focus) {
+        val id = focus ?: return@LaunchedEffect
+        expanded = expanded + id
+        list.animateScrollToItem(0)
+        onFocused()
+    }
+
+    LazyColumn(Modifier.fillMaxSize(), state = list) {
         item {
             TabHeader("Activity") {
                 TabButton("Clear finished", FiletIcons.Delete, enabled = jobs.any { !it.running }) {
@@ -263,7 +279,7 @@ private fun JobRow(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                iconOf(job), null,
+                jobIcon(job), null,
                 tint = when (job.state) {
                     JobState.FAILED -> colors.bad
                     JobState.DONE -> colors.good
@@ -373,7 +389,7 @@ private fun Chip(icon: ImageVector, label: String, onClick: () -> Unit) {
 private fun JobMenu(job: Job, now: Long, ledger: JobLedger, actions: ActivityActions, onClose: () -> Unit) {
     Dlg(onDismiss = onClose) {
         DlgHeader(
-            icon = iconOf(job),
+            icon = jobIcon(job),
             title = job.title,
             sub = subline(job),
             tone = if (job.state == JobState.FAILED) DlgTone.BAD else DlgTone.NORMAL,
@@ -433,7 +449,8 @@ private fun stateWord(job: Job): String = when (job.state) {
 private fun readablePath(raw: String): String =
     runCatching { dev.niccc2007.filet.vfs.VPath.parse(raw).path.ifEmpty { raw } }.getOrDefault(raw)
 
-private fun iconOf(job: Job): ImageVector = when (job.kind) {
+/** A job's glyph, by its kind. Shared with the started cards, so a kind has one icon everywhere. */
+internal fun jobIcon(job: Job): ImageVector = when (job.kind) {
     JobKind.COPY -> FiletIcons.Copy
     JobKind.MOVE -> FiletIcons.Move
     JobKind.DELETE -> FiletIcons.Delete

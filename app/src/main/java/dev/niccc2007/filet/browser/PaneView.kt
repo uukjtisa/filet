@@ -1673,6 +1673,8 @@ private fun SpecialBodyContent(pane: PaneController, vm: BrowserViewModel, s: Pa
                     copy = { vm.copyText(it, "Details copied") },
                 )
             },
+            focus = vm.activityFocus.collectAsState().value,
+            onFocused = vm::activityFocused,
         )
         else -> EmptyNote("Nothing here yet", Modifier.fillMaxSize())
     }

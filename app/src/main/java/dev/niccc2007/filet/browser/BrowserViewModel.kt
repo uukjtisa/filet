@@ -2639,6 +2639,21 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         focusedPane()?.openSpecial(PaneKind.ACTIVITY, SpecialPanes.Pinned.ACTIVITY.label)
     }
 
+    private val _activityFocus = MutableStateFlow<Long?>(null)
+
+    /** A job Activity should open at, once, then hand back through [activityFocused]. */
+    val activityFocus: StateFlow<Long?> = _activityFocus.asStateFlow()
+
+    /** Activity, at one job: a started card was tapped. */
+    fun openActivityAt(id: Long) {
+        _activityFocus.value = id
+        openActivity()
+    }
+
+    fun activityFocused() {
+        _activityFocus.value = null
+    }
+
     /** A finished job's result, opened: a folder in the pane, a file in whatever opens it. */
     fun openJobResult(raw: String) {
         val path = runCatching { dev.niccc2007.filet.vfs.VPath.parse(raw) }.getOrNull() ?: return

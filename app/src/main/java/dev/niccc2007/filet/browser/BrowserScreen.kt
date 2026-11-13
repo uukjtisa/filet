@@ -406,6 +406,15 @@ private fun BrowserBody(vm: BrowserViewModel) {
             }
         }
 
+        // Work that has just started, top right: one card per job, the moment it is in Activity.
+        // A full-size box that takes no touches itself, so only the cards can be tapped.
+        Box(
+            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars),
+            contentAlignment = Alignment.TopEnd,
+        ) {
+            dev.niccc2007.filet.jobs.StartedCardStack(vm.ledger, onOpen = vm::openActivityAt)
+        }
+
         app.toast?.let { msg ->
             Toast(msg) { vm.consumeToast() }
         }
