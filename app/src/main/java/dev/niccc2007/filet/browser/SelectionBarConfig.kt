@@ -43,6 +43,7 @@ object SelectionBarConfig {
         "send" to "Send",
         "compress" to "Compress",
         "openwith" to "Open with",
+        "foldericon" to "Change icon",
         "details" to "Details",
         "bookmark" to "Bookmark",
         "nearby" to "Nearby",

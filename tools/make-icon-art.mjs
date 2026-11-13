@@ -55,9 +55,9 @@ const sandbox = {
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-const TAKE = ["ACC", "GLYPHS", "FAMILIES", "SHORT", "BACK", "FLAP", "SLOT", "SUB", "DEFS", "EMBLEMS", "RICH", "DEFAULTS"];
+const TAKE = ["ACC", "COLOUR_NAMES", "GLYPHS", "FAMILIES", "SHORT", "BACK", "FLAP", "SLOT", "SUB", "DEFS", "EMBLEMS", "RICH", "DEFAULTS"];
 vm.runInContext(`${scripts.join("\n")}\n;globalThis.__art = { ${TAKE.join(", ")} };`, sandbox, { filename: MOCK });
-const { ACC, GLYPHS, FAMILIES, SHORT, BACK, FLAP, SLOT, SUB, DEFS, EMBLEMS, RICH, DEFAULTS } = sandbox.__art;
+const { ACC, COLOUR_NAMES, GLYPHS, FAMILIES, SHORT, BACK, FLAP, SLOT, SUB, DEFS, EMBLEMS, RICH, DEFAULTS } = sandbox.__art;
 
 // The gradients, read back out of the <defs> the mock writes. Only the named ones: the accent
 // ramps are rebuilt from the accents, and the photo skies are the mock's stand-ins for pictures.
@@ -107,6 +107,11 @@ const lines = [
   "/** The accent ramps, light to deep. */",
   "internal val ACCENTS: Map<String, Accent> = mapOf(",
   ...Object.entries(ACC).map(([k, [a, b, c]]) => `    ${q(k)} to Accent(${hex(a)}, ${hex(b)}, ${hex(c)}),`),
+  ")",
+  "",
+  "/** What each accent is called where a person picks one. */",
+  "internal val COLOUR_NAMES: Map<String, String> = mapOf(",
+  ...Object.keys(ACC).map((k) => `    ${q(k)} to ${q(COLOUR_NAMES[k] ?? k)},`),
   ")",
   "",
   "/** The named gradients, top to bottom of the shape they fill: offset, colour, opacity. */",

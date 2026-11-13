@@ -230,6 +230,18 @@ fun selectionActions(
                 ),
             )
         }
+        // Change icon: folders only, any number of them, and nothing but folders. The look is kept
+        // in Filet rather than in the folder, so a read-only volume does not block it.
+        if (shape.count > 0 && shape.folders == shape.count) {
+            on.folderIcon?.let { run ->
+                add(
+                    SelectionAction(
+                        "foldericon", "Change icon", icons.folder,
+                        group = SelectionAction.Group.EDIT, run = run,
+                    ),
+                )
+            }
+        }
         // Playlist and queue: the tracks in the selection, and nothing else.
         if (shape.playable > 0) {
             add(
@@ -364,4 +376,5 @@ data class SelectionCallbacks(
     val copyPath: (() -> Unit)? = null,
     val invert: (() -> Unit)? = null,
     val reveal: (() -> Unit)? = null,
+    val folderIcon: (() -> Unit)? = null,
 )

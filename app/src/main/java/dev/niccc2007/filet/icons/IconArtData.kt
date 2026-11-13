@@ -19,6 +19,24 @@ internal val ACCENTS: Map<String, Accent> = mapOf(
     "indigo" to Accent(0xFFC0C9FA, 0xFF8C9CF0, 0xFF5A68BF),
 )
 
+/** What each accent is called where a person picks one. */
+internal val COLOUR_NAMES: Map<String, String> = mapOf(
+    "steel" to "Filet blue",
+    "amber" to "Amber",
+    "green" to "Green",
+    "gold" to "Gold",
+    "coral" to "Coral",
+    "mint" to "Mint",
+    "rose" to "Rose",
+    "lime" to "Lime",
+    "orange" to "Orange",
+    "red" to "Red",
+    "violet" to "Violet",
+    "sky" to "Sky",
+    "brown" to "Brown",
+    "indigo" to "Indigo",
+)
+
 /** The named gradients, top to bottom of the shape they fill: offset, colour, opacity. */
 internal val GRADIENTS: Map<String, Gradient> = mapOf(
     "gSteel" to Gradient(false, listOf(Stop(0f, 0xFFC6DDE6, 1f), Stop(0.3f, 0xFF93B8C6, 1f), Stop(0.65f, 0xFF7FA8B8, 1f), Stop(1f, 0xFF5E8A9B, 1f))),

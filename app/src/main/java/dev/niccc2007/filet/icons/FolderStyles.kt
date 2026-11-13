@@ -37,6 +37,8 @@ class FolderStyles internal constructor(
     private val prefs: Prefs,
     private val index: FileIndex,
     vfs: Vfs,
+    /** Told which folders were dressed or undressed, so their home-screen icons follow. */
+    private val changed: (List<VPath>) -> Unit = {},
 ) {
     private data class Entry(val path: String, val id: Long?, val phone: String?, val look: FolderLook)
 
@@ -66,12 +68,14 @@ class FolderStyles internal constructor(
             val ids = paths.associate { it.toString() to runCatching { index.idFor(it) }.getOrNull() }
             update(entries.value.map { e -> if (e.path in keys && e.id == null) e.copy(id = ids[e.path]) else e })
         }
+        changed(paths)
     }
 
     /** Back to the default look: the standard folder's, or plain. */
     fun reset(paths: List<VPath>) {
         val keys = paths.map { it.toString() }.toSet()
         update(entries.value.filterNot { it.path in keys })
+        changed(paths)
     }
 
     private fun relocated(from: VPath, to: VPath) {
@@ -138,7 +142,10 @@ class FolderStyles internal constructor(
         @Volatile private var one: FolderStyles? = null
 
         fun of(context: Context): FolderStyles = one ?: synchronized(this) {
-            one ?: FiletApp.graphOf(context).let { g -> FolderStyles(g.prefs, g.index, g.vfs) }.also { one = it }
+            one ?: FiletApp.graphOf(context).let { g ->
+                val app = context.applicationContext
+                FolderStyles(g.prefs, g.index, g.vfs) { paths -> FolderShortcutIcon.refresh(app, paths) }
+            }.also { one = it }
         }
     }
 }

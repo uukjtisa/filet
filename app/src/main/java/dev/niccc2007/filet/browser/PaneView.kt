@@ -2011,6 +2011,10 @@ private fun PaneContextMenu(
             copyPath = { vm.copyPathsOfSelection() },
             invert = { pane.invertSelection() },
             reveal = { vm.revealSelection() },
+            folderIcon = {
+                dev.niccc2007.filet.icons.FolderIconAsk.open(pane.selectedNodes())
+                pane.clearSelection()
+            },
         ),
         archive = vm.selectionIsArchive(),
         otherPane = vm.isSplit(),

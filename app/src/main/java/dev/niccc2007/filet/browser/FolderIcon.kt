@@ -53,13 +53,15 @@ fun FolderIcon(
     modifier: Modifier = Modifier,
     /** Off where thumbnails are off: what is inside is then drawn as pages, never as pictures. */
     previews: Boolean = true,
+    /** Drawn as this instead of its own look: the Change icon sheet's preview. */
+    look: FolderLook? = null,
 ) {
     val context = LocalContext.current
     val inspecting = LocalInspectionMode.current
     val graph = remember(context) { if (inspecting) null else runCatching { FiletApp.graphOf(context) }.getOrNull() }
     val styles = remember(graph) { graph?.let { runCatching { FolderStyles.of(context) }.getOrNull() } }
     val chosen by (styles?.byPath ?: NO_STYLES).collectAsState()
-    val look = lookFor(chosen, node.path)
+    val shown = look ?: lookFor(chosen, node.path)
 
     val peek = graph?.folderPeek
     val found = if (peek == null) null else rememberFolderPeek(peek, node.path, node.mtime, true).value
@@ -68,7 +70,7 @@ fun FolderIcon(
     val px = with(LocalDensity.current) { folderPicturePx(size.toPx()) }
     val media = if (detailed) found!!.items.filter { it.kind == PeekKind.MEDIA }.map { it.node } else emptyList()
     val pictures = rememberPictures(media, px, enabled = graph != null)
-    val cover = rememberCover(node.path, look, px, enabled = previews && graph != null && size >= PREVIEW_FROM)
+    val cover = rememberCover(node.path, shown, px, enabled = previews && graph != null && size >= PREVIEW_FROM)
 
     val inside: Inside = when {
         found?.empty == true -> Inside.Empty
@@ -89,7 +91,7 @@ fun FolderIcon(
         )
     }
 
-    Canvas(modifier.size(size)) { drawFolder(inside, look) }
+    Canvas(modifier.size(size)) { drawFolder(inside, shown) }
 }
 
 /** A picture standing in a folder: not looked at yet, decoded, or with no preview to give. */

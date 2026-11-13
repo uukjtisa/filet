@@ -137,6 +137,8 @@ fun FiletDialogs(vm: BrowserViewModel) {
             onAdd = { label -> vm.pinAsked(ask, label) },
         )
     }
+    // Change icon: its sheet and its Undo, both kept in the icons package.
+    dev.niccc2007.filet.icons.FolderIconHost(hidden = picking)
 
     // The prompt for a file edited inside an archive. Same reason again: it carries the edited
     // text and a callback, which no value-type dialog case can hold.

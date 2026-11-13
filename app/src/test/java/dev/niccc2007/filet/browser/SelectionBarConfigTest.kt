@@ -103,18 +103,25 @@ class SelectionBarConfigTest {
         // Settings row that switches on something nobody can find.
         val icon = androidx.compose.ui.graphics.vector.ImageVector
             .Builder("x", 1.dp, 1.dp, 1f, 1f).build()
-        val produced = selectionActions(
+        val icons = SelectionIcons(
+            icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon,
+            icon, icon,
+        )
+        val on = SelectionCallbacks(
+            copy = {}, move = {}, send = {}, delete = {}, compress = {}, rename = {},
+            openWith = {}, details = {}, bookmark = {}, nearby = {}, shortcut = {},
+            copyPath = {}, invert = {}, folderIcon = {},
+        )
+        // Folders get their own rows (Change icon), which a selection of files never shows.
+        val forFolders = selectionActions(
+            count = 2, readOnly = null, icons = icons, on = on,
+            shape = SelectionShape(count = 2, folders = 2),
+        ).map { it.id }.toSet()
+        val produced = forFolders + selectionActions(
             count = 1,
             readOnly = null,
-            icons = SelectionIcons(
-                icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon, icon,
-                icon, icon,
-            ),
-            on = SelectionCallbacks(
-                copy = {}, move = {}, send = {}, delete = {}, compress = {}, rename = {},
-                openWith = {}, details = {}, bookmark = {}, nearby = {}, shortcut = {},
-                copyPath = {}, invert = {},
-            ),
+            icons = icons,
+            on = on,
             // Every conditional action switched ON, because the question this asks is whether the
             // catalogue can ever produce each id - not whether it does for one particular file.
             //

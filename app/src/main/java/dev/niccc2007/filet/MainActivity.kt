@@ -248,6 +248,8 @@ class MainActivity : ComponentActivity() {
         dev.niccc2007.filet.log.FrameWatch.attach(this)
         // Closing the launcher's Add or Cancel dialog lands here: see ShortcutStore.resumed.
         FiletApp.graphOf(this).shortcuts.resumed()
+        // A pinned folder that went from empty to full while Filet was away gets its icon redrawn.
+        dev.niccc2007.filet.icons.FolderShortcutIcon.refresh(this)
     }
 
     override fun onPause() {

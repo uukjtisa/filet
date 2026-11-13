@@ -1490,6 +1490,12 @@ private fun SelectionBar(
             copyPath = { vm.copyPathsOfSelection() },
             invert = { vm.focusedPane()?.invertSelection() },
             reveal = { vm.revealSelection() },
+            folderIcon = {
+                vm.focusedPane()?.let { p ->
+                    dev.niccc2007.filet.icons.FolderIconAsk.open(p.selectedNodes())
+                    p.clearSelection()
+                }
+            },
         ),
         archive = vm.selectionIsArchive(),
         otherPane = vm.isSplit(),

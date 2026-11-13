@@ -151,12 +151,14 @@ object Shortcuts {
     }
 
     /**
-     * A thumbnail for images, a tinted glyph for everything else.
+     * A folder's own drawing for a folder, a thumbnail for images, the Filet icon for the rest.
      *
      * Decoded small on purpose: a launcher icon is about 108dp, and handing it a 12 MP bitmap
      * throws `TransactionTooLargeException` across the binder.
      */
     private fun iconFor(context: Context, node: VNode): Icon {
+        // A folder wears the drawing its row does, its emblem and what is inside included.
+        if (node.isDir) return dev.niccc2007.filet.icons.FolderShortcutIcon.now(context, node)
         val graph = FiletApp.graphOf(context)
         // One preview engine for the whole app.
         //
