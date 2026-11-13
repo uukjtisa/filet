@@ -28,6 +28,7 @@ class ConfigKeysTest {
         "points", // filet.resume
         "spots", // filet.reading - where each document was left
         "history", // filet.jobs - the Activity tab's history
+        "tray", // filet.clipboard - the clipboard's batches, new and pasted
     )
 
     private val constPattern = Regex("""const val (\w+)\s*=\s*"([A-Za-z][\w.]*)"""")

@@ -132,6 +132,24 @@ object FiletIcons {
     val Delete = stroke("trash", "M5 7h14M10 7V5h4v2M6.5 7l1 13h9l1-13")
     val Download = stroke("dl", "M12 4v11M8 11l4 4 4-4M5 20h14")
     val Rename = stroke("edit", "M4 20h4l10-10-4-4L4 16z", "m14 6 4 4")
+
+    // ── Home's edit state (Desktop/filet-home-edit-mock.html) ──
+    /** A drive's grip while editing: six dots, the mark of a thing that is held and moved. */
+    val Grip = filled(
+        "grip",
+        "M10.4 6a1.4 1.4 0 1 1-2.8 0 1.4 1.4 0 0 1 2.8 0", "M16.4 6a1.4 1.4 0 1 1-2.8 0 1.4 1.4 0 0 1 2.8 0",
+        "M10.4 12a1.4 1.4 0 1 1-2.8 0 1.4 1.4 0 0 1 2.8 0", "M16.4 12a1.4 1.4 0 1 1-2.8 0 1.4 1.4 0 0 1 2.8 0",
+        "M10.4 18a1.4 1.4 0 1 1-2.8 0 1.4 1.4 0 0 1 2.8 0", "M16.4 18a1.4 1.4 0 1 1-2.8 0 1.4 1.4 0 0 1 2.8 0",
+    )
+    /** A card's Options: three sliders. */
+    val Tune = stroke(
+        "tune",
+        "M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12",
+        "M18 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0", "M12 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0", "M20 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0",
+        width = 1.8f,
+    )
+    val CaretUp = stroke("caretup", "m6 15 6-6 6 6", width = 1.8f)
+    val CaretDown = stroke("caretdown", "m6 9 6 6 6-6", width = 1.8f)
     val Check = stroke("check", "m5 12.5 4.5 4.5L19 7", width = 2.2f)
     val Home = stroke("home", "m4 11 8-7 8 7v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z")
     val Grid = stroke("grid", "M4 4h6.5v6.5H4z", "M13.5 4H20v6.5h-6.5z", "M4 13.5h6.5V20H4z", "M13.5 13.5H20V20h-6.5z", width = 1.8f)

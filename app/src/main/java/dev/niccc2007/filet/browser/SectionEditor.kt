@@ -58,11 +58,18 @@ data class SectionSpec(val id: String, val title: String, val hideable: Boolean 
  * always did everywhere except on the one line that names the card.
  */
 @Composable
-fun SectionMenu(spec: SectionSpec, onRearrange: () -> Unit, onHide: () -> Unit, onClose: () -> Unit) {
+fun SectionMenu(
+    spec: SectionSpec,
+    onRearrange: () -> Unit,
+    onHide: () -> Unit,
+    onClose: () -> Unit,
+    /** Home's first row opens its edit state, which is more than a rearrangement. */
+    rearrange: Pair<androidx.compose.ui.graphics.vector.ImageVector, String> = FiletIcons.Sort to "Rearrange",
+) {
     Dlg(onDismiss = onClose) {
         DlgHeader(FiletIcons.Menu, spec.title, onClose = onClose)
         DlgBody {
-            DlgPick(FiletIcons.Sort, "Rearrange") { onClose(); onRearrange() }
+            DlgPick(rearrange.first, rearrange.second) { onClose(); onRearrange() }
             if (spec.hideable) DlgPick(FiletIcons.EyeOff, "Hide") { onClose(); onHide() }
         }
     }

@@ -1376,6 +1376,116 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
 
     fun setHomeFeedLinked(v: Boolean) { _homeFeedLinked.value = v; sp.edit().putBoolean(K_HOME_FEED_LINKED, v).apply() }
 
+    /**
+     * Home's Storage card, as its options in the edit state set it: one row or grouped by kind,
+     * a card per folder or one per app, and whether the capacity bars are drawn. Stored as the
+     * words `HomeArrange` reads, so a value from a newer Filet reads as the default.
+     */
+    private val _homeDriveLayout = stored { sp.getString(K_HOME_DRIVE_LAYOUT, null) ?: "flow" }
+    val homeDriveLayout: StateFlow<String> = _homeDriveLayout.asStateFlow()
+    private val _homeDrivePerApp = stored { sp.getString(K_HOME_DRIVE_PER_APP, null) ?: "each" }
+    val homeDrivePerApp: StateFlow<String> = _homeDrivePerApp.asStateFlow()
+    private val _homeDriveBars = stored { sp.getBoolean(K_HOME_DRIVE_BARS, true) }
+    val homeDriveBars: StateFlow<Boolean> = _homeDriveBars.asStateFlow()
+
+    fun setHomeDriveLayout(v: String) { _homeDriveLayout.value = v; sp.edit().putString(K_HOME_DRIVE_LAYOUT, v).apply() }
+    fun setHomeDrivePerApp(v: String) { _homeDrivePerApp.value = v; sp.edit().putString(K_HOME_DRIVE_PER_APP, v).apply() }
+    fun setHomeDriveBars(v: Boolean) { _homeDriveBars.value = v; sp.edit().putBoolean(K_HOME_DRIVE_BARS, v).apply() }
+
+    /**
+     * The order Home's drives were dragged into, by drive id - see `HomeArrange.ordered`.
+     *
+     * One id per line rather than commas: an id is a path, and a network share's path may hold a
+     * comma where no volume root holds a line break.
+     */
+    private val _homeDriveOrder = stored {
+        sp.getString(K_HOME_DRIVE_ORDER, null).orEmpty().split('\n').filter { it.isNotBlank() }
+    }
+    val homeDriveOrder: StateFlow<List<String>> = _homeDriveOrder.asStateFlow()
+
+    fun setHomeDriveOrder(v: List<String>) {
+        _homeDriveOrder.value = v
+        sp.edit().putString(K_HOME_DRIVE_ORDER, v.joinToString("\n")).apply()
+    }
+
+    /** The categories taken off Home's Categories card, by category id. None, at first. */
+    private val _homeCategoriesHidden = stored { sp.getStringSet(K_HOME_CATEGORIES_HIDDEN, emptySet())!!.toSet() }
+    val homeCategoriesHidden: StateFlow<Set<String>> = _homeCategoriesHidden.asStateFlow()
+
+    fun setHomeCategoriesHidden(v: Set<String>) {
+        _homeCategoriesHidden.value = v
+        // A copy, for the reason given at setHiddenCards.
+        sp.edit().putStringSet(K_HOME_CATEGORIES_HIDDEN, HashSet(v)).apply()
+    }
+
+    /** Whether the edit state's first line of help has been put away on this phone. */
+    private val _homeEditCoachSeen = stored { sp.getBoolean(K_HOME_EDIT_COACH, false) }
+    val homeEditCoachSeen: StateFlow<Boolean> = _homeEditCoachSeen.asStateFlow()
+
+    fun setHomeEditCoachSeen() {
+        if (_homeEditCoachSeen.value) return
+        _homeEditCoachSeen.value = true
+        sp.edit().putBoolean(K_HOME_EDIT_COACH, true).apply()
+    }
+
+    /**
+     * Everything Home's edit state sets, as one value, so Reset can put back the first
+     * arrangement and Undo can put back the one Reset replaced.
+     */
+    data class HomeSetup(
+        val order: List<String> = emptyList(),
+        val hiddenSections: Set<String> = emptySet(),
+        val hiddenCards: Set<String> = emptySet(),
+        val hideStorage: Boolean = false,
+        val driveOrder: List<String> = emptyList(),
+        val driveLayout: String = "flow",
+        val drivePerApp: String = "each",
+        val driveBars: Boolean = true,
+        val arrivedCount: Int = 8,
+        val arrivedDensity: Float = HOME_FEED_DENSITY,
+        val openedCount: Int = 8,
+        val openedDensity: Float = HOME_FEED_DENSITY,
+        val feedLinked: Boolean = true,
+        val categoriesHidden: Set<String> = emptySet(),
+        val categoryLayouts: Map<String, dev.niccc2007.filet.home.CategoryLayout> = emptyMap(),
+    )
+
+    fun homeSetup(): HomeSetup = HomeSetup(
+        order = _homeOrder.value,
+        hiddenSections = _homeHidden.value,
+        hiddenCards = _hiddenCards.value,
+        hideStorage = _hideStorage.value,
+        driveOrder = _homeDriveOrder.value,
+        driveLayout = _homeDriveLayout.value,
+        drivePerApp = _homeDrivePerApp.value,
+        driveBars = _homeDriveBars.value,
+        arrivedCount = _homeArrivedCount.value,
+        arrivedDensity = _homeArrivedDensity.value,
+        openedCount = _homeOpenedCount.value,
+        openedDensity = _homeOpenedDensity.value,
+        feedLinked = _homeFeedLinked.value,
+        categoriesHidden = _homeCategoriesHidden.value,
+        categoryLayouts = _categoryLayouts.value,
+    )
+
+    fun applyHomeSetup(s: HomeSetup) {
+        setHomeLayout(SectionLayout(s.order, s.hiddenSections))
+        setHiddenCards(s.hiddenCards)
+        setHideStorage(s.hideStorage)
+        setHomeDriveOrder(s.driveOrder)
+        setHomeDriveLayout(s.driveLayout)
+        setHomeDrivePerApp(s.drivePerApp)
+        setHomeDriveBars(s.driveBars)
+        setHomeArrivedCount(s.arrivedCount)
+        setHomeArrivedDensity(s.arrivedDensity)
+        setHomeOpenedCount(s.openedCount)
+        setHomeOpenedDensity(s.openedDensity)
+        setHomeFeedLinked(s.feedLinked)
+        setHomeCategoriesHidden(s.categoriesHidden)
+        _categoryLayouts.value = s.categoryLayouts
+        sp.edit().putString(K_CATEGORY_LAYOUT, dev.niccc2007.filet.home.CategoryLayout.encode(s.categoryLayouts)).apply()
+    }
+
     /** The Playlists home shows its lists as a grid of covers rather than as rows. */
     private val _playlistsGrid = stored { sp.getBoolean(K_PLAYLISTS_GRID, false) }
     val playlistsGrid: StateFlow<Boolean> = _playlistsGrid.asStateFlow()
@@ -1565,6 +1675,9 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
     fun hideCard(path: String) = setHiddenCards(_hiddenCards.value + path)
 
     fun showAllCards() = setHiddenCards(emptySet())
+
+    /** One card put back - the drive eye in Home's edit state. */
+    fun showCard(path: String) = setHiddenCards(_hiddenCards.value - path)
 
     private fun setHiddenCards(v: Set<String>) {
         _hiddenCards.value = v
@@ -1814,6 +1927,12 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         const val K_CACHE_DISMISSED = "cache.remindDismissedAt"
         const val K_HOME_ORDER = "home.order"
         const val K_HOME_HIDDEN = "home.hiddenSections"
+        const val K_HOME_DRIVE_LAYOUT = "home.storage.layout"
+        const val K_HOME_DRIVE_PER_APP = "home.storage.perApp"
+        const val K_HOME_DRIVE_BARS = "home.storage.bars"
+        const val K_HOME_DRIVE_ORDER = "home.drives.order"
+        const val K_HOME_CATEGORIES_HIDDEN = "home.categories.hidden"
+        const val K_HOME_EDIT_COACH = "home.editCoach"
         const val K_DRAWER_ORDER = "drawer.order"
         const val K_DRAWER_HIDDEN = "drawer.hidden"
         const val K_DRAWER_QUICK = "drawer.quick"

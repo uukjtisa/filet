@@ -41,6 +41,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.wrapContentHeight
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -178,6 +179,7 @@ fun PaneView(
                     paneKey = paneKey,
                     paneId = pane.id,
                     atBottom = reach,
+                    prefs = vm.prefs,
                 )
             }
             val chips: @Composable () -> Unit = {
@@ -454,8 +456,12 @@ private fun PaneHeader(
     paneId: Int,
     /** Drawn under the listing in reach mode, so the divider goes on the side facing the rows. */
     atBottom: Boolean = false,
+    /** For Home's edit header: Reset and its Undo write the whole of Home's arrangement. */
+    prefs: dev.niccc2007.filet.data.Prefs,
 ) {
     val colors = Filet.colors
+    val homeEditing by pane.homeEditing.collectAsState()
+    val homeUndo by pane.homeUndo.collectAsState()
     // The header is a drop target for the folder it names.
     //
     // The pane's background already means "this folder", but in a folder holding only folders
@@ -480,7 +486,22 @@ private fun PaneHeader(
             },
     ) {
         if (atBottom) HorizontalDivider(color = colors.lineSoft)
-        Row(
+        if (s.kind == PaneKind.HOME && homeEditing) {
+            // In place of the row below and at its height, so entering the edit state moves
+            // nothing on the screen but the header itself.
+            dev.niccc2007.filet.home.HomeEditHeader(
+                undo = homeUndo != null,
+                onReset = {
+                    pane.setHomeUndo(prefs.homeSetup())
+                    prefs.applyHomeSetup(dev.niccc2007.filet.data.Prefs.HomeSetup())
+                },
+                onUndo = {
+                    homeUndo?.let(prefs::applyHomeSetup)
+                    pane.setHomeUndo(null)
+                },
+                onDone = { pane.setHomeEditing(false) },
+            )
+        } else Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -537,6 +558,15 @@ private fun PaneHeader(
                         modifier = Modifier.size(26.dp).clip(RoundedCornerShape(6.dp))
                             .clickable { pane.openSearch(true) }.padding(4.dp),
                     )
+                }
+                // Home's Edit, after search. Its 32dp sits in the row's 26 and overhangs into the
+                // row's own padding, so Home's header is the same height as every other tab's and
+                // switching tabs does not shift the content under it.
+                if (s.kind == PaneKind.HOME) {
+                    Spacer(Modifier.width(4.dp))
+                    Box(Modifier.height(26.dp).wrapContentHeight(unbounded = true)) {
+                        dev.niccc2007.filet.home.HomeEditButton { pane.setHomeEditing(true) }
+                    }
                 }
             }
         }

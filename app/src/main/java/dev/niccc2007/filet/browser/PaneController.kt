@@ -300,6 +300,31 @@ class PaneController(
     /** Each screen's own choice of view in this tab, by the screen's key. See [PaneMemory]. */
     private val keptViews = LinkedHashMap<String, String>()
 
+    private val _homeEditing = MutableStateFlow(false)
+
+    /**
+     * Whether Home in this tab is in its edit state. On the pane because two things read it - the
+     * header, which swaps itself for the edit header, and Home's body - and they are drawn apart.
+     * Not saved with the tab: the edit state is something done now, and coming back to a tab
+     * already in it would read as Home being stuck.
+     */
+    val homeEditing: StateFlow<Boolean> = _homeEditing.asStateFlow()
+
+    fun setHomeEditing(on: Boolean) {
+        _homeEditing.value = on
+        if (!on) _homeUndo.value = null
+    }
+
+    private val _homeUndo = MutableStateFlow<dev.niccc2007.filet.data.Prefs.HomeSetup?>(null)
+
+    /**
+     * Home as it was before Reset, while Reset can still be taken back: until the next change in
+     * the edit state, or until it is left. Null the rest of the time.
+     */
+    val homeUndo: StateFlow<dev.niccc2007.filet.data.Prefs.HomeSetup?> = _homeUndo.asStateFlow()
+
+    fun setHomeUndo(s: dev.niccc2007.filet.data.Prefs.HomeSetup?) { _homeUndo.value = s }
+
     override fun marks(place: String): ScrollMemory.Marks? = scroll.at(place)
 
     override fun park(place: String, marks: ScrollMemory.Marks) = parkScroll(place, marks)

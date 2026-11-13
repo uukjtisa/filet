@@ -124,4 +124,30 @@ class CategoryGridTest {
             }
         }
     }
+    @Test
+    fun `all six shown is the usual layout`() {
+        for (cols in listOf(2, 3, 4, 6)) {
+            assertEquals(CategoryGrid.layout(cols), CategoryGrid.layoutOf(cols, MediaCategory.entries))
+        }
+    }
+
+    @Test
+    fun `with some taken off the rest fill their rows, media first`() {
+        val shown = listOf(MediaCategory.IMAGES, MediaCategory.AUDIO, MediaCategory.DOCUMENTS, MediaCategory.APPS, MediaCategory.ARCHIVES)
+        val cols = CategoryGrid.columns(inner(360f), shown.size)
+        val rows = CategoryGrid.layoutOf(cols, shown)
+        assertEquals(
+            listOf(MediaCategory.IMAGES, MediaCategory.AUDIO, MediaCategory.DOCUMENTS, MediaCategory.ARCHIVES, MediaCategory.APPS),
+            rows.flatten().map { it.category },
+        )
+        for (row in rows) assertEquals(cols.toFloat(), row.sumOf { it.span.toDouble() }.toFloat(), 0.001f)
+    }
+
+    @Test
+    fun `one category left is one tile across the card`() {
+        val rows = CategoryGrid.layoutOf(CategoryGrid.columns(inner(360f), 1), listOf(MediaCategory.VIDEOS))
+        assertEquals(1, rows.size)
+        assertEquals(0f, rows[0][0].at)
+        assertEquals(CategoryGrid.columns(inner(360f), 1).toFloat(), rows[0][0].span)
+    }
 }

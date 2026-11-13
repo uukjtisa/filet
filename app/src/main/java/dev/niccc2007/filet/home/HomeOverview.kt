@@ -50,6 +50,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,7 +68,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import dev.niccc2007.filet.browser.SectionSpec
 import dev.niccc2007.filet.browser.SectionMenu
-import dev.niccc2007.filet.browser.SectionEditor
 import dev.niccc2007.filet.browser.SwitcherRow
 import dev.niccc2007.filet.browser.SwitcherGroup
 import dev.niccc2007.filet.browser.ago
@@ -92,6 +94,14 @@ import dev.niccc2007.filet.vfs.VNode
  *
  * Sections with nothing in them are not rendered. An empty "New downloads" heading is a dead
  * switch (PLAN.md R1) dressed up as a layout.
+ *
+ * ## The edit state
+ *
+ * The header's Edit button, or Edit Home on a held heading, puts this same screen into its edit
+ * state ([PaneController.homeEditing]). Each card below is one function drawn in both states, so
+ * what is edited is the card itself and not a stand-in for it: the list of names this replaced
+ * took every card off the screen while it was up, and a density slider whose effect cannot be
+ * seen needed a preview to explain itself. See HomeEdit.kt.
  */
 @Composable
 fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
@@ -107,6 +117,14 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     val openedCount by vm.prefs.homeOpenedCount.collectAsState()
     val openedDensity by vm.prefs.homeOpenedDensity.collectAsState()
     val feedLinked by vm.prefs.homeFeedLinked.collectAsState()
+    val driveLayout = HomeArrange.Layout.of(vm.prefs.homeDriveLayout.collectAsState().value)
+    val perApp = HomeArrange.PerApp.of(vm.prefs.homeDrivePerApp.collectAsState().value)
+    val bars by vm.prefs.homeDriveBars.collectAsState()
+    val driveOrder by vm.prefs.homeDriveOrder.collectAsState()
+    val categoriesHidden by vm.prefs.homeCategoriesHidden.collectAsState()
+    val categoryLayouts by vm.prefs.categoryLayouts.collectAsState()
+    val coachSeen by vm.prefs.homeEditCoachSeen.collectAsState()
+    val editing by pane.homeEditing.collectAsState()
     val arrivedRows = FeedCard.metrics(arrivedDensity)
     val openedRows = FeedCard.metrics(openedDensity)
     val colors = Filet.colors
@@ -122,8 +140,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     val storedOrder by vm.prefs.homeOrder.collectAsState()
     val storedHidden by vm.prefs.homeHidden.collectAsState()
     val homeLayout = dev.niccc2007.filet.data.SectionLayout.of(HomeCards.ALL.map { it.id }, storedOrder, storedHidden)
-    var editing by remember { mutableStateOf(false) }
-    /** The card whose heading was held, for its Rearrange / Hide menu. */
+    /** The card whose heading was held, for its Edit Home / Hide menu. */
     var sectionMenu by remember { mutableStateOf<String?>(null) }
     val holdHeading = { id: String ->
         Modifier.pointerInput(id) { detectTapGestures(onLongPress = { sectionMenu = id }) }
@@ -133,6 +150,18 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
      * dialogue reads the card as it is now - Details shows a figure that arrived while open.
      */
     var driveFor by remember { mutableStateOf<Pair<dev.niccc2007.filet.vfs.VPath, DriveDialog>?>(null) }
+    /** The one-per-app card whose folders are listed, by its tile id. */
+    var appOpen by remember { mutableStateOf<String?>(null) }
+    val listState = dev.niccc2007.filet.browser.rememberKeptListState("home")
+    val viewport = remember { arrayOfNulls<androidx.compose.ui.geometry.Rect>(1) }
+    /**
+     * Anything done in the edit state: the first line of help goes for good, and an Undo left by
+     * Reset gives way to the change, as the header promises.
+     */
+    val touch = {
+        vm.prefs.setHomeEditCoachSeen()
+        pane.setHomeUndo(null)
+    }
 
     LaunchedEffect(app.revision) { vm.home.refresh() }
 
@@ -140,7 +169,12 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     // updates its card instead of staying Offline for the rest of the session.
     androidx.compose.runtime.DisposableEffect(Unit) {
         val job = vm.watchVolumes()
-        onDispose { job.cancel() }
+        onDispose {
+            job.cancel()
+            // Leaving Home ends its edit state. Only leaving: a rotation disposes this screen
+            // too, and the pane is still on Home when it comes back.
+            if (pane.state.value.kind != PaneKind.HOME) pane.setHomeEditing(false)
+        }
     }
 
     // No discovery on this tab.
@@ -149,92 +183,295 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     // read through the VFS. Listing what is merely ON the network is a different question and it
     // belongs on Remotes, where adding one is the thing somebody came to do.
 
-    LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("home"), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {
-        // Hideable, because on a phone with one volume the card is a fifth of the first
-        // screen saying something you already know. The heading stays either way, so turning
-        // it off does not look like the cards failed to load.
+    // ── the drives ───────────────────────────────────────────────────────────────────────────
+    //
+    // A NETWORK drive that is not answering is not shown at all.
+    //
+    // It was drawn as an "Offline" card, which reads as a fault to go and fix and takes a full
+    // tile to say nothing actionable. With several addresses per remote there is also no longer a
+    // single thing to report as down: the card comes back by itself the moment any address answers.
+    //
+    // The test used to be "local, or it has figures", and that is wider than it reads: `root:` and
+    // `saf:` are not the local scheme either, so a superuser shell that was busy or a document
+    // provider that declined for a moment took those cards off Home as well - the drive figures
+    // disappearing as if Filet had lost the device, from nothing more than one slow measurement. A
+    // volume on this device is shown whether or not its size is known; only something reached over
+    // the network has to prove it is there.
+    val live = app.volumes.filter { !it.remote || (it.free != null && it.total != null) }
+    val volumeOf = live.associateBy { it.node.path.toString() }
+    // Termux, if it is here and not yet connected. Shown only when installed, so this is not a
+    // permanent advertisement for an app somebody does not have - and it disappears once its tree
+    // is granted, because at that point it is a volume like any other.
+    //
+    // Dismissible, through `hiddenCards` - the same mechanism every storage card uses. Its own
+    // `hideTermux` preference was removed with the settings cleanup, and the replacement reasoning
+    // was that the tile disappears once its tree is granted. That was wrong: somebody who has
+    // Termux installed and does not want it connected to Filet has no way to grant the tree, so the
+    // tile became permanent. A card nobody can dismiss is bloat on the one screen that opens first.
+    val termuxOffered = vm.termuxInstalled && app.volumes.none {
+        dev.niccc2007.filet.integrations.Termux.isTermuxTree(android.net.Uri.parse(it.node.path.path)) ||
+            it.systemLabel.startsWith("Termux")
+    }
+    val natural = live.map { it.node.path.toString() } + if (termuxOffered) listOf(TERMUX_CARD) else emptyList()
+    val hiddenCount = natural.count { it in hiddenCards }
+
+    val storageTiles: @Composable (Boolean) -> Unit = { edit ->
+        // Every drive while editing, the hidden ones faint, so a hidden drive can be put back
+        // from where it was taken off.
+        val arranged = HomeArrange.ordered(natural, driveOrder)
+        val drawn = if (edit) arranged else arranged.filter { it !in hiddenCards }
+        val tiles = HomeArrange.tiles(drawn, perApp)
+        val byTile = tiles.associateBy { it.id }
+        val slots = tiles.map { t ->
+            DriveSlot(
+                id = t.id,
+                kind = if (t is HomeArrange.AppCard) HomeArrange.DriveKind.APPS
+                else HomeArrange.kindOf(t.id, remote = volumeOf[t.id]?.remote == true),
+                hidden = t.ids.all { it in hiddenCards },
+            )
+        }
+        DriveRows(
+            slots = slots,
+            layout = driveLayout,
+            editing = edit,
+            onEye = { id ->
+                touch()
+                val t = byTile[id]
+                if (t != null) {
+                    val hide = !t.ids.all { it in hiddenCards }
+                    for (one in t.ids) if (hide) vm.prefs.hideCard(one) else vm.prefs.showCard(one)
+                }
+            },
+            onDrop = { order -> vm.prefs.setHomeDriveOrder(HomeArrange.storedAs(driveOrder, tiles, order)) },
+            onLift = touch,
+        ) { slot, e ->
+            when (val t = byTile.getValue(slot.id)) {
+                is HomeArrange.AppCard -> AppFolderTile(
+                    card = t,
+                    volumes = volumeOf,
+                    editing = e,
+                    dimmed = slot.hidden,
+                    bar = bars,
+                    open = appOpen == t.id,
+                    onOpen = { appOpen = t.id },
+                    onClose = { appOpen = null },
+                    onHide = { t.ids.forEach(vm.prefs::hideCard) },
+                    onPick = { path -> appOpen = null; pane.jumpTo(path) },
+                )
+                is HomeArrange.Drive -> if (t.id == TERMUX_CARD) {
+                    StorageTile(
+                        icon = FiletIcons.Terminal,
+                        kind = "Termux",
+                        value = "Connect",
+                        caption = "its home and usr/bin, as a volume",
+                        onHide = { vm.prefs.hideCard(TERMUX_CARD) },
+                        editing = e,
+                        dimmed = slot.hidden,
+                        bar = bars,
+                        onClick = { vm.connectTermux(home = true) },
+                    )
+                } else {
+                    val v = volumeOf.getValue(t.id)
+                    VolumeTile(
+                        v = v,
+                        editing = e,
+                        dimmed = slot.hidden,
+                        bar = bars,
+                        onHide = { vm.prefs.hideCard(v.node.path.toString()) },
+                        onLongClick = { driveFor = v.node.path to DriveDialog.MENU },
+                        onClick = { pane.jumpTo(v.node.path) },
+                    )
+                }
+            }
+        }
+    }
+
+    // ── the cards, each drawn the same in both states ────────────────────────────────────────
+
+    // Files that turned up on the phone, newest first. Kept apart from Recently opened below,
+    // which is files opened in Filet; each heading names its own cause, because a subtitle under a
+    // heading is not read. See `HomeFeed` for what the list contains.
+    //
+    // The side bar's card fold, so Home and the drawer read as one design: the card shows its rows
+    // - eight unless the edit state set another count - and its last row opens the full list.
+    // Editing, it is drawn open whatever its fold, since a folded card says nothing about the
+    // count and density being set on it.
+    val arrivedCard: @Composable (Boolean) -> Unit = { edit ->
+        if (downloads.isEmpty()) {
+            if (edit) EditPlaceholder("Files that turn up on the phone show here.")
+        } else {
+            SwitcherGroup(
+                title = HomeSections.ARRIVED,
+                detail = "",
+                open = edit || HomeFolds.ARRIVED !in folds,
+                onToggle = { if (!edit) vm.prefs.toggleHomeFold(HomeFolds.ARRIVED) },
+                onLongClick = if (edit) null else ({ sectionMenu = HomeCards.ARRIVED }),
+                // The feed draws its last answer at once and corrects it as the read lands, so the
+                // dots are what tell a finished list from one still being checked.
+                trailing = if (scanning) ({ ScanningDots(); Spacer(Modifier.width(8.dp)) }) else null,
+            ) {
+                val card = downloads.take(FeedCard.snap(arrivedCount))
+                for (d in card) {
+                    FeedRow(
+                        node = d.node,
+                        when_ = ago(d.listedAt),
+                        sub = d.origin,
+                        metrics = arrivedRows,
+                        onClick = { vm.openHomeEntry(d.node, card.map { it.node }) },
+                        onLongClick = { menuFor = d.node to false },
+                    )
+                }
+                FullListRow(FiletIcons.Download) { pane.openSpecial(PaneKind.HISTORY, HomeSections.ARRIVED_TAB) }
+            }
+        }
+    }
+
+    // Issue #4: all the photos at once, and the same for audio, video, packages and documents, so
+    // the app can stand in for the gallery and the music player. Always drawn: it does not depend
+    // on any other section having rows. The categories are on screen at once as tiles - a sideways
+    // scroller would hide half of them behind a gesture nothing points at - in rows that divide
+    // evenly; see CategoryTiles. The ones taken off in the edit state are not drawn.
+    val categoriesCard: @Composable (Boolean) -> Unit = { edit ->
+        SwitcherGroup(
+            title = "Categories",
+            detail = "",
+            open = edit || HomeFolds.CATEGORIES !in folds,
+            onToggle = { if (!edit) vm.prefs.toggleHomeFold(HomeFolds.CATEGORIES) },
+            onLongClick = if (edit) null else ({ sectionMenu = HomeCards.CATEGORIES }),
+        ) {
+            CategoryTiles(MediaCategory.entries.filter { it.id !in categoriesHidden }) { c -> pane.openCategory(c) }
+        }
+    }
+
+    val openedCard: @Composable (Boolean) -> Unit = { edit ->
+        if (recents.isEmpty()) {
+            if (edit) EditPlaceholder("Files you open in Filet show here.")
+        } else {
+            SwitcherGroup(
+                title = HomeSections.OPENED,
+                detail = "",
+                open = edit || HomeFolds.OPENED !in folds,
+                onToggle = { if (!edit) vm.prefs.toggleHomeFold(HomeFolds.OPENED) },
+                onLongClick = if (edit) null else ({ sectionMenu = HomeCards.OPENED }),
+            ) {
+                val card = recents.take(FeedCard.snap(openedCount))
+                for (r in card) {
+                    val node = VNode(r.path, r.isDir, -1, r.at)
+                    FeedRow(
+                        node = node,
+                        when_ = ago(r.at),
+                        sub = r.path.parent?.path,
+                        metrics = openedRows,
+                        onClick = {
+                            if (r.isDir) pane.jumpTo(r.path)
+                            else vm.openHomeEntry(node, card.map { VNode(it.path, it.isDir, -1, it.at) })
+                        },
+                        onLongClick = { menuFor = node to true },
+                    )
+                }
+                FullListRow(FiletIcons.Clock) { pane.openSpecial(PaneKind.RECENT, HomeSections.OPENED) }
+            }
+        }
+    }
+
+    LazyColumn(
+        Modifier.fillMaxSize().onGloballyPositioned { viewport[0] = it.boundsInWindow() },
+        state = listState,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp),
+    ) {
         // No search card. It was a full row above the drives saying what the glyph in the pane's
         // header says on every other tab, so Home now uses that glyph and the field opens in the
         // header when it is wanted - the drives start at the top of the screen.
-
-        val shown = app.volumes.filter { it.node.path.toString() !in hiddenCards }
-        val hiddenCount = app.volumes.size - shown.size
-        // Dismissible, through `hiddenCards` - the same mechanism every storage card uses.
-        //
-        // Its own `hideTermux` preference was removed with the settings cleanup, and the
-        // replacement reasoning was that the tile disappears once its tree is granted. That was
-        // wrong: somebody who has Termux installed and does not want it connected to Filet has
-        // no way to grant the tree, so the tile became permanent. A card nobody can dismiss is
-        // bloat on the one screen that opens first.
-        val showTermux = vm.termuxInstalled && TERMUX_CARD !in hiddenCards && app.volumes.none {
-            dev.niccc2007.filet.integrations.Termux.isTermuxTree(android.net.Uri.parse(it.node.path.path)) ||
-                it.systemLabel.startsWith("Termux")
-        }
-        // In whatever order somebody arranged them, without the ones they took off. Hold a
-        // card's heading for Rearrange and Hide; see SectionEditor, which the side bar shares.
         if (editing) {
-            item(key = "editor") {
-                // The two feeds carry their own Show and Density, under their rows. Each previews
-                // its first rows at the density being set, because the cards themselves are not
-                // on screen while the editor is.
+            item(key = "edit") {
                 // Linked, either slider moves both; switching the link on takes the density of the
                 // card it was switched on under, so the two meet at the one being looked at.
-                val feedSettings: Map<String, @Composable () -> Unit> = mapOf(
+                val options: Map<String, @Composable () -> Unit> = mapOf(
+                    HomeCards.STORAGE to {
+                        StorageOptions(
+                            layout = driveLayout,
+                            onLayout = { touch(); vm.prefs.setHomeDriveLayout(it.key) },
+                            perApp = perApp,
+                            onPerApp = { touch(); vm.prefs.setHomeDrivePerApp(it.key) },
+                            bars = bars,
+                            onBars = { touch(); vm.prefs.setHomeDriveBars(it) },
+                        )
+                    },
                     HomeCards.ARRIVED to {
-                        FeedCardSettings(
+                        FeedOptions(
                             count = FeedCard.snap(arrivedCount),
-                            onCount = { vm.prefs.setHomeArrivedCount(it) },
+                            onCount = { touch(); vm.prefs.setHomeArrivedCount(it) },
                             density = arrivedDensity,
                             onDensity = {
+                                touch()
                                 vm.prefs.setHomeArrivedDensity(it)
                                 if (feedLinked) vm.prefs.setHomeOpenedDensity(it)
                             },
                             linked = feedLinked,
                             onLinked = { on ->
+                                touch()
                                 vm.prefs.setHomeFeedLinked(on)
                                 if (on) vm.prefs.setHomeOpenedDensity(arrivedDensity)
                             },
-                            hasPreview = downloads.isNotEmpty(),
-                        ) {
-                            for (d in downloads.take(2)) FeedRow(d.node, ago(d.listedAt), d.origin, arrivedRows, onClick = {})
-                        }
+                        )
                     },
                     HomeCards.OPENED to {
-                        FeedCardSettings(
+                        FeedOptions(
                             count = FeedCard.snap(openedCount),
-                            onCount = { vm.prefs.setHomeOpenedCount(it) },
+                            onCount = { touch(); vm.prefs.setHomeOpenedCount(it) },
                             density = openedDensity,
                             onDensity = {
+                                touch()
                                 vm.prefs.setHomeOpenedDensity(it)
                                 if (feedLinked) vm.prefs.setHomeArrivedDensity(it)
                             },
                             linked = feedLinked,
                             onLinked = { on ->
+                                touch()
                                 vm.prefs.setHomeFeedLinked(on)
                                 if (on) vm.prefs.setHomeArrivedDensity(openedDensity)
                             },
-                            hasPreview = recents.isNotEmpty(),
-                        ) {
-                            for (r in recents.take(2)) {
-                                FeedRow(VNode(r.path, r.isDir, -1, r.at), ago(r.at), r.path.parent?.path, openedRows, onClick = {})
-                            }
-                        }
+                        )
+                    },
+                    HomeCards.CATEGORIES to {
+                        CategoryOptions(
+                            hidden = categoriesHidden,
+                            onToggle = { id ->
+                                touch()
+                                vm.prefs.setHomeCategoriesHidden(
+                                    HomeArrange.toggledCategory(MediaCategory.entries.map { it.id }, categoriesHidden, id),
+                                )
+                            },
+                            layouts = categoryLayouts,
+                            onLayout = { c, l -> touch(); vm.prefs.setCategoryLayout(c.id, l) },
+                        )
                     },
                 )
-                SectionEditor(
-                    HomeCards.ALL,
-                    homeLayout,
-                    emptySet(),
-                    vm.prefs::setHomeLayout,
-                    onDone = { editing = false },
-                    settings = feedSettings,
-                )
+                HomeEditCards(
+                    specs = HomeCards.ALL,
+                    layout = homeLayout,
+                    coach = !coachSeen,
+                    listState = listState,
+                    viewport = { viewport[0] },
+                    onTouched = touch,
+                    onLayout = vm.prefs::setHomeLayout,
+                    options = options,
+                ) { id ->
+                    when (id) {
+                        HomeCards.STORAGE -> storageTiles(true)
+                        HomeCards.ARRIVED -> Inert { arrivedCard(true) }
+                        HomeCards.CATEGORIES -> Inert { categoriesCard(true) }
+                        HomeCards.OPENED -> Inert { openedCard(true) }
+                        HomeCards.CACHE -> Inert { CacheReminder(vm, editing = true) {} }
+                    }
+                }
             }
         }
+        // In whatever order somebody arranged them, without the ones they took off.
         for (card in if (editing) emptyList() else homeLayout.visible) {
             when (card) {
                 HomeCards.STORAGE -> {
-                    item {
+                    item(key = "storage:head") {
                         // Bringing back what was hidden, one card or the section. Without these the
                         // per-card X is a one-way door, which is not a control, it is a trap.
                         val links: @Composable () -> Unit = {
@@ -283,207 +520,23 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                             }
                         }
                     }
-                    if (!hideStorage) {
-                        // One flow row rather than one full-width card each. A row of cards that does not
-                        // divide evenly used to leave a hole on the last line; weighting inside the flow
-                        // makes each line share the width it actually has, so three volumes read as two
-                        // and one-that-fills rather than two and a gap.
-                        item {
-                            Tiles {
-                                // A NETWORK drive that is not answering is not shown at all.
-                                //
-                                // It was drawn as an "Offline" card, which reads as a fault to go and fix
-                                // and takes a full tile to say nothing actionable. With several addresses
-                                // per remote there is also no longer a single thing to report as down: the
-                                // card comes back by itself the moment any address answers.
-                                //
-                                // The test used to be "local, or it has figures", and that is wider than it
-                                // reads: `root:` and `saf:` are not the local scheme either, so a superuser
-                                // shell that was busy or a document provider that declined for a moment took
-                                // those cards off Home as well. That is the reported fault - *the home drives
-                                // information disappears as if Filet got disconnected from my device* - and it
-                                // needed nothing more than one slow measurement. A volume on this device is
-                                // shown whether or not its size is known; only something reached over the
-                                // network has to prove it is there.
-                                val live = shown.filter {
-                                    !it.remote || (it.free != null && it.total != null)
-                                }
-                                live.forEach { v ->
-                                    tile {
-                                        val used = if (v.free != null && v.total != null && v.total > 0)
-                                            (v.total - v.free).coerceAtLeast(0) else null
-                                        // A network volume is reachable or it is not, and that is a live fact
-                                        // rather than a stored setting. A local one is simply there.
-                                        //
-                                        // `remote`, NOT a scheme test. This line read
-                                        // `v.node.path.scheme != "local"` and that is the same mistake the
-                                        // filter above was fixed for, left behind in the renderer: `root:`
-                                        // and `saf:` are not the local scheme and are not network drives
-                                        // either. The visible result was `/data`, `/system` and a granted
-                                        // media tree drawn with a Wi-Fi glyph, one of them captioned
-                                        // "Network drive not answering" - about a partition on this phone.
-                                        //
-                                        // `VolumeInfo.remote` exists precisely to be the one answer to this,
-                                        // and its own KDoc says so. Two readings of the same question is how
-                                        // the filter got fixed and the icon did not.
-                                        val net = v.remote
-                                        val reachable = v.free != null && v.total != null
-                                        StorageTile(
-                                            icon = if (net) FiletIcons.Wifi else FiletIcons.Storage,
-                                            live = if (net) reachable else null,
-                                            kind = v.label,
-                                            // Free is the number being looked for, with the denominator
-                                            // underneath. "12 GB free" alone says nothing about whether
-                                            // that is an empty card or a full phone.
-                                            value = v.free?.let { humanSize(it) }
-                                                ?: if (net) "Offline" else "—",
-                                            caption = when {
-                                                used != null && v.total != null ->
-                                                    "free of ${humanSize(v.total)} · ${humanSize(used)} used"
-                                                v.free != null -> "free"
-                                                // A network drive that does not answer is not a drive with an
-                                                // unreadable size - it is a drive that is not there, and
-                                                // saying so names something the reader can act on.
-                                                net -> "Network drive not answering"
-                                                // "Tap to open" was a promise this card could not keep. A
-                                                // volume with no readable size is usually one of /storage's
-                                                // pseudo-directories, and tapping it did nothing at all.
-                                                else -> "Size unknown - may not be readable"
-                                            },
-                                            // Only drawn when both figures are real. A bar at an invented
-                                            // percentage is a lie that looks like data.
-                                            fraction = if (used != null && v.total != null)
-                                                used.toFloat() / v.total else null,
-                                            onHide = { vm.prefs.hideCard(v.node.path.toString()) },
-                                            onLongClick = { driveFor = v.node.path to DriveDialog.MENU },
-                                            onClick = { pane.jumpTo(v.node.path) },
-                                        )
-                                    }
-                                }
-                                // Termux, if it is here. Shown only when installed, so this is not a
-                                // permanent advertisement for an app somebody does not have - and it
-                                // disappears once its tree is granted, because at that point it is a volume
-                                // in the row above like any other.
-                                if (showTermux) {
-                                    tile {
-                                        StorageTile(
-                                            icon = FiletIcons.Terminal,
-                                            kind = "Termux",
-                                            value = "Connect",
-                                            caption = "its home and usr/bin, as a volume",
-                                            onHide = { vm.prefs.hideCard(TERMUX_CARD) },
-                                            onClick = { vm.connectTermux(home = true) },
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // One flow row rather than one full-width card each, or a row per kind when
+                    // grouped. Weighting inside the flow makes each line share the width it has, so
+                    // three volumes read as two and one-that-fills rather than two and a gap.
+                    if (!hideStorage) item(key = "storage:tiles") { storageTiles(false) }
                 }
-
-                HomeCards.ARRIVED -> {
-                    if (downloads.isNotEmpty()) {
-                        // Files that turned up on the phone, newest first. Kept apart from Recently opened
-                        // below, which is files opened in Filet; each heading names its own cause, because a
-                        // subtitle under a heading is not read. See `HomeFeed` for what the list contains.
-                        //
-                        // The side bar's card fold, so Home and the drawer read as one design. One item for
-                        // the whole card: the card shows its rows - eight unless edit mode set another
-                        // count - and its last row opens the full list.
-                        item(key = "card:" + HomeFolds.ARRIVED) {
-                            SwitcherGroup(
-                                title = HomeSections.ARRIVED,
-                                detail = "",
-                                open = HomeFolds.ARRIVED !in folds,
-                                onToggle = { vm.prefs.toggleHomeFold(HomeFolds.ARRIVED) },
-                                onLongClick = { sectionMenu = HomeCards.ARRIVED },
-                                // The feed draws its last answer at once and corrects it as the read lands,
-                                // so the dots are what tell a finished list from one still being checked.
-                                trailing = if (scanning) ({ ScanningDots(); Spacer(Modifier.width(8.dp)) }) else null,
-                            ) {
-                                for (d in downloads.take(FeedCard.snap(arrivedCount))) {
-                                    FeedRow(
-                                        node = d.node,
-                                        when_ = ago(d.listedAt),
-                                        sub = d.origin,
-                                        metrics = arrivedRows,
-                                        onClick = { vm.openHomeEntry(d.node, downloads.take(FeedCard.snap(arrivedCount)).map { it.node }) },
-                                        onLongClick = { menuFor = d.node to false },
-                                    )
-                                }
-                                FullListRow(FiletIcons.Download) { pane.openSpecial(PaneKind.HISTORY, HomeSections.ARRIVED_TAB) }
-                            }
-                        }
-                    }
+                HomeCards.ARRIVED -> if (downloads.isNotEmpty()) {
+                    item(key = "card:" + HomeFolds.ARRIVED) { arrivedCard(false) }
                 }
-
-                HomeCards.CATEGORIES -> {
-                    // ---- Network -------------------------------------------------------------------
-                    //
-                    // Saved places, and anything advertising on the LAN this second. A phone that turns
-                    // hosting on appears here by itself, and disappears when it stops - which is the whole
-                    // point: a share is a thing that is happening, not a thing that was configured once.
-
-                    // ── everything of one kind, from the whole phone ───────────────────────────
-                    //
-                    // Issue #4: all the photos at once, and the same for audio, video, packages and
-                    // documents, so the app can stand in for the gallery and the music player.
-                    //
-                    // Always drawn: it does not depend on any other section having rows. All six are on
-                    // screen at once as tiles - a sideways scroller would hide half of them behind a gesture
-                    // nothing points at - in rows that divide evenly; see CategoryTiles.
-                    item(key = "card:" + HomeFolds.CATEGORIES) {
-                        SwitcherGroup(
-                            title = "Categories",
-                            detail = "",
-                            open = HomeFolds.CATEGORIES !in folds,
-                            onToggle = { vm.prefs.toggleHomeFold(HomeFolds.CATEGORIES) },
-                            onLongClick = { sectionMenu = HomeCards.CATEGORIES },
-                        ) {
-                            CategoryTiles { c -> pane.openCategory(c) }
-                        }
-                    }
+                HomeCards.CATEGORIES -> item(key = "card:" + HomeFolds.CATEGORIES) { categoriesCard(false) }
+                HomeCards.OPENED -> if (recents.isNotEmpty()) {
+                    item(key = "card:" + HomeFolds.OPENED) { openedCard(false) }
                 }
-
-                HomeCards.OPENED -> {
-                    if (recents.isNotEmpty()) {
-                        item(key = "card:" + HomeFolds.OPENED) {
-                            SwitcherGroup(
-                                title = HomeSections.OPENED,
-                                detail = "",
-                                open = HomeFolds.OPENED !in folds,
-                                onToggle = { vm.prefs.toggleHomeFold(HomeFolds.OPENED) },
-                                onLongClick = { sectionMenu = HomeCards.OPENED },
-                            ) {
-                                for (r in recents.take(FeedCard.snap(openedCount))) {
-                                    val node = VNode(r.path, r.isDir, -1, r.at)
-                                    FeedRow(
-                                        node = node,
-                                        when_ = ago(r.at),
-                                        sub = r.path.parent?.path,
-                                        metrics = openedRows,
-                                        onClick = {
-                                            if (r.isDir) {
-                                                pane.jumpTo(r.path)
-                                            } else {
-                                                val card = recents.take(FeedCard.snap(openedCount))
-                                                vm.openHomeEntry(node, card.map { VNode(it.path, it.isDir, -1, it.at) })
-                                            }
-                                        },
-                                        onLongClick = { menuFor = node to true },
-                                    )
-                                }
-                                FullListRow(FiletIcons.Clock) { pane.openSpecial(PaneKind.RECENT, HomeSections.OPENED) }
-                            }
-                        }
-                    }
-                }
-
-                HomeCards.CACHE -> item { CacheReminder(vm) { sectionMenu = HomeCards.CACHE } }
+                HomeCards.CACHE -> item(key = "card:cache") { CacheReminder(vm, editing = false) { sectionMenu = HomeCards.CACHE } }
             }
         }
 
-        if (app.volumes.isEmpty() && downloads.isEmpty() && recents.isEmpty()) {
+        if (!editing && app.volumes.isEmpty() && downloads.isEmpty() && recents.isEmpty()) {
             item {
                 EmptyTab(
                     FiletIcons.Storage,
@@ -498,9 +551,10 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         val spec = HomeCards.ALL.first { it.id == id }
         SectionMenu(
             spec,
-            onRearrange = { editing = true },
+            onRearrange = { pane.setHomeEditing(true) },
             onHide = { vm.prefs.setHomeLayout(homeLayout.hide(id, emptySet())) },
             onClose = { sectionMenu = null },
+            rearrange = FiletIcons.Rename to "Edit Home",
         )
     }
 
@@ -536,6 +590,112 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
             // Only the opened list has anything to forget. See `menuFor`.
             onForget = if (fromOpened) ({ menuFor = null; vm.forgetHomeEntry(node) }) else null,
         )
+    }
+}
+
+/**
+ * One volume's tile.
+ *
+ * A network volume is reachable or it is not, and that is a live fact rather than a stored
+ * setting. A local one is simply there.
+ *
+ * `remote`, NOT a scheme test. This read `v.node.path.scheme != "local"` once, which is the mistake
+ * the filter in [HomeOverview] was fixed for, left behind in the renderer: `root:` and `saf:` are
+ * not the local scheme and are not network drives either. The visible result was `/data`,
+ * `/system` and a granted media tree drawn with a Wi-Fi glyph, one of them captioned "Network
+ * drive not answering" - about a partition on this phone. `VolumeInfo.remote` exists precisely to
+ * be the one answer to this, and its own KDoc says so. Two readings of the same question is how
+ * the filter got fixed and the icon did not.
+ */
+@Composable
+private fun VolumeTile(
+    v: dev.niccc2007.filet.browser.VolumeInfo,
+    editing: Boolean,
+    dimmed: Boolean,
+    bar: Boolean,
+    onHide: () -> Unit,
+    onLongClick: () -> Unit,
+    onClick: () -> Unit,
+) {
+    val used = if (v.free != null && v.total != null && v.total > 0) (v.total - v.free).coerceAtLeast(0) else null
+    val net = v.remote
+    val reachable = v.free != null && v.total != null
+    StorageTile(
+        icon = if (net) FiletIcons.Wifi else FiletIcons.Storage,
+        live = if (net) reachable else null,
+        kind = v.label,
+        // Free is the number being looked for, with the denominator underneath. "12 GB free"
+        // alone says nothing about whether that is an empty card or a full phone.
+        value = v.free?.let { humanSize(it) } ?: if (net) "Offline" else "—",
+        caption = when {
+            used != null && v.total != null -> "free of ${humanSize(v.total)} · ${humanSize(used)} used"
+            v.free != null -> "free"
+            // A network drive that does not answer is not a drive with an unreadable size - it is
+            // a drive that is not there, and saying so names something the reader can act on.
+            net -> "Network drive not answering"
+            // "Tap to open" was a promise this card could not keep. A volume with no readable size
+            // is usually one of /storage's pseudo-directories, and tapping it did nothing at all.
+            else -> "Size unknown - may not be readable"
+        },
+        // Only drawn when both figures are real. A bar at an invented percentage is a lie that
+        // looks like data.
+        fraction = if (used != null && v.total != null) used.toFloat() / v.total else null,
+        onHide = onHide,
+        onLongClick = onLongClick,
+        editing = editing,
+        dimmed = dimmed,
+        bar = bar,
+        onClick = onClick,
+    )
+}
+
+/**
+ * Several folders granted from one app, as one card: the app's name, how many folders, and their
+ * names. A tap lists them, and picking one opens it. No capacity bar's figure, because a set of
+ * folders lent by an app has no capacity of its own to show.
+ */
+@Composable
+private fun AppFolderTile(
+    card: HomeArrange.AppCard,
+    volumes: Map<String, dev.niccc2007.filet.browser.VolumeInfo>,
+    editing: Boolean,
+    dimmed: Boolean,
+    bar: Boolean,
+    open: Boolean,
+    onOpen: () -> Unit,
+    onClose: () -> Unit,
+    onHide: () -> Unit,
+    onPick: (dev.niccc2007.filet.vfs.VPath) -> Unit,
+) {
+    val context = LocalContext.current
+    // The app's own name, from the system: whoever answers for the folders' authority.
+    val app = remember(card.authority) {
+        runCatching {
+            val pm = context.packageManager
+            pm.resolveContentProvider(card.authority, 0)?.applicationInfo?.loadLabel(pm)?.toString()
+        }.getOrNull() ?: card.authority
+    }
+    val members = card.ids.mapNotNull { volumes[it] }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    var tall by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    Box(Modifier.onSizeChanged { tall = it.height }) {
+        StorageTile(
+            icon = FiletIcons.Storage,
+            kind = app,
+            value = "${members.size} folders",
+            caption = members.joinToString(", ") { it.label },
+            onHide = onHide,
+            editing = editing,
+            dimmed = dimmed,
+            bar = bar,
+            onClick = onOpen,
+        )
+        // Under the tile, not over it, so the card it came from stays in sight.
+        dev.niccc2007.filet.ui.dialogs.PopMenu(expanded = open, onDismiss = onClose, below = with(density) { tall.toDp() }) {
+            for (v in members) {
+                dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Folder, v.label) { onPick(v.node.path) }
+            }
+        }
     }
 }
 
@@ -584,7 +744,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun CacheReminder(vm: BrowserViewModel, onLongClick: () -> Unit) {
+private fun CacheReminder(vm: BrowserViewModel, editing: Boolean, onLongClick: () -> Unit) {
     val colors = Filet.colors
     val context = LocalContext.current
     val where by vm.prefs.cacheLocation.collectAsState()
@@ -597,7 +757,11 @@ private fun CacheReminder(vm: BrowserViewModel, onLongClick: () -> Unit) {
     }
     val past by vm.prefs.cacheRemindPast.collectAsState()
     val dismissed by vm.prefs.cacheRemindDismissed.collectAsState()
-    if (where != FiletStore.Location.FILET || !FiletStore.shouldRemind(bytes, past, dismissed)) return
+    if (where != FiletStore.Location.FILET || !FiletStore.shouldRemind(bytes, past, dismissed)) {
+        // Editing, the card still has a place to be moved and hidden from, and says when it shows.
+        if (editing) EditPlaceholder("Shows here when Filet's own files grow past the reminder size.")
+        return
+    }
 
     Row(
         Modifier
@@ -800,13 +964,13 @@ private fun FullListRow(icon: androidx.compose.ui.graphics.vector.ImageVector, o
  * the width the card actually has, and refuses any count that would strand a single tile.
  */
 @Composable
-private fun CategoryTiles(onOpen: (MediaCategory) -> Unit) {
+private fun CategoryTiles(shown: List<MediaCategory>, onOpen: (MediaCategory) -> Unit) {
     androidx.compose.foundation.layout.BoxWithConstraints(
         Modifier.fillMaxWidth().padding(horizontal = CategoryGrid.EDGE_DP.dp, vertical = 4.dp),
     ) {
-        val cols = CategoryGrid.columns(maxWidth.value, MediaCategory.entries.size)
+        val cols = CategoryGrid.columns(maxWidth.value, shown.size)
         Column(verticalArrangement = Arrangement.spacedBy(CategoryGrid.GAP_DP.dp)) {
-            for (row in CategoryGrid.layout(cols)) {
+            for (row in CategoryGrid.layoutOf(cols, shown)) {
                 CategoryRow(cols, row, onOpen)
             }
         }
@@ -900,6 +1064,17 @@ internal object CategoryGrid {
      * row over a files row. Two - a narrow split - stacks the two triangles, the third of each
      * across the whole width. Pure, so where every tile lands is a test.
      */
+    fun layoutOf(cols: Int, shown: Collection<MediaCategory>): List<List<Slot>> {
+        val list = (MEDIA + FILES).filter { it in shown }
+        if (list.size == MEDIA.size + FILES.size) return layout(cols)
+        // Some taken off in the edit state: plain rows in the same media-then-files order, the last
+        // row's tiles widened to fill it, since the two triangles no longer have three a side.
+        return list.chunked(cols.coerceAtLeast(1)).map { row ->
+            val span = cols.toFloat() / row.size
+            row.mapIndexed { i, c -> Slot(c, i * span, span) }
+        }
+    }
+
     fun layout(cols: Int): List<List<Slot>> = when {
         cols >= MEDIA.size + FILES.size ->
             listOf((MEDIA + FILES).mapIndexed { i, c -> Slot(c, i.toFloat()) })
@@ -1013,7 +1188,7 @@ private fun CategoryChip(
  * dismissing it works the same way, survives a restart, and comes back with "show hidden
  * cards" like everything else there.
  */
-private const val TERMUX_CARD = "offer:termux"
+private const val TERMUX_CARD = HomeArrange.TERMUX_OFFER
 
 /** The last row of the New files and Recently opened cards: opens the whole list. */
 private const val FULL_LIST_LABEL = "See all"

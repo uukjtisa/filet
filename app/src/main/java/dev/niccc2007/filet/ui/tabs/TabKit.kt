@@ -47,7 +47,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -900,7 +902,7 @@ fun EmptyTab(icon: ImageVector, title: String, line: String? = null) {
  * `.tiles`. A wrapping row whose last row fills rather than leaving a hole.
  *
  * A fixed grid leaves an empty track whenever the count is not a multiple of the column count,
- * which is what he pointed at on Home. Weighting inside a flow row makes each row divide the
+ * which showed on Home as a hole after the last card. Weighting inside a flow row makes each row divide the
  * width it actually has, so three tiles become 2 + 1-that-is-full-width rather than 2 + 1 + a
  * gap. [TileScope.tile] carries the weight, so a caller cannot forget it.
  */
@@ -972,24 +974,61 @@ fun StorageTile(
     live: Boolean? = null,
     /** A hold on the tile. Null leaves it a plain tap target. */
     onLongClick: (() -> Unit)? = null,
+    /**
+     * Drawn for Home's edit state: a grip leads the heading, the close is not drawn (the eye at
+     * the corner does that job there), and the tile takes no tap or hold of its own, because the
+     * hold is what moves it and a tap would leave Home.
+     */
+    editing: Boolean = false,
+    /** A drive taken off Home, still drawn while editing so it can be put back: faint and dashed. */
+    dimmed: Boolean = false,
+    /** The capacity bar's line. Off, the tile ends at its caption. */
+    bar: Boolean = true,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
+    val shape = RoundedCornerShape(13.dp)
+    val outline = MaterialTheme.colorScheme.outline
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(13.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(13.dp))
+            .then(if (dimmed) Modifier.alpha(0.38f) else Modifier)
+            .clip(shape)
+            .then(
+                if (dimmed) Modifier.drawBehind {
+                    val w = 1.dp.toPx()
+                    drawRoundRect(
+                        outline,
+                        topLeft = androidx.compose.ui.geometry.Offset(w / 2, w / 2),
+                        size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(13.dp.toPx() - w / 2),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            w,
+                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())),
+                        ),
+                    )
+                } else Modifier.border(1.dp, outline, shape),
+            )
             .background(MaterialTheme.colorScheme.surface)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 11.dp),
+            .then(if (editing) Modifier else Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick))
+            // Editing, the grip sits 5dp further out than the icon would and 4dp from it - the
+            // mock's margins - so the heading starts at 7 rather than 12.
+            .padding(start = if (editing) 7.dp else 12.dp, end = 8.dp, top = 8.dp, bottom = 11.dp),
     ) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(icon, null, tint = colors.accent, modifier = Modifier.size(13.dp))
+            if (editing) {
+                // The grip and the drive's own icon as one lead-in, not two spaced glyphs.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(dev.niccc2007.filet.browser.FiletIcons.Grip, null, tint = colors.fg3, modifier = Modifier.size(13.dp))
+                    Icon(icon, null, tint = colors.accent, modifier = Modifier.size(13.dp))
+                }
+            } else {
+                Icon(icon, null, tint = colors.accent, modifier = Modifier.size(13.dp))
+            }
             if (live != null) {
                 // Breathing while it is reachable, still when it is not. A blink says "being
                 // checked"; a steady dot on an unreachable drive says nothing at all.
@@ -1032,7 +1071,7 @@ fun StorageTile(
             // Hiding has to stay reachable from the tile. The card this replaced carried it,
             // and a card you can hide from one place and only restore from another is the
             // one-way door the restore link at the section heading exists to undo.
-            if (onHide != null) {
+            if (onHide != null && !editing) {
                 Icon(
                     dev.niccc2007.filet.browser.FiletIcons.Close,
                     "Hide this card",
@@ -1061,7 +1100,9 @@ fun StorageTile(
         // A tile with no figure used to omit it entirely and end up visibly shorter than the one
         // beside it, which in a two-up row reads as the card having failed to finish loading.
         // An empty track is honest - there is a bar here and it has nothing to say - and it keeps
-        // the row even.
+        // the row even. With the bars turned off in Home's edit state no tile has one, so every
+        // tile ends at its caption and the row stays even that way.
+        if (!bar) return@Column
         Spacer(Modifier.height(8.dp))
         Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(colors.sunken)) {
             if (fraction != null) {
