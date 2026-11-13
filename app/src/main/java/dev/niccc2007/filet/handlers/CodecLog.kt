@@ -14,8 +14,15 @@ package dev.niccc2007.filet.handlers
  */
 internal object CodecLog {
 
-    /** Tags the codec layer writes under, in this process. */
-    private val TAGS = listOf("CCodec", "MediaCodec", "Codec2", "CCodecConfig", "CCodecBufferChannel", "ACodec", "C2")
+    /**
+     * Tags the codec layer writes under, in this process: these exactly, and any tag starting with
+     * one of [FAMILIES]. Bug identified here: "MediaCodec" was matched as a start too, which let in
+     * Media3's own `MediaCodecRenderer` and `MediaCodecVideoRenderer`, and the forty lines kept
+     * after a refusal were forty lines of a Java stack trace with the platform's own lines pushed
+     * out.
+     */
+    private val TAGS = setOf("MediaCodec", "ACodec")
+    private val FAMILIES = listOf("CCodec", "Codec2", "C2")
 
     /**
      * The lines worth keeping from a dump of this process's log: the codec layer's warnings and
@@ -24,7 +31,7 @@ internal object CodecLog {
     fun relevant(lines: List<String>, max: Int = MAX_LINES): List<String> =
         lines.filter { line ->
             val tag = tagOf(line) ?: return@filter false
-            val codec = TAGS.any { tag == it || tag.startsWith(it) }
+            val codec = tag in TAGS || FAMILIES.any { tag.startsWith(it) }
             if (!codec) return@filter false
             val level = levelOf(line)
             level == 'E' || level == 'W' || line.contains("fail", ignoreCase = true) || line.contains("error", ignoreCase = true)

@@ -33,8 +33,9 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
  *
  * Declared limits are conservative: a hardware decoder usually plays a file somewhat past them, and
  * VLC owes much of its smoothness to trying. Trying is a test start, once per kind of file (see
- * [HardwareProbe]): a decoder that starts gets the file, and one that refuses is passed over, so
- * the picture goes to FFmpeg where the build has it rather than to Google's software decoder.
+ * [HardwareProbe]): a decoder that starts gets the file, set up the way it started, and one that
+ * refuses is passed over, so the picture goes to FFmpeg where the build has it rather than to
+ * Google's software decoder.
  */
 @OptIn(UnstableApi::class)
 internal object HardwareFirst {
@@ -90,10 +91,13 @@ internal object HardwareFirst {
         return listOfNotNull(what, text).joinToString(": ").ifEmpty { kind }
     }
 
+    /** Media3's `CODEC_OPERATING_RATE_UNSET`: no operating rate given to the decoder. */
+    const val NO_OPERATING_RATE = -1f
+
     /**
      * Media3's video renderer, asking for decoders in [order] and answering for formats through
-     * [upgrade] - but only for a hardware decoder that really starts on files like this one. See
-     * [HardwareProbe].
+     * [upgrade] - but only for a hardware decoder that really starts on files like this one, and
+     * set up the way it was found to start. See [HardwareProbe].
      */
     class VideoRenderer(context: Context, builder: MediaCodecVideoRenderer.Builder) : MediaCodecVideoRenderer(builder) {
         private val app = context.applicationContext
@@ -125,7 +129,11 @@ internal object HardwareFirst {
             return ordered
         }
 
-        /** Every start written down with the setup it was given: the half of a refusal the platform's message leaves out. */
+        /**
+         * Every start written down with the setup it was given: the half of a refusal the
+         * platform's message leaves out. A decoder the test start found to start only with no rate
+         * declared is set up that way here - see [HardwareProbe.Start.UNDECLARED].
+         */
         override fun getMediaCodecConfiguration(
             codecInfo: MediaCodecInfo,
             format: Format,
@@ -133,8 +141,24 @@ internal object HardwareFirst {
             codecOperatingRate: Float,
         ): MediaCodecAdapter.Configuration {
             val config = super.getMediaCodecConfiguration(codecInfo, format, crypto, codecOperatingRate)
-            dev.niccc2007.filet.log.FiletLog.i("video") { "starting ${codecInfo.name}: ${config.mediaFormat}" }
+            val undeclared = HardwareProbe.undeclared(codecInfo.name, format)
+            if (undeclared) HardwareProbe.undeclare(config.mediaFormat)
+            dev.niccc2007.filet.log.FiletLog.i("video") {
+                "starting ${codecInfo.name}" + (if (undeclared) " with no rate declared" else "") + ": ${config.mediaFormat}"
+            }
             return config
+        }
+
+        /**
+         * No operating rate for a decoder that only starts without one. Bug identified here: taking
+         * the rate out of the first setup alone is not enough, because Media3 sets the operating
+         * rate again on the running decoder once it has estimated the frame rate, or when the
+         * speed changes, and the chip would be asked again for the budget it already refused.
+         */
+        override fun getCodecOperatingRateV23(targetPlaybackSpeed: Float, format: Format, streamFormats: Array<out Format>): Float {
+            val info = codecInfo
+            if (info != null && HardwareProbe.undeclared(info.name, format)) return NO_OPERATING_RATE
+            return super.getCodecOperatingRateV23(targetPlaybackSpeed, format, streamFormats)
         }
 
         /**

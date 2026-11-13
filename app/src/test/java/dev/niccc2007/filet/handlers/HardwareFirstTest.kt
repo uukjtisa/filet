@@ -3,6 +3,7 @@ package dev.niccc2007.filet.handlers
 import androidx.media3.common.C
 import androidx.media3.exoplayer.RendererCapabilities
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -80,6 +81,15 @@ class HardwareFirstTest {
         assertTrue(a != HardwareProbe.key("c2.qti.avc.decoder", "video/avc", 1080, 1920, 60f))
         assertTrue(a != HardwareProbe.key("c2.qti.avc.decoder.low_latency", "video/avc", 2160, 3402, 60f))
         assertEquals("d|null|0x0|0", HardwareProbe.key("d", null, 0, 0, -1f))
+    }
+
+    @Test fun `an answer is kept for the run, a busy one only for the opening that got it`() {
+        assertTrue(HardwareProbe.keep(busy = false, ageMs = 0))
+        assertTrue(HardwareProbe.keep(busy = false, ageMs = 3L * 24 * 60 * 60 * 1000))
+        assertTrue(HardwareProbe.keep(busy = true, ageMs = 1_500))
+        assertFalse(HardwareProbe.keep(busy = true, ageMs = HardwareProbe.BUSY_KEEP_MS))
+        // A clock that went back is not a reason to trust a busy answer.
+        assertFalse(HardwareProbe.keep(busy = true, ageMs = -5))
     }
 
     @Test fun `a refusal is said in words, with the platform's code read`() {

@@ -15,6 +15,8 @@ class CodecLogTest {
         "11-13 16:01:52.692 I/CCodecConfig(17196): query failed after returning 12 values (BAD_INDEX)",
         "11-13 16:01:52.700 D/CCodecBufferChannel(17196): [c2.android.avc.decoder#818] Created input block pool",
         "11-13 16:01:52.701 E/ExoPlayerImpl(17196): something else entirely",
+        "11-13 16:01:52.702 W/MediaCodecRenderer(17196): \tat androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.initCodec",
+        "11-13 16:01:52.703 E/MediaCodecVideoRenderer(17196): Video codec error",
     )
 
     @Test fun `the codec layer's warnings, errors and failures are kept, in order`() {
@@ -26,6 +28,12 @@ class CodecLogTest {
             ),
             CodecLog.relevant(dump),
         )
+    }
+
+    @Test fun `Media3's own renderers are not the codec layer, though their tags start the same`() {
+        // The two lines at the end of the dump: a stack trace's frame and Media3's error line.
+        // Matched as codec lines, a trace filled the whole capture.
+        assertEquals(3, CodecLog.relevant(dump).size)
     }
 
     @Test fun `only the newest lines are kept when there are many`() {
