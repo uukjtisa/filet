@@ -235,6 +235,12 @@ private class PreviewSource {
 @Composable
 fun VideoScreen(vm: BrowserViewModel, node: VNode) {
     val runPage = LocalViewerRun.current
+    // The hardware decoder kept for the player while this screen is up: no preview frames read
+    // for the gallery or list behind it. See Thumbnails.holdVideoFrames.
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val hold = dev.niccc2007.filet.media.Thumbnails.holdVideoFrames()
+        onDispose { hold.close() }
+    }
     val nextPlays = vm.prefs.videoNextPlays.collectAsStateWithLifecycle().value
     // Decided once, as the video arrives: the setting changing while it is up does not start it.
     var face by remember(node.path) {

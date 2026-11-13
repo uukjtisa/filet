@@ -557,8 +557,12 @@ internal object GalleryCells {
         return Grid(columns, tile, gap)
     }
 
-    /** What [FileThumb] decodes for a tile of [side] - the same sum, so the warm-up matches it. */
-    fun decodePx(side: Dp): Int = (side.value * 2.5f).toInt().coerceIn(48, 320)
+    /**
+     * What [FileThumb] decodes for a tile of [side] - the same sum, so the warm-up matches it. See
+     * [dev.niccc2007.filet.media.ThumbSize.forSlot].
+     */
+    fun decodePx(side: Dp, density: Float = android.content.res.Resources.getSystem().displayMetrics.density): Int =
+        dev.niccc2007.filet.media.ThumbSize.forSlot(side.value, density)
 
     /** Headers and tiles in reading order, leaving out the tiles of a folded day. */
     fun of(groups: List<DayGroup>, collapsed: Set<String>): List<GalleryCell> {

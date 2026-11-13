@@ -188,13 +188,13 @@ private fun PeekPicture(node: VNode) {
 @Composable
 private fun rememberPeekBitmap(node: VNode): Bitmap? {
     val context = LocalContext.current
-    val known = remember(node.path) { Thumbnails.peek(node.path, node.size, node.mtime, PEEK_PX)?.bitmap }
+    val known = remember(node.path) { Thumbnails.peek(node.path, node.size, node.mtime, PEEK_PX, Thumbnails.Shape.WHOLE)?.bitmap }
     var bitmap by remember(node.path) { mutableStateOf(known) }
     if (known == null) {
         LaunchedEffect(node.path) {
             val graph = runCatching { FiletApp.graphOf(context) }.getOrNull() ?: return@LaunchedEffect
             bitmap = runCatching {
-                Thumbnails.load(context, graph.vfs, node.path, node.size, node.mtime, PEEK_PX)
+                Thumbnails.load(context, graph.vfs, node.path, node.size, node.mtime, PEEK_PX, shape = Thumbnails.Shape.WHOLE)
             }.getOrNull()
         }
     }

@@ -14,6 +14,8 @@ import dev.niccc2007.filet.vfs.Vfs
 import dev.niccc2007.filet.vfs.types.FileTypes
 import dev.niccc2007.filet.vfs.types.TypeKind
 import java.io.ByteArrayOutputStream
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 
 /**
  * Previews for the things that have one: images, video frames, APK icons.
@@ -40,8 +42,8 @@ object Thumbnails {
      * up evicted everything on the way down and re-decoded all of it on the way back. Sized
      * against the heap instead, a scroll-back is a cache hit.
      */
-    private val CACHE_BYTES: Int = (Runtime.getRuntime().maxMemory() / 8)
-        .coerceIn(6L * 1024 * 1024, 48L * 1024 * 1024)
+    private val CACHE_BYTES: Int = (Runtime.getRuntime().maxMemory() / 6)
+        .coerceIn(6L * 1024 * 1024, 96L * 1024 * 1024)
         .toInt()
 
     private val cache = object : LruCache<String, Answer>(CACHE_BYTES) {
@@ -57,6 +59,14 @@ object Thumbnails {
     class Answer internal constructor(val bitmap: Bitmap?)
 
     /**
+     * What a preview is for. A square one is cropped from the middle at decode, sized on its short
+     * edge, because every list row, tile and folder picture draws it cropped to a square - see
+     * [ThumbSize]. A whole one keeps the picture's shape, sized on its long edge, for the peek and
+     * the viewer's poster, which show all of it.
+     */
+    enum class Shape { SQUARE, WHOLE }
+
+    /**
      * Which preview an extension gets, if any, from the file type table. Asking is cheap; opening
      * a 4 GB mkv to find out is not.
      *
@@ -67,9 +77,23 @@ object Thumbnails {
      * and which sound formats can carry cover art: a bare WAV has no tag container, and asking
      * keeps a pointless extractor spin-up off every .wav in a folder.
      */
-    private fun previewOf(extension: String): TypeKind? =
-        if (FileTypes.norm(extension) == APK) TypeKind.APK
-        else FileTypes.thumbnailKind(extension, Build.VERSION.SDK_INT)
+    private fun previewOf(extension: String): Kind? = when {
+        FileTypes.norm(extension) == APK -> Kind.APK
+        dev.niccc2007.filet.handlers.SvgPicture.handles(extension) -> Kind.SVG
+        else -> when (FileTypes.thumbnailKind(extension, Build.VERSION.SDK_INT)) {
+            TypeKind.IMAGE -> Kind.IMAGE
+            TypeKind.VIDEO -> Kind.VIDEO
+            TypeKind.AUDIO -> Kind.AUDIO
+            else -> null
+        }
+    }
+
+    /**
+     * Where a preview comes from. SVG is its own: the type table gives a vector no preview, since
+     * `BitmapFactory` cannot read one, so every .svg was a page with a tag on it. Bug identified
+     * there; it is now drawn with the viewer's own renderer, once, and kept like any other preview.
+     */
+    private enum class Kind { IMAGE, SVG, VIDEO, AUDIO, APK }
 
     private const val APK = "apk"
 
@@ -80,13 +104,17 @@ object Thumbnails {
      * its old size and time does not find its old pixels - a photo turned and saved would
      * otherwise keep its old thumbnail wherever the list had not been read again yet.
      */
-    fun forget(path: VPath) {
+    fun forget(context: Context, path: VPath) {
         val prefix = "$path|"
         cache.snapshot().keys.filter { it.startsWith(prefix) }.forEach { cache.remove(it) }
+        ThumbDisk.forget(context, path.toString())
     }
 
-    private fun keyOf(path: VPath, size: Long, mtime: Long, px: Int) =
-        "$path|$size|$mtime|$px"
+    private fun keyOf(path: VPath, size: Long, mtime: Long, px: Int, shape: Shape) =
+        "$path|" + restOf(size, mtime, px, shape)
+
+    /** The key less the path: what tells two previews of one file apart on disk. */
+    private fun restOf(size: Long, mtime: Long, px: Int, shape: Shape) = "$size|$mtime|$px|$shape|v2"
 
     /**
      * @param px the longest edge wanted, in pixels.
@@ -103,15 +131,37 @@ object Thumbnails {
      * folder free: without it, every row that returned to the screen started a coroutine to ask
      * a question that was already answered.
      */
-    fun peek(path: VPath, size: Long, mtime: Long, px: Int): Answer? =
-        cache.get(keyOf(path, size, mtime, px))
+    fun peek(path: VPath, size: Long, mtime: Long, px: Int, shape: Shape = Shape.SQUARE): Answer? =
+        cache.get(keyOf(path, size, mtime, px, shape))
 
     /**
      * The same queue the playlist rows use, for the same three reasons: newest row first, work
      * never thrown away when a row scrolls off, and a hard ceiling on how many decodes run at
      * once. See [LoadQueue].
      */
-    private val queue = LoadQueue(workers = 2)
+    private val queue = LoadQueue(workers = 4)
+
+    /**
+     * Video frames are read by the phone's hardware decoder, and it has room for only so many at
+     * once. Two at a time here, whatever the queue's width, so a gallery of videos cannot take
+     * every decoder session the phone has.
+     */
+    private val videoGate = java.util.concurrent.Semaphore(2)
+
+    /** How many full-screen players are open; video frames wait while any is. See [holdVideoFrames]. */
+    private val videoHolds = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+    /**
+     * No video frame read for a preview until the returned handle is closed. For the full-screen
+     * player, which needs the hardware decoder to itself: a 4K, 60 fps video takes most of what
+     * the chip has, and a preview frame being read behind it - in the gallery the player was opened
+     * from - is enough for the chip to refuse the player. Pictures, covers and icons carry on.
+     */
+    fun holdVideoFrames(): AutoCloseable {
+        videoHolds.update { it + 1 }
+        val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+        return AutoCloseable { if (closed.compareAndSet(false, true)) videoHolds.update { (it - 1).coerceAtLeast(0) } }
+    }
 
     /**
      * Decode for a row on screen, or join a decode already running for the same file.
@@ -128,37 +178,51 @@ object Thumbnails {
         mtime: Long,
         px: Int,
         ahead: Boolean = false,
+        shape: Shape = Shape.SQUARE,
     ): Bitmap? {
-        val key = keyOf(path, size, mtime, px)
+        val key = keyOf(path, size, mtime, px, shape)
         cache.get(key)?.let { return it.bitmap }
-        val body = { get(context, vfs, path, size, mtime, px); Unit }
+        if (previewOf(FileTypes.extensionOf(path.name)) == Kind.VIDEO && videoHolds.value > 0) {
+            videoHolds.first { it == 0 }
+        }
+        val body = { get(context, vfs, path, size, mtime, px, shape); Unit }
         if (ahead) queue.ahead(key, body) else queue.join(key, body)
         return cache.get(key)?.bitmap
     }
 
-    fun get(context: Context, vfs: Vfs, path: VPath, size: Long, mtime: Long, px: Int): Bitmap? {
-        val key = keyOf(path, size, mtime, px)
+    fun get(context: Context, vfs: Vfs, path: VPath, size: Long, mtime: Long, px: Int, shape: Shape = Shape.SQUARE): Bitmap? {
+        val key = keyOf(path, size, mtime, px, shape)
         cache.get(key)?.let { return it.bitmap }
+        val rest = restOf(size, mtime, px, shape)
+        ThumbDisk.read(context, path.toString(), rest)?.let {
+            cache.put(key, Answer(it))
+            return it
+        }
 
         val ext = FileTypes.extensionOf(path.name)
         val os = vfs.osPath(path)
+        val square = shape == Shape.SQUARE
         val bitmap = runCatching {
             when (previewOf(ext)) {
-                TypeKind.IMAGE -> fromImage(vfs, path, os, px, ext)
-                TypeKind.VIDEO -> os?.let { fromVideo(it, px) }
-                TypeKind.AUDIO -> os?.let { fromAudio(it, px) }
-                TypeKind.APK -> os?.let { fromApk(context, it, px) }
-                else -> null
+                Kind.IMAGE -> fromImage(vfs, path, os, px, ext, square)
+                Kind.SVG -> fromSvg(vfs, path, px, square)
+                Kind.VIDEO -> os?.let { fromVideo(it, px, square) }
+                Kind.AUDIO -> os?.let { fromAudio(it, px, square) }
+                Kind.APK -> os?.let { fromApk(context, it, px) }
+                null -> null
             }
         }.getOrNull()
 
         cache.put(key, Answer(bitmap))
+        // Failures are not written down: a file that would not decode today may be a download
+        // that had not finished, and memory already stops it being tried again this run.
+        if (bitmap != null) ThumbDisk.write(context, path.toString(), rest, bitmap)
         return bitmap
     }
 
     // ── images ──
 
-    private fun fromImage(vfs: Vfs, path: VPath, os: String?, px: Int, ext: String): Bitmap? {
+    private fun fromImage(vfs: Vfs, path: VPath, os: String?, px: Int, ext: String, square: Boolean): Bitmap? {
         // Two passes. The first reads only the header to learn the dimensions, which is why
         // `inJustDecodeBounds` exists and why this never allocates the full image.
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -170,15 +234,17 @@ object Thumbnails {
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
         val opts = BitmapFactory.Options().apply {
-            inSampleSize = sampleFor(bounds.outWidth, bounds.outHeight, px)
-            inPreferredConfig = Bitmap.Config.RGB_565   // half the memory, invisible at this size
+            inSampleSize = ThumbSize.sample(bounds.outWidth, bounds.outHeight, px, square)
+            // Full colour. RGB_565 halved the memory and banded every sky and face into steps,
+            // which is a good part of why previews looked low-resolution. See ThumbSize.
+            inPreferredConfig = Bitmap.Config.ARGB_8888
         }
         val full = if (os != null) {
             BitmapFactory.decodeFile(os, opts)
         } else {
             vfs.openReadBlocking(path).use { BitmapFactory.decodeStream(it, null, opts) }
         } ?: return null
-        return scaleTo(full, px).upright(orientationOf(vfs, path, ext))
+        return fit(full, px, square).upright(orientationOf(vfs, path, ext))
     }
 
     /**
@@ -197,51 +263,74 @@ object Thumbnails {
     }
 
     /**
-     * The power of two that gets the image just under the target.
-     *
-     * `inSampleSize` only honours powers of two, so overshooting and scaling once afterwards
-     * is both faster and sharper than asking for an exact size.
+     * [source] brought to [px] - on its short edge and cropped to the middle square when
+     * [square], on its long edge otherwise - recycling what it replaces. See [ThumbSize].
      */
-    private fun sampleFor(w: Int, h: Int, px: Int): Int {
-        var sample = 1
-        var longest = maxOf(w, h)
-        while (longest / 2 >= px) {
-            longest /= 2
-            sample *= 2
-        }
-        return sample
+    private fun fit(source: Bitmap, px: Int, square: Boolean): Bitmap {
+        val (w, h) = ThumbSize.scaled(source.width, source.height, px, square)
+        val scaled = if (w == source.width && h == source.height) source
+        else Bitmap.createScaledBitmap(source, w, h, true).also { if (it !== source) source.recycle() }
+        if (!square || scaled.width == scaled.height) return scaled
+        val (left, top, side) = ThumbSize.crop(scaled.width, scaled.height)
+        val cropped = Bitmap.createBitmap(scaled, left, top, side, side)
+        if (cropped !== scaled) scaled.recycle()
+        return cropped
     }
 
-    private fun scaleTo(source: Bitmap, px: Int): Bitmap {
-        val longest = maxOf(source.width, source.height)
-        if (longest <= px) return source
-        val ratio = px.toFloat() / longest
-        val scaled = Bitmap.createScaledBitmap(
-            source,
-            (source.width * ratio).toInt().coerceAtLeast(1),
-            (source.height * ratio).toInt().coerceAtLeast(1),
-            true,
-        )
-        if (scaled !== source) source.recycle()
-        return scaled
+    // ── svg ──
+
+    /**
+     * An SVG drawn by the viewer's own renderer, its long side at [px]. A square preview gets the
+     * whole drawing centred in the square rather than cropped: an SVG is usually an icon or a
+     * logo, and its edges are the part that says what it is.
+     */
+    private fun fromSvg(vfs: Vfs, path: VPath, px: Int, square: Boolean): Bitmap? {
+        val bytes = vfs.openReadBlocking(path).use { dev.niccc2007.filet.handlers.SvgPicture.readCapped(it) } ?: return null
+        val drawn = dev.niccc2007.filet.handlers.SvgPicture.render(bytes, px) ?: return null
+        if (!square || drawn.width == drawn.height) return drawn
+        val out = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+        Canvas(out).drawBitmap(drawn, ((px - drawn.width) / 2).toFloat(), ((px - drawn.height) / 2).toFloat(), null)
+        drawn.recycle()
+        return out
     }
 
     // ── video ──
 
-    private fun fromVideo(os: String, px: Int): Bitmap? {
+    private fun fromVideo(os: String, px: Int, square: Boolean): Bitmap? {
+        videoGate.acquireUninterruptibly()
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(os)
             // A frame one second in, not frame zero: the first frame of a phone video is very
             // often black, and a grid of black squares is worse than no thumbnails at all.
-            val frame = retriever.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            val frame = scaledFrame(retriever, px, square)
+                ?: retriever.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 ?: retriever.frameAtTimeCompat()
-            frame?.let { scaleTo(it, px) }
+            frame?.let { fit(it, px, square) }
         } catch (e: Throwable) {
             null
         } finally {
             runCatching { retriever.release() }
+            videoGate.release()
         }
+    }
+
+    /**
+     * The frame already brought down to the preview's size by the platform, where it can (Android
+     * 8.1 and up). Without it a 4K frame is decoded into a 33 MB bitmap only to be shrunk to a few
+     * hundred pixels, which is most of what a video preview cost. The box is square and as wide as
+     * the long edge the preview needs, since the platform keeps the frame's shape inside it and the
+     * frame may be turned.
+     */
+    private fun scaledFrame(retriever: MediaMetadataRetriever, px: Int, square: Boolean): Bitmap? {
+        if (Build.VERSION.SDK_INT < 27) return null
+        val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: return null
+        val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: return null
+        val (sw, sh) = ThumbSize.scaled(w, h, px, square)
+        val box = maxOf(sw, sh)
+        return runCatching {
+            retriever.getScaledFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, box, box)
+        }.getOrNull()
     }
 
     private fun MediaMetadataRetriever.frameAtTimeCompat(): Bitmap? =
@@ -258,7 +347,7 @@ object Thumbnails {
      * has no entry, and it answers per ALBUM rather than per file, so one mistagged track
      * gives the whole folder somebody else's cover.
      */
-    private fun fromAudio(os: String, px: Int): Bitmap? {
+    private fun fromAudio(os: String, px: Int, square: Boolean): Bitmap? {
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(os)
@@ -268,9 +357,9 @@ object Thumbnails {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
             val opts = BitmapFactory.Options().apply {
-                inSampleSize = sampleFor(bounds.outWidth, bounds.outHeight, px)
+                inSampleSize = ThumbSize.sample(bounds.outWidth, bounds.outHeight, px, square)
             }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.let { scaleTo(it, px) }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.let { fit(it, px, square) }
         } catch (e: Throwable) {
             null
         } finally {
@@ -303,7 +392,7 @@ object Thumbnails {
     }
 
     private fun Drawable.toBitmap(px: Int): Bitmap {
-        if (this is BitmapDrawable && bitmap != null) return scaleTo(bitmap, px)
+        if (this is BitmapDrawable && bitmap != null) return fit(bitmap, px, square = false)
         val out = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         setBounds(0, 0, px, px)

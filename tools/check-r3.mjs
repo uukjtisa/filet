@@ -89,6 +89,12 @@ const ALLOWED = [
   // has to read the same bytes twice. cacheDir, hashed filenames, never a user path, and the
   // handles stop here - the composable above it only ever sees an ImageBitmap.
   "app/src/main/java/dev/niccc2007/filet/update/NoteImages.kt",
+  // The previews' disk cache. A preview decoded from a file is written down so it is never
+  // decoded from that file again; what goes in came out of Thumbnails, which read the source
+  // through the VFS or an OS path the VFS answered. cacheDir, hashed folder and file names,
+  // size-capped and evicted here; it never builds a user path, and the handles stop here -
+  // callers get a Bitmap.
+  "app/src/main/java/dev/niccc2007/filet/media/ThumbDisk.kt",
   // apksig, smali and ARSCLib all take java.io.File and refuse streams. Every path this
   // package touches came from Vfs.osPath or from AppFiles.
   "app/src/main/java/dev/niccc2007/filet/apk/",

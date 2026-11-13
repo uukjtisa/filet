@@ -230,7 +230,8 @@ private fun Fallback(
  * for exactly the size the row will: the cache is keyed on it, and a warm-up at a different
  * size is a decode nobody uses followed by the one that was needed.
  */
-internal fun thumbPx(slotDp: Float): Int = (slotDp * 2.5f).toInt().coerceIn(48, 320)
+internal fun thumbPx(slotDp: Float): Int =
+    dev.niccc2007.filet.media.ThumbSize.forSlot(slotDp, android.content.res.Resources.getSystem().displayMetrics.density)
 
 /**
  * How long a row must stay on screen before its preview is worth decoding.

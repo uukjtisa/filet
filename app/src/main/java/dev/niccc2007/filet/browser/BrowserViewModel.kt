@@ -4130,7 +4130,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * old way up there.
      */
     private fun pictureWritten(target: VPath) {
-        dev.niccc2007.filet.media.Thumbnails.forget(target)
+        dev.niccc2007.filet.media.Thumbnails.forget(graph.app, target)
         dev.niccc2007.filet.media.MediaAnnounce.announce(graph.app, listOf(target))
         refreshPanes()
     }

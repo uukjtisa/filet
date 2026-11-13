@@ -73,10 +73,12 @@ class CategoryLayoutTest {
 
     @Test
     fun `the warm-up asks for the same pixels the tile draws`() {
-        // The FileThumb sum: a mismatch here is a decode per tile that nobody uses.
-        assertEquals(250, GalleryCells.decodePx(100.dp))
-        assertEquals(320, GalleryCells.decodePx(400.dp))
-        assertEquals(48, GalleryCells.decodePx(10.dp))
+        // The FileThumb sum: a mismatch here is a decode per tile that nobody uses. At this
+        // phone's 2.75 pixels per dp a 100 dp tile is 275 pixels, rounded up to the 32 px step.
+        assertEquals(288, GalleryCells.decodePx(100.dp, 2.75f))
+        assertEquals(dev.niccc2007.filet.media.ThumbSize.forSlot(100f, 2.75f), GalleryCells.decodePx(100.dp, 2.75f))
+        assertEquals(512, GalleryCells.decodePx(400.dp, 2.75f))
+        assertEquals(48, GalleryCells.decodePx(10.dp, 2.75f))
     }
 
     private fun entry(path: String) = HistoryEntry(path = path, name = path, bytes = 1, added = 0, modified = 0)
