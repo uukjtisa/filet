@@ -4250,6 +4250,41 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun osPathOf(node: VNode): String? = graph.vfs.osPath(node.path)
 
+    fun osPathOf(path: VPath): String? = graph.vfs.osPath(path)
+
+    /** The application, for the few watchers the screen starts and stops. */
+    val appContext: android.content.Context get() = graph.app
+
+    /**
+     * Something outside Filet changed the folder [pane] is showing at [cwd]. See FolderWatch.
+     *
+     * Three things wait rather than re-read, and each is a re-read that would have broken
+     * something else:
+     * - a finger holding a drag: a re-list takes the row out from under it (see [refreshPanes]).
+     *   The world revision is bumped instead, so the drag's end re-reads every stale pane;
+     * - a listing already being read: a re-list cancels it and starts again, so a stream of
+     *   changes against a big folder - a computer copying into it - would keep the pane reading
+     *   and never let it finish. Tried again once the settle time has passed;
+     * - a pane that has moved on from [cwd] since the change was heard: nothing to do.
+     */
+    fun relistFromOutside(pane: PaneController, cwd: VPath) {
+        val s = pane.state.value
+        if (s.kind != PaneKind.FOLDER || s.cwd != cwd) return
+        if (_state.value.drag != null) {
+            _state.update { it.copy(revision = it.revision + 1) }
+            return
+        }
+        if (s.loading) {
+            viewModelScope.launch {
+                kotlinx.coroutines.delay(dev.niccc2007.filet.vfs.provider.FolderChanges.SETTLE_MS)
+                relistFromOutside(pane, cwd)
+            }
+            return
+        }
+        dev.niccc2007.filet.log.FiletLog.d("folders") { "changed outside Filet, re-reading ${cwd.path}" }
+        pane.relist()
+    }
+
     /**
      * The player, which is in the graph and not here.
      *

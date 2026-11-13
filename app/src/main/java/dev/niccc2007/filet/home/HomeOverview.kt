@@ -128,6 +128,9 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     val editing by pane.homeEditing.collectAsState()
     val arrivedRows = FeedCard.metrics(arrivedDensity)
     val openedRows = FeedCard.metrics(openedDensity)
+    // The New files card kept current while Home is on screen, as the New files tab is. Not when
+    // the card is hidden: nothing on Home would show what the re-read found.
+    if (HomeCards.ARRIVED !in hiddenCards) KeepNewFilesCurrent(vm)
     val colors = Filet.colors
     /**
      * The row a long press opened, and whether it came from the OPENED feed.

@@ -113,6 +113,8 @@ fun PaneView(
     // Taken off the screen with the pane standing still: the next showing is a return, and comes
     // back where it was. See PaneController.markReturn.
     androidx.compose.runtime.DisposableEffect(pane) { onDispose { pane.markReturn() } }
+    // Kept current while something outside Filet changes the folder on screen.
+    WatchFolder(vm, pane, s.cwd, s.kind == PaneKind.FOLDER)
     val app by vm.state.collectAsState()
     val viewStep by vm.prefs.viewStep.collectAsState()
     val treeWanted by vm.prefs.treeView.collectAsState()

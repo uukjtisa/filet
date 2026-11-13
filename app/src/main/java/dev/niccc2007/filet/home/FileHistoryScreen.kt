@@ -119,35 +119,7 @@ fun FileHistoryScreen(vm: BrowserViewModel, pane: PaneController) {
     var menuFor by remember { mutableStateOf<dev.niccc2007.filet.vfs.VNode?>(null) }
     val scope = rememberCoroutineScope()
 
-    // Read on open and on every return to the app, and listen to the media index for exactly
-    // as long as this tab is visible. ON_START/ON_STOP rather than only enter/leave: the tab
-    // can stay composed behind another app, and an observer left registered then is a standing
-    // cost for a list nobody is reading - the shape of issue #13.
-    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
-    androidx.compose.runtime.DisposableEffect(lifecycle) {
-        var handle: AutoCloseable? = null
-        val watch = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_START -> {
-                    if (handle == null) handle = vm.home.watchIndex()
-                    vm.home.refresh()
-                }
-                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
-                    handle?.close()
-                    handle = null
-                }
-                else -> Unit
-            }
-        }
-        // addObserver replays the current state, so a tab opened while the app is already
-        // started gets its ON_START here and does not wait for the next one.
-        lifecycle.addObserver(watch)
-        onDispose {
-            lifecycle.removeObserver(watch)
-            handle?.close()
-            handle = null
-        }
-    }
+    KeepNewFilesCurrent(vm)
 
     // Read once per list, not per frame: `now` feeds the day labels and the today tint, and a
     // fresh clock on every recomposition re-derived both for nothing.
@@ -538,3 +510,43 @@ private class NewFilesView(
     }
 }
 private const val LOAD_AHEAD = 20
+
+/**
+ * The New files list read on open and on every return to the app, and the media index listened to
+ * for exactly as long as the caller is on screen. ON_START/ON_STOP rather than only enter/leave:
+ * the screen can stay composed behind another app, and an observer left registered then is a
+ * standing cost for a list nobody is reading - the shape of issue #13.
+ *
+ * One definition for every screen that shows the list. Bug identified here: the New files tab
+ * watched the index and Home's New files card did not, and the card is cut from the same list -
+ * so a file deleted by another app stayed on Home, and one that arrived stayed missing, until the
+ * card was pulled down by hand or the New files tab was opened.
+ */
+@androidx.compose.runtime.Composable
+internal fun KeepNewFilesCurrent(vm: dev.niccc2007.filet.browser.BrowserViewModel) {
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(lifecycle) {
+        var handle: AutoCloseable? = null
+        val watch = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                    if (handle == null) handle = vm.home.watchIndex()
+                    vm.home.refresh()
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                    handle?.close()
+                    handle = null
+                }
+                else -> Unit
+            }
+        }
+        // addObserver replays the current state, so a screen opened while the app is already
+        // started gets its ON_START here and does not wait for the next one.
+        lifecycle.addObserver(watch)
+        onDispose {
+            lifecycle.removeObserver(watch)
+            handle?.close()
+            handle = null
+        }
+    }
+}
