@@ -59,10 +59,79 @@ internal object HardwareFirst {
         return first + rest
     }
 
+    /**
+     * [ordered] with its first decoder asked twice when that one is [hardware]: the second time
+     * set up plainly (see [plain]). Pure.
+     *
+     * Bug identified here: on a 2160 x 3402, 60 fps file the hardware decoder was first in the
+     * list, as [order] puts it, and still the picture came from Google's software decoder at eight
+     * frames a second. Both hardware decoders failed to start within a few milliseconds each. The
+     * hardware decoder declares the file within its limits (it may swap width and height, and the
+     * blocks per second fit), so the file itself is not what it turned down. What it weighs is the
+     * session: the real-time share the speed hints ask for, against whatever else is open on the
+     * chip at that moment. The platform's reason was not kept then; it is now (see [reason]).
+     * One plain retry costs a few milliseconds when it fails; the software decoder it can save us
+     * from costs every frame, and heats the phone until it slows itself down.
+     */
+    fun <T> withRetry(ordered: List<T>, hardware: (T) -> Boolean): List<T> {
+        val first = ordered.firstOrNull() ?: return ordered
+        return if (hardware(first)) listOf(first) + ordered else ordered
+    }
+
+    /** The second ask's setup: no speed hints, no size reserved past the file's own. */
+    fun plain(format: android.media.MediaFormat) {
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            for (key in PLAIN_REMOVES) format.removeKey(key)
+        } else {
+            // Nothing can be removed before Android 10: ask for the ordinary priority instead.
+            format.setInteger(android.media.MediaFormat.KEY_PRIORITY, 1)
+        }
+    }
+
+    private val PLAIN_REMOVES = listOf(
+        android.media.MediaFormat.KEY_OPERATING_RATE,
+        android.media.MediaFormat.KEY_PRIORITY,
+        android.media.MediaFormat.KEY_MAX_WIDTH,
+        android.media.MediaFormat.KEY_MAX_HEIGHT,
+    )
+
+    /**
+     * Why a decoder would not start, in a line: the platform's error code where there is one
+     * (1100 is "not enough resources", which is the chip already being busy), else the exception.
+     */
+    fun reason(error: Throwable): String {
+        var e: Throwable? = error
+        var deepest = error
+        while (e != null) {
+            if (e is android.media.MediaCodec.CodecException) {
+                val code = runCatching { e.errorCode }.getOrDefault(0)
+                return reasonWords("CodecException", e.message, code)
+            }
+            deepest = e
+            e = e.cause?.takeIf { it !== e }
+        }
+        return reasonWords(deepest.javaClass.simpleName, deepest.message, null)
+    }
+
+    /** The words of [reason], kept apart so they can be tested off the device. Pure. */
+    fun reasonWords(kind: String, message: String?, code: Int?): String {
+        val what = when (code) {
+            null, 0 -> null
+            1100 -> "not enough resources (the decoder is busy)"
+            1101 -> "taken back by the system"
+            else -> "error $code"
+        }
+        val text = message?.lineSequence()?.firstOrNull()?.trim()?.take(120)?.takeIf { it.isNotEmpty() }
+        return listOfNotNull(what, text).joinToString(": ").ifEmpty { kind }
+    }
+
     /** Media3's video renderer, asking for decoders in [order] and answering for formats through [upgrade]. */
     class VideoRenderer(context: Context, builder: MediaCodecVideoRenderer.Builder) : MediaCodecVideoRenderer(builder) {
         private val app = context.applicationContext
         private var logged: Format? = null
+
+        /** How often each decoder has been asked to start since the list was last made. See [withRetry]. */
+        private val asked = HashMap<String, Int>()
 
         override fun getDecoderInfos(
             mediaCodecSelector: MediaCodecSelector,
@@ -70,7 +139,9 @@ internal object HardwareFirst {
             requiresSecureDecoder: Boolean,
         ): List<MediaCodecInfo> {
             val sorted = super.getDecoderInfos(mediaCodecSelector, format, requiresSecureDecoder)
-            val ordered = order(sorted, { it.hardwareAccelerated }, { runCatching { it.isFormatFunctionallySupported(app, format) }.getOrDefault(false) })
+            val decodes = { it: MediaCodecInfo -> runCatching { it.isFormatFunctionallySupported(app, format) }.getOrDefault(false) }
+            val ordered = withRetry(order(sorted, { it.hardwareAccelerated }, decodes)) { it.hardwareAccelerated && decodes(it) }
+            asked.clear()
             // Once per format: the order a bug report about a slow or black picture needs.
             if (logged != format) {
                 logged = format
@@ -81,6 +152,26 @@ internal object HardwareFirst {
                 }
             }
             return ordered
+        }
+
+        /**
+         * Every start written down with the setup it was given, and the second ask of the same
+         * decoder made plain. The setup is the half of a refusal the platform's message leaves out.
+         */
+        override fun getMediaCodecConfiguration(
+            codecInfo: MediaCodecInfo,
+            format: Format,
+            crypto: android.media.MediaCrypto?,
+            codecOperatingRate: Float,
+        ): MediaCodecAdapter.Configuration {
+            val config = super.getMediaCodecConfiguration(codecInfo, format, crypto, codecOperatingRate)
+            val n = (asked[codecInfo.name] ?: 0) + 1
+            asked[codecInfo.name] = n
+            if (n > 1) plain(config.mediaFormat)
+            dev.niccc2007.filet.log.FiletLog.i("video") {
+                "starting ${codecInfo.name}" + (if (n > 1) " again, plainly" else "") + ": ${config.mediaFormat}"
+            }
+            return config
         }
 
         override fun supportsFormat(mediaCodecSelector: MediaCodecSelector, format: Format): Int =

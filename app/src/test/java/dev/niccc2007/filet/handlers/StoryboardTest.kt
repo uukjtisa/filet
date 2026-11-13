@@ -8,10 +8,10 @@ import org.junit.Test
 /**
  * Which frames a scrub preview keeps, in what order they are fetched, and which one to draw.
  *
- * Reported as a preview that did not work, twice, and correctly diagnosed as the architecture
- * rather than a bug: reading a frame takes tens of milliseconds and a drag wants one every
- * few, so decoding during the gesture can only chase it. Frames are pulled once into a cache
- * and the drag reads memory.
+ * Bug identified: the preview did not work, twice, and the cause was the architecture rather
+ * than a slip: reading a frame takes tens of milliseconds and a drag wants one every few, so
+ * decoding during the gesture can only chase it. Frames are pulled once into a cache and the
+ * drag reads memory.
  */
 class StoryboardTest {
 
@@ -219,5 +219,21 @@ class StoryboardTest {
         for (at in 0..TEN_MIN step 5_000L) {
             assertTrue("nothing for $at", Storyboard.nearest(at, half) != null)
         }
+    }
+
+    @Test fun `a big file is pulled only while paused, an ordinary one while it plays`() {
+        // The file that fell to a software decoder: 2160 x 3402 at sixty frames a second.
+        assertTrue(!Storyboard.pullsWhilePlaying(2160, 3402, 60f))
+        assertTrue(!Storyboard.pullsWhilePlaying(3840, 2160, 30f))
+        // 1080p at sixty is the line itself, and stays on the playing side of it.
+        assertTrue(Storyboard.pullsWhilePlaying(1920, 1080, 60f))
+        assertTrue(Storyboard.pullsWhilePlaying(1080, 1920, 30f))
+    }
+
+    @Test fun `an unknown size or rate does not hold the storyboard back`() {
+        assertTrue(Storyboard.pullsWhilePlaying(0, 0, 60f))
+        // No rate: taken as thirty, so 4K is still heavy and 1080p is not.
+        assertTrue(!Storyboard.pullsWhilePlaying(3840, 2160, 0f))
+        assertTrue(Storyboard.pullsWhilePlaying(1920, 1080, 0f))
     }
 }

@@ -75,6 +75,9 @@ internal class Media3Engine(
     private var pictureHardware: Boolean? = null
     private var soundDecoder: String? = null
 
+    /** Decoders that would not start, with why, oldest first. */
+    private val refusals = ArrayList<String>()
+
     /** Dropped frames inside the current window, for [VideoEngine.Events.onHeavy]. */
     private var droppedInWindow = 0
     private var windowStartedAt = 0L
@@ -100,6 +103,22 @@ internal class Media3Engine(
                 "picture decoder $decoderName (${initializationDurationMs} ms)" +
                     (FfmpegDecoders.version?.let { ", ffmpeg $it" } ?: "")
             }
+        }
+
+        /**
+         * A decoder that would not start, before the next one in the list is tried. Not a failure
+         * of playback - that comes as an error - but the reason the picture fell to a slower
+         * decoder, which the stats readout shows and the log keeps.
+         */
+        override fun onVideoCodecError(
+            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+            videoCodecError: Exception,
+        ) {
+            val name = (videoCodecError as? androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException)
+                ?.codecInfo?.name
+            val why = HardwareFirst.reason(videoCodecError)
+            refusals += listOfNotNull(name, why).joinToString(": ")
+            dev.niccc2007.filet.log.FiletLog.i("video") { "decoder ${name ?: "?"} would not start: $why" }
         }
 
         override fun onAudioDecoderInitialized(
@@ -290,6 +309,7 @@ internal class Media3Engine(
             offsetCount = c?.videoFrameProcessingOffsetCount?.toLong(),
             bufferedMs = player.totalBufferedDuration,
             speed = player.playbackParameters.speed,
+            refused = refusals.toList(),
         )
     }
 

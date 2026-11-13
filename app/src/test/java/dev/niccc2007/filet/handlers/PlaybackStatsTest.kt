@@ -114,6 +114,19 @@ class PlaybackStatsTest {
     }
 
     @Test
+    fun `a decoder that would not start is named under the one drawing, two at most`() {
+        val now = snap(2_000).copy(
+            pictureDecoder = "c2.android.avc.decoder",
+            hardware = false,
+            refused = listOf("c2.qti.avc.decoder: busy", "c2.qti.avc.decoder: busy again", "c2.qti.avc.decoder.low_latency: busy"),
+        )
+        val lines = PlaybackStats.lines(now, PlaybackStats.Rates(null, null, null), null, null)
+        assertEquals("Picture", lines[0].first)
+        assertEquals(listOf("c2.qti.avc.decoder: busy", "c2.qti.avc.decoder: busy again"), lines.filter { it.first == "Refused" }.map { it.second })
+        assertEquals(1, lines.indexOfFirst { it.first == "Refused" })
+    }
+
+    @Test
     fun `heat is words, and nothing when the phone is cool`() {
         assertNull(PlaybackStats.heat(0))
         assertEquals("warm", PlaybackStats.heat(1))

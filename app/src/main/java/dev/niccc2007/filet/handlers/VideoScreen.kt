@@ -87,6 +87,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -357,6 +358,9 @@ private fun VideoPlayer(
     // The picture, as distinct from the sound. MediaPlayer plays the sound alone, and says
     // nothing, when this phone cannot decode the picture; this is what notices. See VideoDecode.
     var watch by remember(node.path) { mutableStateOf<PictureWatch?>(null) }
+    // A frame of the picture has been drawn by the engine now playing: its decoder has started.
+    // The storyboard waits for it. See Storyboard.pullsWhilePlaying.
+    var pictureUp by remember(node.path) { mutableStateOf(false) }
     var staged by remember(node.path) { mutableStateOf(false) }
     var noPicture by remember(node.path) { mutableStateOf<String?>(null) }
     // The other players a failure offers, under the error line or in the No picture dialog. Taps
@@ -1035,8 +1039,20 @@ private fun VideoPlayer(
                 )
             }
             if (plan.isEmpty()) return@withContext
+            // Not beside the player's decoder while it starts: a scrub frame is a full-size
+            // decoding session of its own. See Storyboard.pullsWhilePlaying.
+            snapshotFlow { pictureUp }.first { it }
+            dev.niccc2007.filet.log.FiletLog.i("video") {
+                val s = videoSize
+                "storyboard: ${plan.size} frames, " +
+                    if (s == null || Storyboard.pullsWhilePlaying(s.first, s.second, fps.toFloat())) "pulled while playing" else "pulled only while paused"
+            }
             for (index in Storyboard.fillOrder(plan.size)) {
                 if (!isActive) return@withContext
+                val size = videoSize
+                if (size != null && !Storyboard.pullsWhilePlaying(size.first, size.second, fps.toFloat())) {
+                    snapshotFlow { playing }.first { !it }
+                }
                 val at = plan[index]
                 if (storyboard.containsKey(at)) continue
                 val bitmap = runCatching {
@@ -1197,6 +1213,7 @@ private fun VideoPlayer(
         playing = false
         stalled = false
         watch = null
+        pictureUp = false
         error = null
         offers = emptyList()
         noPicture = null
@@ -1432,6 +1449,7 @@ private fun VideoPlayer(
 
                         override fun onFirstFrame() {
                             drew = true
+                            pictureUp = true
                             watch?.drawn()
                         }
 

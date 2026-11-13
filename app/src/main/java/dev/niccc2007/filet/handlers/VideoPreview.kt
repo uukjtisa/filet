@@ -263,6 +263,10 @@ private fun StoppedStill(vm: BrowserViewModel, node: VNode, at: Long, still: Bit
 /** The frame at [atMs], exactly there rather than at the keyframe before it; null if it will not decode. */
 private fun frameAt(context: android.content.Context, uri: Uri, atMs: Long): Bitmap? {
     val r = MediaMetadataRetriever()
+    // Timed in the log: on a big file this is a decoding session of its own, and the player's
+    // decoder starting while it still runs is one way the picture falls to a software decoder.
+    val began = android.os.SystemClock.uptimeMillis()
+    dev.niccc2007.filet.log.FiletLog.i("video") { "preview still at $atMs ms: reading" }
     return try {
         r.setDataSource(context, uri)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
@@ -274,6 +278,7 @@ private fun frameAt(context: android.content.Context, uri: Uri, atMs: Long): Bit
         null
     } finally {
         runCatching { r.release() }
+        dev.niccc2007.filet.log.FiletLog.i("video") { "preview still read in ${android.os.SystemClock.uptimeMillis() - began} ms" }
     }
 }
 

@@ -70,4 +70,23 @@ class HardwareFirstTest {
         assertEquals(others, upgraded and support.inv())
         assertEquals(C.FORMAT_HANDLED, upgraded and support)
     }
+
+    @Test fun `a hardware decoder at the head of the list is asked twice, the second time plainly`() {
+        assertEquals(listOf("hw", "hw", "sw"), HardwareFirst.withRetry(listOf("hw", "sw")) { it == "hw" })
+    }
+
+    @Test fun `a software decoder at the head is asked once, and an empty list stays empty`() {
+        assertEquals(listOf("sw", "hw"), HardwareFirst.withRetry(listOf("sw", "hw")) { it == "hw" })
+        assertEquals(emptyList<String>(), HardwareFirst.withRetry(emptyList<String>()) { true })
+    }
+
+    @Test fun `a refusal is said in words, with the platform's code read`() {
+        assertEquals(
+            "not enough resources (the decoder is busy): Error 0xfffffff4",
+            HardwareFirst.reasonWords("CodecException", "Error 0xfffffff4\nmore detail", 1100),
+        )
+        assertEquals("error 7", HardwareFirst.reasonWords("CodecException", null, 7))
+        assertEquals("configure failed", HardwareFirst.reasonWords("IllegalArgumentException", "configure failed", null))
+        assertEquals("IllegalStateException", HardwareFirst.reasonWords("IllegalStateException", "  ", null))
+    }
 }

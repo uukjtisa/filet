@@ -51,6 +51,30 @@ object Storyboard {
     const val MAX_FRAMES = 240
 
     /**
+     * Whether frames may be pulled while the video plays, or only while it is paused.
+     *
+     * Bug identified here: a scrub frame is not cheap on a big file. The platform decodes it at
+     * full size and only then scales it down, on the same decoder chip the player is using, and a
+     * 2160 x 3402 file wanted seventy of them in the first minute. Each one is a 4K decoding
+     * session opened beside the player's, and when the chip refuses one, the media server decodes
+     * it in software instead, which is heat the phone then answers by slowing itself down - while
+     * the player was already dropping frames.
+     *
+     * Decision: past 1080p at sixty frames a second, which is the most a phone's decoder is sure
+     * to carry with room to spare, the storyboard is built only while the video is paused. A
+     * scrub while it plays then has fewer frames to show until the first pause; the picture
+     * keeps every frame. Below that line nothing changes. [fps] of 0 or less is taken as thirty.
+     */
+    fun pullsWhilePlaying(width: Int, height: Int, fps: Float): Boolean {
+        if (width <= 0 || height <= 0) return true
+        val rate = if (fps > 0f) fps else 30f
+        return width.toLong() * height * rate <= HEAVY_PIXELS_PER_SECOND
+    }
+
+    /** 1920 x 1080 at sixty frames a second. See [pullsWhilePlaying]. */
+    const val HEAVY_PIXELS_PER_SECOND = 1920L * 1080 * 60
+
+    /**
      * How many frames to hold for a video of this length.
      *
      * Aims at [TARGET_SPACING_MS] and gives up gracefully at both ends: a short clip gets the
