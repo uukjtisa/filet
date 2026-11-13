@@ -115,6 +115,7 @@ internal fun SideFolds(vm: BrowserViewModel, app: AppState, reduced: Boolean, on
                         } else {
                             null
                         },
+                        onLongClick = pinTab(vm, PINNED_TABS[p], onGo),
                     ) {
                         onGo()
                         vm.onPinned(p)
@@ -132,7 +133,9 @@ internal fun SideFolds(vm: BrowserViewModel, app: AppState, reduced: Boolean, on
             SpecialPanes.Fold.QUICK -> {
                 val open by prefs.drawerQuick.collectAsState()
                 SwitcherGroup("Quick access", detail = "", open = open, onToggle = { prefs.setDrawerQuick(!open) }, onLongClick = hold(id)) {
-                    SwitcherRow(FiletIcons.Home, "Home", i++, reduced) { vm.focusedPane()?.openHome(); onGo() }
+                    SwitcherRow(FiletIcons.Home, "Home", i++, reduced, onLongClick = pinTab(vm, TabTarget.HOME, onGo)) {
+                        vm.focusedPane()?.openHome(); onGo()
+                    }
                     for (q in quick) {
                         SwitcherRow(FiletIcons.Folder, q.label, i++, reduced) {
                             vm.focusedPane()?.jumpTo(q.path); onGo()
@@ -178,7 +181,7 @@ internal fun SideFolds(vm: BrowserViewModel, app: AppState, reduced: Boolean, on
                                 thumb = item.node.takeUnless { it.isDir },
                             ) { vm.openHomeEntry(item.node); onGo() }
                         }
-                        SwitcherRow(FiletIcons.Download, "All new files", i++, reduced, quiet = true) {
+                        SwitcherRow(FiletIcons.Download, "All new files", i++, reduced, quiet = true, onLongClick = pinTab(vm, TabTarget.NEW_FILES, onGo)) {
                             openNewFiles(vm); onGo()
                         }
                     }
@@ -213,7 +216,9 @@ internal fun SideFolds(vm: BrowserViewModel, app: AppState, reduced: Boolean, on
             SpecialPanes.Fold.COLLECTIONS -> {
                 val open by prefs.drawerPlaces.collectAsState()
                 SwitcherGroup("Collections", detail = "", open = open, onToggle = { prefs.setDrawerPlaces(!open) }, onLongClick = hold(id)) {
-                    SwitcherRow(FiletIcons.Download, "New files", i++, reduced) { openNewFiles(vm); onGo() }
+                    SwitcherRow(FiletIcons.Download, "New files", i++, reduced, onLongClick = pinTab(vm, TabTarget.NEW_FILES, onGo)) {
+                        openNewFiles(vm); onGo()
+                    }
                     Rows(rows, vm, bookmarks.size, i, reduced, onGo)
                     i += rows.size
                 }
@@ -312,6 +317,7 @@ private fun Rows(
         SwitcherRow(
             d.icon, d.label, from + k, reduced,
             count = if (d.kind == PaneKind.BOOKMARKS) bookmarkCount.takeIf { it > 0 }?.toString() else null,
+            onLongClick = pinTab(vm, dev.niccc2007.filet.shortcuts.tabOfPane(d.kind, null), onGo),
         ) { vm.focusedPane()?.openSpecial(d.kind, d.label); onGo() }
     }
 }
@@ -326,11 +332,28 @@ private fun SeeAll(
     onGo: () -> Unit,
 ) {
     for (d in destinations) {
-        SwitcherRow(d.icon, d.seeAll ?: d.label, index, reduced, quiet = true) {
+        SwitcherRow(
+            d.icon, d.seeAll ?: d.label, index, reduced, quiet = true,
+            onLongClick = pinTab(vm, dev.niccc2007.filet.shortcuts.tabOfPane(d.kind, null), onGo),
+        ) {
             vm.focusedPane()?.openSpecial(d.kind, d.label); onGo()
         }
     }
 }
+
+/**
+ * Holding a row that opens a tab offers that tab for the home screen, through the naming sheet
+ * where it can still be cancelled. The side bar closes first so the sheet is not drawn under it.
+ * Null for a row that is no tab - a folder, a file, a drive - which keeps the hold it has.
+ */
+private fun pinTab(vm: BrowserViewModel, tab: TabTarget?, onGo: () -> Unit): (() -> Unit)? =
+    tab?.let { t -> { onGo(); vm.askToPin(t) } }
+
+/** The Filet card's rows that are tabs. About and Shutdown are not places to go back to. */
+private val PINNED_TABS = mapOf(
+    SpecialPanes.Pinned.ACTIVITY to TabTarget.ACTIVITY,
+    SpecialPanes.Pinned.SETTINGS to TabTarget.SETTINGS,
+)
 
 @Composable
 private fun Hint(text: String) {

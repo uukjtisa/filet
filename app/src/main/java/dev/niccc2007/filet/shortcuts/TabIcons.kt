@@ -52,6 +52,9 @@ fun recordArt(record: ShortcutRecord): String? = when (record.kind) {
     ShortcutKind.FILE -> null
 }
 
+/** The drawing for a media category: its tab's. */
+fun categoryArt(category: MediaCategory): String? = TabTarget.entries.firstOrNull { it.category == category }?.art
+
 /** The tab a pane is showing, for its icon: null for a folder, and for a pane with no tab of its own. */
 fun tabOfPane(kind: PaneKind, category: MediaCategory?): TabTarget? =
     if (kind == PaneKind.FOLDER) null

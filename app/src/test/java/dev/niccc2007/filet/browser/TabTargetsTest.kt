@@ -119,4 +119,13 @@ class TabTargetsTest {
         assertEquals(null, dev.niccc2007.filet.shortcuts.tabOfPane(PaneKind.FOLDER, null))
         assertEquals(null, dev.niccc2007.filet.shortcuts.tabOfPane(PaneKind.ABOUT, null))
     }
+
+    @Test
+    fun `every category on Home is drawn with its tab's icon`() {
+        for (c in MediaCategory.entries) {
+            val art = dev.niccc2007.filet.shortcuts.categoryArt(c)
+            assertTrue("$c -> $art", art != null && art in dev.niccc2007.filet.shortcuts.TabIconRes.ART)
+        }
+        assertEquals("photos", dev.niccc2007.filet.shortcuts.categoryArt(MediaCategory.IMAGES))
+    }
 }

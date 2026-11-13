@@ -13,6 +13,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -1350,7 +1351,7 @@ private fun BottomNav(
             val activity = item == BarItem.ACTIVITY
             val badge = if (activity) jobs.count { it.running } else 0
             val ring = if (activity) dev.niccc2007.filet.jobs.JobRate.overall(jobs) else null
-            NavItem(barIcon(item), item.label, badge, compact, ring) { runBarItem(item, vm, active) }
+            NavItem(barIcon(item), item.label, badge, compact, ring, onLongClick = pinFromBar(item, vm)) { runBarItem(item, vm, active) }
         }
     }
 
@@ -1392,6 +1393,17 @@ private fun runBarItem(item: BarItem, vm: BrowserViewModel, active: PaneControll
     }
 }
 
+/**
+ * What holding a bar entry does: a tab, or Search, is offered for the home screen through the
+ * naming sheet, which is where it can still be cancelled. Split, New tab and Close all tabs act
+ * on the tabs open now, so as a home-screen icon they would have nothing to act on.
+ */
+private fun pinFromBar(item: BarItem, vm: BrowserViewModel): (() -> Unit)? = when {
+    item.tab != null -> ({ vm.askToPin(item.tab) })
+    item == BarItem.SEARCH -> ({ vm.askToPin(dev.niccc2007.filet.shortcuts.AppAction.SEARCH) })
+    else -> null
+}
+
 @Composable
 private fun NavItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -1408,9 +1420,12 @@ private fun NavItem(
      * for work that cannot say, null for nothing running. See `JobRate.overall`.
      */
     ring: Float? = null,
+    /** A hold: offers the entry as a home-screen icon. Null for an entry that has none. */
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     // Turns only while there is work that cannot say how far it has got.
     val spin = if (ring != null && ring < 0f) {
         androidx.compose.animation.core.rememberInfiniteTransition(label = "ring").animateFloat(
@@ -1425,7 +1440,15 @@ private fun NavItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .clip(RoundedCornerShape(9.dp))
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick?.let { hold ->
+                    {
+                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        hold()
+                    }
+                },
+            )
             .padding(horizontal = 14.dp, vertical = if (compact) 7.dp else 4.dp),
     ) {
         Box {

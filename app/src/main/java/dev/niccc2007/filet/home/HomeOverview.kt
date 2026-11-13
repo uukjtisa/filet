@@ -1185,16 +1185,22 @@ private fun CategoryChip(
             .padding(horizontal = 10.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // The glyph on its own tinted ground, the same shape the storage tiles use for theirs.
-        // A bare icon on a panel reads as a label; one on a ground reads as a thing to press.
-        Box(
-            Modifier
-                .size(34.dp)
-                .clip(RoundedCornerShape(11.dp))
-                .background(colors.accent.copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(category.icon, null, tint = colors.accent, modifier = Modifier.size(18.dp))
+        // The category's tab icon on its tile, as its home-screen shortcut and the Shortcuts tab
+        // draw it, so a category looks the same wherever it is a way in. The line glyph stays
+        // only for a category with no drawing.
+        val art = dev.niccc2007.filet.shortcuts.categoryArt(category)
+        if (art != null) {
+            dev.niccc2007.filet.shortcuts.ArtTile(art, side = 34.dp)
+        } else {
+            Box(
+                Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(colors.accent.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(category.icon, null, tint = colors.accent, modifier = Modifier.size(18.dp))
+            }
         }
         Spacer(Modifier.height(8.dp))
         Text(
