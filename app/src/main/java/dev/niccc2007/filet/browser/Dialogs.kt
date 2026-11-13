@@ -129,6 +129,14 @@ fun FiletDialogs(vm: BrowserViewModel) {
             onCreate = { label, handler -> vm.createShortcut(node, label, handler) },
         )
     }
+    // Its sibling for everything that is not a file: a name, and no opener to choose.
+    vm.pinAsk.collectAsState().value?.takeUnless { picking }?.let { ask ->
+        dev.niccc2007.filet.shortcuts.PinNameSheet(
+            ask = ask,
+            onDismiss = vm::dismissPinAsk,
+            onAdd = { label -> vm.pinAsked(ask, label) },
+        )
+    }
 
     // The prompt for a file edited inside an archive. Same reason again: it carries the edited
     // text and a callback, which no value-type dialog case can hold.

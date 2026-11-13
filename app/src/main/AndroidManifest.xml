@@ -540,6 +540,12 @@
             android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- The launcher's word that a requested shortcut was placed. Only the system's
+             PendingIntent reaches it. -->
+        <receiver
+            android:name=".shortcuts.PinResultReceiver"
+            android:exported="false" />
+
         <!-- Widgets (M4). -->
         <receiver
             android:name=".shortcuts.FolderWidgetProvider"

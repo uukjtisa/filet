@@ -19,6 +19,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,8 +67,9 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
     fun match(vararg f: String?) = dev.niccc2007.filet.ui.TextMatch.matches(query, *f)
     val records = remember(allRecords, query) { allRecords.filter { match(it.label, it.kindLabel()) } }
     val scripts = remember(allScripts, query) { allScripts.filter { match(it.name) } }
-    val actions = remember(query) { AppAction.entries.filter { match(it.label, it.description) } }
-    val live = remember(records) { vm.shortcuts.livePinnedIds() }
+    val actions = remember(query) { AppAction.LISTED.filter { match(it.label, it.description) } }
+    // Opening the tab is a moment to look: an icon may have been taken off the home screen.
+    LaunchedEffect(Unit) { vm.shortcuts.reconcileSoon() }
     var renaming by remember { mutableStateOf<ShortcutRecord?>(null) }
 
     LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("shortcuts")) {
@@ -92,9 +94,8 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
         items(records.sortedByDescending { it.createdAt }, key = { it.id }) { record ->
             ShortcutRow(
                 record = record,
-                // Advisory: several OEM launchers report nothing here while the icons are
-                // plainly on the home screen, so this greys a row rather than removing it.
-                live = live.isEmpty() || record.id in live,
+                // Only a launcher that never reports leaves a row unconfirmed. See PinReconcile.
+                live = !record.unconfirmed,
                 onOpen = { vm.openShortcutRecord(record) },
                 onRename = { renaming = record },
                 onForget = { vm.shortcuts.forget(record.id) },
@@ -114,7 +115,7 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
             }
         }
         items(actions, key = { "action-" + it.name }) { action ->
-            PickRow(action.label, action.description) { vm.shortcutForAction(action) }
+            PickRow(action.label, action.description) { vm.askToPin(action) }
         }
 
         if (scripts.isNotEmpty()) {
@@ -128,7 +129,7 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
                     if (approved) "Runs on tap"
                     else "Approve it once before it can run from the home screen",
                     warn = !approved,
-                ) { vm.shortcutForScript(script) }
+                ) { vm.askToPin(script) }
             }
         }
 

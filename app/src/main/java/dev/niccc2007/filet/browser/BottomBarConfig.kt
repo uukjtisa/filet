@@ -14,14 +14,13 @@ package dev.niccc2007.filet.browser
  * the honest failure for that is *a bar missing one button*, not a crash on launch or an empty
  * strip. [BottomBarConfig.normalise] is the only way the stored value is ever read.
  */
-enum class BarItem(val id: String, val label: String) {
-    FILES("files", "Files"),
-    SEARCH("search", "Search"),
-    ACTIVITY("activity", "Activity"),
-    BOOKMARKS("bookmarks", "Bookmarks"),
-    PLAYLISTS("playlists", "Playlists"),
-    HOME("home", "Home"),
-    RECENT("recent", "Opened"),
+enum class BarItem(val id: String, val label: String, val tab: TabTarget? = null) {
+    // Tabs. Each is a TabTarget, whose id is the one stored here, so a bar saved before the
+    // registry existed reads back the same.
+    HOME(TabTarget.HOME),
+    FILES(TabTarget.FILES),
+    BOOKMARKS(TabTarget.BOOKMARKS),
+    RECENT(TabTarget.OPENED),
 
     /**
      * Everything that has ARRIVED on the phone's own storage, newest first.
@@ -31,23 +30,44 @@ enum class BarItem(val id: String, val label: String) {
      * chose, and this is the list that removes that trip. It was already a screen, reachable
      * only from a heading on the Home overview - which is the same trip again.
      */
-    NEW_FILES("newfiles", "New files"),
+    NEW_FILES(TabTarget.NEW_FILES),
+    PLAYLISTS(TabTarget.PLAYLISTS),
 
     /** What was part way through, with its position. See `ResumeStore`. */
-    RESUME("resume", "Carry on"),
-    SHARING("sharing", "Share"),
+    RESUME(TabTarget.CARRY_ON),
+    PHOTOS(TabTarget.PHOTOS),
+    VIDEOS(TabTarget.VIDEOS),
+    AUDIO(TabTarget.AUDIO),
+    PACKAGES(TabTarget.PACKAGES),
+    DOCUMENTS(TabTarget.DOCUMENTS),
+    ARCHIVES(TabTarget.ARCHIVES),
 
     /** Saved network locations - shares, servers, cloud accounts. The `Remotes` pane. */
-    REMOTES("remotes", "Remotes"),
-    SCRIPTS("scripts", "Scripts"),
-    SHORTCUTS("shortcuts", "Shortcuts"),
+    REMOTES(TabTarget.REMOTES),
+    SHARING(TabTarget.SHARE),
+    APPS(TabTarget.APPS),
+    SHORTCUTS(TabTarget.SHORTCUTS),
+    SCRIPTS(TabTarget.SCRIPTS),
+    SCAN(TabTarget.SCAN),
+    ACTIVITY(TabTarget.ACTIVITY),
+    SETTINGS(TabTarget.SETTINGS),
+
+    // Actions: a press does something rather than opening a tab.
+    SEARCH("search", "Search"),
     SPLIT("split", "Split"),
     NEW_TAB("newtab", "New tab"),
-    CLOSE_TABS("closetabs", "Close all tabs"),
-    SETTINGS("settings", "Settings");
+    CLOSE_TABS("closetabs", "Close all tabs");
+
+    constructor(tab: TabTarget) : this(tab.id, tab.bar, tab)
+
+    /** The picker's heading for it: the tab's side-bar group, or null for an action. */
+    val group: TabGroup? get() = tab?.group
 
     companion object {
         fun byId(id: String): BarItem? = entries.firstOrNull { it.id == id }
+
+        /** The bar entry that opens [tab]. Every tab has one; `TabTargetsTest` holds that. */
+        fun of(tab: TabTarget): BarItem = entries.first { it.tab == tab }
     }
 }
 

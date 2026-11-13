@@ -243,6 +243,8 @@ object ConfigKeys {
         "nearby.fixedPin" to "this phone's pairing pin",
         "signing.defaultAlias" to "names a key in this phone's keystore, which never leaves it",
         "playlists.v1" to "kept in playlists.json, a file of its own",
+        "shortcuts.reports.v1" to "whether this phone's launcher reports what is on its home screen",
+        "shortcuts.folds.v1" to "which lists on this phone's Shortcuts tab are folded",
     )
 
     private val byKey: Map<String, ConfigKey> = ALL.associateBy { it.key }

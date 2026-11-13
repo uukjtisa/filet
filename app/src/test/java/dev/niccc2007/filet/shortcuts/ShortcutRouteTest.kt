@@ -96,4 +96,23 @@ class ShortcutRouteTest {
         assertNull(AppAction.parse(null))
         assertNull(AppAction.parse(""))
     }
+
+    @Test fun a_tab_shortcut_carries_its_tab_id() {
+        assertEquals("playlists", tabIdOrNull("tab:playlists"))
+        assertEquals("cat.images", tabIdOrNull("tab:cat.images"))
+    }
+
+    @Test fun anything_else_is_not_a_tab() {
+        assertNull(tabIdOrNull("tab:"))
+        assertNull(tabIdOrNull("SEARCH"))
+        assertNull(tabIdOrNull("script:abc"))
+    }
+
+    @Test fun bookmarks_and_opened_are_tabs_now_but_their_old_icons_still_parse() {
+        // Icons pinned as actions before the two became tabs carry these names.
+        assertEquals(AppAction.BOOKMARKS, AppAction.parse("BOOKMARKS"))
+        assertEquals(AppAction.RECENT, AppAction.parse("RECENT"))
+        assertTrue(AppAction.BOOKMARKS !in AppAction.LISTED)
+        assertTrue(AppAction.RECENT !in AppAction.LISTED)
+    }
 }

@@ -124,6 +124,11 @@ export function problems(src) {
   if (!/requestPinShortcut/.test(src.pin)) {
     found.push("pinning no longer asks the launcher, so the Shortcuts tab cannot pin anything");
   }
+  // The launcher answers Add through the result callback and says nothing on Cancel. Without one
+  // a placed shortcut is never confirmed, and Cancel cannot be told apart from Add.
+  if (/requestPinShortcut\([^)]*,\s*null\)/.test(src.pin)) {
+    found.push("a pin request passes no result callback, so Add cannot be told from Cancel");
+  }
 
   // Failure here must never take the app down: these APIs throw on rate limiting and on
   // launchers that implement them badly.
@@ -179,7 +184,9 @@ if (process.argv.includes("--selftest")) {
     ["the menu pinning icons instead", () =>
       swap("menu", "sm.dynamicShortcuts = infos", "sm.requestPinShortcut(infos[0], null)")],
     ["the pin path wiping the menu", () =>
-      swap("pin", "sm.requestPinShortcut(info, null)", "sm.dynamicShortcuts = listOf(info)")],
+      swap("pin", "sm.requestPinShortcut(info, PinResultReceiver.callback(context, record))", "sm.dynamicShortcuts = listOf(info)")],
+    ["a pin request with no result callback", () =>
+      swap("pin", "PinResultReceiver.callback(context, record)", "null")],
     ["publishing left unguarded", () =>
       swap("menu", "runCatching { sm.dynamicShortcuts = infos }", "sm.dynamicShortcuts = infos")],
     ["a label too long for a launcher", () =>

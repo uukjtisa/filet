@@ -246,11 +246,14 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         dev.niccc2007.filet.log.FrameWatch.attach(this)
+        // Closing the launcher's Add or Cancel dialog lands here: see ShortcutStore.resumed.
+        FiletApp.graphOf(this).shortcuts.resumed()
     }
 
     override fun onPause() {
         super.onPause()
         dev.niccc2007.filet.log.FrameWatch.detach(this)
+        FiletApp.graphOf(this).shortcuts.paused()
         // The tabs as they are this moment. A scroll or a walk in the last half second is still
         // waiting on its pause, and leaving the screen is when the process may be swiped away.
         vm?.saveTabsNow()

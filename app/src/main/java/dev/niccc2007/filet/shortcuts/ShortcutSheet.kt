@@ -152,7 +152,7 @@ fun ShortcutRow(
             Text(
                 buildString {
                     append(record.kindLabel())
-                    if (!live) append(" · not on the home screen")
+                    if (!live) append(" · not confirmed by the launcher")
                     record.handler?.let { append(" · opens with ").append(it.lowercase()) }
                 },
                 fontSize = 10.sp, color = if (live) colors.fg3 else colors.warn,

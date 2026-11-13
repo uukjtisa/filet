@@ -1331,55 +1331,23 @@ private fun BottomNav(
     }
 }
 
-private fun barIcon(item: BarItem) = when (item) {
-    BarItem.FILES -> FiletIcons.Storage
-    BarItem.SEARCH -> FiletIcons.Search
-    BarItem.ACTIVITY -> FiletIcons.Jobs
-    BarItem.BOOKMARKS -> FiletIcons.Star
-    BarItem.PLAYLISTS -> FiletIcons.Audio
-    BarItem.RESUME -> FiletIcons.Clock
-    BarItem.HOME -> FiletIcons.Home
-    BarItem.RECENT -> FiletIcons.Clock
-    BarItem.NEW_FILES -> FiletIcons.Download
-    BarItem.SHARING -> FiletIcons.Wifi
-    BarItem.REMOTES -> FiletIcons.Device
-    BarItem.SCRIPTS -> FiletIcons.Script
-    BarItem.SHORTCUTS -> FiletIcons.Pin
-    BarItem.SPLIT -> FiletIcons.SplitV
-    BarItem.NEW_TAB -> FiletIcons.Plus
-    BarItem.CLOSE_TABS -> FiletIcons.CloseAll
-    BarItem.SETTINGS -> FiletIcons.Cog
-}
-
 /**
  * What each bar entry does.
  *
- * A `when` with no else, so adding an entry to [BarItem] without giving it an action does not
- * compile. The alternative is a button in the bar that does nothing, which is rule R1.
+ * A tab opens through [BrowserViewModel.openTab], the one place every tab is opened from, so the
+ * bar, a home-screen shortcut and the hold menu cannot open one tab three ways. An entry that is
+ * neither a tab nor one of the actions below would be a button that does nothing, which is rule
+ * R1; `TabTargetsTest` fails on one, since the `else` keeps the compiler from saying so.
  */
 private fun runBarItem(item: BarItem, vm: BrowserViewModel, active: PaneController?) {
+    item.tab?.let { vm.openTab(it, active); return }
     when (item) {
-        BarItem.FILES -> vm.goToFiles()
         // R1: offering search on a pane where it can do nothing is a dead control.
         BarItem.SEARCH -> active?.let { if (searchOffered(it.state.value.kind)) it.openSearch(true) }
-        BarItem.ACTIVITY -> vm.openActivity()
-        BarItem.BOOKMARKS -> active?.openSpecial(PaneKind.BOOKMARKS, "Bookmarks")
-        BarItem.PLAYLISTS -> active?.openSpecial(PaneKind.PLAYLISTS, "Playlists")
-        BarItem.RESUME -> active?.openSpecial(PaneKind.RESUME, "Carry on")
-        BarItem.HOME -> active?.openHome()
-        BarItem.RECENT -> active?.openSpecial(PaneKind.RECENT, "Opened")
-        BarItem.REMOTES -> active?.openSpecial(PaneKind.REMOTES, "Remotes")
-        BarItem.NEW_FILES -> active?.openSpecial(
-            PaneKind.HISTORY,
-            dev.niccc2007.filet.home.HomeSections.ARRIVED_TAB,
-        )
-        BarItem.SHARING -> active?.openSpecial(PaneKind.NEARBY, "Share")
-        BarItem.SCRIPTS -> active?.openSpecial(PaneKind.SCRIPTS, "Scripts")
-        BarItem.SHORTCUTS -> active?.openSpecial(PaneKind.SHORTCUTS, "Shortcuts")
         BarItem.SPLIT -> vm.cycleSplit()
         BarItem.NEW_TAB -> vm.addTab()
         BarItem.CLOSE_TABS -> vm.closeAllTabs()
-        BarItem.SETTINGS -> active?.openSpecial(PaneKind.SETTINGS, "Settings")
+        else -> Unit
     }
 }
 

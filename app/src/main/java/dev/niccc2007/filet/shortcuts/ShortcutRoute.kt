@@ -46,3 +46,9 @@ const val SCRIPT_PREFIX = "script:"
 
 fun scriptIdOrNull(action: String): String? =
     if (action.startsWith(SCRIPT_PREFIX)) action.removePrefix(SCRIPT_PREFIX).takeIf { it.isNotBlank() } else null
+
+/** A tab shortcut carries a `TabTarget` id behind this prefix. It is also the shortcut's own id. */
+const val TAB_PREFIX = "tab:"
+
+fun tabIdOrNull(action: String): String? =
+    if (action.startsWith(TAB_PREFIX)) action.removePrefix(TAB_PREFIX).takeIf { it.isNotBlank() } else null

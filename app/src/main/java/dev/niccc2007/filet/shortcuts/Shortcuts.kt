@@ -13,7 +13,6 @@ import android.graphics.RectF
 import android.graphics.drawable.Icon
 import dev.niccc2007.filet.FiletApp
 import dev.niccc2007.filet.R
-import dev.niccc2007.filet.index.FileIndex
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import kotlin.math.min
@@ -44,23 +43,24 @@ object Shortcuts {
         context.getSystemService(ShortcutManager::class.java)?.isRequestPinShortcutSupported == true
 
     /**
-     * @param handlerOverride a handler id from the registry, or null to follow the per-type
-     *   default. The default is a *routing* concern; a shortcut merely inherits it.
+     * Ask the launcher to place a shortcut to [node].
+     *
+     * @param record what the Shortcuts tab lists once the launcher confirms it. Its label and
+     *   handler are the shortcut's; its id must be [shortcutId] of [fileId]. The handler is a
+     *   handler id from the registry, or null to follow the per-type default - the default is a
+     *   *routing* concern, and a shortcut merely inherits it.
      * @return false when the launcher refused, so the caller can say so rather than pretending.
      */
-    suspend fun pin(
-        context: Context,
-        node: VNode,
-        index: FileIndex,
-        label: String = node.name,
-        handlerOverride: String? = null,
-    ): Boolean {
+    fun pin(context: Context, node: VNode, fileId: Long?, record: ShortcutRecord): Boolean {
         val sm = context.getSystemService(ShortcutManager::class.java) ?: return false
         if (!sm.isRequestPinShortcutSupported) return false
-        val id = index.idFor(node.path)
-        val info = build(context, node, id, label, handlerOverride) ?: return false
-        return runCatching { sm.requestPinShortcut(info, null) }.getOrDefault(false)
+        val info = build(context, node, fileId, record.label, record.handler) ?: return false
+        return request(context, sm, info, record)
     }
+
+    /** The launcher reports back through [PinResultReceiver] when the shortcut is placed. */
+    private fun request(context: Context, sm: ShortcutManager, info: ShortcutInfo, record: ShortcutRecord): Boolean =
+        runCatching { sm.requestPinShortcut(info, PinResultReceiver.callback(context, record)) }.getOrDefault(false)
 
     private fun build(
         context: Context,
@@ -96,14 +96,17 @@ object Shortcuts {
      *
      * Same router, different payload. The router already resolves an id to a path; these
      * carry an action name instead, and it dispatches on which extra is present.
+     *
+     * @param record the shortcut's id and label, and what the Shortcuts tab lists once placed.
      */
     fun pinAction(
         context: Context,
-        id: String,
-        label: String,
+        record: ShortcutRecord,
         action: String,
         iconRes: Int = R.mipmap.ic_launcher,
     ): Boolean {
+        val id = record.id
+        val label = record.label
         val sm = context.getSystemService(ShortcutManager::class.java) ?: return false
         if (!sm.isRequestPinShortcutSupported) return false
         val intent = Intent(context, ShortcutRouterActivity::class.java).apply {
@@ -119,7 +122,7 @@ object Shortcuts {
                 .setIntent(intent)
                 .build()
         }.getOrNull() ?: return false
-        return runCatching { sm.requestPinShortcut(info, null) }.getOrDefault(false)
+        return request(context, sm, info, record)
     }
 
     /** Rename a live shortcut. `updateShortcuts` only touches ones this app still owns. */
