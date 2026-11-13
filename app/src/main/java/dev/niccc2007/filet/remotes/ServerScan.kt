@@ -543,6 +543,31 @@ class ServerScan(private val context: Context, private val scope: CoroutineScope
             found.filter { it.byName || it.socket in confirmed }
 
         /**
+         * Whether two announced rows are one share heard twice.
+         *
+         * Bug identified here: a hosting Filet announces each share under its own service type,
+         * which other Filets read, and again under the standard `_webdav._tcp`, so a Mac or a
+         * Linux file manager can find it too. This list hears both - the first through the
+         * beacon, named without Filet's prefix and carrying the path and the device, the second
+         * through the scan, under the raw name and with no path - and [merge] folded an
+         * announcement onto a swept row but never two announcements together. Every Filet phone
+         * that was hosting showed twice, once as `Filet-<name>`.
+         *
+         * Fixed here, in the list, rather than by announcing once: every Filet already installed
+         * announces twice, and other software needs the standard announcement.
+         *
+         * Same address, protocol and port, and the same name once Filet's prefix is off. The name
+         * matters: several shares on one Filet ride one port and differ only by name, and must
+         * stay separate rows.
+         */
+        fun sameShare(a: Found, b: Found): Boolean =
+            a.byName && b.byName && a.socket == b.socket &&
+                DavDiscovery.displayName(a.name) == DavDiscovery.displayName(b.name)
+
+        /** The fuller of two announcements of one share: the one that carried a path or an id. */
+        private fun Found.fuller(): Boolean = path != null || deviceId.isNotEmpty()
+
+        /**
          * How an announcement and a swept-up row for the same thing become one row.
          *
          * A host that ANNOUNCED itself wins: it carries a name, and a name is the whole reason
@@ -560,8 +585,12 @@ class ServerScan(private val context: Context, private val scope: CoroutineScope
             if (!found.byName && existing.any { it.byName && it.socket == found.socket }) {
                 return existing
             }
+            // The standard announcement of a share that Filet's own announcement already gave.
+            if (!found.fuller() && existing.any { it.fuller() && sameShare(it, found) }) return existing
             val kept = existing.filterNot {
-                it.key == found.key || (found.byName && !it.byName && it.socket == found.socket)
+                it.key == found.key ||
+                    (found.byName && !it.byName && it.socket == found.socket) ||
+                    (found.fuller() && !it.fuller() && sameShare(it, found))
             }
             return (kept + found).sortedWith(
                 compareByDescending<Found> { it.byName }.thenBy { it.host }.thenBy { it.port },

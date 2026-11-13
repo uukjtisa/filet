@@ -327,4 +327,50 @@ class ServerScanTest {
         val hosts = listOf(davHost(basePath = "/a/one"), davHost(basePath = "/a/two"))
         assertEquals(2, ServerScan.combine(emptyList(), hosts).size)
     }
+
+    // ── one share, announced under both service types ─────────────────────────────────────
+
+    /** What the scan builds from a Filet's standard `_webdav._tcp` announcement: raw name, no path. */
+    private fun standard(name: String = "Filet-phone", host: String = "192.168.1.5", port: Int = 5005) =
+        ServerScan.Found(
+            host = host,
+            name = name,
+            protocol = dev.niccc2007.filet.vfs.provider.net.NetProtocol.WEBDAV,
+            port = port,
+            byName = true,
+        )
+
+    @Test
+    fun `a filet share heard under both service types is one row, filet's`() {
+        // A hosting Filet announces under its own type and under _webdav._tcp. Both arrived here,
+        // and the list showed the phone twice, once as "Filet-phone" with no path.
+        val one = ServerScan.combine(listOf(standard()), listOf(davHost()))
+        assertEquals(1, one.size)
+        assertEquals("phone", one[0].name)
+        assertEquals("a", one[0].path)
+        assertEquals("abc-123", one[0].deviceId)
+    }
+
+    @Test
+    fun `the standard announcement arriving second is dropped too`() {
+        val beaconFirst = ServerScan.merge(listOf(ServerScan.fromHost(davHost())), standard())
+        assertEquals(1, beaconFirst.size)
+        assertEquals("phone", beaconFirst[0].name)
+    }
+
+    @Test
+    fun `two shares of one filet on one port stay two rows when heard both ways`() {
+        // Several shares ride one port and differ only by name, so the name is part of the match.
+        val rows = ServerScan.combine(
+            listOf(standard("Filet-phone-Music"), standard("Filet-phone-Photos")),
+            listOf(davHost(name = "phone-Music", basePath = "/a/m"), davHost(name = "phone-Photos", basePath = "/a/p")),
+        )
+        assertEquals(listOf("phone-Music", "phone-Photos"), rows.map { it.name }.sorted())
+    }
+
+    @Test
+    fun `a webdav server that is not filet is never folded into a filet row`() {
+        val nas = standard(name = "nas", host = "192.168.1.9")
+        assertEquals(2, ServerScan.combine(listOf(nas), listOf(davHost())).size)
+    }
 }
