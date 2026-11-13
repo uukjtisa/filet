@@ -101,6 +101,7 @@ object ConfigKeys {
         look("home.categories.hidden", ConfigType.STRING_SET),
         look("playlists.grid", ConfigType.BOOL),
         look("drawer.order", ConfigType.STRING),
+        look("shortcuts.menu.v1", ConfigType.STRING),
         look("drawer.width", ConfigType.INT),
         look("rail.width", ConfigType.INT),
         look("viewer.grey", ConfigType.BOOL),

@@ -1,5 +1,6 @@
 package dev.niccc2007.filet.shortcuts
 
+import dev.niccc2007.filet.browser.TabGroup
 import dev.niccc2007.filet.browser.TabTarget
 
 /**
@@ -70,6 +71,17 @@ object HoldMenu {
     /** Take [id] out. The last one stays: an empty menu would read back as the default, which is not what was asked. */
     fun removed(ids: List<String>, id: String): List<String> =
         if (id !in ids || ids.size <= 1) ids else ids - id
+
+    /** The ids not in [ids], under the heading each is offered with: the actions first, then each group's tabs. */
+    fun offered(ids: List<String>): List<Pair<String, List<String>>> {
+        val off = CHOICES.filter { it !in ids }
+        val actions = off.filter { tabIdOrNull(it) == null }
+        val tabs = TabGroup.entries.map { g -> "${g.label} tabs" to off.filter { groupOf(it) == g } }
+        return (listOf("Actions" to actions) + tabs).filter { it.second.isNotEmpty() }
+    }
+
+    /** The group a tab's id belongs to; null for an action. */
+    fun groupOf(id: String): TabGroup? = tabIdOrNull(id)?.let { TabTarget.byId(it)?.group }
 
     /** Move one entry, for the drag and for a screen reader's Move up and Move down. Out of range does nothing. */
     fun moved(ids: List<String>, from: Int, to: Int): List<String> {

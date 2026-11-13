@@ -242,6 +242,28 @@ class ShortcutStore(private val context: Context, private val prefs: Prefs) {
         if (section in _folded.value) toggleFold(section)
     }
 
+    // ── The held icon's menu ──
+    //
+    // The four entries the menu on Filet's held icon offers, chosen on the Shortcuts tab. Absent
+    // means never chosen, and gives HoldMenu.DEFAULT: the four the menu always had.
+
+    private val _menu = MutableStateFlow(HoldMenu.normalise(prefs.getString(KEY_MENU)))
+    val menu: StateFlow<List<String>> = _menu.asStateFlow()
+
+    init {
+        // A choice made before this launch goes out now; without one the default already is.
+        if (prefs.getString(KEY_MENU) != null) runCatching { LauncherShortcuts.choose(context, _menu.value) }
+    }
+
+    /** Keep [ids] as the menu, known ones only and at most four, and publish it. */
+    fun setMenu(ids: List<String>) {
+        val now = HoldMenu.normalise(HoldMenu.encode(ids))
+        if (now == _menu.value && prefs.getString(KEY_MENU) != null) return
+        _menu.value = now
+        prefs.putString(KEY_MENU, HoldMenu.encode(now))
+        runCatching { LauncherShortcuts.choose(context, now) }
+    }
+
     private fun loadFolds(): Set<String> =
         prefs.getString(KEY_FOLDS)?.split(',')?.filterTo(HashSet()) { it.isNotBlank() } ?: DEFAULT_FOLDED
 
@@ -292,7 +314,11 @@ class ShortcutStore(private val context: Context, private val prefs: Prefs) {
         /** The sections folded on the Shortcuts tab, comma-separated. */
         private const val KEY_FOLDS = "shortcuts.folds.v1"
 
+        /** The held icon's menu, as HoldMenu ids in order, comma-separated. */
+        private const val KEY_MENU = "shortcuts.menu.v1"
+
         const val FOLD_PLACED = "home"
+        const val FOLD_MENU = "menu"
         const val FOLD_TABS = "tabs"
         const val FOLD_ACTIONS = "actions"
         const val FOLD_SCRIPTS = "scripts"

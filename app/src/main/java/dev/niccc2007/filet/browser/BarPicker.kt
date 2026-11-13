@@ -165,7 +165,7 @@ private fun BarPreview(bar: List<BarItem>, onMove: (Int, Int) -> Unit) {
  * How far entry [i] stands from where it lives during a drag: the held one follows the finger, the
  * ones it passes step aside to open the gap it will land in. The tab strip's rule.
  */
-private fun shiftFor(i: Int, dragging: Int, target: Int, at: Float, centres: Map<Int, Float>, sizes: Map<Int, Float>): Float = when {
+internal fun shiftFor(i: Int, dragging: Int, target: Int, at: Float, centres: Map<Int, Float>, sizes: Map<Int, Float>): Float = when {
     dragging < 0 -> 0f
     i == dragging -> at - (centres[i] ?: at)
     target < 0 -> 0f
@@ -285,6 +285,44 @@ private fun BarListRow(
     onUp: (() -> Unit)?,
     onDown: (() -> Unit)?,
     onRemove: (() -> Unit)?,
+) = GripRow(
+    label = item.label,
+    sub = "Position $position",
+    lifted = lifted,
+    offsetY = offsetY,
+    settle = settle,
+    onCentre = onCentre,
+    onDragStart = onDragStart,
+    onDrag = onDrag,
+    onDragEnd = onDragEnd,
+    onUp = onUp,
+    onDown = onDown,
+    removeLabel = "Take ${item.label} off the bar",
+    onRemove = onRemove,
+) { BarItemIcon(item) }
+
+/**
+ * One entry of a list arranged by dragging: a grip, the entry's icon and name, and a cross.
+ *
+ * Only the grip starts a drag. A screen reader gets Move up and Move down instead, and the cross
+ * is left out for an entry that cannot be taken away, its space kept so the names stay in line.
+ */
+@Composable
+internal fun GripRow(
+    label: String,
+    sub: String?,
+    lifted: Boolean,
+    offsetY: Float,
+    settle: Boolean,
+    onCentre: (Float, Float) -> Unit,
+    onDragStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onUp: (() -> Unit)?,
+    onDown: (() -> Unit)?,
+    removeLabel: String,
+    onRemove: (() -> Unit)?,
+    icon: @Composable () -> Unit,
 ) {
     val colors = Filet.colors
     val start = rememberUpdatedState(onDragStart)
@@ -335,14 +373,14 @@ private fun BarListRow(
         ) {
             Icon(FiletIcons.Grip, null, tint = colors.fg3, modifier = Modifier.size(16.dp))
         }
-        BarItemIcon(item)
+        icon()
         Column(Modifier.weight(1f)) {
-            Text(item.label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-            Text("Position $position", fontSize = 10.sp, color = colors.fg3)
+            Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
+            if (!sub.isNullOrEmpty()) Text(sub, fontSize = 10.sp, color = colors.fg3, maxLines = 1)
         }
         if (onRemove != null) {
             Icon(
-                FiletIcons.Close, "Take ${item.label} off the bar",
+                FiletIcons.Close, removeLabel,
                 tint = colors.fg3,
                 modifier = Modifier.size(32.dp).clip(CircleShape).clickable(onClick = onRemove).padding(9.dp),
             )

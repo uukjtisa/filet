@@ -15,10 +15,10 @@ import dev.niccc2007.filet.R
  * and the app owns them entirely - it decides what is in the list and rewrites it as the state
  * changes.
  *
- * The brief came with its own constraint - *don't bloat* - and it is the right one. Android
- * shows about four before it stops, launchers vary, and a list of nine means the one that is
- * wanted is never in the same place twice. So: four, fixed order, and the only one that
- * changes is the sharing entry, which has to say what pressing it will do.
+ * Kept short on purpose. Android shows about four before it stops, launchers vary, and a list
+ * of nine means the one that is wanted is never in the same place twice. So: four at most, in
+ * the order chosen on the Shortcuts tab's Hold menu, and the only one that changes by itself is
+ * the sharing entry, which has to say what pressing it will do.
  */
 object LauncherShortcuts {
 
@@ -32,24 +32,35 @@ object LauncherShortcuts {
     const val MAX = 4
 
     /**
-     * Which actions belong in the menu right now.
+     * The menu as it should read right now: the four chosen on the Shortcuts tab, in their order,
+     * with the sharing entry saying Start or Stop by what is running.
      *
      * Pure, and tested, because it is a real decision with two ways to be wrong that are both
      * invisible in the app itself: a stale sharing entry that offers to start a share already
      * running, and a list that silently loses its last item past the platform cap.
      *
+     * @param chosen the ids kept by the Shortcuts tab's Hold menu, read through [HoldMenu.normalise].
      * @param sharing whether the LAN share is currently running.
      */
-    fun actionsFor(sharing: Boolean): List<AppAction> = listOf(
-        // Search first: it is the one anybody reaches for without thinking, and the first
-        // slot is the only one whose position is stable across every launcher.
-        AppAction.SEARCH,
-        AppAction.BOOKMARKS,
-        // The pair that changes. Only ever one of them, because offering both means one of
-        // the two is always wrong.
-        if (sharing) AppAction.STOP_SHARING else AppAction.SHARE_NEARBY,
-        AppAction.INDEX_NOW,
-    ).take(MAX)
+    fun menuFor(chosen: List<String>, sharing: Boolean): List<HoldMenu.Entry> =
+        HoldMenu.entriesFor(HoldMenu.encode(chosen), sharing)
+
+    // What was last asked for. The share's state arrives from the app, the four from the store,
+    // each on its own schedule; whichever changes publishes both.
+    @Volatile private var sharingNow = false
+    @Volatile private var chosenNow: List<String> = HoldMenu.DEFAULT
+
+    /** The share started or stopped: publish the menu with the sharing entry turned to match. */
+    fun publish(context: Context, sharing: Boolean) {
+        sharingNow = sharing
+        push(context)
+    }
+
+    /** A different four were chosen on the Shortcuts tab: publish them. */
+    fun choose(context: Context, chosen: List<String>) {
+        chosenNow = chosen
+        push(context)
+    }
 
     /**
      * Push the current menu to the launcher.
@@ -59,21 +70,21 @@ object LauncherShortcuts {
      * and none of that is worth taking the app down for - the menu is a convenience, and an
      * app that crashes on launch because a launcher refused a shortcut is not.
      */
-    fun publish(context: Context, sharing: Boolean) {
+    private fun push(context: Context) {
         val sm = context.getSystemService(ShortcutManager::class.java) ?: return
-        val infos = actionsFor(sharing).mapNotNull { action ->
+        val infos = menuFor(chosenNow, sharingNow).mapIndexedNotNull { rank, entry ->
             runCatching {
                 val intent = Intent(context, ShortcutRouterActivity::class.java).apply {
                     this.action = Intent.ACTION_VIEW
-                    putExtra(Shortcuts.EXTRA_ACTION, action.name)
+                    putExtra(Shortcuts.EXTRA_ACTION, entry.route)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                 }
-                ShortcutInfo.Builder(context, "menu:" + action.name)
-                    .setShortLabel(action.label.take(10))
-                    .setLongLabel(action.label.take(25))
-                    .setIcon(Icon.createWithResource(context, launcherIcon(action.art)))
+                ShortcutInfo.Builder(context, "menu:" + entry.route)
+                    .setShortLabel(entry.short.take(10))
+                    .setLongLabel(entry.long.take(25))
+                    .setIcon(Icon.createWithResource(context, launcherIcon(entry.art)))
                     .setIntent(intent)
-                    .setRank(0)
+                    .setRank(rank)
                     .build()
             }.getOrNull()
         }

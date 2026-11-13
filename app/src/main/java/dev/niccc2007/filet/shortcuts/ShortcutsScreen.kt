@@ -46,6 +46,8 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
     val allRecords by vm.shortcuts.all.collectAsState()
     val allScripts by vm.scripts.scripts.collectAsState()
     val folded by vm.shortcuts.folded.collectAsState()
+    val menu by vm.shortcuts.menu.collectAsState()
+    val sharing = vm.nearby.state.collectAsState().value.running
     // Narrowed by the pane's search box: what is pinned, and what could be.
     val query = dev.niccc2007.filet.ui.LocalPaneQuery.current
     fun match(vararg f: String?) = dev.niccc2007.filet.ui.TextMatch.matches(query, *f)
@@ -55,7 +57,7 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
     var renaming by remember { mutableStateOf<ShortcutRecord?>(null) }
 
     val placedIds = remember(allRecords) { allRecords.mapTo(HashSet()) { it.id } }
-    val lines = remember(allRecords, allScripts, query, folded) {
+    val lines = remember(allRecords, allScripts, query, folded, menu) {
         shortcutLines(
             records = allRecords.filter { match(it.label, it.kindLabel()) }.sortedByDescending { it.createdAt },
             tabs = TabTarget.entries.filter { match(it.label, it.home, it.group.label) },
@@ -65,6 +67,7 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
             folded = if (searching) emptySet() else folded,
             searching = searching,
             nothingPlaced = allRecords.isEmpty(),
+            menu = menu,
         )
     }
 
@@ -88,10 +91,15 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
                     onTabs = { goTo(ShortcutStore.FOLD_TABS) },
                     onActions = { goTo(ShortcutStore.FOLD_ACTIONS) },
                 )
-                is Line.Head -> FoldHead(line.label, line.count, line.folded, foldable = !searching) {
+                is Line.Head -> FoldHead(line.label, line.count, line.folded, foldable = !searching, of = line.of) {
                     vm.shortcuts.toggleFold(line.id)
                 }
                 is Line.Group -> GroupLabel(line.group.label)
+                is Line.MenuChosen -> HoldMenuChosen(line.ids, sharing) { vm.shortcuts.setMenu(it) }
+                is Line.MenuGroup -> GroupLabel(line.label)
+                is Line.MenuAdd -> HoldMenuAdd(line.id, sharing, line.full) {
+                    vm.shortcuts.setMenu(HoldMenu.added(menu, line.id))
+                }
                 is Line.Placed -> ShortcutRow(
                     record = line.record,
                     // Only a launcher that never reports leaves a row unconfirmed. See PinReconcile.
@@ -159,9 +167,13 @@ internal sealed interface Line {
 
     data object NoMatch : Line { override val key = "nomatch" }
     data object Empty : Line { override val key = "empty" }
-    data class Head(val id: String, val label: String, val count: Int, val folded: Boolean) : Line {
+    data class Head(val id: String, val label: String, val count: Int, val folded: Boolean, val of: Int? = null) : Line {
         override val key get() = "head-$id"
     }
+    /** The hold menu's chosen entries, with the preview above them: one item, so a drag stays inside it. */
+    data class MenuChosen(val ids: List<String>) : Line { override val key = "menu-chosen" }
+    data class MenuGroup(val label: String) : Line { override val key get() = "menu-group-$label" }
+    data class MenuAdd(val id: String, val full: Boolean) : Line { override val key get() = "menu-add-$id" }
     data class Group(val group: TabGroup) : Line { override val key get() = "group-${group.name}" }
     data class Placed(val record: ShortcutRecord) : Line { override val key get() = "placed-${record.id}" }
     data class Tab(val target: TabTarget, val placed: Boolean) : Line { override val key get() = "tab-${target.id}" }
@@ -177,6 +189,8 @@ internal sealed interface Line {
  * - A folded section keeps its heading and count and drops its rows.
  * - A catalogue row knows whether that thing is already on the home screen, by the id its
  *   shortcut would have.
+ * - The hold menu follows the home-screen list, its chosen entries then what else could go in.
+ *   A search leaves it out: it would list every tab a second time under the Tabs results.
  */
 internal fun shortcutLines(
     records: List<ShortcutRecord>,
@@ -187,6 +201,7 @@ internal fun shortcutLines(
     folded: Set<String>,
     searching: Boolean,
     nothingPlaced: Boolean,
+    menu: List<String>? = null,
 ): List<Line> = buildList {
     if (searching && records.isEmpty() && tabs.isEmpty() && actions.isEmpty() && scripts.isEmpty()) {
         add(Line.NoMatch)
@@ -198,6 +213,18 @@ internal fun shortcutLines(
         val shut = ShortcutStore.FOLD_PLACED in folded
         add(Line.Head(ShortcutStore.FOLD_PLACED, "On your home screen", records.size, shut))
         if (!shut) records.forEach { add(Line.Placed(it)) }
+    }
+    if (menu != null && !searching) {
+        val shut = ShortcutStore.FOLD_MENU in folded
+        add(Line.Head(ShortcutStore.FOLD_MENU, "Hold menu", menu.size, shut, of = LauncherShortcuts.MAX))
+        if (!shut) {
+            add(Line.MenuChosen(menu))
+            val full = menu.size >= LauncherShortcuts.MAX
+            for ((label, ids) in HoldMenu.offered(menu)) {
+                add(Line.MenuGroup(label))
+                ids.forEach { add(Line.MenuAdd(it, full)) }
+            }
+        }
     }
     if (tabs.isNotEmpty()) {
         val shut = ShortcutStore.FOLD_TABS in folded

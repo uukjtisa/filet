@@ -11,7 +11,8 @@ class HoldMenuTest {
     @Test
     fun `nobody who never chose sees a different menu`() {
         val ids = HoldMenu.normalise(null).map { HoldMenu.entryOf(it, sharing = false)!!.long }
-        assertEquals(LauncherShortcuts.actionsFor(sharing = false).map { it.label }, ids)
+        // The four the menu had before it could be chosen, in the same order.
+        assertEquals(listOf("Search", "Bookmarks", "Start sharing", "Index now"), ids)
         assertEquals(HoldMenu.DEFAULT, HoldMenu.normalise(""))
     }
 
@@ -61,6 +62,28 @@ class HoldMenuTest {
     fun `moving is exact, and out of range does nothing`() {
         assertEquals(listOf("tab:bookmarks", "search", "share", "index"), HoldMenu.moved(HoldMenu.DEFAULT, 0, 1))
         assertEquals(HoldMenu.DEFAULT, HoldMenu.moved(HoldMenu.DEFAULT, 0, 9))
+    }
+
+    @Test
+    fun `what else could go in is offered actions first, then each group's tabs, none twice`() {
+        val chosen = listOf("tab:files", HoldMenu.SEARCH)
+        val offered = HoldMenu.offered(chosen)
+        assertEquals("Actions" to listOf(HoldMenu.INDEX, HoldMenu.SHARE), offered.first())
+        val all = offered.flatMap { it.second }
+        assertTrue(all.none { it in chosen })
+        assertEquals(all.size, all.toSet().size)
+        assertEquals(HoldMenu.CHOICES.size - chosen.size, all.size)
+        val heads = offered.drop(1).map { it.first }
+        assertEquals(dev.niccc2007.filet.browser.TabGroup.entries.map { "${it.label} tabs" }.filter { it in heads }, heads)
+        for ((_, ids) in offered.drop(1)) {
+            assertEquals(1, ids.map { HoldMenu.groupOf(it) }.toSet().size)
+        }
+    }
+
+    @Test
+    fun `with every action chosen the actions heading is left out`() {
+        val chosen = listOf(HoldMenu.SEARCH, HoldMenu.INDEX, HoldMenu.SHARE)
+        assertTrue(HoldMenu.offered(chosen).none { it.first == "Actions" })
     }
 
     @Test

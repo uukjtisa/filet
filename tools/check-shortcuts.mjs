@@ -14,6 +14,7 @@
  *
  *  - every action in the menu is one the dispatcher can actually perform, so no entry does
  *    nothing when pressed;
+ *  - the share entry follows the share, and the chosen four are capped where they are read;
  *  - every action can be parsed back from its stored name, because a launcher icon outlives
  *    the version that made it;
  *  - the menu is published from one place, so it cannot go stale;
@@ -29,6 +30,9 @@ import { readFileSync, existsSync } from "node:fs";
 const SRC = {
   store: "app/src/main/java/dev/niccc2007/filet/shortcuts/ShortcutStore.kt",
   menu: "app/src/main/java/dev/niccc2007/filet/shortcuts/LauncherShortcuts.kt",
+  // What the menu holds is chosen on the Shortcuts tab; this file turns the chosen ids into
+  // entries, so the actions it can offer, the Start/Stop flip and the cap all live here.
+  hold: "app/src/main/java/dev/niccc2007/filet/shortcuts/HoldMenu.kt",
   pin: "app/src/main/java/dev/niccc2007/filet/shortcuts/Shortcuts.kt",
   vm: "app/src/main/java/dev/niccc2007/filet/browser/BrowserViewModel.kt",
   graph: "app/src/main/java/dev/niccc2007/filet/FiletApp.kt",
@@ -61,12 +65,13 @@ export function problems(src) {
   const found = [];
   if (!src.store) return ["AppAction is missing entirely"];
   if (!src.menu) return ["the launcher menu is missing entirely"];
+  if (!src.hold) return ["the hold menu's choices are missing entirely"];
 
   const declared = actionsDeclared(src.store);
   if (declared.length === 0) found.push("no AppAction values could be read");
 
   const names = declared.map((a) => a.name);
-  const menu = [...new Set(actionsInMenu(src.menu))].filter((a) => names.includes(a));
+  const menu = [...new Set(actionsInMenu(src.hold))].filter((a) => names.includes(a));
   const dispatched = actionsDispatched(src.vm);
 
   // The failure that matters most: a menu entry with nothing behind it presses and does
@@ -84,12 +89,20 @@ export function problems(src) {
     }
   }
 
-  // Start and Stop must never both be offered - one of the two would always be wrong.
-  if (!/if \(sharing\)/.test(src.menu)) {
+  // Start and Stop must never both be offered - one of the two would always be wrong. The
+  // choice is made where a chosen id becomes an entry, and only holds if the launcher side
+  // hands the share's state through instead of a constant.
+  if (!/if \(sharing\)/.test(src.hold)) {
     found.push("the menu does not vary with whether sharing is running, so one entry is always wrong");
+  }
+  if (!/entriesFor\(.*,\s*sharing\)$/m.test(src.menu)) {
+    found.push("the launcher menu does not pass the share's state on, so the share entry never flips");
   }
   if (!/MAX/.test(src.menu)) {
     found.push("the menu declares no cap, so the platform silently drops entries");
+  }
+  if (!/\.take\(LauncherShortcuts\.MAX\)/.test(src.hold)) {
+    found.push("the chosen entries are not cut to the cap, so a launcher drops ones of its own choosing");
   }
 
   // Parsing back, because a launcher icon outlives the version that made it.
@@ -175,7 +188,10 @@ if (process.argv.includes("--selftest")) {
       swap("vm", "AppAction.BOOKMARKS ->", "AppAction.NOTHING ->")],
     ["a pinnable action with no branch", () =>
       swap("vm", "AppAction.RECENT ->", "AppAction.GONE ->")],
-    ["the menu no longer varying with the share", () => swap("menu", "if (sharing)", "if (false)")],
+    ["the menu no longer varying with the share", () => swap("hold", "if (sharing)", "if (false)")],
+    ["the share's state not passed to the menu", () =>
+      swap("menu", "HoldMenu.encode(chosen), sharing)", "HoldMenu.encode(chosen), false)")],
+    ["the chosen entries not cut to the cap", () => swap("hold", ".take(LauncherShortcuts.MAX)", "")],
     ["the cap removed", () => swap("menu", "MAX", "NOCAP")],
     ["parse made to throw", () =>
       swap("store", "entries.firstOrNull { it.name == raw }", "valueOf(raw!!)")],
@@ -214,7 +230,7 @@ if (found.length) {
   process.exit(1);
 }
 const declared = actionsDeclared(src.store);
-const menu = [...new Set(actionsInMenu(src.menu))].filter((a) =>
+const menu = [...new Set(actionsInMenu(src.hold))].filter((a) =>
   declared.some((d) => d.name === a));
 console.log(
   `SHORTCUTS OK  (${declared.length} actions, all dispatched; ` +

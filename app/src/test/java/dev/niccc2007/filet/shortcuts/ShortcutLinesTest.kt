@@ -19,6 +19,7 @@ class ShortcutLinesTest {
         folded: Set<String> = ShortcutStore.DEFAULT_FOLDED,
         searching: Boolean = false,
         nothingPlaced: Boolean = records.isEmpty(),
+        menu: List<String>? = null,
     ) = shortcutLines(
         records = records,
         tabs = tabs,
@@ -28,6 +29,7 @@ class ShortcutLinesTest {
         folded = folded,
         searching = searching,
         nothingPlaced = nothingPlaced,
+        menu = menu,
     )
 
     private fun tab(t: TabTarget) = ShortcutRecord(TAB_PREFIX + t.id, ShortcutKind.TAB, t.home, t.id, createdAt = 0L)
@@ -115,6 +117,48 @@ class ShortcutLinesTest {
     @Test
     fun `row keys are unique, so the list can keep its place`() {
         val out = lines(records = listOf(tab(TabTarget.HOME)), folded = emptySet())
+        assertEquals(out.size, out.map { it.key }.toSet().size)
+    }
+
+    @Test
+    fun `the hold menu sits between the home-screen list and the tabs, counted against its cap`() {
+        val out = lines(records = listOf(tab(TabTarget.HOME)), menu = HoldMenu.DEFAULT)
+        val heads = out.filterIsInstance<Line.Head>()
+        assertEquals(listOf(ShortcutStore.FOLD_PLACED, ShortcutStore.FOLD_MENU, ShortcutStore.FOLD_TABS), heads.map { it.id }.take(3))
+        val menuHead = heads.first { it.id == ShortcutStore.FOLD_MENU }
+        assertEquals(4, menuHead.count)
+        assertEquals(LauncherShortcuts.MAX, menuHead.of)
+        assertEquals(Line.MenuChosen(HoldMenu.DEFAULT), out[out.indexOf(menuHead) + 1])
+    }
+
+    @Test
+    fun `the hold menu starts open and folds to its heading`() {
+        assertTrue(lines(menu = HoldMenu.DEFAULT).any { it is Line.MenuChosen })
+        val shut = lines(menu = HoldMenu.DEFAULT, folded = setOf(ShortcutStore.FOLD_MENU))
+        assertTrue(shut.any { it is Line.Head && it.id == ShortcutStore.FOLD_MENU })
+        assertTrue(shut.none { it is Line.MenuChosen || it is Line.MenuAdd || it is Line.MenuGroup })
+    }
+
+    @Test
+    fun `with four in every other entry is shown but cannot be added`() {
+        val full = lines(menu = HoldMenu.DEFAULT).filterIsInstance<Line.MenuAdd>()
+        assertEquals(HoldMenu.CHOICES.size - 4, full.size)
+        assertTrue(full.all { it.full })
+        val three = lines(menu = HoldMenu.DEFAULT.take(3)).filterIsInstance<Line.MenuAdd>()
+        assertTrue(three.none { it.full })
+        assertTrue(three.any { it.id == HoldMenu.DEFAULT[3] })
+    }
+
+    @Test
+    fun `a search leaves the hold menu out`() {
+        val out = lines(menu = HoldMenu.DEFAULT, folded = emptySet(), searching = true)
+        assertTrue(out.none { it is Line.Head && it.id == ShortcutStore.FOLD_MENU })
+        assertTrue(out.none { it is Line.MenuChosen || it is Line.MenuAdd || it is Line.MenuGroup })
+    }
+
+    @Test
+    fun `row keys stay unique with the hold menu open`() {
+        val out = lines(records = listOf(tab(TabTarget.HOME)), folded = emptySet(), menu = listOf("search"))
         assertEquals(out.size, out.map { it.key }.toSet().size)
     }
 }

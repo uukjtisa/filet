@@ -79,10 +79,10 @@ fun GlyphTile(icon: ImageVector) {
  *
  * The count stays when the list is folded: it is what says there is something in there to open.
  * While a search is typed every list is open and the heading cannot fold, because a match folded
- * out of sight reads as no match.
+ * out of sight reads as no match. A list with a cap shows it beside the count, as "3 of 4".
  */
 @Composable
-fun FoldHead(label: String, count: Int, folded: Boolean, foldable: Boolean = true, onToggle: () -> Unit) {
+fun FoldHead(label: String, count: Int, folded: Boolean, foldable: Boolean = true, of: Int? = null, onToggle: () -> Unit) {
     val colors = Filet.colors
     val shut = folded && foldable
     Row(
@@ -114,7 +114,7 @@ fun FoldHead(label: String, count: Int, folded: Boolean, foldable: Boolean = tru
             color = colors.fg3,
             modifier = Modifier.weight(1f),
         )
-        Text(count.toString(), fontSize = 10.sp, color = colors.fg3)
+        Text(if (of == null) count.toString() else "$count of $of", fontSize = 10.sp, color = colors.fg3)
     }
 }
 
