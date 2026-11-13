@@ -25,6 +25,8 @@ enum class ShortcutKind { FILE, SCRIPT, ACTION, TAB }
  *   whether it was added or turned down. See [PinReconcile].
  * @param dir for a [ShortcutKind.FILE], whether it is a folder. Null on records made before this
  *   was kept: the name alone cannot say, so those rows draw a neutral glyph rather than a guess.
+ * @param icon the icon chosen on the shortcut sheet, as [ShortcutIcon.encode] writes it. Null on
+ *   records made before the choice existed, and on any this build cannot read: the kind's own.
  */
 data class ShortcutRecord(
     val id: String,
@@ -35,6 +37,7 @@ data class ShortcutRecord(
     val createdAt: Long = System.currentTimeMillis(),
     val unconfirmed: Boolean = false,
     val dir: Boolean? = null,
+    val icon: String? = null,
 ) {
     fun kindLabel(): String = when (kind) {
         ShortcutKind.FILE -> "File"
@@ -270,43 +273,61 @@ class ShortcutStore(private val context: Context, private val prefs: Prefs) {
     /** Re-read from prefs. Another pane, a widget or the launcher may have changed them. */
     fun reload() { _all.value = load() }
 
-    private fun load(): List<ShortcutRecord> {
-        val raw = prefs.getString(KEY) ?: return emptyList()
-        return runCatching {
-            val arr = JSONArray(raw)
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                ShortcutRecord(
-                    id = o.getString("id"),
-                    kind = runCatching { ShortcutKind.valueOf(o.optString("kind")) }
-                        .getOrDefault(ShortcutKind.FILE),
-                    label = o.optString("label"),
-                    target = o.optString("target"),
-                    handler = o.optString("handler").ifEmpty { null },
-                    createdAt = o.optLong("at"),
-                    unconfirmed = o.optBoolean("unconfirmed", false),
-                    dir = if (o.has("dir")) o.optBoolean("dir") else null,
-                )
-            }
-        }.getOrElse { emptyList() }
-    }
+    private fun load(): List<ShortcutRecord> = decode(prefs.getString(KEY))
 
     private fun save() {
-        val arr = JSONArray()
-        for (r in _all.value) {
-            arr.put(
-                JSONObject()
-                    .put("id", r.id).put("kind", r.kind.name).put("label", r.label)
-                    .put("target", r.target).put("handler", r.handler).put("at", r.createdAt)
-                    .put("unconfirmed", r.unconfirmed)
-                    .apply { r.dir?.let { put("dir", it) } }
-            )
-        }
-        prefs.putString(KEY, arr.toString())
+        prefs.putString(KEY, encode(_all.value))
+    }
+
+    /** Keep [record] as it now is, by its id: a new name or icon chosen on the sheet's Edit. */
+    fun update(record: ShortcutRecord) {
+        _all.value = _all.value.map { if (it.id == record.id) record else it }
+        save()
     }
 
     companion object {
         private const val KEY = "shortcuts.v1"
+
+        /**
+         * The records as stored. Each field is read on its own, so a record written before a field
+         * existed reads with that field absent - no icon chosen means the kind's own.
+         */
+        internal fun decode(raw: String?): List<ShortcutRecord> {
+            if (raw == null) return emptyList()
+            return runCatching {
+                val arr = JSONArray(raw)
+                (0 until arr.length()).map { i ->
+                    val o = arr.getJSONObject(i)
+                    ShortcutRecord(
+                        id = o.getString("id"),
+                        kind = runCatching { ShortcutKind.valueOf(o.optString("kind")) }
+                            .getOrDefault(ShortcutKind.FILE),
+                        label = o.optString("label"),
+                        target = o.optString("target"),
+                        handler = o.optString("handler").ifEmpty { null },
+                        createdAt = o.optLong("at"),
+                        unconfirmed = o.optBoolean("unconfirmed", false),
+                        dir = if (o.has("dir")) o.optBoolean("dir") else null,
+                        icon = o.optString("icon").ifEmpty { null },
+                    )
+                }
+            }.getOrElse { emptyList() }
+        }
+
+        internal fun encode(records: List<ShortcutRecord>): String {
+            val arr = JSONArray()
+            for (r in records) {
+                arr.put(
+                    JSONObject()
+                        .put("id", r.id).put("kind", r.kind.name).put("label", r.label)
+                        .put("target", r.target).put("handler", r.handler).put("at", r.createdAt)
+                        .put("unconfirmed", r.unconfirmed)
+                        .apply { r.dir?.let { put("dir", it) } }
+                        .apply { r.icon?.let { put("icon", it) } }
+                )
+            }
+            return arr.toString()
+        }
 
         /** Set once this phone's launcher has reported a pin: from then on, unreported means gone. */
         private const val KEY_REPORTS = "shortcuts.reports.v1"

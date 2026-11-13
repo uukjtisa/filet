@@ -6188,109 +6188,191 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
     }
 
-    /** The home-screen shortcut flow, which opens its own settings sheet. */
+    // ── The shortcut sheet ──
+    //
+    // One sheet makes every home-screen shortcut, whatever it opens and wherever it was asked
+    // for: a file's menu, a row's hold, a tab held in the bar or the side bar, the Shortcuts tab.
+    // The same sheet edits one already placed. The name and the icon are settled on it, because
+    // the launcher's own dialog can change neither. See [dev.niccc2007.filet.shortcuts.ShortcutSheetHost].
+
+    private val _shortcutSheet = MutableStateFlow<dev.niccc2007.filet.shortcuts.ShortcutSheetState?>(null)
+    val shortcutSheet: StateFlow<dev.niccc2007.filet.shortcuts.ShortcutSheetState?> = _shortcutSheet.asStateFlow()
+
+    /** The selection's Shortcut: the sheet for the first thing selected. */
     fun shortcutSelection() {
         val items = focusedPane()?.selectedNodes().orEmpty()
         if (items.isEmpty()) return
-        _shortcutFor.value = items.first()
+        shortcutOne(items.first())
     }
 
-    private val _shortcutFor = MutableStateFlow<VNode?>(null)
-    val shortcutFor: StateFlow<VNode?> = _shortcutFor.asStateFlow()
-    fun dismissShortcutSheet() { _shortcutFor.value = null }
+    /** The sheet for a file or a folder, from its menu. */
+    fun shortcutOne(node: VNode) = openShortcutSheet(fileSubject(node), dev.niccc2007.filet.shortcuts.SheetFrom.MENU)
+
+    /** The sheet for a tab: one tap on the icon opens Filet on it. */
+    fun askToPin(target: TabTarget, from: dev.niccc2007.filet.shortcuts.SheetFrom = dev.niccc2007.filet.shortcuts.SheetFrom.MENU) =
+        openShortcutSheet(dev.niccc2007.filet.shortcuts.PinSubject.Tab(target), from)
+
+    /** The sheet for an app action: indexing, sharing, search. */
+    fun askToPin(action: dev.niccc2007.filet.shortcuts.AppAction, from: dev.niccc2007.filet.shortcuts.SheetFrom = dev.niccc2007.filet.shortcuts.SheetFrom.MENU) =
+        openShortcutSheet(dev.niccc2007.filet.shortcuts.PinSubject.Action(action), from)
+
+    /** The sheet for a script: one tap runs it. */
+    fun askToPin(script: dev.niccc2007.filet.script.Script, from: dev.niccc2007.filet.shortcuts.SheetFrom = dev.niccc2007.filet.shortcuts.SheetFrom.MENU) =
+        openShortcutSheet(dev.niccc2007.filet.shortcuts.PinSubject.Scripted(script), from)
+
+    fun openShortcutSheet(subject: dev.niccc2007.filet.shortcuts.PinSubject, from: dev.niccc2007.filet.shortcuts.SheetFrom) {
+        _shortcutSheet.value = dev.niccc2007.filet.shortcuts.ShortcutSheetState.Sheet(dev.niccc2007.filet.shortcuts.ShortcutAsk(subject, from))
+    }
+
+    /** The Shortcuts tab's New shortcut: what it opens is chosen first. */
+    fun newShortcut() { _shortcutSheet.value = dev.niccc2007.filet.shortcuts.ShortcutSheetState.Choosing(returnTo = null) }
+
+    /** The sheet's Change: the chooser, with Back returning to [returnTo] as it was. */
+    fun chooseNewShortcut(returnTo: dev.niccc2007.filet.shortcuts.ShortcutAsk) {
+        _shortcutSheet.value = dev.niccc2007.filet.shortcuts.ShortcutSheetState.Choosing(returnTo)
+    }
+
+    /** The chooser's Back: the sheet it was opened from, or nothing when it was opened first. */
+    fun chooserBack(state: dev.niccc2007.filet.shortcuts.ShortcutSheetState.Choosing) {
+        _shortcutSheet.value = state.returnTo?.let { dev.niccc2007.filet.shortcuts.ShortcutSheetState.Sheet(it) }
+    }
+
+    fun closeShortcutSheet() { _shortcutSheet.value = null }
 
     /**
-     * Ask the launcher to place the shortcut the sheet was filled in for.
-     *
-     * Listed on the Shortcuts tab only once the launcher confirms it, so Cancel or Back leaves
-     * nothing behind. See [dev.niccc2007.filet.shortcuts.PinReconcile] for launchers that never
-     * confirm anything.
+     * The chooser's "Choose a file" and "Choose a folder": picked in Filet's own browser. The
+     * chooser is only hidden while picking, so a cancelled pick comes back to it.
      */
-    fun createShortcut(node: VNode, label: String, handler: HandlerId?) {
-        _shortcutFor.value = null
-        if (!dev.niccc2007.filet.shortcuts.Shortcuts.isSupported(graph.app)) {
-            toast("This launcher does not accept home-screen shortcuts.")
-            return
+    fun pickShortcutTarget(folder: Boolean) {
+        val spec = dev.niccc2007.filet.pick.PickSpec(
+            title = if (folder) "Choose a folder for a home-screen shortcut" else "Choose a file for a home-screen shortcut",
+            want = if (folder) dev.niccc2007.filet.pick.PickSpec.Want.FOLDER else dev.niccc2007.filet.pick.PickSpec.Want.FILE,
+            subject = "a home-screen shortcut",
+        )
+        pick(spec) { result ->
+            val path = (result as? dev.niccc2007.filet.pick.PickResult.Picked)?.first ?: return@pick
+            viewModelScope.launch {
+                val node = runCatching { graph.vfs.stat(path) }.getOrNull()
+                if (node == null) { toast("That file is no longer there."); return@launch }
+                openShortcutSheet(fileSubject(node), dev.niccc2007.filet.shortcuts.SheetFrom.TAB)
+            }
         }
+    }
+
+    /** The Shortcuts tab's Edit on a placed shortcut: the sheet, filled in as it is now. */
+    fun editShortcut(record: dev.niccc2007.filet.shortcuts.ShortcutRecord) {
         viewModelScope.launch {
-            val fileId = graph.index.idFor(node.path)
-            val record = dev.niccc2007.filet.shortcuts.ShortcutRecord(
-                id = dev.niccc2007.filet.shortcuts.Shortcuts.shortcutId(fileId, node.path),
-                kind = dev.niccc2007.filet.shortcuts.ShortcutKind.FILE,
-                label = label,
-                target = node.path.toString(),
-                handler = handler?.name,
-                dir = node.isDir,
-            )
-            graph.shortcuts.ask(record)
-            val ok = dev.niccc2007.filet.shortcuts.Shortcuts.pin(graph.app, node, fileId, record)
-            if (!ok) graph.shortcuts.withdraw(record.id)
-            focusedPane()?.clearSelection()
-            toast(if (ok) "Ask your launcher where to put it" else "The launcher refused.")
+            val subject: dev.niccc2007.filet.shortcuts.PinSubject? = when (record.kind) {
+                dev.niccc2007.filet.shortcuts.ShortcutKind.FILE -> {
+                    val path = runCatching { VPath.parse(record.target) }.getOrNull()
+                    path?.let { runCatching { graph.vfs.stat(it) }.getOrNull() }?.let(::fileSubject)
+                }
+                dev.niccc2007.filet.shortcuts.ShortcutKind.TAB -> TabTarget.byId(record.target)?.let { dev.niccc2007.filet.shortcuts.PinSubject.Tab(it) }
+                dev.niccc2007.filet.shortcuts.ShortcutKind.ACTION -> dev.niccc2007.filet.shortcuts.AppAction.parse(record.target)?.let { dev.niccc2007.filet.shortcuts.PinSubject.Action(it) }
+                dev.niccc2007.filet.shortcuts.ShortcutKind.SCRIPT -> scripts.scripts.value.firstOrNull { it.id == record.target }?.let { dev.niccc2007.filet.shortcuts.PinSubject.Scripted(it) }
+            }
+            if (subject == null) {
+                toast("What \"${record.label}\" opened is gone. Forget it here, and drag it off the home screen.")
+                return@launch
+            }
+            _shortcutSheet.value = dev.niccc2007.filet.shortcuts.ShortcutSheetState.Sheet(dev.niccc2007.filet.shortcuts.ShortcutAsk(subject, dev.niccc2007.filet.shortcuts.SheetFrom.EDIT, editing = record))
         }
     }
 
-    // ── Naming a shortcut before it is placed ──
-    //
-    // A tab, an action or a script goes through the same sheet a file does, minus the opener:
-    // the name is chosen first, because the launcher's own dialog has no way to change it.
+    private fun fileSubject(node: VNode) =
+        dev.niccc2007.filet.shortcuts.PinSubject.File(node, picture = !node.isDir && dev.niccc2007.filet.media.Thumbnails.canPreview(node.extension))
 
-    private val _pinAsk = MutableStateFlow<dev.niccc2007.filet.shortcuts.PinAsk?>(null)
-    val pinAsk: StateFlow<dev.niccc2007.filet.shortcuts.PinAsk?> = _pinAsk.asStateFlow()
-    fun dismissPinAsk() { _pinAsk.value = null }
-
-    /** A tab on the home screen: one tap opens Filet on it. */
-    fun askToPin(target: TabTarget) {
-        _pinAsk.value = dev.niccc2007.filet.shortcuts.PinAsk(
-            dev.niccc2007.filet.shortcuts.ShortcutKind.TAB, target.id, target.home,
-            "Opens Filet on ${target.label}.",
-            art = dev.niccc2007.filet.shortcuts.homeArt(target.art) ?: dev.niccc2007.filet.R.drawable.ic_launcher_foreground,
-            icon = dev.niccc2007.filet.shortcuts.launcherIcon(target.art),
-        )
-    }
-
-    /** An app action on the home screen: indexing, sharing, search. */
-    fun askToPin(action: dev.niccc2007.filet.shortcuts.AppAction) {
-        _pinAsk.value = dev.niccc2007.filet.shortcuts.PinAsk(
-            dev.niccc2007.filet.shortcuts.ShortcutKind.ACTION, action.name, action.home,
-            action.description + ".",
-            art = dev.niccc2007.filet.shortcuts.homeArt(action.art) ?: dev.niccc2007.filet.R.drawable.ic_launcher_foreground,
-            icon = dev.niccc2007.filet.shortcuts.launcherIcon(action.art),
-        )
-    }
-
-    /** A script on the home screen: one tap runs it. */
-    fun askToPin(script: dev.niccc2007.filet.script.Script) {
-        _pinAsk.value = dev.niccc2007.filet.shortcuts.PinAsk(
-            dev.niccc2007.filet.shortcuts.ShortcutKind.SCRIPT, script.id, script.name,
-            "Runs the script.",
-            art = dev.niccc2007.filet.shortcuts.homeArt(TabTarget.SCRIPTS.art) ?: dev.niccc2007.filet.R.drawable.ic_launcher_foreground,
-            icon = dev.niccc2007.filet.shortcuts.launcherIcon(TabTarget.SCRIPTS.art),
-        )
-    }
-
-    /** The sheet's Add: ask the launcher to place [ask] under [label]. */
-    fun pinAsked(ask: dev.niccc2007.filet.shortcuts.PinAsk, label: String) {
-        _pinAsk.value = null
-        val name = label.trim().ifEmpty { ask.name }
-        // The ids and payloads are the ones pinned icons already carry; changing them would leave
-        // every existing icon pointing at nothing.
-        val (id, action) = when (ask.kind) {
-            dev.niccc2007.filet.shortcuts.ShortcutKind.TAB ->
-                (dev.niccc2007.filet.shortcuts.TAB_PREFIX + ask.target).let { it to it }
-            dev.niccc2007.filet.shortcuts.ShortcutKind.ACTION -> "action:${ask.target}" to ask.target
-            dev.niccc2007.filet.shortcuts.ShortcutKind.SCRIPT -> "script:${ask.target}".let { it to it }
-            dev.niccc2007.filet.shortcuts.ShortcutKind.FILE -> return
-        }
-        if (!dev.niccc2007.filet.shortcuts.Shortcuts.isSupported(graph.app)) {
+    /**
+     * The sheet's Add or Save.
+     *
+     * Add asks the launcher to place it; it is listed on the Shortcuts tab only once the launcher
+     * confirms it, so Cancel or Back leaves nothing behind (see [dev.niccc2007.filet.shortcuts.PinReconcile] for launchers
+     * that never confirm anything). Save changes the placed one in place.
+     *
+     * A folder under "Same as the folder" wears the look set on the sheet, and that look becomes
+     * the folder's own in Filet, as Change icon would make it.
+     */
+    fun finishShortcutSheet(ask: dev.niccc2007.filet.shortcuts.ShortcutAsk, label: String, handler: HandlerId?, draft: dev.niccc2007.filet.shortcuts.IconDraft) {
+        _shortcutSheet.value = null
+        val app = graph.app
+        val editing = ask.editing
+        if (editing == null && !dev.niccc2007.filet.shortcuts.Shortcuts.isSupported(app)) {
             toast("This launcher does not accept home-screen shortcuts.")
             return
         }
-        val record = dev.niccc2007.filet.shortcuts.ShortcutRecord(id, ask.kind, name, ask.target)
-        graph.shortcuts.ask(record)
-        val ok = dev.niccc2007.filet.shortcuts.Shortcuts.pinAction(graph.app, record, action, ask.icon)
-        if (!ok) graph.shortcuts.withdraw(record.id)
-        toast(if (ok) "Ask your launcher where to put it" else "The launcher refused.")
+        val s = ask.subject
+        val icon = draft.icon()
+        val same = icon is dev.niccc2007.filet.shortcuts.ShortcutIcon.Folder && icon.own == null
+        viewModelScope.launch {
+            val folder = (s as? dev.niccc2007.filet.shortcuts.PinSubject.File)?.node?.takeIf { it.isDir }
+            if (folder != null && same) {
+                val styles = dev.niccc2007.filet.icons.FolderStyles.of(app)
+                if (dev.niccc2007.filet.icons.lookFor(styles.byPath.value, folder.path) != draft.look) {
+                    styles.set(listOf(folder.path), draft.look)
+                }
+            }
+            val drawn = dev.niccc2007.filet.shortcuts.ShortcutArt.draw(app, s, if (same) dev.niccc2007.filet.shortcuts.ShortcutIcon.Folder(draft.look) else icon)
+            val launcherIcon = dev.niccc2007.filet.shortcuts.ShortcutArt.launcherIcon(app, drawn)
+            if (editing != null) {
+                val record = editing.copy(
+                    label = label,
+                    handler = if (editing.kind == dev.niccc2007.filet.shortcuts.ShortcutKind.FILE) handler?.name else editing.handler,
+                    icon = icon.encode(),
+                )
+                dev.niccc2007.filet.shortcuts.Shortcuts.update(app, record, launcherIcon)
+                graph.shortcuts.update(record)
+                toast("Saved \"$label\" on the home screen")
+                return@launch
+            }
+            val record = when (s) {
+                // The ids and payloads are the ones pinned icons already carry; changing them
+                // would leave every existing icon pointing at nothing.
+                is dev.niccc2007.filet.shortcuts.PinSubject.File -> dev.niccc2007.filet.shortcuts.ShortcutRecord(
+                    id = dev.niccc2007.filet.shortcuts.Shortcuts.shortcutId(graph.index.idFor(s.node.path), s.node.path),
+                    kind = dev.niccc2007.filet.shortcuts.ShortcutKind.FILE,
+                    label = label,
+                    target = s.node.path.toString(),
+                    handler = handler?.name,
+                    dir = s.node.isDir,
+                    icon = icon.encode(),
+                )
+                is dev.niccc2007.filet.shortcuts.PinSubject.Tab -> dev.niccc2007.filet.shortcuts.ShortcutRecord(
+                    id = dev.niccc2007.filet.shortcuts.TAB_PREFIX + s.target.id, kind = dev.niccc2007.filet.shortcuts.ShortcutKind.TAB, label = label, target = s.target.id, icon = icon.encode(),
+                )
+                is dev.niccc2007.filet.shortcuts.PinSubject.Action -> dev.niccc2007.filet.shortcuts.ShortcutRecord(
+                    id = "action:${s.action.name}", kind = dev.niccc2007.filet.shortcuts.ShortcutKind.ACTION, label = label, target = s.action.name, icon = icon.encode(),
+                )
+                is dev.niccc2007.filet.shortcuts.PinSubject.Scripted -> dev.niccc2007.filet.shortcuts.ShortcutRecord(
+                    id = "script:${s.script.id}", kind = dev.niccc2007.filet.shortcuts.ShortcutKind.SCRIPT, label = label, target = s.script.id, icon = icon.encode(),
+                )
+            }
+            graph.shortcuts.ask(record)
+            val ok = when (s) {
+                is dev.niccc2007.filet.shortcuts.PinSubject.File -> {
+                    val fileId = record.id.removePrefix("id:").takeIf { record.id.startsWith("id:") }?.toLongOrNull()
+                    dev.niccc2007.filet.shortcuts.Shortcuts.pin(app, s.node, fileId, record, launcherIcon)
+                }
+                // A tab's payload is its id, as the bar and the hold menu route it; an action's is
+                // its name; a script's, its id.
+                is dev.niccc2007.filet.shortcuts.PinSubject.Tab, is dev.niccc2007.filet.shortcuts.PinSubject.Scripted -> dev.niccc2007.filet.shortcuts.Shortcuts.pinAction(app, record, record.id, launcherIcon)
+                is dev.niccc2007.filet.shortcuts.PinSubject.Action -> dev.niccc2007.filet.shortcuts.Shortcuts.pinAction(app, record, record.target, launcherIcon)
+            }
+            if (!ok) graph.shortcuts.withdraw(record.id)
+            if (ask.from == dev.niccc2007.filet.shortcuts.SheetFrom.MENU) focusedPane()?.clearSelection()
+            toast(if (ok) "Asked your launcher to add \"$label\"" else "The launcher refused.")
+        }
+    }
+
+    /**
+     * The sheet's Remove. Android lets no app take an icon off the home screen, so the shortcut is
+     * turned off, which the launcher shows by greying it, and it leaves the list.
+     */
+    fun removeShortcut(ask: dev.niccc2007.filet.shortcuts.ShortcutAsk) {
+        val record = ask.editing ?: return
+        _shortcutSheet.value = null
+        dev.niccc2007.filet.shortcuts.Shortcuts.remove(graph.app, record.id, "Removed in Filet")
+        graph.shortcuts.forget(record.id)
+        toast("\"${record.label}\" is off and greyed on your home screen. Drag it off the home screen.")
     }
 
     /**
@@ -7100,8 +7182,6 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         graph.bookmarks.add(node.path, node.name, isDir = node.isDir)
         toast("Bookmarked")
     }
-
-    fun shortcutOne(node: VNode) { _shortcutFor.value = node }
 
     /** Open what a recorded shortcut points at, from inside the app. */
     fun openShortcutRecord(record: dev.niccc2007.filet.shortcuts.ShortcutRecord) {

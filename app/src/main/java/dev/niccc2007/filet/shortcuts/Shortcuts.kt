@@ -4,15 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.RectF
 import android.graphics.drawable.Icon
-import dev.niccc2007.filet.FiletApp
-import dev.niccc2007.filet.R
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import kotlin.math.min
@@ -49,44 +41,51 @@ object Shortcuts {
      *   handler are the shortcut's; its id must be [shortcutId] of [fileId]. The handler is a
      *   handler id from the registry, or null to follow the per-type default - the default is a
      *   *routing* concern, and a shortcut merely inherits it.
+     * @param icon what the shortcut sheet drew for it. See [ShortcutArt].
      * @return false when the launcher refused, so the caller can say so rather than pretending.
      */
-    fun pin(context: Context, node: VNode, fileId: Long?, record: ShortcutRecord): Boolean {
+    fun pin(context: Context, node: VNode, fileId: Long?, record: ShortcutRecord, icon: Icon): Boolean {
         val sm = context.getSystemService(ShortcutManager::class.java) ?: return false
         if (!sm.isRequestPinShortcutSupported) return false
-        val info = build(context, node, fileId, record.label, record.handler) ?: return false
+        val info = build(context, node.path, fileId, record.label, record.handler, icon) ?: return false
         return request(context, sm, info, record)
     }
 
-    /** The launcher reports back through [PinResultReceiver] when the shortcut is placed. */
-    private fun request(context: Context, sm: ShortcutManager, info: ShortcutInfo, record: ShortcutRecord): Boolean =
-        runCatching { sm.requestPinShortcut(info, PinResultReceiver.callback(context, record)) }.getOrDefault(false)
+    /**
+     * The launcher reports back through [PinResultReceiver] when the shortcut is placed. One
+     * turned off by [remove] is turned back on first: a disabled id cannot be pinned again.
+     */
+    private fun request(context: Context, sm: ShortcutManager, info: ShortcutInfo, record: ShortcutRecord): Boolean {
+        runCatching { sm.enableShortcuts(listOf(info.id)) }
+        return runCatching { sm.requestPinShortcut(info, PinResultReceiver.callback(context, record)) }.getOrDefault(false)
+    }
 
     private fun build(
         context: Context,
-        node: VNode,
+        path: VPath,
         fileId: Long?,
         label: String,
         handlerOverride: String?,
-    ): ShortcutInfo? {
-        val intent = Intent(context, ShortcutRouterActivity::class.java).apply {
+        icon: Icon,
+    ): ShortcutInfo? = runCatching {
+        ShortcutInfo.Builder(context, shortcutId(fileId, path))
+            .setShortLabel(label.take(24))
+            .setLongLabel(label.take(48))
+            .setIcon(icon)
+            .setIntent(fileIntent(context, path, fileId, handlerOverride))
+            .build()
+    }.getOrNull()
+
+    private fun fileIntent(context: Context, path: VPath, fileId: Long?, handler: String?): Intent =
+        Intent(context, ShortcutRouterActivity::class.java).apply {
             action = Intent.ACTION_VIEW
             // The ID is the address. The path rides along ONLY as a fallback for a file the
             // index has never seen, and is re-resolved to an ID the first time it is used.
             fileId?.let { putExtra(EXTRA_FILE_ID, it) }
-            putExtra(EXTRA_FALLBACK_PATH, node.path.toString())
-            handlerOverride?.let { putExtra(EXTRA_HANDLER, it) }
+            putExtra(EXTRA_FALLBACK_PATH, path.toString())
+            handler?.let { putExtra(EXTRA_HANDLER, it) }
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
-        return runCatching {
-            ShortcutInfo.Builder(context, shortcutId(fileId, node.path))
-                .setShortLabel(label.take(24))
-                .setLongLabel(label.take(48))
-                .setIcon(iconFor(context, node))
-                .setIntent(intent)
-                .build()
-        }.getOrNull()
-    }
 
     fun shortcutId(fileId: Long?, path: VPath): String =
         if (fileId != null) "id:$fileId" else "path:${path}"
@@ -103,7 +102,7 @@ object Shortcuts {
         context: Context,
         record: ShortcutRecord,
         action: String,
-        iconRes: Int = R.mipmap.ic_launcher,
+        icon: Icon,
     ): Boolean {
         val id = record.id
         val label = record.label
@@ -118,11 +117,40 @@ object Shortcuts {
             ShortcutInfo.Builder(context, id)
                 .setShortLabel(label.take(24))
                 .setLongLabel(label.take(48))
-                .setIcon(Icon.createWithResource(context, iconRes))
+                .setIcon(icon)
                 .setIntent(intent)
                 .build()
         }.getOrNull() ?: return false
         return request(context, sm, info, record)
+    }
+
+    /**
+     * A placed shortcut's new name, icon and, for a file, opener, handed to the launcher in place.
+     * Only reaches a launcher that still has it; one taken off the home screen has nothing to change.
+     */
+    fun update(context: Context, record: ShortcutRecord, icon: Icon) {
+        val sm = context.getSystemService(ShortcutManager::class.java) ?: return
+        runCatching {
+            val b = ShortcutInfo.Builder(context, record.id)
+                .setShortLabel(record.label.take(24))
+                .setLongLabel(record.label.take(48))
+                .setIcon(icon)
+            if (record.kind == ShortcutKind.FILE) {
+                val path = VPath.parse(record.target)
+                val fileId = record.id.removePrefix("id:").takeIf { record.id.startsWith("id:") }?.toLongOrNull()
+                b.setIntent(fileIntent(context, path, fileId, record.handler))
+            }
+            sm.updateShortcuts(listOf(b.build()))
+        }
+    }
+
+    /**
+     * Turn a placed shortcut off. An app cannot take an icon off the home screen; the launcher
+     * shows this one greyed out with [why] until it is dragged away.
+     */
+    fun remove(context: Context, id: String, why: String) {
+        val sm = context.getSystemService(ShortcutManager::class.java) ?: return
+        runCatching { sm.disableShortcuts(listOf(id), why) }
     }
 
     /** Rename a live shortcut. `updateShortcuts` only touches ones this app still owns. */
@@ -149,62 +177,6 @@ object Shortcuts {
         val sm = context.getSystemService(ShortcutManager::class.java) ?: return
         runCatching { sm.disableShortcuts(listOf("id:$fileId"), reason) }
     }
-
-    /**
-     * A folder's own drawing for a folder, a thumbnail for images, the Filet icon for the rest.
-     *
-     * Decoded small on purpose: a launcher icon is about 108dp, and handing it a 12 MP bitmap
-     * throws `TransactionTooLargeException` across the binder.
-     */
-    private fun iconFor(context: Context, node: VNode): Icon {
-        // A folder wears the drawing its row does, its emblem and what is inside included.
-        if (node.isDir) return dev.niccc2007.filet.icons.FolderShortcutIcon.now(context, node)
-        val graph = FiletApp.graphOf(context)
-        // One preview engine for the whole app.
-        //
-        // This used to handle images only, by hand - so a shortcut to a video got the generic
-        // Filet icon and there was no way to tell three of them apart on a home screen.
-        // Thumbnails covers images, video frames and APK icons, and caches, so a shortcut and
-        // the list row it came from now show the same picture.
-        val bmp = runCatching {
-            dev.niccc2007.filet.media.Thumbnails.get(
-                context, graph.vfs, node.path, node.size, node.mtime, px = 216,
-            )
-        }.getOrNull()
-        if (bmp != null) return Icon.createWithAdaptiveBitmap(square(bmp))
-        return Icon.createWithResource(context, R.mipmap.ic_launcher)
-    }
-
-    /**
-     * The picture on the launcher's square, with nothing behind it.
-     *
-     * An opaque picture - a photo, a video frame - fills the whole shape, as it does in its row. One
-     * with see-through parts - an app's icon, a PNG or SVG with a clear background - sits whole in
-     * the shape's safe middle on nothing, so the wallpaper shows around it. It used to be laid on
-     * black, which turned every app icon into a small icon on a black tile.
-     */
-    private fun square(src: Bitmap): Bitmap {
-        val size = SIDE
-        val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val r = ShortcutFit.rect(src.width, src.height, seeThrough(src), size.toFloat())
-        Canvas(out).drawBitmap(src, null, RectF(r[0], r[1], r[2], r[3]), Paint(Paint.FILTER_BITMAP_FLAG))
-        return out
-    }
-
-    /** True when any of the edge's corners or middles lets something behind it show. */
-    private fun seeThrough(src: Bitmap): Boolean {
-        if (!src.hasAlpha()) return false
-        val xs = intArrayOf(0, src.width / 2, src.width - 1)
-        val ys = intArrayOf(0, src.height / 2, src.height - 1)
-        for (x in xs) for (y in ys) {
-            if (x != 0 && x != src.width - 1 && y != 0 && y != src.height - 1) continue
-            if (Color.alpha(src.getPixel(x, y)) < 255) return true
-        }
-        return false
-    }
-
-    /** The adaptive bitmap's side: 108dp at 2x, small enough to cross the binder. */
-    private const val SIDE = 216
 }
 
 /** Where a picture goes on a launcher icon's square. Pure, so the sums can be checked off-device. */

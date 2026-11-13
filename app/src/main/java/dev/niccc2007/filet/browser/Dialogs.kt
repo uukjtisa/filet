@@ -119,23 +119,11 @@ fun FiletDialogs(vm: BrowserViewModel) {
     // destination, and it draws normally.
     val picking = vm.inAppPick.collectAsState().value != null
 
-    // The shortcut sheet is its own flow rather than a `Dialog` case: it carries a node and
-    // two settings, and folding it into the name-only dialog family would mean a dialog type
-    // with three unused fields for everyone else.
-    vm.shortcutFor.collectAsState().value?.takeUnless { picking }?.let { node ->
-        dev.niccc2007.filet.shortcuts.ShortcutSheet(
-            node = node,
-            onDismiss = { vm.dismissShortcutSheet() },
-            onCreate = { label, handler -> vm.createShortcut(node, label, handler) },
-        )
-    }
-    // Its sibling for everything that is not a file: a name, and no opener to choose.
-    vm.pinAsk.collectAsState().value?.takeUnless { picking }?.let { ask ->
-        dev.niccc2007.filet.shortcuts.PinNameSheet(
-            ask = ask,
-            onDismiss = vm::dismissPinAsk,
-            onAdd = { label -> vm.pinAsked(ask, label) },
-        )
+    // The shortcut sheet is its own flow rather than a `Dialog` case: it carries what the
+    // shortcut opens, a name, an opener and an icon, and its chooser picks through the browser,
+    // which is why it is one of the sheets hidden while picking.
+    vm.shortcutSheet.collectAsState().value?.takeUnless { picking }?.let { state ->
+        dev.niccc2007.filet.shortcuts.ShortcutSheetHost(state, vm)
     }
     // Change icon: its sheet and its Undo, both kept in the icons package.
     dev.niccc2007.filet.icons.FolderIconHost(hidden = picking)

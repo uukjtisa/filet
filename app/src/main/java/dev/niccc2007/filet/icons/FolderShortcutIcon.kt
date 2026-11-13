@@ -17,6 +17,7 @@ import dev.niccc2007.filet.browser.FileKind
 import dev.niccc2007.filet.browser.FolderPeek
 import dev.niccc2007.filet.browser.PeekKind
 import dev.niccc2007.filet.media.Thumbnails
+import dev.niccc2007.filet.shortcuts.ShortcutIcon
 import dev.niccc2007.filet.shortcuts.ShortcutKind
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
@@ -41,6 +42,9 @@ import java.util.concurrent.ConcurrentHashMap
  * `updateShortcuts`, when the folder's look is changed in Filet, and when Filet comes to the front
  * and a folder has gone from empty to full or back. Only icons whose drawing changed are sent: the
  * last one sent is remembered by what went into it.
+ *
+ * A shortcut given a look of its own on the shortcut sheet keeps that look whatever the folder
+ * wears later; it is still redrawn as the folder fills or empties.
  */
 object FolderShortcutIcon {
 
@@ -65,12 +69,29 @@ object FolderShortcutIcon {
      * the thumbnails already decoded. For the moment of pinning, which must not wait on a disk.
      * Anything not known yet comes in with the next [refresh].
      */
-    fun now(context: Context, node: VNode): Icon {
+    fun now(context: Context, node: VNode, own: FolderLook? = null): Icon =
+        Icon.createWithAdaptiveBitmap(bitmapNow(context, node, own))
+
+    /** [now]'s drawing as a bitmap, for a preview of the icon before it is placed. */
+    fun bitmapNow(context: Context, node: VNode, own: FolderLook? = null): Bitmap {
         val graph = FiletApp.graphOf(context)
-        val look = lookFor(FolderStyles.of(context).byPath.value, node.path)
+        val look = own ?: lookFor(FolderStyles.of(context).byPath.value, node.path)
         val peek = graph.folderPeek.cached(node.path, node.mtime)
         val inside = if (peek == null) Inside.Pages else insideOf(peek) { n -> Thumbnails.peek(n.path, n.size, n.mtime, PICTURE_PX)?.bitmap }
-        return Icon.createWithAdaptiveBitmap(draw(context, inside, look))
+        return draw(context, inside, look)
+    }
+
+    /**
+     * The icon for [node] read from the disk where it must be: its contents and their pictures. For
+     * a preview that can wait a moment, so it shows what the home screen will.
+     */
+    suspend fun bitmap(context: Context, node: VNode, own: FolderLook? = null): Bitmap {
+        val graph = FiletApp.graphOf(context)
+        val look = own ?: lookFor(FolderStyles.of(context).byPath.value, node.path)
+        val peek = runCatching { graph.folderPeek.of(node.path, node.mtime) }.getOrNull()
+            ?: return bitmapNow(context, node, own)
+        val inside = insideOf(peek) { n -> runCatching { Thumbnails.get(context, graph.vfs, n.path, n.size, n.mtime, PICTURE_PX) }.getOrNull() }
+        return draw(context, inside, look)
     }
 
     /** Draw again every pinned folder shortcut among [paths], or all of them when null. */
@@ -92,7 +113,9 @@ object FolderShortcutIcon {
         for (record in folders) {
             val path = runCatching { VPath.parse(record.target) }.getOrNull() ?: continue
             val node = runCatching { graph.vfs.stat(path) }.getOrNull()?.takeIf { it.isDir } ?: continue
-            val look = lookFor(styles, path)
+            // A look of its own, set on the shortcut sheet, rather than the folder's.
+            val own = (ShortcutIcon.parse(record.icon) as? ShortcutIcon.Folder)?.own
+            val look = own ?: lookFor(styles, path)
             val peek = runCatching { graph.folderPeek.of(path, node.mtime) }.getOrNull() ?: continue
             val inside = insideOf(peek) { n -> runCatching { Thumbnails.get(context, graph.vfs, n.path, n.size, n.mtime, PICTURE_PX) }.getOrNull() }
             // Pictures by name: a decoded bitmap is a new object each time and would never match.

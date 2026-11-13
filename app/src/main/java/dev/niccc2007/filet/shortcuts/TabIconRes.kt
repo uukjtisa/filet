@@ -92,6 +92,35 @@ internal object TabIconRes {
         "stopshare" to R.drawable.ic_tab_stopshare_fg,
     )
 
+    /** The one-colour line glyph a themed home screen draws, for the plainer shortcut icon. */
+    val MONO: Map<String, Int> = mapOf(
+        "home" to R.drawable.ic_tab_home_mono,
+        "files" to R.drawable.ic_tab_files_mono,
+        "bookmarks" to R.drawable.ic_tab_bookmarks_mono,
+        "opened" to R.drawable.ic_tab_opened_mono,
+        "newfiles" to R.drawable.ic_tab_newfiles_mono,
+        "playlists" to R.drawable.ic_tab_playlists_mono,
+        "carryon" to R.drawable.ic_tab_carryon_mono,
+        "photos" to R.drawable.ic_tab_photos_mono,
+        "videos" to R.drawable.ic_tab_videos_mono,
+        "audio" to R.drawable.ic_tab_audio_mono,
+        "packages" to R.drawable.ic_tab_packages_mono,
+        "documents" to R.drawable.ic_tab_documents_mono,
+        "archives" to R.drawable.ic_tab_archives_mono,
+        "remotes" to R.drawable.ic_tab_remotes_mono,
+        "share" to R.drawable.ic_tab_share_mono,
+        "apps" to R.drawable.ic_tab_apps_mono,
+        "shortcuts" to R.drawable.ic_tab_shortcuts_mono,
+        "scripts" to R.drawable.ic_tab_scripts_mono,
+        "qr" to R.drawable.ic_tab_qr_mono,
+        "activity" to R.drawable.ic_tab_activity_mono,
+        "settings" to R.drawable.ic_tab_settings_mono,
+        "search" to R.drawable.ic_tab_search_mono,
+        "index" to R.drawable.ic_tab_index_mono,
+        "startshare" to R.drawable.ic_tab_startshare_mono,
+        "stopshare" to R.drawable.ic_tab_stopshare_mono,
+    )
+
     /** The release icon's shade and light: the blues every build's colours are turned from. See BrandTone. */
     const val BRAND_FROM_SHADE: Long = 0xFF4E7382
     const val BRAND_FROM_LIGHT: Long = 0xFF7FA8B8

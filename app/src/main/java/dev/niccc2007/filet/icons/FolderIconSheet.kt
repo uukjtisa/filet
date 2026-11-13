@@ -290,7 +290,7 @@ private fun PreviewCell(label: String, modifier: Modifier, art: @Composable () -
 }
 
 @Composable
-private fun GroupChips(group: String, onPick: (String) -> Unit) {
+internal fun GroupChips(group: String, onPick: (String) -> Unit) {
     val colors = Filet.colors
     HScroll(spacing = 4.dp) {
         for (g in listOf(ALL) + EMBLEM_GROUPS) {
@@ -313,7 +313,7 @@ private fun GroupChips(group: String, onPick: (String) -> Unit) {
 
 /** No emblem first, then the group's emblems, eight to a row, scrolling past three rows. */
 @Composable
-private fun EmblemGrid(chosen: String?, group: String, onPick: (String?) -> Unit) {
+internal fun EmblemGrid(chosen: String?, group: String, onPick: (String?) -> Unit) {
     val shown: List<Emblem?> = listOf(null) + EMBLEMS.filter { group == ALL || it.group == group }
     Column(
         Modifier
@@ -365,12 +365,20 @@ private fun EmblemCell(e: Emblem?, on: Boolean, modifier: Modifier, onClick: () 
     }
 }
 
+/**
+ * The colours, as swatches.
+ *
+ * @param tone the build's turn of Filet's blues, for a swatch of what a home-screen icon will be;
+ *   none for a folder in the app, which keeps the app's own blue.
+ */
 @Composable
-private fun Colours(chosen: String, onPick: (String) -> Unit) {
+internal fun Colours(chosen: String, tone: BrandTone? = null, onPick: (String) -> Unit) {
     val colors = Filet.colors
     HScroll(spacing = 3.dp) {
         for (id in COLOUR_IDS) {
             val a = accent(id)
+            val light = tone?.of(a.light) ?: a.light
+            val deep = tone?.of(a.deep) ?: a.deep
             val on = id == chosen
             Box(
                 Modifier
@@ -384,7 +392,7 @@ private fun Colours(chosen: String, onPick: (String) -> Unit) {
                     .clickable(role = Role.RadioButton) { onPick(id) }
                     .padding(3.dp)
                     .clip(CircleShape)
-                    .background(Brush.verticalGradient(listOf(a.light, a.deep))),
+                    .background(Brush.verticalGradient(listOf(light, deep))),
             )
         }
     }
@@ -428,7 +436,7 @@ private fun UndoToast(done: FolderIconAsk.Done) {
     }
 }
 
-private const val ALL = "All"
+internal const val ALL = "All"
 private const val PER_ROW = 8
 private val PREVIEW: Dp = 104.dp
 

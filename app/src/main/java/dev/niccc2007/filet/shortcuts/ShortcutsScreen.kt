@@ -1,41 +1,48 @@
 package dev.niccc2007.filet.shortcuts
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.browser.TabGroup
 import dev.niccc2007.filet.browser.TabTarget
 import dev.niccc2007.filet.browser.tabGlyph
 import dev.niccc2007.filet.script.Script
-import dev.niccc2007.filet.ui.tabs.TabHeader
-import dev.niccc2007.filet.ui.dialogs.BtnKind
-import dev.niccc2007.filet.ui.dialogs.Dlg
-import dev.niccc2007.filet.ui.dialogs.DlgBody
-import dev.niccc2007.filet.ui.dialogs.DlgBtn
-import dev.niccc2007.filet.ui.dialogs.DlgField
-import dev.niccc2007.filet.ui.dialogs.DlgFooter
-import dev.niccc2007.filet.ui.dialogs.DlgHeader
 import kotlinx.coroutines.launch
 
 /**
  * What Filet has put on your home screen, and everything it could.
  *
  * A pinned shortcut is otherwise write-only: you make one and it disappears into the
- * launcher. Keeping the list here is what makes them renameable, cleanable and countable.
+ * launcher. Keeping the list here is what makes them editable, cleanable and countable.
  *
  * Below the list are the catalogues: every tab, the actions and the scripts. An action has no
  * row in a folder to long-press, so its catalogue is the only way one gets made. Each is a
@@ -54,7 +61,6 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
     val searching = query.isNotBlank()
     // Opening the tab is a moment to look: an icon may have been taken off the home screen.
     LaunchedEffect(Unit) { vm.shortcuts.reconcileSoon() }
-    var renaming by remember { mutableStateOf<ShortcutRecord?>(null) }
 
     val placedIds = remember(allRecords) { allRecords.mapTo(HashSet()) { it.id } }
     val lines = remember(allRecords, allScripts, query, folded, menu) {
@@ -83,7 +89,7 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
     }
 
     LazyColumn(Modifier.fillMaxSize(), state = list) {
-        item { TabHeader("Home screen shortcuts") }
+        item { ShortcutsHeader(onNew = vm::newShortcut) }
         items(lines, key = { it.key }) { line ->
             when (line) {
                 is Line.NoMatch -> dev.niccc2007.filet.ui.NoMatch(query)
@@ -105,7 +111,7 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
                     // Only a launcher that never reports leaves a row unconfirmed. See PinReconcile.
                     live = !line.record.unconfirmed,
                     onOpen = { vm.openShortcutRecord(line.record) },
-                    onRename = { renaming = line.record },
+                    onEdit = { vm.editShortcut(line.record) },
                     onForget = { vm.shortcuts.forget(line.record.id) },
                 )
                 is Line.Tab -> CatalogueRow(
@@ -113,14 +119,14 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
                     label = line.target.label,
                     art = line.target.art,
                     placed = line.placed,
-                ) { vm.askToPin(line.target) }
+                ) { vm.askToPin(line.target, SheetFrom.TAB) }
                 is Line.Action -> CatalogueRow(
                     icon = actionGlyph(line.action),
                     label = line.action.label,
                     art = line.action.art,
                     desc = line.action.description,
                     placed = line.placed,
-                ) { vm.askToPin(line.action) }
+                ) { vm.askToPin(line.action, SheetFrom.TAB) }
                 is Line.ScriptPick -> {
                     // Pinning does not approve. A script that has never been approved would tap
                     // through to a consent dialog from the home screen, so the row says so first.
@@ -132,29 +138,11 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
                         desc = if (approved) "Runs on tap" else "Approve it once before it can run from the home screen",
                         placed = line.placed,
                         warn = !approved,
-                    ) { vm.askToPin(line.script) }
+                    ) { vm.askToPin(line.script, SheetFrom.TAB) }
                 }
             }
         }
         item { Spacer(Modifier.height(24.dp)) }
-    }
-
-    renaming?.let { record ->
-        var label by remember(record.id) { mutableStateOf(record.label) }
-        // dismissOnScrim is off: there is typing in here, and a stray tap outside the card
-        // throwing away a half-entered name is the kind of loss nobody reports.
-        Dlg(onDismiss = { renaming = null }, dismissOnScrim = false) {
-            DlgHeader(FiletIcons.Rename, "Rename shortcut", onClose = { renaming = null })
-            DlgBody {
-                DlgField("Name", label, { label = it.take(40) })
-            }
-            DlgFooter {
-                DlgBtn("Cancel") { renaming = null }
-                DlgBtn("Rename", kind = BtnKind.PRIMARY, enabled = label.isNotBlank()) {
-                    vm.shortcuts.rename(record.id, label.trim()); renaming = null
-                }
-            }
-        }
     }
 }
 
@@ -248,4 +236,44 @@ internal fun shortcutLines(
         add(Line.Head(ShortcutStore.FOLD_SCRIPTS, "Scripts", scripts.size, shut))
         if (!shut) scripts.forEach { add(Line.ScriptPick(it, "script:${it.id}" in placedIds)) }
     }
+}
+
+/**
+ * The tab's heading with New shortcut on its right, as the mock draws it. The shared tab heading
+ * puts its actions on a row of their own under the title; this is that heading's look with the
+ * one action beside the title instead.
+ */
+@Composable
+private fun ShortcutsHeader(onNew: () -> Unit) {
+    val colors = Filet.colors
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(scheme.surface, scheme.background)))
+            .padding(start = 15.dp, end = 11.dp, top = 14.dp, bottom = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Home screen shortcuts",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = (-0.24).sp,
+            color = scheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "+ New shortcut",
+            fontSize = 12.sp,
+            color = colors.accent,
+            maxLines = 1,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(role = Role.Button, onClick = onNew)
+                .padding(horizontal = 4.dp, vertical = 2.dp),
+        )
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(colors.lineSoft))
 }
