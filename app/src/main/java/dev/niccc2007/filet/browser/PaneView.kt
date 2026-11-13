@@ -41,7 +41,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.foundation.layout.wrapContentHeight
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -559,14 +558,9 @@ private fun PaneHeader(
                             .clickable { pane.openSearch(true) }.padding(4.dp),
                     )
                 }
-                // Home's Edit, after search. Its 32dp sits in the row's 26 and overhangs into the
-                // row's own padding, so Home's header is the same height as every other tab's and
-                // switching tabs does not shift the content under it.
+                // Home's Edit, after search and drawn like it. See HomeEditButton.
                 if (s.kind == PaneKind.HOME) {
-                    Spacer(Modifier.width(4.dp))
-                    Box(Modifier.height(26.dp).wrapContentHeight(unbounded = true)) {
-                        dev.niccc2007.filet.home.HomeEditButton { pane.setHomeEditing(true) }
-                    }
+                    dev.niccc2007.filet.home.HomeEditButton { pane.setHomeEditing(true) }
                 }
             }
         }

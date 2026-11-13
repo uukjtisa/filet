@@ -10,6 +10,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,6 +56,8 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -90,26 +95,26 @@ private const val ARROW_LIFT_MS = 260L
 // ── the header ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Home's way into the edit state, after search in the pane's header. The word is on it, not only
- * a pencil: a lone pencil beside a lone magnifier reads as one more glyph, and this is the one
- * control in the header that changes the screen rather than looking through it.
+ * Home's way into the edit state, after search in the pane's header: a pencil the size and ink
+ * of the search glyph beside it.
+ *
+ * It carried the word Edit on a filled ground at first, and that was 60dp of header beside a 26dp
+ * glyph - too wide for the row, and louder than the one control the header is mostly for. A
+ * hold on any empty part of Home opens the same state (see HomeOverview), so the glyph does not
+ * have to shout to be found.
  */
 @Composable
 fun HomeEditButton(onClick: () -> Unit) {
-    val colors = Filet.colors
-    Row(
-        Modifier
-            .height(32.dp)
-            .clip(RoundedCornerShape(9.dp))
-            .background(colors.high)
+    Icon(
+        FiletIcons.Rename,
+        "Edit Home",
+        tint = Filet.colors.fg2,
+        modifier = Modifier
+            .size(26.dp)
+            .clip(RoundedCornerShape(6.dp))
             .clickable(onClick = onClick)
-            .padding(start = 8.dp, end = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-    ) {
-        Icon(FiletIcons.Rename, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(17.dp))
-        Text("Edit", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-    }
+            .padding(4.dp),
+    )
 }
 
 /**
@@ -717,5 +722,34 @@ private fun FeedDensitySlider(value: Float, onChange: (Float) -> Unit) {
                 )
             },
         )
+    }
+}
+
+/**
+ * A hold on whatever part of Home nothing else answered: the space between and around the cards.
+ *
+ * Every row, drive, chip, link and heading on Home takes its own press - a tap detector consumes
+ * the press as it lands - so waiting for an unconsumed press is exactly "nothing here wanted it".
+ * The press itself is left unconsumed, so the list still scrolls and the pane still takes focus on
+ * a tap; a drag that starts the scroll cancels the hold. Only once the hold has fired is the rest
+ * of the press taken, so its release is not read as a tap by anything around it.
+ */
+internal suspend fun PointerInputScope.holdOnEmpty(onHold: () -> Unit) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = true)
+        val held = try {
+            withTimeout(viewConfiguration.longPressTimeoutMillis) {
+                waitForUpOrCancellation()
+            }
+            false
+        } catch (_: PointerEventTimeoutCancellationException) {
+            true
+        }
+        if (!held) return@awaitEachGesture
+        onHold()
+        do {
+            val e = awaitPointerEvent()
+            e.changes.forEach { it.consume() }
+        } while (e.changes.any { it.pressed })
     }
 }

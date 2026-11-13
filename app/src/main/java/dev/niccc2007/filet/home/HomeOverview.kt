@@ -374,8 +374,23 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         }
     }
 
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val enterEdit by androidx.compose.runtime.rememberUpdatedState {
+        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+        pane.setHomeEditing(true)
+    }
     LazyColumn(
-        Modifier.fillMaxSize().onGloballyPositioned { viewport[0] = it.boundsInWindow() },
+        Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { viewport[0] = it.boundsInWindow() }
+            // A hold on any empty part of Home is the other way into the edit state, beside the
+            // header's pencil. See holdOnEmpty for why it cannot steal a row's hold or the scroll.
+            .then(
+                if (editing) Modifier
+                else Modifier.pointerInput(Unit) {
+                    holdOnEmpty { enterEdit() }
+                },
+            ),
         state = listState,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp),
     ) {
