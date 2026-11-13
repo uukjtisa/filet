@@ -1422,9 +1422,12 @@ private fun VideoPlayer(
                             ready = false
                         }
 
+                        // Decision: said in the log and nowhere on the screen. Late frames are
+                        // dropped so the sound never waits, which is VLC's way too, and a line over
+                        // the picture saying so only spoils the film it is already doing its best
+                        // with. The Playback stats readout shows the drops to whoever looks.
                         override fun onHeavy() {
-                            notice = "This video is heavier than this phone can decode smoothly. " +
-                                "Some frames are skipped to keep the sound in time."
+                            dev.niccc2007.filet.log.FiletLog.i("video") { "$rung: frames dropped steadily; heavier than this phone decodes in time" }
                         }
 
                         override fun onFirstFrame() {
@@ -1460,6 +1463,18 @@ private fun VideoPlayer(
                     .padding(top = 64.dp, start = 24.dp, end = 24.dp)
                     .background(Color.Black.copy(alpha = 0.6f), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
                     .padding(horizontal = 12.dp, vertical = 7.dp),
+            )
+        }
+
+        // Top left, under the notice when there is one. Drawn before the chrome, so the top bar and
+        // its menu cover it rather than the other way round.
+        if (StatsReadout.on && error == null && uri != null && !inPip) {
+            PlaybackStatsPanel(
+                key = rung,
+                engine = { handle.engine },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = if (notice != null) 108.dp else 64.dp, start = 12.dp, end = 12.dp),
             )
         }
 
@@ -1547,6 +1562,15 @@ private fun VideoPlayer(
                         active = !filets,
                         checked = !filets,
                     ) { overflow = false; switchPlayer(EngineKind.PLATFORM); wake() }
+                    // Under the players, because it is what tells them apart on a file that plays
+                    // badly: which decoder, how many frames shown and dropped. See PlaybackStats.
+                    dev.niccc2007.filet.ui.dialogs.PopRow(
+                        FiletIcons.Info,
+                        "Playback stats",
+                        detail = "The decoder, frames shown and dropped, and the buffer, over the picture.",
+                        active = StatsReadout.on,
+                        checked = StatsReadout.on,
+                    ) { overflow = false; StatsReadout.on = !StatsReadout.on; wake() }
                     dev.niccc2007.filet.ui.dialogs.PopSeparator()
                     // In a run only: it is what the arrows and the swipe do to the next one.
                     if (LocalViewerRun.current != null) {

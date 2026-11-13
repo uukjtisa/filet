@@ -70,6 +70,11 @@ internal class Media3Engine(
     override var pictureByFfmpeg: Boolean = false
         private set
 
+    /** The decoders that really started, for the Playback stats readout. */
+    private var pictureDecoder: String? = null
+    private var pictureHardware: Boolean? = null
+    private var soundDecoder: String? = null
+
     /** Dropped frames inside the current window, for [VideoEngine.Events.onHeavy]. */
     private var droppedInWindow = 0
     private var windowStartedAt = 0L
@@ -89,6 +94,8 @@ internal class Media3Engine(
             initializationDurationMs: Long,
         ) {
             pictureByFfmpeg = decoderName.startsWith("ffmpeg")
+            pictureDecoder = decoderName
+            pictureHardware = hardwareOf(decoderName)
             dev.niccc2007.filet.log.FiletLog.i("video") {
                 "picture decoder $decoderName (${initializationDurationMs} ms)" +
                     (FfmpegDecoders.version?.let { ", ffmpeg $it" } ?: "")
@@ -101,6 +108,7 @@ internal class Media3Engine(
             initializedTimestampMs: Long,
             initializationDurationMs: Long,
         ) {
+            soundDecoder = decoderName
             dev.niccc2007.filet.log.FiletLog.i("video") { "sound decoder $decoderName" }
         }
 
@@ -255,6 +263,34 @@ internal class Media3Engine(
     override fun setSpeed(speed: Float, pitch: Float): Boolean? {
         if (!prepared || released) return null
         return runCatching { player.playbackParameters = PlaybackParameters(speed, pitch) }.isSuccess
+    }
+
+    /**
+     * Media3's own counters for the video renderer. `ensureUpdated` first: the counts are written
+     * on the playback thread and read here on the main one.
+     */
+    override fun stats(): PlaybackStats.Snapshot? {
+        if (released) return null
+        val c = player.videoDecoderCounters?.also { it.ensureUpdated() }
+        val f = player.videoFormat
+        return PlaybackStats.Snapshot(
+            atMs = android.os.SystemClock.uptimeMillis(),
+            pictureDecoder = pictureDecoder,
+            hardware = pictureHardware,
+            soundDecoder = soundDecoder,
+            mime = f?.sampleMimeType,
+            width = f?.width?.takeIf { it > 0 } ?: 0,
+            height = f?.height?.takeIf { it > 0 } ?: 0,
+            fps = f?.frameRate?.takeIf { it > 0f } ?: 0f,
+            bitrate = f?.let { maxOf(it.averageBitrate, it.peakBitrate, it.bitrate) }?.takeIf { it > 0 } ?: 0,
+            shown = c?.renderedOutputBufferCount?.toLong(),
+            dropped = c?.let { (it.droppedBufferCount + it.droppedInputBufferCount).toLong() },
+            toKeyframe = c?.droppedToKeyframeCount?.toLong(),
+            offsetUsTotal = c?.totalVideoFrameProcessingOffsetUs,
+            offsetCount = c?.videoFrameProcessingOffsetCount?.toLong(),
+            bufferedMs = player.totalBufferedDuration,
+            speed = player.playbackParameters.speed,
+        )
     }
 
     override fun release() {

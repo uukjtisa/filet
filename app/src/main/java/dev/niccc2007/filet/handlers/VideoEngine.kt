@@ -71,6 +71,13 @@ internal interface VideoEngine {
     /** Let the decoder and the file go. The engine is not used again. */
     fun release()
 
+    /**
+     * What the Playback stats readout shows, read now: the decoder, the format, and running
+     * counts of frames shown and dropped. Null where the engine cannot say. On the main thread,
+     * about once a second while the readout is up. See [PlaybackStats].
+     */
+    fun stats(): PlaybackStats.Snapshot? = null
+
     /** What a prepare found. One per prepare: a prepare is a new player on the session. */
     data class Prepared(
         val width: Int,
@@ -210,6 +217,46 @@ internal class VideoViewEngine(context: Context, uri: Uri, events: VideoEngine.E
         runCatching { view.stopPlayback() }
         player = null
     }
+
+    /**
+     * `MediaPlayer`'s own metrics: the decoder it chose and its frame counts, which is everything
+     * needed to set the phone's player beside Filet's on the same file. No buffer figure: it
+     * keeps none it will share.
+     */
+    override fun stats(): PlaybackStats.Snapshot? {
+        val mp = player ?: return null
+        val m = runCatching { mp.metrics }.getOrNull() ?: return null
+        val codec = m.getString(MediaPlayer.MetricsConstants.CODEC_VIDEO)?.takeIf { it.isNotBlank() }
+        return PlaybackStats.Snapshot(
+            atMs = android.os.SystemClock.uptimeMillis(),
+            pictureDecoder = codec,
+            hardware = codec?.let { hardwareOf(it) },
+            soundDecoder = m.getString(MediaPlayer.MetricsConstants.CODEC_AUDIO)?.takeIf { it.isNotBlank() },
+            mime = m.getString(MediaPlayer.MetricsConstants.MIME_TYPE_VIDEO),
+            width = m.getInt(MediaPlayer.MetricsConstants.WIDTH, mp.videoWidth),
+            height = m.getInt(MediaPlayer.MetricsConstants.HEIGHT, mp.videoHeight),
+            fps = 0f,
+            bitrate = 0,
+            shown = m.getInt(MediaPlayer.MetricsConstants.FRAMES, -1).takeIf { it >= 0 }?.toLong(),
+            dropped = m.getInt(MediaPlayer.MetricsConstants.FRAMES_DROPPED, -1).takeIf { it >= 0 }?.toLong(),
+            bufferedMs = null,
+            speed = runCatching { mp.playbackParams.speed }.getOrNull() ?: 1f,
+        )
+    }
+}
+
+/**
+ * Whether the decoder called [name] is hardware: asked of the phone where it can answer (Android
+ * 10 and later), read from the name before that. See [PlaybackStats.softwareByName].
+ */
+internal fun hardwareOf(name: String): Boolean {
+    if (android.os.Build.VERSION.SDK_INT >= 29) {
+        val info = runCatching {
+            android.media.MediaCodecList(android.media.MediaCodecList.ALL_CODECS).codecInfos.firstOrNull { it.name == name }
+        }.getOrNull()
+        if (info != null) return info.isHardwareAccelerated
+    }
+    return !PlaybackStats.softwareByName(name)
 }
 
 // ── the parity list ───────────────────────────────────────────────────────────────
