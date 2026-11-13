@@ -46,6 +46,31 @@ internal object HomeArrange {
         NETWORK("Network"),
     }
 
+    /**
+     * The groups in the order they are drawn: the ones somebody arranged, then the rest in their
+     * natural order. Unknown names - from an older or newer Filet - are passed over, so a stored
+     * order can never hide a group.
+     */
+    fun groupOrder(stored: List<String>): List<DriveKind> {
+        val arranged = stored.mapNotNull { name -> DriveKind.entries.firstOrNull { it.name == name } }.distinct()
+        return arranged + DriveKind.entries.filter { it !in arranged }
+    }
+
+    /**
+     * The group order after [kind] moves [by] places (-1 up, 1 down) among the groups [shown] -
+     * the ones with a drive in them now. A group not drawn keeps its place relative to the others,
+     * so moving On this phone above Network still holds when a stick is plugged in later. A move
+     * off either end changes nothing.
+     */
+    fun movedGroup(order: List<DriveKind>, shown: List<DriveKind>, kind: DriveKind, by: Int): List<DriveKind> {
+        val visible = order.filter { it in shown }
+        val from = visible.indexOf(kind)
+        val to = from + by
+        if (from < 0 || to !in visible.indices) return order
+        val swap = visible[to]
+        return order.map { if (it == kind) swap else if (it == swap) kind else it }
+    }
+
     /** The Termux offer's id, in `hiddenCards` and in the drive order alike. */
     const val TERMUX_OFFER = "offer:termux"
 

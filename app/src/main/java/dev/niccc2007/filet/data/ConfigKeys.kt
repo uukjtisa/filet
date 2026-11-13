@@ -97,6 +97,7 @@ object ConfigKeys {
         look("home.storage.perApp", ConfigType.STRING, listOf("each", "app")),
         look("home.storage.bars", ConfigType.BOOL),
         look("home.drives.order", ConfigType.STRING),
+        look("home.drives.groups", ConfigType.STRING),
         look("home.categories.hidden", ConfigType.STRING_SET),
         look("playlists.grid", ConfigType.BOOL),
         look("drawer.order", ConfigType.STRING),

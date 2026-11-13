@@ -1408,6 +1408,20 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         sp.edit().putString(K_HOME_DRIVE_ORDER, v.joinToString("\n")).apply()
     }
 
+    /**
+     * The order of Home's drive groups when they are grouped by kind, by `HomeArrange.DriveKind`
+     * name, one per line. Empty means the natural order - see `HomeArrange.groupOrder`.
+     */
+    private val _homeDriveGroups = stored {
+        sp.getString(K_HOME_DRIVE_GROUPS, null).orEmpty().split('\n').filter { it.isNotBlank() }
+    }
+    val homeDriveGroups: StateFlow<List<String>> = _homeDriveGroups.asStateFlow()
+
+    fun setHomeDriveGroups(v: List<String>) {
+        _homeDriveGroups.value = v
+        sp.edit().putString(K_HOME_DRIVE_GROUPS, v.joinToString("\n")).apply()
+    }
+
     /** The categories taken off Home's Categories card, by category id. None, at first. */
     private val _homeCategoriesHidden = stored { sp.getStringSet(K_HOME_CATEGORIES_HIDDEN, emptySet())!!.toSet() }
     val homeCategoriesHidden: StateFlow<Set<String>> = _homeCategoriesHidden.asStateFlow()
@@ -1438,6 +1452,7 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         val hiddenCards: Set<String> = emptySet(),
         val hideStorage: Boolean = false,
         val driveOrder: List<String> = emptyList(),
+        val driveGroups: List<String> = emptyList(),
         val driveLayout: String = "flow",
         val drivePerApp: String = "each",
         val driveBars: Boolean = true,
@@ -1456,6 +1471,7 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         hiddenCards = _hiddenCards.value,
         hideStorage = _hideStorage.value,
         driveOrder = _homeDriveOrder.value,
+        driveGroups = _homeDriveGroups.value,
         driveLayout = _homeDriveLayout.value,
         drivePerApp = _homeDrivePerApp.value,
         driveBars = _homeDriveBars.value,
@@ -1473,6 +1489,7 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         setHiddenCards(s.hiddenCards)
         setHideStorage(s.hideStorage)
         setHomeDriveOrder(s.driveOrder)
+        setHomeDriveGroups(s.driveGroups)
         setHomeDriveLayout(s.driveLayout)
         setHomeDrivePerApp(s.drivePerApp)
         setHomeDriveBars(s.driveBars)
@@ -1931,6 +1948,7 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         const val K_HOME_DRIVE_PER_APP = "home.storage.perApp"
         const val K_HOME_DRIVE_BARS = "home.storage.bars"
         const val K_HOME_DRIVE_ORDER = "home.drives.order"
+        const val K_HOME_DRIVE_GROUPS = "home.drives.groups"
         const val K_HOME_CATEGORIES_HIDDEN = "home.categories.hidden"
         const val K_HOME_EDIT_COACH = "home.editCoach"
         const val K_DRAWER_ORDER = "drawer.order"

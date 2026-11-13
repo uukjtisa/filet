@@ -12,6 +12,9 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -80,6 +83,10 @@ private const val HOLD_MS = 350L
 internal fun DriveRows(
     slots: List<DriveSlot>,
     layout: Layout,
+    /** The groups' order when [layout] is grouped. See `HomeArrange.groupOrder`. */
+    groups: List<DriveKind>,
+    /** A group moved up (-1) or down (1) by its heading's arrows in the edit state. */
+    onGroupMove: (DriveKind, Int) -> Unit,
     editing: Boolean,
     onEye: (String) -> Unit,
     onDrop: (List<String>) -> Unit,
@@ -145,23 +152,36 @@ internal fun DriveRows(
         Column(Modifier.fillMaxWidth().onGloballyPositioned { container[0] = it }) {
             when (layout) {
                 Layout.FLOW -> group(order)
-                Layout.GROUPED -> for (kind in DriveKind.entries) {
+                Layout.GROUPED -> {
+                    val drawn = groups.filter { kind -> order.any { byId[it]?.kind == kind } }
+                    for ((place, kind) in drawn.withIndex()) {
                     val ids = order.filter { byId[it]?.kind == kind }
-                    if (ids.isEmpty()) continue
                     // The group being dragged in draws over the ones after it, so a drive pulled
                     // past its group's edge is not drawn under the next group's tiles.
                     key(kind) {
                     Box(Modifier.zIndex(if (held != null && byId[held!!]?.kind == kind) 1f else 0f)) {
                         Column {
-                            Text(
-                                kind.title.uppercase(Locale.US),
-                                fontSize = 9.sp,
-                                letterSpacing = 0.8.sp,
-                                color = Filet.colors.fg3,
-                                modifier = Modifier.padding(start = 15.dp, end = 15.dp, top = 6.dp),
-                            )
+                            // Bug identified here: grouped, the groups were drawn in a fixed order
+                            // and the edit state offered no way to change it - the drives inside a
+                            // group moved, the groups did not. In the edit state each heading has
+                            // the same up and down arrows as a card's strip.
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    kind.title.uppercase(Locale.US),
+                                    fontSize = 9.sp,
+                                    letterSpacing = 0.8.sp,
+                                    color = Filet.colors.fg3,
+                                    modifier = Modifier.weight(1f).padding(start = 15.dp, end = 15.dp, top = 6.dp),
+                                )
+                                if (editing && drawn.size > 1) {
+                                    StripButton(FiletIcons.CaretUp, null, arrow = true, enabled = place > 0, describe = "Move ${kind.title} up") { onGroupMove(kind, -1) }
+                                    StripButton(FiletIcons.CaretDown, null, arrow = true, enabled = place < drawn.lastIndex, describe = "Move ${kind.title} down") { onGroupMove(kind, 1) }
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                            }
                             group(ids)
                         }
+                    }
                     }
                     }
                 }

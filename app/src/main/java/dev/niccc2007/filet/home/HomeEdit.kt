@@ -434,7 +434,7 @@ private fun EditStrip(
 }
 
 @Composable
-private fun StripButton(
+internal fun StripButton(
     icon: ImageVector,
     label: String?,
     on: Boolean = false,

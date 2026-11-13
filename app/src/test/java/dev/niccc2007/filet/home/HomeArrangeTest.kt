@@ -146,4 +146,29 @@ class HomeArrangeTest {
         assertEquals(PerApp.EACH, PerApp.of(null))
         assertEquals(PerApp.APP, PerApp.of("app"))
     }
+
+    @Test fun `the groups keep the order they were put in, and a group never stored still shows`() {
+        assertEquals(DriveKind.entries, HomeArrange.groupOrder(emptyList()))
+        assertEquals(
+            listOf(DriveKind.NETWORK, DriveKind.PHONE, DriveKind.PLUGGED, DriveKind.APPS),
+            HomeArrange.groupOrder(listOf("NETWORK", "PHONE")),
+        )
+        // A name this version does not know is passed over, never a reason to hide a group.
+        assertEquals(DriveKind.entries, HomeArrange.groupOrder(listOf("SATELLITE")))
+    }
+
+    @Test fun `a group moves among the groups on screen, and the absent ones keep their place`() {
+        val all = DriveKind.entries
+        // No stick plugged in: Plugged in is not drawn, so moving Network up passes From apps.
+        val shown = listOf(DriveKind.PHONE, DriveKind.APPS, DriveKind.NETWORK)
+        assertEquals(
+            listOf(DriveKind.PHONE, DriveKind.PLUGGED, DriveKind.NETWORK, DriveKind.APPS),
+            HomeArrange.movedGroup(all, shown, DriveKind.NETWORK, -1),
+        )
+        // Off either end: nothing changes.
+        assertEquals(all, HomeArrange.movedGroup(all, shown, DriveKind.PHONE, -1))
+        assertEquals(all, HomeArrange.movedGroup(all, shown, DriveKind.NETWORK, 1))
+        // A group not drawn cannot be moved.
+        assertEquals(all, HomeArrange.movedGroup(all, shown, DriveKind.PLUGGED, 1))
+    }
 }

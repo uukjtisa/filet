@@ -122,6 +122,7 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     val perApp = HomeArrange.PerApp.of(vm.prefs.homeDrivePerApp.collectAsState().value)
     val bars by vm.prefs.homeDriveBars.collectAsState()
     val driveOrder by vm.prefs.homeDriveOrder.collectAsState()
+    val driveGroups = HomeArrange.groupOrder(vm.prefs.homeDriveGroups.collectAsState().value)
     val categoriesHidden by vm.prefs.homeCategoriesHidden.collectAsState()
     val categoryLayouts by vm.prefs.categoryLayouts.collectAsState()
     val coachSeen by vm.prefs.homeEditCoachSeen.collectAsState()
@@ -237,6 +238,12 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         DriveRows(
             slots = slots,
             layout = driveLayout,
+            groups = driveGroups,
+            onGroupMove = { kind, by ->
+                touch()
+                val shown = slots.map { it.kind }.distinct()
+                vm.prefs.setHomeDriveGroups(HomeArrange.movedGroup(driveGroups, shown, kind, by).map { it.name })
+            },
             editing = edit,
             onEye = { id ->
                 touch()
