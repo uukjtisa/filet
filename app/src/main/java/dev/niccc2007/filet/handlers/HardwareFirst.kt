@@ -32,8 +32,9 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
  *   first fix only changed what the selector heard. [order] puts hardware first in the list itself.
  *
  * Declared limits are conservative: a hardware decoder usually plays a file somewhat past them, and
- * VLC owes much of its smoothness to trying. If it fails to start, the renderer falls back to the
- * next decoder in the list, so trying costs a moment; not trying cost every frame.
+ * VLC owes much of its smoothness to trying. Trying is a test start, once per kind of file (see
+ * [HardwareProbe]): a decoder that starts gets the file, and one that refuses is passed over, so
+ * the picture goes to FFmpeg where the build has it rather than to Google's software decoder.
  */
 @OptIn(UnstableApi::class)
 internal object HardwareFirst {
@@ -58,42 +59,6 @@ internal object HardwareFirst {
         val (first, rest) = decoders.partition { hardware(it) && decodes(it) }
         return first + rest
     }
-
-    /**
-     * [ordered] with its first decoder asked twice when that one is [hardware]: the second time
-     * set up plainly (see [plain]). Pure.
-     *
-     * Bug identified here: on a 2160 x 3402, 60 fps file the hardware decoder was first in the
-     * list, as [order] puts it, and still the picture came from Google's software decoder at eight
-     * frames a second. Both hardware decoders failed to start within a few milliseconds each. The
-     * hardware decoder declares the file within its limits (it may swap width and height, and the
-     * blocks per second fit), so the file itself is not what it turned down. What it weighs is the
-     * session: the real-time share the speed hints ask for, against whatever else is open on the
-     * chip at that moment. The platform's reason was not kept then; it is now (see [reason]).
-     * One plain retry costs a few milliseconds when it fails; the software decoder it can save us
-     * from costs every frame, and heats the phone until it slows itself down.
-     */
-    fun <T> withRetry(ordered: List<T>, hardware: (T) -> Boolean): List<T> {
-        val first = ordered.firstOrNull() ?: return ordered
-        return if (hardware(first)) listOf(first) + ordered else ordered
-    }
-
-    /** The second ask's setup: no speed hints, no size reserved past the file's own. */
-    fun plain(format: android.media.MediaFormat) {
-        if (android.os.Build.VERSION.SDK_INT >= 29) {
-            for (key in PLAIN_REMOVES) format.removeKey(key)
-        } else {
-            // Nothing can be removed before Android 10: ask for the ordinary priority instead.
-            format.setInteger(android.media.MediaFormat.KEY_PRIORITY, 1)
-        }
-    }
-
-    private val PLAIN_REMOVES = listOf(
-        android.media.MediaFormat.KEY_OPERATING_RATE,
-        android.media.MediaFormat.KEY_PRIORITY,
-        android.media.MediaFormat.KEY_MAX_WIDTH,
-        android.media.MediaFormat.KEY_MAX_HEIGHT,
-    )
 
     /**
      * Why a decoder would not start, in a line: the platform's error code where there is one
@@ -125,13 +90,14 @@ internal object HardwareFirst {
         return listOfNotNull(what, text).joinToString(": ").ifEmpty { kind }
     }
 
-    /** Media3's video renderer, asking for decoders in [order] and answering for formats through [upgrade]. */
+    /**
+     * Media3's video renderer, asking for decoders in [order] and answering for formats through
+     * [upgrade] - but only for a hardware decoder that really starts on files like this one. See
+     * [HardwareProbe].
+     */
     class VideoRenderer(context: Context, builder: MediaCodecVideoRenderer.Builder) : MediaCodecVideoRenderer(builder) {
         private val app = context.applicationContext
         private var logged: Format? = null
-
-        /** How often each decoder has been asked to start since the list was last made. See [withRetry]. */
-        private val asked = HashMap<String, Int>()
 
         override fun getDecoderInfos(
             mediaCodecSelector: MediaCodecSelector,
@@ -139,9 +105,14 @@ internal object HardwareFirst {
             requiresSecureDecoder: Boolean,
         ): List<MediaCodecInfo> {
             val sorted = super.getDecoderInfos(mediaCodecSelector, format, requiresSecureDecoder)
-            val decodes = { it: MediaCodecInfo -> runCatching { it.isFormatFunctionallySupported(app, format) }.getOrDefault(false) }
-            val ordered = withRetry(order(sorted, { it.hardwareAccelerated }, decodes)) { it.hardwareAccelerated && decodes(it) }
-            asked.clear()
+            // A hardware decoder found to refuse files like this one stays where the renderer put
+            // it, behind the decoders that declare the file within their limits: asking it again
+            // would only fail again, a few milliseconds each time.
+            val ordered = order(
+                sorted,
+                { it.hardwareAccelerated && HardwareProbe.refused(it.name, format) != true },
+                { runCatching { it.isFormatFunctionallySupported(app, format) }.getOrDefault(false) },
+            )
             // Once per format: the order a bug report about a slow or black picture needs.
             if (logged != format) {
                 logged = format
@@ -154,10 +125,7 @@ internal object HardwareFirst {
             return ordered
         }
 
-        /**
-         * Every start written down with the setup it was given, and the second ask of the same
-         * decoder made plain. The setup is the half of a refusal the platform's message leaves out.
-         */
+        /** Every start written down with the setup it was given: the half of a refusal the platform's message leaves out. */
         override fun getMediaCodecConfiguration(
             codecInfo: MediaCodecInfo,
             format: Format,
@@ -165,17 +133,24 @@ internal object HardwareFirst {
             codecOperatingRate: Float,
         ): MediaCodecAdapter.Configuration {
             val config = super.getMediaCodecConfiguration(codecInfo, format, crypto, codecOperatingRate)
-            val n = (asked[codecInfo.name] ?: 0) + 1
-            asked[codecInfo.name] = n
-            if (n > 1) plain(config.mediaFormat)
-            dev.niccc2007.filet.log.FiletLog.i("video") {
-                "starting ${codecInfo.name}" + (if (n > 1) " again, plainly" else "") + ": ${config.mediaFormat}"
-            }
+            dev.niccc2007.filet.log.FiletLog.i("video") { "starting ${codecInfo.name}: ${config.mediaFormat}" }
             return config
         }
 
-        override fun supportsFormat(mediaCodecSelector: MediaCodecSelector, format: Format): Int =
-            upgrade(super.supportsFormat(mediaCodecSelector, format))
+        /**
+         * "Past its limits" read as "handled" only when a hardware decoder that knows the file's
+         * profile has been seen to start on files like it. Otherwise the answer stays "past its
+         * limits", and where FFmpeg is in the build its renderer, which answers "handled", gets the
+         * picture instead of Google's software decoder. See [HardwareProbe].
+         */
+        override fun supportsFormat(mediaCodecSelector: MediaCodecSelector, format: Format): Int {
+            val caps = super.supportsFormat(mediaCodecSelector, format)
+            if (caps and RendererCapabilities.FORMAT_SUPPORT_MASK != C.FORMAT_EXCEEDS_CAPABILITIES) return caps
+            val mime = format.sampleMimeType ?: return caps
+            val hardware = runCatching { mediaCodecSelector.getDecoderInfos(mime, false, false) }.getOrDefault(emptyList())
+                .filter { it.hardwareAccelerated && runCatching { it.isFormatFunctionallySupported(app, format) }.getOrDefault(false) }
+            return if (hardware.any { HardwareProbe.starts(it.name, format) }) upgrade(caps) else caps
+        }
     }
 
     /**

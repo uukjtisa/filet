@@ -3,6 +3,7 @@ package dev.niccc2007.filet.handlers
 import androidx.media3.common.C
 import androidx.media3.exoplayer.RendererCapabilities
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** The hardware decoder's "past its limits" read as "handled", and hardware put first in the renderer's own list. */
@@ -71,13 +72,14 @@ class HardwareFirstTest {
         assertEquals(C.FORMAT_HANDLED, upgraded and support)
     }
 
-    @Test fun `a hardware decoder at the head of the list is asked twice, the second time plainly`() {
-        assertEquals(listOf("hw", "hw", "sw"), HardwareFirst.withRetry(listOf("hw", "sw")) { it == "hw" })
-    }
-
-    @Test fun `a software decoder at the head is asked once, and an empty list stays empty`() {
-        assertEquals(listOf("sw", "hw"), HardwareFirst.withRetry(listOf("sw", "hw")) { it == "hw" })
-        assertEquals(emptyList<String>(), HardwareFirst.withRetry(emptyList<String>()) { true })
+    @Test fun `a test start is one question per decoder, kind of file, size and rate`() {
+        val a = HardwareProbe.key("c2.qti.avc.decoder", "video/avc", 2160, 3402, 60.000004f)
+        assertEquals("c2.qti.avc.decoder|video/avc|2160x3402|60", a)
+        // A frame rate a hair off is the same question; another size or decoder is not.
+        assertEquals(a, HardwareProbe.key("c2.qti.avc.decoder", "video/avc", 2160, 3402, 59.94f))
+        assertTrue(a != HardwareProbe.key("c2.qti.avc.decoder", "video/avc", 1080, 1920, 60f))
+        assertTrue(a != HardwareProbe.key("c2.qti.avc.decoder.low_latency", "video/avc", 2160, 3402, 60f))
+        assertEquals("d|null|0x0|0", HardwareProbe.key("d", null, 0, 0, -1f))
     }
 
     @Test fun `a refusal is said in words, with the platform's code read`() {
