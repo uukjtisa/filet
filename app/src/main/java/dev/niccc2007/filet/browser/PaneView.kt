@@ -558,10 +558,9 @@ private fun PaneHeader(
                             .clickable { pane.openSearch(true) }.padding(4.dp),
                     )
                 }
-                // Home's Edit, after search and drawn like it. See HomeEditButton.
-                if (s.kind == PaneKind.HOME) {
-                    dev.niccc2007.filet.home.HomeEditButton { pane.setHomeEditing(true) }
-                }
+                // No edit control here for Home. A worded button did not fit beside search, and a
+                // pencil the size of search read as out of place in a header every tab shares; the
+                // way into Home's edit state is a hold, see HomeOverview.
             }
         }
         if (!atBottom) HorizontalDivider(color = colors.lineSoft)

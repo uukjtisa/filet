@@ -97,8 +97,9 @@ import dev.niccc2007.filet.vfs.VNode
  *
  * ## The edit state
  *
- * The header's Edit button, or Edit Home on a held heading, puts this same screen into its edit
- * state ([PaneController.homeEditing]). Each card below is one function drawn in both states, so
+ * A hold on any empty part of Home, or Edit Home on a held heading, puts this same screen into
+ * its edit state ([PaneController.homeEditing]); see holdOnEmpty for why the header has no
+ * control for it. Each card below is one function drawn in both states, so
  * what is edited is the card itself and not a stand-in for it: the list of names this replaced
  * took every card off the screen while it was up, and a density slider whose effect cannot be
  * seen needed a preview to explain itself. See HomeEdit.kt.
@@ -383,8 +384,8 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         Modifier
             .fillMaxSize()
             .onGloballyPositioned { viewport[0] = it.boundsInWindow() }
-            // A hold on any empty part of Home is the other way into the edit state, beside the
-            // header's pencil. See holdOnEmpty for why it cannot steal a row's hold or the scroll.
+            // A hold on any empty part of Home opens the edit state. See holdOnEmpty for why it
+            // cannot steal a row's hold or the scroll.
             .then(
                 if (editing) Modifier
                 else Modifier.pointerInput(Unit) {

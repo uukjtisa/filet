@@ -95,29 +95,6 @@ private const val ARROW_LIFT_MS = 260L
 // ── the header ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Home's way into the edit state, after search in the pane's header: a pencil the size and ink
- * of the search glyph beside it.
- *
- * It carried the word Edit on a filled ground at first, and that was 60dp of header beside a 26dp
- * glyph - too wide for the row, and louder than the one control the header is mostly for. A
- * hold on any empty part of Home opens the same state (see HomeOverview), so the glyph does not
- * have to shout to be found.
- */
-@Composable
-fun HomeEditButton(onClick: () -> Unit) {
-    Icon(
-        FiletIcons.Rename,
-        "Edit Home",
-        tint = Filet.colors.fg2,
-        modifier = Modifier
-            .size(26.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .clickable(onClick = onClick)
-            .padding(4.dp),
-    )
-}
-
-/**
  * The pane's header while Home is being edited. It takes the header's place and height - 36dp,
  * the pane header's 26dp row and its 5dp above and below, where the mock's header is 40 - so
  * nothing below it moves when the state is entered.
@@ -727,6 +704,9 @@ private fun FeedDensitySlider(value: Float, onChange: (Float) -> Unit) {
 
 /**
  * A hold on whatever part of Home nothing else answered: the space between and around the cards.
+ * This, and Edit Home in a held heading's menu, are the ways into the edit state; the header has
+ * no control for it, since a button there either did not fit beside search or sat oddly in a
+ * header every tab shares.
  *
  * Every row, drive, chip, link and heading on Home takes its own press - a tap detector consumes
  * the press as it lands - so waiting for an unconsumed press is exactly "nothing here wanted it".
