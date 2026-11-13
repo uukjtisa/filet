@@ -69,6 +69,17 @@ enum class AppAction(
     RECENT("Opened", "Files you opened in Filet", listed = false),
     ;
 
+    /** The action's id in the tab icon mock, which names its icons. The two old tab actions wear their tab's. */
+    val art: String
+        get() = when (this) {
+            SEARCH -> "search"
+            INDEX_NOW -> "index"
+            SHARE_NEARBY -> "startshare"
+            STOP_SHARING -> "stopshare"
+            BOOKMARKS -> "bookmarks"
+            RECENT -> "opened"
+        }
+
     companion object {
         /** The ones the Shortcuts tab offers, in declared order. */
         val LISTED: List<AppAction> get() = entries.filter { it.listed }

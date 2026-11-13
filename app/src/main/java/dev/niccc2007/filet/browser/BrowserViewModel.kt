@@ -6231,6 +6231,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         _pinAsk.value = dev.niccc2007.filet.shortcuts.PinAsk(
             dev.niccc2007.filet.shortcuts.ShortcutKind.TAB, target.id, target.home,
             "Opens Filet on ${target.label}.",
+            art = dev.niccc2007.filet.shortcuts.artDrawable(target.art) ?: dev.niccc2007.filet.R.drawable.ic_launcher_foreground,
+            icon = dev.niccc2007.filet.shortcuts.launcherIcon(target.art),
+            tile = dev.niccc2007.filet.R.drawable.ic_tab_bg,
         )
     }
 
@@ -6239,6 +6242,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         _pinAsk.value = dev.niccc2007.filet.shortcuts.PinAsk(
             dev.niccc2007.filet.shortcuts.ShortcutKind.ACTION, action.name, action.home,
             action.description + ".",
+            art = dev.niccc2007.filet.shortcuts.artDrawable(action.art) ?: dev.niccc2007.filet.R.drawable.ic_launcher_foreground,
+            icon = dev.niccc2007.filet.shortcuts.launcherIcon(action.art),
+            tile = dev.niccc2007.filet.R.drawable.ic_tab_bg,
         )
     }
 
@@ -6247,6 +6253,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         _pinAsk.value = dev.niccc2007.filet.shortcuts.PinAsk(
             dev.niccc2007.filet.shortcuts.ShortcutKind.SCRIPT, script.id, script.name,
             "Runs the script.",
+            art = dev.niccc2007.filet.shortcuts.artDrawable(TabTarget.SCRIPTS.art) ?: dev.niccc2007.filet.R.drawable.ic_launcher_foreground,
+            icon = dev.niccc2007.filet.shortcuts.launcherIcon(TabTarget.SCRIPTS.art),
+            tile = dev.niccc2007.filet.R.drawable.ic_tab_bg,
         )
     }
 
@@ -6269,7 +6278,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
         val record = dev.niccc2007.filet.shortcuts.ShortcutRecord(id, ask.kind, name, ask.target)
         graph.shortcuts.ask(record)
-        val ok = dev.niccc2007.filet.shortcuts.Shortcuts.pinAction(graph.app, record, action)
+        val ok = dev.niccc2007.filet.shortcuts.Shortcuts.pinAction(graph.app, record, action, ask.icon)
         if (!ok) graph.shortcuts.withdraw(record.id)
         toast(if (ok) "Ask your launcher where to put it" else "The launcher refused.")
     }

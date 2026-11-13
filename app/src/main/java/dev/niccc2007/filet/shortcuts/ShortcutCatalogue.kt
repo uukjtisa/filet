@@ -140,6 +140,8 @@ fun GroupLabel(text: String) {
 fun CatalogueRow(
     icon: ImageVector,
     label: String,
+    /** The tab icon mock's id for this row's icon; the glyph [icon] is drawn only where there is none. */
+    art: String? = null,
     desc: String? = null,
     placed: Boolean,
     warn: Boolean = false,
@@ -158,7 +160,7 @@ fun CatalogueRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(11.dp),
     ) {
-        GlyphTile(icon)
+        if (art != null && artDrawable(art) != null) ArtTile(art) else GlyphTile(icon)
         Column(Modifier.weight(1f)) {
             dev.niccc2007.filet.browser.ListNameText(
                 text = dev.niccc2007.filet.ui.highlighted(label, dev.niccc2007.filet.ui.LocalPaneQuery.current, colors.accent),

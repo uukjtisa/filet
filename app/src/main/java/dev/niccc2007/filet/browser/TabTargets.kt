@@ -76,6 +76,35 @@ enum class TabTarget(
     ACTIVITY("activity", "Activity", TabGroup.FILET, PaneKind.ACTIVITY, home = "Filet Activity"),
     SETTINGS("settings", "Settings", TabGroup.FILET, PaneKind.SETTINGS, home = "Filet Settings");
 
+    /**
+     * This tab's id in the tab icon mock, which names its icons: `ic_tab_<art>`. Separate from
+     * [id], which pinned shortcuts and the bar store and so can never change.
+     */
+    val art: String
+        get() = when (this) {
+            HOME -> "home"
+            FILES -> "files"
+            BOOKMARKS -> "bookmarks"
+            OPENED -> "opened"
+            NEW_FILES -> "newfiles"
+            PLAYLISTS -> "playlists"
+            CARRY_ON -> "carryon"
+            PHOTOS -> "photos"
+            VIDEOS -> "videos"
+            AUDIO -> "audio"
+            PACKAGES -> "packages"
+            DOCUMENTS -> "documents"
+            ARCHIVES -> "archives"
+            REMOTES -> "remotes"
+            SHARE -> "share"
+            APPS -> "apps"
+            SHORTCUTS -> "shortcuts"
+            SCRIPTS -> "scripts"
+            SCAN -> "qr"
+            ACTIVITY -> "activity"
+            SETTINGS -> "settings"
+        }
+
     companion object {
         /** Null for an id this build does not have: a pinned shortcut outlives the version that made it. */
         fun byId(id: String?): TabTarget? = entries.firstOrNull { it.id == id }

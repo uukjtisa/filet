@@ -103,11 +103,13 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
                 is Line.Tab -> CatalogueRow(
                     icon = tabGlyph(line.target),
                     label = line.target.label,
+                    art = line.target.art,
                     placed = line.placed,
                 ) { vm.askToPin(line.target) }
                 is Line.Action -> CatalogueRow(
                     icon = actionGlyph(line.action),
                     label = line.action.label,
+                    art = line.action.art,
                     desc = line.action.description,
                     placed = line.placed,
                 ) { vm.askToPin(line.action) }
@@ -118,6 +120,7 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
                     CatalogueRow(
                         icon = FiletIcons.Script,
                         label = line.script.name,
+                        art = dev.niccc2007.filet.browser.TabTarget.SCRIPTS.art,
                         desc = if (approved) "Runs on tap" else "Approve it once before it can run from the home screen",
                         placed = line.placed,
                         warn = !approved,

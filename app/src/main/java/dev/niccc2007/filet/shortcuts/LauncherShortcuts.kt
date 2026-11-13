@@ -71,7 +71,7 @@ object LauncherShortcuts {
                 ShortcutInfo.Builder(context, "menu:" + action.name)
                     .setShortLabel(action.label.take(10))
                     .setLongLabel(action.label.take(25))
-                    .setIcon(Icon.createWithResource(context, R.mipmap.ic_launcher))
+                    .setIcon(Icon.createWithResource(context, launcherIcon(action.art)))
                     .setIntent(intent)
                     .setRank(0)
                     .build()

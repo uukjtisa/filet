@@ -48,6 +48,8 @@ import dev.niccc2007.filet.ui.theme.Filet
  * @param name the name offered, which the person can change.
  * @param opens one line saying what a tap on the icon will do.
  * @param art the foreground layer of the icon the launcher will show, on the 108-unit canvas.
+ * @param icon the launcher icon itself, an adaptive mipmap.
+ * @param tile the background layer under [art], or null for Filet's plain ground colour.
  */
 data class PinAsk(
     val kind: ShortcutKind,
@@ -55,6 +57,8 @@ data class PinAsk(
     val name: String,
     val opens: String,
     val art: Int = R.drawable.ic_launcher_foreground,
+    val icon: Int = R.mipmap.ic_launcher,
+    val tile: Int? = null,
 )
 
 /**
@@ -74,7 +78,7 @@ fun PinNameSheet(ask: PinAsk, onDismiss: () -> Unit, onAdd: (label: String) -> U
         DlgBody {
             DlgField("Name", label, { label = it.take(40) })
             Spacer(Modifier.height(12.dp))
-            HomeIconPreview(ask.art, label.ifBlank { ask.name })
+            HomeIconPreview(ask.art, ask.tile, label.ifBlank { ask.name })
             Spacer(Modifier.height(8.dp))
             DlgCaption(ask.opens)
         }
@@ -94,7 +98,7 @@ fun PinNameSheet(ask: PinAsk, onDismiss: () -> Unit, onAdd: (label: String) -> U
  * is the part that usually tells two shortcuts apart. Seeing the cut here is the point of it.
  */
 @Composable
-private fun HomeIconPreview(art: Int, label: String) {
+private fun HomeIconPreview(art: Int, tile: Int?, label: String) {
     val colors = Filet.colors
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
@@ -103,6 +107,7 @@ private fun HomeIconPreview(art: Int, label: String) {
         ) {
             // The layer is drawn on 108 units of which a mask shows the middle 72: at 52dp for
             // the 72, the whole layer is 78dp, and the circle clips the rest as a launcher would.
+            if (tile != null) Image(painterResource(tile), contentDescription = null, modifier = Modifier.requiredSize(78.dp))
             Image(painterResource(art), contentDescription = null, modifier = Modifier.requiredSize(78.dp))
         }
         Text(

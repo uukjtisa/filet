@@ -141,7 +141,7 @@ fun ShortcutRow(
             .padding(horizontal = 11.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GlyphTile(recordGlyph(record))
+        RecordTile(record)
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f).clickable(onClick = onOpen)) {
             dev.niccc2007.filet.browser.ListNameText(

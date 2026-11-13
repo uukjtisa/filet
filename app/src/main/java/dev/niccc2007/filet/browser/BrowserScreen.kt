@@ -99,6 +99,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import dev.niccc2007.filet.data.TabSize
+import dev.niccc2007.filet.icons.drawFolder
 import dev.niccc2007.filet.data.ViewStep
 import dev.niccc2007.filet.ui.HScroll
 import dev.niccc2007.filet.ui.Motion
@@ -543,6 +544,7 @@ private fun TabStripContent(
                 TabChip(
                     title = s.title,
                     icon = tabIcon(s),
+                    art = chipArt(s),
                     active = onA || onB,
                     side = when {
                         app.split == SplitMode.OFF -> null
@@ -597,6 +599,8 @@ private fun TabStripContent(
 private fun TabChip(
     title: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
+    /** The tab's drawn icon, at the size it is given; null where only the line glyph exists. */
+    art: (@Composable (androidx.compose.ui.unit.Dp) -> Unit)? = null,
     active: Boolean,
     side: String?,
     size: TabSize,
@@ -686,10 +690,16 @@ private fun TabChip(
             .padding(horizontal = size.padH.dp, vertical = size.padV.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            icon, null, tint = if (active) colors.accent else colors.fg3,
-            modifier = Modifier.size(size.icon.dp),
-        )
+        // The drawn icon wherever there is room for one to read; Compact keeps the line glyph,
+        // since a drawing at 12dp is a smudge where the glyph is still a shape.
+        if (art != null && size != TabSize.COMPACT) {
+            art((size.icon * CHIP_ART).dp)
+        } else {
+            Icon(
+                icon, null, tint = if (active) colors.accent else colors.fg3,
+                modifier = Modifier.size(size.icon.dp),
+            )
+        }
         Spacer(Modifier.width(5.dp))
         Text(
             title,
@@ -715,6 +725,37 @@ private fun TabChip(
             FiletIcons.Close, "Close tab", tint = colors.fg3,
             modifier = Modifier.size(size.close.dp).clickable(onClick = onClose).padding(2.dp),
         )
+    }
+}
+
+/**
+ * How much bigger a drawn chip icon is than the glyph it replaces. The drawing has depth and
+ * several tones, which need the room: the icon mock draws it at 20dp beside 12.5dp text.
+ */
+private const val CHIP_ART = 1.45f
+
+/** The top of the phone's own storage or of a card: `/storage/emulated/0`, `/storage/1A2B-3C4D`. */
+private val DRIVE_TOP = Regex("""^/storage/(emulated/\d+|(?!self/?$|emulated/?$)[^/]+)/?$""")
+
+/**
+ * The drawn icon for a tab's chip: its tab's art, or for a folder the folder as it is dressed,
+ * holding pages. Null for what has no drawing (an archive being browsed, About).
+ */
+@Composable
+private fun chipArt(s: PaneState): (@Composable (androidx.compose.ui.unit.Dp) -> Unit)? {
+    val tab = dev.niccc2007.filet.shortcuts.tabOfPane(s.kind, s.category)
+    if (tab != null) return { d -> dev.niccc2007.filet.shortcuts.TabArt(tab.art, d) }
+    val cwd = s.cwd
+    if (s.kind != PaneKind.FOLDER || cwd == null || cwd.scheme == "zip") return null
+    // The top of a drive is the Storage tab, not a folder in it.
+    if (cwd.scheme == "local" && DRIVE_TOP.matches(cwd.path)) {
+        return { d -> dev.niccc2007.filet.shortcuts.TabArt(TabTarget.FILES.art, d) }
+    }
+    val look = dev.niccc2007.filet.shortcuts.rememberFolderLook(cwd)
+    return { d ->
+        androidx.compose.foundation.Canvas(Modifier.size(d)) {
+            drawFolder(dev.niccc2007.filet.icons.Inside.Pages, look, ground = false)
+        }
     }
 }
 

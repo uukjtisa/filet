@@ -96,4 +96,27 @@ class TabTargetsTest {
         val grouped = TabGroup.entries.flatMap { TabTarget.inGroup(it) }
         assertEquals(TabTarget.entries.toSet(), grouped.toSet())
     }
+
+    @Test
+    fun `every tab and every action has its drawn icon`() {
+        // An art id the generated table lacks falls back to the Filet icon without a word, so a
+        // tab added without its drawing would ship looking like the app instead of itself.
+        val launcher = dev.niccc2007.filet.shortcuts.TabIconRes.LAUNCHER
+        val art = dev.niccc2007.filet.shortcuts.TabIconRes.ART
+        for (t in TabTarget.entries) {
+            assertTrue("${t.name} -> ${t.art}", t.art in launcher && t.art in art)
+        }
+        for (a in dev.niccc2007.filet.shortcuts.AppAction.entries) {
+            assertTrue("${a.name} -> ${a.art}", a.art in launcher && a.art in art)
+        }
+        assertEquals(TabTarget.entries.size, TabTarget.entries.map { it.art }.toSet().size)
+    }
+
+    @Test
+    fun `a pane finds its tab for the chip, and a folder has none`() {
+        assertEquals(TabTarget.PLAYLISTS, dev.niccc2007.filet.shortcuts.tabOfPane(PaneKind.PLAYLISTS, null))
+        assertEquals(TabTarget.VIDEOS, dev.niccc2007.filet.shortcuts.tabOfPane(PaneKind.CATEGORY, MediaCategory.VIDEOS))
+        assertEquals(null, dev.niccc2007.filet.shortcuts.tabOfPane(PaneKind.FOLDER, null))
+        assertEquals(null, dev.niccc2007.filet.shortcuts.tabOfPane(PaneKind.ABOUT, null))
+    }
 }
