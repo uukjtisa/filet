@@ -73,6 +73,7 @@ export const EDGES = [
 export const KNOWN = {
   "about/AboutPage.kt": [{ n: 1, kind: "inner", why: "the mark drawn over the corner of the About card" }],
   "browser/BrowserScreen.kt": [{ n: 1, kind: "host", why: "the selection pill, floating over the foot of the body: the nav bar and the browser's strip are under it" }],
+  "browser/ClipTraySheet.kt": [{ n: 1, kind: "inner", why: "the file count on a clipboard row's tile" }],
   "browser/Dock.kt": [{ n: 2, kind: "host", why: "the paste pill and its scrim, inside a pane: the browser's strip is under it" }],
   "browser/ExtractSheet.kt": [{ n: 1, kind: "host", why: "a card inside a pane like PickDock (it has no caller today)" }],
   "browser/PickDock.kt": [{ n: 1, kind: "host", why: "the pick card, inside a pane: the browser's strip is under it" }],

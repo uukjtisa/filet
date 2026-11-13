@@ -25,7 +25,7 @@ that surface which is easiest to lose on the way across.
 | **Activity tab** | `app/src/main/java/dev/niccc2007/filet/jobs/ActivitySheet.kt:112` | `TABS3.activity` | N59 | Running above finished. The index job names the folder it is reading. |
 | **About tab** | `app/src/main/java/dev/niccc2007/filet/about/AboutPage.kt:106` | `aboutHTML` | N58 | Four words from the repo, in one line. Watermark is the app mark, not the author seal. |
 | **Settings tab** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:198` | `setHTML` | N56 | Sub-tabs. The List pane carries a live view rendered by the same code as the real list. |
-| **File row** | `app/src/main/java/dev/niccc2007/filet/browser/ClipTraySheet.kt:416` | `rowsHTML3` | N55 | No date column. Files show bytes, folders show item count. Tabular figures, not a code font. |
+| **File row** | `app/src/main/java/dev/niccc2007/filet/browser/ClipTraySheet.kt:596` | `rowsHTML3` | N55 | No date column. Files show bytes, folders show item count. Tabular figures, not a code font. |
 | **Search result row** | `app/src/main/java/dev/niccc2007/filet/browser/RowViews.kt:797` | `SearchResultRow` | N79 | Carries Available or Confirming while a pass runs, and nothing between passes. |
 | **Scope chips** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:645` | `.scopes` | N71 | Native search is dimmed and unpressable where the index never answers the scope anyway. |
 | **Bottom bar** | `app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt:1465` | `.foot` | N46 | One bar plus a More button. The setting that chose between bar and menu is deleted. |

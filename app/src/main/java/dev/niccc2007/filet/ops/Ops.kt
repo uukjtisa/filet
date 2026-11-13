@@ -42,6 +42,12 @@ data class OpResult(
     val succeeded: Int,
     val failed: List<Pair<VPath, String>>,
     val denials: List<Denial> = emptyList(),
+    /**
+     * Where each item that succeeded ended up, by where it started. A paste renames on a clash
+     * by default, so the destination folder plus the old name is a guess that is wrong exactly
+     * when two files share a name; the clipboard follows a move by this map instead.
+     */
+    val landed: Map<VPath, VPath> = emptyMap(),
 ) {
     val ok: Boolean get() = failed.isEmpty()
 
@@ -522,6 +528,7 @@ class FileOperations(
         // Both ends of every item: where it landed, and where it came from. The source matters
         // because a move leaves nothing behind and the index has to be told that too.
         val touched = ArrayList<VPath>()
+        val at = LinkedHashMap<VPath, VPath>()
         val denials = ArrayList<Denial>()
         var done = 0
         // Bytes of the items already finished; the copy counts each item from zero.
@@ -548,7 +555,7 @@ class FileOperations(
             }.onSuccess { landed ->
                 done++
                 touched += src
-                landed?.let { touched += it }
+                landed?.let { touched += it; at[src] = it }
             }.onFailure {
                 failed += src to readable(it)
                 // A host can accept the connection and still refuse one file. Declared
@@ -566,7 +573,7 @@ class FileOperations(
         // Partial batches announce too: the items that succeeded were genuinely written, and
         // those are exactly the ones the gallery would otherwise be missing.
         announce(touched)
-        return OpResult(done, failed, denials)
+        return OpResult(done, failed, denials, at)
     }
 
     /**
@@ -587,6 +594,7 @@ class FileOperations(
     ): OpResult {
         val archive = archiveName(into)
         val landed = ArrayList<VPath>()
+        val where = LinkedHashMap<VPath, VPath>()
         val pending = Pending()
         val removeAfter = pending.removeAfter
         var at: VPath? = null
@@ -613,7 +621,7 @@ class FileOperations(
                         at = src
                         throw e
                     }
-                    to?.let { landed += it }
+                    to?.let { landed += it; where[src] = it }
                     before += moved
                 }
             }
@@ -646,7 +654,7 @@ class FileOperations(
         report(id, done, failed)
         if (!retryOnly) offerAgain(id) { again(items) }
         announce(landed + removed)
-        return OpResult(done, failed)
+        return OpResult(done, failed, landed = where.filterKeys { k -> failed.none { it.first == k } })
     }
 
     /**
@@ -669,6 +677,7 @@ class FileOperations(
     ): OpResult {
         val archive = archiveName(items.first())
         val landed = ArrayList<VPath>()
+        val where = LinkedHashMap<VPath, VPath>()
         val pending = Pending()
         var at: VPath? = null
         var before = 0L
@@ -694,7 +703,7 @@ class FileOperations(
                         at = src
                         throw e
                     }
-                    to?.let { landed += it }
+                    to?.let { landed += it; where[src] = it }
                     before += moved
                 }
             }
@@ -722,7 +731,7 @@ class FileOperations(
         }
         report(id, items.size, emptyList())
         announce(landed + items)
-        return OpResult(items.size, emptyList())
+        return OpResult(items.size, emptyList(), landed = where)
     }
 
     /**

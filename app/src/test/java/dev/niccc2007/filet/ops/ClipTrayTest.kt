@@ -36,8 +36,8 @@ class ClipTrayTest {
 
     @Test
     fun `batches stack instead of replacing`() {
-        // The whole request. A single-slot clipboard meant copying from three folders was
-        // three round trips, because each Copy threw the last away.
+        // A single-slot clipboard meant copying from three folders was three round trips,
+        // because each Copy threw the last away.
         val tray = ClipTray()
             .add(batch("a", "one.jpg")).tray
             .add(batch("b", "two.pdf", dir = "/docs")).tray
@@ -162,55 +162,168 @@ class ClipTrayTest {
 
     // ── what a paste leaves behind ────────────────────────────────────────────
 
+    private val out = VPath.of("local", "/out")
+
     @Test
-    fun `a move is consumed`() {
+    fun `a move goes to history holding the files' new paths`() {
+        // The batch follows its files, so moving it again moves them from where they are now.
         val tray = ClipTray().add(batch("a", "one.jpg", op = PendingOp.MOVE)).tray
-            .afterPaste("a", VPath.of("local", "/out"))
-        assertTrue(tray.isEmpty)
+            .afterPaste("a", out, now = 5L)
+        val b = tray.batch("a")!!
+        assertFalse(b.fresh)
+        assertEquals(listOf(p("one.jpg", "/out")), b.items)
+        assertEquals(out, b.from)
+        assertEquals(5L, b.usedAt)
+        assertTrue(b.allPicked)
+        assertTrue(tray.fresh.isEmpty())
+        assertEquals(1, tray.history.size)
     }
 
     @Test
-    fun `a copy survives and records where it went`() {
-        // Asked for directly: a copy should be pasteable into several places.
+    fun `a move follows the name a clash gave it`() {
+        // The destination folder plus the old name is wrong exactly when two files share a name.
+        val renamed = p("one (2).jpg", "/out")
+        val tray = ClipTray().add(batch("a", "one.jpg", op = PendingOp.MOVE)).tray
+            .afterPaste("a", out, landed = mapOf(p("one.jpg") to renamed))
+        assertEquals(listOf(renamed), tray.batch("a")!!.items)
+    }
+
+    @Test
+    fun `a moved batch moves again from where it is now`() {
+        val elsewhere = VPath.of("local", "/elsewhere")
+        val tray = ClipTray().add(batch("a", "one.jpg", op = PendingOp.MOVE)).tray
+            .afterPaste("a", out, now = 1L)
+            .afterPaste("a", elsewhere, now = 2L)
+        val b = tray.batch("a")!!
+        assertEquals(listOf(p("one.jpg", "/elsewhere")), b.items)
+        assertEquals(listOf(out, elsewhere), b.pastedTo)
+        assertTrue(b.isIn(elsewhere))
+        assertFalse(b.isIn(out))
+    }
+
+    @Test
+    fun `a copy goes to history and records where it went`() {
+        // A copy is pasteable into several places, and the row says how many.
         val tray = ClipTray().add(batch("a", "one.jpg")).tray
             .afterPaste("a", VPath.of("local", "/one"))
             .afterPaste("a", VPath.of("local", "/two"))
-        assertEquals(1, tray.size)
-        assertEquals(
-            listOf(VPath.of("local", "/one"), VPath.of("local", "/two")),
-            tray.batch("a")!!.pastedTo,
-        )
+        val b = tray.batch("a")!!
+        assertFalse(b.fresh)
+        assertEquals(listOf(p("one.jpg")), b.items)
+        assertEquals(listOf(VPath.of("local", "/one"), VPath.of("local", "/two")), b.pastedTo)
     }
 
     @Test
-    fun `a half-failed move keeps exactly what is still there to move`() {
+    fun `a half-failed move keeps the failed files new and the moved ones in history`() {
         // The rule that matters most. A clipboard that empties itself after a partial failure
         // is how somebody loses track of what actually moved.
         val tray = ClipTray().add(batch("a", "one.jpg", "two.jpg", op = PendingOp.MOVE)).tray
-            .afterPaste("a", VPath.of("local", "/out"), failed = setOf(p("two.jpg")))
-        assertEquals(listOf(p("two.jpg")), tray.batch("a")!!.items)
-        assertTrue(tray.batch("a")!!.allPicked)
+            .afterPaste("a", out, failed = setOf(p("two.jpg")), splitId = "a2")
+        val left = tray.batch("a")!!
+        assertTrue(left.fresh)
+        assertEquals(listOf(p("two.jpg")), left.items)
+        assertTrue(left.allPicked)
+        val done = tray.batch("a2")!!
+        assertFalse(done.fresh)
+        assertEquals(listOf(p("one.jpg", "/out")), done.items)
     }
 
     @Test
-    fun `a move that failed outright is not consumed`() {
-        val tray = ClipTray().add(batch("a", "one.jpg", op = PendingOp.MOVE)).tray
-            .afterPaste("a", VPath.of("local", "/out"), failed = setOf(p("one.jpg")))
-        assertEquals(1, tray.size)
+    fun `a move that failed outright changes nothing`() {
+        val before = ClipTray().add(batch("a", "one.jpg", op = PendingOp.MOVE)).tray
+        val after = before.afterPaste("a", out, failed = setOf(p("one.jpg")))
+        assertEquals(before, after)
     }
 
     @Test
-    fun `a move of only the ticked files consumes only the batch it emptied`() {
-        // Pasting a partially ticked MOVE takes away what it took; the rest is still on disk
-        // and still queued, so the batch has to survive with the untouched files in it.
-        val before = ClipTray().add(batch("a", "one.jpg", "two.jpg", op = PendingOp.MOVE)).tray
+    fun `a move of only the ticked files leaves the unticked ones new`() {
+        // The unticked files are still on disk where they were, and still queued.
+        val tray = ClipTray().add(batch("a", "one.jpg", "two.jpg", op = PendingOp.MOVE)).tray
             .unpick("a", p("two.jpg"))
-        val after = before.afterPaste("a", VPath.of("local", "/out"))
-        // Nothing failed, so the whole batch goes - which is the honest reading of the rule as
-        // written, and is pinned here so a change to it is a decision rather than a surprise.
-        assertTrue(after.isEmpty)
+            .afterPaste("a", out, splitId = "a2")
+        val left = tray.batch("a")!!
+        assertTrue(left.fresh)
+        assertEquals(listOf(p("two.jpg")), left.items)
+        assertTrue(left.nothingPicked)
+        assertEquals(listOf(p("one.jpg", "/out")), tray.batch("a2")!!.items)
     }
 
+    @Test
+    fun `copy here instead leaves a move's files where they were`() {
+        val tray = ClipTray().add(batch("a", "one.jpg", op = PendingOp.MOVE)).tray
+            .afterCopyInstead("a", out, now = 3L)
+        val b = tray.batch("a")!!
+        assertFalse(b.fresh)
+        assertEquals(listOf(p("one.jpg")), b.items)
+        assertEquals(listOf(out), b.pastedTo)
+        assertFalse(b.isIn(out))
+    }
+
+    @Test
+    fun `a copy that copied nothing stays new`() {
+        val before = ClipTray().add(batch("a", "one.jpg")).tray
+        assertEquals(before, before.afterPaste("a", out, failed = setOf(p("one.jpg"))))
+        assertEquals(before, before.afterCopyInstead("a", out, failed = setOf(p("one.jpg"))))
+    }
+
+    @Test
+    fun `history keeps the newest thirty and never drops a new batch`() {        var tray = ClipTray()
+        for (i in 1..35) {
+            tray = tray.add(batch("h$i", "f$i.jpg")).tray.afterPaste("h$i", out, now = i.toLong())
+        }
+        tray = tray.add(batch("new", "fresh.jpg")).tray
+        assertEquals(ClipTray.HISTORY_MAX, tray.history.size)
+        assertEquals("h35", tray.history.first().id)
+        assertEquals("h6", tray.history.last().id)
+        assertEquals(listOf("new"), tray.fresh.map { it.id })
+    }
+
+    @Test
+    fun `a file in a moved batch can be queued to move again`() {
+        // History is not queued: moving one of its files again is the ordinary next step.
+        val tray = ClipTray().add(batch("a", "one.jpg", op = PendingOp.MOVE)).tray
+            .afterPaste("a", out)
+        val added = tray.add(batch("b", "one.jpg", op = PendingOp.MOVE, dir = "/out"))
+        assertTrue(added.added)
+        assertEquals(0, added.droppedAlreadyQueued)
+    }
+
+    @Test
+    fun `the pill counts only new batches`() {
+        val tray = ClipTray().add(batch("a", "one.jpg", "two.jpg")).tray
+            .afterPaste("a", out)
+            .add(batch("b", "three.jpg", op = PendingOp.MOVE)).tray
+        assertEquals(1, tray.freshPicked)
+        assertTrue(tray.freshAllMoves)
+        assertFalse(tray.worthPastingAll)
+    }
+
+    // ── surviving a restart ───────────────────────────────────────────────────
+
+    @Test
+    fun `the clipboard reads back exactly as it was saved`() {
+        val tray = ClipTray().add(batch("a", "one.jpg", "two words, and a tab\t.jpg")).tray
+            .unpick("a", p("one.jpg"))
+            .add(batch("b", "three.pdf", op = PendingOp.MOVE, dir = "/docs")).tray
+            .afterPaste("b", out, now = 9L)
+            .add(ClipBatch("c", listOf(p("x.jpg"), p("y.jpg", "/other")), PendingOp.COPY, null, 4L)).tray
+        assertEquals(tray, ClipStore.decode(ClipStore.encode(tray)))
+    }
+
+    @Test
+    fun `an unreadable save is an empty clipboard, not a crash`() {
+        assertTrue(ClipStore.decode(null).isEmpty)
+        assertTrue(ClipStore.decode("").isEmpty)
+        assertTrue(ClipStore.decode("clip0\u001Dwhatever").isEmpty)
+        assertTrue(ClipStore.decode("clip1\u001Dbroken").isEmpty)
+    }
+
+    @Test
+    fun `one bad row costs that row and keeps the rest`() {
+        val good = ClipTray().add(batch("a", "one.jpg")).tray
+        val raw = ClipStore.encode(good) + "\u001Dnot\u001Ea\u001Ebatch"
+        assertEquals(good, ClipStore.decode(raw))
+    }
     // ── what the tray says about itself ───────────────────────────────────────
 
     @Test
@@ -261,6 +374,7 @@ class ClipTrayTest {
         assertEquals(tray, tray.unpick("ghost", p("x")))
         assertEquals(tray, tray.without("ghost", p("x")))
         assertEquals(tray, tray.afterPaste("ghost", VPath.of("local", "/out")))
+        assertEquals(tray, tray.afterCopyInstead("ghost", VPath.of("local", "/out")))
         assertEquals(tray, tray.remove("ghost"))
     }
 }

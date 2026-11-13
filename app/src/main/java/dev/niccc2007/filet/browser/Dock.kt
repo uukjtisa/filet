@@ -1,6 +1,8 @@
 package dev.niccc2007.filet.browser
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -36,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -59,13 +62,17 @@ import kotlinx.coroutines.delay
  * would cover the list permanently and would have to collide-detect against three other
  * things. A round button in a corner gets out of the way by being small.
  *
- * ## The badge is the point
+ * ## The clipboard rides on top of it
  *
- * With nothing copied the dock is a `+`. With something on the clipboard it grows a count you
- * cannot walk past, and the primary button becomes **Paste**, because at that moment pasting
- * is what you came to do. That is the resolution of "I don't understand the paste pill — it
- * removed the dock; I wanted a universal clipboard": the pill is not a separate surface
- * competing with the dock, it IS the dock's clipboard in its loaded state.
+ * With nothing copied the dock is a `+`. With something new on the clipboard a **Paste** pill
+ * sits above it, because at that moment pasting is what you came to do. The pill is not a
+ * separate surface competing with the dock; it is the dock's clipboard in its loaded state, and
+ * an earlier version that replaced the dock with it made New folder unreachable.
+ *
+ * Once everything new has been pasted the pill shrinks to a 42dp circle - the size of a dock
+ * leaf, so it reads as part of the stack - holding the history. Bug identified here: the pill
+ * stayed full width after every copy had been used, a button over the list offering to repeat
+ * what had just been done, and vanished after a move with no record that the move happened.
  *
  * The fan-out stagger is 30 ms a leaf, from the bottom up, as in the mock - it reads as the
  * stack unfolding rather than as four things appearing at once.
@@ -154,15 +161,20 @@ fun Dock(
                 ) { open = false; tray = true }
             }
 
-            // The loaded state. A pill above the `+`, not instead of it: making a new folder
-            // must not become unreachable because something is on the clipboard.
-            if (loaded > 0) {
+            // The loaded state. Above the `+`, not instead of it: making a new folder must not
+            // become unreachable because something is on the clipboard. The pill while anything
+            // is new, the circle once all of it has been used.
+            val fresh = app.clips.fresh
+            if (fresh.isNotEmpty()) {
                 PastePill(
-                    count = app.clips.totalPicked,
+                    count = app.clips.freshPicked,
+                    move = app.clips.freshAllMoves,
                     blocked = vm.writeBlockReason(here),
                     onPaste = { vm.pasteInto(pane) },
                     onOpenTray = { tray = true },
                 )
+            } else if (loaded > 0) {
+                ClipDot(held = app.clips.history.size) { tray = true }
             }
 
             DockButton(
@@ -187,24 +199,39 @@ fun Dock(
     }
 }
 
+/** cubic-bezier(.2,.8,.2,1), the mock's arrival curve for both the pill and the circle. */
+private val Arrive = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)
+
 /**
- * The paste control, in the dock's own stack.
+ * The paste control, in the dock's own stack. New things only; see [BrowserViewModel.pasteInto].
  *
  * Counts what is TICKED rather than what is held, because that is what pressing it will do -
  * a button saying 11 that moves 4 is a button that lied once and will not be trusted again.
- * The chevron opens the tray, which is where the difference between those two numbers is.
+ * The chevron opens the clipboard, which is where the difference between those two numbers is.
+ * Says Move when every new batch is a move, because Paste over a move is a promise about where
+ * the originals will be that it does not keep.
+ *
+ * Arrives in 200 ms, growing leftwards from its right edge (the mock's `pillIn`).
  */
 @Composable
 private fun PastePill(
     count: Int,
+    move: Boolean,
     blocked: String?,
     onPaste: () -> Unit,
     onOpenTray: () -> Unit,
 ) {
     val colors = Filet.colors
     val live = blocked == null && count > 0
+    val shown = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { shown.animateTo(1f, tween(200, easing = Arrive)) }
     Row(
         Modifier
+            .graphicsLayer {
+                transformOrigin = TransformOrigin(1f, 0.5f)
+                scaleX = 0.4f + 0.6f * shown.value
+                alpha = shown.value
+            }
             .shadow(6.dp, RoundedCornerShape(50))
             .clip(RoundedCornerShape(50))
             .background(if (live) colors.accent else colors.high),
@@ -228,6 +255,7 @@ private fun PastePill(
                 when {
                     blocked != null -> "Read-only here"
                     count == 0 -> "Nothing ticked"
+                    move -> "Move $count"
                     else -> "Paste $count"
                 },
                 fontSize = 12.sp,
@@ -247,6 +275,61 @@ private fun PastePill(
                 tint = if (live) MaterialTheme.colorScheme.onPrimary else colors.fg2,
                 modifier = Modifier.size(15.dp),
             )
+        }
+    }
+}
+
+/**
+ * The clipboard once everything new has been used: a 42dp circle holding the history, with the
+ * count of history rows on a badge (9+ past nine, because a two-digit number does not fit a 17dp
+ * badge legibly). Tap opens the clipboard.
+ *
+ * Scales in from 0.6 over 220 ms (the mock's `shrinkIn`), which is what makes it read as the
+ * pill shrinking rather than one control vanishing and another appearing.
+ */
+@Composable
+private fun ClipDot(held: Int, onOpen: () -> Unit) {
+    val colors = Filet.colors
+    val shown = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { shown.animateTo(1f, tween(220, easing = Arrive)) }
+    Box(
+        Modifier
+            .padding(end = 4.dp)
+            .graphicsLayer {
+                val s = 0.6f + 0.4f * shown.value
+                scaleX = s
+                scaleY = s
+                alpha = shown.value
+            },
+    ) {
+        Box(
+            Modifier
+                .size(42.dp)
+                .shadow(6.dp, CircleShape)
+                .clip(CircleShape)
+                .background(colors.high)
+                .clickable(onClick = onOpen),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(FiletIcons.Paste, "Clipboard", tint = colors.fg2, modifier = Modifier.size(18.dp))
+        }
+        if (held > 0) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 3.dp, y = (-3).dp)
+                    .size(17.dp)
+                    .clip(CircleShape)
+                    .background(colors.accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (held > 9) "9+" else "$held",
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
+            }
         }
     }
 }

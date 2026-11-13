@@ -3,57 +3,58 @@ package dev.niccc2007.filet.ops
 import dev.niccc2007.filet.vfs.VPath
 
 /**
- * A clipboard that holds more than one thing.
+ * A clipboard that holds more than one thing, and remembers what it has done.
  *
- * ## The report
- *
- * Copying from several places meant pasting after every one of them, because each Copy
- * replaced the last. The ask was for the copies to accumulate, to be pasted individually or
- * all at once, and for a copy to survive being pasted so it can go in several places.
- *
- * ## Why the unit is a batch and not a flat list of files
+ * ## Batches, not a flat list of files
  *
  * Flattening is the obvious move and it is wrong twice over. A move and a copy cannot be
  * merged - they are different verbs with different consequences, so a flat list would need a
  * verb per file and pasting it would be two operations pretending to be one. And provenance
  * is how two batches are told apart: "7 from DCIM/Camera" is legible where fourteen filenames
- * are not.
+ * are not. A batch opens: [ClipTray.pick] and [ClipTray.unpick] choose files inside one, and
+ * [ClipTray.without] removes a file from it for good.
  *
- * Nothing is lost by grouping, because a batch opens: [pick] and [unpick] choose files
- * inside one, and [without] removes a file from it for good. Those are different intentions
- * and they read differently - not pasting a file this time is not the same as taking it off
- * the clipboard.
+ * ## New and history
  *
- * ## Copy survives, move does not, and that is physics
+ * A batch is [fresh] until its first paste, and then it is history: still on the clipboard,
+ * still one tap from being used again. Bug identified here: the clipboard was a pill that never
+ * went away while a copy was loaded and vanished the moment a move landed, so it said nothing
+ * about what had been done and kept a full-width button over the dock for something already
+ * pasted. Splitting new from done is what lets the dock show the pill only for new things and a
+ * small circle for the rest.
  *
- * A MOVE batch is single use. After it is pasted the source files are gone, so it cannot be
- * pasted again and it is dropped. That is not a policy and must not become a setting.
+ * ## A move follows its files
  *
- * A COPY batch stays until it is cleared, which is the request. Each paste adds to
- * [ClipBatch.pastedTo], so the tray can say where it has already been - the feedback that
- * makes "it is still loaded" obvious rather than something to be discovered.
+ * After a move, the batch's paths are the files' new paths and [from] is where they are now, so
+ * moving it again moves them from there. A move is not single use any more: what stops a second
+ * paste is the files being somewhere else, and the batch knows where.
  *
  * Pure, and tested, because every rule here is one that silently does the wrong thing rather
  * than failing loudly.
  */
 data class ClipBatch(
     val id: String,
-    /** Everything in the batch, including files not currently picked. */
+    /** Everything in the batch, including files not currently picked. Where they are now. */
     val items: List<VPath>,
     val op: PendingOp,
-    /** The common parent, for the subtitle. Null when the items came from several places. */
+    /**
+     * The common parent: where a copy came from, where a move's files are now. Null when the
+     * items are in several places.
+     */
     val from: VPath?,
     val addedAt: Long,
     /**
-     * Which of [items] the next paste will take.
-     *
-     * Everything, until somebody says otherwise. An empty set means a batch that is loaded
-     * and currently contributes nothing, which is a state the tray shows rather than hides:
-     * a batch that vanished because its last tick came off would look like a bug.
+     * Which of [items] the next paste will take. Everything, until somebody says otherwise. An
+     * empty set means a batch that is loaded and currently contributes nothing, which the
+     * clipboard shows rather than hides.
      */
     val picked: Set<VPath> = items.toSet(),
-    /** Where this batch has already landed. Only ever grows, and only for a copy. */
+    /** Where this batch has been pasted, oldest first. */
     val pastedTo: List<VPath> = emptyList(),
+    /** Not pasted yet. See the class notes. */
+    val fresh: Boolean = true,
+    /** When it was last pasted, for ordering history newest first. 0 while fresh. */
+    val usedAt: Long = 0L,
 ) {
     val size: Int get() = items.size
     val pickedCount: Int get() = picked.size
@@ -63,43 +64,50 @@ data class ClipBatch(
 
     /** What the next paste would actually carry, in the batch's own order. */
     val payload: List<VPath> get() = items.filter { it in picked }
+
+    /** Whether this move's files are already in [folder], where moving them again does nothing. */
+    fun isIn(folder: VPath): Boolean = isMove && !fresh && from == folder
 }
 
 /**
- * The whole clipboard.
- *
- * Ordered, oldest first, because that is the order a paste-all runs in and an order that
- * changes under you is worse than one you did not choose.
+ * The whole clipboard. Ordered oldest first, which is the order a paste of everything new runs
+ * in; the sheet shows history newest first on its own.
  */
 data class ClipTray(val batches: List<ClipBatch> = emptyList()) {
 
     val isEmpty: Boolean get() = batches.isEmpty()
     val size: Int get() = batches.size
 
+    /** Not pasted yet, oldest first. What the pill pastes. */
+    val fresh: List<ClipBatch> get() = batches.filter { it.fresh }
+
+    /** Pasted at least once, newest first. What the circle holds. */
+    val history: List<ClipBatch> get() = batches.filterNot { it.fresh }.sortedByDescending { it.usedAt }
+
+    /** Every file the new batches would paste right now. */
+    val freshPicked: Int get() = fresh.sumOf { it.pickedCount }
+
+    /** Every new batch is a move, so the pill says Move rather than Paste. */
+    val freshAllMoves: Boolean get() = fresh.isNotEmpty() && fresh.all { it.isMove }
+
     /** Every file the whole tray would paste right now. */
     val totalPicked: Int get() = batches.sumOf { it.pickedCount }
 
-    /** Every file held, picked or not, which is what the header counts. */
+    /** Every file held, picked or not. */
     val totalItems: Int get() = batches.sumOf { it.size }
 
     /**
      * Add a batch.
      *
-     * Two collisions are resolved here rather than at paste time, because both of them
-     * silently do the wrong thing instead of failing:
-     *
-     *  - **A path already queued to MOVE** cannot be in a second batch. The first paste takes
-     *    it away and the second fails with "no longer there", which reads as a bug in Filet
-     *    rather than as two instructions that could not both be true. The new batch drops it,
-     *    and the count of what was dropped comes back so the caller can say so once.
-     *  - **A batch left with nothing** after that is not added at all. An empty batch is a row
-     *    that can never do anything.
-     *
-     * The same path in two COPY batches is harmless and is left alone: copying a file to two
-     * places is the feature, not a mistake.
+     * A path already in a NEW move cannot go in a second one: the first paste takes it away and
+     * the second fails with "no longer there", which reads as a bug rather than as two
+     * instructions that could not both be true. The new batch drops it, and the count comes back
+     * so the caller can say so once. History does not count: a move that has landed is not
+     * queued, and moving one of its files again is the ordinary thing to do. A batch left with
+     * nothing is not added at all.
      */
     fun add(batch: ClipBatch): Added {
-        val queuedToMove = batches.filter { it.isMove }.flatMap { it.items }.toSet()
+        val queuedToMove = fresh.filter { it.isMove }.flatMap { it.items }.toSet()
         val kept = batch.items.filterNot { batch.isMove && it in queuedToMove }
         val dropped = batch.items.size - kept.size
         if (kept.isEmpty()) return Added(this, dropped, added = false)
@@ -118,10 +126,8 @@ data class ClipTray(val batches: List<ClipBatch> = emptyList()) {
     private fun map(id: String, f: (ClipBatch) -> ClipBatch): ClipTray =
         copy(batches = batches.map { if (it.id == id) f(it) else it })
 
-    /** Tick one file. */
     fun pick(id: String, path: VPath): ClipTray = map(id) { it.copy(picked = it.picked + path) }
 
-    /** Untick one file. The batch stays, holding it, unpicked. */
     fun unpick(id: String, path: VPath): ClipTray = map(id) { it.copy(picked = it.picked - path) }
 
     fun pickAll(id: String): ClipTray = map(id) { it.copy(picked = it.items.toSet()) }
@@ -129,10 +135,7 @@ data class ClipTray(val batches: List<ClipBatch> = emptyList()) {
     fun pickNone(id: String): ClipTray = map(id) { it.copy(picked = emptySet()) }
 
     /**
-     * Take a file off the clipboard for good.
-     *
-     * Distinct from unticking, and the tray says so: unticking is "not this time", removing
-     * is "I did not mean to pick this up". Removing the last file removes the batch, because
+     * Take a file off the clipboard for good. Removing the last file removes the batch, because
      * a batch of nothing is a row that cannot act.
      */
     fun without(id: String, path: VPath): ClipTray {
@@ -143,48 +146,150 @@ data class ClipTray(val batches: List<ClipBatch> = emptyList()) {
     }
 
     /**
-     * What a paste leaves behind.
+     * What a paste of batch [id] into [into] leaves behind.
      *
-     * A move is consumed; a copy stays and records where it went. A PARTLY failed batch keeps
-     * its failed items and stays in the tray, which is the rule that matters most: a
-     * clipboard that empties itself after a half-failure is how somebody loses track of what
-     * actually moved.
+     * - A copy goes to history and records where it went. A copy that copied nothing stays new:
+     *   nothing was used, and history is a record of what was.
+     * - A move goes to history holding the files' new paths, so it can be moved again from there.
+     * - What a move did NOT take - files unticked, files that failed - stays a new batch at the
+     *   old paths, ticked as it was. A clipboard that empties itself after a half-failure is how
+     *   somebody loses track of what actually moved. The part that moved becomes its own history
+     *   row, named [splitId].
+     * - A move that took nothing changes nothing.
      *
-     * @param failed the paths the operation could not take. A move whose every item failed is
-     *   not consumed, because nothing was taken away.
+     * [landed] is where each moved file actually went. A paste renames on a clash, so the folder
+     * plus the old name is only the fallback for a source that did not report it.
+     *
+     * History is then held to [HISTORY_MAX], oldest dropped.
      */
-    fun afterPaste(id: String, into: VPath, failed: Set<VPath> = emptySet()): ClipTray {
+    fun afterPaste(
+        id: String,
+        into: VPath,
+        failed: Set<VPath> = emptySet(),
+        now: Long = 0L,
+        splitId: String = "$id-moved",
+        landed: Map<VPath, VPath> = emptyMap(),
+    ): ClipTray {
         val b = batch(id) ?: return this
-        val moved = b.payload.filterNot { it in failed }
-        return when {
-            b.isMove && moved.isEmpty() -> this
-            b.isMove && failed.isEmpty() -> remove(id)
-            // A move that half worked keeps exactly what is still there to move.
-            b.isMove -> {
-                val left = b.items.filter { it in failed }
-                if (left.isEmpty()) remove(id) else map(id) {
-                    it.copy(items = left, picked = left.toSet())
-                }
-            }
-            else -> map(id) { it.copy(pastedTo = it.pastedTo + into) }
+        if (!b.isMove) {
+            if (b.payload.all { it in failed }) return this
+            return map(id) { it.copy(pastedTo = it.pastedTo + into, fresh = false, usedAt = now) }.capped()
         }
+        val moved = b.payload.filterNot { it in failed }
+        if (moved.isEmpty()) return this
+        val arrived = moved.mapNotNull { landed[it] ?: it.name.takeIf { n -> n.isNotEmpty() }?.let(into::child) }
+        val left = b.items.filterNot { it in moved }
+        val done = b.copy(
+            items = arrived,
+            picked = arrived.toSet(),
+            from = into,
+            pastedTo = b.pastedTo + into,
+            fresh = false,
+            usedAt = now,
+        )
+        if (left.isEmpty()) return map(id) { done }.capped()
+        val rest = b.copy(items = left, picked = b.picked.filter { it in left }.toSet())
+        return copy(batches = batches.flatMap { if (it.id == id) listOf(rest, done.copy(id = splitId)) else listOf(it) }).capped()
     }
 
-    /** Whether pasting everything is worth offering. One batch is just that batch's button. */
-    val worthPastingAll: Boolean get() = batches.count { it.pickedCount > 0 } > 1
-
     /**
-     * The summary under the paste-all button: what the whole tray is about to do.
-     *
-     * Counts the two verbs separately, because "paste 11" over a tray holding a move is a
-     * promise about three files that is not a copy.
+     * "Copy here instead" on a move: the files are copied and stay where they are, and the row
+     * goes to history saying so. Nothing about the batch's paths changes, because nothing moved.
+     * A copy that copied nothing leaves the row as it was.
      */
-    fun allSummary(): String {
-        val copied = batches.filterNot { it.isMove }.sumOf { it.pickedCount }
-        val movedCount = batches.filter { it.isMove }.sumOf { it.pickedCount }
+    fun afterCopyInstead(id: String, into: VPath, failed: Set<VPath> = emptySet(), now: Long = 0L): ClipTray {
+        val b = batch(id) ?: return this
+        if (b.payload.all { it in failed }) return this
+        return map(id) { it.copy(pastedTo = it.pastedTo + into, fresh = false, usedAt = now) }.capped()
+    }
+
+    /** History held to [HISTORY_MAX], the oldest uses dropped. New batches are never dropped. */
+    fun capped(max: Int = HISTORY_MAX): ClipTray {
+        val keep = history.take(max).map { it.id }.toSet()
+        return copy(batches = batches.filter { it.fresh || it.id in keep })
+    }
+
+    /** Whether "Bring all new here" is worth offering. One new batch is just that row's button. */
+    val worthPastingAll: Boolean get() = fresh.count { it.pickedCount > 0 } > 1
+
+    /** "2 copied, 1 moved" for [list], each verb counted on its own. */
+    fun summary(list: List<ClipBatch> = fresh): String {
+        val copied = list.filterNot { it.isMove }.sumOf { it.pickedCount }
+        val movedCount = list.filter { it.isMove }.sumOf { it.pickedCount }
         return listOfNotNull(
             "$copied copied".takeIf { copied > 0 },
             "$movedCount moved".takeIf { movedCount > 0 },
         ).joinToString(", ")
+    }
+
+    /** The summary under the bring-all button: what the new batches are about to do. */
+    fun allSummary(): String = summary(fresh)
+
+    companion object {
+        /** History kept, newest first. Approved with the mock. */
+        const val HISTORY_MAX = 30
+    }
+}
+
+/**
+ * The clipboard as a string, so it survives Filet being closed.
+ *
+ * A format of its own rather than JSON: `org.json` is a stub in the unit-test jar, and this is
+ * the part most worth testing off the phone. Control characters separate the parts because a
+ * path can hold a tab, a comma or a newline but these three are not legal in a name on any
+ * filesystem Filet reaches. Anything unreadable - a path that no longer parses, a batch from a
+ * newer format - is dropped rather than refused, so a bad save costs one row and never the app.
+ */
+object ClipStore {
+    private const val VERSION = "clip1"
+    private const val BATCH = '\u001D'
+    private const val FIELD = '\u001E'
+    private const val ITEM = '\u001F'
+
+    fun encode(tray: ClipTray): String = buildString {
+        append(VERSION)
+        for (b in tray.batches) {
+            append(BATCH)
+            append(
+                listOf(
+                    b.id,
+                    b.op.name,
+                    if (b.fresh) "1" else "0",
+                    b.addedAt.toString(),
+                    b.usedAt.toString(),
+                    b.from?.toString().orEmpty(),
+                    b.items.joinToString(ITEM.toString()),
+                    b.picked.joinToString(ITEM.toString()),
+                    b.pastedTo.joinToString(ITEM.toString()),
+                ).joinToString(FIELD.toString()),
+            )
+        }
+    }
+
+    fun decode(raw: String?): ClipTray {
+        if (raw.isNullOrEmpty()) return ClipTray()
+        val parts = raw.split(BATCH)
+        if (parts.first() != VERSION) return ClipTray()
+        fun paths(s: String): List<VPath> =
+            if (s.isEmpty()) emptyList() else s.split(ITEM).mapNotNull { runCatching { VPath.parse(it) }.getOrNull() }
+        val batches = parts.drop(1).mapNotNull { line ->
+            runCatching {
+                val f = line.split(FIELD)
+                val items = paths(f[6])
+                if (items.isEmpty()) return@runCatching null
+                ClipBatch(
+                    id = f[0],
+                    items = items,
+                    op = PendingOp.valueOf(f[1]),
+                    from = f[5].takeIf { it.isNotEmpty() }?.let { VPath.parse(it) },
+                    addedAt = f[3].toLong(),
+                    picked = paths(f[7]).filter { it in items }.toSet(),
+                    pastedTo = paths(f[8]),
+                    fresh = f[2] == "1",
+                    usedAt = f[4].toLong(),
+                )
+            }.getOrNull()
+        }
+        return ClipTray(batches)
     }
 }

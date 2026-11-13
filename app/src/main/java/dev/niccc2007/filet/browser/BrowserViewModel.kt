@@ -18,6 +18,7 @@ import dev.niccc2007.filet.vfs.provider.ExtractPlan
 import dev.niccc2007.filet.vfs.provider.Archives
 import dev.niccc2007.filet.vfs.provider.archiveName
 import dev.niccc2007.filet.ops.ClipBatch
+import dev.niccc2007.filet.ops.ClipStore
 import dev.niccc2007.filet.ops.ClipTray
 import dev.niccc2007.filet.ops.PendingOp
 import dev.niccc2007.filet.update.Download
@@ -1116,8 +1117,8 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     /**
      * Put a batch on the clipboard.
      *
-     * Adds rather than replaces, which is the whole of the request: copying from three
-     * folders used to mean pasting three times, because each Copy threw the last one away.
+     * Adds rather than replaces: copying from three folders used to mean pasting three times,
+     * because each Copy threw the last one away.
      *
      * The collision rules live in [ClipTray.add] and are tested there - a path already queued
      * to MOVE cannot be in a second batch, because the first paste takes it away and the
@@ -1145,7 +1146,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         toast(
             when {
                 !added.added -> "Already queued to move"
-                skipped > 0 -> "$kept $verb \u2014 $skipped already queued"
+                skipped > 0 -> "$kept $verb — $skipped already queued"
                 else -> "${paths.size} $verb"
             },
         )
@@ -1153,27 +1154,75 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     private var clipSeq = 0
-    private fun nextClipId(): String = "clip-${++clipSeq}"
 
-    /** Everything picked, in every batch, into this pane. */
-    fun paste(side: Side = _state.value.focused) {
-        val pane = paneFor(side) ?: return
-        pasteBatches(pane, _state.value.clips.batches.map { it.id })
+    /**
+     * The time and a counter. Bug identified here: ids were a bare counter from 1, which starts
+     * again at 1 on every launch now that the clipboard outlives the process, so a new batch
+     * could take the id of a saved one and a paste of either would act on both.
+     */
+    private fun nextClipId(): String = "clip-${System.currentTimeMillis()}-${++clipSeq}"
+
+    /**
+     * The clipboard on disk, in a file of its own rather than in settings: it is what Filet is
+     * holding, not a choice somebody made, so Export has no business carrying it to another
+     * phone where none of its paths exist.
+     */
+    private val clipFile by lazy {
+        graph.app.getSharedPreferences("filet.clipboard", android.content.Context.MODE_PRIVATE)
     }
 
     /**
-     * Paste into a NAMED pane rather than into whichever one has focus.
+     * Read the saved clipboard, then save it on every change.
+     *
+     * Read before the saver is armed, and on this thread, so the saver's first write can never be
+     * the empty clipboard of a ViewModel that has not loaded yet - which would wipe the history on
+     * every launch and look exactly like the feature not working.
+     */
+    private fun keepClipboard() {
+        val saved = runCatching { ClipStore.decode(clipFile.getString(CLIP_KEY, null)) }.getOrDefault(ClipTray())
+        if (!saved.isEmpty) _state.update { it.copy(clips = saved.capped()) }
+        viewModelScope.launch {
+            _state.map { it.clips }.distinctUntilChanged().drop(1).collect { tray ->
+                withContext(Dispatchers.IO) { clipFile.edit().putString(CLIP_KEY, ClipStore.encode(tray)).apply() }
+            }
+        }
+    }
+
+    /** Everything new, into this side's pane. The menu's Paste here. */
+    fun paste(side: Side = _state.value.focused) {
+        val pane = paneFor(side) ?: return
+        pasteInto(pane)
+    }
+
+    /**
+     * Everything NEW into a NAMED pane rather than into whichever one has focus - the pill.
+     *
+     * New only: history is one tap away in the clipboard, and a pill that pasted everything ever
+     * copied would repeat yesterday's paste every time it was pressed.
      *
      * The dock is drawn in every pane, so the pane that was tapped is the destination. Going
      * through `focused` here would make the button in the unfocused half of a split silently
      * paste into the other one, which is the exact confusion the per-pane dock exists to
      * remove.
      */
-    fun pasteInto(pane: PaneController) =
-        pasteBatches(pane, _state.value.clips.batches.map { it.id })
+    fun pasteInto(pane: PaneController) {
+        val fresh = _state.value.clips.fresh
+        if (fresh.isEmpty()) {
+            toast("Nothing new to paste")
+            return
+        }
+        pasteBatches(pane, fresh.map { it.id })
+    }
 
-    /** One batch, by id. The quiet button on a tray card. */
+    /** One batch, by id: a row's one-tap button. New or history alike. */
     fun pasteBatch(pane: PaneController, id: String) = pasteBatches(pane, listOf(id))
+
+    /** The rows ticked in Select, oldest first, each doing its own verb. */
+    fun pasteChosen(pane: PaneController, ids: Set<String>) =
+        pasteBatches(pane, _state.value.clips.batches.map { it.id }.filter { it in ids })
+
+    /** Copy here instead, on a move: the files are copied and stay where they are. */
+    fun copyBatchInstead(pane: PaneController, id: String) = pasteBatches(pane, listOf(id), copyInstead = true)
 
     /**
      * Run the picked files of [ids] into this pane's folder, one batch at a time.
@@ -1183,7 +1232,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * both see the name free and both take it. A copy is IO-bound anyway, so the parallelism
      * would buy nothing to pay for that.
      */
-    private fun pasteBatches(pane: PaneController, ids: List<String>) {
+    private fun pasteBatches(pane: PaneController, ids: List<String>, copyInstead: Boolean = false) {
         val dest = pane.state.value.target ?: return
         sideOf(pane)?.let { focusSide(it) }
         val blocked = writeBlockReason(dest)
@@ -1191,9 +1240,12 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             toast(blocked)
             return
         }
-        val wanted = ids.mapNotNull { _state.value.clips.batch(it) }.filter { it.pickedCount > 0 }
+        val ticked = ids.mapNotNull { _state.value.clips.batch(it) }.filter { it.pickedCount > 0 }
+        // A moved batch already in this folder: moving it again would move its files onto
+        // themselves. The row says Here and does nothing; this is the same rule for Select.
+        val wanted = ticked.filterNot { !copyInstead && it.isIn(dest) }
         if (wanted.isEmpty()) {
-            toast("Nothing is ticked to paste")
+            toast(if (ticked.isEmpty()) "Nothing is ticked to paste" else "Already here")
             return
         }
         creditUse(dest)
@@ -1204,22 +1256,24 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             var denial: dev.niccc2007.filet.vfs.Denial? = null
             for (batch in wanted) {
                 val payload = batch.payload
-                val r = if (batch.op == PendingOp.COPY) graph.ops.copy(payload, dest)
-                else graph.ops.move(payload, dest)
-                if (batch.op == PendingOp.COPY) copied += r.succeeded else moved += r.succeeded
+                val asCopy = copyInstead || batch.op == PendingOp.COPY
+                val r = if (asCopy) graph.ops.copy(payload, dest) else graph.ops.move(payload, dest)
+                if (asCopy) copied += r.succeeded else moved += r.succeeded
                 failures += r.failed
                 denial = denial ?: r.denial
-                // A PARTLY failed batch keeps its failed items and stays on the clipboard.
-                // A clipboard that empties itself after a half-failure is how somebody loses
-                // track of what actually moved. See ClipTray.afterPaste.
+                val failed = r.failed.map { f -> f.first }.toSet()
+                val now = System.currentTimeMillis()
+                // What the paste leaves behind - history, a split, or a batch kept as it was -
+                // is decided and tested in ClipTray.afterPaste.
                 _state.update {
                     it.copy(
-                        clips = it.clips.afterPaste(batch.id, dest, r.failed.map { f -> f.first }.toSet()),
+                        clips = if (copyInstead) it.clips.afterCopyInstead(batch.id, dest, failed, now)
+                        else it.clips.afterPaste(batch.id, dest, failed, now, nextClipId(), r.landed),
                     )
                 }
                 // Where each one lands, so the rows appear at the bottom instead of
                 // scattering into sort order the instant the paste finishes.
-                pane.noteArrived(payload.map { dest.child(it.name) })
+                pane.noteArrived(payload.filterNot { it in failed }.map { r.landed[it] ?: dest.child(it.name) })
             }
             val verb = listOfNotNull(
                 "copied".takeIf { copied > 0 },
@@ -1234,7 +1288,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun clearClipboard() = _state.update { it.copy(clips = ClipTray()) }
 
-    /** Take one batch off for good. The × on a tray card. */
+    /** Take one batch off for good. Remove from clipboard, on a row's menu. */
     fun dropClipBatch(id: String) = _state.update { it.copy(clips = it.clips.remove(id)) }
 
     /** Tick or untick one file inside a batch. "Not this time", and reversible. */
@@ -1251,11 +1305,48 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     /**
      * Take one file off the clipboard for good.
      *
-     * Distinct from unticking, and the tray says so: unticking is "not this time", this is
+     * Distinct from unticking, and the clipboard says so: unticking is "not this time", this is
      * "I did not mean to pick it up".
      */
     fun dropClipFile(id: String, path: dev.niccc2007.filet.vfs.VPath) =
         _state.update { it.copy(clips = it.clips.without(id, path)) }
+
+    /** Open where it is, on a row's menu: where a copy came from, where a move's files are now. */
+    fun openClipPlace(pane: PaneController, id: String) {
+        val b = _state.value.clips.batch(id) ?: return
+        val at = b.from ?: b.items.firstOrNull()?.parent ?: return
+        pane.jumpTo(at)
+    }
+
+    private val _clipGone = MutableStateFlow<Set<String>>(emptySet())
+
+    /** History rows whose files are all gone, as of the last time the clipboard was opened. */
+    val clipGone: StateFlow<Set<String>> = _clipGone.asStateFlow()
+
+    /**
+     * Find the history rows that point at nothing any more.
+     *
+     * When the clipboard opens, not continuously: thirty rows of stat calls on every folder change
+     * would be paid for a sheet nobody has open. Gone means every file answered "not there"; a
+     * share that does not answer in time, or answers with an error, is NOT gone - a row greyed
+     * because the Wi-Fi blinked would be a row somebody removes and then needs.
+     */
+    fun checkClipGone() {
+        val history = _state.value.clips.history
+        if (history.isEmpty()) {
+            _clipGone.value = emptySet()
+            return
+        }
+        viewModelScope.launch {
+            _clipGone.value = withContext(Dispatchers.IO) {
+                history.filter { b ->
+                    b.items.all { p ->
+                        withTimeoutOrNull(1500) { runCatching { graph.vfs.stat(p) == null }.getOrDefault(false) } ?: false
+                    }
+                }.map { it.id }.toSet()
+            }
+        }
+    }
 
     // ── operations ──
 
@@ -2708,7 +2799,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             .firstNotNullOfOrNull { writeBlockReason(it) }
     }
 
-    fun canPaste(): Boolean = _state.value.clips.totalPicked > 0 &&
+    fun canPaste(): Boolean = _state.value.clips.freshPicked > 0 &&
         focusedPane()?.state?.value?.cwd != null
 
     // ── things only an Activity can do ──
@@ -4777,6 +4868,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     val home get() = graph.home
 
     init {
+        keepClipboard()
         followVisibleFolders()
     }
 
@@ -7326,6 +7418,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     private companion object {
         const val KEY_TABS = "tabs.v1"
+
+        /** The clipboard's one key in its own file. See [keepClipboard]. */
+        const val CLIP_KEY = "tray"
 
         /** Release and debug both, so a development build is never bridge-blind (PLAN.md §5.4). */
         val TRAWL_PACKAGES = listOf("dev.niccc2007.trawl", "dev.niccc2007.trawl.debug", "com.junkfood.seal")
