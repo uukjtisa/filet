@@ -10,10 +10,10 @@ plugins {
  * The desktop tool's own version, on its own release line.
  *
  * Not the app's. `docs/RELEASES.md` sets out why: the two are different products on different
- * schedules, the tool tags `filet-desktop-mount-tool-vX.Y.Z`, and `ReleaseTags.kt` filters the
+ * schedules, the tool tags `filet-desktop-network-tool-vX.Y.Z`, and `ReleaseTags.kt` filters the
  * phone's updater on that shape so a desktop release can never be offered to a phone.
  */
-val toolVersion = "0.1.1"
+val toolVersion = "0.2.0"
 
 version = toolVersion
 
@@ -117,7 +117,7 @@ compose.desktop {
              */
             targetFormats(TargetFormat.Exe, TargetFormat.Msi, TargetFormat.Deb)
 
-            packageName = "Filet Desktop"
+            packageName = "Filet Desktop Network Tool"
             packageVersion = toolVersion
             description = "Offer folders from this PC to Filet on your phone, and mount what the phone offers back."
             vendor = "Niccc2007"
@@ -171,7 +171,7 @@ compose.desktop {
                 dirChooser = false
             }
             linux {
-                packageName = "filet-desktop"
+                packageName = "filet-desktop-network-tool"
                 iconFile.set(project.file("src/main/resources/filet.png"))
                 menuGroup = "Utility"
             }
@@ -186,7 +186,7 @@ compose.desktop {
  * Installs each installer this machine builds over the copy installed here, so a build is never
  * left waiting for someone to find it and run it.
  *
- * Runs after `packageMsi` or `packageExe` on Windows, from the MSI: it closes Filet Desktop if it
+ * Runs after `packageMsi` or `packageExe` on Windows, from the MSI: it closes Filet Desktop Network Tool if it
  * is open, replaces the per-user install, and opens it again, sharing again if it was sharing.
  * See packaging/install-here.ps1. Never on CI (`CI` is set there), and `-PnoInstall` skips it.
  */

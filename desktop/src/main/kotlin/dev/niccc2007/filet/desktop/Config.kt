@@ -28,6 +28,11 @@ data class Config(
     val host: String? = null,
     /** Every phone share mounted on this PC, for the Phones list. */
     val phones: List<KnownPhone> = emptyList(),
+    /**
+     * Whether sharing was on when the tool last ran. Stop turns it off; closing the window does
+     * not, so the next launch - at login too - shares again as it was left.
+     */
+    val sharing: Boolean = false,
 ) {
     companion object {
         /**
@@ -51,6 +56,7 @@ object ConfigCodec {
         put("version", 1)
         put("port", c.port)
         put("autostart", c.autostart)
+        put("sharing", c.sharing)
         put("deviceId", c.deviceId)
         put("password", c.account.password)
         c.host?.let { put("host", it) }
@@ -140,6 +146,7 @@ object ConfigCodec {
                 shares, Account(password), port, o.optBoolean("autostart", false), id,
                 host = o.optString("host").takeIf { it.isNotBlank() },
                 phones = phones,
+                sharing = o.optBoolean("sharing", false),
             ),
             repaired,
         )
@@ -151,23 +158,29 @@ object ConfigCodec {
 /**
  * Where the config lives, per OS, and how it is written.
  *
- * - **Windows:** `%LOCALAPPDATA%\Filet Desktop Data\config.json`. Local, not roaming: shares
- *   name folders on THIS machine's disks, and a roaming profile would carry `D:\Pictures` to a
- *   PC where it means nothing or something else. Not `%LOCALAPPDATA%\Filet Desktop`: that is
- *   where the per-user installer puts the app, and installing or removing the app empties that
- *   folder whole - a config kept there was deleted by the first per-user install.
- * - **macOS:** `~/Library/Application Support/Filet Desktop/config.json`, the platform's place.
- * - **Linux and the rest:** `$XDG_CONFIG_HOME/filet-desktop/config.json`, else `~/.config/...`.
+ * - **Windows:** `%LOCALAPPDATA%\Filet Desktop Network Tool Data\config.json`. Local, not
+ *   roaming: shares name folders on THIS machine's disks, and a roaming profile would carry
+ *   `D:\Pictures` to a PC where it means nothing or something else. Not the app's own folder
+ *   beside it: that is where the per-user installer puts the app, and installing or removing the
+ *   app empties that folder whole - a config kept there was deleted by the first per-user install.
+ * - **macOS:** `~/Library/Application Support/Filet Desktop Network Tool/config.json`.
+ * - **Linux and the rest:** `$XDG_CONFIG_HOME/filet-desktop-network-tool/config.json`, else
+ *   `~/.config/...`.
+ *
+ * The tool was called Filet Desktop before, and kept its config under that name ([legacyDir]).
+ * A config found only there is copied across on first load and the old folder is left as it was:
+ * a copy that fails halfway loses nothing, and a move that fails halfway can lose everything.
  *
  * A JSON file and not `java.util.prefs`. On Windows Preferences writes to the registry with
  * escaped key names and an 8 KB value ceiling, which a share list can exceed, and it cannot be
  * read, backed up or deleted by anyone without a registry editor. The file holds the password,
  * which the window shows openly anyway; on POSIX it is still created owner-only.
  */
-class ConfigStore(val file: Path = defaultFile()) {
+class ConfigStore(val file: Path = defaultFile(), private val legacy: Path? = if (file == defaultFile()) legacyFile() else null) {
 
     @Synchronized
     fun load(): Config {
+        adopt(file, legacy)
         val raw = runCatching { Files.readString(file) }.getOrNull()
         val decoded = ConfigCodec.decode(raw)
         if (decoded.repaired) save(decoded.config)
@@ -196,23 +209,47 @@ class ConfigStore(val file: Path = defaultFile()) {
     }
 
     companion object {
-        fun defaultFile(): Path = configDir(
-            System.getProperty("os.name").orEmpty(),
-            System::getenv,
-            System.getProperty("user.home").orEmpty(),
-        ).resolve("config.json")
+        fun defaultFile(): Path = dirFor(::configDir).resolve("config.json")
+
+        fun legacyFile(): Path = dirFor(::legacyDir).resolve("config.json")
+
+        private fun dirFor(f: (String, (String) -> String?, String) -> Path): Path =
+            f(System.getProperty("os.name").orEmpty(), System::getenv, System.getProperty("user.home").orEmpty())
 
         /** Pure, so each OS's answer is testable on any one OS. */
-        fun configDir(os: String, env: (String) -> String?, home: String): Path {
+        fun configDir(os: String, env: (String) -> String?, home: String): Path =
+            dir(os, env, home, windows = "Filet Desktop Network Tool Data", mac = "Filet Desktop Network Tool", other = "filet-desktop-network-tool")
+
+        /** Where the config lived while the tool was called Filet Desktop. Read once, never written. */
+        fun legacyDir(os: String, env: (String) -> String?, home: String): Path =
+            dir(os, env, home, windows = "Filet Desktop Data", mac = "Filet Desktop", other = "filet-desktop")
+
+        private fun dir(os: String, env: (String) -> String?, home: String, windows: String, mac: String, other: String): Path {
             val name = os.lowercase()
             return when {
                 name.startsWith("windows") ->
-                    Paths.get(env("LOCALAPPDATA")?.takeIf { it.isNotBlank() } ?: "$home/AppData/Local", "Filet Desktop Data")
+                    Paths.get(env("LOCALAPPDATA")?.takeIf { it.isNotBlank() } ?: "$home/AppData/Local", windows)
                 name.startsWith("mac") || name.contains("darwin") ->
-                    Paths.get(home, "Library", "Application Support", "Filet Desktop")
+                    Paths.get(home, "Library", "Application Support", mac)
                 else ->
-                    Paths.get(env("XDG_CONFIG_HOME")?.takeIf { it.isNotBlank() } ?: "$home/.config", "filet-desktop")
+                    Paths.get(env("XDG_CONFIG_HOME")?.takeIf { it.isNotBlank() } ?: "$home/.config", other)
             }
+        }
+
+        /**
+         * Copies the config from its old place to [file] when [file] has none and the old one
+         * exists. Returns whether it copied. The old file is never touched.
+         */
+        fun adopt(file: Path, legacy: Path?): Boolean {
+            if (legacy == null || Files.exists(file) || !Files.isRegularFile(legacy)) return false
+            return runCatching {
+                val dir = file.toAbsolutePath().parent
+                Files.createDirectories(dir)
+                val tmp = dir.resolve(file.fileName.toString() + ".part")
+                Files.copy(legacy, tmp, StandardCopyOption.REPLACE_EXISTING)
+                Files.move(tmp, file)
+                true
+            }.getOrDefault(false)
         }
     }
 }

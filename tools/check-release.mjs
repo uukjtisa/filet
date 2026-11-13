@@ -35,7 +35,7 @@
  * ## Two release lines in one repository
  *
  * The desktop companion tool ships from this repository under its own tags
- * (`filet-desktop-mount-tool-vX.Y.Z`) so neither product has to wait for the other. Every
+ * (`filet-desktop-network-tool-vX.Y.Z`) so neither product has to wait for the other. Every
  * question below is about the APP line, so the tool's releases are partitioned out before any
  * of them is asked - otherwise the first desktop release becomes "the newest release", fails
  * to match the app's version, and reports a regression that is not one.
@@ -59,12 +59,12 @@ const API = `https://api.github.com/repos/${OWNER}/${REPO}/releases?per_page=20`
 const TAGS = `https://api.github.com/repos/${OWNER}/${REPO}/tags?per_page=50`;
 
 /** The desktop companion's tag prefix. Mirrors `ReleaseTags.DESKTOP_PREFIX`. */
-export const DESKTOP_PREFIX = "filet-desktop-mount-tool-";
+export const DESKTOP_PREFIX = "filet-desktop-network-tool-";
 
 const APP_TAG = /^v?\d+\.\d+(\.\d+)?([-+].+)?$/;
 // A literal, not a template built from DESKTOP_PREFIX: inside a template literal `\d` is just
 // the letter d, which silently produced a pattern that matched no tag at all.
-const DESKTOP_TAG = /^filet-desktop-mount-tool-v?\d+\.\d+(\.\d+)?([-+].+)?$/;
+const DESKTOP_TAG = /^filet-desktop-network-tool-v?\d+\.\d+(\.\d+)?([-+].+)?$/;
 if (!DESKTOP_TAG.test(`${DESKTOP_PREFIX}v1.0.0`)) {
   throw new Error("DESKTOP_PREFIX and DESKTOP_TAG have drifted apart");
 }
@@ -305,14 +305,14 @@ if (process.argv.includes("--selftest")) {
     ...good,
     releases: [
       {
-        tag_name: "filet-desktop-mount-tool-v0.9.0",
+        tag_name: "filet-desktop-network-tool-v0.9.0",
         draft: false,
         prerelease: false,
-        assets: [{ name: "filet-desktop-mount-tool-0.9.0.jar", size: 18_000_000 }],
+        assets: [{ name: "filet-desktop-network-tool-0.9.0.jar", size: 18_000_000 }],
       },
       good.releases[0],
     ],
-    tags: ["v0.1.0", "filet-desktop-mount-tool-v0.9.0"],
+    tags: ["v0.1.0", "filet-desktop-network-tool-v0.9.0"],
   };
   const alongsideProblems = check(alongside);
   if (alongsideProblems.length) {

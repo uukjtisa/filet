@@ -175,4 +175,4 @@ copyright assignment. You keep the copyright on what you write; it is licensed t
 the same terms as the rest.
 
 The desktop companion tool in this repository ships under its own release tags
-(`filet-desktop-mount-tool-vX.Y.Z`) and the same licence.
+(`filet-desktop-network-tool-vX.Y.Z`) and the same licence.

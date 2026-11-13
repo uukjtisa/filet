@@ -6,18 +6,18 @@ package dev.niccc2007.filet.update
  * ## Why one repository has two release histories
  *
  * The app and the desktop companion tool live in the same repository and ship on different
- * schedules: a fix to the phone app has nothing to do with the desktop mount tool, and making
+ * schedules: a fix to the phone app has nothing to do with the desktop network tool, and making
  * one wait for the other would either hold up a fix or ship a version of the tool that changed
  * nothing. So the tags are shaped differently and a GitHub release list shows them as two
  * interleaved lines rather than one confused one:
  *
  *  - the app      `v0.1.11`
- *  - the tool     `filet-desktop-mount-tool-v0.1.0`
+ *  - the tool     `filet-desktop-network-tool-v0.1.0`
  *
  * ## The bug this exists to have already prevented
  *
  * The updater used to take the highest version across **every** release in the repository, and
- * [Version.parse] searches rather than matches - so `filet-desktop-mount-tool-v0.2.0` parses as
+ * [Version.parse] searches rather than matches - so `filet-desktop-network-tool-v0.2.0` parses as
  * 0.2.0, beats the app's 0.1.11, and wins. Everybody on the phone would then be offered an
  * update whose release carries a JAR and no APK, and told "that release has no APK attached".
  *
@@ -27,7 +27,7 @@ package dev.niccc2007.filet.update
 object ReleaseTags {
 
     /** The prefix the desktop tool's tags carry. */
-    const val DESKTOP_PREFIX = "filet-desktop-mount-tool-"
+    const val DESKTOP_PREFIX = "filet-desktop-network-tool-"
 
     /**
      * The app's own tags: a bare dotted version, optionally with a leading `v` and a
@@ -68,7 +68,7 @@ object ReleaseTags {
      *
      * Pure and here, rather than inline in the network call, so the rule that the desktop tool's
      * tags never reach the phone is a test and not a comment. Without the filter
-     * `filet-desktop-mount-tool-v0.2.0` parses as 0.2.0, wins, and the phone is offered a
+     * `filet-desktop-network-tool-v0.2.0` parses as 0.2.0, wins, and the phone is offered a
      * release with no APK in it.
      */
     fun newestApp(releases: List<Release>): Release? =

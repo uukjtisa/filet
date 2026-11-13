@@ -33,10 +33,10 @@ class UpdateGateTest {
         assertEquals(Gate.NOT_NEWER, gateOf(after(rel("v0.1.19"), "0.1.20")))
 
     @Test fun a_desktop_line_tag_is_never_offered_to_the_app() {
-        val picked = ReleaseTags.newestApp(listOf(rel("v0.1.19"), rel("filet-desktop-mount-tool-v0.2.0"), rel("v0.1.18")))
+        val picked = ReleaseTags.newestApp(listOf(rel("v0.1.19"), rel("filet-desktop-network-tool-v0.2.0"), rel("v0.1.18")))
         assertEquals("v0.1.19", picked?.tag)
-        assertNull(ReleaseTags.newestApp(listOf(rel("filet-desktop-mount-tool-v9.0.0"))))
-        assertEquals(Gate.NO_RELEASES, gateOf(after(ReleaseTags.newestApp(listOf(rel("filet-desktop-mount-tool-v9.0.0"))), "0.1.0")))
+        assertNull(ReleaseTags.newestApp(listOf(rel("filet-desktop-network-tool-v9.0.0"))))
+        assertEquals(Gate.NO_RELEASES, gateOf(after(ReleaseTags.newestApp(listOf(rel("filet-desktop-network-tool-v9.0.0"))), "0.1.0")))
     }
 
     @Test fun double_digit_patch_beats_single_digit() =

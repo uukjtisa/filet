@@ -32,6 +32,15 @@ import kotlin.system.exitProcess
  *    uses, driven from a terminal. Peer discovery hides this machine's own share from itself, so
  *    this is the way to prove mounting against a share served on the same PC.
  */
+/**
+ * Whether this launch starts sharing: when the last run was sharing and nobody pressed Stop, or
+ * when the updater reopens the app with `--share` after installing. Pure.
+ *
+ * Decision: resume rather than wait for Start. "Start with this computer" exists so a phone can
+ * reach the PC after a reboot, and a tool that opens at login with sharing off does not do that.
+ */
+internal fun sharesAtLaunch(args: Array<String>, wasSharing: Boolean): Boolean = wasSharing || "--share" in args
+
 fun main(args: Array<String>) {
     if ("--headless" in args) exitProcess(HostMain.run(args))
     mountCommand(args)?.let { exitProcess(it) }
@@ -43,8 +52,7 @@ fun main(args: Array<String>) {
     val mounter = Mounters.forThisOs()
     // An install that moved leaves a login entry pointing at the old path; point it here.
     runCatching { Autostart.repair() }
-    // Passed by the updater when it reopens the app after installing: sharing was on before.
-    if ("--share" in args) host.start()?.let { System.err.println(it) }
+    if (sharesAtLaunch(args, host.wasSharing)) host.start()?.let { System.err.println(it) }
 
     // The process outlives the window by the shutdown below, so the application must not end it.
     application(exitProcessOnExit = false) {
@@ -72,7 +80,7 @@ fun main(args: Array<String>) {
         Window(
             // The window goes at once. Stopping the server and the goodbyes happen after it, below.
             onCloseRequest = ::exitApplication,
-            title = "Filet Desktop",
+            title = "Filet Desktop Network Tool",
             // The phone's folder mark, so the window and the taskbar say Filet rather than Java.
             // Rasterised from desktop/icons/filet.svg by make_icons.py there.
             icon = androidx.compose.ui.res.painterResource("filet.png"),

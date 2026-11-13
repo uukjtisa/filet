@@ -18,9 +18,9 @@ class ReleaseTagsTest {
     @Test
     fun `the desktop tool's tags are a line of their own`() {
         for (tag in listOf(
-            "filet-desktop-mount-tool-v0.1.0",
-            "filet-desktop-mount-tool-v1.2.3",
-            "filet-desktop-mount-tool-v1.0.0-beta.1",
+            "filet-desktop-network-tool-v0.1.0",
+            "filet-desktop-network-tool-v1.2.3",
+            "filet-desktop-network-tool-v1.0.0-beta.1",
         )) {
             assertEquals(tag, ReleaseTags.Line.DESKTOP, ReleaseTags.lineOf(tag))
             assertFalse(tag, ReleaseTags.isApp(tag))
@@ -32,8 +32,8 @@ class ReleaseTagsTest {
         // The whole reason this file exists. Version.parse SEARCHES rather than matches, so the
         // version inside a desktop tag is a perfectly good 0.2.0 - higher than the app's 0.1.11,
         // and attached to a release with a JAR in it and no APK.
-        assertTrue(Version.parse("filet-desktop-mount-tool-v0.2.0") > Version.parse("v0.1.11"))
-        assertFalse(ReleaseTags.isApp("filet-desktop-mount-tool-v0.2.0"))
+        assertTrue(Version.parse("filet-desktop-network-tool-v0.2.0") > Version.parse("v0.1.11"))
+        assertFalse(ReleaseTags.isApp("filet-desktop-network-tool-v0.2.0"))
     }
 
     @Test
@@ -47,8 +47,8 @@ class ReleaseTagsTest {
 
     @Test
     fun `the desktop tag is built in one place`() {
-        assertEquals("filet-desktop-mount-tool-v0.1.0", ReleaseTags.desktopTag("0.1.0"))
-        assertEquals("filet-desktop-mount-tool-v0.1.0", ReleaseTags.desktopTag("v0.1.0"))
+        assertEquals("filet-desktop-network-tool-v0.1.0", ReleaseTags.desktopTag("0.1.0"))
+        assertEquals("filet-desktop-network-tool-v0.1.0", ReleaseTags.desktopTag("v0.1.0"))
         assertTrue(ReleaseTags.isDesktop(ReleaseTags.desktopTag("3.4.5")))
     }
 }

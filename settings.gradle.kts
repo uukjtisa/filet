@@ -38,7 +38,7 @@ include(":core-dav")
 include(":core-vfs")
 include(":core-index")
 include(":core-native")
-// The PC app. Compose Desktop, its own release line (`filet-desktop-mount-tool-vX.Y.Z`), and it
+// The PC app. Compose Desktop, its own release line (`filet-desktop-network-tool-vX.Y.Z`), and it
 // is not built by the Android tasks - `:desktop:run` and `:desktop:packageDistributionForCurrentOS`
 // are its own.
 include(":desktop")

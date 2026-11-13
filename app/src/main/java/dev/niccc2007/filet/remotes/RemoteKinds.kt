@@ -40,7 +40,7 @@ enum class RemoteKind(
         "A folder you shared from a Windows computer",
     ),
     FILET_DESKTOP(
-        "A computer running Filet Desktop",
+        "A computer running Filet Desktop Network Tool",
         "The Filet share tool, running on a PC or laptop",
     ),
     FILET_PHONE(
@@ -109,9 +109,9 @@ object RemoteKinds {
             hostHint = "192.168.1.5",
             middleLabel = "Share name",
             middleHint = "pc",
-            middleHelp = "Shown in the Filet Desktop window. Usually just `pc`.",
+            middleHelp = "Shown in the Filet Desktop Network Tool window. Usually just `pc`.",
             needsCredentials = true,
-            setupHint = "Start Filet Desktop on the computer. It prints its address, the " +
+            setupHint = "Start Filet Desktop Network Tool on the computer. It prints its address, the " +
                 "share name and the password.",
         )
 

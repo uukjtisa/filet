@@ -48,7 +48,7 @@ fun UpdateBar(updater: Updater, install: (Offer) -> Unit) {
     }
     when (val s = state) {
         is UpdateState.Available -> if (later != s.offer.version) Bar(Ink.accent) {
-            Txt("Filet Desktop ${s.offer.version} is out. This is ${Version.current}.", 13, Ink.text, bold = true, modifier = Modifier.weight(1f))
+            Txt("Filet Desktop Network Tool ${s.offer.version} is out. This is ${Version.current}.", 13, Ink.text, bold = true, modifier = Modifier.weight(1f))
             if (s.offer.page.isNotBlank()) Btn("What's new", kind = BtnKind.GHOST) { browse(s.offer.page) }
             Btn("Later", kind = BtnKind.GHOST) { later = s.offer.version }
             if (updater.canInstall) Btn("Update now", primary = true) { install(s.offer) }
@@ -75,7 +75,7 @@ fun UpdateBar(updater: Updater, install: (Offer) -> Unit) {
             Btn("OK", kind = BtnKind.GHOST) { updater.reset() }
         }
         UpdateState.Current -> Bar(Ink.line) {
-            Txt("Filet Desktop ${Version.current} is the newest.", 13, Ink.soft, modifier = Modifier.weight(1f))
+            Txt("Filet Desktop Network Tool ${Version.current} is the newest.", 13, Ink.soft, modifier = Modifier.weight(1f))
             Btn("OK", kind = BtnKind.GHOST) { updater.reset() }
         }
         else -> Unit
@@ -88,7 +88,7 @@ fun VersionChip(updater: Updater) {
     val state by updater.state.collectAsState()
     Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         val ready = (state as? UpdateState.Available)?.offer?.version
-        Txt(if (ready != null) "Filet Desktop ${Version.current} · $ready is out" else "Filet Desktop ${Version.current}", 11.5, if (ready != null) Ink.accent else Ink.muted)
+        Txt(if (ready != null) "Filet Desktop Network Tool ${Version.current} · $ready is out" else "Filet Desktop Network Tool ${Version.current}", 11.5, if (ready != null) Ink.accent else Ink.muted)
         val busy = state is UpdateState.Checking || state is UpdateState.Downloading || state is UpdateState.Installing
         Btn(if (state is UpdateState.Checking) "Checking..." else "Check for updates", enabled = !busy, kind = BtnKind.GHOST) { updater.check(manual = true) }
     }

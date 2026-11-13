@@ -10,15 +10,15 @@ import org.junit.Test
 
 /** What "Start with this computer" writes, and where, per OS. Never a service on any of them. */
 class AutostartTest {
-    private val win = "C:\\Program Files\\Filet Desktop\\Filet Desktop.exe"
+    private val win = "C:\\Users\\a\\AppData\\Local\\Filet Desktop Network Tool\\Filet Desktop Network Tool.exe"
 
     @Test
     fun `entry path per os`() {
-        assertEquals("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\Filet Desktop",
+        assertEquals("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\Filet Desktop Network Tool",
             Autostart.entryPath(Platform.WINDOWS, "C:\\Users\\a"))
-        assertEquals("/home/a/.config/autostart/filet-desktop.desktop", Autostart.entryPath(Platform.LINUX, "/home/a"))
-        assertEquals("/x/autostart/filet-desktop.desktop", Autostart.entryPath(Platform.LINUX, "/home/a", "/x"))
-        assertEquals("/home/a/.config/autostart/filet-desktop.desktop", Autostart.entryPath(Platform.LINUX, "/home/a", " "))
+        assertEquals("/home/a/.config/autostart/filet-desktop-network-tool.desktop", Autostart.entryPath(Platform.LINUX, "/home/a"))
+        assertEquals("/x/autostart/filet-desktop-network-tool.desktop", Autostart.entryPath(Platform.LINUX, "/home/a", "/x"))
+        assertEquals("/home/a/.config/autostart/filet-desktop-network-tool.desktop", Autostart.entryPath(Platform.LINUX, "/home/a", " "))
         assertEquals("/Users/a/Library/LaunchAgents/dev.niccc2007.filet.desktop.plist", Autostart.entryPath(Platform.MAC, "/Users/a"))
         assertNull(Autostart.entryPath(Platform.OTHER, "/"))
     }

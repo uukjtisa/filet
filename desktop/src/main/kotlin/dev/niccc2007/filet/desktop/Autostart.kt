@@ -14,7 +14,7 @@ import java.io.File
  * being shared and mount drives into a session nobody is in. What each OS gets:
  *
  *  - Windows: a value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
- *  - Linux: an XDG autostart entry, `~/.config/autostart/filet-desktop.desktop`. Not a systemd
+ *  - Linux: an XDG autostart entry, `~/.config/autostart/filet-desktop-network-tool.desktop`. Not a systemd
  *    user unit: those start before the graphical session exists, and a window needs one.
  *  - macOS: a LaunchAgent plist in `~/Library/LaunchAgents`, loaded by launchd at next login.
  *
@@ -22,9 +22,12 @@ import java.io.File
  * never show as on when nothing was written - or when the entry points at an older install.
  */
 object Autostart {
-    const val NAME = "Filet Desktop"
+    const val NAME = "Filet Desktop Network Tool"
+
+    /** The Run value, and the launcher's name, from when the tool was called Filet Desktop. */
+    const val OLD_NAME = "Filet Desktop"
     const val RUN_KEY = "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-    const val LINUX_FILE = "filet-desktop.desktop"
+    const val LINUX_FILE = "filet-desktop-network-tool.desktop"
     const val MAC_LABEL = "dev.niccc2007.filet.desktop"
     const val FLAG = "--minimized"
 
@@ -78,26 +81,35 @@ object Autostart {
         } == true
 
     /**
-     * Whether the Windows entry [existing] should be pointed at [exe]: it starts a Filet Desktop
-     * launcher that is no longer there. Pure.
+     * Whether the Windows entry [existing] should be pointed at [exe]: it starts this tool's
+     * launcher, under its name now or its old one, from a place it is no longer in. Pure.
      *
-     * The case it exists for: the install moved from Program Files to the user's profile, so
-     * updates need no administrator, and the old entry kept starting a path that was gone - at
-     * every login, silently. An entry for a launcher that still exists is another install's, and
-     * is left alone.
+     * The cases it exists for: the install moved from Program Files to the user's profile, so
+     * updates need no administrator, and then the tool was renamed, which moved it again. Each
+     * time the old entry kept starting a path that was gone - at every login, silently. An entry
+     * for a launcher that still exists is another install's, and is left alone.
      */
     fun stale(platform: Platform, existing: String?, exe: String, exists: (String) -> Boolean): Boolean {
         if (platform != Platform.WINDOWS) return false
         val e = existing?.trim() ?: return false
         if (matches(platform, e, exe)) return false
         val target = Regex("^\"([^\"]+)\"").find(e)?.groupValues?.get(1) ?: return false
-        return target.endsWith("\\$NAME.exe", ignoreCase = true) && !exists(target)
+        return listOf(NAME, OLD_NAME).any { target.endsWith("\\$it.exe", ignoreCase = true) } && !exists(target)
     }
 
-    /** Re-points a stale entry at this launcher; see [stale]. Called once at launch. */
+    /**
+     * Re-points a stale entry at this launcher; see [stale]. Called once at launch. A stale entry
+     * under the old name is replaced by one under the new name, so the setting carries over the
+     * rename instead of going quietly off.
+     */
     fun repair(platform: Platform = Platform.current) {
         val exe = launcher() ?: return
-        if (stale(platform, read(platform), exe) { File(it).exists() }) set(true, platform)
+        val exists = { p: String -> File(p).exists() }
+        if (platform == Platform.WINDOWS && stale(platform, readRun(OLD_NAME), exe, exists)) {
+            set(true, platform)
+            runCatching { Advapi32Util.registryDeleteValue(WinReg.HKEY_CURRENT_USER, RUN_KEY, OLD_NAME) }
+        }
+        if (stale(platform, read(platform), exe, exists)) set(true, platform)
     }
 
     /** Null when the checkbox can be used, or the reason it is disabled. */
@@ -137,12 +149,15 @@ object Autostart {
 
     private fun read(platform: Platform): String? = runCatching {
         when (platform) {
-            Platform.WINDOWS ->
-                if (Advapi32Util.registryValueExists(WinReg.HKEY_CURRENT_USER, RUN_KEY, NAME))
-                    Advapi32Util.registryGetStringValue(WinReg.HKEY_CURRENT_USER, RUN_KEY, NAME) else null
+            Platform.WINDOWS -> readRun(NAME)
             Platform.LINUX, Platform.MAC -> path(platform)?.let { File(it) }?.takeIf { it.isFile }?.readText()
             Platform.OTHER -> null
         }
+    }.getOrNull()
+
+    private fun readRun(name: String): String? = runCatching {
+        if (Advapi32Util.registryValueExists(WinReg.HKEY_CURRENT_USER, RUN_KEY, name))
+            Advapi32Util.registryGetStringValue(WinReg.HKEY_CURRENT_USER, RUN_KEY, name) else null
     }.getOrNull()
 
     private fun xml(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

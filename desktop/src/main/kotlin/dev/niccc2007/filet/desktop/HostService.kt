@@ -1,5 +1,5 @@
 /**
- * # The hosting half of Filet Desktop - wiring, not an implementation
+ * # The hosting half of Filet Desktop Network Tool - wiring, not an implementation
  *
  * This half offers folders from this PC to the network, so that Filet on a phone sees them
  * appear by themselves and mounts them like any other phone's share. It owns four things and
@@ -153,6 +153,9 @@ class HostService(
         get() = config.autostart
         set(value) = update(config.copy(autostart = value))
 
+    /** Whether sharing was on when the tool last ran; see [Config.sharing]. */
+    val wasSharing: Boolean get() = config.sharing
+
     /**
      * Tell the host which Filet peers are on the network, so it can pick the address that shares
      * their subnet. Wire it to `PeerWatch.peers`. Cheap to call often: it only re-reads the
@@ -303,23 +306,35 @@ class HostService(
         // Serving the folders that are there beats refusing them all because a USB drive is out.
         // The rest are reported, not silently dropped.
         _missing.value = config.shares - present.toSet()
+        if (!config.sharing) update(config.copy(sharing = true))
         return null
     }
 
+    /** Stop sharing because it was asked for: the next launch does not share either. */
     @Synchronized
     fun stop() {
+        halt()
+        if (config.sharing) update(config.copy(sharing = false))
+    }
+
+    /** Stop serving without changing what the next launch does. */
+    @Synchronized
+    private fun halt() {
         server.stop()
     }
 
-    /** Stop, and wait for the goodbye packets so phones drop the rows now rather than at TTL. */
+    /**
+     * Stop, and wait for the goodbye packets so phones drop the rows now rather than at TTL.
+     * Closing is not a choice to stop sharing, so the next launch still shares if this one did.
+     */
     fun close() {
-        stop()
+        halt()
         beacon?.withdrawAll()
     }
 
     private fun restartIfRunning() {
         if (!server.isRunning()) return
-        stop()
+        halt()
         start()
     }
 

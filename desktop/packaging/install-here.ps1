@@ -1,4 +1,4 @@
-# Installs a freshly built Filet Desktop MSI over the copy installed on this machine.
+# Installs a freshly built Filet Desktop Network Tool MSI over the copy installed on this machine.
 # Run by the Gradle task installHere after packageMsi / packageExe; see desktop/build.gradle.kts.
 #
 #  - Per user only. A copy installed for all users (Program Files) needs an administrator to
@@ -8,10 +8,14 @@
 #    had a listening port.
 #  - The installed copy is removed first, then the new one installed. A rebuild keeps its version
 #    number, and an MSI of an already installed version changes nothing.
+#  - The tool was called Filet Desktop before; a copy still running under that name is closed and
+#    reopened the same way, as the new one.
 param([Parameter(Mandatory = $true)][string]$Msi)
 $ErrorActionPreference = 'Stop'
 
 $Upgrade = '{8E3C4C2A-6A5E-4D13-9B0F-7A2D1C4E5F60}'   # windows.upgradeUuid in build.gradle.kts
+$Name = 'Filet Desktop Network Tool'                     # packageName in build.gradle.kts
+$OldName = 'Filet Desktop'
 $installer = New-Object -ComObject WindowsInstaller.Installer
 
 function Installed {
@@ -22,12 +26,12 @@ function Info($code, $name) { try { $installer.ProductInfo($code, $name) } catch
 
 foreach ($p in @(Installed)) {
     if ((Info $p 'AssignmentType') -eq '1') {
-        Write-Host "install-here: Filet Desktop is installed for all users ($p). Remove that copy once from Settings > Apps; it needs an administrator. Builds then install per user on their own. Nothing installed."
+        Write-Host "install-here: $Name is installed for all users ($p). Remove that copy once from Settings > Apps; it needs an administrator. Builds then install per user on their own. Nothing installed."
         exit 0
     }
 }
 
-$running = @(Get-Process -Name 'Filet Desktop' -ErrorAction SilentlyContinue)
+$running = @(Get-Process -Name $Name, $OldName -ErrorAction SilentlyContinue)
 $sharing = $false
 foreach ($r in $running) {
     if (Get-NetTCPConnection -State Listen -OwningProcess $r.Id -ErrorAction SilentlyContinue) { $sharing = $true }
@@ -43,16 +47,16 @@ foreach ($p in @(Installed)) {
     if ($x.ExitCode -notin 0, 3010, 1605) { throw "install-here: removing $p failed with $($x.ExitCode)" }
 }
 
-$log = Join-Path $env:TEMP 'filet-desktop-install-here.log'
+$log = Join-Path $env:TEMP 'filet-desktop-network-tool-install-here.log'
 $i = Start-Process msiexec.exe -ArgumentList "/i `"$Msi`" /qn /norestart /l*v `"$log`"" -Wait -PassThru
 if ($i.ExitCode -notin 0, 3010) { throw "install-here: installing failed with $($i.ExitCode). Log: $log" }
 
 $now = @(Installed) | Select-Object -First 1
 $version = Info $now 'VersionString'
 $dir = Info $now 'InstallLocation'
-if (-not $dir) { $dir = Join-Path $env:LOCALAPPDATA 'Filet Desktop' }
-$exe = Join-Path $dir 'Filet Desktop.exe'
-Write-Host "install-here: Filet Desktop $version installed at $dir"
+if (-not $dir) { $dir = Join-Path $env:LOCALAPPDATA $Name }
+$exe = Join-Path $dir "$Name.exe"
+Write-Host "install-here: $Name $version installed at $dir"
 
 if ($running.Count -gt 0 -and (Test-Path -LiteralPath $exe)) {
     if ($sharing) { Start-Process -FilePath $exe -ArgumentList '--share' } else { Start-Process -FilePath $exe }

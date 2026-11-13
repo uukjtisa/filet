@@ -87,7 +87,7 @@ class Updater(
                 runCatching {
                     val req = HttpRequest.newBuilder(URI(api)).timeout(Duration.ofSeconds(20))
                         .header("Accept", "application/vnd.github+json")
-                        .header("User-Agent", "Filet-Desktop/$current")
+                        .header("User-Agent", "Filet-Desktop-Network-Tool/$current")
                         .GET().build()
                     val res = http.send(req, HttpResponse.BodyHandlers.ofString())
                     if (res.statusCode() != 200) error("GitHub answered ${res.statusCode()}.")
@@ -129,7 +129,7 @@ class Updater(
     private fun download(offer: Offer, to: File) {
         val a = offer.installer
         val req = HttpRequest.newBuilder(URI(a.url)).timeout(Duration.ofMinutes(10))
-            .header("User-Agent", "Filet-Desktop/$current").GET().build()
+            .header("User-Agent", "Filet-Desktop-Network-Tool/$current").GET().build()
         val res = http.send(req, HttpResponse.BodyHandlers.ofInputStream())
         if (res.statusCode() != 200) error("The download answered ${res.statusCode()}.")
         val sha = MessageDigest.getInstance("SHA-256")
@@ -159,7 +159,7 @@ class Updater(
 
         /**
          * This JVM, and the launcher that started it. The installed app is two processes: the
-         * jpackage launcher, which holds `Filet Desktop.exe` open, and this JVM under it. The
+         * jpackage launcher, which holds `Filet Desktop Network Tool.exe` open, and this JVM under it. The
          * installer has to wait for both, or it finds the exe in use.
          */
         fun ownPids(launcher: String): List<Long> {
@@ -172,7 +172,7 @@ class Updater(
         const val LOG = "install.log"
 
         /** Where downloads, the helper's output and the installer's log go. */
-        fun workDir(): File = File(System.getProperty("java.io.tmpdir"), "filet-desktop-update")
+        fun workDir(): File = File(System.getProperty("java.io.tmpdir"), "filet-desktop-network-tool-update")
     }
 }
 

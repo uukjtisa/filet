@@ -41,7 +41,7 @@ object HostMain {
         }
         opt("--remove")?.let { host.removeShare(it) }
 
-        println("Filet Desktop - hosting, no window")
+        println("Filet Desktop Network Tool - hosting, no window")
         println("  config    ${host.configFile.toAbsolutePath()}")
         println("  password  ${host.password}")
         for (s in host.shares.value) {

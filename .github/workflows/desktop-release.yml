@@ -1,7 +1,7 @@
 # The desktop tool's installers, attached to its own releases.
 #
-# Filet Desktop updates itself from these: it reads releases tagged
-# filet-desktop-mount-tool-vX.Y.Z, takes the .msi, and checks it against the SHA-256 GitHub
+# Filet Desktop Network Tool updates itself from these: it reads releases tagged
+# filet-desktop-network-tool-vX.Y.Z, takes the .msi, and checks it against the SHA-256 GitHub
 # records for the upload before installing. So this job only builds and attaches; it never makes a
 # release or a tag. A release is published the repository's way (through the API, with tag_name,
 # and GitHub makes the tag), and that publish is what starts this.
@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'An existing desktop release tag to rebuild and re-attach, e.g. filet-desktop-mount-tool-v0.1.2'
+        description: 'An existing desktop release tag to rebuild and re-attach, e.g. filet-desktop-network-tool-v0.1.2'
         required: true
 
 concurrency:
@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   windows:
-    if: startsWith(github.event.release.tag_name || inputs.tag, 'filet-desktop-mount-tool-v')
+    if: startsWith(github.event.release.tag_name || inputs.tag, 'filet-desktop-network-tool-v')
     runs-on: windows-latest
     permissions:
       contents: write
@@ -53,7 +53,7 @@ jobs:
       - name: The tag names the version the build carries
         shell: pwsh
         run: |
-          $want = $env:TAG -replace '^filet-desktop-mount-tool-v', ''
+          $want = $env:TAG -replace '^filet-desktop-network-tool-v', ''
           $line = Select-String -Path desktop/build.gradle.kts -Pattern '^val toolVersion = "([^"]+)"' | Select-Object -First 1
           if (-not $line) { throw 'toolVersion not found in desktop/build.gradle.kts' }
           $have = $line.Matches[0].Groups[1].Value
@@ -68,9 +68,17 @@ jobs:
       - name: Installers
         run: ./gradlew --no-daemon -PnoInstall :desktop:packageMsi :desktop:packageExe
 
+      # Renamed on the way out: GitHub turns the spaces in jpackage's names into dots, and a
+      # download called "Filet.Desktop.Network.Tool-1.2.3.msi" reads as a mistake. The updater
+      # takes whichever asset ends in .msi, so the name is for people.
       - name: Attach to the release
         shell: pwsh
         run: |
-          $files = @(Get-ChildItem desktop/build/compose/binaries/main/msi/*.msi) + @(Get-ChildItem desktop/build/compose/binaries/main/exe/*.exe)
-          if ($files.Count -ne 2) { throw "expected one .msi and one .exe, found $($files.Count)" }
-          gh release upload $env:TAG @($files.FullName) --clobber
+          $v = $env:TAG -replace '^filet-desktop-network-tool-v', ''
+          $msi = @(Get-ChildItem desktop/build/compose/binaries/main/msi/*.msi)
+          $exe = @(Get-ChildItem desktop/build/compose/binaries/main/exe/*.exe)
+          if ($msi.Count -ne 1 -or $exe.Count -ne 1) { throw "expected one .msi and one .exe, found $($msi.Count) and $($exe.Count)" }
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item $msi[0].FullName "out/Filet-Desktop-Network-Tool-$v.msi"
+          Copy-Item $exe[0].FullName "out/Filet-Desktop-Network-Tool-$v-setup.exe"
+          gh release upload $env:TAG (Get-ChildItem out).FullName --clobber

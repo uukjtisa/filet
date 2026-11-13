@@ -127,13 +127,13 @@ for six of them would hold back a finished redesign for work that replaces nothi
 
 The desktop companion tool ships from this repository and **does not ride on the app's
 releases**. They are different products on different schedules: a fix to the phone app has
-nothing to do with the mount tool, and making one wait for the other either holds up a fix or
+nothing to do with the network tool, and making one wait for the other either holds up a fix or
 publishes a version of the tool in which nothing changed.
 
 | Line | Tag | Carries |
 |---|---|---|
 | The Android app | `v0.1.11` | `filet-<version>.apk` |
-| The desktop tool | `filet-desktop-mount-tool-v0.1.0` | the Kotlin/JVM build, which runs wherever a JVM does |
+| The desktop tool | `filet-desktop-network-tool-v0.1.0` | the Kotlin/JVM build, which runs wherever a JVM does |
 
 A GitHub release list sorts by date, so the two appear interleaved and each is obviously
 labelled by its own tag. Neither buries the other, and `Releases ▸ latest` still resolves to

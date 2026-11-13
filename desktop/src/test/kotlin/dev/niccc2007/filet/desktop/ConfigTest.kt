@@ -21,6 +21,7 @@ class ConfigTest {
             port = 9000,
             autostart = true,
             deviceId = "dev-1",
+            sharing = true,
         )
         val back = ConfigCodec.decode(ConfigCodec.encode(c)) { fixed }
         assertEquals(c, back.config)
@@ -96,15 +97,46 @@ class ConfigTest {
     @Test fun `config location per OS`() {
         val env = mapOf("LOCALAPPDATA" to "C:/Users/u/AppData/Local", "XDG_CONFIG_HOME" to "/x/cfg")
         assertEquals(
-            Paths.get("C:/Users/u/AppData/Local", "Filet Desktop Data"),
+            Paths.get("C:/Users/u/AppData/Local", "Filet Desktop Network Tool Data"),
             ConfigStore.configDir("Windows 11", env::get, "C:/Users/u"),
         )
         assertEquals(
-            Paths.get("/Users/u", "Library", "Application Support", "Filet Desktop"),
+            Paths.get("/Users/u", "Library", "Application Support", "Filet Desktop Network Tool"),
             ConfigStore.configDir("Mac OS X", env::get, "/Users/u"),
         )
-        assertEquals(Paths.get("/x/cfg", "filet-desktop"), ConfigStore.configDir("Linux", env::get, "/home/u"))
-        assertEquals(Paths.get("/home/u/.config", "filet-desktop"), ConfigStore.configDir("Linux", { null }, "/home/u"))
+        assertEquals(Paths.get("/x/cfg", "filet-desktop-network-tool"), ConfigStore.configDir("Linux", env::get, "/home/u"))
+        assertEquals(Paths.get("/home/u/.config", "filet-desktop-network-tool"), ConfigStore.configDir("Linux", { null }, "/home/u"))
+        // Where the tool kept it under its old name, read once to carry the config across.
+        assertEquals(Paths.get("C:/Users/u/AppData/Local", "Filet Desktop Data"), ConfigStore.legacyDir("Windows 11", env::get, "C:/Users/u"))
+        assertEquals(Paths.get("/x/cfg", "filet-desktop"), ConfigStore.legacyDir("Linux", env::get, "/home/u"))
+    }
+
+    @Test fun `a config under the old name is copied across once and the old one is left as it was`() {
+        val root = Files.createTempDirectory("filet-cfg-move")
+        val old = root.resolve("Filet Desktop Data").resolve("config.json")
+        Files.createDirectories(old.parent)
+        val c = fixed.copy(shares = listOf(Share("C:\\", "C", true, "c")), port = 8322)
+        Files.writeString(old, ConfigCodec.encode(c))
+        val before = Files.readAllBytes(old)
+
+        val store = ConfigStore(root.resolve("Filet Desktop Network Tool Data").resolve("config.json"), old)
+        assertEquals(c, store.load())
+        assertTrue(Files.exists(store.file))
+        assertTrue(before.contentEquals(Files.readAllBytes(old)))
+        assertFalse(Files.exists(store.file.resolveSibling("config.json.part")))
+
+        // From then on the new one is the config: a change there is not undone by the old copy.
+        store.save(c.copy(port = 9100))
+        assertEquals(9100, store.load().port)
+        assertFalse(ConfigStore.adopt(store.file, old))
+    }
+
+    @Test fun `with no old config nothing is made up`() {
+        val root = Files.createTempDirectory("filet-cfg-none")
+        val file = root.resolve("new").resolve("config.json")
+        assertFalse(ConfigStore.adopt(file, root.resolve("old").resolve("config.json")))
+        assertFalse(ConfigStore.adopt(file, null))
+        assertFalse(Files.exists(file))
     }
 
     @Test fun `save then load on disk preserves everything and leaves no temp file`() {

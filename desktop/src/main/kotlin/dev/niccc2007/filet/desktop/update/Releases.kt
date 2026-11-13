@@ -19,7 +19,7 @@ data class Asset(val name: String, val url: String, val size: Long, val sha256: 
 /**
  * Which GitHub release, if any, this copy should update to. Pure, so every rule is tested.
  *
- * Only the desktop tool's own line counts: tags shaped `filet-desktop-mount-tool-v1.2.3`, the
+ * Only the desktop tool's own line counts: tags shaped `filet-desktop-network-tool-v1.2.3`, the
  * shape `docs/RELEASES.md` sets and the phone's `ReleaseTags` keeps out of the app's updater. The
  * same repository carries the app's `v0.1.11` tags, and a bare version search would offer a phone
  * release here. Anchored at both ends for the same reason the phone's is: the prefix is the only
@@ -33,7 +33,7 @@ data class Asset(val name: String, val url: String, val size: Long, val sha256: 
  */
 object Releases {
 
-    const val PREFIX = "filet-desktop-mount-tool-"
+    const val PREFIX = "filet-desktop-network-tool-"
 
     private val TAG = Regex("""^${Regex.escape(PREFIX)}v?(\d+(?:\.\d+){1,2})$""")
     private val PLAIN = Regex("""^v?(\d+(?:\.\d+){1,2})$""")
