@@ -160,7 +160,8 @@ fun CatalogueRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(11.dp),
     ) {
-        if (art != null && artDrawable(art) != null) ArtTile(art) else GlyphTile(icon)
+        val plain = dev.niccc2007.filet.icons.LocalIconStyle.current == dev.niccc2007.filet.icons.IconStyle.PLAIN
+        if (!plain && art != null && artDrawable(art) != null) ArtTile(art) else GlyphTile(icon)
         Column(Modifier.weight(1f)) {
             dev.niccc2007.filet.browser.ListNameText(
                 text = dev.niccc2007.filet.ui.highlighted(label, dev.niccc2007.filet.ui.LocalPaneQuery.current, colors.accent),

@@ -47,16 +47,16 @@ import kotlinx.coroutines.delay
 fun FileThumb(
     node: VNode,
     size: Dp,
-    /** The tint the old glyphs were drawn in. Unused for the same reason as [glyphSize]. */
-    @Suppress("UNUSED_PARAMETER") fallbackTint: Color,
+    /** The tint the plain icons are drawn in; the drawn art brings its own colours. */
+    fallbackTint: Color,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     /**
-     * How big the glyph was when there was no preview. Unused since a file with no preview is
-     * drawn as its type at the slot's size, which already has the room around it a smaller
-     * glyph used to give; kept so the callers that pass it need no change.
+     * How big a plain icon's glyph is when there is no preview. The drawn art ignores it: a file
+     * with no preview is drawn as its type at the slot's size, which already has the room around
+     * it a smaller glyph gives.
      */
-    @Suppress("UNUSED_PARAMETER") glyphSize: Dp? = null,
+    glyphSize: Dp? = null,
 ) {
     // Marked here rather than at the call sites, the same argument the folder icon makes a few
     // lines down: a pick can be answered from the folder list, search results, Home, a
@@ -72,12 +72,12 @@ fun FileThumb(
         // No size on the Box, so it takes the thumbnail's own and the layout is byte-for-byte
         // what it was unchosen. The tick is held under half the slot for the same reason.
         Box(contentAlignment = Alignment.BottomEnd) {
-            Thumb(node, size, modifier, enabled)
+            Thumb(node, size, modifier, enabled, fallbackTint, glyphSize ?: size)
             ChosenTick((size * 0.5f).coerceIn(14.dp, 22.dp).coerceAtMost(size * 0.6f))
         }
         return
     }
-    Thumb(node, size, modifier, enabled)
+    Thumb(node, size, modifier, enabled, fallbackTint, glyphSize ?: size)
 }
 
 /**
@@ -119,12 +119,20 @@ private fun Thumb(
     size: Dp,
     modifier: Modifier,
     enabled: Boolean,
+    tint: Color,
+    glyph: Dp,
 ) {
+    // The plainer icons, where the place being drawn asked for them. See IconStyle.
+    val plain = dev.niccc2007.filet.icons.LocalIconStyle.current == dev.niccc2007.filet.icons.IconStyle.PLAIN
     val previewable = enabled && !node.isDir && Thumbnails.canPreview(node.extension)
 
     // A folder is drawn rather than lettered, and it carries what is inside it. Here rather
     // than at the call sites so every list, tile, feed row and picker gets it at once - there
     // are nine of them and a tenth would have been forgotten.
+    if (node.isDir && plain) {
+        ClassicFolderIcon(node, size, tint, modifier, previews = enabled)
+        return
+    }
     if (node.isDir) {
         FolderIcon(
             node = node,
@@ -143,7 +151,7 @@ private fun Thumb(
     }
 
     if (!previewable) {
-        Fallback(node, size, modifier)
+        Fallback(node, size, modifier, plain, tint, glyph)
         return
     }
 
@@ -185,7 +193,7 @@ private fun Thumb(
 
     val image = bitmap
     if (image == null) {
-        Fallback(node, size, modifier)
+        Fallback(node, size, modifier, plain, tint, glyph)
     } else {
         Box(
             modifier
@@ -218,7 +226,15 @@ private fun Fallback(
     node: VNode,
     size: Dp,
     modifier: Modifier = Modifier,
+    plain: Boolean = false,
+    tint: Color = Color.Unspecified,
+    glyph: Dp = size,
 ) {
+    if (plain) {
+        // Centred in the slot, as the plain glyph always sat.
+        Box(modifier.size(size), contentAlignment = Alignment.Center) { ClassicFileGlyph(node, glyph, tint) }
+        return
+    }
     androidx.compose.foundation.Canvas(modifier.size(size)) { drawTypeIcon(node.extension) }
 }
 

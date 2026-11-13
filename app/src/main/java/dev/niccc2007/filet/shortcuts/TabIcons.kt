@@ -83,6 +83,11 @@ fun ArtTile(art: String, side: Dp = 30.dp) = TabArt(art, side)
  */
 @Composable
 fun RecordTile(record: ShortcutRecord) {
+    // The plainer icons, where the Shortcuts tab asked for them. See IconStyle.
+    if (dev.niccc2007.filet.icons.LocalIconStyle.current == dev.niccc2007.filet.icons.IconStyle.PLAIN) {
+        GlyphTile(recordGlyph(record))
+        return
+    }
     recordArt(record)?.let { ArtTile(it); return }
     val path = runCatching { VPath.parse(record.target) }.getOrNull()
     if (record.dir == true && path != null) {

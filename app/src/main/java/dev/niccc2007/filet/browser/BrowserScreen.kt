@@ -747,6 +747,8 @@ private val DRIVE_TOP = Regex("""^/storage/(emulated/\d+|(?!self/?$|emulated/?$)
  */
 @Composable
 private fun chipArt(s: PaneState): (@Composable (androidx.compose.ui.unit.Dp) -> Unit)? {
+    // Null is the line glyph: what a chip wears where the tabs asked for the plainer icons.
+    if (dev.niccc2007.filet.icons.LocalIconStyles.current.tabs == dev.niccc2007.filet.icons.IconStyle.PLAIN) return null
     val tab = dev.niccc2007.filet.shortcuts.tabOfPane(s.kind, s.category)
     if (tab != null) return { d -> dev.niccc2007.filet.shortcuts.TabArt(tab.art, d) }
     val cwd = s.cwd
