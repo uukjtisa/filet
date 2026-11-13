@@ -67,10 +67,10 @@ fun BookmarksBody(vm: BrowserViewModel, pane: PaneController) {
     menuFor?.let { b -> BookmarkMenu(vm, b) { menuFor = null } }
     // Each bookmark as it is on disk now, for its icon: a folder's peek is kept by its mtime, so
     // a made-up one would draw the folder as it first looked for as long as Filet runs. Read off
-    // the main thread, one at a time, since a bookmark can be on a network share.
+    // the main thread. Local ones only: a share is never dialled just to draw a row.
     val onDisk by androidx.compose.runtime.produceState(emptyMap<dev.niccc2007.filet.vfs.VPath, dev.niccc2007.filet.vfs.VNode>(), all) {
         for (b in all) {
-            if (b.isDir == null) continue
+            if (b.isDir == null || vm.vfs.isRemote(b.path)) continue
             val n = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { vm.vfs.stat(b.path) }.getOrNull() }
             if (n != null) value = value + (b.path to n)
         }
@@ -100,9 +100,11 @@ fun BookmarksBody(vm: BrowserViewModel, pane: PaneController) {
                 sub = b.path.path,
                 accent = b.isDir == true,
                 // Drawn as the file list draws it: the folder with what is in it and the look
-                // chosen for it, or the file's picture or type. The glyph above is only for a
-                // bookmark nobody recorded the kind of.
-                thumbOf = b.isDir?.let { dir -> onDisk[b.path] ?: dev.niccc2007.filet.vfs.VNode(b.path, isDir = dir, size = -1, mtime = 0) },
+                // chosen for it, or the file's picture or type. The glyph above is for a bookmark
+                // nobody recorded the kind of, and for one on a share: drawing a folder looks
+                // inside it, and a row is no reason to connect to a server.
+                thumbOf = if (b.isDir == null || vm.vfs.isRemote(b.path)) null
+                else onDisk[b.path] ?: dev.niccc2007.filet.vfs.VNode(b.path, isDir = b.isDir, size = -1, mtime = 0),
                 onClick = { vm.openPlace(b.path, b.isDir, pane) },
                 onLongClick = { menuFor = b },
                 trailing = if (b.quickAt > 0) {
@@ -190,8 +192,10 @@ fun RecentBody(vm: BrowserViewModel, pane: PaneController) {
                     name = r.label.ifEmpty { r.path.name },
                     sub = r.path.parent?.path ?: r.path.path,
                     accent = r.isDir,
-                    thumbOf = if (r.isDir) null
-                    else dev.niccc2007.filet.vfs.VNode(r.path, isDir = false, size = -1, mtime = r.at),
+                    // A folder drawn as a folder, as the Bookmarks list above draws one; not one on
+                    // a share, since drawing a folder looks inside it.
+                    thumbOf = if (r.isDir && vm.vfs.isRemote(r.path)) null
+                    else dev.niccc2007.filet.vfs.VNode(r.path, isDir = r.isDir, size = -1, mtime = r.at),
                     onClick = {
                         if (r.isDir) pane.jumpTo(r.path)
                         else vm.openNode(

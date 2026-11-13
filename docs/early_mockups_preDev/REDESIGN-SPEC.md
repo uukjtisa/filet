@@ -19,7 +19,7 @@ that surface which is easiest to lose on the way across.
 | **Nearby tab** | `app/src/main/java/dev/niccc2007/filet/nearby/NearbyScreen.kt:104` | `TABS3.nearby` | N59 | The QR, the URL and the code are one card. Running state is a dot, not a word. |
 | **Scripts tab** | `app/src/main/java/dev/niccc2007/filet/script/ScriptsScreen.kt:66` | `TABS3.scripts` | N59 | Each script shows a snippet. A name alone says nothing about what a script does. |
 | **Bookmarks tab** | `app/src/main/java/dev/niccc2007/filet/browser/Places.kt:61` | `TABS3.bookmarks` | N59 | A bookmark can point at a file, so the icon is the file kind and not always a star. |
-| **Recent tab** | `app/src/main/java/dev/niccc2007/filet/browser/Places.kt:152` | `TABS3.recent` | N59 | Grouped by day. Long press removes one entry - it used to do nothing. |
+| **Recent tab** | `app/src/main/java/dev/niccc2007/filet/browser/Places.kt:154` | `TABS3.recent` | N59 | Grouped by day. Long press removes one entry - it used to do nothing. |
 | **Shortcuts tab** | `app/src/main/java/dev/niccc2007/filet/shortcuts/ShortcutsScreen.kt:45` | `TABS3.shortcuts` | N59 | Shows shortcuts the system has dropped, which is the only place they can be cleaned up. |
 | **Remotes tab** | `app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt:81` | `TABS3.remotes` | N59 | An unreachable remote is shown as unreachable and never waited for. |
 | **Activity tab** | `app/src/main/java/dev/niccc2007/filet/jobs/ActivitySheet.kt:112` | `TABS3.activity` | N59 | Running above finished. The index job names the folder it is reading. |
@@ -28,7 +28,7 @@ that surface which is easiest to lose on the way across.
 | **File row** | `app/src/main/java/dev/niccc2007/filet/browser/ClipTraySheet.kt:596` | `rowsHTML3` | N55 | No date column. Files show bytes, folders show item count. Tabular figures, not a code font. |
 | **Search result row** | `app/src/main/java/dev/niccc2007/filet/browser/RowViews.kt:797` | `SearchResultRow` | N79 | Carries Available or Confirming while a pass runs, and nothing between passes. |
 | **Scope chips** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:670` | `.scopes` | N71 | Native search is dimmed and unpressable where the index never answers the scope anyway. |
-| **Bottom bar** | `app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt:1506` | `.foot` | N46 | One bar plus a More button. The setting that chose between bar and menu is deleted. |
+| **Bottom bar** | `app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt:1520` | `.foot` | N46 | One bar plus a More button. The setting that chose between bar and menu is deleted. |
 | **Context menu** | `app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt:58` | `DIALOGS.context` | N67 | Keeps the icon button row across the top. The app already splits these - see splitForContextMenu - and the first redesign dropped the row, then put back the wrong five. Delete lives in the row, so it is NOT repeated as a list entry. |
 | **Context menu quick row** | `app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt:176` | `.ctxbar` | N67 | Which actions get an icon button and which go in the list. Already a pure function - QUICK_IDS is copy, move, rename, send, delete. RELABEL ONLY: move is shown as Cut with scissors. The id stays move; do not add a second action. |
 | **Actions popup** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:1968` | `actionsHTML` | N54 | Same icon row, then grouped entries, destructive last and separated. |

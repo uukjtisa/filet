@@ -716,57 +716,20 @@ fun SettingsPage(vm: BrowserViewModel) {
                     "${bar.size} on the bar",
             )
         }
-        // Two lists, in the bar's OWN order, rather than one list of switches in the order
-        // the enum happens to declare.
+        // The bar itself, rearranged by dragging along it; the list of what is on it with a grip,
+        // its position and a remove; then everything else, in the side bar's groups. See BarPicker.
         //
-        // The order used to be whatever order things were ticked in, which is an order
-        // nobody chose: adding one put it at the end whatever it was for, and moving it
-        // meant unticking everything after it and ticking them back. A row of toggles also
-        // could not show the order at all - it said "position 3" in a sentence, under a list
-        // sorted some other way, which is the longest possible way to describe a sequence.
+        // The order used to be whatever order things were ticked in, which is an order nobody
+        // chose: adding one put it at the end whatever it was for, and moving it meant unticking
+        // everything after it and ticking them back.
         anchor(Prefs.K_BOTTOM_BAR)
         item {
             val bar = dev.niccc2007.filet.browser.BottomBarConfig.normalise(storedBar)
-            fun write(items: List<dev.niccc2007.filet.browser.BarItem>) =
-                prefs.setBottomBar(dev.niccc2007.filet.browser.BottomBarConfig.encode(items))
-            Column {
-                for ((i, item) in bar.withIndex()) {
-                    BarRow(
-                        label = item.label,
-                        detail = "Position ${i + 1}",
-                        onUp = if (i > 0) ({
-                            write(dev.niccc2007.filet.browser.BottomBarConfig.moved(bar, i, i - 1))
-                        }) else null,
-                        onDown = if (i < bar.size - 1) ({
-                            write(dev.niccc2007.filet.browser.BottomBarConfig.moved(bar, i, i + 1))
-                        }) else null,
-                        // The last one cannot be taken off. An empty bar is not a
-                        // configuration, it is a screen with no way back to this one.
-                        onRemove = if (bar.size > 1) ({
-                            write(dev.niccc2007.filet.browser.BottomBarConfig.toggled(bar, item))
-                        }) else null,
-                    )
-                }
-                val off = dev.niccc2007.filet.browser.BarItem.entries.filterNot { it in bar }
-                if (off.isNotEmpty()) {
-                    Text(
-                        "Not on the bar",
-                        fontSize = 9.sp,
-                        letterSpacing = 1.3.sp,
-                        color = Filet.colors.fg3,
-                        modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 4.dp),
-                    )
-                    for (item in off) {
-                        BarRow(
-                            label = item.label,
-                            detail = null,
-                            hint = "Adds it to the end of the bar.",
-                            key = Prefs.K_BOTTOM_BAR,
-                            onAdd = {
-                                write(dev.niccc2007.filet.browser.BottomBarConfig.toggled(bar, item))
-                            },
-                        )
-                    }
+            // No hint text: a hint opens on a hold, and a hold here lifts a bar entry to drag it.
+            // The key still marks it for Settings search and its highlight.
+            HoldHint(null, key = Prefs.K_BOTTOM_BAR) {
+                dev.niccc2007.filet.browser.BarPicker(bar) { items ->
+                    prefs.setBottomBar(dev.niccc2007.filet.browser.BottomBarConfig.encode(items))
                 }
             }
         }

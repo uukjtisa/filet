@@ -195,7 +195,7 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
         title = "Bottom bar",
         tab = SettingsGroup.CONTROLS,
         section = "Bottom bar",
-        text = "Adds it to the end of the bar.",
+        text = "",
     ),
     SettingsEntry(
         key = Prefs.K_SELECTION_BAR,

@@ -503,6 +503,9 @@ private fun TabStripContent(
     var dragging by remember { mutableStateOf(-1) }
     var dragX by remember { mutableFloatStateOf(0f) }
     val target = if (dragging < 0) -1 else dragTarget(dragging, dragX, (0 until tabs.size).map { centres[it] ?: 0f })
+    // Held against either end, the strip brings the tabs past it, and the held tab stays under the
+    // finger while it does: a long strip is rearranged end to end in one drag.
+    EdgeAutoScroll(active = dragging >= 0, scroll = scroll, heldAt = { dragX }, moved = { dragX += it })
     // True for the frame a drop is committed. See `settle` below.
     var landing by remember { mutableStateOf(false) }
     LaunchedEffect(landing) {
@@ -1404,8 +1407,12 @@ private fun pinFromBar(item: BarItem, vm: BrowserViewModel): (() -> Unit)? = whe
     else -> null
 }
 
+/**
+ * One entry on the bottom bar. Internal so the bar picker in Settings draws the real thing rather
+ * than a likeness of it.
+ */
 @Composable
-private fun NavItem(
+internal fun NavItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     badge: Int = 0,
@@ -1422,7 +1429,10 @@ private fun NavItem(
     ring: Float? = null,
     /** A hold: offers the entry as a home-screen icon. Null for an entry that has none. */
     onLongClick: (() -> Unit)? = null,
-    onClick: () -> Unit,
+    /** Handling inside the entry, after its tap: the bar picker's hold-and-drag. */
+    gesture: Modifier = Modifier,
+    /** Null where a tap does nothing, as in the bar picker's preview, so there is no ripple to promise it does. */
+    onClick: (() -> Unit)?,
 ) {
     val colors = Filet.colors
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -1440,15 +1450,19 @@ private fun NavItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .clip(RoundedCornerShape(9.dp))
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick?.let { hold ->
-                    {
-                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                        hold()
-                    }
-                },
+            .then(
+                if (onClick == null) Modifier
+                else Modifier.combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick?.let { hold ->
+                        {
+                            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            hold()
+                        }
+                    },
+                )
             )
+            .then(gesture)
             .padding(horizontal = 14.dp, vertical = if (compact) 7.dp else 4.dp),
     ) {
         Box {
