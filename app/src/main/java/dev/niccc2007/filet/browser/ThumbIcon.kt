@@ -24,10 +24,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.FiletApp
 import dev.niccc2007.filet.media.Thumbnails
 import dev.niccc2007.filet.ui.theme.Filet
+import dev.niccc2007.filet.icons.drawTypeIcon
 import dev.niccc2007.filet.vfs.VNode
 import kotlinx.coroutines.delay
 
@@ -47,18 +47,16 @@ import kotlinx.coroutines.delay
 fun FileThumb(
     node: VNode,
     size: Dp,
-    fallbackTint: Color,
+    /** The tint the old glyphs were drawn in. Unused for the same reason as [glyphSize]. */
+    @Suppress("UNUSED_PARAMETER") fallbackTint: Color,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     /**
-     * How big the glyph is when there is no preview.
-     *
-     * A thumbnail fills its slot; a glyph in the same slot at the same size is a huge icon. In
-     * the redesigned rows the slot is a 30dp tinted square holding a 15dp glyph, so the two
-     * sizes genuinely differ and one parameter cannot describe both. Null keeps them equal,
-     * which is what every existing caller wants.
+     * How big the glyph was when there was no preview. Unused since a file with no preview is
+     * drawn as its type at the slot's size, which already has the room around it a smaller
+     * glyph used to give; kept so the callers that pass it need no change.
      */
-    glyphSize: Dp? = null,
+    @Suppress("UNUSED_PARAMETER") glyphSize: Dp? = null,
 ) {
     // Marked here rather than at the call sites, the same argument the folder icon makes a few
     // lines down: a pick can be answered from the folder list, search results, Home, a
@@ -74,12 +72,12 @@ fun FileThumb(
         // No size on the Box, so it takes the thumbnail's own and the layout is byte-for-byte
         // what it was unchosen. The tick is held under half the slot for the same reason.
         Box(contentAlignment = Alignment.BottomEnd) {
-            Thumb(node, size, fallbackTint, modifier, enabled, glyphSize)
+            Thumb(node, size, modifier, enabled)
             ChosenTick((size * 0.5f).coerceIn(14.dp, 22.dp).coerceAtMost(size * 0.6f))
         }
         return
     }
-    Thumb(node, size, fallbackTint, modifier, enabled, glyphSize)
+    Thumb(node, size, modifier, enabled)
 }
 
 /**
@@ -119,14 +117,10 @@ private fun ChosenTick(side: Dp) {
 private fun Thumb(
     node: VNode,
     size: Dp,
-    fallbackTint: Color,
     modifier: Modifier,
     enabled: Boolean,
-    glyphSize: Dp?,
 ) {
-    val kind = FileKind.of(node)
     val previewable = enabled && !node.isDir && Thumbnails.canPreview(node.extension)
-    val glyph = glyphSize ?: size
 
     // A folder is drawn rather than lettered, and it carries what is inside it. Here rather
     // than at the call sites so every list, tile, feed row and picker gets it at once - there
@@ -142,7 +136,6 @@ private fun Thumb(
             // every picture beside it AND under the threshold where previews are worth
             // drawing, so a folder of three hundred photographs showed none of them.
             size = size,
-            tint = fallbackTint,
             modifier = modifier,
             previews = enabled,
         )
@@ -150,7 +143,7 @@ private fun Thumb(
     }
 
     if (!previewable) {
-        Fallback(node, kind, glyph, fallbackTint, modifier)
+        Fallback(node, size, modifier)
         return
     }
 
@@ -192,7 +185,7 @@ private fun Thumb(
 
     val image = bitmap
     if (image == null) {
-        Fallback(node, kind, glyph, fallbackTint, modifier)
+        Fallback(node, size, modifier)
     } else {
         Box(
             modifier
@@ -212,41 +205,21 @@ private fun Thumb(
 }
 
 /**
- * What fills the slot when there is no picture: the kind's glyph, or the extension when the kind
- * has no glyph of its own.
+ * What fills the slot when there is no picture: the file's type, drawn as a page with the type's
+ * glyph in its colour and a tag naming the extension. See `icons/TypeArt.kt`.
  *
- * Only for [FileKind.OTHER]. Every other kind already has a drawing that says more at this size
- * than three letters would - see [Monogram] for the whole argument, including why an extension
- * too long to fit gets nothing rather than getting cut.
- *
- * The one piece of layout worth noting: the token is drawn at [Monogram]'s size scaled to the
- * slot, so a 15dp glyph slot and a 44dp header thumbnail both hold readable text rather than one
- * of them holding a smudge.
+ * It fills the SLOT, as a folder does, not the glyph size: it is an object with room around it
+ * in its own drawing, so at the slot size the page comes out about as wide as the old glyph was.
+ * It is also what shows while a picture is still decoding, so a photo arrives over a page of the
+ * picture family rather than over nothing.
  */
 @Composable
 private fun Fallback(
     node: VNode,
-    kind: FileKind,
-    glyph: Dp,
-    tint: Color,
+    size: Dp,
     modifier: Modifier = Modifier,
 ) {
-    val token = if (kind == FileKind.OTHER && !node.isDir) Monogram.of(node.extension) else null
-    if (token == null) {
-        Icon(kind.icon, null, tint = tint, modifier = modifier.size(glyph))
-        return
-    }
-    Box(modifier.size(glyph), contentAlignment = Alignment.Center) {
-        androidx.compose.material3.Text(
-            token,
-            // 30dp is the size the sp figures were chosen against, so a bigger slot scales up.
-            fontSize = (Monogram.sizeSp(token) * (glyph.value / 30f).coerceIn(0.8f, 2.2f)).sp,
-            color = tint,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-            letterSpacing = (-0.2).sp,
-            maxLines = 1,
-        )
-    }
+    androidx.compose.foundation.Canvas(modifier.size(size)) { drawTypeIcon(node.extension) }
 }
 
 /**

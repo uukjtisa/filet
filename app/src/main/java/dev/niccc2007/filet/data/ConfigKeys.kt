@@ -115,6 +115,7 @@ object ConfigKeys {
         look("drawer.places", ConfigType.BOOL),
         look("drawer.tools", ConfigType.BOOL),
         look("drives.names", ConfigType.JSON),
+        look("folder.styles.v1", ConfigType.JSON),
         look("details.memory", ConfigType.BOOL),
 
         // ── sorting and behaviour ──
@@ -245,6 +246,7 @@ object ConfigKeys {
         "playlists.v1" to "kept in playlists.json, a file of its own",
         "shortcuts.reports.v1" to "whether this phone's launcher reports what is on its home screen",
         "shortcuts.folds.v1" to "which lists on this phone's Shortcuts tab are folded",
+        "folder.styles.phone" to "marks which install made the file ids kept with chosen folder icons",
     )
 
     private val byKey: Map<String, ConfigKey> = ALL.associateBy { it.key }

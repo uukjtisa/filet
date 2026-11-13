@@ -31,6 +31,9 @@ const val ANY_API = 0
  * @param compressed already within a percent of its entropy, so a zip stores it rather than
  *   spending minutes deflating it for nothing.
  * @param galleryLists a gallery or music app would be expected to list it.
+ * @param icon which file-type icon draws it where it has no picture of its own. Most follow
+ *   their kind; the ones that do not (a PDF, a sheet, a web page, a shell script) are named
+ *   where they are declared, so the icon cannot drift from the type the way a second list would.
  */
 data class FileType(
     val ext: String,
@@ -46,6 +49,18 @@ data class FileType(
     val compressed: Boolean = false,
     val galleryLists: Boolean =
         (kind == TypeKind.IMAGE || kind == TypeKind.VIDEO || kind == TypeKind.AUDIO) && platformFrom != null,
+    val icon: String = when (kind) {
+        TypeKind.IMAGE -> "image"
+        TypeKind.VIDEO -> "video"
+        TypeKind.AUDIO -> "audio"
+        TypeKind.CODE -> "source"
+        TypeKind.DOC -> "text"
+        TypeKind.BINARY -> "binary"
+        TypeKind.ARCHIVE -> "archive"
+        TypeKind.APK -> "package"
+        TypeKind.DEX -> "dex"
+        TypeKind.OTHER -> "other"
+    },
 )
 
 /**
@@ -141,44 +156,52 @@ object FileTypes {
         add(FileType("wma", TypeKind.AUDIO, "audio/x-ms-wma", platformFrom = null, compressed = true, galleryLists = false))
 
         // ── code and text the editor opens ──
-        fun code(ext: String, mime: String? = "text/plain") = add(FileType(ext, TypeKind.CODE, mime, platformFrom = null))
+        fun code(ext: String, mime: String? = "text/plain", icon: String = "source") =
+            add(FileType(ext, TypeKind.CODE, mime, platformFrom = null, icon = icon))
         for (e in listOf(
-            "kt", "kts", "java", "py", "lua", "c", "h", "cpp", "hpp", "rs", "go", "rb", "php", "sh",
-            "bash", "smali", "gradle", "sql", "yml", "yaml", "toml", "ini", "cfg", "conf", "properties",
+            "kt", "kts", "java", "py", "lua", "c", "h", "cpp", "hpp", "rs", "go", "rb", "php", "smali", "gradle",
         )) code(e)
-        for (e in listOf("cs", "tsx", "jsx", "scss", "gradlew", "pro")) code(e, null)
-        code("json", "application/json")
-        code("xml", "text/xml")
-        code("html", "text/html"); code("htm", "text/html")
-        code("css", "text/css")
-        code("js", "text/javascript"); code("mjs", "text/javascript"); code("cjs", "text/javascript")
+        for (e in listOf("sh", "bash")) code(e, icon = "shell")
+        code("sql", icon = "sql")
+        for (e in listOf("yml", "yaml", "toml", "ini", "cfg", "conf", "properties")) code(e, icon = "config")
+        for (e in listOf("cs", "pro")) code(e, null)
+        for (e in listOf("tsx", "jsx")) code(e, null, icon = "script")
+        code("scss", null, icon = "style")
+        code("gradlew", null, icon = "shell")
+        code("json", "application/json", icon = "json")
+        code("xml", "text/xml", icon = "xml")
+        code("html", "text/html", icon = "markup"); code("htm", "text/html", icon = "markup")
+        code("css", "text/css", icon = "style")
+        code("js", "text/javascript", icon = "script"); code("mjs", "text/javascript", icon = "script")
+        code("cjs", "text/javascript", icon = "script")
 
         // ── documents ──
-        fun doc(ext: String, mime: String? = null, compressed: Boolean = false) =
-            add(FileType(ext, TypeKind.DOC, mime, platformFrom = null, compressed = compressed))
-        doc("txt", "text/plain"); doc("log", "text/plain"); doc("md", "text/plain")
-        doc("markdown"); doc("mdown"); doc("mkd")
-        doc("pdf", "application/pdf", compressed = true)
-        doc("doc", "application/msword")
-        doc("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", compressed = true)
-        doc("xls", "application/vnd.ms-excel")
-        doc("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", compressed = true)
-        doc("xlsm", compressed = true)
-        doc("ppt", "application/vnd.ms-powerpoint")
-        doc("pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", compressed = true)
-        doc("odt", "application/vnd.oasis.opendocument.text", compressed = true)
-        doc("ods", "application/vnd.oasis.opendocument.spreadsheet", compressed = true)
-        doc("odp", "application/vnd.oasis.opendocument.presentation", compressed = true)
-        doc("rtf", "application/rtf")
-        doc("csv", "text/csv")
-        doc("xhtml", "application/xhtml+xml")
-        doc("srt", "application/x-subrip")
-        doc("vtt", "text/vtt")
+        fun doc(ext: String, mime: String? = null, compressed: Boolean = false, icon: String = "text") =
+            add(FileType(ext, TypeKind.DOC, mime, platformFrom = null, compressed = compressed, icon = icon))
+        doc("txt", "text/plain"); doc("log", "text/plain"); doc("md", "text/plain", icon = "markdown")
+        doc("markdown", icon = "markdown"); doc("mdown", icon = "markdown"); doc("mkd", icon = "markdown")
+        doc("pdf", "application/pdf", compressed = true, icon = "pdf")
+        doc("doc", "application/msword", icon = "word")
+        doc("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", compressed = true, icon = "word")
+        doc("xls", "application/vnd.ms-excel", icon = "sheet")
+        doc("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", compressed = true, icon = "sheet")
+        doc("xlsm", compressed = true, icon = "sheet")
+        doc("ppt", "application/vnd.ms-powerpoint", icon = "slides")
+        doc("pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", compressed = true, icon = "slides")
+        doc("odt", "application/vnd.oasis.opendocument.text", compressed = true, icon = "word")
+        doc("ods", "application/vnd.oasis.opendocument.spreadsheet", compressed = true, icon = "sheet")
+        doc("odp", "application/vnd.oasis.opendocument.presentation", compressed = true, icon = "slides")
+        doc("rtf", "application/rtf", icon = "word")
+        doc("csv", "text/csv", icon = "sheet")
+        doc("xhtml", "application/xhtml+xml", icon = "markup")
+        doc("srt", "application/x-subrip", icon = "subs")
+        doc("vtt", "text/vtt", icon = "subs")
 
         // ── raw binaries ──
-        for (e in listOf("so", "bin", "dat", "img", "iso", "arsc", "o", "a", "dll", "exe")) {
-            add(FileType(e, TypeKind.BINARY, platformFrom = null))
-        }
+        for (e in listOf("bin", "dat", "arsc")) add(FileType(e, TypeKind.BINARY, platformFrom = null))
+        for (e in listOf("so", "o", "a", "dll")) add(FileType(e, TypeKind.BINARY, platformFrom = null, icon = "lib"))
+        for (e in listOf("img", "iso")) add(FileType(e, TypeKind.BINARY, platformFrom = null, icon = "disc"))
+        add(FileType("exe", TypeKind.BINARY, platformFrom = null, icon = "exe"))
 
         // ── archives and app packages, from the archive table ──
         //
@@ -187,7 +210,14 @@ object FileTypes {
         for (format in Archives.ALL) for (ext in format.extensions) {
             if ('.' in ext || any { it.ext == ext }) continue
             val kind = if (ext in APP_PACKAGES) TypeKind.APK else TypeKind.ARCHIVE
-            add(FileType(ext, kind, ARCHIVE_MIME[ext], platformFrom = null, compressed = format.id != "tar"))
+            // A split bundle is drawn apart from a single APK: it installs differently, and an
+            // APK usually shows its own app icon anyway.
+            val icon = when {
+                kind == TypeKind.ARCHIVE -> "archive"
+                ext == "apk" -> "package"
+                else -> "bundle"
+            }
+            add(FileType(ext, kind, ARCHIVE_MIME[ext], platformFrom = null, compressed = format.id != "tar", icon = icon))
         }
         // Not a real registered type, and deliberately so: a dex is a blob nothing else opens,
         // and naming it keeps it out of the wildcard branch where every app claims it.
@@ -196,12 +226,14 @@ object FileTypes {
         }
 
         // ── other things with a type worth naming ──
-        fun other(ext: String, mime: String) = add(FileType(ext, TypeKind.OTHER, mime, platformFrom = null))
-        other("torrent", "application/x-bittorrent")
+        fun other(ext: String, mime: String, icon: String) =
+            add(FileType(ext, TypeKind.OTHER, mime, platformFrom = null, icon = icon))
+        other("torrent", "application/x-bittorrent", "torrent")
         // A source map is JSON to a page that fetches it, and not something to open in an editor.
-        other("map", "application/json")
-        other("woff", "font/woff"); other("woff2", "font/woff2"); other("ttf", "font/ttf"); other("otf", "font/otf")
-        other("wasm", "application/wasm")
+        other("map", "application/json", "json")
+        other("woff", "font/woff", "font"); other("woff2", "font/woff2", "font")
+        other("ttf", "font/ttf", "font"); other("otf", "font/otf", "font")
+        other("wasm", "application/wasm", "wasm")
     }
 
     private val byExt: Map<String, FileType> = ALL.associateBy { it.ext }
@@ -277,6 +309,9 @@ object FileTypes {
     fun galleryLists(extension: String): Boolean = of(extension)?.galleryLists == true
 
     fun isPicture(extension: String): Boolean = of(extension)?.kind == TypeKind.IMAGE
+
+    /** The file-type icon for [extension]; "other" for one the table does not know. */
+    fun icon(extension: String): String = of(extension)?.icon ?: "other"
 
     /** Every spelling of the type [extension] names, itself included. */
     fun spellings(extension: String): Set<String> {

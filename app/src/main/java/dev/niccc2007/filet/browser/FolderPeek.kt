@@ -32,8 +32,8 @@ import kotlinx.coroutines.withContext
  *     long as the app is alive. Scrolling back up a list costs nothing.
  *  2. **Two at a time.** A screen of twelve folders would otherwise open twelve directories
  *     at once on a card that is already handing out thumbnails.
- *  3. **It stops early.** [SCAN] entries are enough to find three pictures in any folder that
- *     has them, and a folder of ten thousand files must not be walked to draw a 30dp icon.
+ *  3. **It stops early.** [SCAN] entries are enough to find three things worth showing in any
+ *     folder, and a folder of ten thousand files must not be walked to draw a 30dp icon.
  *
  * What comes back is child NODES rather than bitmaps: the thumbnail pipeline already decodes,
  * caches and sizes those, and a second one here would be a second cache to keep in step.
@@ -48,7 +48,15 @@ class FolderPeek(private val vfs: Vfs) {
      * the thing R1 forbids, and in a tree it is worse than usual: you tap it, nothing moves,
      * and you cannot tell whether the folder is empty or the app is broken.
      */
-    data class Peek(val previews: List<VNode>, val empty: Boolean)
+    data class Peek(val items: List<Item>, val empty: Boolean)
+
+    /**
+     * One thing standing in the folder, and how it is drawn.
+     *
+     * @param full for a [PeekKind.FOLDER], whether it has anything in it, which puts a sheet in
+     *   its drawing. Null when that could not be read.
+     */
+    data class Item(val node: VNode, val kind: PeekKind, val full: Boolean? = null)
 
     private val cache = ConcurrentHashMap<String, Peek>()
     private val gate = Semaphore(AT_ONCE)
@@ -61,19 +69,18 @@ class FolderPeek(private val vfs: Vfs) {
         val found = gate.withPermit {
             withContext(Dispatchers.IO) {
                 runCatching {
-                    val out = ArrayList<VNode>(SHOW)
-                    var seen = 0
-                    for (child in vfs.list(path)) {
-                        seen++
-                        if (seen > SCAN) break
-                        if (child.isDir) continue
-                        if (!Thumbnails.canPreview(child.extension)) continue
-                        out.add(child)
-                        if (out.size >= SHOW) break
+                    val listing = vfs.list(path)
+                    // Hidden entries count towards "not empty" but are never drawn: a .nomedia
+                    // beside the photos would turn a folder of pictures into a mixed one.
+                    val shown = listing.asSequence().take(SCAN).filterNot { it.hidden || it.name.startsWith(".") }.toList()
+                    val picked = pickPeek(shown, ::kindOf, ::typeOf, SHOW).map { child ->
+                        val kind = kindOf(child)
+                        // A folder inside is drawn with a sheet in it when it has anything. One
+                        // count per picked folder, at most three, and a count is one readdir.
+                        val full = if (kind == PeekKind.FOLDER) vfs.countChildren(child.path)?.let { it > 0 } else null
+                        Item(child, kind, full)
                     }
-                    // `seen` counts everything, not only the previewable - a folder of
-                    // documents is not empty just because none of them has a picture.
-                    Peek(out, empty = seen == 0)
+                    Peek(picked, empty = listing.isEmpty())
                 }.getOrDefault(Peek(emptyList(), empty = false))
             }
         }
@@ -86,10 +93,24 @@ class FolderPeek(private val vfs: Vfs) {
     private fun key(path: VPath, mtime: Long) = "$path@$mtime"
 
     private companion object {
-        /** How many previews are drawn on one folder. Three fan nicely; four is a mess. */
+        /** A child with a picture of its own is drawn as that picture; any other file as its type. */
+        fun kindOf(node: VNode): PeekKind = when {
+            node.isDir -> PeekKind.FOLDER
+            Thumbnails.canPreview(node.extension) -> PeekKind.MEDIA
+            else -> PeekKind.FILE
+        }
+
+        /** "The same type", for varying the pick: pictures against videos, a PDF against a sheet. */
+        fun typeOf(node: VNode): String = when (kindOf(node)) {
+            PeekKind.FOLDER -> "folder"
+            PeekKind.MEDIA -> FileKind.of(node).name
+            PeekKind.FILE -> node.extension.lowercase(java.util.Locale.US)
+        }
+
+        /** How many things stand in one folder. Three fit; four is a mess. */
         const val SHOW = 3
 
-        /** How far into a folder to look before giving up on finding pictures. */
+        /** How far into a folder to look when choosing what stands in it. */
         const val SCAN = 60
 
         /** How many folders are read at once. */
@@ -97,7 +118,7 @@ class FolderPeek(private val vfs: Vfs) {
     }
 }
 
-/** This folder's first few previewable children, read off the main thread and remembered. */
+/** What stands in this folder's icon, read off the main thread and remembered. */
 @Composable
 fun rememberFolderPeek(
     peek: FolderPeek,

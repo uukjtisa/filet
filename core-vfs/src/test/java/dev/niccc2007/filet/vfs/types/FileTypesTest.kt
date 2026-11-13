@@ -174,4 +174,34 @@ class FileTypesTest {
             assertNull(FileTypes.thumbnailKind(e, modern))
         }
     }
+
+    @Test fun every_type_names_an_icon_and_the_families_are_the_known_ones() {
+        val known = setOf(
+            "text", "markdown", "word", "pdf", "sheet", "slides", "subs", "markup", "xml", "style",
+            "script", "json", "source", "shell", "config", "sql", "archive", "package", "bundle", "dex",
+            "lib", "exe", "disc", "binary", "torrent", "font", "wasm", "image", "video", "audio", "other",
+        )
+        for (t in FileTypes.ALL) assertTrue("${t.ext} -> ${t.icon}", t.icon in known)
+    }
+
+    @Test fun the_icon_follows_the_type_not_the_kind_where_they_differ() {
+        assertEquals("pdf", FileTypes.icon("pdf"))
+        assertEquals("sheet", FileTypes.icon("XLSX"))
+        assertEquals("sheet", FileTypes.icon("csv"))
+        assertEquals("markup", FileTypes.icon("html"))
+        assertEquals("shell", FileTypes.icon("sh"))
+        assertEquals("shell", FileTypes.icon("gradlew"))
+        assertEquals("package", FileTypes.icon("apk"))
+        assertEquals("bundle", FileTypes.icon("xapk"))
+        assertEquals("archive", FileTypes.icon("zip"))
+        assertEquals("lib", FileTypes.icon("so"))
+        assertEquals("json", FileTypes.icon("map"))
+        assertEquals("text", FileTypes.icon("txt"))
+        assertEquals("source", FileTypes.icon("kt"))
+    }
+
+    @Test fun an_unknown_extension_gets_the_plain_icon() {
+        assertEquals("other", FileTypes.icon("xyz"))
+        assertEquals("other", FileTypes.icon(""))
+    }
 }
