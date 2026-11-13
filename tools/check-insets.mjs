@@ -95,6 +95,10 @@ export const KNOWN = {
     { n: 1, kind: "inner", why: "the play button on a playlist's cover" },
     { n: 2, kind: "host", why: "the selection bars, inside the playlists pane: the browser's strip is under them" },
   ],
+  "playback/ResumeScreen.kt": [
+    { n: 2, kind: "inner", why: "the time-left badge and the progress bar on the top card's picture" },
+    { n: 1, kind: "host", why: "the Undo bar, inside the Carry on pane: the browser's strip is under it" },
+  ],
   "qr/ScanScreen.kt": [{ n: 1, kind: "host", why: "the camera buttons, inside the scan pane: the browser's strip is under them" }],
   "report/ReportActivity.kt": [{ n: 1, kind: "inner", why: "the size label on an attached picture's thumbnail" }],
   "signet/OnboardingScreen.kt": [{ n: 1, kind: "inner", why: "a glow drawn off the bottom corner, behind everything" }],

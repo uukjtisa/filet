@@ -144,6 +144,19 @@ class ResumeStore private constructor(context: Context) {
         }
     }
 
+    /**
+     * Undo for a forget: [back] returns as it was, its own times and positions kept, so the rows
+     * land where they were in the list. See [restored] for what wins when a track was played
+     * again in the meantime.
+     */
+    fun restore(back: List<Point>) {
+        if (back.isEmpty()) return
+        synchronized(this) {
+            save(restored(current(), back))
+            _changes.value++
+        }
+    }
+
     /** Caller holds `this`. */
     private fun save(list: List<Point>) {
         // Newest kept, oldest dropped. Sorted before the cut, or a long sitting adds rows at
@@ -218,6 +231,16 @@ class ResumeStore private constructor(context: Context) {
          * 12:34 it was offering. The reading spots of the documents follow the same rule.
          */
         fun keeps(positionMs: Long): Boolean = positionMs > 0L
+
+        /**
+         * The list after an Undo puts [back] into [current]. A path already in [current] keeps the
+         * row it has there: it was played again after the forget, and its newer position is the
+         * one somebody wants, not the one the Undo remembers.
+         */
+        fun restored(current: List<Point>, back: List<Point>): List<Point> {
+            val here = current.mapTo(HashSet()) { it.path }
+            return current + back.filter { it.path !in here }
+        }
 
         @Volatile private var instance: ResumeStore? = null
 

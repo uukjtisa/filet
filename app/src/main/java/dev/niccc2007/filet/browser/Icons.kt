@@ -37,6 +37,28 @@ private fun stroke(name: String, vararg d: String, width: Float = 1.7f): ImageVe
     return b.build()
 }
 
+/** Strokes and fills in one glyph, for the few the mock draws with both. */
+private fun mixed(name: String, strokes: List<String>, fills: List<String>, width: Float = 1.7f): ImageVector {
+    val b = ImageVector.Builder(
+        name = name, defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 24f, viewportHeight = 24f,
+    )
+    for (spec in fills) {
+        b.addPath(pathData = PathParser().parsePathString(spec).toNodes(), fill = SolidColor(Color.White))
+    }
+    for (spec in strokes) {
+        b.addPath(
+            pathData = PathParser().parsePathString(spec).toNodes(),
+            fill = null,
+            stroke = SolidColor(Color.White),
+            strokeLineWidth = width,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+        )
+    }
+    return b.build()
+}
+
 private fun filled(name: String, vararg d: String): ImageVector {
     val b = ImageVector.Builder(
         name = name, defaultWidth = 24.dp, defaultHeight = 24.dp,
@@ -306,6 +328,26 @@ object FiletIcons {
         "timer",
         "M20.5 13a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0",
         "M9.5 3h5M12 8.5V13",
+    )
+
+    // ── Carry on's filters (Desktop/filet-carry-on-mock.html, its `I` table) ──
+    /** Everything, stacked: the kind filter at its widest. */
+    val Layers = stroke("layers", "M12 4l9 5-9 5-9-5z", "M3 14l9 5 9-5")
+    /** Part way through: a circle half filled. */
+    val ProgressPart = mixed(
+        "progresspart",
+        strokes = listOf("M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18"),
+        fills = listOf("M12 3a9 9 0 0 1 0 18z"),
+    )
+    /** Played to the end: a circle with a tick in it. */
+    val ProgressDone = stroke("progressdone", "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18", "M8 12.5l3 3 5-6")
+    /** However far: a ring. */
+    val ProgressAny = stroke("progressany", "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18", "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8")
+    /** Start choosing several: a ticked box. */
+    val SelectBox = stroke(
+        "selectbox",
+        "M8 4h8a4 4 0 0 1 4 4v8a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4z",
+        "M8.5 12l2.5 2.5 4.5-5",
     )
 
     /**
