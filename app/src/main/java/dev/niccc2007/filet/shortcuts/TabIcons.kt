@@ -2,19 +2,15 @@ package dev.niccc2007.filet.shortcuts
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
@@ -31,7 +27,6 @@ import dev.niccc2007.filet.icons.Inside
 import dev.niccc2007.filet.icons.drawFolder
 import dev.niccc2007.filet.icons.drawTypeIcon
 import dev.niccc2007.filet.icons.lookFor
-import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.types.FileTypes
 
@@ -41,8 +36,11 @@ import dev.niccc2007.filet.vfs.types.FileTypes
 /** The home-screen icon for a tab or action, by its id in the tab icon mock. Filet's own for anything else. */
 fun launcherIcon(art: String?): Int = art?.let { TabIconRes.LAUNCHER[it] } ?: R.mipmap.ic_launcher
 
-/** The art alone, on its 108-unit canvas, or null for an id the mock does not have. */
+/** The art alone, on its 108-unit canvas, in Filet blue as the app draws it, or null for an id the mock does not have. */
 fun artDrawable(art: String?): Int? = art?.let { TabIconRes.ART[it] }
+
+/** The art as the home screen will show it, in this build's colours, for a preview before placing. */
+fun homeArt(art: String?): Int? = art?.let { TabIconRes.HOME[it] }
 
 /** The art a shortcut record is drawn with: its tab's, its action's, the Scripts tab's for a script. */
 fun recordArt(record: ShortcutRecord): String? = when (record.kind) {
@@ -73,22 +71,11 @@ fun TabArt(art: String, size: Dp, modifier: Modifier = Modifier) {
 }
 
 /**
- * The icon as a home screen shows it, on a small rounded tile: Filet's tile and the art, the 72
- * units a launcher shows of the 108. For the Shortcuts tab's rows.
+ * A tab's or action's icon in a list or on a card: the drawing alone, at full size, on whatever
+ * is behind it. No tile, as Filet's own icon has none; the drawing carries its own depth.
  */
 @Composable
-fun ArtTile(art: String, side: Dp = 30.dp) {
-    val res = artDrawable(art)
-    val shape = RoundedCornerShape(side * 0.27f)
-    Box(
-        Modifier.size(side).clip(shape).border(1.dp, Filet.colors.lineSoft, shape),
-        contentAlignment = Alignment.Center,
-    ) {
-        val full = side * (108f / 72f)
-        Image(painterResource(R.drawable.ic_tab_bg), contentDescription = null, modifier = Modifier.requiredSize(full))
-        if (res != null) Image(painterResource(res), contentDescription = null, modifier = Modifier.requiredSize(full))
-    }
-}
+fun ArtTile(art: String, side: Dp = 30.dp) = TabArt(art, side)
 
 /**
  * A shortcut record's tile: its tab's or action's icon, or for a file, the folder or the file type
@@ -98,19 +85,12 @@ fun ArtTile(art: String, side: Dp = 30.dp) {
 fun RecordTile(record: ShortcutRecord) {
     recordArt(record)?.let { ArtTile(it); return }
     val path = runCatching { VPath.parse(record.target) }.getOrNull()
-    val colors = Filet.colors
-    val shape = RoundedCornerShape(8.dp)
-    Box(
-        Modifier.size(30.dp).clip(shape).background(colors.sunken).border(1.dp, colors.lineSoft, shape),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (record.dir == true && path != null) {
-            val look = rememberFolderLook(path)
-            Canvas(Modifier.size(26.dp)) { drawFolder(Inside.Pages, look) }
-        } else {
-            val ext = FileTypes.extensionOf(path?.name ?: record.target)
-            Canvas(Modifier.size(26.dp)) { drawTypeIcon(ext) }
-        }
+    if (record.dir == true && path != null) {
+        val look = rememberFolderLook(path)
+        Canvas(Modifier.size(30.dp)) { drawFolder(Inside.Pages, look) }
+    } else {
+        val ext = FileTypes.extensionOf(path?.name ?: record.target)
+        Canvas(Modifier.size(30.dp)) { drawTypeIcon(ext) }
     }
 }
 

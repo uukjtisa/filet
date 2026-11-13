@@ -1,7 +1,6 @@
 package dev.niccc2007.filet.shortcuts
 
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -21,7 +20,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,9 +45,8 @@ import dev.niccc2007.filet.ui.theme.Filet
  *   script id.
  * @param name the name offered, which the person can change.
  * @param opens one line saying what a tap on the icon will do.
- * @param art the foreground layer of the icon the launcher will show, on the 108-unit canvas.
+ * @param art the icon's drawing as the launcher will show it, on the 108-unit canvas, in this build's colours.
  * @param icon the launcher icon itself, an adaptive mipmap.
- * @param tile the background layer under [art], or null for Filet's plain ground colour.
  */
 data class PinAsk(
     val kind: ShortcutKind,
@@ -58,7 +55,6 @@ data class PinAsk(
     val opens: String,
     val art: Int = R.drawable.ic_launcher_foreground,
     val icon: Int = R.mipmap.ic_launcher,
-    val tile: Int? = null,
 )
 
 /**
@@ -78,7 +74,7 @@ fun PinNameSheet(ask: PinAsk, onDismiss: () -> Unit, onAdd: (label: String) -> U
         DlgBody {
             DlgField("Name", label, { label = it.take(40) })
             Spacer(Modifier.height(12.dp))
-            HomeIconPreview(ask.art, ask.tile, label.ifBlank { ask.name })
+            HomeIconPreview(ask.art, label.ifBlank { ask.name })
             Spacer(Modifier.height(8.dp))
             DlgCaption(ask.opens)
         }
@@ -98,16 +94,13 @@ fun PinNameSheet(ask: PinAsk, onDismiss: () -> Unit, onAdd: (label: String) -> U
  * is the part that usually tells two shortcuts apart. Seeing the cut here is the point of it.
  */
 @Composable
-private fun HomeIconPreview(art: Int, tile: Int?, label: String) {
+private fun HomeIconPreview(art: Int, label: String) {
     val colors = Filet.colors
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            Modifier.size(52.dp).clip(CircleShape).background(colorResource(R.color.ic_launcher_background)),
-            contentAlignment = Alignment.Center,
-        ) {
+        Box(Modifier.size(52.dp).clip(CircleShape), contentAlignment = Alignment.Center) {
             // The layer is drawn on 108 units of which a mask shows the middle 72: at 52dp for
             // the 72, the whole layer is 78dp, and the circle clips the rest as a launcher would.
-            if (tile != null) Image(painterResource(tile), contentDescription = null, modifier = Modifier.requiredSize(78.dp))
+            // Nothing behind it: like Filet's own icon, it stands on the wallpaper.
             Image(painterResource(art), contentDescription = null, modifier = Modifier.requiredSize(78.dp))
         }
         Text(

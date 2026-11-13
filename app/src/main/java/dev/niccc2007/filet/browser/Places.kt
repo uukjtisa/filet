@@ -65,6 +65,16 @@ fun BookmarksBody(vm: BrowserViewModel, pane: PaneController) {
     val items = remember(all, query) { all.filter { dev.niccc2007.filet.ui.TextMatch.matches(query, it.label, it.path.path) } }
     var menuFor by remember { mutableStateOf<Bookmark?>(null) }
     menuFor?.let { b -> BookmarkMenu(vm, b) { menuFor = null } }
+    // Each bookmark as it is on disk now, for its icon: a folder's peek is kept by its mtime, so
+    // a made-up one would draw the folder as it first looked for as long as Filet runs. Read off
+    // the main thread, one at a time, since a bookmark can be on a network share.
+    val onDisk by androidx.compose.runtime.produceState(emptyMap<dev.niccc2007.filet.vfs.VPath, dev.niccc2007.filet.vfs.VNode>(), all) {
+        for (b in all) {
+            if (b.isDir == null) continue
+            val n = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { vm.vfs.stat(b.path) }.getOrNull() }
+            if (n != null) value = value + (b.path to n)
+        }
+    }
     LazyColumn(Modifier.fillMaxSize(), state = rememberKeptListState("bookmarks")) {
         item { TabHeader("Bookmarks") }
         if (items.isEmpty() && all.isNotEmpty()) item { dev.niccc2007.filet.ui.NoMatch(query) }
@@ -89,6 +99,10 @@ fun BookmarksBody(vm: BrowserViewModel, pane: PaneController) {
                 name = b.label,
                 sub = b.path.path,
                 accent = b.isDir == true,
+                // Drawn as the file list draws it: the folder with what is in it and the look
+                // chosen for it, or the file's picture or type. The glyph above is only for a
+                // bookmark nobody recorded the kind of.
+                thumbOf = b.isDir?.let { dir -> onDisk[b.path] ?: dev.niccc2007.filet.vfs.VNode(b.path, isDir = dir, size = -1, mtime = 0) },
                 onClick = { vm.openPlace(b.path, b.isDir, pane) },
                 onLongClick = { menuFor = b },
                 trailing = if (b.quickAt > 0) {

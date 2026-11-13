@@ -19,7 +19,7 @@ that surface which is easiest to lose on the way across.
 | **Nearby tab** | `app/src/main/java/dev/niccc2007/filet/nearby/NearbyScreen.kt:104` | `TABS3.nearby` | N59 | The QR, the URL and the code are one card. Running state is a dot, not a word. |
 | **Scripts tab** | `app/src/main/java/dev/niccc2007/filet/script/ScriptsScreen.kt:66` | `TABS3.scripts` | N59 | Each script shows a snippet. A name alone says nothing about what a script does. |
 | **Bookmarks tab** | `app/src/main/java/dev/niccc2007/filet/browser/Places.kt:61` | `TABS3.bookmarks` | N59 | A bookmark can point at a file, so the icon is the file kind and not always a star. |
-| **Recent tab** | `app/src/main/java/dev/niccc2007/filet/browser/Places.kt:138` | `TABS3.recent` | N59 | Grouped by day. Long press removes one entry - it used to do nothing. |
+| **Recent tab** | `app/src/main/java/dev/niccc2007/filet/browser/Places.kt:152` | `TABS3.recent` | N59 | Grouped by day. Long press removes one entry - it used to do nothing. |
 | **Shortcuts tab** | `app/src/main/java/dev/niccc2007/filet/shortcuts/ShortcutsScreen.kt:45` | `TABS3.shortcuts` | N59 | Shows shortcuts the system has dropped, which is the only place they can be cleaned up. |
 | **Remotes tab** | `app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt:81` | `TABS3.remotes` | N59 | An unreachable remote is shown as unreachable and never waited for. |
 | **Activity tab** | `app/src/main/java/dev/niccc2007/filet/jobs/ActivitySheet.kt:112` | `TABS3.activity` | N59 | Running above finished. The index job names the folder it is reading. |

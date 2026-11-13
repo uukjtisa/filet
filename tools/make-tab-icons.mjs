@@ -21,7 +21,7 @@
 //
 // The mock lives outside the repo, beside the other mocks. FILET_TAB_MOCK points at it elsewhere.
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -121,6 +121,73 @@ function colour(c, alpha = 1) {
   const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255).toString(16).padStart(2, "0");
   return `#${a}${hex}`.toUpperCase();
 }
+
+// ── Filet's blues, turned to each build's own colour for the home-screen icons ──
+//
+// The art is drawn in Filet's blue family. On a home screen it stands next to Filet's own icon, so
+// it wears that icon's colours: blue for the release build, the debug build's amber, and whatever a
+// build that overrides its launcher foreground is given later. Nothing is chosen here: the two
+// fills of each build's ic_launcher_foreground (the shade, then the light) are the anchors, and
+// every blue in the art moves the way those two moved. The same sum is BrandTone.kt, which recolours
+// pinned folder icons at run time; BrandToneTest holds the two to the same answers.
+
+/** #AARRGGBB to hue in degrees, saturation and lightness in 0..1, alpha kept. */
+function hsl(c) {
+  const n = parseInt(c.slice(1), 16);
+  const a = Math.floor(n / 0x1000000) & 255, r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = 60 * (((g - b) / d) % 6);
+    else if (max === g) h = 60 * ((b - r) / d + 2);
+    else h = 60 * ((r - g) / d + 4);
+  }
+  return { h: (h + 360) % 360, s, l, a };
+}
+function fromHsl({ h, s, l, a }) {
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  const hex = (v) => Math.round(Math.max(0, Math.min(1, v + m)) * 255).toString(16).padStart(2, "0");
+  return `#${a.toString(16).padStart(2, "0")}${hex(r)}${hex(g)}${hex(b)}`.toUpperCase();
+}
+/** Filet's blue family: the slate and steel ramps, pale paper and deep inside. Not the sky accent, not near-greys. */
+function isBrand(c) {
+  const { h, s } = hsl(c);
+  return h >= 185 && h <= 212 && s >= 0.12 && s <= 0.42;
+}
+/** The recolouring that carries [fromShade, fromLight] onto [toShade, toLight], exact at both. */
+function brandTone([fromShade, fromLight], [toShade, toLight]) {
+  const A = [hsl(fromShade), hsl(fromLight)], B = [hsl(toShade), hsl(toLight)];
+  const turn = (i) => ((B[i].h - A[i].h + 540) % 360) - 180;
+  const dh = [turn(0), turn(1)], ks = [0, 1].map((i) => (A[i].s ? B[i].s / A[i].s : 1)), dl = [0, 1].map((i) => B[i].l - A[i].l);
+  const lerp = (v, t) => v[0] + (v[1] - v[0]) * t;
+  return (c) => {
+    if (!isBrand(c)) return c;
+    const x = hsl(c);
+    const t = Math.max(0, Math.min(1, (x.l - A[0].l) / (A[1].l - A[0].l)));
+    return fromHsl({ h: (x.h + lerp(dh, t) + 360) % 360, s: Math.max(0, Math.min(1, x.s * lerp(ks, t))), l: Math.max(0, Math.min(1, x.l + lerp(dl, t))), a: x.a });
+  };
+}
+/** Each source set that draws its own Filet icon, and that icon's shade and light. */
+function launcherAnchors() {
+  const out = {};
+  const src = join(ROOT, "app/src");
+  for (const set of readdirSync(src)) {
+    const f = join(src, set, "res/drawable/ic_launcher_foreground.xml");
+    if (!existsSync(f)) continue;
+    const fills = [...readFileSync(f, "utf8").matchAll(/android:fillColor="#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})"/g)].map((m) => colour("#" + m[1].slice(-6)));
+    if (fills.length < 2) throw new Error(`${set}'s launcher foreground has ${fills.length} fill(s); the shade and the light are needed`);
+    out[set] = fills.slice(0, 2);
+  }
+  if (!out.main) throw new Error("no app/src/main launcher foreground");
+  return out;
+}
+const ANCHORS = launcherAnchors();
+
+/** The colour resource a brand colour is written as in the home-screen art. */
+const brandName = (c) => `tabicon_${c.slice(1).toLowerCase()}`;
+const usedBrand = new Set();
 
 // ── path data: parsed to absolute commands, measured, written back out plainly ──
 function parsePath(d) {
@@ -311,8 +378,13 @@ const INHERITED = ["fill", "fill-opacity", "fill-rule", "stroke", "stroke-width"
 /**
  * One icon's markup as vector drawable elements, and how far its ink reaches from the centre.
  */
-function convert(markup) {
+function convert(markup, { brandRefs = false } = {}) {
   const lines = [];
+  const ref = (c) => {
+    if (!brandRefs || !isBrand(c)) return c;
+    usedBrand.add(c);
+    return `@color/${brandName(c)}`;
+  };
   let reach = 0;
   const walk = (node, inh, m, depth) => {
     const style = { ...inh };
@@ -334,7 +406,7 @@ function convert(markup) {
     if (node.tag === "g" || node.tag === "root") {
       for (const c of node.children) walk(c, style, mm, d);
     } else {
-      reach = Math.max(reach, shape(node, style, mm, d, lines));
+      reach = Math.max(reach, shape(node, style, mm, d, lines, ref));
     }
     for (let k = tf.length - 1; k >= 0; k--) lines.push(`${"    ".repeat(depth + k)}</group>`);
     void pad;
@@ -343,7 +415,7 @@ function convert(markup) {
   return { xml: lines.join("\n"), reach };
 }
 
-function shape(node, style, m, depth, lines) {
+function shape(node, style, m, depth, lines, ref = (c) => c) {
   const a = node.attrs;
   let d;
   let ellipse = null;
@@ -403,9 +475,9 @@ function shape(node, style, m, depth, lines) {
     if (value.startsWith("url(")) {
       const g = GRADS[value.slice(5, -1)];
       if (!g) throw new Error(`no gradient ${value}`);
-      children.push(gradientXml(g, gradBox, which, pad + "    "));
+      children.push(gradientXml(g, gradBox, which, pad + "    ", ref));
     } else {
-      attrs.push(`android:${which}="${colour(value)}"`);
+      attrs.push(`android:${which}="${ref(colour(value))}"`);
     }
     if (alpha !== 1) attrs.push(`android:${which === "fillColor" ? "fillAlpha" : "strokeAlpha"}="${fmt(alpha)}"`);
   };
@@ -428,8 +500,8 @@ function shape(node, style, m, depth, lines) {
   return reach;
 }
 
-function gradientXml(g, box, which, pad) {
-  const items = g.stops.map((s) => `${pad}        <item android:offset="${fmt(s.offset)}" android:color="${s.color}" />`).join("\n");
+function gradientXml(g, box, which, pad, ref = (c) => c) {
+  const items = g.stops.map((s) => `${pad}        <item android:offset="${fmt(s.offset)}" android:color="${ref(s.color)}" />`).join("\n");
   const geo = g.type === "linear"
     ? `android:type="linear" android:startX="${fmt(box.l + g.x1 * box.w)}" android:startY="${fmt(box.t + g.y1 * box.h)}" ` +
       `android:endX="${fmt(box.l + g.x2 * box.w)}" android:endY="${fmt(box.t + g.y2 * box.h)}"`
@@ -463,20 +535,22 @@ const monoMarkup = (icon) =>
 const files = new Map();
 const put = (rel, text) => files.set(rel, text);
 
-put("drawable/ic_tab_bg.xml", vector(convert(`<rect x="0" y="0" width="108" height="108" fill="url(#tileSoft)"/>`).xml, "The tile every tab icon sits on."));
-
 const problems = [];
 const rows = [];
 for (const icon of ICONS) {
   if (!/^[a-z]+$/.test(icon.id)) throw new Error(`icon id ${icon.id} is not a resource name`);
   const art = convert(resolve(icon));
   if (art.reach > SAFE + 0.05) problems.push(`${icon.id}: ink reaches ${art.reach.toFixed(1)} from the centre, past the ${SAFE} safe circle`);
-  put(`drawable/ic_tab_${icon.id}_fg.xml`, vector(art.xml, `${icon.label}: the art.`));
+  // In the app the art is Filet blue, beside the blue folders. On a home screen it is beside
+  // Filet's own icon, so its blues are colour resources each build sets to its icon's colours.
+  put(`drawable/ic_tab_${icon.id}_art.xml`, vector(art.xml, `${icon.label}: the art, as the app draws it.`));
+  put(`drawable/ic_tab_${icon.id}_fg.xml`, vector(convert(resolve(icon), { brandRefs: true }).xml, `${icon.label}: the art on a home screen, in this build's colours.`));
   put(`drawable/ic_tab_${icon.id}_mono.xml`, vector(convert(monoMarkup(icon)).xml, `${icon.label}: the themed glyph.`));
   put(`mipmap-anydpi/ic_tab_${icon.id}.xml`, `<?xml version="1.0" encoding="utf-8"?>
 <!-- GENERATED by tools/make-tab-icons.mjs from the tab icon mock. ${icon.label}. Do not edit. -->
+<!-- No tile: like Filet's own icon, the art stands on the wallpaper. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/ic_tab_bg" />
+    <background android:drawable="@android:color/transparent" />
     <foreground android:drawable="@drawable/ic_tab_${icon.id}_fg" />
     <monochrome android:drawable="@drawable/ic_tab_${icon.id}_mono" />
 </adaptive-icon>
@@ -484,6 +558,23 @@ for (const icon of ICONS) {
   rows.push(icon);
 }
 
+// The brand colours, per build: the release values as drawn, each other build's turned to its icon.
+const colourFile = (tone, set) => `<?xml version="1.0" encoding="utf-8"?>
+<!-- GENERATED by tools/make-tab-icons.mjs: the home-screen tab icons' blues for the ${set} build, turned from
+     Filet blue to this build's own icon colours (its ic_launcher_foreground). Do not edit: run it again. -->
+<resources>
+    <color name="brand_shade">${tone(ANCHORS.main[0])}</color>
+    <color name="brand_light">${tone(ANCHORS.main[1])}</color>
+${[...usedBrand].sort().map((c) => `    <color name="${brandName(c)}">${tone(c)}</color>`).join("\n")}
+</resources>
+`;
+files.set("SRC:main/res/values/tabicon_colors.xml", colourFile((c) => c, "release"));
+for (const [set, anchors] of Object.entries(ANCHORS)) {
+  if (set === "main") continue;
+  files.set(`SRC:${set}/res/values/tabicon_colors.xml`, colourFile(brandTone(ANCHORS.main, anchors), set));
+}
+
+const hex = (c) => `0x${c.slice(1)}`;
 const kt = [
   "// GENERATED by tools/make-tab-icons.mjs from the tab icon mock. Do not edit: change the mock and run it again.",
   "package dev.niccc2007.filet.shortcuts",
@@ -492,39 +583,60 @@ const kt = [
   "",
   "/** Each tab's and app action's icon, by its id in the tab icon mock. */",
   "internal object TabIconRes {",
-  "    /** The adaptive launcher icon: Filet's tile, the art, and the glyph a themed home screen draws. */",
+  "    /** The adaptive launcher icon: the art on no tile, in this build's colours, and the glyph a themed home screen draws. */",
   "    val LAUNCHER: Map<String, Int> = mapOf(",
   ...rows.map((i) => `        "${i.id}" to R.mipmap.ic_tab_${i.id},`),
   "    )",
   "",
-  "    /** The art alone, on the 108-unit canvas, for drawing inside the app. */",
+  "    /** The art alone, on the 108-unit canvas, in Filet blue, for drawing inside the app. */",
   "    val ART: Map<String, Int> = mapOf(",
+  ...rows.map((i) => `        "${i.id}" to R.drawable.ic_tab_${i.id}_art,`),
+  "    )",
+  "",
+  "    /** The art as a home screen shows it, in this build's colours, for previewing an icon before it is placed. */",
+  "    val HOME: Map<String, Int> = mapOf(",
   ...rows.map((i) => `        "${i.id}" to R.drawable.ic_tab_${i.id}_fg,`),
   "    )",
+  "",
+  "    /** The release icon's shade and light: the blues every build's colours are turned from. See BrandTone. */",
+  `    const val BRAND_FROM_SHADE: Long = ${hex(ANCHORS.main[0])}`,
+  `    const val BRAND_FROM_LIGHT: Long = ${hex(ANCHORS.main[1])}`,
   "}",
   "",
 ].join("\n");
 files.set("KT", kt);
 
-const target = (rel) => (rel === "KT" ? KT : join(RES, rel));
+const target = (rel) => (rel === "KT" ? KT : rel.startsWith("SRC:") ? join(ROOT, "app/src", rel.slice(4)) : join(RES, rel));
 let stale = [];
 for (const [rel, text] of files) {
   const p = target(rel);
   const now = existsSync(p) ? readFileSync(p, "utf8") : null;
   if (now === text) continue;
-  if (check) { stale.push(rel === "KT" ? "shortcuts/TabIconRes.kt" : rel); continue; }
+  if (check) { stale.push(rel === "KT" ? "shortcuts/TabIconRes.kt" : rel.replace(/^SRC:/, "app/src/")); continue; }
   mkdirSync(dirname(p), { recursive: true });
   writeFileSync(p, text);
 }
 // A tab icon the mock no longer has must not linger as a resource nobody draws.
-const known = new Set([...files.keys()].filter((k) => k !== "KT").map((k) => k.split("/").pop()));
+const known = new Set([...files.keys()].filter((k) => k !== "KT" && !k.startsWith("SRC:")).map((k) => k.split("/").pop()));
 for (const dir of ["drawable", "mipmap-anydpi"]) {
   for (const f of readdirSync(join(RES, dir))) {
-    if (f.startsWith("ic_tab_") && !known.has(f)) stale.push(`${dir}/${f} (no longer in the mock)`);
+    if (!f.startsWith("ic_tab_") || known.has(f)) continue;
+    // The ic_tab_ names are this script's own, so one it no longer writes is removed, not left drawn by nobody.
+    if (check) stale.push(`${dir}/${f} (no longer in the mock)`);
+    else rmSync(join(RES, dir, f));
+  }
+}
+// A build that no longer draws its own icon must not keep colours for one.
+for (const set of readdirSync(join(ROOT, "app/src"))) {
+  const f = join(ROOT, "app/src", set, "res/values/tabicon_colors.xml");
+  if (existsSync(f) && !files.has(`SRC:${set}/res/values/tabicon_colors.xml`)) {
+    if (check) stale.push(`app/src/${set}/res/values/tabicon_colors.xml (that build has no icon of its own)`);
+    else rmSync(f);
   }
 }
 
-const summary = `${rows.length} icons, ${files.size - 1} files, ink within the ${SAFE} circle`;
+const builds = Object.keys(ANCHORS).filter((k) => k !== "main");
+const summary = `${rows.length} icons, ${files.size - 1} files, ink within the ${SAFE} circle, ${usedBrand.size} blues turned for ${builds.length ? builds.join(", ") : "no other build"}`;
 if (problems.length) {
   console.error("TABICONS PROBLEMS:\n  " + problems.join("\n  "));
   process.exit(1);

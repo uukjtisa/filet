@@ -122,9 +122,17 @@ internal fun rr(x: Float, y: Float, w: Float, h: Float, r: Float): String =
 internal fun circle(cx: Float, cy: Float, r: Float): String =
     "M${cx - r},${cy}a$r,$r 0 1 0 ${2 * r},0a$r,$r 0 1 0 ${-2 * r},0z"
 
-private fun Ink.brush(bounds: Rect): Brush = when (this) {
-    is Ink.Solid -> androidx.compose.ui.graphics.SolidColor(color)
-    is Ink.Ramp -> Brush.verticalGradient(*stops, startY = bounds.top, endY = bounds.bottom)
+private fun Ink.brush(bounds: Rect): Brush {
+    // Inside the app this is null and nothing is turned; see BrandTone.drawing.
+    val tone = BrandTone.drawingIn()
+    return when (this) {
+        is Ink.Solid -> androidx.compose.ui.graphics.SolidColor(tone?.of(color) ?: color)
+        is Ink.Ramp -> Brush.verticalGradient(
+            *(if (tone == null) stops else Array(stops.size) { i -> stops[i].first to tone.of(stops[i].second) }),
+            startY = bounds.top,
+            endY = bounds.bottom,
+        )
+    }
 }
 
 /** Fill [d] with [ink], with an optional rim around it. */
@@ -138,7 +146,7 @@ internal fun DrawScope.fill(
 ) {
     val p = path(d, evenOdd)
     drawPath(p, ink.brush(p.getBounds()), alpha = alpha)
-    if (rim != null) drawPath(p, rim, style = Stroke(rimWidth, join = StrokeJoin.Round))
+    if (rim != null) drawPath(p, BrandTone.drawingIn()?.of(rim) ?: rim, style = Stroke(rimWidth, join = StrokeJoin.Round))
 }
 
 /** Stroke [d] as a line. */
@@ -149,7 +157,8 @@ internal fun DrawScope.line(
     alpha: Float = 1f,
     cap: StrokeCap = StrokeCap.Round,
 ) {
-    drawPath(path(d), color, alpha = alpha, style = Stroke(width, cap = cap, join = StrokeJoin.Round))
+    val inTone = BrandTone.drawingIn()?.of(color) ?: color
+    drawPath(path(d), inTone, alpha = alpha, style = Stroke(width, cap = cap, join = StrokeJoin.Round))
 }
 
 /** The soft shadow on the ground under an object: a radial fade squashed into an ellipse. */

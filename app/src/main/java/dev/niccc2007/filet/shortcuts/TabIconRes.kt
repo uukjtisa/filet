@@ -5,7 +5,7 @@ import dev.niccc2007.filet.R
 
 /** Each tab's and app action's icon, by its id in the tab icon mock. */
 internal object TabIconRes {
-    /** The adaptive launcher icon: Filet's tile, the art, and the glyph a themed home screen draws. */
+    /** The adaptive launcher icon: the art on no tile, in this build's colours, and the glyph a themed home screen draws. */
     val LAUNCHER: Map<String, Int> = mapOf(
         "home" to R.mipmap.ic_tab_home,
         "files" to R.mipmap.ic_tab_files,
@@ -34,8 +34,37 @@ internal object TabIconRes {
         "stopshare" to R.mipmap.ic_tab_stopshare,
     )
 
-    /** The art alone, on the 108-unit canvas, for drawing inside the app. */
+    /** The art alone, on the 108-unit canvas, in Filet blue, for drawing inside the app. */
     val ART: Map<String, Int> = mapOf(
+        "home" to R.drawable.ic_tab_home_art,
+        "files" to R.drawable.ic_tab_files_art,
+        "bookmarks" to R.drawable.ic_tab_bookmarks_art,
+        "opened" to R.drawable.ic_tab_opened_art,
+        "newfiles" to R.drawable.ic_tab_newfiles_art,
+        "playlists" to R.drawable.ic_tab_playlists_art,
+        "carryon" to R.drawable.ic_tab_carryon_art,
+        "photos" to R.drawable.ic_tab_photos_art,
+        "videos" to R.drawable.ic_tab_videos_art,
+        "audio" to R.drawable.ic_tab_audio_art,
+        "packages" to R.drawable.ic_tab_packages_art,
+        "documents" to R.drawable.ic_tab_documents_art,
+        "archives" to R.drawable.ic_tab_archives_art,
+        "remotes" to R.drawable.ic_tab_remotes_art,
+        "share" to R.drawable.ic_tab_share_art,
+        "apps" to R.drawable.ic_tab_apps_art,
+        "shortcuts" to R.drawable.ic_tab_shortcuts_art,
+        "scripts" to R.drawable.ic_tab_scripts_art,
+        "qr" to R.drawable.ic_tab_qr_art,
+        "activity" to R.drawable.ic_tab_activity_art,
+        "settings" to R.drawable.ic_tab_settings_art,
+        "search" to R.drawable.ic_tab_search_art,
+        "index" to R.drawable.ic_tab_index_art,
+        "startshare" to R.drawable.ic_tab_startshare_art,
+        "stopshare" to R.drawable.ic_tab_stopshare_art,
+    )
+
+    /** The art as a home screen shows it, in this build's colours, for previewing an icon before it is placed. */
+    val HOME: Map<String, Int> = mapOf(
         "home" to R.drawable.ic_tab_home_fg,
         "files" to R.drawable.ic_tab_files_fg,
         "bookmarks" to R.drawable.ic_tab_bookmarks_fg,
@@ -62,4 +91,8 @@ internal object TabIconRes {
         "startshare" to R.drawable.ic_tab_startshare_fg,
         "stopshare" to R.drawable.ic_tab_stopshare_fg,
     )
+
+    /** The release icon's shade and light: the blues every build's colours are turned from. See BrandTone. */
+    const val BRAND_FROM_SHADE: Long = 0xFF4E7382
+    const val BRAND_FROM_LIGHT: Long = 0xFF7FA8B8
 }

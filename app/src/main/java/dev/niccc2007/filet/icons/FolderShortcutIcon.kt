@@ -7,14 +7,12 @@ import android.graphics.Bitmap
 import android.graphics.drawable.Icon
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Canvas
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import dev.niccc2007.filet.FiletApp
-import dev.niccc2007.filet.R
 import dev.niccc2007.filet.browser.FileKind
 import dev.niccc2007.filet.browser.FolderPeek
 import dev.niccc2007.filet.browser.PeekKind
@@ -30,10 +28,12 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * A folder's home-screen icon: the same drawing as its row in the list, on Filet's tile.
+ * A folder's home-screen icon: the same drawing as its row in the list, on no tile.
  *
  * Drawn by the same code as the row (through a bitmap rather than a Canvas on screen), so a folder
- * wearing a camera in the list wears it on the home screen too, empty or full as it is.
+ * wearing a camera in the list wears it on the home screen too, empty or full as it is. Two things
+ * differ, both to stand beside Filet's own icon: nothing is drawn behind it, as nothing is behind
+ * Filet's, and its blues are the build's icon colours (amber in the debug build). See [BrandTone].
  *
  * ## Keeping it current
  *
@@ -122,14 +122,14 @@ object FolderShortcutIcon {
         )
     }
 
-    /** The folder on Filet's tile, square, with the launcher's mask left to cut the edges. */
+    /** The folder on a clear square, in the build's colours, with the launcher's mask left to cut the edges. */
     internal fun draw(context: Context, inside: Inside, look: FolderLook): Bitmap {
         val out = Bitmap.createBitmap(SIDE, SIDE, Bitmap.Config.ARGB_8888)
-        val tile = Color(context.getColor(R.color.ic_launcher_background))
         val margin = SIDE * (1f - ART) / 2f
-        CanvasDrawScope().draw(Density(1f), LayoutDirection.Ltr, Canvas(out.asImageBitmap()), Size(SIDE.toFloat(), SIDE.toFloat())) {
-            drawRect(tile)
-            inset(margin, margin, margin, margin) { drawFolder(inside, look) }
+        BrandTone.drawing(BrandTone.of(context)) {
+            CanvasDrawScope().draw(Density(1f), LayoutDirection.Ltr, Canvas(out.asImageBitmap()), Size(SIDE.toFloat(), SIDE.toFloat())) {
+                inset(margin, margin, margin, margin) { drawFolder(inside, look) }
+            }
         }
         return out
     }
