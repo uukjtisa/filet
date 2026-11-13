@@ -175,21 +175,53 @@ object Shortcuts {
         return Icon.createWithResource(context, R.mipmap.ic_launcher)
     }
 
-    /** Adaptive icons are square with a safe zone; a 16:9 crop would be cut to a sliver. */
+    /**
+     * The picture on the launcher's square, with nothing behind it.
+     *
+     * An opaque picture - a photo, a video frame - fills the whole shape, as it does in its row. One
+     * with see-through parts - an app's icon, a PNG or SVG with a clear background - sits whole in
+     * the shape's safe middle on nothing, so the wallpaper shows around it. It used to be laid on
+     * black, which turned every app icon into a small icon on a black tile.
+     */
     private fun square(src: Bitmap): Bitmap {
-        val size = 216
+        val size = SIDE
         val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(out)
-        canvas.drawColor(Color.BLACK)
-        val scale = size.toFloat() / min(src.width, src.height)
-        val w = src.width * scale
-        val h = src.height * scale
-        canvas.drawBitmap(
-            src,
-            null,
-            RectF((size - w) / 2, (size - h) / 2, (size + w) / 2, (size + h) / 2),
-            Paint(Paint.FILTER_BITMAP_FLAG),
-        )
+        val r = ShortcutFit.rect(src.width, src.height, seeThrough(src), size.toFloat())
+        Canvas(out).drawBitmap(src, null, RectF(r[0], r[1], r[2], r[3]), Paint(Paint.FILTER_BITMAP_FLAG))
         return out
+    }
+
+    /** True when any of the edge's corners or middles lets something behind it show. */
+    private fun seeThrough(src: Bitmap): Boolean {
+        if (!src.hasAlpha()) return false
+        val xs = intArrayOf(0, src.width / 2, src.width - 1)
+        val ys = intArrayOf(0, src.height / 2, src.height - 1)
+        for (x in xs) for (y in ys) {
+            if (x != 0 && x != src.width - 1 && y != 0 && y != src.height - 1) continue
+            if (Color.alpha(src.getPixel(x, y)) < 255) return true
+        }
+        return false
+    }
+
+    /** The adaptive bitmap's side: 108dp at 2x, small enough to cross the binder. */
+    private const val SIDE = 216
+}
+
+/** Where a picture goes on a launcher icon's square. Pure, so the sums can be checked off-device. */
+internal object ShortcutFit {
+
+    /** The middle of an adaptive icon a launcher never cuts: 66 of its 108 units. */
+    const val SAFE = 66f / 108f
+
+    /**
+     * left, top, right, bottom for a [w] by [h] picture on a [side] square: an opaque one cropped to
+     * fill it, centred; a [seeThrough] one whole, centred, inside the safe middle.
+     */
+    fun rect(w: Int, h: Int, seeThrough: Boolean, side: Float): FloatArray {
+        if (w <= 0 || h <= 0) return floatArrayOf(0f, 0f, side, side)
+        val scale = if (seeThrough) side * SAFE / maxOf(w, h) else side / min(w, h)
+        val dw = w * scale
+        val dh = h * scale
+        return floatArrayOf((side - dw) / 2, (side - dh) / 2, (side + dw) / 2, (side + dh) / 2)
     }
 }
