@@ -359,6 +359,9 @@ private fun VideoPlayer(
     var watch by remember(node.path) { mutableStateOf<PictureWatch?>(null) }
     var staged by remember(node.path) { mutableStateOf(false) }
     var noPicture by remember(node.path) { mutableStateOf<String?>(null) }
+    // The other players a failure offers, under the error line or in the No picture dialog. Taps
+    // only: a video never changes player by itself. See VideoLadder.
+    var offers by remember(node.path) { mutableStateOf<List<VideoRung>>(emptyList()) }
     var boxWidth by remember(node.path) { mutableIntStateOf(0) }
     // Off means follow the phone, which is what it did before and is still the default.
     var lockedOrientation by remember(node.path) { mutableStateOf<Int?>(null) }
@@ -1164,10 +1167,9 @@ private fun VideoPlayer(
         }
     }
 
-    // Which player this video is on now, the rung it started on (which way the ladder runs), and
-    // the line saying it moved. See VideoLadder.
+    // Which player this video is on now, and the line saying it changed. It changes only when the
+    // player menu or an offer's tap says so. See VideoLadder.
     var rung by remember(node.path) { mutableStateOf(VideoEngines.firstRung(context)) }
-    var start by remember(node.path) { mutableStateOf(rung) }
     var notice by remember(node.path) { mutableStateOf<String?>(null) }
     LaunchedEffect(notice) {
         if (notice != null) {
@@ -1196,21 +1198,24 @@ private fun VideoPlayer(
         stalled = false
         watch = null
         error = null
+        offers = emptyList()
+        noPicture = null
         rung = target
         return at
     }
 
+    /** What a failure on the player now playing offers. Read before the engine is let go. */
+    fun offersNow(): List<VideoRung> =
+        VideoLadder.offers(rung, FfmpegDecoders.available, handle.engine?.pictureByFfmpeg == true)
+
     /**
-     * Move to the next player, at the same place, when this one cannot play the file. False when
-     * there is none left, which is when the error or the No picture dialog is shown, as before.
+     * An offer taken: this video, and only this one, carries on in [target] at the same place. The
+     * choice in the player menu and in Settings is left as it was.
      */
-    fun stepDown(why: String): Boolean {
-        val byFfmpeg = handle.engine?.pictureByFfmpeg == true
-        val next = VideoLadder.next(rung, FfmpegDecoders.available, byFfmpeg, start) ?: return false
-        dev.niccc2007.filet.log.FiletLog.i("video") { "$rung could not play it ($why); moving to $next" }
-        moveTo(next)
-        notice = VideoLadder.notice(next)
-        return true
+    fun tryOn(target: VideoRung) {
+        dev.niccc2007.filet.log.FiletLog.i("video") { "tried $target from $rung, by tap" }
+        val at = moveTo(target)
+        notice = VideoLadder.tried(target, clockOf(at))
     }
 
     /**
@@ -1222,7 +1227,6 @@ private fun VideoPlayer(
         if (VideoLadder.engineOf(rung) == kind) return
         val target = VideoLadder.first(kind)
         dev.niccc2007.filet.log.FiletLog.i("video") { "switched from $rung to $target" }
-        start = target
         val at = moveTo(target)
         notice = VideoLadder.switched(kind, clockOf(at))
     }
@@ -1240,8 +1244,9 @@ private fun VideoPlayer(
             seekSeen = handle.seekDoneAt
             val going = playing && scrubTo == null && run == null && !handingOver && !inPip
             if (w.tick(PictureWatch.TICK_MS, going, advanced = last >= 0 && now > last, seeked = seeked)) {
-                // Sound and no picture: the next player first, the dialog only when none is left.
-                if (stepDown("no picture")) break
+                // Sound and no picture: said, with the other players offered. Never a move.
+                dev.niccc2007.filet.log.FiletLog.i("video") { "$rung: sound but no picture; offered ${offersNow()}" }
+                offers = offersNow()
                 runCatching { handle.engine?.pause() }
                 playing = false
                 val at = uri
@@ -1259,6 +1264,12 @@ private fun VideoPlayer(
             DlgBody {
                 Text(words, fontSize = 13.sp, lineHeight = 19.sp, color = colors.fg2)
                 Spacer(Modifier.height(10.dp))
+                for (r in offers) {
+                    DlgAction(FiletIcons.Play, VideoLadder.offerLabel(r), sub = "For this video only.") {
+                        noPicture = null
+                        tryOn(r)
+                    }
+                }
                 DlgAction(FiletIcons.Audio, "Play as music", sub = "The sound, with the screen off or in another app.") {
                     noPicture = null
                     playAsMusic()
@@ -1289,12 +1300,26 @@ private fun VideoPlayer(
             .onSizeChanged { boxWidth = it.width }
     ) {
         when {
-            error != null -> Text(
-                error!!,
-                fontSize = 13.sp,
-                color = colors.fg2,
-                modifier = Modifier.align(Alignment.Center).padding(28.dp),
-            )
+            // What went wrong, on the player it happened on, and the others as taps under it.
+            error != null -> Column(
+                Modifier.align(Alignment.Center).padding(28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(error!!, fontSize = 13.sp, color = colors.fg2)
+                for (r in offers) {
+                    Text(
+                        VideoLadder.offerLabel(r),
+                        fontSize = 13.sp,
+                        color = Color.White,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.White.copy(alpha = 0.12f))
+                            .clickable { tryOn(r) }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                    )
+                }
+            }
 
             uri == null -> CircularProgressIndicator(
                 Modifier.align(Alignment.Center).size(26.dp), strokeWidth = 2.dp,
@@ -1318,6 +1343,11 @@ private fun VideoPlayer(
                     },
                 factory = { ctx ->
                     val events = object : VideoEngine.Events {
+                        // Media3 draws the first frame while it is still getting ready, so the
+                        // frame can come before the watch below exists. Bug identified here: the
+                        // watch then never heard of it and called a playing video pictureless.
+                        var drew = false
+
                         override fun onPrepared(prepared: VideoEngine.Prepared) {
                             val engine = handle.engine ?: return
                             videoSize = prepared.width to prepared.height
@@ -1334,7 +1364,7 @@ private fun VideoPlayer(
                             duration = prepared.durationMs
                             ready = true
                             // Armed per prepare, and only for a file with a picture to wait for.
-                            watch = if (prepared.hasVideoTrack) PictureWatch(VideoDecode.windowFor(staged)) else null
+                            watch = if (prepared.hasVideoTrack) PictureWatch(VideoDecode.windowFor(staged)).also { if (drew) it.drawn() } else null
                             // The swap, at the last possible instant.
                             //
                             // The position is read off the still-playing background player
@@ -1385,9 +1415,10 @@ private fun VideoPlayer(
                         }
 
                         override fun onError(what: Int, extra: Int) {
-                            if (stepDown("error $what/$extra")) return
-                            error = "This video would not play on any of Filet's players " +
-                                "(error $what/$extra). Try opening it in another app."
+                            // Stays on this player and says why; the others are offered, not tried.
+                            dev.niccc2007.filet.log.FiletLog.i("video") { "$rung failed: error $what/$extra; offered ${offersNow()}" }
+                            offers = offersNow()
+                            error = VideoLadder.failure(rung, what, extra)
                             ready = false
                         }
 
@@ -1397,6 +1428,7 @@ private fun VideoPlayer(
                         }
 
                         override fun onFirstFrame() {
+                            drew = true
                             watch?.drawn()
                         }
 

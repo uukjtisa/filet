@@ -5,7 +5,7 @@ import androidx.media3.exoplayer.RendererCapabilities
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** The hardware decoder's "past its limits" read as "handled", and nothing else touched. */
+/** The hardware decoder's "past its limits" read as "handled", and hardware put first in the renderer's own list. */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class HardwareFirstTest {
 
@@ -24,6 +24,41 @@ class HardwareFirstTest {
         )) {
             assertEquals(answer, HardwareFirst.upgrade(answer))
         }
+    }
+
+    /** A decoder as the renderer lists it: its name, whether it is hardware, whether it knows the profile. */
+    private data class D(val name: String, val hw: Boolean, val decodes: Boolean = true)
+
+    private fun order(vararg d: D) = HardwareFirst.order(d.toList(), { it.hw }, { it.decodes }).map { it.name }
+
+    @Test fun `the hardware decoder goes ahead of the software one that declared the file within its limits`() {
+        // The nova 10's list for the 2160 x 3402, 60 fps H.264 file, as Media3 sorts it: Google's
+        // software decoder first, because it alone declares the file within its limits.
+        assertEquals(
+            listOf("c2.qti.avc.decoder", "c2.qti.avc.decoder.low_latency", "c2.android.avc.decoder"),
+            order(
+                D("c2.android.avc.decoder", hw = false),
+                D("c2.qti.avc.decoder", hw = true),
+                D("c2.qti.avc.decoder.low_latency", hw = true),
+            ),
+        )
+    }
+
+    @Test fun `a hardware decoder that does not know the profile stays where the renderer put it`() {
+        // 10-bit H.264: most hardware draws garbage for it rather than failing, so software leads.
+        assertEquals(
+            listOf("c2.android.avc.decoder", "c2.qti.avc.decoder"),
+            order(D("c2.android.avc.decoder", hw = false), D("c2.qti.avc.decoder", hw = true, decodes = false)),
+        )
+    }
+
+    @Test fun `each half keeps the renderer's order, and a list already hardware-first is left alone`() {
+        assertEquals(
+            listOf("hw.a", "hw.b", "sw.a", "sw.b"),
+            order(D("sw.a", false), D("hw.a", true), D("sw.b", false), D("hw.b", true)),
+        )
+        assertEquals(listOf("hw.a", "sw.a"), order(D("hw.a", true), D("sw.a", false)))
+        assertEquals(emptyList<String>(), order())
     }
 
     @Test fun `the bits beside the answer survive the upgrade`() {

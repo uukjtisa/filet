@@ -7,7 +7,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
-import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 import android.os.Handler
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.DecoderManager
@@ -75,9 +74,10 @@ internal object FfmpegDecoders {
                 context, extensionRendererMode, mediaCodecSelector, enableDecoderFallback,
                 eventHandler, eventListener, allowedVideoJoiningTimeMs, out,
             )
-            for (i in out.indices) {
-                if (out[i] is MediaCodecVideoRenderer) out[i] = HardwareFirst.wrap(out[i])
-            }
+            HardwareFirst.replace(
+                out, context, codecAdapterFactory, mediaCodecSelector, enableDecoderFallback,
+                eventHandler, eventListener, allowedVideoJoiningTimeMs,
+            )
         }
     }
 }

@@ -12,7 +12,6 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
 import kotlin.math.roundToInt
@@ -30,8 +29,9 @@ import kotlin.math.roundToInt
  *
  * ## Where it is used
  *
- * Filet's player: the one every video opens in (see `VideoEngines`), and the rungs of
- * [VideoLadder] after the phone's player for anyone who has chosen that one. The phone's hardware
+ * Filet's player: the one every video opens in unless the phone's player is chosen in the player
+ * menu or in Settings (see `VideoEngines`). When it cannot play a file it says why and offers the
+ * others as taps; it never hands a video on by itself (see [VideoLadder]). The phone's hardware
  * decoder is tried first even past its declared limits (see [HardwareFirst]); with FFmpeg in the
  * build it also decodes what the phone has no decoder for (see [FfmpegDecoders]).
  *
@@ -53,11 +53,12 @@ internal class Media3Engine(
 
     private val view = FittedSurface(context)
 
-    // FFmpeg where the build has it, the plain factory where it does not (F-Droid, x86).
+    // FFmpeg where the build has it, Media3's own factory where it does not (F-Droid, x86) - with
+    // the hardware decoder first in both. See HardwareFirst.
     private val ffmpeg = FfmpegDecoders.setup(context, forcePicture)
     private val player: ExoPlayer = ExoPlayer.Builder(
         context,
-        ffmpeg?.factory ?: DefaultRenderersFactory(context).setEnableDecoderFallback(true),
+        ffmpeg?.factory ?: HardwareFirst.Factory(context).setEnableDecoderFallback(true),
     )
         // To the frame asked for, not the keyframe before it: see VideoEngine.seekExactly.
         .setSeekParameters(SeekParameters.EXACT)

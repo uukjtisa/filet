@@ -1,43 +1,36 @@
 package dev.niccc2007.filet.handlers
 
+import androidx.media3.common.PlaybackException
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VideoLadderTest {
 
-    @Test fun `the phone's player falls to Media3, then FFmpeg, then nothing`() {
-        assertEquals(VideoRung.MEDIA3, VideoLadder.next(VideoRung.PLATFORM, ffmpeg = true))
-        assertEquals(VideoRung.FFMPEG, VideoLadder.next(VideoRung.MEDIA3, ffmpeg = true))
-        assertNull(VideoLadder.next(VideoRung.FFMPEG, ffmpeg = true))
+    @Test fun `a failure in Filet's player offers FFmpeg, then the phone's player`() {
+        assertEquals(listOf(VideoRung.FFMPEG, VideoRung.PLATFORM), VideoLadder.offers(VideoRung.MEDIA3, ffmpeg = true))
     }
 
-    @Test fun `without FFmpeg in the build Media3 is the last rung`() {
-        assertEquals(VideoRung.MEDIA3, VideoLadder.next(VideoRung.PLATFORM, ffmpeg = false))
-        assertNull(VideoLadder.next(VideoRung.MEDIA3, ffmpeg = false))
+    @Test fun `without FFmpeg in the build, only the phone's player is offered`() {
+        assertEquals(listOf(VideoRung.PLATFORM), VideoLadder.offers(VideoRung.MEDIA3, ffmpeg = false))
     }
 
-    @Test fun `started in Filet's player, the phone's player is the last try`() {
-        val start = VideoRung.MEDIA3
-        assertEquals(VideoRung.FFMPEG, VideoLadder.next(VideoRung.MEDIA3, ffmpeg = true, start = start))
-        assertEquals(VideoRung.PLATFORM, VideoLadder.next(VideoRung.FFMPEG, ffmpeg = true, start = start))
-        assertNull(VideoLadder.next(VideoRung.PLATFORM, ffmpeg = true, start = start))
-        assertEquals(VideoRung.PLATFORM, VideoLadder.next(VideoRung.MEDIA3, ffmpeg = false, start = start))
+    @Test fun `FFmpeg already drawing the picture is not offered again`() {
+        assertEquals(listOf(VideoRung.PLATFORM), VideoLadder.offers(VideoRung.MEDIA3, ffmpeg = true, pictureByFfmpeg = true))
+        assertEquals(listOf(VideoRung.PLATFORM), VideoLadder.offers(VideoRung.FFMPEG, ffmpeg = true))
     }
 
-    @Test fun `FFmpeg already drawing the picture is not stepped to again`() {
-        assertNull(VideoLadder.next(VideoRung.MEDIA3, ffmpeg = true, pictureByFfmpeg = true))
-        assertEquals(
-            VideoRung.PLATFORM,
-            VideoLadder.next(VideoRung.MEDIA3, ffmpeg = true, pictureByFfmpeg = true, start = VideoRung.MEDIA3),
-        )
+    @Test fun `a failure in the phone's player offers Filet's`() {
+        assertEquals(listOf(VideoRung.MEDIA3), VideoLadder.offers(VideoRung.PLATFORM, ffmpeg = true))
     }
 
-    @Test fun `no order tries a rung twice`() {
-        for (start in VideoRung.entries) {
-            val order = VideoLadder.order(start)
-            assertEquals(order.distinct(), order)
-            assertEquals(start, order.first())
+    @Test fun `nothing offers the player that just failed, and everything offered has a tap`() {
+        for (r in VideoRung.entries) for (f in listOf(true, false)) for (p in listOf(true, false)) {
+            val o = VideoLadder.offers(r, f, p)
+            assertFalse("$r offered itself", r in o)
+            assertEquals(o.distinct(), o)
+            for (x in o) assertTrue(VideoLadder.offerLabel(x).isNotBlank())
         }
     }
 
@@ -50,7 +43,19 @@ class VideoLadderTest {
         assertEquals(EngineKind.MEDIA3, VideoLadder.engineOf(VideoRung.FFMPEG))
     }
 
-    @Test fun `every rung reached by falling says so`() {
-        for (r in VideoRung.entries) assert(VideoLadder.notice(r).isNotBlank())
+    @Test fun `an error says which player failed, why, and keeps the numbers`() {
+        val m = VideoLadder.failure(VideoRung.MEDIA3, PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, 0)
+        assertTrue(m, m.startsWith("Filet's player could not play this video: the decoder would not start"))
+        assertTrue(m, m.endsWith("(error 4001/0)."))
+        assertTrue(VideoLadder.failure(VideoRung.MEDIA3, PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED, 0).contains("no decoder here plays this format"))
+        assertTrue(VideoLadder.failure(VideoRung.FFMPEG, PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND, 0).contains("could not be read"))
+        val p = VideoLadder.failure(VideoRung.PLATFORM, 1, -1010)
+        assertTrue(p, p.startsWith("The phone's player could not play this video: this format is not supported"))
+        assertTrue(VideoLadder.failure(VideoRung.PLATFORM, 1, 12345).contains("(error 1/12345)"))
+    }
+
+    @Test fun `every line a tap or the menu shows names where the video is`() {
+        for (r in VideoRung.entries) assertTrue(VideoLadder.tried(r, "1:02").endsWith("at 1:02"))
+        for (k in EngineKind.entries) assertTrue(VideoLadder.switched(k, "1:02").endsWith("at 1:02"))
     }
 }
