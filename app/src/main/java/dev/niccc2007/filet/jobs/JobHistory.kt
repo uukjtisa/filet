@@ -178,6 +178,27 @@ object JobText {
         return if (total != null && total > 0) bytes(done) + " of " + bytes(total) else bytes(done) + " so far"
     }
 
+    /**
+     * What a running job's bar says under it: how far, how much, how long. "42% · 1.2 GB of
+     * 3.4 GB · about 2 min left", each part only when it is known - so a job that cannot measure
+     * itself says what it can (a count, an amount so far) and never a made-up percentage. Null
+     * when there is nothing at all to say, and for a job that is not running.
+     */
+    fun progressLine(job: Job, now: Long): String? {
+        if (!job.running) return null
+        if (job.paused) return listOfNotNull(job.progress?.let { percent(it) }, "paused").joinToString(" · ")
+        val parts = listOfNotNull(
+            job.progress?.let { percent(it) },
+            amount(job) ?: items(job),
+            job.bytesPerSec?.takeIf { it > 1.0 }?.let(::rate),
+            JobRate.etaMs(job, now)?.let(::eta),
+        )
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+    }
+
+    /** A fraction as a whole percentage, never 100 before it is done. */
+    fun percent(fraction: Float): String = "${(fraction.coerceIn(0f, 1f) * 100).toInt().coerceAtMost(99)}%"
+
     /** One fact about a job. [path] marks a value that is a location, which the sheet shortens. */
     data class Row(val label: String, val value: String, val path: Boolean = false)
 

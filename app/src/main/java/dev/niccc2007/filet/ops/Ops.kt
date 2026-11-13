@@ -350,11 +350,28 @@ class FileOperations(
         )
         // The writer reports each entry as it starts it, on the IO thread, which is where a
         // pause holds - between one member and the next.
+        //
+        // Bug identified here: that was the only report, with no fraction, so a compression ran
+        // under a bar that slid back and forth for minutes and never said how far it had got or
+        // how long was left. The total is known before the first byte is written - every member
+        // is listed with its size first - and every member is read through [counted], so the bar
+        // moves by bytes read, inside a large file as well as between files.
         var entries = 0
+        var current = ""
+        val counted = ReadCount()
+        val report: () -> Unit = {
+            val total = counted.total
+            ledger.progress(
+                id, if (total > 0) counted.read.get().toFloat() / total else null, current,
+                doneItems = entries, doneBytes = counted.read.get(), totalBytes = total.takeIf { it > 0 },
+            )
+        }
+        counted.onStep = report
         val onEntry: (String) -> Unit = { name ->
             ledger.holdIfPaused(id)
             entries++
-            ledger.progress(id, null, name, doneItems = entries)
+            current = name
+            report()
         }
         val failed = ArrayList<Pair<VPath, String>>()
         var count = 0
@@ -376,10 +393,12 @@ class FileOperations(
             val sources = ArrayList<ArchiveSource>(items.size * 4)
             for (node in items) {
                 currentCoroutineContext().ensureActive()
-                runCatching { collect(node, node.name, sources) }
+                runCatching { collect(node, node.name, sources, counted) }
                     .onSuccess { count++ }
                     .onFailure { failed += node.path to readable(it) }
             }
+            counted.total = sources.sumOf { if (it.isDir) 0L else it.size.coerceAtLeast(0L) }
+            report()
             if (ArchiveWriter.needsRealFile(format, options)) {
                 // 7z seeks back through what it has written to build its index, so it cannot
                 // go straight down a VFS stream. Built in app-private scratch space, then
@@ -426,11 +445,11 @@ class FileOperations(
      * Folders are emitted before their contents and with an entry of their own, so an empty
      * folder survives the round trip - the one thing a flattened listing usually loses.
      */
-    private suspend fun collect(node: VNode, entryPath: String, into: MutableList<ArchiveSource>) {
+    private suspend fun collect(node: VNode, entryPath: String, into: MutableList<ArchiveSource>, counted: ReadCount) {
         currentCoroutineContext().ensureActive()
         if (node.isDir) {
             into += ArchiveSource(entryPath, isDir = true, size = -1L, mtime = node.mtime)
-            for (child in vfs.list(node.path)) collect(child, "$entryPath/${child.name}", into)
+            for (child in vfs.list(node.path)) collect(child, "$entryPath/${child.name}", into, counted)
             return
         }
         val path = node.path
@@ -438,7 +457,7 @@ class FileOperations(
         // named here too, because a lambda's thread is decided by whoever calls it and that is
         // not visible from where it is written.
         into += ArchiveSource(entryPath, isDir = false, size = node.size, mtime = node.mtime) {
-            withContext(Dispatchers.IO) { vfs.openRead(path) }
+            withContext(Dispatchers.IO) { counted.wrap(vfs.openRead(path)) }
         }
     }
 
@@ -476,12 +495,28 @@ class FileOperations(
             // "photos.tar" - which reads as a step in unwrapping rather than the contents.
             val dest = into.child(uniqueName(into, Archives.baseName(label)))
             if (vfs.stat(dest) == null) vfs.create(dest, isDir = true)
-            for (child in vfs.list(archiveRoot)) {
+            // Bug identified here: every member was reported with no fraction, so extracting ran
+            // under a bar that never said how far it had got. The members are counted first and
+            // each copy reports its own bytes, so the bar moves inside a large member too.
+            val children = vfs.list(archiveRoot)
+            var before = 0L
+            for ((i, child) in children.withIndex()) {
                 ledger.checkpoint(id)
-                ledger.progress(id, null, child.name, doneItems = count + failed.size)
-                runCatching { vfs.copy(child.path, dest) }
+                ledger.progress(id, i.toFloat() / children.size.coerceAtLeast(1), child.name, doneItems = count + failed.size, doneBytes = before)
+                var moved = 0L
+                runCatching {
+                    vfs.copy(child.path, dest, onProgress = { p ->
+                        moved = p.done
+                        val within = if (p.total > 0) p.done.toFloat() / p.total else 0f
+                        ledger.progress(
+                            id, (i + within) / children.size, p.currentName,
+                            doneItems = count + failed.size, doneBytes = before + p.done,
+                        )
+                    })
+                }
                     .onSuccess { count++ }
                     .onFailure { failed += child.path to readable(it) }
+                before += moved
             }
         } catch (e: Throwable) {
             ledger.fail(id, readable(e))
@@ -802,4 +837,31 @@ suspend fun Vfs.uniqueChild(dir: VPath, name: String): VPath {
         if (stat(candidate) == null) return candidate
     }
     throw VfsException.AlreadyExists(dir.child(name))
+}
+
+/**
+ * Bytes read through the streams it hands out, for a progress bar that moves inside a file.
+ * [onStep] is called at most once per [STEP] bytes, on whichever thread is reading.
+ */
+internal class ReadCount {
+    val read = java.util.concurrent.atomic.AtomicLong(0)
+    @Volatile var total: Long = 0
+    @Volatile var onStep: () -> Unit = {}
+    private val reported = java.util.concurrent.atomic.AtomicLong(0)
+
+    fun wrap(input: java.io.InputStream): java.io.InputStream = object : java.io.FilterInputStream(input) {
+        override fun read(): Int = super.read().also { if (it >= 0) add(1) }
+        override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { if (it > 0) add(it.toLong()) }
+        override fun skip(n: Long): Long = super.skip(n).also { if (it > 0) add(it) }
+    }
+
+    private fun add(n: Long) {
+        val now = read.addAndGet(n)
+        val last = reported.get()
+        if (now - last >= STEP && reported.compareAndSet(last, now)) onStep()
+    }
+
+    companion object {
+        const val STEP = 512L * 1024
+    }
 }

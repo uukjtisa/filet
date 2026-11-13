@@ -323,14 +323,22 @@ private fun JobRow(
             }
         }
         if (job.running) {
-            Spacer(Modifier.height(5.dp))
+            Spacer(Modifier.height(6.dp))
             // Indeterminate when the total is genuinely unknown, rather than inventing a
             // percentage that then jumps backwards.
             val p = job.progress
             if (p != null) {
-                LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth().height(3.dp))
+                LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)))
             } else {
-                LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
+                LinearProgressIndicator(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)))
+            }
+            // How far, how much and how long, under the bar where the eye already is. Bug
+            // identified here: the bar was a 3 dp line with the percentage in a small word at the
+            // far end of the title row and the time left only inside the opened row, so a running
+            // job read as a line and nothing else.
+            JobText.progressLine(job, now)?.let { line ->
+                Spacer(Modifier.height(3.dp))
+                Text(line, fontSize = 10.5.sp, color = colors.fg2, maxLines = 1)
             }
         }
         if (expanded) JobFigures(job, now, onAction)
@@ -438,7 +446,8 @@ private fun subline(job: Job): String = buildString {
 }
 
 private fun stateWord(job: Job): String = when (job.state) {
-    JobState.RUNNING -> if (job.paused) "paused" else job.progress?.let { "${(it * 100).toInt()}%" } ?: ""
+    // The percentage is in the line under the bar now; said twice it was noise.
+    JobState.RUNNING -> if (job.paused) "paused" else ""
     JobState.WAITING -> "waiting"
     JobState.DONE -> "done"
     JobState.FAILED -> "failed"
