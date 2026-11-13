@@ -1206,7 +1206,8 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * remove.
      */
     fun pasteInto(pane: PaneController) {
-        val fresh = _state.value.clips.fresh
+        // Waiting, not fresh: a batch already on its way is not pasted a second time.
+        val fresh = _state.value.clips.waiting
         if (fresh.isEmpty()) {
             toast("Nothing new to paste")
             return
@@ -1240,7 +1241,8 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             toast(blocked)
             return
         }
-        val ticked = ids.mapNotNull { _state.value.clips.batch(it) }.filter { it.pickedCount > 0 }
+        val inFlight = _state.value.clips.pasting
+        val ticked = ids.filterNot { it in inFlight }.mapNotNull { _state.value.clips.batch(it) }.filter { it.pickedCount > 0 }
         // A moved batch already in this folder: moving it again would move its files onto
         // themselves. The row says Here and does nothing; this is the same rule for Select.
         val wanted = ticked.filterNot { !copyInstead && it.isIn(dest) }
@@ -1249,11 +1251,18 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             return
         }
         creditUse(dest)
+        // Off the pill now, not when the copy ends: see ClipTray.waiting.
+        val going = wanted.map { it.id }
+        _state.update { it.copy(clips = it.clips.startPaste(going)) }
         viewModelScope.launch {
             var copied = 0
             var moved = 0
             val failures = mutableListOf<Pair<dev.niccc2007.filet.vfs.VPath, String>>()
             var denial: dev.niccc2007.filet.vfs.Denial? = null
+            // A Stop ends this coroutine inside the copy, so nothing after it runs. The finally
+            // is what puts a stopped batch back on the pill; a batch that finished has already
+            // been taken off the list one at a time below.
+            try {
             for (batch in wanted) {
                 val payload = batch.payload
                 val asCopy = copyInstead || batch.op == PendingOp.COPY
@@ -1267,13 +1276,17 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 // is decided and tested in ClipTray.afterPaste.
                 _state.update {
                     it.copy(
-                        clips = if (copyInstead) it.clips.afterCopyInstead(batch.id, dest, failed, now)
-                        else it.clips.afterPaste(batch.id, dest, failed, now, nextClipId(), r.landed),
+                        clips = (if (copyInstead) it.clips.afterCopyInstead(batch.id, dest, failed, now)
+                        else it.clips.afterPaste(batch.id, dest, failed, now, nextClipId(), r.landed))
+                            .endPaste(listOf(batch.id)),
                     )
                 }
                 // Where each one lands, so the rows appear at the bottom instead of
                 // scattering into sort order the instant the paste finishes.
                 pane.noteArrived(payload.filterNot { it in failed }.map { r.landed[it] ?: dest.child(it.name) })
+            }
+            } finally {
+                _state.update { it.copy(clips = it.clips.endPaste(going)) }
             }
             val verb = listOfNotNull(
                 "copied".takeIf { copied > 0 },
@@ -2814,7 +2827,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             .firstNotNullOfOrNull { writeBlockReason(it) }
     }
 
-    fun canPaste(): Boolean = _state.value.clips.freshPicked > 0 &&
+    fun canPaste(): Boolean = _state.value.clips.waitingPicked > 0 &&
         focusedPane()?.state?.value?.cwd != null
 
     // ── things only an Activity can do ──

@@ -377,4 +377,52 @@ class ClipTrayTest {
         assertEquals(tray, tray.afterCopyInstead("ghost", VPath.of("local", "/out")))
         assertEquals(tray, tray.remove("ghost"))
     }
+
+    // ── the pill while a paste runs ───────────────────────────────────────────
+
+    @Test
+    fun `a batch leaves the pill the moment its paste starts`() {
+        val tray = ClipTray().add(batch("a", "one.jpg", "two.jpg")).tray
+            .add(batch("b", "three.jpg", op = PendingOp.MOVE)).tray
+            .startPaste(listOf("a"))
+        assertEquals(listOf("b"), tray.waiting.map { it.id })
+        assertEquals(1, tray.waitingPicked)
+        assertTrue(tray.waitingAllMoves)
+        // Still new until the paste says what it left: the record has not changed yet.
+        assertEquals(listOf("a", "b"), tray.fresh.map { it.id })
+        assertTrue(tray.startPaste(listOf("b")).waiting.isEmpty())
+    }
+
+    @Test
+    fun `a paste that ends with the batch still new puts it back on the pill`() {
+        val out = VPath.of("local", "/out")
+        val started = ClipTray().add(batch("a", "one.jpg")).tray.startPaste(listOf("a"))
+        // Nothing copied: afterPaste keeps it new, and ending the paste shows it again.
+        val failed = started.afterPaste("a", out, failed = setOf(p("one.jpg"))).endPaste(listOf("a"))
+        assertEquals(listOf("a"), failed.waiting.map { it.id })
+        // A Stop: nothing after the copy ran, only the end of the paste.
+        assertEquals(listOf("a"), started.endPaste(listOf("a")).waiting.map { it.id })
+        // A paste that worked goes to history and stays off the pill.
+        val done = started.afterPaste("a", out).endPaste(listOf("a"))
+        assertTrue(done.waiting.isEmpty())
+        assertEquals(listOf("a"), done.history.map { it.id })
+    }
+
+    @Test
+    fun `the part of a move left behind comes back on the pill`() {
+        val out = VPath.of("local", "/out")
+        val tray = ClipTray().add(batch("a", "one.jpg", "two.jpg", op = PendingOp.MOVE)).tray
+            .startPaste(listOf("a"))
+            .afterPaste("a", out, failed = setOf(p("two.jpg")), splitId = "a-moved")
+            .endPaste(listOf("a"))
+        assertEquals(listOf("a"), tray.waiting.map { it.id })
+        assertEquals(1, tray.waitingPicked)
+    }
+
+    @Test
+    fun `being pasted is never written down`() {
+        val tray = ClipTray().add(batch("a", "one.jpg")).tray.startPaste(listOf("a"))
+        val back = ClipStore.decode(ClipStore.encode(tray))
+        assertEquals(listOf("a"), back.waiting.map { it.id })
+    }
 }

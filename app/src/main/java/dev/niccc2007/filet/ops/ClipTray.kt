@@ -73,7 +73,15 @@ data class ClipBatch(
  * The whole clipboard. Ordered oldest first, which is the order a paste of everything new runs
  * in; the sheet shows history newest first on its own.
  */
-data class ClipTray(val batches: List<ClipBatch> = emptyList()) {
+data class ClipTray(
+    val batches: List<ClipBatch> = emptyList(),
+    /**
+     * The batches being pasted right now, by id. Never saved: a paste does not outlive the
+     * process, and a batch read back from disk marked as in flight would hide from the pill for
+     * good. See [waiting].
+     */
+    val pasting: Set<String> = emptySet(),
+) {
 
     val isEmpty: Boolean get() = batches.isEmpty()
     val size: Int get() = batches.size
@@ -89,6 +97,30 @@ data class ClipTray(val batches: List<ClipBatch> = emptyList()) {
 
     /** Every new batch is a move, so the pill says Move rather than Paste. */
     val freshAllMoves: Boolean get() = fresh.isNotEmpty() && fresh.all { it.isMove }
+
+    /**
+     * New and not being pasted: what the pill offers.
+     *
+     * Bug identified here: the pill shrank to the clipboard circle only once a paste had
+     * finished, because a batch stays new until [afterPaste] says what it left. For a large copy
+     * that was a full-width Paste button standing over the list for the whole of the job, offering
+     * to start a second one. A batch leaves the pill the moment its paste starts - the job is in
+     * Activity from then on - and comes back if the paste ends with it still new: nothing copied,
+     * a move that left files behind, or a Stop.
+     */
+    val waiting: List<ClipBatch> get() = fresh.filterNot { it.id in pasting }
+
+    /** Every file the waiting batches would paste. */
+    val waitingPicked: Int get() = waiting.sumOf { it.pickedCount }
+
+    /** Every waiting batch is a move. */
+    val waitingAllMoves: Boolean get() = waiting.isNotEmpty() && waiting.all { it.isMove }
+
+    /** [ids] are being pasted from now on. */
+    fun startPaste(ids: Collection<String>): ClipTray = copy(pasting = pasting + ids)
+
+    /** [ids] are no longer being pasted, however that ended. */
+    fun endPaste(ids: Collection<String>): ClipTray = copy(pasting = pasting - ids.toSet())
 
     /** Every file the whole tray would paste right now. */
     val totalPicked: Int get() = batches.sumOf { it.pickedCount }

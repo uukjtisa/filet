@@ -163,12 +163,13 @@ fun Dock(
 
             // The loaded state. Above the `+`, not instead of it: making a new folder must not
             // become unreachable because something is on the clipboard. The pill while anything
-            // is new, the circle once all of it has been used.
-            val fresh = app.clips.fresh
+            // is new, the circle once all of it has been used - or is being pasted, since the job
+            // is in Activity then and a second Paste over the list would only start it again.
+            val fresh = app.clips.waiting
             if (fresh.isNotEmpty()) {
                 PastePill(
-                    count = app.clips.freshPicked,
-                    move = app.clips.freshAllMoves,
+                    count = app.clips.waitingPicked,
+                    move = app.clips.waitingAllMoves,
                     blocked = vm.writeBlockReason(here),
                     onPaste = { vm.pasteInto(pane) },
                     onOpenTray = { tray = true },
