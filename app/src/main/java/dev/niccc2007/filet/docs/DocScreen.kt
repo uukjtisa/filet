@@ -12,7 +12,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateZoom
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,6 +70,7 @@ import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.FiletApp
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.handlers.ViewerAction
+import dev.niccc2007.filet.ui.detectSteadyTaps
 import dev.niccc2007.filet.ui.dialogs.BtnKind
 import dev.niccc2007.filet.ui.dialogs.Dlg
 import dev.niccc2007.filet.ui.dialogs.DlgBody
@@ -502,7 +502,9 @@ private fun Modifier.docZoom(
             }
         }
         .pointerInput(zoom, list) {
-            detectTapGestures(onDoubleTap = { at ->
+            // A slide is never a tap here: see TapRule for the zoom-out that a pan followed by a quick
+            // touch used to set off.
+            detectSteadyTaps(onDoubleTap = { at ->
                 val before = zoom.floatValue
                 pinch.begin()
                 pinch.add(DocZoom.doubleTap(before) / before, at.y)

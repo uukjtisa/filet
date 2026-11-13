@@ -10,7 +10,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,6 +71,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
+import dev.niccc2007.filet.ui.detectSteadyTaps
 import dev.niccc2007.filet.ui.dialogs.Dlg
 import dev.niccc2007.filet.ui.dialogs.DlgAction
 import dev.niccc2007.filet.ui.dialogs.DlgBody
@@ -1618,7 +1618,9 @@ private fun VideoPlayer(
                     .weight(1f)
                     .fillMaxWidth()
                     .pointerInput(node.path, duration) {
-                        detectTapGestures(
+                        // A slide is never a tap here: see TapRule for the zoom-out that a pan followed by a quick
+                        // touch used to set off.
+                        detectSteadyTaps(
                             onTap = { if (chromeVisible) chromeVisible = false else wake() },
                             onDoubleTap = { at ->
                                 val zone = tapZone(at.x, size.width.toFloat())

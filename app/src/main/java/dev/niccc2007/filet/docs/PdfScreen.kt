@@ -9,7 +9,6 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,6 +56,7 @@ import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.handlers.ViewerBar
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.ops.LocalCopy
+import dev.niccc2007.filet.ui.detectSteadyTaps
 import dev.niccc2007.filet.ui.dialogs.BtnKind
 import dev.niccc2007.filet.ui.dialogs.Dlg
 import dev.niccc2007.filet.ui.dialogs.DlgBody
@@ -430,7 +430,9 @@ private fun PdfPages(doc: PdfDoc, node: VNode) {
                 }
             }
             .pointerInput(doc) {
-                detectTapGestures(onDoubleTap = { p ->
+                // A slide is never a tap here: see TapRule for the zoom-out that a pan followed by a quick
+                // touch used to set off.
+                detectSteadyTaps(onDoubleTap = { p ->
                     val step = PdfPaging.doubleTap(view.value, size.width.toFloat(), p.x, p.y)
                     view.value = step.view
                     if (step.scroll != 0f) state.dispatchRawDelta(step.scroll)

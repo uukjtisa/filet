@@ -25,6 +25,7 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.foundation.gestures.detectTapGestures
+import dev.niccc2007.filet.ui.detectSteadyTaps
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -668,7 +669,9 @@ private fun ZoomableImage(
             .fillMaxSize()
             .onSizeChanged { box = Size(it.width.toFloat(), it.height.toFloat()) }
             .pointerInput(bitmap) {
-                detectTapGestures(
+                // A slide is never a tap here: see TapRule for the zoom-out that a pan followed by a quick
+                // touch used to set off.
+                detectSteadyTaps(
                     // One tap shows or hides the controls. It is the only way back to them once
                     // they have retracted, so it is the whole picture rather than any part of it.
                     onTap = { tapped.value() },
