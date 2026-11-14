@@ -156,3 +156,5 @@ Each step is useful on its own and none of them needs the next one to be worth s
 | 4 | The staging prompt, its cache, and copy-back | install, decompile, rebuild, sign, solid archives |
 
 Steps 2 and 3 are the ones that are felt.
+
+Step 2 is built: `RangedArchives` decides per file and writes the stand-in, `RangedZipReader` reads the zip, and `RangedBlocks` / `RangedChannel` fetch and keep its blocks. A zip that will not open this way falls back to step 4's staged copy, as every other archive on a share still does.

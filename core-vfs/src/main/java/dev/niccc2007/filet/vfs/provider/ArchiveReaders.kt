@@ -1,5 +1,7 @@
 package dev.niccc2007.filet.vfs.provider
 
+import dev.niccc2007.filet.vfs.RangedBlocks
+import dev.niccc2007.filet.vfs.RangedChannel
 import org.apache.commons.compress.archivers.sevenz.SevenZFile
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
@@ -8,6 +10,7 @@ import org.apache.commons.compress.compressors.xz.XZCompressorInputStream
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
+import java.io.IOException
 import java.io.InputStream
 import java.util.Collections
 import java.util.LinkedHashMap
@@ -73,6 +76,67 @@ internal class ZipReader(private val file: File) : ArchiveReader {
         }
         // The stream owns the ZipFile: closing the stream closes the archive, or every
         // preview leaks a handle until the collector happens to care.
+        val src = zip.getInputStream(entry)
+        return object : InputStream() {
+            override fun read() = src.read()
+            override fun read(b: ByteArray, off: Int, len: Int) = src.read(b, off, len)
+            override fun available() = src.available()
+            override fun close() { src.close(); zip.close() }
+        }
+    }
+}
+
+// ── a zip on another device ─────────────────────────────────────────────────
+
+/**
+ * A zip on another device, read where it lies: its table of contents and the members opened come
+ * over, and nothing else of it does. Step 2 of `REMOTE-FILES.md`; the bytes are [RangedBlocks].
+ *
+ * Decision: commons-compress here, where [ZipReader] uses `java.util.zip`. That one opens a file
+ * and nothing else, and the point of this reader is that there is no file; commons-compress takes
+ * a seekable channel. The local reader stays as it is, for the reason written on it.
+ *
+ * Bug avoided here: by default commons-compress also reads every member's own header while it
+ * opens, which on a share is one jump per member - a zip of ten thousand photos would come over
+ * nearly whole just to be listed. `setIgnoreLocalFileHeader` keeps the opening read to the table
+ * of contents, and a member's header is read only when that member is opened.
+ *
+ * The listing is kept against the stand-in file, which names one version of the remote zip (see
+ * [RangedMounts]), so walking three folders down reads the table of contents once.
+ */
+internal class RangedZipReader(private val host: File, private val blocks: RangedBlocks) : ArchiveReader {
+
+    private fun zip(): org.apache.commons.compress.archivers.zip.ZipFile =
+        org.apache.commons.compress.archivers.zip.ZipFile.builder()
+            .setSeekableByteChannel(RangedChannel(blocks))
+            .setIgnoreLocalFileHeader(true)
+            .get()
+
+    override fun members(): List<Member> = MemberCache.get(host) {
+        zip().use { zip ->
+            zip.entries.asSequence().map {
+                Member(normaliseMember(it.name), it.isDirectory, if (it.isDirectory) -1L else it.size, it.time)
+            }.toList()
+        }
+    }
+
+    override fun open(name: String): InputStream? {
+        val zip = zip()
+        val entry = zip.getEntry(name) ?: zip.getEntry("$name/")
+        if (entry == null || entry.isDirectory) {
+            zip.close()
+            return null
+        }
+        // Encrypted, or packed with a method this reader does not have. Said here, in words,
+        // rather than as the library's exception naming a compression method by number.
+        if (!zip.canReadEntryData(entry)) {
+            zip.close()
+            throw IOException(
+                "${name.substringAfterLast('/')} is encrypted or packed in a way Filet cannot read " +
+                    "from another device. Copy the zip to this phone to open it.",
+            )
+        }
+        // The stream owns the archive, as in ZipReader: closing one closes the other.
         val src = zip.getInputStream(entry)
         return object : InputStream() {
             override fun read() = src.read()

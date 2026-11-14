@@ -1055,10 +1055,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     /**
      * Walk into a zip or apk as if it were a folder.
      *
-     * Only local files can be mounted directly: the zip reader needs random access, and a
-     * SAF document has none. Anything else is copied to the cache first, which is honest but
-     * slow, so it is left to the caller to decide - hence the failure message rather than a
-     * silent copy of a 2 GB archive.
+     * A local file is mounted where it lies. A zip on a share that answers ranged reads is too,
+     * through a stand-in (see RangedArchives). Anything else - a SAF document, a tar.gz, a share
+     * that ignores ranges - is copied to the cache first.
      */
     fun mountArchive(node: VNode) {
         val pane = focusedPane() ?: return
@@ -1074,15 +1073,20 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
 
         // One on a share has no path, and a zip is read by seeking - from the END of the file
-        // for its index, then to each entry - so a forward-only stream cannot open one at all.
-        // A staged copy is what makes it work; REMOTE-FILES.md has why this is the last resort
-        // and what replaces it.
+        // for its index, then to each entry. Read where it lies when the share can answer
+        // ranged reads (RangedArchives); otherwise a staged copy, which REMOTE-FILES.md has as
+        // the last resort.
         viewModelScope.launch {
             dev.niccc2007.filet.log.FiletLog.i(
                 "archive",
                 "opening " + node.path + " (" + node.size + " bytes, remote=" +
                     graph.vfs.isRemote(node.path) + ")",
             )
+            graph.rangedArchives.mount(node)?.let { standIn ->
+                // walking: the same descent, through a stand-in for the zip on the share.
+                pane.navigateTo(ArchiveProvider.mount(standIn.absolutePath))
+                return@launch
+            }
             runCatching { graph.staging.stage(node.path, node.size, node.mtime) }
                 .onSuccess { staged ->
                     if (staged == null) {

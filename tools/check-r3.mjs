@@ -104,6 +104,12 @@ const ALLOWED = [
   // cacheDir that it evicts itself. It never builds a user path and never reads one directly,
   // which is the distinction R3 is about rather than the presence of java.io.File.
   "app/src/main/java/dev/niccc2007/filet/ops/RemoteStaging.kt",
+  // The stand-ins for zips on a share read in place, step 2 of REMOTE-FILES.md. The archive
+  // code addresses an archive by a file path, so a zip read through ranges needs a small file
+  // standing for it. What it writes is a hashed folder under the same cache as RemoteStaging,
+  // holding a note of where the zip is; it trims them itself. The zip's bytes come THROUGH the
+  // VFS - `vfs.readRange` - and it never builds or reads a user path.
+  "app/src/main/java/dev/niccc2007/filet/ops/RangedArchives.kt",
   // The same thing for the document readers: a local copy of whatever is being read, for the
   // one API that cannot take a stream. `PdfRenderer` opens a ParcelFileDescriptor and seeks -
   // it has to, because a PDF is read from its trailer backwards - so an archive entry or a

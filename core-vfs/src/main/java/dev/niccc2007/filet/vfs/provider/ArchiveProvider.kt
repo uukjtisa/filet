@@ -42,8 +42,13 @@ import kotlin.coroutines.coroutineContext
  * @param stagedUnder folders whose archives are copies of a file that lives elsewhere - a remote
  *   file staged so its zip reader can seek. Writing into one would change the copy and not the
  *   file, so it is refused.
+ * @param ranged zips on another device read where they lie, through a stand-in file. Read-only
+ *   for the same reason as a staged copy: see [RangedMounts].
  */
-class ArchiveProvider(private val stagedUnder: () -> List<String> = { emptyList() }) : FileSystemProvider {
+class ArchiveProvider(
+    private val stagedUnder: () -> List<String> = { emptyList() },
+    private val ranged: RangedMounts = RangedMounts.NONE,
+) : FileSystemProvider {
 
     override val scheme: String = SCHEME
     override val capabilities: Set<Capability> = setOf(Capability.READ)
@@ -56,6 +61,9 @@ class ArchiveProvider(private val stagedUnder: () -> List<String> = { emptyList(
 
     override fun writeRefusal(path: VPath): String? {
         val host = File(split(path).first)
+        // First, and from the path alone: this is asked every time a menu is drawn, and a
+        // stand-in's bytes are on another device.
+        if (ranged.holds(host)) return RANGED
         // Opened by its bytes under some other name: readable, and kept read-only, because the
         // writers choose what to write from the name and this name names nothing.
         if (Archives.of(host.name) == null) {
@@ -327,6 +335,15 @@ class ArchiveProvider(private val stagedUnder: () -> List<String> = { emptyList(
      */
     private fun readerOf(archive: String, path: VPath): ArchiveReader {
         val asked = File(archive)
+        // A zip on another device, read where it lies. Before everything below, all of which
+        // reads the file at this path, and this file is only a note of where the zip is.
+        if (ranged.holds(asked)) {
+            val blocks = ranged.blocksOf(asked)
+                ?: throw VfsException.Unsupported(
+                    "Filet cannot reach ${asked.name} as it was when it was opened. Open it again from the drive.",
+                )
+            return RangedZipReader(asked, blocks)
+        }
         // Opened after a rewrite was killed between moving the original aside and putting the
         // new one in: the original goes back first, so the archive is there to open.
         if (!asked.exists()) recover(asked)
@@ -403,6 +420,9 @@ class ArchiveProvider(private val stagedUnder: () -> List<String> = { emptyList(
 
         private const val SPLIT =
             "This archive is split into parts. Join the parts into one file to change what is inside."
+
+        private const val RANGED =
+            "This archive is being read from another device, not copied. Download it to change what is inside."
 
         private const val ENCRYPTED_ZIP =
             "This zip is encrypted. Filet cannot change what is inside without dropping the " +

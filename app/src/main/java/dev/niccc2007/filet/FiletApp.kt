@@ -127,10 +127,18 @@ class FiletGraph(context: Context) {
         listOf(dev.niccc2007.filet.data.FiletStore.cacheRoot(app).absolutePath, app.cacheDir.absolutePath)
     }
 
+    /**
+     * Zips on a share opened where they lie, through ranged reads. Before the providers because
+     * the archive provider among them reads it; it reaches the Vfs only when a block is fetched.
+     */
+    val rangedArchives = dev.niccc2007.filet.ops.RangedArchives({ vfs }) {
+        dev.niccc2007.filet.data.FiletStore.dir(app, dev.niccc2007.filet.data.FiletStore.Area.REMOTE)
+    }
+
     private val providers: MutableList<FileSystemProvider> = mutableListOf(
         AndroidStorage.localProvider(app),
         SafProvider(app),
-        ArchiveProvider(stagedUnder = { stagedArchiveDirs() }),
+        ArchiveProvider(stagedUnder = { stagedArchiveDirs() }, ranged = rangedArchives),
         ApkProvider(),
         RootProvider(),
         SmbProvider(connections),
