@@ -151,7 +151,9 @@ object FolderShortcutIcon {
         val margin = SIDE * (1f - ART) / 2f
         BrandTone.drawing(BrandTone.of(context)) {
             CanvasDrawScope().draw(Density(1f), LayoutDirection.Ltr, Canvas(out.asImageBitmap()), Size(SIDE.toFloat(), SIDE.toFloat())) {
-                inset(margin, margin, margin, margin) { drawFolder(inside, look) }
+                // Colour all over from the folder's own paint, else the lists' Folders choice.
+                val whole = wholeFor(LegacyLooks.of(context).styles.value.files.folders, look)
+                inset(margin, margin, margin, margin) { drawFolder(inside, look, whole = whole) }
             }
         }
         return out

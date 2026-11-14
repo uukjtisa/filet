@@ -122,8 +122,12 @@ private fun Thumb(
     tint: Color,
     glyph: Dp,
 ) {
-    // The plainer icons, where the place being drawn asked for them. See IconStyle.
-    val plain = dev.niccc2007.filet.icons.LocalIconStyle.current == dev.niccc2007.filet.icons.IconStyle.PLAIN
+    // Legacy icons, where the place being drawn asked for them: its folders and its files are
+    // chosen apart. See IconStyle. The outline draws as the Legacy folder until it has its own.
+    val place = dev.niccc2007.filet.icons.LocalPlaceLook.current
+    val legacyFolder = place.folders == dev.niccc2007.filet.icons.FolderDrawing.WITH_PICTURES ||
+        place.folders == dev.niccc2007.filet.icons.FolderDrawing.OUTLINE
+    val plain = place.files == dev.niccc2007.filet.icons.IconStyle.LEGACY
     // A sample entry (the Row details preview) has no file behind it to read a thumbnail from.
     val previewable = enabled && !node.isDir && Thumbnails.canPreview(node.extension) &&
         LocalSampleInside.current == null
@@ -131,8 +135,18 @@ private fun Thumb(
     // A folder is drawn rather than lettered, and it carries what is inside it. Here rather
     // than at the call sites so every list, tile, feed row and picker gets it at once - there
     // are nine of them and a tenth would have been forgotten.
-    if (node.isDir && plain) {
-        ClassicFolderIcon(node, size, tint, modifier, previews = enabled)
+    if (node.isDir && legacyFolder) {
+        // Legacy outline: the bare outline, and nothing else counts.
+        if (place.folders == dev.niccc2007.filet.icons.FolderDrawing.OUTLINE) {
+            Box(modifier.size(size), contentAlignment = Alignment.Center) {
+                Icon(FiletIcons.Folder, null, tint = tint, modifier = Modifier.size(glyph))
+            }
+            return
+        }
+        // Legacy, with the folder's emblem on its front and its own paint. See folderDraw.
+        val look = dev.niccc2007.filet.shortcuts.rememberFolderLook(node.path)
+        val draw = dev.niccc2007.filet.icons.folderDraw(place.folders, look)
+        ClassicFolderIcon(node, size, tint, modifier, previews = enabled, emblem = draw.emblem, colour = look.colour, whole = draw.whole, cover = draw.cover)
         return
     }
     if (node.isDir) {
@@ -175,13 +189,21 @@ private fun Thumb(
         LaunchedEffect(node.path, node.mtime, node.size, px) {
             if (inspecting) return@LaunchedEffect
 
+            // A preview already written down is read at once, mid-fling included: it costs a few
+            // milliseconds on a lane of its own and never waits behind a decode. The settle delay
+            // below is for making one, which is the expensive part. See Thumbnails.kept.
+            runCatching { Thumbnails.kept(context, node.path, node.size, node.mtime, px) }.getOrNull()?.let {
+                bitmap = it
+                return@LaunchedEffect
+            }
+
             // Bug identified here: a decode was staged for EVERY row entering composition, so a
             // fling through a folder of two thousand pictures queued two thousand decodes. The
             // effect is cancelled when the row leaves the screen, but `Thumbnails.get` is a
             // BLOCKING decode with no suspension point in it - so cancelling stopped the result
             // being used and did not stop the work. The IO pool stayed saturated for seconds
             // after the finger left the glass, starving the main thread behind it. That is the
-            // scroll lag, and it was worst exactly where it was reported: flinging fast.
+            // scroll lag, and it was worst exactly where it showed: flinging fast.
             //
             // A row still on screen after this delay is a row somebody is looking at. One that
             // is not now costs nothing whatsoever, because the delay is the only thing that ran.

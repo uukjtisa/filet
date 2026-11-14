@@ -314,6 +314,7 @@ internal class Media3Engine(
             bufferedMs = player.totalBufferedDuration,
             speed = player.playbackParameters.speed,
             refused = refusals.toList(),
+            hardwareLook = f?.let { HardwareProbe.lookFor(it.sampleMimeType, it.width, it.height, it.frameRate) },
         )
     }
 

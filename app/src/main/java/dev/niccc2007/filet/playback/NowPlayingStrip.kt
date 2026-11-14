@@ -26,6 +26,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,10 +36,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -183,14 +191,53 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
         sensitivity = sense,
     )
     val beating = if (map == null) null else signal
+    val hit: () -> Float = { if (beating == null) 0f else beating.swing.value * depth }
+
+    // The strip's ground, from its Background glow panel. See `StripLook`.
+    val look = StripLook.of(vm.prefs.stripLook.collectAsStateWithLifecycle().value)
+    val solid = look == StripLook.SOLID
+    // The mist's own clock, in seconds. It runs only while the mist is animated, the track is
+    // playing and the strip is on screen; with animations off at the OS it holds still. Read in
+    // the draw, so a frame redraws the band and recomposes nothing.
+    val drift = look == StripLook.ANIMATED && !dev.niccc2007.filet.ui.reduceMotion()
+    val clock = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(drift, moving) {
+        if (!drift || !moving) return@LaunchedEffect
+        var last = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { now ->
+                clock.floatValue += (now - last) / 1_000_000_000f
+                last = now
+            }
+        }
+    }
+    // On a solid bar the words and buttons take the colour that reads on the track's colour.
+    val ink = if (solid) onTint else colors.fg2
 
     Column(
         Modifier
             .fillMaxWidth()
-            .background(colors.raised)
-            // The inner mist: the track's colour, solid behind the thumbnail, fading into a
-            // mist that holds across most of the bar and swells on the beat. See `innerMist`.
-            .innerMist(tint) { if (beating == null) 0f else beating.swing.value * depth }
+            .then(
+                if (solid) {
+                    // Solid: the whole bar in the track's colour, nothing grey under it. A beat
+                    // bounces it brighter and it eases back with the envelope.
+                    Modifier.drawBehind {
+                        drawRect(tint.brighter(1f + hit().coerceIn(0f, 1f) * SOLID_BOUNCE))
+                    }
+                } else {
+                    // The inner mist: at rest a light wash; on a beat the base at the thumbnail
+                    // goes solid and the mist reaches further across. Drifting when animated.
+                    // See `innerMist`.
+                    Modifier
+                        .background(colors.raised)
+                        .innerMist(
+                            tint,
+                            level = glowScale(strength),
+                            clock = if (look == StripLook.ANIMATED) ({ clock.floatValue }) else null,
+                            swing = hit,
+                        )
+                },
+            )
             // And the same drifting lights the full player has, over that wash, so the strip
             // is the player it minimises into rather than a different widget. Weaker here:
             // this is a 56dp band under a file list, and the lights are nearly the whole
@@ -241,7 +288,7 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
             // this did exactly that and the line never moved.
             val lift = (1f + swing.coerceAtLeast(0f) * HAIRLINE_PUNCH).coerceAtMost(2.2f)
             drawRect(
-                tint.brighter(lift),
+                if (solid) onTint else tint.brighter(lift),
                 size = size.copy(width = size.width * fraction()),
             )
         }
@@ -273,13 +320,14 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
                         PlaybackNotice.title(state),
                         centred = false,
                         size = 13.sp,
+                        colour = if (solid) onTint else MaterialTheme.colorScheme.onSurface,
                         running = moving,
                     )
                     val subtitle = PlaybackNotice.strip(state)
                     if (subtitle.isNotEmpty()) {
                         dev.niccc2007.filet.browser.ListNameText(
                             name = subtitle,
-                            color = colors.fg3,
+                            color = if (solid) onTint.copy(alpha = 0.75f) else colors.fg3,
                             startSp = 10.5f,
                             isDir = true,
                         )
@@ -291,10 +339,10 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
                 // menu rather than cycling: four states read off one unlabelled button is a
                 // guessing game, and the menu stays beside the strip so the strip itself is
                 // visible while it is being judged.
-                GlowMenu(vm, glow, GlowLevel.nearest(strength), spill, tint)
+                GlowMenu(vm, GlowLevel.nearest(strength), spill, look, pulseOn, if (solid) onTint else tint)
 
                 if (roomForPrev && state.canStep) {
-                    StripButton(FiletIcons.Prev, "Previous") { playback.previous() }
+                    StripButton(FiletIcons.Prev, "Previous", ink = ink) { playback.previous() }
                 }
 
                 // Filled, in the track's colour. The one control in this row that is pressed
@@ -302,16 +350,17 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
                 StripButton(
                     if (state.playing) FiletIcons.Pause else FiletIcons.PlaySolid,
                     PlaybackNotice.toggleLabel(state),
-                    ground = tint,
-                    ink = onTint,
+                    // On a solid bar the ground and the glyph swap, or the button would vanish.
+                    ground = if (solid) onTint else tint,
+                    ink = if (solid) tint else onTint,
                     size = 36.dp,
                     glyph = 17.dp,
                 ) { playback.toggle() }
 
                 if (state.canStep) {
-                    StripButton(FiletIcons.Next, "Next") { playback.next() }
+                    StripButton(FiletIcons.Next, "Next", ink = ink) { playback.next() }
                 }
-                StripButton(FiletIcons.Close, "Stop", size = 34.dp) { playback.stop() }
+                StripButton(FiletIcons.Close, "Stop", ink = ink, size = 34.dp) { playback.stop() }
             }
         }
     }
@@ -390,9 +439,11 @@ private fun StripArt(
 @Composable
 private fun GlowMenu(
     vm: BrowserViewModel,
-    glow: Boolean,
     level: GlowLevel,
     spill: Boolean,
+    look: StripLook,
+    /** Beat pulse, from the full player's options. The spill row shows only while it is on. */
+    pulseOn: Boolean,
     tint: Color,
 ) {
     var open by remember { mutableStateOf(false) }
@@ -432,12 +483,26 @@ private fun GlowMenu(
                         color = colors.fg3,
                         modifier = Modifier.padding(start = 17.dp, bottom = 11.dp),
                     )
-                    // "Turn it off" used to be the last row here and it is gone with the
-                    // preference: how much and how far are settings, whether is not.
-                    LevelPill(level, tint) { vm.prefs.setGlowLevel(it.id) }
-                    PanelRule()
-                    PanelRow("Spill past the strip", tint, on = spill) {
-                        vm.prefs.setGlowSpill(!spill)
+                    // Animated and Solid are one choice of three: turning one on turns the
+                    // other off, and both off is the mist held still. The strength belongs to
+                    // the mist, so it shows under Animated; the still mist keeps the last one.
+                    PanelRow("Animated", tint, on = look == StripLook.ANIMATED) {
+                        vm.prefs.setStripLook((if (look == StripLook.ANIMATED) StripLook.STILL else StripLook.ANIMATED).id)
+                    }
+                    if (look == StripLook.ANIMATED) {
+                        LevelPill(level, tint, Modifier.padding(start = 16.dp, top = 4.dp, bottom = 6.dp)) {
+                            vm.prefs.setGlowLevel(it.id)
+                        }
+                    }
+                    PanelRow("Solid", tint, on = look == StripLook.SOLID) {
+                        vm.prefs.setStripLook((if (look == StripLook.SOLID) StripLook.STILL else StripLook.SOLID).id)
+                    }
+                    // The spill is the beat's light leaving the strip, so it goes with Beat pulse.
+                    if (pulseOn) {
+                        PanelRule()
+                        PanelRow("Spill past the strip", tint, on = spill) {
+                            vm.prefs.setGlowSpill(!spill)
+                        }
                     }
                 }
             }
@@ -462,10 +527,10 @@ private class AbovePositionProvider(private val gap: Int) : PopupPositionProvide
 
 /** Three strengths as one control, the current one filled. */
 @Composable
-private fun LevelPill(level: GlowLevel, tint: Color, onPick: (GlowLevel) -> Unit) {
+private fun LevelPill(level: GlowLevel, tint: Color, modifier: Modifier = Modifier, onPick: (GlowLevel) -> Unit) {
     val colors = Filet.colors
     Row(
-        Modifier
+        modifier
             .padding(horizontal = 14.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(50))
@@ -582,56 +647,132 @@ fun playheadFraction(positionMs: Long, durationMs: Long): Float =
     if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
 
 /**
- * The strip's inner mist: the track's colour, solid under the thumbnail, fading over [INNER_INTO]
- * into a mist that holds to [INNER_HOLD] of the width and is gone at the far edge.
- *
- * Inside the strip only. The light that spills up over the list is `stripRadiance`, unchanged.
- * Only the mist beats: the solid end is where the thumbnail sits, and a ground that throbs
- * behind a picture makes the picture look like it moves.
- *
- * The brushes are cached per size and colour, and the beat is read in the draw, so a beat
- * redraws the band and recomposes nothing (see the same note on `livingGlow`).
+ * The strip's three grounds, picked in its Background glow panel. Stored as [id].
  */
-private fun Modifier.innerMist(tint: Color, swing: () -> Float): Modifier = drawWithCache {
-    val w = size.width.coerceAtLeast(1f)
-    val solidEnd = (INNER_SOLID.toPx() / w).coerceIn(0f, 0.4f)
-    val intoEnd = (INNER_INTO.toPx() / w).coerceIn(solidEnd + 0.01f, 0.7f)
-    val solid = Brush.horizontalGradient(
-        0f to tint.copy(alpha = INNER_SOLID_ALPHA),
-        solidEnd to tint.copy(alpha = INNER_SOLID_ALPHA),
-        intoEnd to Color.Transparent,
-    )
-    val mist = Brush.horizontalGradient(
-        0f to tint,
-        INNER_HOLD to tint,
-        1f to Color.Transparent,
-    )
-    onDrawBehind {
-        val hit = swing().coerceAtLeast(0f)
-        drawRect(mist, alpha = (INNER_MIST * (1f + hit * INNER_BEAT)).coerceAtMost(INNER_MIST_MAX))
-        drawRect(solid)
+enum class StripLook(val id: String) {
+    /** The mist, drifting. The default. */
+    ANIMATED("animated"),
+    /** The whole bar in the track's colour, bouncing brighter on the beat. */
+    SOLID("solid"),
+    /** The mist, held still. */
+    STILL("still");
+
+    companion object {
+        fun of(id: String?): StripLook = entries.firstOrNull { it.id == id } ?: ANIMATED
     }
 }
 
-/** Where the solid end stops: just past the thumbnail. */
-private val INNER_SOLID = 52.dp
+/**
+ * The strip's inner mist: one mist in the track's colour, strongest at the thumbnail and gone by
+ * the far edge. At rest it is the light wash the strip always had, with no solid part, scaled by
+ * the glow [level] (Soft is 1).
+ *
+ * A beat moves the whole mist at once, from the one hit value, so it reads as the mist jumping
+ * rather than a second layer: the base under the thumbnail goes solid on a strong hit, the mist
+ * past it thickens, and its falloff runs out from [REST_KNEE] to [HIT_KNEE] of the width, then it
+ * all eases back with the beat's envelope.
+ *
+ * With a [clock] the mist drifts: two slanted bands of density flow across it at different
+ * speeds and angles, cut to the mist's own shape, so it moves like mist rather than as circles
+ * wandering behind the buttons. Without one it holds still.
+ *
+ * Inside the strip only: the light that spills up over the list is `stripRadiance`, unchanged.
+ * The beat and the clock are read in the draw, so a frame redraws the band and recomposes nothing
+ * (see the same note on `livingGlow`).
+ */
+private fun Modifier.innerMist(
+    tint: Color,
+    level: Float,
+    clock: (() -> Float)?,
+    swing: () -> Float,
+): Modifier = drawWithCache {
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    // Where the base ends, just past the thumbnail, and where the thick mist past it ends.
+    val base = (INNER_BASE.toPx() / w).coerceIn(0.05f, 0.3f)
+    val past = base + 0.12f
+    val k = level.coerceIn(0.3f, 2.5f)
+    fun at(rest: Float, hit: Float, e: Float) = lerp((rest * k).coerceAtMost(1f), hit, e)
+    fun ink(a: Float) = tint.copy(alpha = a.coerceIn(0f, 1f))
+    fun brush(e: Float, solidity: Float = 1f): Brush {
+        val knee = lerp(REST_KNEE, HIT_KNEE, e)
+        return Brush.horizontalGradient(
+            0f to ink(at(restWash(0f), HIT_BASE, e) * solidity),
+            base to ink(at(restWash(base), HIT_BASE, e) * solidity),
+            past to ink(at(restWash(past), HIT_PAST, e) * solidity),
+            knee to ink(at(restWash(REST_KNEE), HIT_KNEE_ALPHA, e) * solidity),
+            1f to Color.Transparent,
+        )
+    }
+    val rest = brush(0f)
+    // The drift's two bands: soft stripes of the colour, repeated, at a slant.
+    val band = DRIFT_BAND.toPx()
+    fun bands(t: Float, speed: Float, slant: Float, phase: Float): Brush {
+        val x = (t * speed.dp.toPx() + phase * band) % band
+        return Brush.linearGradient(
+            0f to Color.Transparent,
+            0.5f to Color.White,
+            1f to Color.Transparent,
+            start = Offset(x, 0f),
+            end = Offset(x + band, band * slant),
+            tileMode = TileMode.Repeated,
+        )
+    }
+    onDrawBehind {
+        val e = swing().coerceIn(0f, 1f)
+        val t = clock?.invoke()
+        if (t == null) {
+            drawRect(if (e < 0.01f) rest else brush(e))
+            return@onDrawBehind
+        }
+        // Most of the mist is a steady floor, so it never flickers thin; the rest of it is the
+        // drifting bands, in a layer cut to the mist's shape. A hit raises the floor, so the
+        // base goes solid through the drift rather than in stripes.
+        val floor = lerp(DRIFT_FLOOR, 1f, e)
+        drawRect(brush(e, floor))
+        drawIntoCanvas { canvas ->
+            canvas.saveLayer(androidx.compose.ui.geometry.Rect(0f, 0f, w, h), androidx.compose.ui.graphics.Paint())
+            val wobble = kotlin.math.sin(t * 0.37f) * 0.18f
+            drawRect(bands(t, 22f, 0.55f + wobble, 0f), alpha = 0.75f)
+            drawRect(bands(t, -13f, -0.4f - wobble, 0.37f), alpha = 0.55f, blendMode = BlendMode.Plus)
+            // Coloured and shaped by the mist itself, at the strength the floor leaves.
+            // The bands average about 0.6, so this keeps the mist's mean where the still one is.
+            drawRect(brush(e, (1f - floor) / 0.6f), blendMode = BlendMode.SrcIn)
+            canvas.restore()
+        }
+    }
+}
 
-/** Where the solid end has faded into the mist. */
-private val INNER_INTO = 130.dp
+/** The drift's band width: one stripe of mist and the gap after it. */
+private val DRIFT_BAND = 170.dp
 
-private const val INNER_SOLID_ALPHA = 0.85f
+/** The share of the mist that stays steady under the drift. */
+private const val DRIFT_FLOOR = 0.5f
 
-/** The mist at rest. The wash it replaced started at 0.16 and was nearly gone by 65%. */
-private const val INNER_MIST = 0.22f
+/** How much brighter a strong beat makes the solid bar. */
+private const val SOLID_BOUNCE = 0.35f
 
-/** How far across the mist holds before it fades out at the far edge. */
-private const val INNER_HOLD = 0.85f
+/** The wash the strip had before the beat reached it: 0.16 at the left, 0.04 by 65%, gone at the edge. */
+private fun restWash(x: Float): Float =
+    if (x <= REST_KNEE) 0.16f - 0.12f * x / REST_KNEE else 0.04f * (1f - (x - REST_KNEE) / (1f - REST_KNEE))
 
-/** How much a hard beat swells the mist, as a multiple of its rest strength. */
-private const val INNER_BEAT = 1.6f
+private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
 
-/** The most the mist reaches on a beat, so the title stays readable over it. */
-private const val INNER_MIST_MAX = 0.5f
+/** Where the base ends: the thumbnail and its margin. */
+private val INNER_BASE = 60.dp
+
+/** The base on a strong hit: the full track colour. */
+private const val HIT_BASE = 0.97f
+
+/** The mist just past the base on a strong hit, still mist. */
+private const val HIT_PAST = 0.5f
+
+/** Where the falloff starts at rest, as a fraction of the width, and how far a strong hit pushes it. */
+private const val REST_KNEE = 0.65f
+private const val HIT_KNEE = 0.82f
+
+/** The mist at the falloff on a strong hit. */
+private const val HIT_KNEE_ALPHA = 0.18f
 
 /**
  * How much brighter the hairline gets on a hard beat.

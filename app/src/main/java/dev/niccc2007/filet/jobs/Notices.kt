@@ -48,7 +48,39 @@ object Notices {
 }
 
 /** The groups on the Activity page, in the order it lists them. */
-enum class NoticeGroup { COPY_MOVE, ARCHIVES, DELETE, NETWORK, SAVING, BACKGROUND, TOOLS, OTHER }
+enum class NoticeGroup(val label: String) {
+    COPY_MOVE("Copy and move"),
+    ARCHIVES("Archives"),
+    DELETE("Delete"),
+    NETWORK("Network"),
+    SAVING("Saving"),
+    BACKGROUND("Background work"),
+    TOOLS("Tools"),
+    OTHER("Everything else"),
+}
+
+/**
+ * What the Activity page calls a kind, and the few words under it where the name alone does not
+ * say what it covers. Exhaustive for the reason [notice] is.
+ */
+fun JobKind.label(): Pair<String, String?> = when (this) {
+    JobKind.COPY -> "Copy" to null
+    JobKind.MOVE -> "Move" to null
+    JobKind.DELETE -> "Delete" to null
+    JobKind.COMPRESS -> "Compress" to null
+    JobKind.EXTRACT -> "Extract" to null
+    JobKind.SAVE -> "Save" to "edits written back"
+    JobKind.INDEX -> "Indexing" to "for search"
+    JobKind.MEASURE -> "Folder sizes" to null
+    JobKind.BEAT -> "Beat maps" to null
+    JobKind.SCRIPT -> "Scripts" to null
+    JobKind.APK -> "APK tools" to "sign, decompile, rebuild"
+    JobKind.FETCH -> "Fetch from a remote" to "before it opens"
+    JobKind.DOWNLOAD -> "Downloads from other apps" to null
+    JobKind.SERVED -> "Downloads by others" to "from your Nearby share"
+    JobKind.RECEIVED -> "Files received" to "pushed from another Filet"
+    JobKind.OTHER -> "Everything else" to null
+}
 
 /**
  * Where a kind's switches sit, and whether it has a finished message at all.
@@ -63,6 +95,10 @@ fun JobKind.notice(): Notice = when (this) {
     JobKind.COMPRESS, JobKind.EXTRACT -> Notice(NoticeGroup.ARCHIVES, ends = true)
     JobKind.DELETE -> Notice(NoticeGroup.DELETE, ends = true)
     JobKind.FETCH, JobKind.DOWNLOAD -> Notice(NoticeGroup.NETWORK, ends = false)
+    // Both end with a message by design: a download by someone else and a file that arrived are
+    // the two network events worth hearing about while doing something else. The message is
+    // small and leaves on its own, so it cannot get in the way.
+    JobKind.SERVED, JobKind.RECEIVED -> Notice(NoticeGroup.NETWORK, ends = true)
     JobKind.SAVE -> Notice(NoticeGroup.SAVING, ends = true)
     JobKind.INDEX, JobKind.MEASURE, JobKind.BEAT -> Notice(NoticeGroup.BACKGROUND, ends = false)
     JobKind.SCRIPT, JobKind.APK -> Notice(NoticeGroup.TOOLS, ends = true)

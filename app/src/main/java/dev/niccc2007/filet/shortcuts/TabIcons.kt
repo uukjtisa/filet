@@ -84,7 +84,7 @@ fun ArtTile(art: String, side: Dp = 30.dp) = TabArt(art, side)
 @Composable
 fun RecordTile(record: ShortcutRecord) {
     // The plainer icons, where the Shortcuts tab asked for them. See IconStyle.
-    if (dev.niccc2007.filet.icons.LocalIconStyle.current == dev.niccc2007.filet.icons.IconStyle.PLAIN) {
+    if (dev.niccc2007.filet.icons.LocalIconStyle.current == dev.niccc2007.filet.icons.IconStyle.LEGACY) {
         GlyphTile(recordGlyph(record))
         return
     }
@@ -92,7 +92,8 @@ fun RecordTile(record: ShortcutRecord) {
     val path = runCatching { VPath.parse(record.target) }.getOrNull()
     if (record.dir == true && path != null) {
         val look = rememberFolderLook(path)
-        Canvas(Modifier.size(30.dp)) { drawFolder(Inside.Pages, look) }
+        val whole = dev.niccc2007.filet.icons.wholeFor(dev.niccc2007.filet.icons.LocalIconStyles.current.files.folders, look)
+        Canvas(Modifier.size(30.dp)) { drawFolder(Inside.Pages, look, whole = whole) }
     } else {
         val ext = FileTypes.extensionOf(path?.name ?: record.target)
         Canvas(Modifier.size(30.dp)) { drawTypeIcon(ext) }

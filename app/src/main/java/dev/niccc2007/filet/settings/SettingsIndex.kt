@@ -545,20 +545,50 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
         text = "Remind me past Home mentions the cache once it grows past this.",
     ),
     SettingsEntry(
-        key = Prefs.K_JOBS_KEEP_DAYS,
-        title = "Keep finished jobs",
-        tab = SettingsGroup.STORAGE,
-        section = "Activity",
-        text = "Keep finished jobs How long Activity lists a job after it ends. Running jobs " +
-            "are never removed.",
-    ),
-    SettingsEntry(
         key = Prefs.K_ROOT_VOLUMES,
         title = "Root storage on Home",
         tab = SettingsGroup.STORAGE,
         section = "Storage access",
         text = "Root storage on Home Shows root, /data and /system on Home. Keeps root, " +
             "/data and /system off Home.",
+    ),
+    SettingsEntry(
+        key = Prefs.K_JOBS_KEEP_DAYS,
+        title = "Keep finished jobs",
+        tab = SettingsGroup.ACTIVITY,
+        section = "Activity",
+        text = "Keep finished jobs How long Activity lists a job after it ends. Running jobs " +
+            "are never removed.",
+    ),
+    SettingsEntry(
+        key = Prefs.K_NOTICES,
+        title = "Kinds of work",
+        tab = SettingsGroup.ACTIVITY,
+        section = "Cards and messages",
+        text = "Which kinds of work pop up. A failure always shows its message. Kinds of " +
+            "work",
+    ),
+    SettingsEntry(
+        key = ActivityKeys.LIFE,
+        title = "Stays for",
+        tab = SettingsGroup.ACTIVITY,
+        section = "Started cards",
+        text = "Stays for How long a card stays. The line along its bottom counts it down.",
+    ),
+    SettingsEntry(
+        key = ActivityKeys.PLACE,
+        title = "Sits at",
+        tab = SettingsGroup.ACTIVITY,
+        section = "Started cards",
+        text = "Sits at Top right Top left Bottom right Bottom left At the bottom, cards " +
+            "stack upward from just above the finished message.",
+    ),
+    SettingsEntry(
+        key = ActivityKeys.STACK,
+        title = "Stacks up to",
+        tab = SettingsGroup.ACTIVITY,
+        section = "Started cards",
+        text = "Stacks up to Cards on screen at once. One more pushes the oldest out early.",
     ),
     SettingsEntry(
         key = Prefs.K_UPD_OFF,

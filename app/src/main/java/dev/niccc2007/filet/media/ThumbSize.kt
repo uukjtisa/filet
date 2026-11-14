@@ -66,6 +66,33 @@ internal object ThumbSize {
         return (width * ratio).roundToInt().coerceAtLeast(1) to (height * ratio).roundToInt().coerceAtLeast(1)
     }
 
+    /**
+     * The box to ask the system for, so that a picture of [width] x [height] fitted inside it
+     * still reaches [px] on the edge that matters: the short one for a [square] preview, which is
+     * cropped from the middle, the long one otherwise. Zero when the shape is so long that the box
+     * would be past twice [MAX] - the system would hand back the whole file to decode, which is
+     * the work the system preview was meant to save. Unknown dimensions ask for [px] and let
+     * [covers] judge what comes back.
+     */
+    fun boxFor(width: Int, height: Int, px: Int, square: Boolean): Int {
+        if (width <= 0 || height <= 0 || !square) return px
+        val long = maxOf(width, height)
+        val short = minOf(width, height)
+        val box = ceil(px.toDouble() * long / short).toInt()
+        return if (box > MAX * 2) 0 else box
+    }
+
+    /**
+     * Whether a picture [width] x [height] fills a [px] slot without being stretched more than a
+     * tenth: on its short edge for a [square] preview, its long edge otherwise. A tenth is under
+     * what shows on a phone screen; past it the preview reads as soft beside the gallery's.
+     */
+    fun covers(width: Int, height: Int, px: Int, square: Boolean): Boolean {
+        if (width <= 0 || height <= 0) return false
+        val edge = if (square) minOf(width, height) else maxOf(width, height)
+        return edge * 10 >= px * 9
+    }
+
     /** The centred square to keep from a [width] x [height] picture: left, top and side. */
     fun crop(width: Int, height: Int): Triple<Int, Int, Int> {
         val side = minOf(width, height)

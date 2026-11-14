@@ -96,6 +96,16 @@ class FolderFreshnessTest {
     }
 
     @Test
+    fun `a folder already on screen is not redrawn chunk by chunk`() {
+        // The first chunk of a re-list is a scattering from all through the folder; drawn, it
+        // replaced the full list and every row jumped until the last chunk.
+        assertFalse(FolderFreshness.streams(rowsShown = 400))
+        assertFalse(FolderFreshness.streams(rowsShown = 1))
+        // Nothing on screen yet: the first rows early is the whole point of streaming.
+        assertTrue(FolderFreshness.streams(rowsShown = 0))
+    }
+
+    @Test
     fun `the same pane re-lists as soon as the drag is over`() {
         // Deferred, not dropped: the revision that made it stale is still there.
         assertTrue(

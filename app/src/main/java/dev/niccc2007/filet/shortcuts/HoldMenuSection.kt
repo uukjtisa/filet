@@ -166,7 +166,7 @@ private fun entryNote(entry: HoldMenu.Entry): String? =
 /** An entry's icon in the list: its drawing, or the plainer glyph where the Shortcuts tab asks for those. */
 @Composable
 private fun EntryTile(entry: HoldMenu.Entry) {
-    val plain = LocalIconStyle.current == IconStyle.PLAIN
+    val plain = LocalIconStyle.current == IconStyle.LEGACY
     if (!plain && artDrawable(entry.art) != null) {
         ArtTile(entry.art)
         return

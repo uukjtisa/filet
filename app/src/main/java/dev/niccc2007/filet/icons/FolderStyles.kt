@@ -112,6 +112,8 @@ class FolderStyles internal constructor(
                     emblem = o.optString("emblem").ifEmpty { null },
                     colour = o.optString("colour").ifEmpty { "steel" },
                     cover = o.optString("cover").ifEmpty { null },
+                    showEmblem = o.optBoolean("showEmblem", true),
+                    paint = FolderPaint.entries.firstOrNull { it.name == o.optString("paint") },
                 ),
             )
         }
@@ -126,6 +128,9 @@ class FolderStyles internal constructor(
                     e.phone?.let { put("phone", it) }
                     e.look.emblem?.let { put("emblem", it) }
                     e.look.cover?.let { put("cover", it) }
+                    // Written only when off, so every record from before reads exactly as it did.
+                    if (!e.look.showEmblem) put("showEmblem", false)
+                    e.look.paint?.let { put("paint", it.name) }
                 }
             )
         }
@@ -133,7 +138,10 @@ class FolderStyles internal constructor(
     }
 
     companion object {
-        /** The chosen looks: a JSON list of path, id, the phone that made the id, emblem, colour, cover. */
+        /**
+         * The chosen looks: a JSON list of path, id, the phone that made the id, emblem, colour,
+         * cover, and, when they differ from the default, showEmblem (false) and paint.
+         */
         const val KEY = "folder.styles.v1"
 
         /** This install's own mark, so an id is only trusted on the phone that made it. */

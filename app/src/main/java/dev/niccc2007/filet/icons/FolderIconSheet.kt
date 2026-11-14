@@ -24,6 +24,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -143,14 +144,18 @@ private fun FolderIconSheet(folders: List<VNode>) {
     var emblem by remember(folders) { mutableStateOf(start.emblem) }
     var colour by remember(folders) { mutableStateOf(start.colour) }
     var cover by remember(folders) { mutableStateOf(start.cover != null) }
+    var showEmblem by remember(folders) { mutableStateOf(start.showEmblem) }
+    var paint by remember(folders) { mutableStateOf(start.paint) }
     var resetting by remember(folders) { mutableStateOf(false) }
+    // Change icon follows the lists: its preview and its tick read Files and folders › Folders.
+    val lists = LocalIconStyles.current.files.folders
     var group by remember(folders) { mutableStateOf(ALL) }
     val scope = rememberCoroutineScope()
     val graph = remember(context) { FiletApp.graphOf(context) }
 
     val peek = rememberFolderPeek(graph.folderPeek, first.path, first.mtime, true).value
     val firstPicture = peek.items.firstOrNull { it.kind == PeekKind.MEDIA }?.node?.name
-    val look = FolderLook(emblem, colour, if (cover) firstPicture else null)
+    val look = FolderLook(emblem, colour, if (cover) firstPicture else null, showEmblem, paint)
 
     fun changed(block: () -> Unit) {
         block()
@@ -165,13 +170,20 @@ private fun FolderIconSheet(folders: List<VNode>) {
             onClose = FolderIconAsk::close,
         )
         DlgBody {
-            Preview(first, look, hasThings = peek.items.isNotEmpty())
+            Preview(first, look, hasThings = peek.items.isNotEmpty(), lists = lists)
             DlgSection("Emblem")
+            ShowEmblemTick(showEmblem, outline = lists == FolderDrawing.OUTLINE) { changed { showEmblem = !showEmblem } }
+            Spacer(Modifier.height(8.dp))
             GroupChips(group) { group = it }
             Spacer(Modifier.height(6.dp))
             EmblemGrid(emblem, group) { id -> changed { emblem = id } }
             DlgSection("Colour")
             Colours(colour) { c -> changed { colour = c } }
+            Spacer(Modifier.height(8.dp))
+            // What the colour paints, for this folder. With no choice of its own it follows Folders.
+            PaintChips(paint ?: if (lists == FolderDrawing.DRAWN_WHOLE) FolderPaint.WHOLE else FolderPaint.EMBLEM) { p ->
+                changed { paint = p }
+            }
             Spacer(Modifier.height(12.dp))
             DlgTick(
                 on = cover,
@@ -191,6 +203,8 @@ private fun FolderIconSheet(folders: List<VNode>) {
                         emblem = back.emblem
                         colour = back.colour
                         cover = false
+                        showEmblem = true
+                        paint = null
                         resetting = true
                     }
                     .padding(vertical = 4.dp),
@@ -203,7 +217,7 @@ private fun FolderIconSheet(folders: List<VNode>) {
                 kind = BtnKind.PRIMARY,
             ) {
                 scope.launch {
-                    val done = apply(styles, graph.folderPeek, folders, emblem, colour, cover, resetting)
+                    val done = apply(styles, graph.folderPeek, folders, FolderLook(emblem, colour, null, showEmblem, paint), cover, resetting)
                     FolderIconAsk.finished(done)
                 }
             }
@@ -216,8 +230,8 @@ private suspend fun apply(
     styles: FolderStyles,
     peek: dev.niccc2007.filet.browser.FolderPeek,
     folders: List<VNode>,
-    emblem: String?,
-    colour: String,
+    /** Everything chosen but the cover, which is each folder's own first picture. */
+    chosen: FolderLook,
     cover: Boolean,
     resetting: Boolean,
 ): FolderIconAsk.Done {
@@ -225,13 +239,13 @@ private suspend fun apply(
     if (resetting) {
         styles.reset(folders.map { it.path })
     } else if (!cover) {
-        styles.set(folders.map { it.path }, FolderLook(emblem, colour))
+        styles.set(folders.map { it.path }, chosen)
     } else {
         // Each folder's own first picture: the one Filet would have put first anyway.
         for (f in folders) {
             val name = runCatching { peek.of(f.path, f.mtime) }.getOrNull()
                 ?.items?.firstOrNull { it.kind == PeekKind.MEDIA }?.node?.name
-            styles.set(listOf(f.path), FolderLook(emblem, colour, name))
+            styles.set(listOf(f.path), chosen.copy(cover = name))
         }
     }
     val n = folders.size
@@ -257,8 +271,9 @@ private fun namesOf(folders: List<VNode>): String = when {
 
 /** Both states, side by side: what an empty one looks like, and one with things in it. */
 @Composable
-private fun Preview(first: VNode, look: FolderLook, hasThings: Boolean) {
+private fun Preview(first: VNode, look: FolderLook, hasThings: Boolean, lists: FolderDrawing) {
     val colors = Filet.colors
+    val draw = folderDraw(lists, look)
     Row(
         Modifier
             .fillMaxWidth()
@@ -267,16 +282,75 @@ private fun Preview(first: VNode, look: FolderLook, hasThings: Boolean) {
             .padding(10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        PreviewCell("Empty", Modifier.weight(1f)) {
-            Canvas(Modifier.size(PREVIEW)) { drawFolder(Inside.Empty, look) }
-        }
-        PreviewCell("With things in it", Modifier.weight(1f)) {
-            if (hasThings) {
-                FolderIcon(first, PREVIEW, look = look)
-            } else {
-                // An empty folder has nothing of its own to show, so it borrows a few things.
-                Canvas(Modifier.size(PREVIEW)) { drawFolder(SAMPLE, look) }
+        // In the lists' look, so what is picked is what the lists show. See folderDraw.
+        when {
+            draw.outline -> for (label in listOf("Empty", "With things in it")) {
+                PreviewCell(label, Modifier.weight(1f)) {
+                    Box(Modifier.size(PREVIEW), contentAlignment = Alignment.Center) {
+                        Icon(FiletIcons.Folder, null, tint = colors.accent, modifier = Modifier.size(PREVIEW * 0.6f))
+                    }
+                }
             }
+            draw.legacy -> {
+                PreviewCell("Empty", Modifier.weight(1f)) {
+                    dev.niccc2007.filet.browser.ClassicFolderIcon(first, PREVIEW, colors.accent, previews = false, emblem = draw.emblem, colour = look.colour, whole = draw.whole)
+                }
+                PreviewCell("With things in it", Modifier.weight(1f)) {
+                    dev.niccc2007.filet.browser.ClassicFolderIcon(first, PREVIEW, colors.accent, previews = hasThings, emblem = draw.emblem, colour = look.colour, whole = draw.whole)
+                }
+            }
+            else -> {
+                PreviewCell("Empty", Modifier.weight(1f)) {
+                    Canvas(Modifier.size(PREVIEW)) { drawFolder(Inside.Empty, look, whole = draw.whole) }
+                }
+                PreviewCell("With things in it", Modifier.weight(1f)) {
+                    if (hasThings) {
+                        FolderIcon(first, PREVIEW, look = look)
+                    } else {
+                        Canvas(Modifier.size(PREVIEW)) { drawFolder(SAMPLE, look, whole = draw.whole) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Show emblem, under the Emblem heading. Per folder, on by default. Greyed on Legacy outline,
+ * which shows no emblems, still showing what it keeps. The lines are the Legacy icons mock's.
+ */
+@Composable
+internal fun ShowEmblemTick(on: Boolean, outline: Boolean = false, onToggle: () -> Unit) {
+    DlgTick(
+        on = on,
+        label = "Show emblem",
+        sub = when {
+            outline -> "Legacy outline shows no emblems. Yours is kept."
+            on -> "Untick to hide it on this folder. It stays saved."
+            else -> "Hidden on this folder. Your emblem is kept."
+        },
+        enabled = !outline,
+        onToggle = onToggle,
+    )
+}
+
+/** Emblem · Whole folder: what the colour paints on this folder. */
+@Composable
+internal fun PaintChips(paint: FolderPaint, onPick: (FolderPaint) -> Unit) {
+    val colors = Filet.colors
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        for ((p, label) in listOf(FolderPaint.EMBLEM to "Emblem", FolderPaint.WHOLE to "Whole folder")) {
+            val on = p == paint
+            Text(
+                label,
+                fontSize = 11.5.sp,
+                color = if (on) MaterialTheme.colorScheme.onPrimary else colors.fg2,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (on) colors.accent else colors.sunken)
+                    .clickable(role = Role.Button) { onPick(p) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
         }
     }
 }

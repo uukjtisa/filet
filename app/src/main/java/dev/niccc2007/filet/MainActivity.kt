@@ -116,9 +116,15 @@ class MainActivity : ComponentActivity() {
             // together instead of each row starting its own animation when it is composed. See
             // `RowPulse` for why per-row clocks cost a frame budget and read as noise.
             val rowPulse = dev.niccc2007.filet.ui.rememberRowPulse()
+            // Legacy icons: every place's look, and the lists' as the default for whatever draws
+            // a file or folder. The grids, galleries and the Shortcuts tab provide their own,
+            // and Home provides drawn. See IconStyles.
+            val looks by dev.niccc2007.filet.icons.LegacyLooks.of(this).styles.collectAsState()
             CompositionLocalProvider(
                 dev.niccc2007.filet.browser.LocalFolderBytes provides folderBytes,
                 dev.niccc2007.filet.ui.LocalRowPulse provides rowPulse,
+                dev.niccc2007.filet.icons.LocalIconStyles provides looks,
+                dev.niccc2007.filet.icons.LocalPlaceLook provides looks.files,
             ) {
             FiletTheme(theme = theme, accent = accent) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {

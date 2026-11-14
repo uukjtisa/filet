@@ -117,7 +117,11 @@ private fun comparatorFor(key: SortKey, descending: Boolean): Comparator<VNode> 
             if (c != 0) c else naturalCompare(a.name, b.name)
         }
     }
-    return if (descending) byKey else byKey.reversed()
+    val directed = if (descending) byKey else byKey.reversed()
+    // Ties by name, A to Z whichever way the key runs. Bug identified here: size and date had no
+    // tie-break, so files of one size or one time kept the order the disk listed them in, which
+    // changes when a folder changes - and two re-reads of a folder put equal rows in two orders.
+    return directed.then(Comparator { a, b -> naturalCompare(a.name, b.name) })
 }
 
 /**

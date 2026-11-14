@@ -173,7 +173,13 @@ internal object HardwareFirst {
             val mime = format.sampleMimeType ?: return caps
             val hardware = runCatching { mediaCodecSelector.getDecoderInfos(mime, false, false) }.getOrDefault(emptyList())
                 .filter { it.hardwareAccelerated && runCatching { it.isFormatFunctionallySupported(app, format) }.getOrDefault(false) }
-            return if (hardware.any { HardwareProbe.starts(it.name, format) }) upgrade(caps) else caps
+            val starts = hardware.any { HardwareProbe.starts(it.name, format) }
+            // What was found, for Playback stats: the half of "FFmpeg, software" it cannot say.
+            HardwareProbe.noteLook(
+                format,
+                HardwareProbe.lookWords(format.codecs, hardware.map { it.name to HardwareProbe.words(it.name, format) }),
+            )
+            return if (starts) upgrade(caps) else caps
         }
     }
 

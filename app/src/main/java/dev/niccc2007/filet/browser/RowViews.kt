@@ -748,7 +748,11 @@ fun FileTile(
 ) {
     val base = LocalViewConfiguration.current
     val quick = remember(base) { RowTaps.QuickPress(base) }
-    CompositionLocalProvider(LocalViewConfiguration provides quick) {
+    CompositionLocalProvider(
+        LocalViewConfiguration provides quick,
+        // A tile is the grid view's: it wears the Gallery look. See IconStyles.
+        dev.niccc2007.filet.icons.LocalPlaceLook provides dev.niccc2007.filet.icons.LocalIconStyles.current.gallery,
+    ) {
         Box {
             FileTileBody(node, metrics, selected, dropTarget, modifier, thumbnails, selecting, onClick, onLongClick, onDoubleClick, onTaps, listensFor)
             // Only while selecting, as in Photos and Files. On every tile at rest it read as a

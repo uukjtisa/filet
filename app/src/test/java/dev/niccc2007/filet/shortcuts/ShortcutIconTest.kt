@@ -4,6 +4,7 @@ import dev.niccc2007.filet.browser.TabTarget
 import dev.niccc2007.filet.icons.COLOUR_IDS
 import dev.niccc2007.filet.icons.EMBLEM_IDS
 import dev.niccc2007.filet.icons.FolderLook
+import dev.niccc2007.filet.icons.FolderPaint
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import org.junit.Assert.assertEquals
@@ -49,6 +50,22 @@ class ShortcutIconTest {
     @Test fun `a cover name with a colon in it survives`() {
         val icon = ShortcutIcon.Folder(FolderLook(emblem, colour, cover = "12:30 shot.jpg"))
         assertEquals(icon, ShortcutIcon.parse(icon.encode()))
+    }
+
+    @Test fun `an own folder keeps Show emblem and its paint, with a cover after them`() {
+        for (look in listOf(
+            FolderLook(emblem, colour, showEmblem = false),
+            FolderLook(emblem, colour, paint = FolderPaint.WHOLE),
+            FolderLook(emblem, colour, cover = "12:30 shot.jpg", showEmblem = false, paint = FolderPaint.EMBLEM),
+        )) {
+            val icon = ShortcutIcon.Folder(look)
+            assertEquals(icon.encode(), icon, ShortcutIcon.parse(icon.encode()))
+        }
+        // A spec from before the flags reads as it always did.
+        assertEquals(
+            ShortcutIcon.Folder(FolderLook(emblem, colour, cover = "a.jpg")),
+            ShortcutIcon.parse("folder:own:$emblem:$colour:a.jpg"),
+        )
     }
 
     @Test fun `what this build cannot draw reads as nothing, so the kind's own icon is used`() {

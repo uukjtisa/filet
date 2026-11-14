@@ -687,6 +687,19 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
     }
 
     /**
+     * The mini player's ground: `animated` (the drifting mist), `solid` (the whole bar in the
+     * track's colour) or `still` (the mist, held). One value, so the two switches in the strip's
+     * Background glow panel can never both be on. See `StripLook`.
+     */
+    private val _stripLook = stored { sp.getString(K_STRIP_LOOK, null) ?: "animated" }
+    val stripLook: StateFlow<String> = _stripLook.asStateFlow()
+
+    fun setStripLook(v: String) {
+        _stripLook.value = v
+        sp.edit().putString(K_STRIP_LOOK, v).apply()
+    }
+
+    /**
      * Swipe sideways to change tab in the pane under your finger. See `PaneSwipe`.
      *
      * On by default, and it only does anything in dual pane - which is both what it is for
@@ -1652,6 +1665,19 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
 
     fun setJobsKeepDays(days: Int) { _jobsKeepDays.value = days; sp.edit().putInt(K_JOBS_KEEP_DAYS, days).apply() }
 
+    /**
+     * Settings › Activity: which kinds of job raise a started card or a finished message, and how
+     * the cards behave. One JSON value; see [dev.niccc2007.filet.jobs.NoticePrefs] for why only
+     * what is switched OFF is kept.
+     */
+    private val _notices = stored { dev.niccc2007.filet.jobs.NoticePrefs.decode(sp.getString(K_NOTICES, null)) }
+    val notices: StateFlow<dev.niccc2007.filet.jobs.NoticePrefs> = _notices.asStateFlow()
+
+    fun setNotices(n: dev.niccc2007.filet.jobs.NoticePrefs) {
+        _notices.value = n
+        sp.edit().putString(K_NOTICES, n.encode()).apply()
+    }
+
     fun setSort(s: SortSpec) {
         _sort.value = s
         val edit = sp.edit()
@@ -1936,6 +1962,7 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         const val K_VIBRANCY = "play.vibrancy"
         const val K_DISC_TURN = "play.discTurnMs"
         const val K_GLOW_SPILL = "play.glowSpill"
+        const val K_STRIP_LOOK = "play.stripLook"
         const val K_PANE_SWIPE = "panes.swipe"
         const val K_PANE_SWIPE_AT = "panes.swipeAt"
         const val K_DRAWER_STORAGE = "drawer.storage"
@@ -1995,6 +2022,7 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         const val K_HOME_OPENED_COUNT = "home.opened.count"
         const val K_HOME_OPENED_DENSITY = "home.opened.density"
         const val K_JOBS_KEEP_DAYS = "jobs.keepDays"
+        const val K_NOTICES = "jobs.notices"
         const val K_HOME_FEED_LINKED = "home.feedLinked"
         const val K_PLAYLISTS_GRID = "playlists.grid"
         const val K_DRAWER_WIDTH = "drawer.width"

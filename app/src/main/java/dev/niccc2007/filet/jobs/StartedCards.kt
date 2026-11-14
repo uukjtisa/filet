@@ -91,7 +91,7 @@ object StartedCards {
             JobKind.DELETE -> folderOf(job.from)?.let { "in $it" }
             JobKind.COMPRESS -> job.subtitle.ifBlank { null }?.let { "into $it" }
             JobKind.SAVE, JobKind.INDEX, JobKind.MEASURE, JobKind.BEAT, JobKind.SCRIPT,
-            JobKind.APK, JobKind.FETCH, JobKind.DOWNLOAD, JobKind.OTHER,
+            JobKind.APK, JobKind.FETCH, JobKind.DOWNLOAD, JobKind.SERVED, JobKind.RECEIVED, JobKind.OTHER,
             -> job.subtitle.ifBlank { null } ?: job.source.takeIf { it != "Filet" }
         } ?: job.subtitle.ifBlank { null }
         return title to where
@@ -111,37 +111,58 @@ private class Shown(val job: Job) {
 }
 
 /**
- * The stack of started cards: top right, newest on top, at most [StartedCards.MAX].
+ * The stack of started cards, at most [NoticePrefs.stack] of them, in the corner Settings >
+ * Activity chose (top right by default, where they have always been).
  *
  * Counting starts at the newest job when this comes up, so history read back from disk and jobs
- * that ran while the screen was away never raise a burst of cards on arrival.
+ * that ran while the screen was away never raise a burst of cards on arrival. A kind switched off
+ * still moves the count on - it is seen, just not shown - so turning it back on later does not
+ * replay every job it skipped.
+ *
+ * At the top the newest card is on top; at the bottom the stack grows upward, so the newest card
+ * is the one nearest the edge either way and the eye finds it in the same place.
  *
  * @param onOpen a card was tapped: open Activity at that job.
  */
 @Composable
-fun StartedCardStack(ledger: JobLedger, modifier: Modifier = Modifier, onOpen: (Long) -> Unit) {
+fun StartedCardStack(
+    ledger: JobLedger,
+    prefs: NoticePrefs,
+    modifier: Modifier = Modifier,
+    onOpen: (Long) -> Unit,
+) {
     val jobs by ledger.jobs.collectAsState()
     var seen by remember { mutableLongStateOf(StartedCards.newest(ledger.jobs.value)) }
     val cards = remember { mutableStateListOf<Shown>() }
     val open by rememberUpdatedState(onOpen)
+    val now by rememberUpdatedState(prefs)
 
     LaunchedEffect(jobs) {
         val fresh = StartedCards.newSince(seen, jobs)
         if (fresh.isEmpty()) return@LaunchedEffect
         seen = fresh.maxOf { it.id }
-        for (j in fresh) cards.add(0, Shown(j))
-        cards.filterNot { it.leaving }.drop(StartedCards.MAX).forEach { it.leaving = true }
+        for (j in fresh) if (Notices.showsCard(j.kind, now)) cards.add(0, Shown(j))
+        cards.filterNot { it.leaving }.drop(now.stack).forEach { it.leaving = true }
     }
 
+    val bottom = prefs.place == CardPlace.BOTTOM_END || prefs.place == CardPlace.BOTTOM_START
+    val start = prefs.place == CardPlace.TOP_START || prefs.place == CardPlace.BOTTOM_START
     Column(
-        modifier.padding(top = 10.dp, end = 10.dp),
-        horizontalAlignment = Alignment.End,
+        modifier.padding(
+            top = if (bottom) 0.dp else 10.dp,
+            bottom = if (bottom) 10.dp else 0.dp,
+            start = if (start) 10.dp else 0.dp,
+            end = if (start) 0.dp else 10.dp,
+        ),
+        horizontalAlignment = if (start) Alignment.Start else Alignment.End,
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        for (c in cards) {
+        for (c in if (bottom) cards.asReversed() else cards) {
             key(c.job.id) {
                 StartedCard(
                     c,
+                    lifeMs = prefs.lifeMs,
+                    fromStart = start,
                     onGone = { cards.remove(c) },
                     onOpen = { c.leaving = true; open(c.job.id) },
                 )
@@ -151,23 +172,23 @@ fun StartedCardStack(ledger: JobLedger, modifier: Modifier = Modifier, onOpen: (
 }
 
 /**
- * One card. Slides in from the right in 180 ms, leaves the same way in 160 ms, after
- * [StartedCards.LIFE_MS], on its ×, on a tap, or when a fourth card pushes it out.
+ * One card. Slides in from its side in 180 ms, leaves the same way in 160 ms, after its
+ * life (Settings > Activity > Stays for), on its ×, on a tap, or when one too many pushes it out.
  *
  * The life is a timer, not the hairline's animation: with animations turned off in the system the
  * line jumps, and the card must still leave at three seconds.
  */
 @Composable
-private fun StartedCard(c: Shown, onGone: () -> Unit, onOpen: () -> Unit) {
+private fun StartedCard(c: Shown, lifeMs: Long, fromStart: Boolean, onGone: () -> Unit, onOpen: () -> Unit) {
     val colors = Filet.colors
     val accentDim = MaterialTheme.colorScheme.primaryContainer
     val shown = remember { Animatable(0f) }
     val life = remember { Animatable(1f) }
     val gone by rememberUpdatedState(onGone)
     LaunchedEffect(Unit) { shown.animateTo(1f, tween(180, easing = EaseOut)) }
-    LaunchedEffect(Unit) { life.animateTo(0f, tween(StartedCards.LIFE_MS.toInt(), easing = LinearEasing)) }
+    LaunchedEffect(Unit) { life.animateTo(0f, tween(lifeMs.toInt(), easing = LinearEasing)) }
     LaunchedEffect(Unit) {
-        delay(StartedCards.LIFE_MS)
+        delay(lifeMs)
         c.leaving = true
     }
     LaunchedEffect(c.leaving) {
@@ -182,7 +203,7 @@ private fun StartedCard(c: Shown, onGone: () -> Unit, onOpen: () -> Unit) {
     Row(
         Modifier
             .graphicsLayer {
-                translationX = (1f - shown.value) * size.width * 1.1f
+                translationX = (1f - shown.value) * size.width * 1.1f * if (fromStart) -1f else 1f
                 alpha = shown.value
             }
             .widthIn(max = 280.dp)

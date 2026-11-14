@@ -40,7 +40,7 @@
     0.697  measured as the largest scale whose INK never leaves the circle.
            Safe, and visibly timid - a small mark adrift in dead margin.
 
-  0.8 is a judgement, and it is one number to change if Nic wants it bolder or
+  0.8 is a judgement, and it is one number to change to make it bolder or
   safer.  check-icon.mjs still prints how far the mark reaches on every run, so
   whichever way it moves, the cost is on screen rather than in someone's head.
 -->

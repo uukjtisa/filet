@@ -429,7 +429,7 @@ private fun NotOnTheBar(bar: List<BarItem>, onAdd: (BarItem) -> Unit) {
 @Composable
 private fun BarItemIcon(item: BarItem) {
     // The bar's own line glyph where the tabs asked for the plainer icons. See IconStyle.
-    val plain = dev.niccc2007.filet.icons.LocalIconStyles.current.tabs == dev.niccc2007.filet.icons.IconStyle.PLAIN
+    val plain = dev.niccc2007.filet.icons.LocalIconStyles.current.tabs == dev.niccc2007.filet.icons.IconStyle.LEGACY
     val art = if (plain) null else barArt(item)
     if (art != null) {
         dev.niccc2007.filet.shortcuts.ArtTile(art, 30.dp)

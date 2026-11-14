@@ -32,11 +32,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.FiletApp
+import dev.niccc2007.filet.icons.classicEmblem
 import dev.niccc2007.filet.media.Thumbnails
 import dev.niccc2007.filet.vfs.VNode
 
 /**
- * The folder and file icons from before the drawn art, kept for [dev.niccc2007.filet.icons.IconStyle.PLAIN].
+ * The folder and file icons from before the drawn art, kept for [dev.niccc2007.filet.icons.IconStyle.LEGACY].
  *
  * Unchanged in look from what they were: a folder in one tint with up to three of its pictures
  * standing in it, and a file as its kind's glyph, or a monogram of its extension when the kind
@@ -51,7 +52,17 @@ fun ClassicFolderIcon(
     tint: Color,
     modifier: Modifier = Modifier,
     previews: Boolean = true,
+    /** The folder's emblem, drawn on its front in its colour; null for none or hidden. */
+    emblem: String? = null,
+    colour: String = "steel",
+    /** The folder in its colour all over: the tint becomes the colour's middle, the emblem white. */
+    whole: Boolean = false,
+    /** A picture inside, by name, chosen with "Use a photo from inside": it stands in the middle of the fan. */
+    cover: String? = null,
 ) {
+    val tinted = whole && colour != "steel"
+    @Suppress("NAME_SHADOWING")
+    val tint = if (tinted) dev.niccc2007.filet.icons.accent(colour).mid else tint
     val context = LocalContext.current
     val inspecting = LocalInspectionMode.current
     // A sample folder has nothing on a drive to peek at. See LocalSampleInside.
@@ -60,10 +71,17 @@ fun ClassicFolderIcon(
     val children = if (peek == null || !wants) {
         emptyList()
     } else {
-        rememberFolderPeek(peek, node.path, node.mtime, true).value.items
+        val media = rememberFolderPeek(peek, node.path, node.mtime, true).value.items
             .filter { it.kind == PeekKind.MEDIA }
             .map { it.node }
-            .take(3)
+        // The cover in the middle, one picture either side: the Legacy icons mock's withPictures.
+        val chosen = cover?.let { name -> media.firstOrNull { it.name == name } }
+        if (chosen == null) {
+            media.take(3)
+        } else {
+            val others = media.filter { it !== chosen }
+            listOfNotNull(others.getOrNull(0), chosen, others.getOrNull(1))
+        }
     }
     Box(modifier.size(size), contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(size)) { drawClassicBack(tint) }
@@ -72,6 +90,9 @@ fun ClassicFolderIcon(
             ClassicSheet(child, size, lean)
         }
         Canvas(Modifier.size(size)) { drawClassicFront(tint) }
+        if (emblem != null) {
+            Canvas(Modifier.size(size)) { classicEmblem(emblem, colour, tinted) }
+        }
     }
 }
 

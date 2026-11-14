@@ -2,9 +2,8 @@
 <!--
   Debug overrides.
 
-  Nic, round 9: *"in my device htere are two filet.. whihc ones whihc? is the other one debug?
-  cause when i udpated for mtheat suspected debug vrsion it created another instance instead of
-  updating it"*
+  Bug identified here: with both builds on one phone, an update to the debug build looked as if
+  it had made a second copy of the app instead of updating the first.
 
   Nothing was duplicated. `dev.niccc2007.filet` and `dev.niccc2007.filet.debug` are two
   different applications by design - that is what round 8's B-series made possible - so an

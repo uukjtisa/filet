@@ -50,6 +50,14 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun ShortcutsScreen(vm: BrowserViewModel) {
+    // The Shortcuts tab wears its own Legacy icons choice. See IconStyles.
+    androidx.compose.runtime.CompositionLocalProvider(
+        dev.niccc2007.filet.icons.LocalIconStyle provides dev.niccc2007.filet.icons.LocalIconStyles.current.shortcuts,
+    ) { ShortcutsScreenBody(vm) }
+}
+
+@Composable
+private fun ShortcutsScreenBody(vm: BrowserViewModel) {
     val allRecords by vm.shortcuts.all.collectAsState()
     val allScripts by vm.scripts.scripts.collectAsState()
     val folded by vm.shortcuts.folded.collectAsState()

@@ -24,7 +24,14 @@ enum class JobState { WAITING, RUNNING, DONE, FAILED, CANCELLED }
  * title was reworded.
  */
 enum class JobKind {
-    COPY, MOVE, DELETE, COMPRESS, EXTRACT, SAVE, INDEX, MEASURE, BEAT, SCRIPT, APK, FETCH, DOWNLOAD, OTHER;
+    COPY, MOVE, DELETE, COMPRESS, EXTRACT, SAVE, INDEX, MEASURE, BEAT, SCRIPT, APK, FETCH, DOWNLOAD,
+
+    /** Someone on the network downloaded a file this phone shares. */
+    SERVED,
+
+    /** A file pushed from another Filet arrived on this phone. */
+    RECEIVED,
+    OTHER;
 
     companion object {
         /** For a job started without a kind: the old title rule, kept only as the fallback. */

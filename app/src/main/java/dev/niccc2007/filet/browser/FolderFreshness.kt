@@ -65,4 +65,21 @@ object FolderFreshness {
         if (dragging) return false
         return listedAtRevision != worldRevision
     }
+
+    /**
+     * Whether a listing is drawn chunk by chunk as it arrives, or held until the whole of it has.
+     *
+     * Bug identified here: a refresh of the folder already on screen - which is what follows
+     * every delete - drew its first chunk in place of the full list. A listing arrives in the
+     * disk's own order, not the list's, so the first chunk of a big folder is a scattering from
+     * all through it; sorted, it replaced the rows on screen with a sparse few, and each chunk
+     * after it filled in between them. In a folder of numbered files that is every row jumping
+     * at once, several times, before the last chunk put the list back as it had been less one
+     * row.
+     *
+     * Streaming is for a folder with nothing on screen yet, where the first rows early is the
+     * whole gain. A folder that already shows its rows keeps them until the new listing is
+     * complete, and then changes once - so a delete closes its gap and nothing else moves.
+     */
+    fun streams(rowsShown: Int): Boolean = rowsShown == 0
 }

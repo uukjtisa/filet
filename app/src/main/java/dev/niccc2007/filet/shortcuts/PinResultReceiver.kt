@@ -23,6 +23,10 @@ class PinResultReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val record = read(intent) ?: return
         FiletApp.graphOf(context).shortcuts.confirm(record)
+        // The icon once more, so a launcher holding an older one for this id shows this one.
+        // See ShortcutArt.resend.
+        val done = goAsync()
+        ShortcutArt.resend(context, record) { done.finish() }
     }
 
     companion object {

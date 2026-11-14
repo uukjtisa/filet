@@ -43,6 +43,21 @@ class SortDirectionTest {
     private fun spec(key: SortKey, descending: Boolean) =
         SortSpec(key = key, descending = descending, foldersFirst = false)
 
+    @org.junit.Test
+    fun `equal sizes and dates come out in one order whatever order they were listed in`() {
+        // The disk lists a folder in its own order, and that order changes when the folder does.
+        // Without a tie-break two re-reads put equal rows in two orders.
+        val listed = listOf(node("30.jpg", 7, 5), node("4.jpg", 7, 5), node("100.jpg", 7, 5))
+        for (key in listOf(SortKey.SIZE, SortKey.MODIFIED)) {
+            for (descending in listOf(true, false)) {
+                val one = names(listed.sortedBy(spec(key, descending)))
+                val two = names(listed.reversed().sortedBy(spec(key, descending)))
+                assertEquals("$key $descending", one, two)
+                assertEquals(listOf("4.jpg", "30.jpg", "100.jpg"), one)
+            }
+        }
+    }
+
     // ── the report ──
 
     @Test

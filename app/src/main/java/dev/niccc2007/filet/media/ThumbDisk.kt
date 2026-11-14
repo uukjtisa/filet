@@ -33,14 +33,30 @@ internal object ThumbDisk {
 
     private const val QUALITY = 88
 
+    private const val TOUCH_EVERY_MS = 60L * 60 * 1000
+
     private val writer = Executors.newSingleThreadExecutor { r -> Thread(r, "filet-thumb-disk").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
     private val writes = AtomicInteger(0)
     @Volatile private var trimmedThisRun = false
 
     private fun root(context: Context) = File(context.cacheDir, "thumbs")
 
-    private fun hash(text: String): String =
-        MessageDigest.getInstance("SHA-1").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
+    private val HEX = "0123456789abcdef".toCharArray()
+
+    /**
+     * SHA-1 of [text] in hex. Written out by hand: `"%02x".format` per byte is forty formatter
+     * runs for one name, and two names are made for every preview a row asks about.
+     */
+    private fun hash(text: String): String {
+        val bytes = MessageDigest.getInstance("SHA-1").digest(text.toByteArray())
+        val out = CharArray(bytes.size * 2)
+        for ((i, b) in bytes.withIndex()) {
+            val v = b.toInt() and 0xFF
+            out[i * 2] = HEX[v ushr 4]
+            out[i * 2 + 1] = HEX[v and 0x0F]
+        }
+        return String(out)
+    }
 
     private fun fileFor(context: Context, path: String, rest: String) =
         File(File(root(context), hash(path)), hash(rest))
@@ -54,7 +70,10 @@ internal object ThumbDisk {
             runCatching { f.delete() }
             return null
         }
-        runCatching { f.setLastModified(System.currentTimeMillis()) }
+        // Marked read for the trim at most once an hour: the trim orders by days, and a write to
+        // the file's record on every read is a disk write per row scrolled past.
+        val now = System.currentTimeMillis()
+        if (now - f.lastModified() > TOUCH_EVERY_MS) runCatching { f.setLastModified(now) }
         return bitmap
     }
 

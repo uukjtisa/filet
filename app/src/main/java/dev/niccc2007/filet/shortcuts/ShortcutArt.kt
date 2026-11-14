@@ -28,7 +28,10 @@ import dev.niccc2007.filet.icons.line
 import dev.niccc2007.filet.icons.path
 import dev.niccc2007.filet.icons.richScene
 import dev.niccc2007.filet.media.Thumbnails
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
@@ -68,6 +71,46 @@ object ShortcutArt {
      */
     suspend fun draw(context: Context, s: PinSubject, icon: ShortcutIcon): Drawn = withContext(Dispatchers.IO) {
         drawOrNull(context, s, icon) ?: drawOrNull(context, s, defaultIcon(s)) ?: filet()
+    }
+
+    private val resendScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Send a placed shortcut's icon to the launcher once more, drawn from its record, as an edit
+     * does. Every placing ends with it: the launcher's confirmation, or the list finding the icon
+     * on a launcher that never confirms.
+     *
+     * Some launchers keep a shortcut's icon by its id. A folder pinned before, taken off and pinned
+     * again comes back under the id it had (`id:<file id>`), and such a launcher placed it wearing
+     * the icon it was first given: the folder's old look, on the dark tile pins had then. Only an
+     * edit, which sends the icon again, changed it.
+     *
+     * Drawn as the sheet draws it: the record's own icon, else its kind's, and a folder under "Same
+     * as the folder" in the look it wears in the list now. A script is left as the sheet sent it:
+     * finding it needs the script list, which is not loaded here. [after] runs once it is sent or
+     * given up on.
+     */
+    fun resend(context: Context, record: ShortcutRecord, after: () -> Unit = {}) {
+        val app = context.applicationContext
+        resendScope.launch {
+            try {
+                runCatching { resendNow(app, record) }
+            } finally {
+                after()
+            }
+        }
+    }
+
+    private suspend fun resendNow(context: Context, record: ShortcutRecord) {
+        val graph = FiletApp.graphOf(context)
+        val file = if (record.kind != ShortcutKind.FILE) null else findForEdit(
+            record,
+            byId = { id -> runCatching { graph.index.pathFor(id) }.getOrNull() },
+            stat = { p -> runCatching { graph.vfs.stat(p) }.getOrNull() },
+        )?.let { PinSubject.File(it, picture = !it.isDir && Thumbnails.canPreview(it.extension)) }
+        val subject = editSubject(record, file) { null } ?: return
+        val icon = ShortcutIcon.parse(record.icon) ?: defaultIcon(subject)
+        Shortcuts.update(context, record, launcherIcon(context, draw(context, subject, icon)))
     }
 
     /** The launcher's icon for what [draw] made. */

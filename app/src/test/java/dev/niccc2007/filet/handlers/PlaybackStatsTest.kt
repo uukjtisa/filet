@@ -138,6 +138,19 @@ class PlaybackStatsTest {
     }
 
     @Test
+    fun `a picture off the hardware says why, and one on it does not`() {
+        val look = HardwareProbe.lookWords("avc1.640033", listOf("c2.mtk.avc.decoder" to "refused (configure: error 1100), 4 ms"))
+        assertEquals("c2.mtk.avc.decoder: refused (configure: error 1100), 4 ms", look)
+        val soft = snap(2_000).copy(pictureDecoder = "ffmpegLibAvcDecoder", hardware = false, hardwareLook = look)
+        assertEquals(look, PlaybackStats.lines(soft, PlaybackStats.Rates(null, null, null), null, null).toMap()["Hardware"])
+        // On the hardware already: nothing to explain.
+        val hard = soft.copy(pictureDecoder = "c2.mtk.avc.decoder", hardware = true)
+        assertNull(PlaybackStats.lines(hard, PlaybackStats.Rates(null, null, null), null, null).toMap()["Hardware"])
+        // None asked: the profile is what no chip knew.
+        assertEquals("no hardware decoder knows avc1.6e0033", HardwareProbe.lookWords("avc1.6e0033", emptyList()))
+    }
+
+    @Test
     fun `heat is words, and nothing when the phone is cool`() {
         assertNull(PlaybackStats.heat(0))
         assertEquals("warm", PlaybackStats.heat(1))

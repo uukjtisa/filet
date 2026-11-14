@@ -161,6 +161,10 @@ fun FiletDialogs(vm: BrowserViewModel) {
             onDismiss = vm::dismissTransfer,
         )
     }
+    // After an import whose file carries another app icon: asked, never switched unasked.
+    vm.appIconOffer.collectAsState().value?.let { to ->
+        dev.niccc2007.filet.icons.AppIconAsk(to, onUse = vm::useImportedAppIcon, onKeep = vm::keepAppIcon)
+    }
 
     // The extraction's settings are NOT a dialogue any more. They are a card over the folder
     // being changed, rendered beside the ghosts that show the result - see `ExtractCard`, and

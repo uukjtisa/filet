@@ -60,6 +60,8 @@ internal object PlaybackStats {
         val speed: Float = 1f,
         /** Decoders that would not start before the one drawing the picture, each with why. */
         val refused: List<String> = emptyList(),
+        /** What the look for a hardware decoder found, when the file was past what they declare. */
+        val hardwareLook: String? = null,
     )
 
     /** Per-second figures from two snapshots. */
@@ -139,6 +141,8 @@ internal object PlaybackStats {
         // The first two: one line says why the picture is on a slower decoder, and the retry of
         // the same decoder is the second. More would push the frame counts off the box.
         for (r in now.refused.take(2)) out += "Refused" to r
+        // Why the picture is not on the phone's hardware, when it is not. See HardwareProbe.looks.
+        if (now.hardware != true) now.hardwareLook?.let { out += "Hardware" to it }
         val video = listOfNotNull(
             codecName(now.mime),
             if (now.width > 0 && now.height > 0) "${now.width}×${now.height}" else null,

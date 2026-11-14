@@ -940,12 +940,18 @@ internal fun FeedRow(
                 .background(colors.sunken),
             contentAlignment = Alignment.Center,
         ) {
-            dev.niccc2007.filet.browser.FileThumb(
-                node = node,
-                size = m.thumb.dp,
-                fallbackTint = colors.fg2,
-                glyphSize = m.glyph.dp,
-            )
+            // Home is always drawn: its cards are a summary in the app's own look, not a place
+            // with a Legacy choice of its own. See IconStyles.
+            androidx.compose.runtime.CompositionLocalProvider(
+                dev.niccc2007.filet.icons.LocalPlaceLook provides dev.niccc2007.filet.icons.PlaceLook.DRAWN,
+            ) {
+                dev.niccc2007.filet.browser.FileThumb(
+                    node = node,
+                    size = m.thumb.dp,
+                    fallbackTint = colors.fg2,
+                    glyphSize = m.glyph.dp,
+                )
+            }
         }
         Spacer(Modifier.width(m.gap.dp))
         if (m.folded) {

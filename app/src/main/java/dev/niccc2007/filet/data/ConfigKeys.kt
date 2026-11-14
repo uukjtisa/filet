@@ -119,6 +119,10 @@ object ConfigKeys {
         look("drawer.tools", ConfigType.BOOL),
         look("drives.names", ConfigType.JSON),
         look("folder.styles.v1", ConfigType.JSON),
+        look("look.legacy.v1", ConfigType.JSON),
+        // The app icon. Android holds which one is on, so it is never stored; Export reads it
+        // and Import asks before switching. Not in filet.json: a file could only drift from it.
+        look(dev.niccc2007.filet.icons.AppIconSwitch.EXPORT_KEY, ConfigType.STRING, inFile = false),
         look("details.memory", ConfigType.BOOL),
 
         // ── sorting and behaviour ──
@@ -193,6 +197,7 @@ object ConfigKeys {
         act("play.glowLevel", ConfigType.STRING),
         act("play.glowStrength", ConfigType.FLOAT),
         act("play.glowSpill", ConfigType.BOOL),
+        act("play.stripLook", ConfigType.STRING),
         act("play.vibrancy", ConfigType.FLOAT),
         act("play.discTurnMs", ConfigType.FLOAT),
         act("play.scratch", ConfigType.BOOL),
@@ -205,6 +210,7 @@ object ConfigKeys {
         act("play.allMusicMaxMs", ConfigType.LONG),
         act("allmusic.sort", ConfigType.STRING),
         act("jobs.keepDays", ConfigType.INT),
+        act("jobs.notices", ConfigType.JSON),
 
         // ── openers ──
         opener("handlers.v1", ConfigType.JSON),

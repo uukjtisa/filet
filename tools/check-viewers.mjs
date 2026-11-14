@@ -37,6 +37,7 @@ export function aliases(manifest) {
       exported: attr("exported"),
       mimes: [...body.matchAll(/android:mimeType\s*=\s*"([^"]+)"/g)].map((x) => x[1]),
       view: /android\.intent\.action\.VIEW/.test(body),
+      launcher: /android\.intent\.category\.LAUNCHER/.test(body),
     });
   }
   return out;
@@ -47,9 +48,17 @@ export function table(src) {
     .map((m) => ({ id: m[1], alias: m[2], label: m[3], handler: m[4] }));
 }
 
+/**
+ * The app icon's launcher entries, which are aliases of MainActivity but not viewers: the
+ * manifest's APP ICON ALIASES, written by make-tab-icons.mjs, one per design and colour. Each is a
+ * home-screen entry and is never offered in Open with. Exempt by that whole shape only, so one
+ * that also answers VIEW is a viewer again and is checked as one.
+ */
+export const isLauncherEntry = (al) => /^\.AppIcon[A-Z]/.test(al.name ?? "") && al.launcher && !al.view;
+
 export function problems(manifest, src) {
   const found = [];
-  const a = aliases(manifest);
+  const a = aliases(manifest).filter((al) => !isLauncherEntry(al));
   const t = table(src);
   if (t.length === 0) found.push("no viewers found in InboundViewers.kt - has the enum moved?");
   if (a.length === 0) found.push("no <activity-alias> in the manifest - no viewer is offered by name");
@@ -95,6 +104,7 @@ if (process.argv.includes("--selftest")) {
     ["an alias not exported", () => [swap(manifest, /(android:name="\.open\.ImageViewer"[\s\S]*?android:exported=")true/, "$1false"), src]],
     ["an alias pointing elsewhere", () => [swap(manifest, /(android:name="\.open\.ApkInspector"\s*\n\s*android:targetActivity=")\.MainActivity/, "$1.pick.PickActivity"), src]],
     ["an alias claiming everything", () => [swap(manifest, 'android:mimeType="video/*"', 'android:mimeType="*/*"'), src]],
+    ["an app icon entry that answers VIEW", () => [swap(manifest, 'android:name=".AppIconLegacySlate"', 'android:name=".AppIconLegacySlate" tools:note="android.intent.action.VIEW"'), src]],
   ];
   let bad = 0;
   for (const [name, mutate] of CASES) {

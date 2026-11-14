@@ -223,6 +223,7 @@ class ShortcutStore(private val context: Context, private val prefs: Prefs) {
                 )
             }.getOrNull()
         }
+        val asked = pending.keys.toSet()
         val out = PinReconcile.decide(
             records = _all.value,
             pending = pending.values.toList(),
@@ -233,6 +234,9 @@ class ShortcutStore(private val context: Context, private val prefs: Prefs) {
         )
         val waiting = out.pending.mapTo(HashSet()) { it.record.id }
         pending.keys.retainAll(waiting)
+        // Placed on a launcher that never confirmed it: its icon once more, as a confirmation
+        // sends it. See ShortcutArt.resend.
+        for (r in out.records) if (r.id in asked && r.id !in waiting && r.id in pinned) ShortcutArt.resend(context, r)
         if (out.records != _all.value) {
             _all.value = out.records
             save()

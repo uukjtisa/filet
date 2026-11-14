@@ -138,6 +138,11 @@ const ALLOWED = [
   // written or listed. It runs on the announcer's thread, which is not a coroutine, so the VFS's
   // suspend `exists` would mean blocking that thread for the same stat.
   "app/src/main/java/dev/niccc2007/filet/media/JustRemoved.kt",
+  // The phone's own previews, read through MediaStore's `loadThumbnail` instead of decoding the
+  // file again. MediaStore is asked which rows a folder holds and for the preview it already
+  // made; no user file is opened. `File` only splits the OS path the VFS handed over into folder
+  // and name and reads the folder's time, to know when its rows are stale.
+  "app/src/main/java/dev/niccc2007/filet/media/SystemThumbs.kt",
   // The whole-phone categories, which are a QUERY against MediaStore and nothing else.
   // MediaStore is the media index rather than a filesystem: it is asked which rows exist and
   // what they are called, and the paths it answers with are turned into VPaths that go back

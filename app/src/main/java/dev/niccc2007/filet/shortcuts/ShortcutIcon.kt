@@ -6,6 +6,7 @@ import dev.niccc2007.filet.handlers.HandlerId
 import dev.niccc2007.filet.icons.COLOUR_IDS
 import dev.niccc2007.filet.icons.EMBLEM_IDS
 import dev.niccc2007.filet.icons.FolderLook
+import dev.niccc2007.filet.icons.FolderPaint
 import dev.niccc2007.filet.script.Script
 import dev.niccc2007.filet.vfs.VNode
 
@@ -80,7 +81,7 @@ sealed interface ShortcutIcon {
     fun encode(): String = when (this) {
         is Picture -> if (framed) "picture:framed" else "picture:fill"
         Type -> "type"
-        is Folder -> own?.let { "folder:own:${it.emblem ?: NONE}:${it.colour}" + (it.cover?.let { c -> ":$c" } ?: "") } ?: "folder:same"
+        is Folder -> own?.let { "folder:own:${it.emblem ?: NONE}:${it.colour}" + ownTail(it) } ?: "folder:same"
         is Emblem -> "emblem:${emblem ?: NONE}:$colour"
         is Drawing -> "art:$art"
         Filet -> "filet"
@@ -105,8 +106,20 @@ sealed interface ShortcutIcon {
                     "same" -> Folder(null)
                     "own" -> {
                         val emblem = emblemOrNull(p.getOrNull(2)) ?: return null
-                        val colour = p.getOrNull(3)?.takeIf { it in COLOUR_IDS } ?: return null
-                        Folder(FolderLook(emblem.value, colour, p.getOrNull(4)?.ifEmpty { null }))
+                        val field = p.getOrNull(3) ?: return null
+                        val colour = field.substringBefore(',').takeIf { it in COLOUR_IDS } ?: return null
+                        val flags = field.substringAfter(',', "")
+                        Folder(
+                            FolderLook(
+                                emblem.value, colour, p.getOrNull(4)?.ifEmpty { null },
+                                showEmblem = 'h' !in flags,
+                                paint = when {
+                                    'W' in flags -> FolderPaint.WHOLE
+                                    'E' in flags -> FolderPaint.EMBLEM
+                                    else -> null
+                                },
+                            ),
+                        )
                     }
                     else -> null
                 }
@@ -405,4 +418,22 @@ fun chooserRows(scripts: List<Script>): List<ChooserRow> = buildList {
     }
     add(ChooserRow.Heading("Files and folders"))
     addAll(BROWSE_ROWS)
+}
+
+/**
+ * After an own folder's colour: `,<flags>` only when the look has Show emblem off (`h`) or a
+ * paint of its own (`W` whole, `E` emblem), then `:<cover>` as it always was. The cover is the
+ * spec's tail and may hold colons, so the flags ride on the colour field. A spec from before
+ * reads as it did.
+ */
+private fun ownTail(look: FolderLook): String {
+    val flags = buildString {
+        if (!look.showEmblem) append('h')
+        when (look.paint) {
+            FolderPaint.WHOLE -> append('W')
+            FolderPaint.EMBLEM -> append('E')
+            null -> Unit
+        }
+    }
+    return (if (flags.isEmpty()) "" else ",$flags") + (look.cover?.let { ":$it" } ?: "")
 }

@@ -470,6 +470,7 @@ internal fun jobIcon(job: Job): ImageVector = when (job.kind) {
     JobKind.BEAT -> FiletIcons.Audio
     JobKind.SCRIPT -> FiletIcons.Script
     JobKind.APK -> FiletIcons.Apk
-    JobKind.FETCH, JobKind.DOWNLOAD -> FiletIcons.Download
+    JobKind.FETCH, JobKind.DOWNLOAD, JobKind.RECEIVED -> FiletIcons.Download
+    JobKind.SERVED -> FiletIcons.Share
     JobKind.OTHER -> FiletIcons.Jobs
 }

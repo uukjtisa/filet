@@ -138,6 +138,8 @@ class ConfigKeysTest {
                 // The one sound both players shared before the split: read from older files only.
                 "sound.eqOn", "sound.bands", "sound.bass", "sound.volume", "sound.space", "sound.filter",
                 "bookmarks", "dav.shares", "nearby.shares",
+                // The app icon: Android holds it, so a file could only drift from it.
+                "look.appIcon",
             ),
             notInFile,
         )

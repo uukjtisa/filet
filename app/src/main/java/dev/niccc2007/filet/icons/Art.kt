@@ -225,16 +225,23 @@ internal fun DrawScope.glyph(parts: List<GlyphPart>, fill: Ink, stroke: Color, l
  * A glyph with a soft drop under it, centred on [cx], [cy] at [scale]: the mock's `emblemOn`.
  * The depth the tab icons have, kept to shapes and opacity.
  */
-internal fun DrawScope.emblemGlyph(parts: List<GlyphPart>, colour: String, cx: Float, cy: Float, scale: Float) {
+internal fun DrawScope.emblemGlyph(parts: List<GlyphPart>, colour: String, cx: Float, cy: Float, scale: Float, whole: Boolean = false) {
     val a = accent(colour)
     val x = cx - 12f * scale
     val y = cy - 12f * scale
-    layer(0.4f) {
+    // On a whole-coloured folder: white over a darker drop, the colour mock's emblemOn(whole).
+    val shadow = if (whole) mix(a.deep, Color.Black, 0.35f) else a.deep
+    layer(if (whole) 0.45f else 0.4f) {
         withTransform({ translate(x, y + scale * 1.1f); scale(scale, scale, Offset.Zero) }) {
-            glyph(parts, ink(a.deep), a.deep, a.deep)
+            glyph(parts, ink(shadow), shadow, shadow)
         }
     }
     withTransform({ translate(x, y); scale(scale, scale, Offset.Zero) }) {
-        glyph(parts, a.ramp, a.mid, a.light, edge = a.deep)
+        if (whole) {
+            val white = Color(0xFFF6FAFB)
+            glyph(parts, ink(white), white, mix(a.light, Color.White, 0.6f))
+        } else {
+            glyph(parts, a.ramp, a.mid, a.light, edge = a.deep)
+        }
     }
 }

@@ -518,12 +518,16 @@ fun DlgTick(
 ) {
     val colors = Filet.colors
     val shape = RoundedCornerShape(11.dp)
+    // Not enabled is greyed whatever the state, and still shows the state it keeps:
+    // `.ci-tick.grey` in the Legacy icons mock. Lit means enabled and on.
+    val lit = on && enabled
+    val line = MaterialTheme.colorScheme.outline
     Row(
         Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(if (on) colors.accent.copy(alpha = 0.09f) else colors.sunken)
-            .border(1.dp, if (on) colors.accent else MaterialTheme.colorScheme.outline, shape)
+            .background(if (lit) colors.accent.copy(alpha = 0.09f) else colors.sunken)
+            .border(1.dp, if (lit) colors.accent else line, shape)
             .clickable(enabled = enabled, onClick = onToggle)
             .padding(horizontal = 11.dp, vertical = 10.dp),
         verticalAlignment = Alignment.Top,
@@ -533,29 +537,31 @@ fun DlgTick(
                 .padding(top = 1.dp)
                 .size(18.dp)
                 .clip(RoundedCornerShape(5.dp))
-                .background(if (on) colors.accent else Color.Transparent)
-                .border(
-                    1.5.dp,
-                    if (on) colors.accent else MaterialTheme.colorScheme.outline,
-                    RoundedCornerShape(5.dp),
-                ),
+                .background(
+                    when {
+                        !enabled -> colors.high
+                        on -> colors.accent
+                        else -> Color.Transparent
+                    },
+                )
+                .border(1.5.dp, if (lit) colors.accent else line, RoundedCornerShape(5.dp)),
             contentAlignment = Alignment.Center,
         ) {
             if (on) {
                 Icon(
                     dev.niccc2007.filet.browser.FiletIcons.Check,
                     null,
-                    tint = Color(0xFF10100F),
+                    tint = if (enabled) Color(0xFF10100F) else colors.fg3,
                     modifier = Modifier.size(12.dp),
                 )
             }
         }
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
-            Text(label, fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text(label, fontSize = 12.5.sp, color = if (enabled) MaterialTheme.colorScheme.onSurface else colors.fg3)
             if (sub != null) {
                 Spacer(Modifier.height(3.dp))
-                Text(sub, fontSize = 10.5.sp, color = colors.fg3, lineHeight = 15.sp)
+                Text(sub, fontSize = 10.5.sp, color = if (enabled) colors.fg3 else colors.fg2, lineHeight = 15.sp)
             }
         }
     }

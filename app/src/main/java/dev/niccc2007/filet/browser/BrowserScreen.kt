@@ -408,13 +408,27 @@ private fun BrowserBody(vm: BrowserViewModel) {
             }
         }
 
-        // Work that has just started, top right: one card per job, the moment it is in Activity.
-        // A full-size box that takes no touches itself, so only the cards can be tapped.
+        // Work that has just started: one card per job, the moment it is in Activity, in the
+        // corner Settings > Activity chose. A full-size box that takes no touches itself, so only
+        // the cards can be tapped. At the bottom it sits above the finished message's lane, so a
+        // card and the message that ends its job never cover each other.
+        val notices by vm.prefs.notices.collectAsState()
+        val low = notices.place == dev.niccc2007.filet.jobs.CardPlace.BOTTOM_END ||
+            notices.place == dev.niccc2007.filet.jobs.CardPlace.BOTTOM_START
         Box(
-            Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars),
-            contentAlignment = Alignment.TopEnd,
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(bottom = if (low) 76.dp else 0.dp),
+            contentAlignment = when (notices.place) {
+                dev.niccc2007.filet.jobs.CardPlace.TOP_END -> Alignment.TopEnd
+                dev.niccc2007.filet.jobs.CardPlace.TOP_START -> Alignment.TopStart
+                dev.niccc2007.filet.jobs.CardPlace.BOTTOM_END -> Alignment.BottomEnd
+                dev.niccc2007.filet.jobs.CardPlace.BOTTOM_START -> Alignment.BottomStart
+            },
         ) {
-            dev.niccc2007.filet.jobs.StartedCardStack(vm.ledger, onOpen = vm::openActivityAt)
+            dev.niccc2007.filet.jobs.StartedCardStack(vm.ledger, notices, onOpen = vm::openActivityAt)
         }
 
         app.toast?.let { msg ->
@@ -748,7 +762,7 @@ private val DRIVE_TOP = Regex("""^/storage/(emulated/\d+|(?!self/?$|emulated/?$)
 @Composable
 private fun chipArt(s: PaneState): (@Composable (androidx.compose.ui.unit.Dp) -> Unit)? {
     // Null is the line glyph: what a chip wears where the tabs asked for the plainer icons.
-    if (dev.niccc2007.filet.icons.LocalIconStyles.current.tabs == dev.niccc2007.filet.icons.IconStyle.PLAIN) return null
+    if (dev.niccc2007.filet.icons.LocalIconStyles.current.tabs == dev.niccc2007.filet.icons.IconStyle.LEGACY) return null
     val tab = dev.niccc2007.filet.shortcuts.tabOfPane(s.kind, s.category)
     if (tab != null) return { d -> dev.niccc2007.filet.shortcuts.TabArt(tab.art, d) }
     val cwd = s.cwd
@@ -758,9 +772,11 @@ private fun chipArt(s: PaneState): (@Composable (androidx.compose.ui.unit.Dp) ->
         return { d -> dev.niccc2007.filet.shortcuts.TabArt(TabTarget.FILES.art, d) }
     }
     val look = dev.niccc2007.filet.shortcuts.rememberFolderLook(cwd)
+    // A chip is always drawn: its colour all over from the folder's own paint, else the lists'.
+    val whole = dev.niccc2007.filet.icons.wholeFor(dev.niccc2007.filet.icons.LocalIconStyles.current.files.folders, look)
     return { d ->
         androidx.compose.foundation.Canvas(Modifier.size(d)) {
-            drawFolder(dev.niccc2007.filet.icons.Inside.Pages, look, ground = false)
+            drawFolder(dev.niccc2007.filet.icons.Inside.Pages, look, ground = false, whole = whole)
         }
     }
 }

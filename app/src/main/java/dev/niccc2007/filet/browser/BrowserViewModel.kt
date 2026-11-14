@@ -1296,7 +1296,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 "copied".takeIf { copied > 0 },
                 "moved".takeIf { moved > 0 },
             ).joinToString(" and ").ifEmpty { "pasted" }
-            reportAndRefresh(copied + moved, failures, verb, denial)
+            reportAndRefresh(copied + moved, failures, verb, denial, if (moved > 0) dev.niccc2007.filet.jobs.JobKind.MOVE else dev.niccc2007.filet.jobs.JobKind.COPY)
         }
     }
 
@@ -1384,7 +1384,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         creditUse(items.firstOrNull()?.path?.parent)
         viewModelScope.launch {
             val r = graph.ops.delete(items.map { it.path })
-            reportAndRefresh(r.succeeded, r.failed, "deleted", r.denial)
+            reportAndRefresh(r.succeeded, r.failed, "deleted", r.denial, dev.niccc2007.filet.jobs.JobKind.DELETE)
         }
     }
 
@@ -1475,7 +1475,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             // left in the heap after a failed compress is the same password left after a
             // successful one.
             options.clearPassword()
-            reportAndRefresh(r.succeeded, r.failed, "compressed into $name", r.denial)
+            reportAndRefresh(r.succeeded, r.failed, "compressed into $name", r.denial, dev.niccc2007.filet.jobs.JobKind.COMPRESS)
         }
     }
 
@@ -1641,7 +1641,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             val r = graph.extractOps.run(pending.archiveRoot, pending.into, pending.plan, pending.label)
             _extractPlan.value = null
             _pickPreview.value = null
-            reportAndRefresh(r.succeeded, r.failed, "extracted", r.denial)
+            reportAndRefresh(r.succeeded, r.failed, "extracted", r.denial, dev.niccc2007.filet.jobs.JobKind.EXTRACT)
         }
     }
 
@@ -1918,6 +1918,22 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     private val _importOffer = MutableStateFlow<ImportOffer?>(null)
     val importOffer: StateFlow<ImportOffer?> = _importOffer.asStateFlow()
 
+    /** An imported file's app icon, differing from this phone's: asked about before switching. */
+    private val _appIconOffer = MutableStateFlow<dev.niccc2007.filet.icons.AppIconSwitch.Choice?>(null)
+    val appIconOffer: StateFlow<dev.niccc2007.filet.icons.AppIconSwitch.Choice?> = _appIconOffer.asStateFlow()
+
+    /** Yes to "Also use this app icon?". */
+    fun useImportedAppIcon() {
+        val to = _appIconOffer.value ?: return
+        _appIconOffer.value = null
+        dev.niccc2007.filet.icons.AppIconSwitch.switchTo(graph.app, to)
+    }
+
+    /** No: the icon stays as it is. */
+    fun keepAppIcon() {
+        _appIconOffer.value = null
+    }
+
     fun dismissTransfer() {
         _exportPlan.value = null
         _importOffer.value = null
@@ -1964,7 +1980,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                     appVersion = dev.niccc2007.filet.BuildConfig.VERSION_NAME,
                     exportedAt = System.currentTimeMillis(),
                     sections = sections,
-                    values = graph.prefs.snapshot(SettingsTransfer.EXPORTED),
+                    // The app icon is Android's to hold, not a preference: read it in.
+                    values = graph.prefs.snapshot(SettingsTransfer.EXPORTED) +
+                        (dev.niccc2007.filet.icons.AppIconSwitch.EXPORT_KEY to
+                            dev.niccc2007.filet.icons.AppIconSwitch.current(graph.app).key),
                     remotes = if (SettingsTransfer.Section.REMOTES in sections) {
                         graph.connections.exportAll(withSecrets)
                     } else {
@@ -2044,7 +2063,13 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                     remotes = graph.connections.importAll(offer.reading.remotes())
                     continue
                 }
-                keys += graph.prefs.restore(offer.reading.valuesOf(section))
+                val values = offer.reading.valuesOf(section)
+                // The app icon is never written to the store: it is asked about once the rest is in.
+                val icon = values[dev.niccc2007.filet.icons.AppIconSwitch.EXPORT_KEY] as? String
+                dev.niccc2007.filet.icons.AppIconSwitch.Choice.of(icon)
+                    ?.takeIf { it != dev.niccc2007.filet.icons.AppIconSwitch.current(graph.app) }
+                    ?.let { _appIconOffer.value = it }
+                keys += graph.prefs.restore(values - dev.niccc2007.filet.icons.AppIconSwitch.EXPORT_KEY)
                 // The stores that cache their list have to be told. A preference written
                 // underneath a `MutableStateFlow` is a value nothing is watching.
                 when (section) {
@@ -2392,12 +2417,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         failures: List<Pair<dev.niccc2007.filet.vfs.VPath, String>>,
         verb: String,
         denial: dev.niccc2007.filet.vfs.Denial? = null,
+        kind: dev.niccc2007.filet.jobs.JobKind,
     ) {
         val failed = failures.size
         val why = failures.firstOrNull()?.second
         // A refusal gets the dialogue instead of the toast. Both would be two messages about one
         // event, and the toast is the one that cannot say what to do about it.
-        if (denial != null) showDenial(denial) else toast(
+        if (denial != null) showDenial(denial) else ended(
+            kind,
+            failed > 0,
             when {
                 failed == 0 -> "$ok $verb"
                 failed == 1 && why != null -> "${failures[0].first.name}: $why"
@@ -2407,6 +2435,17 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         )
         _tabs.value.forEach { it.clearSelection() }
         refreshPanes()
+    }
+
+    /**
+     * The message that ends a job, if Settings > Activity lets this kind say so.
+     *
+     * The one door every finished message for a job goes through, so the Ends switches cannot be
+     * forgotten by a call site: a message raised with plain [toast] after a job is one this page
+     * does not control. A failure always shows - see `Notices.showsEnd`.
+     */
+    fun ended(kind: dev.niccc2007.filet.jobs.JobKind, failed: Boolean, message: String) {
+        if (dev.niccc2007.filet.jobs.Notices.showsEnd(kind, failed, graph.prefs.notices.value)) toast(message)
     }
 
     fun showDenial(d: dev.niccc2007.filet.vfs.Denial) = _state.update { it.copy(denied = d) }
@@ -2628,14 +2667,14 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         _state.update { it.copy(duplicateAsk = null) }
         viewModelScope.launch {
             val r = graph.ops.duplicate(pending.paths)
-            reportAndRefresh(r.succeeded, r.failed, "copied", r.denial)
+            reportAndRefresh(r.succeeded, r.failed, "copied", r.denial, dev.niccc2007.filet.jobs.JobKind.COPY)
         }
     }
 
     private fun runDrop(paths: List<VPath>, dest: VPath, move: Boolean) {
         viewModelScope.launch {
             val r = if (move) graph.ops.move(paths, dest) else graph.ops.copy(paths, dest)
-            reportAndRefresh(r.succeeded, r.failed, if (move) "moved" else "copied", r.denial)
+            reportAndRefresh(r.succeeded, r.failed, if (move) "moved" else "copied", r.denial, if (move) dev.niccc2007.filet.jobs.JobKind.MOVE else dev.niccc2007.filet.jobs.JobKind.COPY)
         }
     }
 
@@ -3673,7 +3712,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 ledger.finish(id)
                 _archiveSave.value = null
                 pending.onSaved()
-                toast("Saved into ${pending.archiveName}")
+                ended(dev.niccc2007.filet.jobs.JobKind.SAVE, false, "Saved into ${pending.archiveName}")
                 refreshPanes()
             }.onFailure {
                 val why = dev.niccc2007.filet.ops.FileOperations.readable(it)
@@ -3723,7 +3762,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 }.onSuccess { name ->
                     ledger.finish(id)
                     pending.onSaved()
-                    toast("Saved as $name")
+                    ended(dev.niccc2007.filet.jobs.JobKind.SAVE, false, "Saved as $name")
                     refreshPanes()
                 }.onFailure {
                     val why = dev.niccc2007.filet.ops.FileOperations.readable(it)
@@ -4067,7 +4106,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             }.onSuccess {
                 ledger.finish(id)
                 onSaved()
-                toast("Saved")
+                ended(dev.niccc2007.filet.jobs.JobKind.SAVE, false, "Saved")
                 refreshPanes()
             }.onFailure {
                 val why = dev.niccc2007.filet.ops.FileOperations.readable(it)
@@ -4189,7 +4228,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             }.onSuccess {
                 ledger.finish(id)
                 pictureWritten(target)
-                toast(if (to == null) "Turned and saved" else "Saved as " + target.name)
+                ended(dev.niccc2007.filet.jobs.JobKind.SAVE, false, if (to == null) "Turned and saved" else "Saved as " + target.name)
                 onDone(true)
             }.onFailure {
                 val why = dev.niccc2007.filet.ops.FileOperations.readable(it)
@@ -4240,7 +4279,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             }.onSuccess {
                 ledger.finish(id)
                 pictureWritten(target)
-                toast(if (to == null) "Saved" else "Saved as " + target.name)
+                ended(dev.niccc2007.filet.jobs.JobKind.SAVE, false, if (to == null) "Saved" else "Saved as " + target.name)
                 onSaved(target.name)
             }.onFailure {
                 val why = dev.niccc2007.filet.ops.FileOperations.readable(it)
@@ -5065,7 +5104,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             _scriptRunning.value = null
             if (result.ok) ledger.finish(jobId, "${result.elapsedMs} ms")
             else ledger.fail(jobId, result.error ?: "failed")
-            toast(if (result.ok) "Script finished" else "Script failed")
+            ended(dev.niccc2007.filet.jobs.JobKind.SCRIPT, !result.ok, if (result.ok) "Script finished" else "Script failed")
             refreshPanes()
         }
     }
@@ -5194,13 +5233,13 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 val where = graph.files.vpath(dir)
                 ledger.finish(jobId, where.path)
                 _apkWork.value = null
-                toast("Decompiled to " + where.name)
+                ended(dev.niccc2007.filet.jobs.JobKind.APK, false, "Decompiled to " + where.name)
                 // Open the working folder, because the next thing anyone does is edit it.
                 focusedPane()?.jumpTo(where)
             }.onFailure {
                 ledger.fail(jobId, it.message ?: "failed")
                 _apkWork.value = null
-                toast("Decompile failed: ${it.message}")
+                ended(dev.niccc2007.filet.jobs.JobKind.APK, true, "Decompile failed: ${it.message}")
             }
         }
     }
@@ -5234,12 +5273,12 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             }.onSuccess { out ->
                 ledger.finish(jobId, out.name)
                 _apkWork.value = null
-                toast("Rebuilt and signed: ${out.name}")
+                ended(dev.niccc2007.filet.jobs.JobKind.APK, false, "Rebuilt and signed: ${out.name}")
                 refreshPanes()
             }.onFailure {
                 ledger.fail(jobId, it.message ?: "failed")
                 _apkWork.value = null
-                toast("Rebuild failed: ${it.message}")
+                ended(dev.niccc2007.filet.jobs.JobKind.APK, true, "Rebuild failed: ${it.message}")
             }
         }
     }
@@ -5260,12 +5299,12 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             }.onSuccess { out ->
                 ledger.finish(jobId, out.name)
                 _apkWork.value = null
-                toast("Signed: ${out.name}")
+                ended(dev.niccc2007.filet.jobs.JobKind.APK, false, "Signed: ${out.name}")
                 refreshPanes()
             }.onFailure {
                 ledger.fail(jobId, it.message ?: "failed")
                 _apkWork.value = null
-                toast("Signing failed: ${it.message}")
+                ended(dev.niccc2007.filet.jobs.JobKind.APK, true, "Signing failed: ${it.message}")
             }
         }
     }

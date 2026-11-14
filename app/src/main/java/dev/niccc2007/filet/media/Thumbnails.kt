@@ -142,6 +142,17 @@ object Thumbnails {
     private val queue = LoadQueue(workers = 4)
 
     /**
+     * Reads of previews already written down, on a lane of their own.
+     *
+     * Bug identified here: a preview kept on disk took the same road as one never made - the row
+     * waited out its settle delay, then queued behind whole-file decodes and video frames - so a
+     * folder seen yesterday filled in at the speed of one never seen, and nothing at all showed
+     * while a fling was moving. Reading a kept preview is a few milliseconds. Here it starts at
+     * once, never waits behind a decode, and the gallery-style "already there" is what results.
+     */
+    private val diskQueue = LoadQueue(workers = 3, urgentCap = 96)
+
+    /**
      * Video frames are read by the phone's hardware decoder, and it has room for only so many at
      * once. Two at a time here, whatever the queue's width, so a gallery of videos cannot take
      * every decoder session the phone has.
@@ -182,6 +193,7 @@ object Thumbnails {
     ): Bitmap? {
         val key = keyOf(path, size, mtime, px, shape)
         cache.get(key)?.let { return it.bitmap }
+        kept(context, path, size, mtime, px, shape, ahead)?.let { return it }
         if (previewOf(FileTypes.extensionOf(path.name)) == Kind.VIDEO && videoHolds.value > 0) {
             videoHolds.first { it == 0 }
         }
@@ -190,20 +202,53 @@ object Thumbnails {
         return cache.get(key)?.bitmap
     }
 
+    /**
+     * The preview held in memory or written down, without decoding anything: null means it has to
+     * be made. Cheap enough to ask the moment a row appears, a fling included - see [diskQueue].
+     */
+    suspend fun kept(
+        context: Context,
+        path: VPath,
+        size: Long,
+        mtime: Long,
+        px: Int,
+        shape: Shape = Shape.SQUARE,
+        ahead: Boolean = false,
+    ): Bitmap? {
+        val key = keyOf(path, size, mtime, px, shape)
+        cache.get(key)?.let { return it.bitmap }
+        val app = context.applicationContext
+        val rest = restOf(size, mtime, px, shape)
+        val read = {
+            // A miss is not remembered: "not on disk" is not "no preview", and the decode that
+            // follows is what answers that.
+            if (cache.get(key) == null) ThumbDisk.read(app, path.toString(), rest)?.let { cache.put(key, Answer(it.ready())) }
+            Unit
+        }
+        if (ahead) diskQueue.ahead(key, read) else diskQueue.join(key, read)
+        return cache.get(key)?.bitmap
+    }
+
     fun get(context: Context, vfs: Vfs, path: VPath, size: Long, mtime: Long, px: Int, shape: Shape = Shape.SQUARE): Bitmap? {
         val key = keyOf(path, size, mtime, px, shape)
         cache.get(key)?.let { return it.bitmap }
         val rest = restOf(size, mtime, px, shape)
         ThumbDisk.read(context, path.toString(), rest)?.let {
-            cache.put(key, Answer(it))
+            cache.put(key, Answer(it.ready()))
             return it
         }
 
         val ext = FileTypes.extensionOf(path.name)
         val os = vfs.osPath(path)
         val square = shape == Shape.SQUARE
-        val bitmap = runCatching {
-            when (previewOf(ext)) {
+        val kind = previewOf(ext)
+        // The phone's own preview before a decode of ours, for the two kinds it makes. See
+        // SystemThumbs for when it is and is not used.
+        val system = if (os != null && (kind == Kind.IMAGE || kind == Kind.VIDEO)) {
+            runCatching { SystemThumbs.load(context, os, size, mtime, px, square) }.getOrNull()?.let { fit(it, px, square) }
+        } else null
+        val bitmap = system ?: runCatching {
+            when (kind) {
                 Kind.IMAGE -> fromImage(vfs, path, os, px, ext, square)
                 Kind.SVG -> fromSvg(vfs, path, px, square)
                 Kind.VIDEO -> os?.let { fromVideo(it, px, square) }
@@ -213,12 +258,19 @@ object Thumbnails {
             }
         }.getOrNull()
 
-        cache.put(key, Answer(bitmap))
+        cache.put(key, Answer(bitmap?.ready()))
         // Failures are not written down: a file that would not decode today may be a download
         // that had not finished, and memory already stops it being tried again this run.
         if (bitmap != null) ThumbDisk.write(context, path.toString(), rest, bitmap)
         return bitmap
     }
+
+    /**
+     * Starts the bitmap's upload to the graphics memory now, on the thread that made it. Left to
+     * the first frame that draws it, a screenful arriving together is a screenful of uploads in
+     * one frame, which is a dropped frame mid-scroll.
+     */
+    private fun Bitmap.ready(): Bitmap = also { runCatching { prepareToDraw() } }
 
     // ── images ──
 
@@ -412,7 +464,10 @@ object Thumbnails {
 
     private const val WEB_PX = 160
 
-    fun clear() = cache.evictAll()
+    fun clear() {
+        cache.evictAll()
+        SystemThumbs.clear()
+    }
 }
 
 /** Blocking read, for the two-pass decode above. Kept here rather than widening the Vfs API. */

@@ -64,7 +64,7 @@ internal object HardwareProbe {
         REFUSED,
     }
 
-    private class Answer(val start: Start, val busy: Boolean, val atMs: Long)
+    private class Answer(val start: Start, val busy: Boolean, val atMs: Long, val words: String)
 
     private val known = ConcurrentHashMap<String, Answer>()
 
@@ -120,18 +120,49 @@ internal object HardwareProbe {
             else -> Start.REFUSED
         }
         val busy = listOfNotNull(declared, undeclared).any { it.busy }
-        known[key] = Answer(start, busy, now())
+        val ms = now() - began
+        val words = when (start) {
+            Start.DECLARED -> "started, $ms ms"
+            Start.UNDECLARED -> "refused with the rate declared (${declared?.words}), started without it, $ms ms"
+            Start.REFUSED -> "refused (${declared?.words})" +
+                (undeclared?.let { "; without the rate declared too (${it.words})" } ?: "") + ", $ms ms"
+        }
+        known[key] = Answer(start, busy, now(), words)
         dev.niccc2007.filet.log.FiletLog.i("video") {
-            val ms = now() - began
-            "test start of $decoder for ${format.width}x${format.height} @${format.frameRate}: " + when (start) {
-                Start.DECLARED -> "started, $ms ms"
-                Start.UNDECLARED -> "refused with the rate declared (${declared?.words}), started without it, $ms ms"
-                Start.REFUSED -> "refused (${declared?.words})" +
-                    (undeclared?.let { "; without the rate declared too (${it.words})" } ?: "") + ", $ms ms"
-            }
+            "test start of $decoder for ${format.width}x${format.height} @${format.frameRate}: $words"
         }
         return start
     }
+
+    /** The words of the last test start of [decoder] on files like [format], or null if none. */
+    fun words(decoder: String, format: Format): String? = known[keyOf(decoder, format)]?.words
+
+    /**
+     * What the last look for a hardware decoder found for each kind of file, for Playback stats.
+     *
+     * Bug identified here: a picture on FFmpeg said only "FFmpeg, software", and that one line
+     * reads the same for three different causes - no hardware decoder knows the file's profile, one
+     * knows it and refused to start, or none was asked because the phone's renderer declared the
+     * file within its limits and lost to FFmpeg some other way. A screenshot of the stats from a
+     * second phone could not say which, so the fix could only be guessed. This says which.
+     */
+    private val looks = ConcurrentHashMap<String, String>()
+
+    /** Kept for Playback stats. See [looks]. */
+    fun noteLook(format: Format, words: String) {
+        looks[key("", format.sampleMimeType, format.width, format.height, format.frameRate)] = words
+    }
+
+    /** The look for a file of this kind, if one was made. See [looks]. */
+    fun lookFor(mime: String?, width: Int, height: Int, fps: Float): String? = looks[key("", mime, width, height, fps)]
+
+    /** The line [noteLook] keeps, from what was found. Pure. */
+    fun lookWords(profile: String?, tried: List<Pair<String, String?>>): String =
+        if (tried.isEmpty()) {
+            "no hardware decoder knows " + (profile ?: "this file's profile")
+        } else {
+            tried.joinToString("; ") { (name, words) -> name + ": " + (words ?: "not tried") }
+        }
 
     /** [format] as Media3 hands it to the decoder: the frame rate, an operating rate equal to it, realtime priority. */
     private fun declaredFormat(format: Format): MediaFormat =

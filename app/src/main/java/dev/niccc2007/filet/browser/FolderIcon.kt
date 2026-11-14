@@ -67,7 +67,9 @@ fun FolderIcon(
             else -> Inside.Pages
         }
         val drawn = look ?: FolderLook.PLAIN
-        Canvas(modifier.size(size)) { drawFolder(inside, drawn) }
+        // The place's Folders choice paints it: Drawn, whole colour, or the folder's own paint.
+        val whole = dev.niccc2007.filet.icons.folderDraw(dev.niccc2007.filet.icons.LocalPlaceLook.current.folders, drawn).whole
+        Canvas(modifier.size(size)) { drawFolder(inside, drawn, whole = whole) }
         return
     }
     val context = LocalContext.current
@@ -105,7 +107,9 @@ fun FolderIcon(
         )
     }
 
-    Canvas(modifier.size(size)) { drawFolder(inside, shown) }
+    // The place's Folders choice paints it: Drawn, whole colour, or the folder's own paint.
+    val whole = dev.niccc2007.filet.icons.folderDraw(dev.niccc2007.filet.icons.LocalPlaceLook.current.folders, shown).whole
+    Canvas(modifier.size(size)) { drawFolder(inside, shown, whole = whole) }
 }
 
 /**

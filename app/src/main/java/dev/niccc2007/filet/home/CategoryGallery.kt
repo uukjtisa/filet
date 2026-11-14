@@ -470,7 +470,12 @@ private fun GalleryTile(
         ) {
             // The component every list and tile uses, so a picture decoded here is already
             // cached for the list, the file browser and the Home card.
-            FileThumb(node = node, size = side, fallbackTint = colors.fg3, glyphSize = side * 0.28f)
+            // The galleries wear the Gallery look, as the grid views do. See IconStyles.
+            androidx.compose.runtime.CompositionLocalProvider(
+                dev.niccc2007.filet.icons.LocalPlaceLook provides dev.niccc2007.filet.icons.LocalIconStyles.current.gallery,
+            ) {
+                FileThumb(node = node, size = side, fallbackTint = colors.fg3, glyphSize = side * 0.28f)
+            }
             if (selected) Box(Modifier.matchParentSize().background(colors.accent.copy(alpha = 0.18f)))
             // A still frame does not say "video" on its own, and a tap starts playback rather
             // than opening a picture - so the tile says which it is.

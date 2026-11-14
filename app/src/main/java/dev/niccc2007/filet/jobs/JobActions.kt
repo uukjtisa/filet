@@ -51,13 +51,15 @@ object JobActions {
         JobKind.COPY, JobKind.MOVE, JobKind.EXTRACT, JobKind.MEASURE, JobKind.BEAT -> Result.FOLDER
         // The folder the items went from.
         JobKind.DELETE -> Result.FOLDER
-        // An archive written, a file saved, a download.
-        JobKind.COMPRESS, JobKind.SAVE, JobKind.FETCH, JobKind.DOWNLOAD -> Result.FILE
+        // An archive written, a file saved, a download, a file that arrived from another Filet.
+        JobKind.COMPRESS, JobKind.SAVE, JobKind.FETCH, JobKind.DOWNLOAD, JobKind.RECEIVED -> Result.FILE
         // A signed APK or a decompiled folder; and whatever another app published.
         JobKind.APK, JobKind.OTHER -> Result.EITHER
         // No result recorded yet. A way to what an index found or a script printed needs a place
         // to open first; until then these rows show their figures and nothing to go to.
         JobKind.INDEX, JobKind.SCRIPT -> Result.NONE
+        // A download by someone else: the file was already here, so there is nothing new to go to.
+        JobKind.SERVED -> Result.NONE
     }
 
     /** Everything [job] offers now, in the order the buttons stand. */

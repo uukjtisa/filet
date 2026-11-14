@@ -463,11 +463,22 @@ private fun IconPanel(
             )
             Spacer(Modifier.height(2.dp))
             DlgSection("Emblem")
+            // The folder's own record, the same as Change icon's: the tick, never greyed here
+            // (home-screen icons don't follow Legacy icons), and what the colour paints.
+            dev.niccc2007.filet.icons.ShowEmblemTick(draft.look.showEmblem) {
+                onDraft(draft.copy(look = draft.look.copy(showEmblem = !draft.look.showEmblem)))
+            }
+            Spacer(Modifier.height(8.dp))
             EmblemPicker(draft.group, draft.look.emblem, draft.look.colour, tone,
                 onGroup = { onDraft(draft.copy(group = it)) },
                 onEmblem = { onDraft(draft.copy(look = draft.look.copy(emblem = it))) },
                 onColour = { onDraft(draft.copy(look = draft.look.copy(colour = it))) },
             )
+            Spacer(Modifier.height(8.dp))
+            val lists = dev.niccc2007.filet.icons.LocalIconStyles.current.files.folders
+            dev.niccc2007.filet.icons.PaintChips(
+                draft.look.paint ?: if (dev.niccc2007.filet.icons.wholeFor(lists, draft.look)) dev.niccc2007.filet.icons.FolderPaint.WHOLE else dev.niccc2007.filet.icons.FolderPaint.EMBLEM,
+            ) { p -> onDraft(draft.copy(look = draft.look.copy(paint = p))) }
             if (hasPicture) {
                 Spacer(Modifier.height(10.dp))
                 DlgTick(

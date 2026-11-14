@@ -104,7 +104,7 @@ import dev.niccc2007.filet.ui.theme.Filet
  * and a gap sized for 66dp rows read as a missing row once they were 44.
  */
 @Composable
-private fun SettingsSection(title: String, subtitle: String, first: Boolean = false) {
+internal fun SettingsSection(title: String, subtitle: String, first: Boolean = false) {
     val colors = Filet.colors
     Column(Modifier.fillMaxWidth().padding(top = if (first) 8.dp else 20.dp)) {
         Text(
@@ -207,6 +207,13 @@ enum class SettingsGroup(val label: String) {
     READING("Reading"),
     SEARCH("Search"),
     STORAGE("Storage"),
+
+    /**
+     * What work says while it runs and when it ends. Its own room rather than a section of
+     * Storage: Keep finished jobs sat there alone because Activity's history is kept on disk,
+     * which is where it is stored and not what it is about.
+     */
+    ACTIVITY("Activity"),
     MAINTENANCE("System"),
 
     /**
@@ -230,6 +237,8 @@ fun SettingsPage(vm: BrowserViewModel) {
     val theme by prefs.theme.collectAsState()
     val accent by prefs.accent.collectAsState()
     val step by prefs.viewStep.collectAsState()
+    val notices by prefs.notices.collectAsState()
+    var openNotices by remember { mutableStateOf(emptySet<dev.niccc2007.filet.jobs.NoticeGroup>()) }
     val restoreTabs by prefs.restoreTabs.collectAsState()
     val storedBar by prefs.bottomBar.collectAsState()
     val sort by prefs.sort.collectAsState()
@@ -419,6 +428,9 @@ fun SettingsPage(vm: BrowserViewModel) {
                 ) { prefs.setNameLines(it + 1) }
             }
         }
+
+        // Legacy icons, place by place, and the app icon. See LegacyIconsSection.kt.
+        legacyIconsSection()
 
         // ── what a row says besides its name ──
         //
@@ -1771,21 +1783,6 @@ fun SettingsPage(vm: BrowserViewModel) {
                 }
             }
         }
-        // How long Activity keeps what finished. The history survives a restart; this is where
-        // it stops. See JobHistory.prune.
-        item { SettingsSection("Activity", "") }
-        anchor(Prefs.K_JOBS_KEEP_DAYS)
-        item {
-            val keep by prefs.jobsKeepDays.collectAsState()
-            val choices = dev.niccc2007.filet.jobs.JobHistory.KEEP_CHOICES
-            SegmentRow(
-                "Keep finished jobs",
-                choices.map(dev.niccc2007.filet.jobs.JobHistory::keepLabel),
-                choices.indexOf(keep).takeIf { it >= 0 } ?: choices.indexOf(dev.niccc2007.filet.jobs.JobHistory.DEFAULT_KEEP_DAYS),
-                hint = "How long Activity lists a job after it ends. Running jobs are never removed.",
-                key = Prefs.K_JOBS_KEEP_DAYS,
-            ) { i -> prefs.setJobsKeepDays(choices[i]) }
-        }
         item { SettingsSection("Storage access", "") }
         item { StorageAccessCard(vm) }
         // Only on a phone that has actually granted root. Offering it anywhere else would be
@@ -1838,6 +1835,92 @@ fun SettingsPage(vm: BrowserViewModel) {
                 )
             }
             item { DeveloperCard(vm) }
+        }
+        if (group == SettingsGroup.ACTIVITY) {
+        // How long Activity keeps what finished. The history survives a restart; this is where
+        // it stops. See JobHistory.prune. First on the page: it is the setting people came for
+        // before this room existed.
+        item { SettingsSection("Activity", "", first = true) }
+        anchor(Prefs.K_JOBS_KEEP_DAYS)
+        item {
+            val keep by prefs.jobsKeepDays.collectAsState()
+            val choices = dev.niccc2007.filet.jobs.JobHistory.KEEP_CHOICES
+            SegmentRow(
+                "Keep finished jobs",
+                choices.map(dev.niccc2007.filet.jobs.JobHistory::keepLabel),
+                choices.indexOf(keep).takeIf { it >= 0 } ?: choices.indexOf(dev.niccc2007.filet.jobs.JobHistory.DEFAULT_KEEP_DAYS),
+                hint = "How long Activity lists a job after it ends. Running jobs are never removed.",
+                key = Prefs.K_JOBS_KEEP_DAYS,
+            ) { i -> prefs.setJobsKeepDays(choices[i]) }
+        }
+        // ── what pops up ──
+        //
+        // Read from the one list of job kinds (`Notices`), so a kind cannot exist without its
+        // switches here. A failure's message shows whatever its Ends switch says - see
+        // `Notices.showsEnd` for why.
+        item {
+            SettingsSection(
+                "Cards and messages",
+                "A card when work starts, a message when it ends. Activity lists every job either way.",
+            )
+        }
+        anchor(Prefs.K_NOTICES)
+        item {
+            HoldHint("Which kinds of work pop up. A failure always shows its message.", key = Prefs.K_NOTICES) {
+                NoticeColumns("Kinds of work")
+            }
+        }
+        for (g in dev.niccc2007.filet.jobs.NoticeGroup.entries) {
+            item(key = "notice-" + g.name) {
+                NoticeGroupRow(
+                    group = g,
+                    prefs = notices,
+                    open = g in openNotices,
+                    onFold = { openNotices = if (g in openNotices) openNotices - g else openNotices + g },
+                ) { prefs.setNotices(it) }
+            }
+        }
+        item { SettingsSection("Started cards", "") }
+        anchor(ActivityKeys.LIFE)
+        item {
+            val life = dev.niccc2007.filet.jobs.Notices.LIFE_CHOICES
+            SegmentRow(
+                "Stays for",
+                life.map { "${it / 1000} s" },
+                life.indexOf(notices.lifeMs).coerceAtLeast(0),
+                hint = "How long a card stays. The line along its bottom counts it down.",
+                key = ActivityKeys.LIFE,
+            ) { prefs.setNotices(notices.copy(lifeMs = life[it])) }
+        }
+        anchor(ActivityKeys.PLACE)
+        item {
+            val places = dev.niccc2007.filet.jobs.CardPlace.entries
+            SegmentRow(
+                "Sits at",
+                places.map {
+                    when (it) {
+                        dev.niccc2007.filet.jobs.CardPlace.TOP_END -> "Top right"
+                        dev.niccc2007.filet.jobs.CardPlace.TOP_START -> "Top left"
+                        dev.niccc2007.filet.jobs.CardPlace.BOTTOM_END -> "Bottom right"
+                        dev.niccc2007.filet.jobs.CardPlace.BOTTOM_START -> "Bottom left"
+                    }
+                },
+                notices.place.ordinal,
+                hint = "At the bottom, cards stack upward from just above the finished message.",
+                key = ActivityKeys.PLACE,
+            ) { prefs.setNotices(notices.copy(place = places[it])) }
+        }
+        anchor(ActivityKeys.STACK)
+        item {
+            val stacks = dev.niccc2007.filet.jobs.Notices.STACK_CHOICES
+            SegmentRow(
+                "Stacks up to",
+                stacks.map { it.toString() },
+                stacks.indexOf(notices.stack).coerceAtLeast(0),
+                hint = "Cards on screen at once. One more pushes the oldest out early.",
+                key = ActivityKeys.STACK,
+            ) { prefs.setNotices(notices.copy(stack = stacks[it])) }
+        }
         }
         if (group == SettingsGroup.MAINTENANCE) {
         // First on System rather than inside Storage. Most of the list is not about storage at
@@ -2068,7 +2151,7 @@ fun SliderRow(
  * its target is the whole 44dp row rather than the switch; a slider keeps a 32dp band to drag in.
  */
 @Composable
-private fun CompactSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun CompactSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
         Box(Modifier.size(42.dp, 26.dp), contentAlignment = Alignment.Center) {
             Switch(

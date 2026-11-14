@@ -56,6 +56,9 @@ object LauncherShortcuts {
         push(context)
     }
 
+    /** The app icon was switched: Android dropped the menu with the old icon's alias, so put it back. */
+    fun republish(context: Context) = push(context)
+
     /** A different four were chosen on the Shortcuts tab: publish them. */
     fun choose(context: Context, chosen: List<String>) {
         chosenNow = chosen
@@ -84,6 +87,9 @@ object LauncherShortcuts {
                     .setLongLabel(entry.long.take(25))
                     .setIcon(Icon.createWithResource(context, launcherIcon(entry.art)))
                     .setIntent(intent)
+                    // On the launcher entry that is on now, by name: left to Android it is the
+                    // first one, and with the app icon's aliases that may be one about to go.
+                    .apply { runCatching { setActivity(dev.niccc2007.filet.icons.AppIconSwitch.activeComponent(context)) } }
                     .setRank(rank)
                     .build()
             }.getOrNull()

@@ -484,6 +484,9 @@ class PaneController(
         // lost. Stamping with the revision at the end would mark the pane current for a change
         // it never saw.
         val stamp = worldRevision()
+        // Drawn as it arrives only when nothing is on screen yet; a re-list of the rows already
+        // shown changes them once, at the end. See FolderFreshness.streams.
+        val streams = FolderFreshness.streams(raw.size)
         listJob = scope.launch {
             // Accumulated rather than assigned per chunk: `render` sorts the whole set it is
             // given, so each chunk has to arrive on top of the ones before it.
@@ -491,15 +494,21 @@ class PaneController(
             runCatching {
                 vfs.list(path) { chunk ->
                     acc += chunk
-                    raw = acc.toList()
-                    listedAt = stamp
-                    // loading stays true until the last chunk. It is what the path bar reads to
-                    // show that more is coming, and the spinner is already conditional on there
-                    // being no rows yet, so a partial list draws normally underneath it.
-                    _state.update { render(it) }
+                    if (streams) {
+                        raw = acc.toList()
+                        listedAt = stamp
+                        // loading stays true until the last chunk. It is what the path bar reads
+                        // to show that more is coming, and the spinner is already conditional on
+                        // there being no rows yet, so a partial list draws normally underneath it.
+                        _state.update { render(it) }
+                    }
                 }
             }
                 .onSuccess {
+                    if (!streams) {
+                        raw = acc.toList()
+                        listedAt = stamp
+                    }
                     // After the listing lands, not before: if reading the folder failed there
                     // is nothing here worth indexing, and telling the indexer otherwise would
                     // spend a crawl budget on a path that does not resolve.
