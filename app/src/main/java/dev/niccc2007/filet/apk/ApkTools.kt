@@ -36,6 +36,7 @@ data class ApkInfo(
     val permissions: List<String>,
     val activities: List<String>,
     val dexEntries: List<String>,
+    /** [ApkTools.NOT_COUNTED] when a dex on a share would not give its count. */
     val classCount: Int,
     val nativeAbis: List<String>,
     val signerSubject: String?,
@@ -115,6 +116,7 @@ class ApkTools(
     }
 
     suspend fun inspect(apk: VPath): ApkInfo = withContext(Dispatchers.IO) {
+        inPlace(apk)?.let { return@withContext it }
         val os = readableApk(apk)
         val file = File(os)
         val warnings = ArrayList<String>()
@@ -156,17 +158,140 @@ class ApkTools(
         }
 
         val signer = pkgInfo?.signingInfo?.apkContentsSigners?.firstOrNull()
-        val cert = signer?.let {
+
+        assemble(
+            pkgInfo = pkgInfo,
+            manifest = manifest,
+            fallbackLabel = file.nameWithoutExtension,
+            dexEntries = dexEntries,
+            classCount = classes,
+            abis = abis.toList(),
+            signerDer = signer?.toByteArray(),
+            sizeBytes = file.length(),
+            warnings = warnings,
+        )
+    }
+
+    /**
+     * An APK on a share, read where it lies: the manifest, the resource table, the icon's files,
+     * the dex headers and the signing block, through ranged reads. Step 3 of `REMOTE-FILES.md`.
+     *
+     * Android's parser reads the head [RangedApk] writes, so the label, permissions and
+     * activities are its answers, as they are for a local file. The signer and the class count
+     * come from the bytes, because a head has neither a signature nor dex bodies.
+     *
+     * @return null to read a staged copy instead: a file on this phone, a bundle, a small file
+     *   (fetched whole, which is quicker), a server that ignores ranges, or an APK that would
+     *   not read this way. Never throws for those.
+     */
+    private suspend fun inPlace(apk: VPath): ApkInfo? {
+        if (BundleRoute.isBundle(apk.name) || !vfs.isRemote(apk)) return null
+        val node = runCatching { vfs.stat(apk) }.getOrNull() ?: return null
+        if (node.size < dev.niccc2007.filet.ops.RangedArchives.WHOLE_BELOW) return null
+        if (!runCatching { vfs.supportsRanges(apk) }.getOrDefault(false)) return null
+        val head = headFor(apk, node.size, node.mtime)
+        val blocks = dev.niccc2007.filet.vfs.RangedBlocks(node.size) { from, until ->
+            kotlinx.coroutines.runBlocking(Dispatchers.IO) { vfs.readRange(apk, from, until) }
+        }
+        val facts = runCatching { RangedApk(blocks).read(head, android.os.Build.VERSION.SDK_INT) }.getOrElse {
+            dev.niccc2007.filet.log.FiletLog.w("ranged", "APK did not read in place, staging " + apk, it)
+            head.delete()
+            return null
+        }
+        dev.niccc2007.filet.log.FiletLog.i(
+            "ranged",
+            "read " + apk.name + " (" + node.size + " bytes) in " + blocks.requests + " requests, " + blocks.fetched + " bytes",
+        )
+        val warnings = ArrayList<String>()
+        val pkgInfo = runCatching {
+            context.packageManager.getPackageArchiveInfo(
+                head.absolutePath,
+                PackageManager.GET_PERMISSIONS or PackageManager.GET_ACTIVITIES,
+            )
+        }.getOrNull()
+        // Without a source the label is looked up nowhere and comes back as the package name.
+        pkgInfo?.applicationInfo?.apply {
+            sourceDir = head.absolutePath
+            publicSourceDir = head.absolutePath
+        }
+        if (pkgInfo == null) warnings += "Android's own parser could not read this APK."
+        return assemble(
+            pkgInfo = pkgInfo,
+            manifest = facts.manifest,
+            fallbackLabel = apk.name.substringBeforeLast('.'),
+            dexEntries = facts.dexEntries,
+            classCount = facts.classCount ?: NOT_COUNTED,
+            abis = facts.nativeAbis,
+            signerDer = facts.signer,
+            sizeBytes = node.size,
+            warnings = warnings,
+        )
+    }
+
+    /**
+     * Where the head of an APK on a share goes: named for its path, size and modification time,
+     * so a changed APK gets a new head and never shows the old one's icon.
+     */
+    private fun headFor(apk: VPath, size: Long, mtime: Long): File {
+        val dir = File(
+            dev.niccc2007.filet.data.FiletStore.dir(context, dev.niccc2007.filet.data.FiletStore.Area.REMOTE),
+            HEADS,
+        )
+        val key = dev.niccc2007.filet.ops.RangedArchives.keyOf(apk.toString(), size, mtime)
+        trimHeads(dir, keep = key)
+        return File(dir, "$key.apk")
+    }
+
+    /** At most [HEADS_KEPT] heads, the least recently used removed first. */
+    private fun trimHeads(dir: File, keep: String) {
+        val all = dir.listFiles()?.filter { it.isFile && it.name.endsWith(".apk") }.orEmpty()
+        if (all.size < HEADS_KEPT) return
+        for (f in all.sortedBy { it.lastModified() }.take(all.size - HEADS_KEPT + 1)) {
+            if (f.name != "$keep.apk") f.delete()
+        }
+    }
+
+    /**
+     * The icon inside an APK, at [px]: from the file itself when it is on this phone, from its
+     * head when it is on a share and was read in place, and from a staged copy otherwise.
+     */
+    suspend fun icon(apk: VPath, px: Int): android.graphics.Bitmap? = withContext(Dispatchers.IO) {
+        val local = vfs.osPath(apk)
+        if (local != null) return@withContext dev.niccc2007.filet.media.Thumbnails.apkIcon(context, local, px)
+        if (!vfs.isRemote(apk)) return@withContext null
+        val node = runCatching { vfs.stat(apk) }.getOrNull() ?: return@withContext null
+        val head = headFor(apk, node.size, node.mtime)
+        val source = head.takeIf { it.isFile }
+            ?: if (BundleRoute.isBundle(apk.name)) null else staging?.stage(apk, node.size, node.mtime)
+        source?.let {
+            it.setLastModified(System.currentTimeMillis())
+            dev.niccc2007.filet.media.Thumbnails.apkIcon(context, it.absolutePath, px)
+        }
+    }
+
+    /** Everything the inspector shows, from whichever parsers answered. */
+    private fun assemble(
+        pkgInfo: android.content.pm.PackageInfo?,
+        manifest: AndroidManifestBlock?,
+        fallbackLabel: String,
+        dexEntries: List<String>,
+        classCount: Int,
+        abis: List<String>,
+        signerDer: ByteArray?,
+        sizeBytes: Long,
+        warnings: List<String>,
+    ): ApkInfo {
+        val pm = context.packageManager
+        val cert = signerDer?.let {
             runCatching {
                 java.security.cert.CertificateFactory.getInstance("X.509")
-                    .generateCertificate(it.toByteArray().inputStream()) as java.security.cert.X509Certificate
+                    .generateCertificate(it.inputStream()) as java.security.cert.X509Certificate
             }.getOrNull()
         }
-
-        ApkInfo(
+        return ApkInfo(
             label = pkgInfo?.applicationInfo?.let { pm.getApplicationLabel(it).toString() }
                 ?: manifest?.applicationLabelString
-                ?: file.nameWithoutExtension,
+                ?: fallbackLabel,
             packageName = pkgInfo?.packageName ?: manifest?.packageName ?: "unknown",
             versionName = pkgInfo?.versionName ?: manifest?.versionName ?: "",
             versionCode = pkgInfo?.longVersionCode ?: (manifest?.versionCode?.toLong() ?: 0L),
@@ -177,14 +302,14 @@ class ApkTools(
             permissions = (pkgInfo?.requestedPermissions?.toList() ?: manifest?.usesPermissions ?: emptyList()).sorted(),
             activities = pkgInfo?.activities?.mapNotNull { it.name }?.sorted() ?: emptyList(),
             dexEntries = dexEntries,
-            classCount = classes,
-            nativeAbis = abis.toList(),
+            classCount = classCount,
+            nativeAbis = abis,
             signerSubject = cert?.subjectX500Principal?.name,
             signerSha256 = cert?.let {
                 java.security.MessageDigest.getInstance("SHA-256").digest(it.encoded)
                     .joinToString(":") { b -> "%02X".format(b) }
             },
-            sizeBytes = file.length(),
+            sizeBytes = sizeBytes,
             warnings = warnings,
         )
     }
@@ -494,6 +619,15 @@ class ApkTools(
          * is deliberately generous and can move forward with new Android releases.
          */
         const val READ_API_LEVEL = 35
+
+        /** [ApkInfo.classCount] when a dex header on a share would not read: shown as not counted. */
+        const val NOT_COUNTED = -1
+
+        /** The folder, in the remote-files cache, that heads of APKs on shares are written to. */
+        const val HEADS = "apk-heads"
+
+        /** Heads kept: each is the manifest, the resource table and an icon, a few hundred KB. */
+        const val HEADS_KEPT = 24
 
         /**
          * The floor used when WRITING, so a broken or absent `minSdkVersion` cannot produce a

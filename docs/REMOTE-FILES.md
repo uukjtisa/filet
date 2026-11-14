@@ -158,3 +158,5 @@ Each step is useful on its own and none of them needs the next one to be worth s
 Steps 2 and 3 are the ones that are felt.
 
 Step 2 is built: `RangedArchives` decides per file and writes the stand-in, `RangedZipReader` reads the zip, and `RangedBlocks` / `RangedChannel` fetch and keep its blocks. A zip that will not open this way falls back to step 4's staged copy, as every other archive on a share still does.
+
+Step 3 is built: `RangedApk` reads an APK on a share through the same blocks - its table of contents, the manifest, the resource table, each dex header and the signing block - and writes a **head**, a small APK of the manifest, the table and the icon's files, which Android's own parser then reads for the label, permissions, activities and icon. The signer comes from the signing block (v3.1, v3, v2, then a v1 certificate) and the class count from the dex headers. `ApkTools.inspect` tries this first for a remote APK of 2 MB or more on a server that honours ranges; anything else, or an APK that will not read this way, falls back to the staged copy as before.

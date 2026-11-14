@@ -178,7 +178,7 @@ fun ApkInspectorScreen(vm: BrowserViewModel, node: VNode) {
                             Fact(
                                 "Size",
                                 humanSize(i.sizeBytes) + " · ${i.dexEntries.size} dex · " +
-                                    "${i.classCount} classes",
+                                    if (i.classCount >= 0) "${i.classCount} classes" else "classes not counted",
                             )
                             Fact(
                                 "Signed by",

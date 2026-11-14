@@ -5491,12 +5491,8 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * a generated id nobody has seen. Null for anything that is not a known connection, and the
      * caller then draws the raw segment - a path that still works, just less friendly.
      */
-    /** The icon inside an APK file, for the inspector's identity block. */
-    suspend fun apkIcon(node: VNode): android.graphics.Bitmap? =
-        kotlinx.coroutines.withContext(Dispatchers.IO) {
-            val os = graph.vfs.osPath(node.path) ?: return@withContext null
-            dev.niccc2007.filet.media.Thumbnails.apkIcon(graph.app, os, 128)
-        }
+    /** The icon inside an APK file, for the inspector's identity block. On a share too. */
+    suspend fun apkIcon(node: VNode): android.graphics.Bitmap? = graph.apkTools.icon(node.path, 128)
 
     /** What is already installed under [packageName]: its version code and signing digest. */
     suspend fun installedFacts(packageName: String) = graph.apkTools.installedFacts(packageName)
