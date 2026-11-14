@@ -6266,17 +6266,16 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     /** The Shortcuts tab's Edit on a placed shortcut: the sheet, filled in as it is now. */
     fun editShortcut(record: dev.niccc2007.filet.shortcuts.ShortcutRecord) {
         viewModelScope.launch {
-            val subject: dev.niccc2007.filet.shortcuts.PinSubject? = when (record.kind) {
-                dev.niccc2007.filet.shortcuts.ShortcutKind.FILE -> {
-                    val path = runCatching { VPath.parse(record.target) }.getOrNull()
-                    path?.let { runCatching { graph.vfs.stat(it) }.getOrNull() }?.let(::fileSubject)
-                }
-                dev.niccc2007.filet.shortcuts.ShortcutKind.TAB -> TabTarget.byId(record.target)?.let { dev.niccc2007.filet.shortcuts.PinSubject.Tab(it) }
-                dev.niccc2007.filet.shortcuts.ShortcutKind.ACTION -> dev.niccc2007.filet.shortcuts.AppAction.parse(record.target)?.let { dev.niccc2007.filet.shortcuts.PinSubject.Action(it) }
-                dev.niccc2007.filet.shortcuts.ShortcutKind.SCRIPT -> scripts.scripts.value.firstOrNull { it.id == record.target }?.let { dev.niccc2007.filet.shortcuts.PinSubject.Scripted(it) }
+            val file = if (record.kind != dev.niccc2007.filet.shortcuts.ShortcutKind.FILE) null else {
+                dev.niccc2007.filet.shortcuts.findForEdit(
+                    record,
+                    byId = { id -> runCatching { graph.index.pathFor(id) }.getOrNull() },
+                    stat = { p -> runCatching { graph.vfs.stat(p) }.getOrNull() },
+                )?.let(::fileSubject)
             }
+            val subject = dev.niccc2007.filet.shortcuts.editSubject(record, file) { id -> scripts.scripts.value.firstOrNull { it.id == id } }
             if (subject == null) {
-                toast("What \"${record.label}\" opened is gone. Forget it here, and drag it off the home screen.")
+                toast("What \"${record.label}\" opened is gone. Remove it here, then drag it off the home screen.")
                 return@launch
             }
             _shortcutSheet.value = dev.niccc2007.filet.shortcuts.ShortcutSheetState.Sheet(dev.niccc2007.filet.shortcuts.ShortcutAsk(subject, dev.niccc2007.filet.shortcuts.SheetFrom.EDIT, editing = record))
@@ -6318,10 +6317,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             val drawn = dev.niccc2007.filet.shortcuts.ShortcutArt.draw(app, s, if (same) dev.niccc2007.filet.shortcuts.ShortcutIcon.Folder(draft.look) else icon)
             val launcherIcon = dev.niccc2007.filet.shortcuts.ShortcutArt.launcherIcon(app, drawn)
             if (editing != null) {
+                val node = (s as? dev.niccc2007.filet.shortcuts.PinSubject.File)?.node
                 val record = editing.copy(
                     label = label,
                     handler = if (editing.kind == dev.niccc2007.filet.shortcuts.ShortcutKind.FILE) handler?.name else editing.handler,
                     icon = icon.encode(),
+                    // Where the file is now and whether it is a folder, for a shortcut whose file
+                    // has moved since, or one kept before the list knew folders from files.
+                    target = node?.path?.toString() ?: editing.target,
+                    dir = node?.isDir ?: editing.dir,
                 )
                 dev.niccc2007.filet.shortcuts.Shortcuts.update(app, record, launcherIcon)
                 graph.shortcuts.update(record)
@@ -6367,14 +6371,21 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         }
     }
 
-    /**
-     * The sheet's Remove. Android lets no app take an icon off the home screen, so the shortcut is
-     * turned off, which the launcher shows by greying it, and it leaves the list.
-     */
+    /** The sheet's Remove: [removeShortcut] for the shortcut being edited. */
     fun removeShortcut(ask: dev.niccc2007.filet.shortcuts.ShortcutAsk) {
         val record = ask.editing ?: return
         _shortcutSheet.value = null
-        dev.niccc2007.filet.shortcuts.Shortcuts.remove(graph.app, record.id, "Removed in Filet")
+        removeShortcut(record)
+    }
+
+    /**
+     * Remove a shortcut from the Shortcuts tab and, as far as Android allows, from the home screen.
+     * No app can take an icon off the home screen, so the shortcut is turned off, which the
+     * launcher shows by greying it, and it leaves the list. A turned-off icon is never listed
+     * again, where one only forgotten from the list came back the next time the launcher reported.
+     */
+    fun removeShortcut(record: dev.niccc2007.filet.shortcuts.ShortcutRecord) {
+        dev.niccc2007.filet.shortcuts.Shortcuts.remove(graph.app, record.id)
         graph.shortcuts.forget(record.id)
         toast("\"${record.label}\" is off and greyed on your home screen. Drag it off the home screen.")
     }

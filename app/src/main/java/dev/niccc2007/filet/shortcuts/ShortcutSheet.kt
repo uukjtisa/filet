@@ -680,14 +680,19 @@ private fun ChooserLine(label: String, note: String?, onClick: () -> Unit, art: 
     }
 }
 
-/** One row in the in-app shortcut list. */
+/**
+ * One row in the in-app shortcut list.
+ *
+ * @param onRemove turns the shortcut off as well as dropping the row. Forgetting the row alone did
+ *   nothing on a launcher that reports its pins: the icon was still there, so the row came back.
+ */
 @Composable
 fun ShortcutRow(
     record: ShortcutRecord,
     live: Boolean,
     onOpen: () -> Unit,
     onEdit: () -> Unit,
-    onForget: () -> Unit,
+    onRemove: () -> Unit,
 ) {
     val colors = Filet.colors
     Row(
@@ -720,6 +725,6 @@ fun ShortcutRow(
             )
         }
         SmallBtn("Edit", onEdit)
-        SmallBtn("Forget", onForget)
+        SmallBtn("Remove", onRemove)
     }
 }

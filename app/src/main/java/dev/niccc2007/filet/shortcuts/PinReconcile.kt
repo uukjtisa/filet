@@ -37,6 +37,9 @@ internal object PinReconcile {
     /**
      * @param pinned the ids the launcher reports as on the home screen now.
      * @param reports whether this launcher reports pins at all: it has done so before, or does now.
+     * @param found the home screen's own shortcuts, rebuilt by [recordOf]: the turned-on ones the
+     *   launcher reports. One with no row is listed, so every Filet icon on the home screen can be
+     *   edited, whatever happened to its row.
      */
     fun decide(
         records: List<ShortcutRecord>,
@@ -45,6 +48,7 @@ internal object PinReconcile {
         reports: Boolean,
         now: Long,
         graceMs: Long = GRACE_MS,
+        found: List<ShortcutRecord> = emptyList(),
     ): Outcome {
         val waiting = ArrayList<Pending>()
         val arrived = ArrayList<ShortcutRecord>()
@@ -68,6 +72,39 @@ internal object PinReconcile {
                 else -> r
             }
         }
-        return Outcome(kept + arrived, waiting)
+        val listed = HashSet<String>().apply {
+            kept.mapTo(this) { it.id }
+            addAll(arrivedIds)
+            addAll(waitingIds)
+        }
+        val adopted = if (reports) found.filter { it.id in pinned && it.id !in listed }.distinctBy { it.id } else emptyList()
+        return Outcome(kept + arrived + adopted, waiting)
     }
+
+    /**
+     * A shortcut on the home screen, rebuilt from what it carries: its id says its kind and what it
+     * opens, and a file's intent carries its path and opener.
+     *
+     * This is how an icon whose row was lost gets one back - its row forgotten by a build whose
+     * Forget left the icon turned on, or lost with the list itself. Every id Filet has ever
+     * pinned is one of these five forms. Null for any other, the held icon's menu entries among
+     * them: those belong to the menu, and editing one would change the menu too.
+     *
+     * @param path a file shortcut's fallback path extra. An `id:` shortcut without one cannot be
+     *   opened from the list, so it is not rebuilt.
+     */
+    fun recordOf(id: String, label: String, path: String?, handler: String?, now: Long): ShortcutRecord? {
+        val r = when {
+            id.startsWith("id:") -> path?.let { ShortcutRecord(id, ShortcutKind.FILE, label, it, handler, createdAt = now) }
+            id.startsWith("path:") -> ShortcutRecord(id, ShortcutKind.FILE, label, path ?: id.removePrefix("path:"), handler, createdAt = now)
+            id.startsWith(TAB_PREFIX) -> ShortcutRecord(id, ShortcutKind.TAB, label, id.removePrefix(TAB_PREFIX), createdAt = now)
+            id.startsWith(SCRIPT_PREFIX) -> ShortcutRecord(id, ShortcutKind.SCRIPT, label, id.removePrefix(SCRIPT_PREFIX), createdAt = now)
+            id.startsWith(ACTION_ID_PREFIX) -> ShortcutRecord(id, ShortcutKind.ACTION, label, id.removePrefix(ACTION_ID_PREFIX), createdAt = now)
+            else -> null
+        }
+        return r?.takeIf { it.target.isNotBlank() }
+    }
+
+    /** An action shortcut's id is this and the action's name. */
+    const val ACTION_ID_PREFIX = "action:"
 }

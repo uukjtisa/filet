@@ -136,22 +136,24 @@ object Shortcuts {
                 .setLongLabel(record.label.take(48))
                 .setIcon(icon)
             if (record.kind == ShortcutKind.FILE) {
-                val path = VPath.parse(record.target)
-                val fileId = record.id.removePrefix("id:").takeIf { record.id.startsWith("id:") }?.toLongOrNull()
-                b.setIntent(fileIntent(context, path, fileId, record.handler))
+                b.setIntent(fileIntent(context, VPath.parse(record.target), record.fileId, record.handler))
             }
             sm.updateShortcuts(listOf(b.build()))
         }
     }
 
     /**
-     * Turn a placed shortcut off. An app cannot take an icon off the home screen; the launcher
-     * shows this one greyed out with [why] until it is dragged away.
+     * Turn a placed shortcut off. Android gives no app a way to take an icon off the home screen:
+     * there is no inverse of `requestPinShortcut`. The launcher greys this one, and a tap on it
+     * shows [REMOVED], which says how to clear it.
      */
-    fun remove(context: Context, id: String, why: String) {
+    fun remove(context: Context, id: String) {
         val sm = context.getSystemService(ShortcutManager::class.java) ?: return
-        runCatching { sm.disableShortcuts(listOf(id), why) }
+        runCatching { sm.disableShortcuts(listOf(id), REMOVED) }
     }
+
+    /** What a removed shortcut says when it is tapped. The launcher shows it as it is. */
+    const val REMOVED = "Removed in Filet. Hold it and drag it off the home screen."
 
     /** Rename a live shortcut. `updateShortcuts` only touches ones this app still owns. */
     fun rename(context: Context, fileId: Long, label: String) {

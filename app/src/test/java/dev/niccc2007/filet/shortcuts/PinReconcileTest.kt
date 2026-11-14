@@ -24,7 +24,8 @@ class PinReconcileTest {
         pinned: Set<String> = emptySet(),
         reports: Boolean = true,
         now: Long,
-    ) = PinReconcile.decide(records, pending, pinned, reports, now, graceMs = 2_000L)
+        found: List<ShortcutRecord> = emptyList(),
+    ) = PinReconcile.decide(records, pending, pinned, reports, now, graceMs = 2_000L, found = found)
 
     @Test
     fun `cancel leaves nothing`() {
@@ -102,5 +103,51 @@ class PinReconcileTest {
             now = 5_000,
         )
         assertEquals(setOf("tab:home", "action:SEARCH"), out.records.map { it.id }.toSet())
+    }
+
+    // ── Icons on the home screen with no row ──
+
+    private fun found(id: String, label: String = id, path: String? = null) =
+        requireNotNull(PinReconcile.recordOf(id, label, path, handler = null, now = 9L))
+
+    @Test
+    fun `a Filet icon on the home screen with no row gets one, so it can be edited`() {
+        val out = decide(pinned = setOf("tab:home"), found = listOf(found("tab:home", "Home")), now = 0)
+        assertEquals(listOf("tab:home"), out.records.map { it.id })
+        assertEquals("Home", out.records.single().label)
+    }
+
+    @Test
+    fun `an icon that already has a row, or is being asked for, is not listed twice`() {
+        val out = decide(
+            records = listOf(rec("tab:home")),
+            pending = listOf(ask("tab:apps", at = 0)),
+            pinned = setOf("tab:home"),
+            found = listOf(found("tab:home"), found("tab:apps")),
+            now = 500,
+        )
+        assertEquals(listOf("tab:home"), out.records.map { it.id })
+        assertEquals(listOf("tab:apps"), out.pending.map { it.record.id })
+    }
+
+    @Test
+    fun `nothing is taken from a launcher that has never reported`() {
+        val out = decide(pinned = setOf("tab:home"), reports = false, found = listOf(found("tab:home")), now = 0)
+        assertTrue(out.records.isEmpty())
+    }
+
+    @Test
+    fun `every id Filet pins is rebuilt as its kind, the held icon's menu entries never`() {
+        val file = found("id:42", "Camera", path = "local:///storage/emulated/0/DCIM/Camera")
+        assertEquals(ShortcutKind.FILE, file.kind)
+        assertEquals("local:///storage/emulated/0/DCIM/Camera", file.target)
+        assertEquals(42L, file.fileId)
+        assertEquals("local:///sdcard/a.txt", found("path:local:///sdcard/a.txt").target)
+        assertEquals(ShortcutRecord("tab:home", ShortcutKind.TAB, "Home", "home", createdAt = 9L), found("tab:home", "Home"))
+        assertEquals(ShortcutKind.ACTION to "SEARCH", found("action:SEARCH").let { it.kind to it.target })
+        assertEquals(ShortcutKind.SCRIPT to "s1", found("script:s1").let { it.kind to it.target })
+        assertEquals(null, PinReconcile.recordOf("menu:tab:home", "Home", null, null, 0L))
+        assertEquals(null, PinReconcile.recordOf("id:42", "Camera", path = null, handler = null, now = 0L))
+        assertEquals(null, PinReconcile.recordOf("tab:", "x", null, null, 0L))
     }
 }

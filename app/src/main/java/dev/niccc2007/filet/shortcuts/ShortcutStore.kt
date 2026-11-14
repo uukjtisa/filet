@@ -39,6 +39,10 @@ data class ShortcutRecord(
     val dir: Boolean? = null,
     val icon: String? = null,
 ) {
+    /** The file id a file shortcut is addressed by, from its id. Null for one pinned by path, and for every other kind. */
+    val fileId: Long?
+        get() = if (kind == ShortcutKind.FILE && id.startsWith("id:")) id.removePrefix("id:").toLongOrNull() else null
+
     fun kindLabel(): String = when (kind) {
         ShortcutKind.FILE -> "File"
         ShortcutKind.SCRIPT -> "Script"
@@ -138,7 +142,7 @@ class ShortcutStore(private val context: Context, private val prefs: Prefs) {
     }
 
     /**
-     * Ids the launcher reports as pinned, or null when it could not be asked.
+     * The shortcuts the launcher reports as pinned, or null when it could not be asked.
      *
      * Null and empty are different answers. The call throws while the phone is still locked after
      * a restart, and reading that as "nothing is on the home screen" would wipe the whole list on
@@ -146,8 +150,8 @@ class ShortcutStore(private val context: Context, private val prefs: Prefs) {
      * plainly there, so an empty answer is only trusted once the launcher has been seen
      * reporting: see [PinReconcile].
      */
-    private fun pinnedOrNull(): Set<String>? = runCatching {
-        context.getSystemService(ShortcutManager::class.java)?.pinnedShortcuts?.mapTo(HashSet()) { it.id }
+    private fun pinnedOrNull(): List<android.content.pm.ShortcutInfo>? = runCatching {
+        context.getSystemService(ShortcutManager::class.java)?.pinnedShortcuts
     }.getOrNull()
 
     private val pending = java.util.concurrent.ConcurrentHashMap<String, PinReconcile.Pending>()
@@ -202,14 +206,30 @@ class ShortcutStore(private val context: Context, private val prefs: Prefs) {
      */
     fun reconcile() {
         if (!inFront) return
-        val pinned = pinnedOrNull() ?: return
+        val infos = pinnedOrNull() ?: return
+        val pinned = infos.mapTo(HashSet()) { it.id }
         if (pinned.isNotEmpty() && prefs.getString(KEY_REPORTS) == null) prefs.putString(KEY_REPORTS, "1")
+        val now = System.currentTimeMillis()
+        val listed = _all.value.mapTo(HashSet()) { it.id }
+        // An icon turned off by Remove stays pinned, greyed, until it is dragged away: never listed again.
+        val found = infos.filter { it.isEnabled && it.id !in listed }.mapNotNull { info ->
+            runCatching {
+                PinReconcile.recordOf(
+                    id = info.id,
+                    label = (info.shortLabel ?: info.longLabel ?: info.id).toString(),
+                    path = info.intent?.getStringExtra(Shortcuts.EXTRA_FALLBACK_PATH),
+                    handler = info.intent?.getStringExtra(Shortcuts.EXTRA_HANDLER),
+                    now = now,
+                )
+            }.getOrNull()
+        }
         val out = PinReconcile.decide(
             records = _all.value,
             pending = pending.values.toList(),
             pinned = pinned,
             reports = prefs.getString(KEY_REPORTS) != null,
-            now = System.currentTimeMillis(),
+            now = now,
+            found = found,
         )
         val waiting = out.pending.mapTo(HashSet()) { it.record.id }
         pending.keys.retainAll(waiting)

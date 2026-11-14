@@ -112,7 +112,7 @@ fun ShortcutsScreen(vm: BrowserViewModel) {
                     live = !line.record.unconfirmed,
                     onOpen = { vm.openShortcutRecord(line.record) },
                     onEdit = { vm.editShortcut(line.record) },
-                    onForget = { vm.shortcuts.forget(line.record.id) },
+                    onRemove = { vm.removeShortcut(line.record) },
                 )
                 is Line.Tab -> CatalogueRow(
                     icon = tabGlyph(line.target),
