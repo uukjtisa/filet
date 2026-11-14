@@ -27,11 +27,11 @@ that surface which is easiest to lose on the way across.
 | **Settings tab** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:235` | `setHTML` | N56 | Sub-tabs. The List pane carries a live view rendered by the same code as the real list. |
 | **File row** | `app/src/main/java/dev/niccc2007/filet/browser/ClipTraySheet.kt:596` | `rowsHTML3` | N55 | No date column. Files show bytes, folders show item count. Tabular figures, not a code font. |
 | **Search result row** | `app/src/main/java/dev/niccc2007/filet/browser/RowViews.kt:853` | `SearchResultRow` | N79 | Carries Available or Confirming while a pass runs, and nothing between passes. |
-| **Scope chips** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:670` | `.scopes` | N71 | Native search is dimmed and unpressable where the index never answers the scope anyway. |
+| **Scope chips** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:710` | `.scopes` | N71 | Native search is dimmed and unpressable where the index never answers the scope anyway. |
 | **Bottom bar** | `app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt:1538` | `.foot` | N46 | One bar plus a More button. The setting that chose between bar and menu is deleted. |
 | **Context menu** | `app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt:58` | `DIALOGS.context` | N67 | Keeps the icon button row across the top. The app already splits these - see splitForContextMenu - and the first redesign dropped the row, then put back the wrong five. Delete lives in the row, so it is NOT repeated as a list entry. |
 | **Context menu quick row** | `app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt:176` | `.ctxbar` | N67 | Which actions get an icon button and which go in the list. Already a pure function - QUICK_IDS is copy, move, rename, send, delete. RELABEL ONLY: move is shown as Cut with scissors. The id stays move; do not add a second action. |
-| **Actions popup** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:1968` | `actionsHTML` | N54 | Same icon row, then grouped entries, destructive last and separated. |
+| **Actions popup** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:2032` | `actionsHTML` | N54 | Same icon row, then grouped entries, destructive last and separated. |
 | **Open with** | `app/src/main/java/dev/niccc2007/filet/handlers/OpenWith.kt:70` | `openWithHTML` | N81 | One dialogue. Filet viewers above, apps below, remember control in the footer beside Open. |
 | **New folder** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:355` | `DIALOGS.newfolder` | N59 | Warns that a dot-prefixed name is never indexed by Android. |
 | **Rename** | `app/src/main/java/dev/niccc2007/filet/browser/Dialogs.kt:355` | `DIALOGS.rename` | N59 | Selection stops at the dot, so typing replaces the name and keeps the extension. |
@@ -47,10 +47,10 @@ that surface which is easiest to lose on the way across.
 | **Update sheet** | `app/src/main/java/dev/niccc2007/filet/update/UpdateSheet.kt:64` | `DIALOGS.update` | N68 | Keeps every element it has; the notes get the room and the chrome gets out of the way. |
 | **Onboarding** | `app/src/main/java/dev/niccc2007/filet/signet/OnboardingScreen.kt:159` | `DIALOGS.onboard` | N69 | Stays a slideshow. The permission slide is the one that cannot become advertising. |
 | **Crash** | `app/src/main/java/dev/niccc2007/filet/crash/CrashActivity.kt:132` | `DIALOGS.crash` | N65 | Taller, names the file it wrote, and offers to open it. |
-| **Storage tool** | _new, nothing to replace_ | `storHTML` | N57 | New screen. Tree, largest, by type, clean up, and the tray. See STORAGE-TOOL.md. |
+| **Storage tool** | `app/src/main/java/dev/niccc2007/filet/storage/DiskMapViews.kt:59` | `storHTML` | N57 | Built as Disk map, a mode of the file list rather than a screen: largest first with share bars, Largest files, By type. Clean up is the list's own delete. See docs/design/mockups/filet-storage-mock.html. |
 | **Appoint tray** | _new, nothing to replace_ | `.tray` | N80 | Tap to appoint as well as drag. Side panel in landscape, collapsed when empty. |
 | **Theme picker** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:235` | `appearanceHTML` | N84 | Twelve palettes plus a custom setter. Names describe the palette, never its source. |
-| **App icon picker** | _new, nothing to replace_ | `APP_ICONS` | N84 | Launcher aliases. Switching one drops home-screen shortcuts to the old alias. |
+| **App icon picker** | `app/src/main/java/dev/niccc2007/filet/settings/LegacyIconsSection.kt:271` | `APP_ICONS` | N84 | Launcher aliases. Switching one drops home-screen shortcuts to the old alias. |
 | **App intro** | _new, nothing to replace_ | `IntroPolicy` | N42 | Off by default. A hard failsafe finishes it whatever the animation is doing. |
 
 ## Not found in the app

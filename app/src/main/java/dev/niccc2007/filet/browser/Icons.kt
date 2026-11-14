@@ -203,6 +203,8 @@ object FiletIcons {
     val Paste = stroke("paste", "M8 4h8v3H8z", "M8 5.5H6a2 2 0 0 0-2 2V19a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5a2 2 0 0 0-2-2h-2")
     val Refresh = stroke("refresh", "M20 12a8 8 0 1 1-2.6-5.9", "M20 4v4h-4")
     val Sort = stroke("sort", "M7 4v16M7 20l-3-3M7 20l3-3", "M17 20V4M17 4l-3 3M17 4l3 3")
+    /** Disk map: four bars, longest first - what takes the space, ranked. */
+    val DiskMap = stroke("diskmap", "M4 5h16", "M4 10h11", "M4 15h7", "M4 20h3")
     val Share = stroke("share", "M12 15V4", "m8 8 4-4 4 4", "M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5")
     val Eye = stroke("eye", "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12", "M14.5 12a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0")
     // The same eye with the slash through it, for "stop showing me this". Drawn as the open eye

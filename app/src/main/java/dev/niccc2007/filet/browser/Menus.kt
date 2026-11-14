@@ -198,6 +198,13 @@ fun ViewPopover(vm: BrowserViewModel, onDismiss: () -> Unit) {
             // one it is about, and threading it through would let the two disagree.
             val pane = vm.focusedPane()
             val paneState = pane?.state?.collectAsState()?.value
+            // Disk map: the same kind of control as the tree - a way of looking at this folder,
+            // on for a while and then off. Only in a folder, where there is a drive to walk.
+            if (pane != null && paneState?.kind == PaneKind.FOLDER) {
+                PopRow(FiletIcons.DiskMap, "Disk map", active = paneState.diskMap) {
+                    vm.setDiskMap(pane, !paneState.diskMap)
+                }
+            }
             if (tree && paneState != null) {
                 if (paneState.open.isNotEmpty()) {
                     PopRow(FiletIcons.Up, "Fold everything away") { pane.collapseTree() }

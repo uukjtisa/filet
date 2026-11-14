@@ -59,6 +59,11 @@ internal fun DriveMenu(
                 vm.addTab(at = v.node.path)
             }
             DlgPick(FiletIcons.Info, "Details") { onPick(DriveDialog.DETAILS) }
+            // What takes the space on this drive, from its top. See storage/DiskMaps.kt.
+            DlgPick(FiletIcons.DiskMap, "Disk map") {
+                close()
+                vm.openDiskMap(v.node.path)
+            }
         }
     }
 }

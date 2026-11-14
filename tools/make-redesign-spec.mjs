@@ -111,13 +111,13 @@ const SURFACES = [
    "Taller, names the file it wrote, and offers to open it."],
 
   // ── the new ones ──
-  ["Storage tool", null, "storHTML", "N57",
-   "New screen. Tree, largest, by type, clean up, and the tray. See STORAGE-TOOL.md."],
+  ["Storage tool", "fun DiskStrip", "storHTML", "N57",
+   "Built as Disk map, a mode of the file list rather than a screen: largest first with share bars, Largest files, By type. Clean up is the list's own delete. See docs/design/mockups/filet-storage-mock.html."],
   ["Appoint tray", null, ".tray", "N80",
    "Tap to appoint as well as drag. Side panel in landscape, collapsed when empty."],
   ["Theme picker", "fun SettingsPage", "appearanceHTML", "N84",
    "Twelve palettes plus a custom setter. Names describe the palette, never its source."],
-  ["App icon picker", null, "APP_ICONS", "N84",
+  ["App icon picker", "fun AppIconPicker", "APP_ICONS", "N84",
    "Launcher aliases. Switching one drops home-screen shortcuts to the old alias."],
   ["App intro", null, "IntroPolicy", "N42",
    "Off by default. A hard failsafe finishes it whatever the animation is doing."],

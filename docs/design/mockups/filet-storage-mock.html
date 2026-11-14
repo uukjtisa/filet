@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet - Disk map: the file list by size (mock)</title>
+<style>
+/* Palette: Palette.kt SLATE, as the drives mock. */
+:root { --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --accentDim:#31434B; --warn:#C9A36A; --bad:#C97F7F; --sel:#243036; }
+* { box-sizing:border-box; }
+body { margin:0; font:13px/1.35 "Segoe UI", Roboto, system-ui, sans-serif; background:#0b0b0a; color:#ddd;
+  display:flex; gap:28px; padding:24px; align-items:flex-start; }
+.panel { width:330px; flex:none; }
+.panel h1 { font-size:16px; margin:0 0 4px; color:#fff; }
+.panel h2 { font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#8a8; margin:16px 0 6px; }
+.btns { display:flex; flex-wrap:wrap; gap:6px; }
+.btns button { background:#222; color:#ddd; border:1px solid #333; border-radius:8px; padding:7px 10px; font:12px "Segoe UI"; cursor:pointer; }
+.btns button.on { background:#7FA8B8; color:#0E1417; border-color:#7FA8B8; font-weight:600; }
+.caption { margin-top:18px; border-top:1px solid #333; padding-top:12px; color:#aaa; font-size:12px; }
+.caption p { margin:0 0 8px; } .caption b { color:#ddd; }
+.phone { width:412px; height:880px; flex:none; border-radius:30px; border:8px solid #000; position:relative; overflow:hidden;
+  background:var(--bg); color:var(--fg); }
+.status { height:26px; padding:0 16px; display:flex; align-items:center; justify-content:space-between; font-size:11px; color:var(--fg2); background:var(--sunken); }
+.path { height:44px; display:flex; align-items:center; padding:0 12px; gap:6px; font-size:13px; border-bottom:1px solid var(--lineSoft); }
+.path .crumb { color:var(--fg2); } .path .here { color:var(--fg); font-weight:600; }
+/* The Disk map strip: under the path bar while the mode is on. */
+.strip { padding:10px 14px 9px; background:var(--surface); border-bottom:1px solid var(--line); }
+.strip .top { display:flex; align-items:baseline; gap:8px; }
+.strip .total { font-size:20px; font-weight:600; letter-spacing:-.3px; }
+.strip .of { color:var(--fg2); font-size:11.5px; flex:1; }
+.strip .x { color:var(--fg3); font-size:16px; cursor:pointer; padding:0 2px; }
+.drive { height:6px; border-radius:3px; background:var(--high); margin:8px 0 5px; display:flex; overflow:hidden; }
+.drive i { display:block; height:100%; }
+.legend { font-size:10.5px; color:var(--fg3); display:flex; gap:10px; }
+.legend b { font-weight:500; color:var(--fg2); }
+.views { display:flex; gap:6px; margin-top:9px; }
+.chip { font-size:11px; padding:4px 10px; border-radius:12px; border:1px solid var(--line); color:var(--fg2); cursor:pointer; }
+.chip.on { background:var(--accentDim); border-color:var(--accentDim); color:var(--fg); }
+.walk { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--warn); margin-top:8px; }
+.walk .stop { margin-left:auto; color:var(--accent); cursor:pointer; }
+.arc { width:11px; height:11px; border-radius:50%; border:2px solid var(--warn); border-right-color:transparent; animation:t 0.9s linear infinite; }
+@keyframes t { to { transform:rotate(360deg); } }
+/* Rows: the list's own row, with the share bar under the name. */
+.row { display:flex; align-items:center; gap:11px; padding:8px 14px; border-bottom:1px solid var(--lineSoft); }
+.ico { width:34px; height:34px; border-radius:8px; flex:none; display:grid; place-items:center; font-size:11px; color:#0e1417; font-weight:700; }
+.mid { flex:1; min-width:0; }
+.name { font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.bar { height:4px; border-radius:2px; background:var(--high); margin-top:6px; overflow:hidden; }
+.bar i { display:block; height:100%; border-radius:2px; }
+.side { text-align:right; flex:none; width:78px; }
+.size { font-size:12.5px; font-variant-numeric:tabular-nums; }
+.pct { font-size:10.5px; color:var(--fg3); font-variant-numeric:tabular-nums; }
+.floor { color:var(--fg2); }
+.type { display:flex; align-items:center; gap:10px; padding:9px 14px; border-bottom:1px solid var(--lineSoft); }
+.dot { width:10px; height:10px; border-radius:3px; flex:none; }
+</style>
+</head>
+<body>
+<div class="panel">
+  <h1>Disk map</h1>
+  <div style="color:#999">The file list as a disk map: same rows, same actions, ordered by what they take.</div>
+  <h2>View</h2>
+  <div class="btns" id="views">
+    <button data-v="folders" class="on">Folders</button><button data-v="files">Largest files</button><button data-v="types">By type</button>
+  </div>
+  <h2>Walk</h2>
+  <div class="btns" id="walks"><button data-w="1" class="on">Measuring</button><button data-w="0">Settled</button></div>
+  <div class="caption">
+    <p><b>Decisions, in order.</b></p>
+    <p>1. A mode of the file list, not a page. Turned on from the view menu's Disk map (in the folder being shown) or a drive card's hold menu (at the drive's top). It stays on while you walk in and out of folders, until the × on its strip.</p>
+    <p>2. One walk per drive measures every folder on the way, so going into a folder shows its sizes at once. Rows show a floor with + until the walk has reached them, and are never shown as final before it has.</p>
+    <p>3. Largest first. The bar under each name is its share of the folder it is in; the strip's bar is the drive.</p>
+    <p>4. Three views from the same walk: Folders (the tree), Largest files (the biggest files anywhere below, flat), By type (what kinds take the space).</p>
+    <p>5. Every action the list has works here: select, delete, move, copy, share. A delete takes its size off every folder above it at once.</p>
+    <p>6. Every drive Filet opens, network shares included. On a share the strip says the walk reads every folder over the network, and Stop is always there.</p>
+    <p>7. Nothing is deleted or suggested automatically. It shows; you choose.</p>
+  </div>
+</div>
+<div class="phone">
+  <div class="status"><span>14:32</span><span>87%</span></div>
+  <div class="path"><span class="crumb">Internal ›</span><span class="here">Download</span></div>
+  <div class="strip">
+    <div class="top"><span class="total">39.2 GB</span><span class="of">31% of Internal · 76.4 of 128 GB used</span><span class="x" title="Close Disk map">×</span></div>
+    <div class="drive"><i style="width:31%;background:var(--accent)"></i><i style="width:29%;background:var(--fg3)"></i></div>
+    <div class="legend"><span><b>Download</b> 39.2 GB</span><span><b>Elsewhere</b> 37.2 GB</span><span><b>Free</b> 51.6 GB</span></div>
+    <div class="views" id="chips"><span class="chip on" data-v="folders">Folders</span><span class="chip" data-v="files">Largest files</span><span class="chip" data-v="types">By type</span></div>
+    <div class="walk" id="walk"><span class="arc"></span><span>Measuring · 12,340 files read</span><span class="stop">Stop</span></div>
+  </div>
+  <div id="list"></div>
+</div>
+<script>
+const folders = [
+  ["Movies", "F", 21.4e9, 1], ["Telegram", "F", 8.9e9, 1], ["ubuntu-24.04.iso", "ISO", 6.1e9, 0],
+  ["Camera backup", "F", 1.6e9, 0], ["Seed demo.mp4", "MP4", 0.71e9, 0], ["Books", "F", 0.31e9, 0], ["notes.zip", "ZIP", 0.09e9, 0]];
+const files = [["ubuntu-24.04.iso","ISO",6.1e9,"Download"],["Night drive.mkv","MKV",4.4e9,"Movies"],["Concert.mp4","MP4",3.9e9,"Movies"],
+  ["Lecture 12.mp4","MP4",2.2e9,"Telegram/Video"],["Seed demo.mp4","MP4",0.71e9,"Download"],["Archive 2024.zip","ZIP",0.66e9,"Camera backup"]];
+const types = [["Videos","#C9A36A",31.9e9],["Everything else","#7FA8B8",6.1e9],["Archives","#9B8BC9",0.8e9],["Pictures","#8FB894",0.3e9],["Documents","#C97F7F",0.1e9]];
+const total = 39.2e9;
+const gb = b => b >= 1e9 ? (b/1e9).toFixed(1)+" GB" : Math.round(b/1e6)+" MB";
+const colour = k => k==="F" ? "var(--accent)" : "var(--fg3)";
+let view = "folders", walking = true;
+function draw() {
+  const L = document.getElementById("list"); let h = "";
+  if (view === "folders") for (const [n,k,b,f] of folders) {
+    const floor = walking && f, pct = Math.round(b/total*100);
+    h += `<div class="row"><div class="ico" style="background:${k==="F"?"#7FA8B8":"#4a4842"};color:${k==="F"?"#0e1417":"#ddd"}">${k==="F"?"":k}</div>
+      <div class="mid"><div class="name">${n}</div><div class="bar"><i style="width:${pct}%;background:${colour(k)};opacity:${floor?.5:1}"></i></div></div>
+      <div class="side"><div class="size ${floor?"floor":""}">${gb(b)}${floor?"+":""}</div><div class="pct">${floor?"measuring":pct+"%"}</div></div></div>`;
+  }
+  if (view === "files") for (const [n,k,b,w] of files) h += `<div class="row"><div class="ico" style="background:#4a4842;color:#ddd">${k}</div>
+      <div class="mid"><div class="name">${n}</div><div class="pct" style="text-align:left;margin-top:2px">${w}</div></div>
+      <div class="side"><div class="size">${gb(b)}</div><div class="pct">${Math.round(b/total*100)}%</div></div></div>`;
+  if (view === "types") for (const [n,c,b] of types) h += `<div class="type"><span class="dot" style="background:${c}"></span>
+      <div class="mid"><div class="name">${n}</div><div class="bar"><i style="width:${Math.round(b/total*100)}%;background:${c}"></i></div></div>
+      <div class="side"><div class="size">${gb(b)}</div><div class="pct">${Math.round(b/total*100)}%</div></div></div>`;
+  L.innerHTML = h;
+  document.getElementById("walk").style.display = walking ? "flex" : "none";
+  document.querySelectorAll("[data-v]").forEach(e => e.classList.toggle("on", e.dataset.v === view));
+  document.querySelectorAll("[data-w]").forEach(e => e.classList.toggle("on", (e.dataset.w === "1") === walking));
+}
+document.querySelectorAll("[data-v]").forEach(e => e.onclick = () => { view = e.dataset.v; draw(); });
+document.querySelectorAll("[data-w]").forEach(e => e.onclick = () => { walking = e.dataset.w === "1"; draw(); });
+draw();
+</script>
+</body>
+</html>

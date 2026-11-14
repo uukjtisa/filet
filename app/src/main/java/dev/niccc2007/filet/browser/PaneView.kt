@@ -86,6 +86,13 @@ import dev.niccc2007.filet.ui.HScroll
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
+import dev.niccc2007.filet.storage.DiskKinds
+import dev.niccc2007.filet.storage.DiskLargest
+import dev.niccc2007.filet.storage.DiskMap
+import dev.niccc2007.filet.storage.DiskOrder
+import dev.niccc2007.filet.storage.DiskShareBar
+import dev.niccc2007.filet.storage.DiskStrip
+import dev.niccc2007.filet.storage.DiskView
 
 /**
  * One pane: header with its own search, scope chips, and the listing.
@@ -139,7 +146,8 @@ fun PaneView(
         // of them is nearest to what was asked for. The slider still works; it just cannot
         // take the tree somewhere a tree cannot go.
         val asked = ViewStep.of(viewStep)
-        val step = if (treeWanted) ViewStep.entries[asked.ordinal.coerceAtMost(TREE_MAX_STEP)] else asked
+        // Disk map clamps the same way: its share bars sit under a row, and a tile has no under.
+        val step = if (treeWanted || s.diskMap) ViewStep.entries[asked.ordinal.coerceAtMost(TREE_MAX_STEP)] else asked
         // Issue #11: a long name wraps rather than scrolling past. The row's own shape still
         // has the last word - see `nameLineCount`.
         val nameLines by vm.prefs.nameLines.collectAsStateWithLifecycle()
@@ -231,6 +239,23 @@ fun PaneView(
                 header()
                 chips()
             }
+            // Disk map: the drive's walk, shared by every pane on that drive. Asked of the maps
+            // here rather than handed over by the view model, so the strip is there on the first
+            // frame instead of on the first tick of the walk.
+            val diskRoot = if (s.diskMap && s.kind == PaneKind.FOLDER) s.cwd?.let { pane.driveRootOf(it) } else null
+            val diskMap = diskRoot?.let { r -> remember(r) { vm.diskMaps.of(r) } }
+            var diskView by remember(pane) { mutableStateOf(DiskView.FOLDERS) }
+            val diskHere = s.cwd
+            if (diskMap != null && diskHere != null && !s.search.active) {
+                DiskStrip(
+                    map = diskMap,
+                    folder = diskHere,
+                    volume = app.volumes.firstOrNull { it.node.path == diskRoot },
+                    view = diskView,
+                    onView = { diskView = it },
+                    onClose = { vm.setDiskMap(pane, false) },
+                )
+            }
 
             Box(Modifier.weight(1f)) {
                 // Measured once here and read by both the listing underneath and the dock
@@ -271,8 +296,23 @@ fun PaneView(
                     // drew the Home overview - so a correct answer was never on screen.
                     // `s.visible` already returns the hits during a search, so FolderBody needs
                     // no cwd and needs no special case.
+                    diskMap != null && diskHere != null && !s.search.active && diskView == DiskView.LARGEST ->
+                        DiskLargest(diskMap, diskHere) { vm.diskGoTo(pane, it); diskView = DiskView.FOLDERS }
+                    diskMap != null && diskHere != null && !s.search.active && diskView == DiskView.KINDS ->
+                        DiskKinds(diskMap, diskHere)
                     s.kind == PaneKind.FOLDER || SearchReach.showsResults(s.kind, s.search.active) ->
-                        FolderBody(pane, vm, s, app, metrics, side, registry, onGhost, reach)
+                        if (diskMap != null && !s.search.active) {
+                            // The walk's totals in place of the index's, a new reader per tick so
+                            // every row on screen asks again: a folder's figure grows while the
+                            // walk is under it and loses its + the moment the walk leaves it.
+                            val rev by diskMap.revision.collectAsState()
+                            val totals = remember(diskMap, rev) { diskMap.folderBytes() }
+                            CompositionLocalProvider(LocalFolderBytes provides totals) {
+                                FolderBody(pane, vm, s, app, metrics, side, registry, onGhost, reach, diskMap)
+                            }
+                        } else {
+                            FolderBody(pane, vm, s, app, metrics, side, registry, onGhost, reach)
+                        }
                     else -> SpecialBody(pane, vm, s, widthDp)
                 }
                 }
@@ -826,6 +866,7 @@ private fun FolderBody(
     registry: DropRegistry,
     onGhost: (Offset?) -> Unit,
     reach: Boolean = false,
+    diskMap: DiskMap? = null,
 ) {
     // The real selection, as a State that is only ever READ inside a row. Read here, it would
     // put FolderBody back in the path of every tap.
@@ -967,7 +1008,9 @@ private fun FolderBody(
     // view is on and nothing is being searched - a search result's row already says where it
     // is, and indenting hits under folders they are not in would be a lie. See `TreeRows`.
     val treeOn by vm.prefs.treeView.collectAsState()
-    val tree = treeOn && !s.search.active
+    // Off in Disk map, whose list is in size order: a tree's rows are in folder order, and a
+    // branch opened under a 2 GB folder would sit above the 20 GB one beside it.
+    val tree = treeOn && !s.search.active && diskMap == null
     val treeRows = remember(rows, s.open, s.branches, tree) {
         if (tree) TreeRows.flatten(rows, s.open, s.branches) else emptyList()
     }
@@ -1210,7 +1253,19 @@ private fun FolderBody(
     // right answer today - an unattached lazy state reports it cannot scroll either way, so
     // the idle one is neutral under an AND - but that is a coincidence of the default, not a
     // statement about which list the finger is on.
-    val display = vm.prefs.entry.collectAsState().value
+    val listDisplay = vm.prefs.entry.collectAsState().value
+    // Disk map puts the size beside every row - a folder's total, a file's own size - whatever
+    // the row details say, since the size is the whole point of the mode. Nothing is saved: the
+    // list is as it was when the mode is turned off.
+    val display = remember(listDisplay, diskMap != null) {
+        if (diskMap == null) listDisplay else listDisplay.copy(sideFile = DetailPart.SIZE, sideFolder = DetailPart.TOTAL)
+    }
+    // Read on every tick of the walk, so the bars move while it runs even when the order
+    // does not, which is the one case the pane's own state would not redraw for.
+    val diskRev = diskMap?.revision?.collectAsState()?.value
+    val diskTotal = remember(diskMap, diskRev, s.cwd) {
+        diskMap?.let { m -> s.cwd?.let { c -> m.read { it.bytes(c.toString()) } } }
+    }
 
     val grid = metrics.step.isGrid
     val pull = Modifier.edgePullRefresh(
@@ -1572,6 +1627,15 @@ private fun FolderBody(
                         onTaps = { n, at -> tapRow(node, n, at) },
                         listensFor = tapSet.listensFor(node.isDir),
                     )
+                    if (diskMap != null) {
+                        val bytes = diskMap.sizeOf(node)
+                        DiskShareBar(
+                            share = DiskOrder.share(bytes, diskTotal),
+                            percent = DiskOrder.percent(bytes, diskTotal),
+                            folder = node.isDir,
+                            inset = (steps.startDp + metrics.icon + 10).dp,
+                        )
+                    }
                 }
             }
         }

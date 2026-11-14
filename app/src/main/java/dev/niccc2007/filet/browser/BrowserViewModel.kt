@@ -295,6 +295,65 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     val folderPeek get() = graph.folderPeek
     val ledger get() = graph.ledger
 
+    /** The drives walked for Disk map, one walk per drive. See `storage/DiskMaps.kt`. */
+    val diskMaps = dev.niccc2007.filet.storage.DiskMaps(graph.vfs, viewModelScope)
+
+    /** Each pane's link to the walk of the drive it is on, while its Disk map is on. */
+    private val diskLinks = HashMap<Int, kotlinx.coroutines.Job>()
+
+    /**
+     * Disk map on or off in [pane]. On, the pane follows the walk of whichever drive it is on -
+     * walking into another drive switches to that drive's walk - and orders its rows again each
+     * time the walk moves. Off, the walk keeps what it found, so turning it on again is instant.
+     */
+    fun setDiskMap(pane: PaneController, on: Boolean) {
+        diskLinks.remove(pane.id)?.cancel()
+        if (!on) {
+            pane.diskSizes = null
+            pane.setDiskMap(false)
+            return
+        }
+        pane.setDiskMap(true)
+        diskLinks[pane.id] = viewModelScope.launch {
+            // Ends when the pane leaves the folders for Home or a special pane: the map is about
+            // the drive it was walking, and finding it still on after opening another drive from
+            // Home reads as a setting that stuck. Turning it off cancels this whole link.
+            launch {
+                pane.state.first { it.kind != PaneKind.FOLDER }
+                setDiskMap(pane, false)
+            }
+            pane.state
+                .map { s -> s.cwd?.let { pane.driveRootOf(it) } }
+                .distinctUntilChanged()
+                .collectLatest { root ->
+                    if (root == null) return@collectLatest
+                    val map = diskMaps.of(root)
+                    pane.diskSizes = map::sizeOf
+                    map.revision.collect { pane.redraw() }
+                }
+        }
+    }
+
+    /**
+     * From Disk map's Largest files: the file's own folder in [pane], still in Disk map, with the
+     * file picked so the next tap can delete or move it.
+     */
+    fun diskGoTo(pane: PaneController, path: VPath) {
+        val parent = path.parent ?: return
+        viewModelScope.launch {
+            val node = runCatching { withContext(Dispatchers.IO) { graph.vfs.stat(path) } }.getOrNull()
+            pane.jumpTo(parent)
+            if (node != null) pane.revealOnly(node) else toast("That file is not there any more.")
+        }
+    }
+
+    /** Disk map from a drive card: the drive's top, in the focused pane, with the map on. */
+    fun openDiskMap(root: VPath) {
+        val pane = focusedPane() ?: return
+        pane.jumpTo(root)
+        setDiskMap(pane, true)
+    }
+
     private var nextId = 1
     private var started = false
 
@@ -653,6 +712,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             return
         }
         _tabs.value = list.filterIndexed { i, _ -> i != index }
+        diskLinks.remove(list[index].id)?.cancel()
         val left = _tabs.value.size
         // Clamping BEFORE decrementing was the bug: the clamp had already taken one off for
         // the tab that just went, then the decrement took another, so with enough tabs the
@@ -677,6 +737,8 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      */
     fun closeAllTabs() {
         val closed = _tabs.value.size
+        diskLinks.values.forEach { it.cancel() }
+        diskLinks.clear()
         _tabs.value = listOf(newPane().also { it.openHome() })
         _state.update { it.copy(activeA = 0, activeB = 0, split = SplitMode.OFF, focused = Side.A) }
         persistTabs()
@@ -1384,6 +1446,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         creditUse(items.firstOrNull()?.path?.parent)
         viewModelScope.launch {
             val r = graph.ops.delete(items.map { it.path })
+            // Off every disk map at once, so the bars move with the delete. See DiskMap.removed.
+            val failed = r.failed.map { it.first }.toSet()
+            diskMaps.removed(items.filter { it.path !in failed })
             reportAndRefresh(r.succeeded, r.failed, "deleted", r.denial, dev.niccc2007.filet.jobs.JobKind.DELETE)
         }
     }

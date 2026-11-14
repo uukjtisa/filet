@@ -184,6 +184,12 @@ data class PaneState(
      * that re-centres on every press would be the screen jumping for nothing.
      */
     val revealIfHidden: Boolean = false,
+    /**
+     * Disk map is on: the folder ordered by what it takes, each row's share drawn under it, and
+     * the drive's walk feeding the folder totals. A way of looking, like the tree, so it stays on
+     * while the pane walks in and out of folders. See `storage/DiskMaps.kt`.
+     */
+    val diskMap: Boolean = false,
 ) {
     val selecting: Boolean get() = selected.isNotEmpty()
 
@@ -1421,10 +1427,32 @@ class PaneController(
         val showHidden = prefs.showHidden.value
         val spec: SortSpec = prefs.sort.value
         val filtered = if (showHidden) raw else raw.filterNot { it.hidden || it.name.startsWith(".") }
+        // Disk map orders by what each row takes, whatever the list's sort - see DiskOrder.
+        val sizes = diskSizes
+        val sorted = if (s.diskMap && sizes != null) {
+            dev.niccc2007.filet.storage.DiskOrder.sorted(filtered, sizes)
+        } else {
+            filtered.sortedBy(spec)
+        }
         // The one place the sort is applied, so the one place the tail can hold rows out of
         // it. Everything downstream reads `entries` and needs no knowledge of either.
-        return s.copy(entries = freshTail.applyTo(filtered.sortedBy(spec)), total = raw.size)
+        return s.copy(entries = freshTail.applyTo(sorted), total = raw.size)
     }
+
+    /**
+     * The size of a row in Disk map, from the drive's walk: a folder's total, a file's own size,
+     * null where the walk has not reached. Set by whoever turns Disk map on; null otherwise.
+     */
+    @Volatile var diskSizes: ((VNode) -> Long?)? = null
+
+    /** Disk map on or off for this pane. See [PaneState.diskMap]. */
+    fun setDiskMap(on: Boolean) = _state.update { render(it.copy(diskMap = on)) }
+
+    /** Orders the rows again, for a walk that has moved the sizes they are ordered by. */
+    fun redraw() = _state.update { render(it) }
+
+    /** The drive [path] is on, for Disk map's walk: its volume's root, else the path itself. */
+    fun driveRootOf(path: VPath): VPath = TreeShape.rootFor(path, rootsForDevice) ?: path
 
     /** Type-to-jump (SEARCH.md §5.6): the index of the first row starting with [prefix]. */
     fun jumpIndex(prefix: String): Int {
