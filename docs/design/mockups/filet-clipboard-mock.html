@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet - clipboard, action cards, player choice (mock)</title>
+<style>
+/* Palette: Palette.kt SLATE, both sides, names one-for-one with FiletColors. */
+:root, .dark {
+  --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --accentDim:#31434B; --onAccent:#0E1417;
+  --good:#8FB894; --warn:#C9A36A; --bad:#C97F7F; --sel:#243036; --inv:#E8E6E1; --invOn:#1C1C1A;
+}
+.light {
+  --bg:#F5F4F0; --surface:#FFFFFF; --raised:#FAF9F6; --sunken:#EBE9E3; --high:#E4E1DA;
+  --line:#DDDAD2; --lineSoft:#E9E6DF; --fg:#22211E; --fg2:#615D55; --fg3:#8B867C;
+  --accent:#3E6E82; --accentDim:#CBDDE4; --onAccent:#FFFFFF;
+  --good:#4B7A52; --warn:#8A6A2E; --bad:#9B4A4A; --sel:#E3EDF1; --inv:#22211E; --invOn:#FFFFFF;
+}
+* { box-sizing:border-box; }
+body { margin:0; font:13px/1.35 "Segoe UI", Roboto, system-ui, sans-serif; background:#0b0b0a; color:#ddd;
+  display:flex; gap:28px; padding:24px; align-items:flex-start; }
+.panel { width:330px; flex:none; }
+.panel h1 { font-size:16px; margin:0 0 4px; color:#fff; }
+.panel .sub { color:#999; margin-bottom:14px; }
+.panel h2 { font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#8a8; margin:16px 0 6px; }
+.btns { display:flex; flex-wrap:wrap; gap:6px; }
+.btns button, .seg button { background:#222; color:#ddd; border:1px solid #333; border-radius:8px; padding:7px 10px;
+  font:12px "Segoe UI", sans-serif; cursor:pointer; }
+.btns button:hover { background:#2b2b2b; }
+.seg { display:inline-flex; border:1px solid #333; border-radius:9px; overflow:hidden; }
+.seg button { border:none; border-radius:0; }
+.seg button.on { background:#7FA8B8; color:#0E1417; font-weight:600; }
+.caption { margin-top:18px; border-top:1px solid #333; padding-top:12px; color:#aaa; font-size:12px; }
+.caption b { color:#ddd; }
+.caption p { margin:0 0 8px; }
+.q { background:#1a1a14; border:1px solid #3a3420; border-radius:8px; padding:8px 10px; margin:8px 0; color:#d8c89a; }
+
+/* The phone. 412 x 880 dp, drawn 1:1 in CSS px. */
+.phone { width:412px; height:880px; flex:none; border-radius:30px; border:8px solid #000; position:relative;
+  overflow:hidden; background:var(--bg); color:var(--fg); box-shadow:0 10px 40px #000a; }
+.status { height:26px; padding:0 16px; display:flex; align-items:center; justify-content:space-between;
+  font-size:11px; color:var(--fg2); background:var(--sunken); }
+.tabs { height:38px; background:var(--sunken); display:flex; align-items:center; gap:4px; padding:0 8px; }
+.tab { padding:6px 12px; border-radius:9px 9px 0 0; font-size:12px; color:var(--fg2); }
+.tab.on { background:var(--bg); color:var(--fg); }
+.crumbs { height:36px; display:flex; align-items:center; gap:6px; padding:0 12px; font-size:12px; color:var(--fg2);
+  border-bottom:1px solid var(--lineSoft); }
+.crumbs b { color:var(--fg); font-weight:600; }
+.list { position:absolute; top:100px; bottom:62px; left:0; right:0; overflow:hidden; }
+.row { height:56px; display:flex; align-items:center; gap:12px; padding:0 14px; }
+.row .ic { width:36px; height:36px; border-radius:9px; background:var(--high); display:grid; place-items:center; color:var(--fg2); flex:none; }
+.row .nm { font-size:13.5px; }
+.row .mt { font-size:11px; color:var(--fg3); }
+.row.arrived { background:var(--sel); }
+.nav { position:absolute; left:0; right:0; bottom:0; height:62px; background:var(--raised); display:flex;
+  justify-content:space-around; align-items:center; border-top:1px solid var(--lineSoft); }
+.nav .it { display:flex; flex-direction:column; align-items:center; gap:3px; font-size:10px; color:var(--fg3); position:relative; }
+.nav .it svg { width:20px; height:20px; }
+.nav .bdg { position:absolute; top:-4px; right:-8px; min-width:16px; height:16px; border-radius:8px; background:var(--accent);
+  color:var(--onAccent); font-size:9px; font-weight:700; display:grid; place-items:center; padding:0 4px; }
+svg { stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
+/* The dock: Dock.kt. 50dp +, 42dp leaves, 12dp from the edges, 8dp between. */
+.dock { position:absolute; right:12px; bottom:74px; display:flex; flex-direction:column; align-items:flex-end; gap:8px; z-index:5; }
+.dockbtn { width:50px; height:50px; border-radius:50%; background:var(--accent); color:var(--onAccent); display:grid; place-items:center;
+  box-shadow:0 3px 8px #0006; cursor:pointer; }
+.dockbtn svg { width:21px; height:21px; }
+/* Today's pill: PastePill, 15dp icon, 12sp label, 34dp chevron. */
+.pill { display:flex; align-items:center; border-radius:999px; background:var(--accent); color:var(--onAccent); box-shadow:0 4px 10px #0006;
+  overflow:hidden; cursor:pointer; transform-origin:right center; }
+.pill .go { display:flex; align-items:center; gap:7px; padding:10px 8px 10px 14px; font-size:12px; font-weight:600; }
+.pill .go svg { width:15px; height:15px; }
+.pill .chev { width:34px; height:34px; display:grid; place-items:center; }
+.pill .chev svg { width:15px; height:15px; }
+/* New: the circle the pill shrinks into. 42dp, the size of a dock leaf, so it reads as part of the stack. */
+.clipdot { width:42px; height:42px; border-radius:50%; background:var(--high); color:var(--fg2); display:grid; place-items:center;
+  position:relative; box-shadow:0 3px 8px #0006; cursor:pointer; margin-right:4px; }
+.clipdot svg { width:18px; height:18px; }
+.clipdot .bdg { position:absolute; top:-3px; right:-3px; width:17px; height:17px; border-radius:50%; background:var(--accent);
+  color:var(--onAccent); font-size:9.5px; font-weight:700; display:grid; place-items:center; }
+.shrink-in { animation:shrinkIn .22s cubic-bezier(.2,.8,.2,1); }
+@keyframes shrinkIn { from { transform:scale(.6); opacity:0; } to { transform:scale(1); opacity:1; } }
+.pill-in { animation:pillIn .2s cubic-bezier(.2,.8,.2,1); }
+@keyframes pillIn { from { transform:scaleX(.4); opacity:0; } to { transform:scaleX(1); opacity:1; } }
+
+/* Action-started cards: ContinueCard.kt geometry - 10dp from top and end, max 280dp, radius 10, high ground, lineSoft border. */
+.cards { position:absolute; top:26px; right:0; display:flex; flex-direction:column; align-items:flex-end; gap:6px; padding:10px 10px 0 0; z-index:20; pointer-events:none; }
+.acard { pointer-events:auto; max-width:280px; display:flex; align-items:center; gap:10px; background:var(--high); border:1px solid var(--lineSoft);
+  border-radius:10px; padding:8px 4px 8px 10px; box-shadow:0 6px 16px #0007; cursor:pointer;
+  animation:cardIn .18s ease-out both; }
+.acard.out { animation:cardOut .16s ease-in both; }
+@keyframes cardIn { from { transform:translateX(110%); opacity:0; } to { transform:none; opacity:1; } }
+@keyframes cardOut { from { transform:none; opacity:1; } to { transform:translateX(110%); opacity:0; } }
+.acard .ai { width:26px; height:26px; border-radius:8px; background:var(--accentDim); color:var(--accent); display:grid; place-items:center; flex:none; }
+.acard .ai svg { width:14px; height:14px; }
+.acard .t1 { font-size:12px; color:var(--fg2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:190px; }
+.acard .t2 { font-size:11.5px; color:var(--accent); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:190px; }
+.acard .x { width:30px; height:30px; border-radius:50%; display:grid; place-items:center; color:var(--fg3); }
+.acard .x svg { width:14px; height:14px; }
+/* The 3 s left, as a hairline on the card's bottom edge: a card that leaves on a timer says so. */
+.acard { position:relative; overflow:hidden; }
+.acard .life { position:absolute; left:0; bottom:0; height:2px; background:var(--accent); opacity:.55; animation:life 3s linear forwards; }
+@keyframes life { from { width:100%; } to { width:0; } }
+
+/* Today's toast: BrowserScreen Toast(), bottom centre, 70dp over the nav, 1.9 s. */
+.toast { position:absolute; left:50%; bottom:132px; transform:translateX(-50%); background:var(--inv); color:var(--invOn); font-size:12px;
+  border-radius:20px; padding:7px 14px; z-index:30; white-space:nowrap; }
+
+/* Sheet: Dlg AUTO form. */
+.scrim { position:absolute; inset:0; background:#0008; z-index:40; display:none; }
+.sheet { position:absolute; left:0; right:0; bottom:0; background:var(--surface); border-radius:18px 18px 0 0; z-index:41; display:none;
+  max-height:82%; flex-direction:column; box-shadow:0 -6px 24px #0008; animation:sheetUp .22s cubic-bezier(.2,.8,.2,1); }
+@keyframes sheetUp { from { transform:translateY(40%); opacity:.4; } to { transform:none; opacity:1; } }
+.grab { width:36px; height:4px; border-radius:2px; background:var(--high); margin:9px auto 4px; flex:none; }
+.sh-head { display:flex; align-items:center; padding:4px 10px 2px 16px; gap:8px; flex:none; }
+.sh-head .ttl { font-size:16px; font-weight:600; }
+.sh-head .cnt { font-size:11.5px; color:var(--fg3); flex:1; }
+.tbtn { font-size:12px; color:var(--fg2); padding:6px 10px; border-radius:8px; cursor:pointer; }
+.tbtn:hover { background:var(--high); }
+.tbtn.on { color:var(--accent); }
+.dest { margin:8px 16px 4px; background:var(--sunken); border-radius:9px; padding:7px 10px; display:flex; align-items:center; gap:8px; flex:none; }
+.dest .lb { font-size:8.5px; letter-spacing:1.1px; color:var(--fg3); }
+.dest svg { width:14px; height:14px; color:var(--fg3); }
+.dest .p { font:10.5px Consolas, monospace; color:var(--fg2); white-space:nowrap; overflow:hidden; }
+.sh-body { overflow:auto; padding:4px 12px 8px; flex:1; }
+.grp { display:flex; align-items:baseline; gap:8px; padding:12px 4px 6px; }
+.grp .g1 { font-size:10px; letter-spacing:1px; font-weight:600; color:var(--fg3); }
+.grp .g2 { font-size:10.5px; color:var(--fg3); }
+/* One clipboard row. 60dp: a 38dp tile, two lines, the one-tap button. */
+.crow { display:flex; align-items:center; gap:11px; padding:10px 6px 10px 10px; border-radius:13px; background:var(--raised); margin-bottom:6px; cursor:pointer; }
+.crow.selected { background:var(--sel); outline:1px solid var(--accent); }
+.crow .tile { width:38px; height:38px; border-radius:11px; display:grid; place-items:center; flex:none; background:var(--high); color:var(--fg2); position:relative; }
+.crow .tile.move { background:var(--accentDim); color:var(--accent); }
+.crow .tile svg { width:18px; height:18px; }
+.crow .tile .n { position:absolute; right:-4px; bottom:-4px; min-width:17px; height:17px; border-radius:9px; background:var(--surface); border:1px solid var(--line);
+  font-size:9.5px; font-weight:700; color:var(--fg2); display:grid; place-items:center; padding:0 3px; }
+.crow .txt { flex:1; min-width:0; }
+.crow .l1 { font-size:13px; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.crow .l1 .more { color:var(--fg3); font-size:12px; }
+.crow .l2 { display:flex; align-items:center; gap:6px; margin-top:3px; font-size:10.5px; color:var(--fg3); white-space:nowrap; overflow:hidden; }
+.chip { font-size:9px; font-weight:700; letter-spacing:.6px; padding:2px 6px; border-radius:5px; background:var(--high); color:var(--fg3); flex:none; }
+.chip.move { background:var(--accentDim); color:var(--accent); }
+.crow .l2 .where { overflow:hidden; text-overflow:ellipsis; }
+.act { font-size:12px; font-weight:600; padding:8px 12px; border-radius:10px; background:var(--accentDim); color:var(--accent); flex:none; cursor:pointer; }
+.act.copy { background:var(--high); color:var(--fg); }
+.act:hover { filter:brightness(1.15); }
+.more-btn { width:30px; height:30px; border-radius:50%; display:grid; place-items:center; color:var(--fg3); flex:none; cursor:pointer; }
+.more-btn:hover { background:var(--high); }
+.more-btn svg { width:16px; height:16px; }
+.cbox { width:19px; height:19px; border-radius:5px; border:1.5px solid var(--fg3); flex:none; display:grid; place-items:center; }
+.cbox.on { background:var(--accent); border-color:var(--accent); color:var(--onAccent); }
+.cbox svg { width:12px; height:12px; }
+.files { margin:-2px 0 8px 59px; padding:2px 0 4px; }
+.frow { display:flex; align-items:center; gap:9px; padding:5px 4px; font-size:11.5px; color:var(--fg2); }
+.frow .cbox { width:17px; height:17px; }
+.sh-foot { padding:8px 16px 16px; flex:none; display:flex; gap:8px; }
+.big { flex:1; border-radius:13px; background:var(--accent); color:var(--onAccent); text-align:center; padding:12px 8px; cursor:pointer; }
+.big .b1 { font-size:13px; font-weight:600; }
+.big .b2 { font-size:11px; opacity:.72; }
+.big.ghost { flex:none; background:var(--high); color:var(--fg2); padding:12px 16px; }
+.empty { color:var(--fg3); font-size:11.5px; padding:14px 6px; }
+
+/* Row menu: PopMenu card, 200-280dp, radius 14, raised, 6dp inside. */
+.pop { position:absolute; z-index:60; min-width:220px; max-width:280px; background:var(--raised); border:1px solid var(--lineSoft); border-radius:14px; padding:6px;
+  box-shadow:0 10px 24px #000a; animation:popIn .14s ease-out; transform-origin:top right; }
+@keyframes popIn { from { opacity:0; transform:scale(.94); } to { opacity:1; transform:none; } }
+.pr { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:9px; cursor:pointer; }
+.pr:hover { background:var(--high); }
+.pr .pi { width:20px; display:grid; place-items:center; color:var(--fg2); }
+.pr .pi svg { width:16px; height:16px; }
+.pr .pl { font-size:13px; color:var(--fg); }
+.pr .pd { font-size:11px; line-height:14px; color:var(--fg3); }
+.pr .tick { width:18px; color:var(--accent); }
+.pr .tick svg { width:16px; height:16px; }
+.pr.active .pl { color:var(--accent); } .pr.active .pi { color:var(--accent); }
+.pgrp { font-size:10px; letter-spacing:1px; font-weight:600; color:var(--fg3); padding:8px 10px 5px; }
+.psep { height:1px; margin:6px 10px; background:linear-gradient(90deg, transparent, var(--lineSoft) 18%, var(--lineSoft) 82%, transparent); }
+
+/* Video screen. */
+.video { position:absolute; inset:26px 0 0 0; background:#000; display:none; z-index:50; }
+.vtop { position:absolute; top:0; left:0; right:0; height:52px; display:flex; align-items:center; gap:10px; padding:0 8px;
+  background:linear-gradient(#000c, transparent); color:#eee; }
+.vtop .vn { flex:1; font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.vtop .vb { width:36px; height:36px; display:grid; place-items:center; border-radius:50%; cursor:pointer; }
+.vtop svg { width:20px; height:20px; }
+.vpic { position:absolute; top:150px; left:0; right:0; height:232px; background:linear-gradient(135deg,#2c3a40,#3d2f28); display:grid; place-items:center; color:#fff8; font-size:12px; }
+.vnote { position:absolute; top:60px; left:50%; transform:translateX(-50%); background:#000b; color:#eee; font-size:12px; padding:7px 12px; border-radius:10px; white-space:nowrap; }
+.vbar { position:absolute; bottom:40px; left:16px; right:16px; height:4px; background:#fff3; border-radius:2px; }
+.vbar i { position:absolute; left:0; top:0; bottom:0; width:38%; background:var(--accent); border-radius:2px; }
+.hidden { display:none !important; }
+</style>
+</head>
+<body class="dark">
+
+<div class="panel">
+  <h1>Clipboard, action cards, player choice</h1>
+  <div class="sub">Mock, round 1, 2026-11-13. Drive it from the buttons here; tap things on the phone too.</div>
+
+  <h2>Compare</h2>
+  <div class="seg" id="modeSeg"><button data-m="today">Today</button><button data-m="new" class="on">New</button></div>
+  &nbsp;
+  <div class="seg" id="themeSeg"><button data-t="dark" class="on">Dark</button><button data-t="light">Light</button></div>
+
+  <h2>Put things on the clipboard</h2>
+  <div class="btns">
+    <button onclick="addBatch('copy')">Copy 3 photos</button>
+    <button onclick="addBatch('move')">Move 2 documents</button>
+    <button onclick="addBatch('copy2')">Copy 1 song</button>
+  </div>
+
+  <h2>Go somewhere</h2>
+  <div class="btns">
+    <button onclick="go('Download/Trawl')">Download/Trawl</button>
+    <button onclick="go('Music')">Music</button>
+    <button onclick="go('Documents/Work')">Documents/Work</button>
+  </div>
+
+  <h2>Start other actions</h2>
+  <div class="btns">
+    <button onclick="startAction('delete')">Delete 4</button>
+    <button onclick="startAction('zip')">Compress 12</button>
+    <button onclick="startAction('extract')">Extract a zip</button>
+    <button onclick="burst()">Three at once</button>
+  </div>
+
+  <h2>Other screen</h2>
+  <div class="btns">
+    <button onclick="showVideo(true)">Video player menu</button>
+    <button onclick="showVideo(false)">Back to files</button>
+  </div>
+
+  <div class="caption" id="caption">
+    <p><b>Round 1 (2026-11-13)</b></p>
+    <p><b>Dock.</b> A new Copy or Move shows the Paste pill, as today. After the first paste it shrinks into a 42dp clipboard circle, the size of a dock leaf, with a badge counting what is held. The next new Copy or Move brings the pill back. Tapping the pill pastes the new items here. The pill's arrow and the circle both open the clipboard.</p>
+    <p><b>Clipboard.</b> It's one list in two groups. <i>New</i> holds things not pasted yet; <i>History</i> holds things already pasted once. Every row has a one-tap button that does its job here, Paste for a copy and Move for a move. A moved item stays in History and remembers where it is now, so you can move it again and again. ⋯ on a row offers Copy here instead, Show the files, Open where it is, and Remove. Select switches the rows to ticks for doing several at once.</p>
+    <p><b>Action cards.</b> Every job that shows in Activity gets a card at the top right the moment it starts, naming it and where it goes. The cards stack, newest on top. Each one lasts 3 seconds, with a hairline showing the time left. Tapping a card opens Activity at that job. The bottom message when a job finishes stays as it is.</p>
+    <p><b>Player.</b> Filet's player becomes the default. The video player's menu gets a PLAYER group with two rows. Tapping one switches on the spot, at the same moment, and keeps the choice for every video after. The same choice moves from Developer into Settings › Video.</p>
+    <div class="q"><b>Defaults I picked; say if any is wrong.</b><br>
+      1. History survives closing Filet. It keeps the last 30 entries and drops the oldest. <br>
+      2. A History row whose files are gone (deleted elsewhere) stays, greyed, with Remove.<br>
+      3. The ⋯ menu's "Copy here instead" on a move row copies and leaves the files where they are.</div>
+  </div>
+</div>
+
+<div class="phone" id="phone">
+  <div class="status"><span>1:14</span><span>5G ▪ 72%</span></div>
+  <div class="tabs"><div class="tab on">Internal</div><div class="tab">DCIM</div><div class="tab">+</div></div>
+  <div class="crumbs"><span>Internal</span><span>›</span><b id="crumb">Download/Trawl</b></div>
+  <div class="list" id="list"></div>
+
+  <div class="cards" id="cards"></div>
+  <div class="dock" id="dock"></div>
+
+  <div class="nav">
+    <div class="it"><svg viewBox="0 0 24 24"><path d="M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>Home</div>
+    <div class="it"><svg viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z"/></svg>Files</div>
+    <div class="it"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Search</div>
+    <div class="it" id="actNav"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Activity<span class="bdg hidden" id="actBdg">0</span></div>
+  </div>
+
+  <div class="scrim" id="scrim" onclick="closeSheet()"></div>
+  <div class="sheet" id="sheet"></div>
+
+  <div class="video" id="video">
+    <div class="vtop">
+      <div class="vb" onclick="showVideo(false)"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></div>
+      <div class="vn">VID_20261031_171424.mp4</div>
+      <div class="vb" id="vmenuBtn" onclick="toggleVMenu()"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="12" cy="19" r="1.2"/></svg></div>
+    </div>
+    <div class="vpic">picture</div>
+    <div class="vnote hidden" id="vnote"></div>
+    <div class="vbar"><i></i></div>
+  </div>
+</div>
+
+<script>
+// ---------- icons ----------
+const I = {
+  copy:'<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>',
+  move:'<svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/><path d="M10 14h7M14 11l3 3-3 3"/></svg>',
+  paste:'<svg viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9z"/></svg>',
+  up:'<svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg>',
+  plus:'<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  x:'<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  more:'<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>',
+  check:'<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>',
+  folder:'<svg viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z"/></svg>',
+  trash:'<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
+  zip:'<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M12 3v2M12 7v2M12 11v2M10 15h4v3h-4z"/></svg>',
+  unzip:'<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 13l3 3 3-3M12 8v8"/></svg>',
+  file:'<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>',
+  img:'<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/></svg>',
+  music:'<svg viewBox="0 0 24 24"><path d="M9 18V6l11-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>',
+  eye:'<svg viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  open:'<svg viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z"/><path d="M12 13h5"/></svg>',
+  audio:'<svg viewBox="0 0 24 24"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="1"/><rect x="17" y="14" width="4" height="6" rx="1"/></svg>',
+  pip:'<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="12" width="7" height="5" rx="1"/></svg>',
+  shield:'<svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/></svg>',
+  link:'<svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1"/><path d="M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1"/></svg>',
+  share:'<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8 11l8-5M8 13l8 5"/></svg>',
+  info:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
+  film:'<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 4v16M16 4v16M3 9h5M3 15h5M16 9h5M16 15h5"/></svg>',
+  phone:'<svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>',
+};
+
+// ---------- state ----------
+const S = {
+  mode:'new', cwd:'Download/Trawl', seq:0, batches:[], sheet:false, selecting:false, sel:new Set(), open:new Set(),
+  arrived:[], player:'filet', vmenu:false, jobs:0,
+};
+const SAMPLES = {
+  copy:  { op:'copy', from:'DCIM/Camera', files:['IMG_2041.jpg','IMG_2042.jpg','IMG_2047.jpg'], kind:'img' },
+  move:  { op:'move', from:'Documents', files:['Invoice_October.pdf','Lease renewal.docx'], kind:'file' },
+  copy2: { op:'copy', from:'Music', files:['Sweater Weather.opus'], kind:'music' },
+};
+const FOLDERS = {
+  'Download/Trawl':['Audio','Seal','clip_0912.mp4','notes.txt','trawl.log'],
+  'Music':['Playlists','Sweater Weather.opus','The Blonde.opus','Sad Girl.mp3'],
+  'Documents/Work':['Q3','handover.md','roster.xlsx'],
+};
+
+function addBatch(k) {
+  const s = SAMPLES[k];
+  S.batches.push({ id:'b'+(++S.seq), op:s.op, from:s.from, files:[...s.files], picked:new Set(s.files), kind:s.kind,
+    fresh:true, pastedTo:[], now:null, at:Date.now() });
+  render();
+}
+function go(p) { S.cwd = p; S.arrived = []; render(); }
+
+// ---------- paste ----------
+function fresh() { return S.batches.filter(b => b.fresh); }
+function history() { return S.batches.filter(b => !b.fresh); }
+function shortDest() { return '…/' + S.cwd; }
+function doBatch(b, asCopy) {
+  const n = b.picked.size; if (!n) return;
+  const moving = b.op === 'move' && !asCopy;
+  card(moving ? 'move' : 'copy', (moving ? 'Moving ' : 'Copying ') + plural(n, 'file'), 'to ' + shortDest());
+  S.arrived.push(...[...b.picked]);
+  if (S.mode === 'today') {
+    // Today: a move is consumed, a copy stays loaded and keeps its pill.
+    if (moving) S.batches = S.batches.filter(x => x !== b); else b.pastedTo.push(S.cwd);
+  } else {
+    b.fresh = false;
+    if (moving) { b.now = S.cwd; } else b.pastedTo.push(S.cwd);
+  }
+}
+function pasteFresh() {
+  const list = S.mode === 'today' ? S.batches : fresh();
+  list.slice().forEach(b => doBatch(b));
+  render();
+  if (S.mode === 'today') setTimeout(() => toast(list.length ? 'Pasted' : 'Nothing is ticked to paste'), 900);
+}
+function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
+
+// ---------- action cards ----------
+function card(kind, t1, t2) {
+  S.jobs++; jobsBadge();
+  setTimeout(() => { S.jobs = Math.max(0, S.jobs - 1); jobsBadge(); }, 2400);
+  if (S.mode === 'today') return;            // today: nothing at the start
+  const box = document.getElementById('cards');
+  const icon = { copy:I.copy, move:I.move, delete:I.trash, zip:I.zip, extract:I.unzip }[kind];
+  const el = document.createElement('div');
+  el.className = 'acard';
+  el.innerHTML = `<div class="ai">${icon}</div><div><div class="t1">${t1}</div><div class="t2">${t2}</div></div>
+    <div class="x" title="Close">${I.x}</div><div class="life"></div>`;
+  el.querySelector('.x').onclick = e => { e.stopPropagation(); leave(el); };
+  el.onclick = () => { leave(el); toast('Opens Activity at this job'); };
+  box.prepend(el);                           // newest on top
+  // At most three on screen: a fourth pushes the oldest out early.
+  const all = [...box.querySelectorAll('.acard:not(.out)')];
+  all.slice(3).forEach(leave);
+  el._t = setTimeout(() => leave(el), 3000);
+}
+function leave(el) { if (el.classList.contains('out')) return; clearTimeout(el._t); el.classList.add('out'); setTimeout(() => el.remove(), 170); }
+function jobsBadge() { const b = document.getElementById('actBdg'); b.textContent = S.jobs; b.classList.toggle('hidden', !S.jobs); }
+function startAction(k) {
+  if (k === 'delete') card('delete', 'Deleting 4 files', 'in ' + shortDest());
+  if (k === 'zip') card('zip', 'Compressing 12 files', 'into ' + S.cwd.split('/').pop() + '.zip');
+  if (k === 'extract') card('extract', 'Extracting photos-2025.zip', 'to ' + shortDest() + '/photos-2025');
+  if (S.mode === 'today') setTimeout(() => toast(k === 'delete' ? '4 deleted' : 'Done'), 1600);
+}
+function burst() { startAction('delete'); setTimeout(() => startAction('zip'), 250); setTimeout(() => startAction('extract'), 500); }
+let toastT;
+function toast(m) {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = m;
+  document.getElementById('phone').appendChild(t); clearTimeout(toastT); toastT = setTimeout(() => t.remove(), 1900);
+}
+
+// ---------- render: list + dock ----------
+function render() {
+  document.getElementById('crumb').textContent = S.cwd;
+  const list = document.getElementById('list');
+  const names = [...(FOLDERS[S.cwd] || []), ...S.arrived.filter(a => !(FOLDERS[S.cwd] || []).includes(a))];
+  list.innerHTML = names.map(n => {
+    const dir = !n.includes('.');
+    const ic = dir ? I.folder : /\.(jpg|png)$/.test(n) ? I.img : /\.(opus|mp3)$/.test(n) ? I.music : I.file;
+    return `<div class="row ${S.arrived.includes(n) ? 'arrived' : ''}"><div class="ic">${ic}</div>
+      <div><div class="nm">${n}</div><div class="mt">${dir ? 'folder' : 'Nov 13 · 2.1 MB'}</div></div></div>`;
+  }).join('');
+  renderDock();
+  if (S.sheet) renderSheet();
+}
+let lastDock = '';
+function renderDock() {
+  const d = document.getElementById('dock');
+  let top = '';
+  if (S.mode === 'today') {
+    const n = S.batches.reduce((a, b) => a + b.picked.size, 0);
+    if (S.batches.length) top = pill('Paste ' + n, 'today');
+  } else {
+    const f = fresh(), h = history();
+    if (f.length) {
+      const n = f.reduce((a, b) => a + b.picked.size, 0);
+      const allMove = f.every(b => b.op === 'move'), anyMove = f.some(b => b.op === 'move');
+      top = pill((allMove ? 'Move ' : 'Paste ') + n, 'pill');
+    } else if (h.length) {
+      top = `<div class="clipdot" id="clipdot" title="Clipboard" onclick="openSheet()">${I.paste}<div class="bdg">${h.length > 9 ? '9+' : h.length}</div></div>`;
+      top = '<!--dot-->' + top;
+    }
+  }
+  const key = top.startsWith('<!--dot-->') ? 'dot' : top ? 'pill:' + top.length : '';
+  d.innerHTML = top + `<div class="dockbtn" title="New">${I.plus}</div>`;
+  const first = d.firstElementChild;
+  if (key !== lastDock && first && first.classList) {
+    if (key === 'dot') first.classList.add('shrink-in'); else if (key) first.classList.add('pill-in');
+  }
+  lastDock = key;
+}
+function pill(label) {
+  return `<div class="pill"><div class="go" onclick="pasteFresh()">${I.paste}${label}</div>
+    <div class="chev" title="Open the clipboard" onclick="openSheet()">${I.up}</div></div>`;
+}
+
+// ---------- sheet ----------
+function openSheet() { S.sheet = true; S.selecting = false; S.sel.clear(); renderSheet(); }
+function closeSheet() { S.sheet = false; closePop(); document.getElementById('scrim').style.display = 'none'; document.getElementById('sheet').style.display = 'none'; }
+function renderSheet() {
+  document.getElementById('scrim').style.display = 'block';
+  const sh = document.getElementById('sheet'); sh.style.display = 'flex';
+  sh.innerHTML = S.mode === 'today' ? sheetToday() : sheetNew();
+}
+function destStrip() {
+  return `<div class="dest"><span class="lb">PASTING INTO</span>${I.folder}<span class="p">…/0/${S.cwd}</span></div>`;
+}
+function sheetToday() {
+  const items = S.batches.reduce((a, b) => a + b.files.length, 0);
+  let h = `<div class="grab"></div><div class="sh-head"><span class="ttl">Clipboard</span>
+    <span class="cnt">${plural(S.batches.length, 'batch').replace('batchs','batches')}  ·  ${plural(items, 'item')}</span>
+    <span class="tbtn" onclick="S.batches=[];closeSheet();render()">Clear all</span></div>${destStrip()}<div class="sh-body">`;
+  if (!S.batches.length) h += `<div class="empty">Nothing copied yet. Copy or Move as often as you like — it all stacks up here.</div>`;
+  S.batches.forEach(b => {
+    const mv = b.op === 'move';
+    h += `<div class="crow" style="padding:11px 12px"><div class="tile ${mv ? 'move' : ''}" style="width:34px;height:34px;border-radius:10px">${mv ? I.move : I.copy}</div>
+      <div class="txt"><div class="l1">${plural(b.files.length, 'item')} ${b.pastedTo.length ? `<span class="chip" style="font-weight:400">pasted ${b.pastedTo.length}×</span>` : ''}</div>
+      <div class="l2"><span class="chip ${mv ? 'move' : ''}">${mv ? 'MOVE' : 'COPY'}</span><span>${b.from}</span></div></div>
+      <span class="tbtn" style="border:1px solid var(--lineSoft)" onclick="doBatch(S.batches.find(x=>x.id==='${b.id}'));render()">${mv ? 'Move' : 'Paste'}</span>
+      <span class="more-btn">${I.up.replace('M6 15l6-6 6 6','M6 9l6 6 6-6')}</span><span class="more-btn">${I.x}</span></div>`;
+  });
+  h += `</div>`;
+  if (S.batches.filter(b => b.picked.size).length > 1) {
+    h += `<div class="sh-foot"><div class="big" onclick="pasteFresh();closeSheet()"><span class="b1">Paste all ${S.batches.reduce((a,b)=>a+b.picked.size,0)} here</span></div></div>`;
+  } else h += `<div style="height:12px"></div>`;
+  return h;
+}
+function sheetNew() {
+  const f = fresh(), h = history();
+  let s = `<div class="grab"></div><div class="sh-head"><span class="ttl">Clipboard</span>
+    <span class="cnt">${[f.length ? f.length + ' new' : '', h.length ? h.length + ' in history' : ''].filter(Boolean).join('  ·  ') || 'empty'}</span>
+    ${S.batches.length ? `<span class="tbtn ${S.selecting ? 'on' : ''}" onclick="toggleSelect()">${S.selecting ? 'Done' : 'Select'}</span>
+    <span class="tbtn" onclick="S.batches=[];closeSheet();render()">Clear</span>` : ''}</div>${destStrip()}<div class="sh-body">`;
+  if (!S.batches.length) s += `<div class="empty">Copy or Move something and it lands here. Pasted things stay here as history until you clear them.</div>`;
+  if (f.length) { s += `<div class="grp"><span class="g1">NEW</span><span class="g2">not pasted yet</span></div>`; f.forEach(b => s += crow(b)); }
+  if (h.length) { s += `<div class="grp"><span class="g1">HISTORY</span><span class="g2">pasted before · tap to use again</span></div>`; h.slice().reverse().forEach(b => s += crow(b)); }
+  s += `</div>`;
+  if (S.selecting) {
+    const chosen = S.batches.filter(b => S.sel.has(b.id));
+    const c = chosen.filter(b => b.op === 'copy').reduce((a, b) => a + b.picked.size, 0);
+    const m = chosen.filter(b => b.op === 'move').reduce((a, b) => a + b.picked.size, 0);
+    s += `<div class="sh-foot"><div class="big ghost" onclick="toggleSelect()">Cancel</div>
+      <div class="big" style="${chosen.length ? '' : 'opacity:.45;pointer-events:none'}" onclick="doSelected()">
+      <div class="b1">${chosen.length ? 'Do ' + (c + m) + ' here' : 'Tick what to bring here'}</div>
+      <div class="b2">${[c ? c + ' copied' : '', m ? m + ' moved' : ''].filter(Boolean).join(', ') || '&nbsp;'}</div></div></div>`;
+  } else if (f.length > 1) {
+    const n = f.reduce((a, b) => a + b.picked.size, 0);
+    s += `<div class="sh-foot"><div class="big" onclick="pasteFresh();closeSheet()"><div class="b1">Bring all ${n} new here</div>
+      <div class="b2">${summary(f)}</div></div></div>`;
+  } else s += `<div style="height:14px"></div>`;
+  return s;
+}
+function summary(list) {
+  const c = list.filter(b => b.op === 'copy').reduce((a, b) => a + b.picked.size, 0);
+  const m = list.filter(b => b.op === 'move').reduce((a, b) => a + b.picked.size, 0);
+  return [c ? c + ' copied' : '', m ? m + ' moved' : ''].filter(Boolean).join(', ');
+}
+function crow(b) {
+  const mv = b.op === 'move';
+  const first = b.files[0], rest = b.files.length - 1;
+  let where;
+  if (b.fresh) where = 'from ' + b.from;
+  else if (mv) where = 'now in ' + b.now;
+  else where = 'pasted ' + b.pastedTo.length + '× · last to ' + b.pastedTo[b.pastedTo.length - 1];
+  const sel = S.sel.has(b.id);
+  const lead = S.selecting ? `<div class="cbox ${sel ? 'on' : ''}">${sel ? I.check : ''}</div>` : '';
+  const icon = b.kind === 'img' ? I.img : b.kind === 'music' ? I.music : I.file;
+  let r = `<div class="crow ${sel ? 'selected' : ''}" onclick="rowTap('${b.id}')">${lead}
+    <div class="tile ${mv ? 'move' : ''}">${icon}${b.files.length > 1 ? `<span class="n">${b.files.length}</span>` : ''}</div>
+    <div class="txt"><div class="l1">${first}${rest ? ` <span class="more">+${rest} more</span>` : ''}</div>
+      <div class="l2"><span class="chip ${mv ? 'move' : ''}">${mv ? 'MOVE' : 'COPY'}</span><span class="where">${where}</span></div></div>`;
+  if (!S.selecting) {
+    const here = mv && b.now === S.cwd;
+    r += `<span class="act ${mv ? '' : 'copy'}" style="${here ? 'opacity:.4;pointer-events:none' : ''}" onclick="event.stopPropagation();rowGo('${b.id}')">${here ? 'Here' : mv ? 'Move' : 'Paste'}</span>
+      <span class="more-btn" onclick="event.stopPropagation();rowMenu(event,'${b.id}')">${I.more}</span>`;
+  }
+  r += `</div>`;
+  if (S.open.has(b.id) && !S.selecting) {
+    r += `<div class="files">` + b.files.map(fn => {
+      const on = b.picked.has(fn);
+      return `<div class="frow" onclick="pick('${b.id}','${fn.replace(/'/g, "\\'")}')"><div class="cbox ${on ? 'on' : ''}">${on ? I.check : ''}</div>${fn}</div>`;
+    }).join('') + `</div>`;
+  }
+  return r;
+}
+function rowTap(id) {
+  if (S.selecting) { S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id); }
+  else { S.open.has(id) ? S.open.delete(id) : S.open.add(id); }
+  renderSheet();
+}
+function rowGo(id) { doBatch(S.batches.find(b => b.id === id)); render(); closeSheet(); }
+function pick(id, fn) { const b = S.batches.find(x => x.id === id); b.picked.has(fn) ? b.picked.delete(fn) : b.picked.add(fn); renderSheet(); renderDock(); }
+function toggleSelect() { S.selecting = !S.selecting; S.sel.clear(); renderSheet(); }
+function doSelected() { S.batches.filter(b => S.sel.has(b.id)).forEach(b => doBatch(b)); S.selecting = false; S.sel.clear(); render(); closeSheet(); }
+
+// ---------- row menu ----------
+function closePop() { document.querySelectorAll('.pop').forEach(p => p.remove()); }
+function rowMenu(e, id) {
+  closePop();
+  const b = S.batches.find(x => x.id === id), mv = b.op === 'move';
+  const ph = document.getElementById('phone').getBoundingClientRect(), r = e.currentTarget.getBoundingClientRect();
+  const p = document.createElement('div'); p.className = 'pop';
+  p.innerHTML = (mv ? popRow(I.copy, 'Copy here instead', 'Leaves the files where they are.', `rowCopy('${id}')`) : '') +
+    popRow(I.eye, S.open.has(id) ? 'Hide the files' : 'Show the files', 'Tick which ones go.', `closePop();rowTap('${id}')`) +
+    popRow(I.open, 'Open where it is', mv && b.now ? b.now : b.from, `closePop();closeSheet();go('${mv && b.now ? b.now : b.from}')`) +
+    `<div class="psep"></div>` + popRow(I.x, 'Remove from clipboard', null, `rowDrop('${id}')`);
+  document.getElementById('phone').appendChild(p);
+  p.style.top = (r.bottom - ph.top + 2) + 'px'; p.style.right = (ph.right - r.right - 6) + 'px';
+  if (r.bottom - ph.top + 200 > 860) { p.style.top = ''; p.style.bottom = (ph.bottom - r.top + 2) + 'px'; p.style.transformOrigin = 'bottom right'; }
+  setTimeout(() => document.addEventListener('click', function h(ev) { if (!p.contains(ev.target)) { closePop(); document.removeEventListener('click', h); } }), 0);
+}
+function popRow(icon, label, detail, on, active, checked) {
+  return `<div class="pr ${active ? 'active' : ''}" onclick="${on}"><div class="pi">${icon}</div>
+    <div style="flex:1"><div class="pl">${label}</div>${detail ? `<div class="pd">${detail}</div>` : ''}</div>
+    ${checked === undefined ? '' : `<div class="tick">${checked ? I.check : ''}</div>`}</div>`;
+}
+function rowCopy(id) { closePop(); doBatch(S.batches.find(b => b.id === id), true); render(); closeSheet(); }
+function rowDrop(id) { closePop(); S.batches = S.batches.filter(b => b.id !== id); render(); if (S.sheet) renderSheet(); }
+
+// ---------- video ----------
+function showVideo(on) { document.getElementById('video').style.display = on ? 'block' : 'none'; if (!on) closePop(); S.vmenu = false; }
+function toggleVMenu() {
+  if (document.querySelector('.pop')) { closePop(); return; }
+  const p = document.createElement('div'); p.className = 'pop'; p.style.top = '70px'; p.style.right = '10px'; p.style.zIndex = 70;
+  const f = S.player === 'filet';
+  p.innerHTML =
+    popRow(I.audio, 'Play as music', 'Keeps the sound going with the screen off or in another app.', 'closePop()') +
+    popRow(I.pip, 'Picture-in-picture', 'Goes on in a small window over other apps.', 'closePop()') +
+    popRow(I.shield, 'Uninterruptible', 'Pauses for calls and other audio.', 'closePop()', false, false) +
+    `<div class="psep"></div><div class="pgrp">PLAYER</div>` +
+    popRow(I.film, "Filet's player", 'Plays the most kinds of video. Uses FFmpeg where the phone has no decoder.', `setPlayer('filet')`, f, f) +
+    popRow(I.phone, "The phone's player", "The phone's own decoder. Lightest on battery.", `setPlayer('phone')`, !f, !f) +
+    `<div class="psep"></div>` +
+    popRow(I.link, 'Open in another app', null, 'closePop()') +
+    popRow(I.share, 'Share', null, 'closePop()') +
+    popRow(I.info, 'Properties', null, 'closePop()');
+  document.getElementById('phone').appendChild(p);
+}
+function setPlayer(k) {
+  S.player = k; closePop();
+  const n = document.getElementById('vnote');
+  n.textContent = (k === 'filet' ? "Filet's player" : "The phone's player") + ' · carrying on at 0:41';
+  n.classList.remove('hidden'); clearTimeout(n._t); n._t = setTimeout(() => n.classList.add('hidden'), 2500);
+}
+
+// ---------- toggles ----------
+document.querySelectorAll('#modeSeg button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#modeSeg button').forEach(x => x.classList.toggle('on', x === b));
+  S.mode = b.dataset.m; S.batches.forEach(x => x.fresh = S.mode === 'today' ? x.fresh : x.fresh); closeSheet(); render();
+});
+document.querySelectorAll('#themeSeg button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#themeSeg button').forEach(x => x.classList.toggle('on', x === b));
+  document.body.className = b.dataset.t;
+});
+render();
+// Preset states, for a quick look: #sheet, #dot, #video.
+if (location.hash === '#sheet' || location.hash === '#dot') {
+  addBatch('copy'); addBatch('move'); pasteFresh(); go('Music');
+  if (location.hash === '#sheet') { addBatch('copy2'); addBatch('copy'); openSheet(); }
+}
+if (location.hash === '#video') { showVideo(true); toggleVMenu(); }
+</script>
+</body>
+</html>

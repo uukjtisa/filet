@@ -16,13 +16,12 @@
  * Prints "APPOINT OK" only after every case passes.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   emptySel, leafTotal, nodeState, normalise, tallyFor, toggle, trayRows, trayTotals,
 } from "./appoint.mjs";
 
-const MOCK = process.env.FILET_MOCK || join(homedir(), "Desktop", "filet-redesign-mock.html");
+const MOCK = process.env.FILET_MOCK || join(import.meta.dirname, "..", "docs", "design", "mockups", "old", "filet-redesign-mock.html");
 const CORE = "tools/appoint.mjs";
 
 /**

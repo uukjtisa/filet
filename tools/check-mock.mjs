@@ -21,10 +21,9 @@
  * Prints "MOCK OK" only after every assertion passes.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
-const MOCK = process.env.FILET_MOCK || join(homedir(), "Desktop", "filet-redesign-mock.html");
+const MOCK = process.env.FILET_MOCK || join(import.meta.dirname, "..", "docs", "design", "mockups", "old", "filet-redesign-mock.html");
 const SPEC = "docs/early_mockups_preDev/STORAGE-TOOL.md";
 const TEMPLATE = "docs/early_mockups_preDev/filet-mock.html";
 

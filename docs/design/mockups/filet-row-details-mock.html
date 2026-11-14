@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet · Row details · mock</title>
+<style>
+:root {
+  --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --accentDim:#31434B; --onAccent:#0E1417; --good:#8FB894; --warn:#C9A36A;
+  --bad:#C97F7F; --sel:#243036; --page:#0B0B0A; --pageFg:#C9C6BF; --note:#1A1A18;
+}
+body.light {
+  --bg:#F5F4F0; --surface:#FFFFFF; --raised:#FAF9F6; --sunken:#EBE9E3; --high:#E4E1DA;
+  --line:#DDDAD2; --lineSoft:#E9E6DF; --fg:#22211E; --fg2:#615D55; --fg3:#8B867C;
+  --accent:#3E6E82; --accentDim:#CBDDE4; --onAccent:#FFFFFF; --good:#4E8A57; --warn:#9C7330;
+  --bad:#A85050; --sel:#D9E6EB; --page:#E2E0DA; --pageFg:#33312C; --note:#F2F1EC;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--page); color:var(--pageFg); font:14px/1.45 system-ui, "Segoe UI", Roboto, sans-serif; }
+header.top { display:flex; flex-wrap:wrap; gap:14px 22px; align-items:center; padding:16px 24px; border-bottom:1px solid var(--line); }
+header.top h1 { font-size:17px; margin:0; font-weight:600; }
+header.top .sub { color:var(--fg2); font-size:12.5px; }
+.ctl { display:flex; gap:6px; align-items:center; font-size:12px; color:var(--fg2); }
+.ctl button { font:inherit; font-size:12px; border:1px solid var(--line); background:transparent; color:var(--pageFg); padding:4px 10px; border-radius:6px; cursor:pointer; }
+.ctl button.on { background:var(--accent); color:var(--onAccent); border-color:var(--accent); }
+main { padding:22px 24px 60px; }
+.cols { display:flex; flex-wrap:wrap; gap:36px; align-items:flex-start; }
+.col { width:440px; }
+.col h2 { font-size:15px; margin:0 0 4px; }
+.col .why { font-size:12.5px; color:var(--fg2); margin:0 0 12px; min-height:36px; }
+.phone { zoom:1.2; width:360px; background:var(--bg); border:1px solid var(--line); border-radius:22px; overflow:hidden;
+  font-family:Roboto, "Segoe UI", system-ui, sans-serif; color:var(--fg); }
+.appbar { height:52px; display:flex; align-items:center; gap:14px; padding:0 14px; border-bottom:1px solid var(--lineSoft); font-size:16px; }
+.appbar svg { width:20px; height:20px; }
+.ctx { color:var(--fg3); font-size:9.5px; padding:4px 14px 0; letter-spacing:.3px; }
+.scroll { padding-bottom:18px; }
+
+/* settings kit, as SettingsPage.kt draws it */
+.secTitle { padding:20px 14px 0; font-size:13.5px; font-weight:600; color:var(--fg2); }
+.secSub { padding:2px 14px 9px; font-size:11px; line-height:15px; color:var(--fg3); }
+.secGap { height:9px; }
+.divider { height:1px; background:var(--lineSoft); margin-bottom:4px; }
+.hint { display:inline-flex; width:22px; height:14px; align-items:center; justify-content:center; vertical-align:middle; }
+.hint svg { width:14px; height:14px; }
+.toggleRow { display:flex; align-items:center; padding:9px 14px; cursor:pointer; }
+.toggleRow .t { flex:1; }
+.toggleRow .title { font-size:13px; }
+.toggleRow .status { font-size:10.5px; line-height:14px; color:var(--fg3); }
+.sw { width:41.6px; height:25.6px; border-radius:13px; position:relative; flex:none; margin-left:10px; transition:background .15s; }
+.sw.off { background:var(--high); box-shadow:inset 0 0 0 1.6px var(--fg3); }
+.sw.on { background:var(--accent); }
+.sw i { position:absolute; top:50%; border-radius:50%; transform:translateY(-50%); transition:left .15s, width .15s, height .15s; }
+.sw.off i { left:6.4px; width:12.8px; height:12.8px; background:var(--fg3); }
+.sw.on i { left:19.2px; width:19.2px; height:19.2px; background:var(--onAccent); }
+.seg { padding:6px 14px; }
+.seg.sub { padding-left:42px; }
+.seg .label { font-size:12px; color:var(--fg2); }
+.seg .chips { display:inline-flex; flex-wrap:wrap; margin-top:5px; border:1px solid var(--lineSoft); border-radius:8px; overflow:hidden; }
+.seg .chips span { font-size:11.5px; padding:6px 12px; color:var(--fg2); cursor:pointer; white-space:nowrap; }
+.seg .chips span.on { background:var(--accent); color:var(--onAccent); }
+.seg .status { font-size:11.5px; color:var(--fg3); line-height:15px; margin-top:5px; }
+.barRow { display:flex; align-items:center; padding:9px 6px 9px 16px; }
+.barRow .l { flex:1; font-size:13px; }
+.barRow .detail { font-size:10px; color:var(--fg3); }
+.ib { width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; cursor:pointer; }
+.ib:hover { background:var(--high); }
+.ib svg { width:16px; height:16px; }
+.ib.x svg { width:14px; height:14px; }
+.offHead { font-size:9px; letter-spacing:1.3px; color:var(--fg3); padding:14px 0 4px 16px; }
+.emptyNote { font-size:10.5px; line-height:14px; color:var(--fg3); padding:0 14px 6px 16px; }
+.sample { padding:8px 14px; }
+.sample .r { display:flex; font-family:"Roboto Mono", Consolas, monospace; font-size:12px; }
+.sample .r .n { flex:1; overflow:hidden; white-space:nowrap; }
+.sample .r .m { color:var(--fg2); margin-left:10px; }
+.sample .d { font-family:"Roboto Mono", Consolas, monospace; font-size:11px; color:var(--fg3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* proposed: the preview list */
+.pv { margin:6px 10px 2px; border:1px solid var(--lineSoft); border-radius:10px; background:var(--surface); overflow:hidden; }
+.pvHead { display:flex; align-items:center; gap:8px; padding:7px 10px 6px; border-bottom:1px solid var(--lineSoft); font-size:10px; color:var(--fg3); }
+.pvHead .grow { flex:1; }
+.mini { display:inline-flex; border:1px solid var(--lineSoft); border-radius:6px; overflow:hidden; }
+.mini span { font-size:10px; padding:3px 8px; color:var(--fg2); cursor:pointer; }
+.mini span.on { background:var(--accentDim); color:var(--fg); }
+.row { display:flex; align-items:center; padding:0 10px; }
+.row .ic { flex:none; display:flex; align-items:center; justify-content:center; }
+.row .ic svg { width:100%; height:100%; display:block; }
+.row .txt { flex:1; min-width:0; margin-left:10px; }
+.row .nm { white-space:nowrap; overflow:hidden; -webkit-mask-image:linear-gradient(90deg,#000 85%,transparent); mask-image:linear-gradient(90deg,#000 85%,transparent); }
+.row .dl { color:var(--fg3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.row .side { flex:none; margin-left:8px; text-align:right; color:var(--fg3); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.pvNote { font-size:10.5px; line-height:14px; color:var(--warn); padding:6px 12px 8px; border-top:1px solid var(--lineSoft); }
+.pvNote b { color:var(--fg); font-weight:500; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
+.subHead { font-size:10px; font-weight:600; letter-spacing:1px; color:var(--accent); padding:16px 14px 4px; text-transform:uppercase; }
+.subHint { font-size:10.5px; color:var(--fg3); padding:0 14px 4px; line-height:14px; }
+.part { display:flex; align-items:center; padding:5px 6px 5px 14px; min-height:44px; }
+.part .cb { width:18px; height:18px; border-radius:4px; border:2px solid var(--fg3); flex:none; margin-right:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.part .cb.on { background:var(--accent); border-color:var(--accent); }
+.part .cb svg { width:12px; height:12px; }
+.part .lab { flex:1; min-width:0; cursor:pointer; }
+.part .lab .a { font-size:13px; }
+.part.off .lab .a { color:var(--fg2); }
+.part .lab .b { font-size:10px; color:var(--fg3); }
+.part .val { font-size:11px; color:var(--fg3); font-variant-numeric:tabular-nums; margin:0 4px; white-space:nowrap; }
+.part .arrows { display:flex; width:64px; justify-content:flex-end; }
+.lineStrip { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:6px 14px 4px; }
+.chipP { display:inline-flex; align-items:center; gap:4px; font-size:12px; padding:5px 6px 5px 10px; border-radius:16px; border:1px solid var(--accent); color:var(--fg); cursor:pointer; }
+.chipP.sel { background:var(--accent); color:var(--onAccent); }
+.chipP .x { width:16px; height:16px; display:inline-flex; align-items:center; justify-content:center; }
+.chipP .x svg { width:11px; height:11px; }
+.dot { color:var(--fg3); font-size:12px; }
+.chipAdd { font-size:12px; padding:5px 10px; border-radius:16px; border:1px dashed var(--line); color:var(--fg2); cursor:pointer; }
+.moveBar { display:flex; gap:6px; align-items:center; padding:2px 14px 6px; font-size:11px; color:var(--fg3); }
+.moveBar button { font:inherit; font-size:11px; padding:3px 10px; border-radius:6px; border:1px solid var(--line); background:transparent; color:var(--fg); cursor:pointer; }
+.new { display:inline-block; font-size:8.5px; letter-spacing:.6px; font-weight:700; color:var(--onAccent); background:var(--good); border-radius:4px; padding:1px 4px; margin-left:6px; vertical-align:2px; }
+
+/* notes under each phone */
+ol.warts, ol.fixes { margin:14px 0 0; padding-left:20px; font-size:12.5px; }
+ol.warts li, ol.fixes li { margin-bottom:6px; }
+ol.warts li::marker { color:var(--bad); font-weight:700; }
+ol.fixes li::marker { color:var(--good); font-weight:700; }
+section.qs, section.log { max-width:916px; margin-top:34px; }
+section h3 { font-size:15px; margin:0 0 10px; }
+.q { background:var(--note); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; font-size:13px; }
+.q b.k { color:var(--accent); }
+.q .opts { margin-top:6px; color:var(--fg2); font-size:12.5px; }
+.log .card { background:var(--note); border:1px solid var(--line); border-radius:10px; padding:12px 14px; font-size:12.5px; }
+code { font-family:"Roboto Mono", Consolas, monospace; font-size:12px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs id="sharedDefs"><linearGradient id="gSteel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C6DDE6"/><stop offset="0.3" stop-color="#93B8C6"/><stop offset="0.65" stop-color="#7FA8B8"/><stop offset="1" stop-color="#5E8A9B"/></linearGradient><linearGradient id="gSlate" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6F97A7"/><stop offset="0.5" stop-color="#4E7382"/><stop offset="1" stop-color="#385663"/></linearGradient><linearGradient id="gDeep" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3E5F6C"/><stop offset="1" stop-color="#22343C"/></linearGradient><linearGradient id="gSub0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7A9FAE"/><stop offset="1" stop-color="#4F7484"/></linearGradient><linearGradient id="gSub1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8FB3C1"/><stop offset="1" stop-color="#628898"/></linearGradient><linearGradient id="gSub2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#A4C4D0"/><stop offset="1" stop-color="#749BAA"/></linearGradient><linearGradient id="gStack1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5A8090"/><stop offset="1" stop-color="#2E4852"/></linearGradient><linearGradient id="gStack2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#46697A"/><stop offset="1" stop-color="#243A43"/></linearGradient><linearGradient id="gSubG0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E2C27A"/><stop offset="1" stop-color="#B08A3A"/></linearGradient><linearGradient id="gSubG1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EDD08C"/><stop offset="1" stop-color="#C29A48"/></linearGradient><linearGradient id="gSubG2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F6DFA2"/><stop offset="1" stop-color="#D3AD58"/></linearGradient><linearGradient id="gStackG1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#DDBA6C"/><stop offset="1" stop-color="#9E7A2E"/></linearGradient><linearGradient id="gStackG2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C9A250"/><stop offset="1" stop-color="#7E5F26"/></linearGradient><linearGradient id="gSubIn" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6E5524"/><stop offset="1" stop-color="#3A2B10"/></linearGradient><linearGradient id="gSubBack" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C9A250"/><stop offset="1" stop-color="#7E5F26"/></linearGradient><linearGradient id="gSubFront" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F8E3A8"/><stop offset="0.5" stop-color="#EDCC7E"/><stop offset="1" stop-color="#D3AD58"/></linearGradient><linearGradient id="gPaper" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F2F7F9"/><stop offset="1" stop-color="#B9D2DC"/></linearGradient><radialGradient id="gGround" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#000" stop-opacity="0.45"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient><linearGradient id="acc-steel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4E7382"/><stop offset="0.5" stop-color="#385663"/><stop offset="1" stop-color="#22343C"/></linearGradient><linearGradient id="acc-amber" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F5D68A"/><stop offset="0.5" stop-color="#E0B25C"/><stop offset="1" stop-color="#A97A2E"/></linearGradient><linearGradient id="acc-green" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B4E39B"/><stop offset="0.5" stop-color="#7FC46A"/><stop offset="1" stop-color="#4E8F3E"/></linearGradient><linearGradient id="acc-gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FBE28C"/><stop offset="0.5" stop-color="#E8C15A"/><stop offset="1" stop-color="#B08A28"/></linearGradient><linearGradient id="acc-coral" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F7B49C"/><stop offset="0.5" stop-color="#E58A6A"/><stop offset="1" stop-color="#B05E42"/></linearGradient><linearGradient id="acc-mint" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9BEBD8"/><stop offset="0.5" stop-color="#5FCDB5"/><stop offset="1" stop-color="#2F8F7C"/></linearGradient><linearGradient id="acc-rose" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F6A6BC"/><stop offset="0.5" stop-color="#E0708F"/><stop offset="1" stop-color="#A84463"/></linearGradient><linearGradient id="acc-lime" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#D6EE8E"/><stop offset="0.5" stop-color="#B0D65E"/><stop offset="1" stop-color="#7A9F2E"/></linearGradient><linearGradient id="acc-orange" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FAC48A"/><stop offset="0.5" stop-color="#F0A050"/><stop offset="1" stop-color="#B86E25"/></linearGradient><linearGradient id="acc-red" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F59A8C"/><stop offset="0.5" stop-color="#E06A5A"/><stop offset="1" stop-color="#A63F31"/></linearGradient><linearGradient id="acc-violet" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#D3BCF5"/><stop offset="0.5" stop-color="#A884E0"/><stop offset="1" stop-color="#7253B0"/></linearGradient><linearGradient id="acc-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B3DDF7"/><stop offset="0.5" stop-color="#6FB7E8"/><stop offset="1" stop-color="#3F80B0"/></linearGradient><linearGradient id="acc-brown" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E8C29A"/><stop offset="0.5" stop-color="#CF9A5E"/><stop offset="1" stop-color="#946233"/></linearGradient><linearGradient id="acc-indigo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C0C9FA"/><stop offset="0.5" stop-color="#8C9CF0"/><stop offset="1" stop-color="#5A68BF"/></linearGradient><linearGradient id="bb-amber" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e3ba6c"/><stop offset="0.5" stop-color="#E0B25C"/><stop offset="1" stop-color="#A97A2E"/></linearGradient><linearGradient id="bf-amber" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fae8bf"/><stop offset="0.35" stop-color="#F5D68A"/><stop offset="0.7" stop-color="#ebc473"/><stop offset="1" stop-color="#E0B25C"/></linearGradient><linearGradient id="bi-amber" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7f5c23"/><stop offset="1" stop-color="#443112"/></linearGradient><linearGradient id="bb-green" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8cca79"/><stop offset="0.5" stop-color="#7FC46A"/><stop offset="1" stop-color="#4E8F3E"/></linearGradient><linearGradient id="bf-green" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d6f0c8"/><stop offset="0.35" stop-color="#B4E39B"/><stop offset="0.7" stop-color="#9ad483"/><stop offset="1" stop-color="#7FC46A"/></linearGradient><linearGradient id="bi-green" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b6b2f"/><stop offset="1" stop-color="#1f3919"/></linearGradient><linearGradient id="bb-gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#eac76b"/><stop offset="0.5" stop-color="#E8C15A"/><stop offset="1" stop-color="#B08A28"/></linearGradient><linearGradient id="bf-gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fdefc0"/><stop offset="0.35" stop-color="#FBE28C"/><stop offset="0.7" stop-color="#f2d273"/><stop offset="1" stop-color="#E8C15A"/></linearGradient><linearGradient id="bi-gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#84681e"/><stop offset="1" stop-color="#463710"/></linearGradient><linearGradient id="bb-coral" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e89679"/><stop offset="0.5" stop-color="#E58A6A"/><stop offset="1" stop-color="#B05E42"/></linearGradient><linearGradient id="bf-coral" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fbd6c9"/><stop offset="0.35" stop-color="#F7B49C"/><stop offset="0.7" stop-color="#ee9f83"/><stop offset="1" stop-color="#E58A6A"/></linearGradient><linearGradient id="bi-coral" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#844732"/><stop offset="1" stop-color="#46261a"/></linearGradient><linearGradient id="bb-mint" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6fd2bc"/><stop offset="0.5" stop-color="#5FCDB5"/><stop offset="1" stop-color="#2F8F7C"/></linearGradient><linearGradient id="bf-mint" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c8f4ea"/><stop offset="0.35" stop-color="#9BEBD8"/><stop offset="0.7" stop-color="#7ddcc7"/><stop offset="1" stop-color="#5FCDB5"/></linearGradient><linearGradient id="bi-mint" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#236b5d"/><stop offset="1" stop-color="#133932"/></linearGradient><linearGradient id="bb-rose" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e37e9a"/><stop offset="0.5" stop-color="#E0708F"/><stop offset="1" stop-color="#A84463"/></linearGradient><linearGradient id="bf-rose" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#faceda"/><stop offset="0.35" stop-color="#F6A6BC"/><stop offset="0.7" stop-color="#eb8ba6"/><stop offset="1" stop-color="#E0708F"/></linearGradient><linearGradient id="bi-rose" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7e334a"/><stop offset="1" stop-color="#431b28"/></linearGradient><linearGradient id="bb-lime" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b8da6e"/><stop offset="0.5" stop-color="#B0D65E"/><stop offset="1" stop-color="#7A9F2E"/></linearGradient><linearGradient id="bf-lime" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8f6c1"/><stop offset="0.35" stop-color="#D6EE8E"/><stop offset="0.7" stop-color="#c3e276"/><stop offset="1" stop-color="#B0D65E"/></linearGradient><linearGradient id="bi-lime" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5c7723"/><stop offset="1" stop-color="#314012"/></linearGradient><linearGradient id="bb-orange" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2aa62"/><stop offset="0.5" stop-color="#F0A050"/><stop offset="1" stop-color="#B86E25"/></linearGradient><linearGradient id="bf-orange" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fcdfbf"/><stop offset="0.35" stop-color="#FAC48A"/><stop offset="0.7" stop-color="#f5b26d"/><stop offset="1" stop-color="#F0A050"/></linearGradient><linearGradient id="bi-orange" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a531c"/><stop offset="1" stop-color="#4a2c0f"/></linearGradient><linearGradient id="bb-red" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e3796b"/><stop offset="0.5" stop-color="#E06A5A"/><stop offset="1" stop-color="#A63F31"/></linearGradient><linearGradient id="bf-red" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fac7c0"/><stop offset="0.35" stop-color="#F59A8C"/><stop offset="0.7" stop-color="#eb8273"/><stop offset="1" stop-color="#E06A5A"/></linearGradient><linearGradient id="bi-red" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7d2f25"/><stop offset="1" stop-color="#421914"/></linearGradient><linearGradient id="bb-violet" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b190e3"/><stop offset="0.5" stop-color="#A884E0"/><stop offset="1" stop-color="#7253B0"/></linearGradient><linearGradient id="bf-violet" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e7dafa"/><stop offset="0.35" stop-color="#D3BCF5"/><stop offset="0.7" stop-color="#bea0eb"/><stop offset="1" stop-color="#A884E0"/></linearGradient><linearGradient id="bi-violet" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#563e84"/><stop offset="1" stop-color="#2e2146"/></linearGradient><linearGradient id="bb-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7dbeea"/><stop offset="0.5" stop-color="#6FB7E8"/><stop offset="1" stop-color="#3F80B0"/></linearGradient><linearGradient id="bf-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d5ecfb"/><stop offset="0.35" stop-color="#B3DDF7"/><stop offset="0.7" stop-color="#91caf0"/><stop offset="1" stop-color="#6FB7E8"/></linearGradient><linearGradient id="bi-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f6084"/><stop offset="1" stop-color="#193346"/></linearGradient><linearGradient id="bb-brown" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d4a46e"/><stop offset="0.5" stop-color="#CF9A5E"/><stop offset="1" stop-color="#946233"/></linearGradient><linearGradient id="bf-brown" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2ddc7"/><stop offset="0.35" stop-color="#E8C29A"/><stop offset="0.7" stop-color="#dcae7c"/><stop offset="1" stop-color="#CF9A5E"/></linearGradient><linearGradient id="bi-brown" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6f4a26"/><stop offset="1" stop-color="#3b2714"/></linearGradient><linearGradient id="bb-indigo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#98a6f2"/><stop offset="0.5" stop-color="#8C9CF0"/><stop offset="1" stop-color="#5A68BF"/></linearGradient><linearGradient id="bf-indigo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#dce1fc"/><stop offset="0.35" stop-color="#C0C9FA"/><stop offset="0.7" stop-color="#a6b3f5"/><stop offset="1" stop-color="#8C9CF0"/></linearGradient><linearGradient id="bi-indigo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#444e8f"/><stop offset="1" stop-color="#242a4c"/></linearGradient></defs></svg>
+
+<header class="top">
+  <div>
+    <h1>Row details · round 2</h1>
+    <div class="sub">Settings › Appearance › Row details. Today on the left, the proposal on the right. Everything on both phones works.</div>
+  </div>
+  <div class="ctl">Theme <button data-theme="dark" class="on">Dark</button><button data-theme="light">Light</button></div>
+  <div class="ctl">Your lists use <span id="yourView"></span></div>
+</header>
+
+<main>
+<div class="cols">
+  <div class="col">
+    <h2>Today</h2>
+    <p class="why">As shipped. The warts are kept on purpose; the numbers below match the fixes on the right.</p>
+    <div class="phone" id="today"></div>
+    <ol class="warts">
+      <li><b>The preview isn't a row.</b> Two lines of monospace text: no icon, a different font from the list, 12 sp where List draws 13 and Comfortable 14, and folders in the same weight as files.</li>
+      <li><b>It shows a line your list may not have.</b> The line under the name is drawn only in Comfortable view. List (the default) and Compact draw one line per row, so every control in the top half changes nothing you can see there.</li>
+      <li><b>Relative dates can't be seen working.</b> The sample is 12 days old, and relative dates stop at 6, so the switch never changes the preview. Its hint also promises "Today, Yesterday and weekday names", while the list writes <code>today</code>, <code>yesterday</code>, <code>3 days ago</code>.</li>
+      <li><b>Two lists for one line.</b> What's on the line and what isn't sit in two lists under a 9 sp header, and no row says what it prints or whether it's for files or folders (that's behind a hold).</li>
+      <li><b>Eight controls with no grouping.</b> The section has no sentence under its title, and the side columns and the date format run on from the line builder with nothing to tell them apart.</li>
+      <li><b>The date chips are names, not dates.</b> "All numbers / Named month / Full month" means picking a format without seeing it. A named month also keeps the leading zero: <code>02 Nov 2026</code>.</li>
+      <li><b>"Dates show only in wide panes"</b> is only on hold, so choosing Date beside a file and seeing nothing in two panes looks broken.</li>
+    </ol>
+  </div>
+  <div class="col">
+    <h2>Proposed</h2>
+    <p class="why">Same settings and the same stored values, plus one new one: <b>Time of day</b>.</p>
+    <div class="phone" id="proposed"></div>
+    <ol class="fixes">
+      <li><b>The preview is the list.</b> Five rows drawn as the list draws them: the drawn icons, the list's font and sizes, folder names in medium weight, the right-hand column lined up with even-width digits. It's built from the same functions the list calls, so it can't drift.</li>
+      <li><b>It follows your view.</b> It starts in the view your lists use, and the switch on it shows the other two. When the line under the name is hidden in that view, it says so, with a link to switch to Comfortable.</li>
+      <li><b>Dates of every age:</b> today, yesterday, 3 days, 12 days and 6 weeks back. Relative dates and Time of day both visibly change something. The hint now says what the list actually writes.</li>
+      <li><b>One list of parts</b>: a tick box turns each on or off, arrows move the ones that are on, and each part shows what it prints on the preview and whether it's for files or folders, without a hold.</li>
+      <li><b>Three groups:</b> Under the name · Beside the name · Dates, and one sentence under the title.</li>
+      <li><b>Date chips show the date.</b> They follow your order and separator. A named month drops the leading zero: <code>2 Nov 2026</code>. Numbers keep it: <code>2026-11-02</code>.</li>
+      <li><b>The wide-pane rule is printed</b> under Beside the name whenever Date is chosen there.</li>
+      <li><b>Time of day</b> <span class="new">NEW</span>: Off · 14:32 · 2:32 PM, joined to the date by a dot: <code>2 Nov 2026 · 14:32</code>. It's the last-modified time, beside the date wherever a date is printed (the line and the right-hand column). The column widens to fit it, so it still lines up.</li>
+    </ol>
+  </div>
+</div>
+
+<section class="qs">
+  <h3>The answers · 2026-11-14</h3>
+  <div class="q"><b class="k">List view</b> stays one line. The preview says the line under the name shows in Comfortable, with a link to switch.</div>
+  <div class="q"><b class="k">Time of day</b> offers both: Off · 14:32 · 2:32 PM.</div>
+  <div class="q"><b class="k">Date and time</b> are joined by a dot: <code>2 Nov 2026 · 14:32</code>, <code>3 days ago · 18:47</code>.</div>
+  <div class="q"><b class="k">Line builder</b>: A, one list of rows with tick boxes and arrows.</div>
+  <div class="q"><b class="k">Names</b>: decided as drawn. Under the name · Beside the name · Dates; Written as · Files · Folders · Time of day.</div>
+</section>
+
+<section class="log">
+  <h3>Changes</h3>
+  <div class="card"><div style="margin-bottom:8px"><b>Round 2 · 2026-11-14</b>: your five answers are in. The dot joins date and time, builder A is the only builder, and the two switches for them are gone from the top of the page. Waiting on your OK to build it.</div><b>Round 1 · 2026-11-14</b>: first draft. Today's section replicated from the code beside the proposal: a real list as the preview, one list of parts, three groups, dates as samples, and Time of day.</div>
+</section>
+</main>
+
+<script>
+const ICONS = {"folderDocs":"<svg viewBox=\"10 12 88 88\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"54\" cy=\"88.5\" rx=\"31\" ry=\"3.6\" fill=\"url(#gGround)\"/><path d=\"M22,24 H42 l6,8 H78 a6,6 0 0 1 6,6 V80 a6,6 0 0 1 -6,6 H22 a6,6 0 0 1 -6,-6 V30 a6,6 0 0 1 6,-6z\" fill=\"url(#gSlate)\"/><path d=\"M22.5,25.6 H41.2 l6,8 H78\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".22\" stroke-width=\"1.6\" stroke-linejoin=\"round\" stroke-linecap=\"round\"/><rect x=\"20\" y=\"39\" width=\"60\" height=\"44\" rx=\"4\" fill=\"url(#gDeep)\"/><g transform=\"translate(37 41) rotate(-9)\"><path d=\"M-11,-16 H5 L11,-10 V14 a2,2 0 0 1 -2,2 H-9 a2,2 0 0 1 -2,-2 V-14 a2,2 0 0 1 2,-2z\" fill=\"url(#gPaper)\"/><path d=\"M5,-16 V-12 a2,2 0 0 0 2,2 H11z\" fill=\"url(#gSteel)\"/><g transform=\"translate(-7.2 -13) scale(.6)\"><path d=\"M5.2,3.6h8.6a1.2,1.2 0 0 1 1.2,1.2v1.2a1.2,1.2 0 0 1 -1.2,1.2h-8.6a1.2,1.2 0 0 1 -1.2,-1.2v-1.2a1.2,1.2 0 0 1 1.2,-1.2z\" fill=\"url(#acc-sky)\"/><path d=\"M5.1,9.6h13.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-13.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"url(#acc-sky)\"/><path d=\"M5.1,13.6h13.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-13.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"url(#acc-sky)\"/><path d=\"M5.1,17.6h8.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-8.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"url(#acc-sky)\"/></g><rect x=\"-11\" y=\"2.5\" width=\"22\" height=\"6\" fill=\"url(#acc-sky)\"/></g><g transform=\"translate(71 41) rotate(9)\"><path d=\"M-11,-16 H5 L11,-10 V14 a2,2 0 0 1 -2,2 H-9 a2,2 0 0 1 -2,-2 V-14 a2,2 0 0 1 2,-2z\" fill=\"url(#gPaper)\"/><path d=\"M5,-16 V-12 a2,2 0 0 0 2,2 H11z\" fill=\"url(#gSteel)\"/><g transform=\"translate(-7.2 -13) scale(.6)\"><path d=\"M5,4h14a2,2 0 0 1 2,2v12a2,2 0 0 1 -2,2h-14a2,2 0 0 1 -2,-2v-12a2,2 0 0 1 2,-2zM5.1,9.2h3.3a0.4,0.4 0 0 1 0.4,0.4v2.9a0.4,0.4 0 0 1 -0.4,0.4h-3.3a0.4,0.4 0 0 1 -0.4,-0.4v-2.9a0.4,0.4 0 0 1 0.4,-0.4zM5.1,14.1h3.3a0.4,0.4 0 0 1 0.4,0.4v2.9a0.4,0.4 0 0 1 -0.4,0.4h-3.3a0.4,0.4 0 0 1 -0.4,-0.4v-2.9a0.4,0.4 0 0 1 0.4,-0.4zM10.35,9.2h3.3a0.4,0.4 0 0 1 0.4,0.4v2.9a0.4,0.4 0 0 1 -0.4,0.4h-3.3a0.4,0.4 0 0 1 -0.4,-0.4v-2.9a0.4,0.4 0 0 1 0.4,-0.4zM10.35,14.1h3.3a0.4,0.4 0 0 1 0.4,0.4v2.9a0.4,0.4 0 0 1 -0.4,0.4h-3.3a0.4,0.4 0 0 1 -0.4,-0.4v-2.9a0.4,0.4 0 0 1 0.4,-0.4zM15.6,9.2h3.3a0.4,0.4 0 0 1 0.4,0.4v2.9a0.4,0.4 0 0 1 -0.4,0.4h-3.3a0.4,0.4 0 0 1 -0.4,-0.4v-2.9a0.4,0.4 0 0 1 0.4,-0.4zM15.6,14.1h3.3a0.4,0.4 0 0 1 0.4,0.4v2.9a0.4,0.4 0 0 1 -0.4,0.4h-3.3a0.4,0.4 0 0 1 -0.4,-0.4v-2.9a0.4,0.4 0 0 1 0.4,-0.4z\" fill=\"url(#acc-green)\" fill-rule=\"evenodd\"/></g><rect x=\"-11\" y=\"2.5\" width=\"22\" height=\"6\" fill=\"url(#acc-green)\"/></g><g transform=\"translate(54 37) rotate(0)\"><path d=\"M-11,-16 H5 L11,-10 V14 a2,2 0 0 1 -2,2 H-9 a2,2 0 0 1 -2,-2 V-14 a2,2 0 0 1 2,-2z\" fill=\"url(#gPaper)\"/><path d=\"M5,-16 V-12 a2,2 0 0 0 2,2 H11z\" fill=\"url(#gSteel)\"/><g transform=\"translate(-7.2 -13) scale(.6)\"><path d=\"M5.2,4h5a1.2,1.2 0 0 1 1.2,1.2v5a1.2,1.2 0 0 1 -1.2,1.2h-5a1.2,1.2 0 0 1 -1.2,-1.2v-5a1.2,1.2 0 0 1 1.2,-1.2z\" fill=\"url(#acc-red)\"/><path d=\"M14.1,4.4h4.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-4.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"url(#acc-red)\"/><path d=\"M14.1,8.6h4.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-4.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"url(#acc-red)\"/><path d=\"M5.1,13.4h13.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-13.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"url(#acc-red)\"/><path d=\"M5.1,17.6h9.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-9.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"url(#acc-red)\"/></g><rect x=\"-11\" y=\"2.5\" width=\"22\" height=\"6\" fill=\"url(#acc-red)\"/></g><path d=\"M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z\" fill=\"url(#gSteel)\"/><path d=\"M25.2,55.2 H87\" stroke=\"#fff\" stroke-opacity=\".5\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg>","folderPhotos":"<svg viewBox=\"10 12 88 88\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"54\" cy=\"88.5\" rx=\"31\" ry=\"3.6\" fill=\"url(#gGround)\"/><path d=\"M22,24 H42 l6,8 H78 a6,6 0 0 1 6,6 V80 a6,6 0 0 1 -6,6 H22 a6,6 0 0 1 -6,-6 V30 a6,6 0 0 1 6,-6z\" fill=\"url(#gSlate)\"/><path d=\"M22.5,25.6 H41.2 l6,8 H78\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".22\" stroke-width=\"1.6\" stroke-linejoin=\"round\" stroke-linecap=\"round\"/><rect x=\"20\" y=\"39\" width=\"60\" height=\"44\" rx=\"4\" fill=\"url(#gDeep)\"/><g transform=\"translate(37 41) rotate(-9)\"><rect x=\"-13\" y=\"-16\" width=\"26\" height=\"32\" rx=\"2.4\" fill=\"#F3F7F8\"/><rect x=\"-11.5\" y=\"-14.5\" width=\"23\" height=\"29\" fill=\"url(#ph2)\"/><circle cx=\"4.6\" cy=\"-5.8\" r=\"2.99\" fill=\"#FFE3F0\" fill-opacity=\".9\"/><path d=\"M-11.5,8.12 L-4.14,0 L1.15,6.38 L5.06,2.9 L11.5,8.7 V14.5 H-11.5z\" fill=\"#5C4A8A\"/><path d=\"M-11.5,11.6 L-2.3,6.96 L11.5,12.18 V14.5 H-11.5z\" fill=\"#3A2E5C\"/></g><g transform=\"translate(71 41) rotate(9)\"><rect x=\"-13\" y=\"-16\" width=\"26\" height=\"32\" rx=\"2.4\" fill=\"#F3F7F8\"/><rect x=\"-11.5\" y=\"-14.5\" width=\"23\" height=\"29\" fill=\"url(#ph3)\"/><circle cx=\"4.6\" cy=\"-5.8\" r=\"2.99\" fill=\"#F4FFE0\" fill-opacity=\".9\"/><path d=\"M-11.5,8.12 L-4.14,0 L1.15,6.38 L5.06,2.9 L11.5,8.7 V14.5 H-11.5z\" fill=\"#3B7366\"/><path d=\"M-11.5,11.6 L-2.3,6.96 L11.5,12.18 V14.5 H-11.5z\" fill=\"#24493F\"/></g><g transform=\"translate(54 37) rotate(0)\"><rect x=\"-13\" y=\"-16\" width=\"26\" height=\"32\" rx=\"2.4\" fill=\"#F3F7F8\"/><rect x=\"-11.5\" y=\"-14.5\" width=\"23\" height=\"29\" fill=\"url(#ph1)\"/><circle cx=\"4.6\" cy=\"-5.8\" r=\"2.99\" fill=\"#FFF6D6\" fill-opacity=\".9\"/><path d=\"M-11.5,8.12 L-4.14,0 L1.15,6.38 L5.06,2.9 L11.5,8.7 V14.5 H-11.5z\" fill=\"#4F8A5C\"/><path d=\"M-11.5,11.6 L-2.3,6.96 L11.5,12.18 V14.5 H-11.5z\" fill=\"#2F5D44\"/></g><path d=\"M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z\" fill=\"url(#gSteel)\"/><path d=\"M25.2,55.2 H87\" stroke=\"#fff\" stroke-opacity=\".5\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg>","folderEmpty":"<svg viewBox=\"10 12 88 88\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"54\" cy=\"88.5\" rx=\"31\" ry=\"3.6\" fill=\"url(#gGround)\"/><path d=\"M22,24 H42 l6,8 H78 a6,6 0 0 1 6,6 V80 a6,6 0 0 1 -6,6 H22 a6,6 0 0 1 -6,-6 V30 a6,6 0 0 1 6,-6z\" fill=\"url(#gSlate)\"/><path d=\"M22.5,25.6 H41.2 l6,8 H78\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".22\" stroke-width=\"1.6\" stroke-linejoin=\"round\" stroke-linecap=\"round\"/><rect x=\"20\" y=\"39\" width=\"60\" height=\"44\" rx=\"4\" fill=\"url(#gDeep)\"/><path d=\"M22,41 H78\" stroke=\"#000\" stroke-opacity=\".18\" stroke-width=\"3\"/><path d=\"M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z\" fill=\"url(#gSteel)\"/><path d=\"M25.2,55.2 H87\" stroke=\"#fff\" stroke-opacity=\".5\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg>","pdf":"<svg viewBox=\"10 12 88 88\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"55\" cy=\"93.5\" rx=\"24\" ry=\"3\" fill=\"url(#gGround)\"/><path d=\"M34,16 H66 L80,30 V86 a6,6 0 0 1 -6,6 H34 a6,6 0 0 1 -6,-6 V22 a6,6 0 0 1 6,-6z\" fill=\"url(#gPaper)\"/><path d=\"M66,16 L80,30 V86 a6,6 0 0 1 -6,6 H66z\" fill=\"#000\" fill-opacity=\".05\"/><path d=\"M66,16 V26 a4,4 0 0 0 4,4 H80z\" fill=\"url(#gSteel)\"/><path d=\"M34.5,17.6 H65\" stroke=\"#fff\" stroke-opacity=\".8\" stroke-width=\"1.6\" stroke-linecap=\"round\"/><g transform=\"translate(37.4 28.83) scale(1.3)\" opacity=\"0.4\"><path d=\"M5.2,4h5a1.2,1.2 0 0 1 1.2,1.2v5a1.2,1.2 0 0 1 -1.2,1.2h-5a1.2,1.2 0 0 1 -1.2,-1.2v-5a1.2,1.2 0 0 1 1.2,-1.2z\" fill=\"#A63F31\"/><path d=\"M14.1,4.4h4.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-4.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"#A63F31\"/><path d=\"M14.1,8.6h4.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-4.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"#A63F31\"/><path d=\"M5.1,13.4h13.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-13.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"#A63F31\"/><path d=\"M5.1,17.6h9.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-9.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"#A63F31\"/></g><g transform=\"translate(37.4 27.4) scale(1.3)\"><path d=\"M5.2,4h5a1.2,1.2 0 0 1 1.2,1.2v5a1.2,1.2 0 0 1 -1.2,1.2h-5a1.2,1.2 0 0 1 -1.2,-1.2v-5a1.2,1.2 0 0 1 1.2,-1.2z\" fill=\"url(#acc-red)\" stroke=\"#A63F31\" stroke-width=\".6\" stroke-linejoin=\"round\"/><path d=\"M14.1,4.4h4.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-4.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"url(#acc-red)\" stroke=\"#A63F31\" stroke-width=\".6\" stroke-linejoin=\"round\"/><path d=\"M14.1,8.6h4.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-4.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"url(#acc-red)\" stroke=\"#A63F31\" stroke-width=\".6\" stroke-linejoin=\"round\"/><path d=\"M5.1,13.4h13.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-13.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"url(#acc-red)\" stroke=\"#A63F31\" stroke-width=\".6\" stroke-linejoin=\"round\"/><path d=\"M5.1,17.6h9.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-9.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"url(#acc-red)\" stroke=\"#A63F31\" stroke-width=\".6\" stroke-linejoin=\"round\"/></g><path d=\"M21,64 H70 a4,4 0 0 1 4,4 V76 a4,4 0 0 1 -4,4 H21 a3,3 0 0 1 -3,-3 V67 a3,3 0 0 1 3,-3z\" fill=\"url(#acc-red)\"/><path d=\"M18.6,78.6 L28,84 V80z\" fill=\"#A63F31\"/><path d=\"M21.5,65.4 H70\" stroke=\"#fff\" stroke-opacity=\".35\" stroke-width=\"1.2\" stroke-linecap=\"round\"/><text x=\"46\" y=\"76.5\" text-anchor=\"middle\" font-family=\"system-ui,Segoe UI,Roboto,sans-serif\" font-size=\"12.5\" font-weight=\"800\" letter-spacing=\".3\" fill=\"#fff\">PDF</text></svg>","zip":"<svg viewBox=\"10 12 88 88\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"55\" cy=\"93.5\" rx=\"24\" ry=\"3\" fill=\"url(#gGround)\"/><path d=\"M34,16 H66 L80,30 V86 a6,6 0 0 1 -6,6 H34 a6,6 0 0 1 -6,-6 V22 a6,6 0 0 1 6,-6z\" fill=\"url(#gPaper)\"/><path d=\"M66,16 L80,30 V86 a6,6 0 0 1 -6,6 H66z\" fill=\"#000\" fill-opacity=\".05\"/><path d=\"M66,16 V26 a4,4 0 0 0 4,4 H80z\" fill=\"url(#gSteel)\"/><path d=\"M34.5,17.6 H65\" stroke=\"#fff\" stroke-opacity=\".8\" stroke-width=\"1.6\" stroke-linecap=\"round\"/><g transform=\"translate(37.4 28.83) scale(1.3)\" opacity=\"0.4\"><path d=\"M11,2h2a0.4,0.4 0 0 1 0.4,0.4v1.2a0.4,0.4 0 0 1 -0.4,0.4h-2a0.4,0.4 0 0 1 -0.4,-0.4v-1.2a0.4,0.4 0 0 1 0.4,-0.4z\" fill=\"#946233\"/><path d=\"M11,4.6h2a0.4,0.4 0 0 1 0.4,0.4v1.2a0.4,0.4 0 0 1 -0.4,0.4h-2a0.4,0.4 0 0 1 -0.4,-0.4v-1.2a0.4,0.4 0 0 1 0.4,-0.4z\" fill=\"#946233\"/><path d=\"M11,7.2h2a0.4,0.4 0 0 1 0.4,0.4v1.2a0.4,0.4 0 0 1 -0.4,0.4h-2a0.4,0.4 0 0 1 -0.4,-0.4v-1.2a0.4,0.4 0 0 1 0.4,-0.4z\" fill=\"#946233\"/><path d=\"M11,9.8h2a0.4,0.4 0 0 1 0.4,0.4v1.2a0.4,0.4 0 0 1 -0.4,0.4h-2a0.4,0.4 0 0 1 -0.4,-0.4v-1.2a0.4,0.4 0 0 1 0.4,-0.4z\" fill=\"#946233\"/><path d=\"M11,12.6h2a2,2 0 0 1 2,2v4.6a2,2 0 0 1 -2,2h-2a2,2 0 0 1 -2,-2v-4.6a2,2 0 0 1 2,-2zM11.8,16h0.4a1,1 0 0 1 1,1v1a1,1 0 0 1 -1,1h-0.4a1,1 0 0 1 -1,-1v-1a1,1 0 0 1 1,-1z\" fill=\"#946233\" fill-rule=\"evenodd\"/></g><g transform=\"translate(37.4 27.4) scale(1.3)\"><path d=\"M11,2h2a0.4,0.4 0 0 1 0.4,0.4v1.2a0.4,0.4 0 0 1 -0.4,0.4h-2a0.4,0.4 0 0 1 -0.4,-0.4v-1.2a0.4,0.4 0 0 1 0.4,-0.4z\" fill=\"url(#acc-brown)\" stroke=\"#946233\" stroke-width=\".6\" stroke-linejoin=\"round\"/><path d=\"M11,4.6h2a0.4,0.4 0 0 1 0.4,0.4v1.2a0.4,0.4 0 0 1 -0.4,0.4h-2a0.4,0.4 0 0 1 -0.4,-0.4v-1.2a0.4,0.4 0 0 1 0.4,-0.4z\" fill=\"#E8C29A\"/><path d=\"M11,7.2h2a0.4,0.4 0 0 1 0.4,0.4v1.2a0.4,0.4 0 0 1 -0.4,0.4h-2a0.4,0.4 0 0 1 -0.4,-0.4v-1.2a0.4,0.4 0 0 1 0.4,-0.4z\" fill=\"url(#acc-brown)\" stroke=\"#946233\" stroke-width=\".6\" stroke-linejoin=\"round\"/><path d=\"M11,9.8h2a0.4,0.4 0 0 1 0.4,0.4v1.2a0.4,0.4 0 0 1 -0.4,0.4h-2a0.4,0.4 0 0 1 -0.4,-0.4v-1.2a0.4,0.4 0 0 1 0.4,-0.4z\" fill=\"#E8C29A\"/><path d=\"M11,12.6h2a2,2 0 0 1 2,2v4.6a2,2 0 0 1 -2,2h-2a2,2 0 0 1 -2,-2v-4.6a2,2 0 0 1 2,-2zM11.8,16h0.4a1,1 0 0 1 1,1v1a1,1 0 0 1 -1,1h-0.4a1,1 0 0 1 -1,-1v-1a1,1 0 0 1 1,-1z\" fill=\"url(#acc-brown)\" fill-rule=\"evenodd\" stroke=\"#946233\" stroke-width=\".6\" stroke-linejoin=\"round\"/></g><path d=\"M21,64 H70 a4,4 0 0 1 4,4 V76 a4,4 0 0 1 -4,4 H21 a3,3 0 0 1 -3,-3 V67 a3,3 0 0 1 3,-3z\" fill=\"url(#acc-brown)\"/><path d=\"M18.6,78.6 L28,84 V80z\" fill=\"#946233\"/><path d=\"M21.5,65.4 H70\" stroke=\"#fff\" stroke-opacity=\".35\" stroke-width=\"1.2\" stroke-linecap=\"round\"/><text x=\"46\" y=\"76.5\" text-anchor=\"middle\" font-family=\"system-ui,Segoe UI,Roboto,sans-serif\" font-size=\"12.5\" font-weight=\"800\" letter-spacing=\".3\" fill=\"#fff\">ZIP</text></svg>","mp3":"<svg viewBox=\"10 12 88 88\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"55\" cy=\"93.5\" rx=\"24\" ry=\"3\" fill=\"url(#gGround)\"/><path d=\"M34,16 H66 L80,30 V86 a6,6 0 0 1 -6,6 H34 a6,6 0 0 1 -6,-6 V22 a6,6 0 0 1 6,-6z\" fill=\"url(#gPaper)\"/><path d=\"M66,16 L80,30 V86 a6,6 0 0 1 -6,6 H66z\" fill=\"#000\" fill-opacity=\".05\"/><path d=\"M66,16 V26 a4,4 0 0 0 4,4 H80z\" fill=\"url(#gSteel)\"/><path d=\"M34.5,17.6 H65\" stroke=\"#fff\" stroke-opacity=\".8\" stroke-width=\"1.6\" stroke-linecap=\"round\"/><g transform=\"translate(37.4 28.83) scale(1.3)\" opacity=\"0.4\"><path d=\"M8.6,4.8 L20,2.4 V6.6 L8.6,9z\" fill=\"#7253B0\"/><path d=\"M9.2,6h1a0.6,0.6 0 0 1 0.6,0.6v11.2a0.6,0.6 0 0 1 -0.6,0.6h-1a0.6,0.6 0 0 1 -0.6,-0.6v-11.2a0.6,0.6 0 0 1 0.6,-0.6z\" fill=\"#7253B0\"/><path d=\"M18.4,4h1a0.6,0.6 0 0 1 0.6,0.6v11.2a0.6,0.6 0 0 1 -0.6,0.6h-1a0.6,0.6 0 0 1 -0.6,-0.6v-11.2a0.6,0.6 0 0 1 0.6,-0.6z\" fill=\"#7253B0\"/><path d=\"M3,18.6a3.6,2.8 0 1 0 7.2,0a3.6,2.8 0 1 0 -7.2,0z\" fill=\"#7253B0\"/><path d=\"M12.2,16.4a3.6,2.8 0 1 0 7.2,0a3.6,2.8 0 1 0 -7.2,0z\" fill=\"#7253B0\"/></g><g transform=\"translate(37.4 27.4) scale(1.3)\"><path d=\"M8.6,4.8 L20,2.4 V6.6 L8.6,9z\" fill=\"url(#acc-violet)\" stroke=\"#7253B0\" stroke-width=\".6\" stroke-linejoin=\"round\"/><path d=\"M9.2,6h1a0.6,0.6 0 0 1 0.6,0.6v11.2a0.6,0.6 0 0 1 -0.6,0.6h-1a0.6,0.6 0 0 1 -0.6,-0.6v-11.2a0.6,0.6 0 0 1 0.6,-0.6z\" fill=\"url(#acc-violet)\" stroke=\"#7253B0\" stroke-width=\".6\" stroke-linejoin=\"round\"/><path d=\"M18.4,4h1a0.6,0.6 0 0 1 0.6,0.6v11.2a0.6,0.6 0 0 1 -0.6,0.6h-1a0.6,0.6 0 0 1 -0.6,-0.6v-11.2a0.6,0.6 0 0 1 0.6,-0.6z\" fill=\"url(#acc-violet)\" stroke=\"#7253B0\" stroke-width=\".6\" stroke-linejoin=\"round\"/><path d=\"M3,18.6a3.6,2.8 0 1 0 7.2,0a3.6,2.8 0 1 0 -7.2,0z\" fill=\"url(#acc-violet)\" stroke=\"#7253B0\" stroke-width=\".6\" stroke-linejoin=\"round\"/><path d=\"M12.2,16.4a3.6,2.8 0 1 0 7.2,0a3.6,2.8 0 1 0 -7.2,0z\" fill=\"url(#acc-violet)\" stroke=\"#7253B0\" stroke-width=\".6\" stroke-linejoin=\"round\"/></g><path d=\"M21,64 H70 a4,4 0 0 1 4,4 V76 a4,4 0 0 1 -4,4 H21 a3,3 0 0 1 -3,-3 V67 a3,3 0 0 1 3,-3z\" fill=\"url(#acc-violet)\"/><path d=\"M18.6,78.6 L28,84 V80z\" fill=\"#7253B0\"/><path d=\"M21.5,65.4 H70\" stroke=\"#fff\" stroke-opacity=\".35\" stroke-width=\"1.2\" stroke-linecap=\"round\"/><text x=\"46\" y=\"76.5\" text-anchor=\"middle\" font-family=\"system-ui,Segoe UI,Roboto,sans-serif\" font-size=\"12.5\" font-weight=\"800\" letter-spacing=\".3\" fill=\"#fff\">MP3</text></svg>","docx":"<svg viewBox=\"10 12 88 88\" xmlns=\"http://www.w3.org/2000/svg\"><ellipse cx=\"55\" cy=\"93.5\" rx=\"24\" ry=\"3\" fill=\"url(#gGround)\"/><path d=\"M34,16 H66 L80,30 V86 a6,6 0 0 1 -6,6 H34 a6,6 0 0 1 -6,-6 V22 a6,6 0 0 1 6,-6z\" fill=\"url(#gPaper)\"/><path d=\"M66,16 L80,30 V86 a6,6 0 0 1 -6,6 H66z\" fill=\"#000\" fill-opacity=\".05\"/><path d=\"M66,16 V26 a4,4 0 0 0 4,4 H80z\" fill=\"url(#gSteel)\"/><path d=\"M34.5,17.6 H65\" stroke=\"#fff\" stroke-opacity=\".8\" stroke-width=\"1.6\" stroke-linecap=\"round\"/><g transform=\"translate(37.4 28.83) scale(1.3)\" opacity=\"0.4\"><path d=\"M5.2,3.6h8.6a1.2,1.2 0 0 1 1.2,1.2v1.2a1.2,1.2 0 0 1 -1.2,1.2h-8.6a1.2,1.2 0 0 1 -1.2,-1.2v-1.2a1.2,1.2 0 0 1 1.2,-1.2z\" fill=\"#3F80B0\"/><path d=\"M5.1,9.6h13.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-13.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"#3F80B0\"/><path d=\"M5.1,13.6h13.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-13.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"#3F80B0\"/><path d=\"M5.1,17.6h8.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-8.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"#3F80B0\"/></g><g transform=\"translate(37.4 27.4) scale(1.3)\"><path d=\"M5.2,3.6h8.6a1.2,1.2 0 0 1 1.2,1.2v1.2a1.2,1.2 0 0 1 -1.2,1.2h-8.6a1.2,1.2 0 0 1 -1.2,-1.2v-1.2a1.2,1.2 0 0 1 1.2,-1.2z\" fill=\"url(#acc-sky)\" stroke=\"#3F80B0\" stroke-width=\".6\" stroke-linejoin=\"round\"/><path d=\"M5.1,9.6h13.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-13.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"url(#acc-sky)\" stroke=\"#3F80B0\" stroke-width=\".6\" stroke-linejoin=\"round\"/><path d=\"M5.1,13.6h13.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-13.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"url(#acc-sky)\" stroke=\"#3F80B0\" stroke-width=\".6\" stroke-linejoin=\"round\"/><path d=\"M5.1,17.6h8.8a1.1,1.1 0 0 1 1.1,1.1v0a1.1,1.1 0 0 1 -1.1,1.1h-8.8a1.1,1.1 0 0 1 -1.1,-1.1v0a1.1,1.1 0 0 1 1.1,-1.1z\" fill=\"url(#acc-sky)\" stroke=\"#3F80B0\" stroke-width=\".6\" stroke-linejoin=\"round\"/></g><path d=\"M21,64 H70 a4,4 0 0 1 4,4 V76 a4,4 0 0 1 -4,4 H21 a3,3 0 0 1 -3,-3 V67 a3,3 0 0 1 3,-3z\" fill=\"url(#acc-sky)\"/><path d=\"M18.6,78.6 L28,84 V80z\" fill=\"#3F80B0\"/><path d=\"M21.5,65.4 H70\" stroke=\"#fff\" stroke-opacity=\".35\" stroke-width=\"1.2\" stroke-linecap=\"round\"/><text x=\"46\" y=\"75.89\" text-anchor=\"middle\" font-family=\"system-ui,Segoe UI,Roboto,sans-serif\" font-size=\"10.8\" font-weight=\"800\" letter-spacing=\".3\" fill=\"#fff\">DOCX</text></svg>","photo":"<svg viewBox=\"10 12 88 88\" xmlns=\"http://www.w3.org/2000/svg\"><defs><clipPath id=\"clip2image\"><rect x=\"14\" y=\"14\" width=\"80\" height=\"80\" rx=\"10\"/></clipPath></defs><g clip-path=\"url(#clip2image)\"><rect x=\"14\" y=\"14\" width=\"80\" height=\"80\" fill=\"url(#ph2)\"/><circle cx=\"70\" cy=\"38\" r=\"10.4\" fill=\"#FFE3F0\" fill-opacity=\".9\"/><path d=\"M14,76.4 L39.6,54 L58,71.6 L71.6,62 L94,78 V94 H14z\" fill=\"#5C4A8A\"/><path d=\"M14,86 L46,73.2 L94,87.6 V94 H14z\" fill=\"#3A2E5C\"/></g></svg>"};
+
+// ── the clock the mock runs on ──
+const NOW = new Date(2026, 10, 14, 15, 10).getTime();
+const at = (daysBack, h, m) => new Date(2026, 10, 14 - daysBack, h, m).getTime();
+
+// ── formatting, as EntryDisplay.kt and RowDetails.kt write it ──
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTH = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const pad = (v) => String(v).padStart(2, '0');
+function humanSize(b) {
+  if (b < 0) return '';
+  if (b < 1024) return b + ' B';
+  const u = ['KB','MB','GB','TB']; let v = b / 1024, i = 0;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return v >= 100 ? Math.trunc(v) + ' ' + u[i] : v.toFixed(1) + ' ' + u[i];
+}
+const countOf = (c) => c == null ? '' : c === 1 ? '1 item' : c + ' items';
+function kindOf(isDir, name) {
+  if (isDir) return '';
+  const dot = name.lastIndexOf('.');
+  if (dot <= 0 || dot === name.length - 1) return '';
+  const ext = name.slice(dot + 1);
+  return ext.length > 8 || /[^A-Za-z0-9]/.test(ext) ? '' : ext.toUpperCase();
+}
+function midnight(t) { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
+function relativeDay(t, now) {
+  if (t > now) return null;
+  const days = Math.round((midnight(now) - midnight(t)) / 86400000);
+  return days === 0 ? 'today' : days === 1 ? 'yesterday' : days >= 2 && days <= 6 ? days + ' days ago' : null;
+}
+// `proposed` turns on the round's two date changes: no leading zero on a named month, and the time.
+function absolute(t, d, proposed) {
+  const x = new Date(t);
+  const named = d.style !== 'NUMERIC';
+  const dd = named && proposed ? String(x.getDate()) : pad(x.getDate());
+  const mm = d.style === 'NUMERIC' ? pad(x.getMonth() + 1) : d.style === 'SHORT_MONTH' ? MON[x.getMonth()] : MONTH[x.getMonth()];
+  const j = named ? ' ' : d.sep;
+  const y = x.getFullYear();
+  return d.order === 'DMY' ? dd + j + mm + j + y : d.order === 'MDY' ? mm + j + dd + j + y : y + j + mm + j + dd;
+}
+function timeOf(t, mode) {
+  const x = new Date(t);
+  if (mode === '24') return pad(x.getHours()) + ':' + pad(x.getMinutes());
+  const h = x.getHours() % 12 || 12;
+  return h + ':' + pad(x.getMinutes()) + (x.getHours() < 12 ? ' AM' : ' PM');
+}
+let JOINT = ' · ';
+function date(t, d, now, proposed) {
+  if (t <= 0) return '';
+  const base = (d.relative && relativeDay(t, now)) || absolute(t, d, proposed);
+  return proposed && d.time !== 'off' ? base + JOINT + timeOf(t, d.time) : base;
+}
+
+const PARTS = {
+  TOTAL: { label: 'Folder total', note: 'Combined size of everything in a folder.', dir: true },
+  SIZE:  { label: 'File size', note: "The file's size, also shown on the right.", dir: false },
+  COUNT: { label: 'Item count', note: 'Items in a folder, also shown on the right.', dir: true },
+  DATE:  { label: 'Date', note: 'Last modified, in the date format below.', dir: null },
+  KIND:  { label: 'Type', note: 'File type, such as PDF or JPG.', dir: false },
+};
+const ORDER = ['TOTAL', 'SIZE', 'COUNT', 'DATE', 'KIND'];
+const applies = (p, isDir) => PARTS[p].dir === null || PARTS[p].dir === isDir;
+function one(p, e, d, proposed) {
+  if (!p || !applies(p, !!e.dir)) return '';
+  switch (p) {
+    case 'TOTAL': return e.total == null ? '—' : humanSize(e.total);
+    case 'SIZE': return humanSize(e.size);
+    case 'COUNT': return countOf(e.count);
+    case 'DATE': return date(e.at, d, NOW, proposed);
+    case 'KIND': return kindOf(!!e.dir, e.name);
+  }
+}
+const line = (e, d, proposed) => d.parts.map(p => one(p, e, d, proposed)).filter(Boolean).join('  ·  ');
+const sideOptions = (isDir) => [null, ...ORDER.filter(p => applies(p, isDir))];
+const sideLabel = (p) => p ? PARTS[p].label : 'None';
+
+// ── view steps, from Prefs.kt ViewStep ──
+const STEPS = {
+  COMPACT:     { label: 'Compact', icon: 18, name: 12, meta: 10, h: 32, pad: 3, two: false },
+  LIST:        { label: 'List', icon: 24, name: 13, meta: 11, h: 42, pad: 3, two: false },
+  COMFORTABLE: { label: 'Comfortable', icon: 34, name: 14, meta: 11, h: 60, pad: 6, two: true },
+};
+let yourView = 'LIST';
+
+// ── glyphs ──
+const G = {
+  back: '<svg viewBox="0 0 24 24"><path d="M15 5 8 12l7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  up: '<svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6" fill="none" stroke="var(--fg2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  down: '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="var(--fg2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  close: (c) => `<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="${c || 'var(--fg3)'}" stroke-width="2.2" stroke-linecap="round"/></svg>`,
+  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/></svg>',
+  info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="var(--fg3)" stroke-width="1.8"/><path d="M12 11v6" stroke="var(--fg3)" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1.2" fill="var(--fg3)"/></svg>',
+  tick: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="var(--onAccent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
+const hint = `<span class="hint">${G.info}</span>`;
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+function seg(label, options, selected, act, { sub = false, status = null, isNew = false, withHint = false } = {}) {
+  return `<div class="seg${sub ? ' sub' : ''}"><div class="label">${label}${isNew ? '<span class="new">NEW</span>' : ''}${withHint ? hint : ''}</div>` +
+    `<div class="chips">${options.map((o, i) => `<span class="${i === selected ? 'on' : ''}" data-act="${act}" data-i="${i}">${esc(o)}</span>`).join('')}</div>` +
+    (status ? `<div class="status">${status}</div>` : '') + `</div>`;
+}
+function toggle(title, on, act, status) {
+  return `<div class="toggleRow" data-act="${act}"><div class="t"><div class="title">${title}${hint}</div>` +
+    (status ? `<div class="status">${status}</div>` : '') + `</div><div class="sw ${on ? 'on' : 'off'}"><i></i></div></div>`;
+}
+const appbar = `<div class="appbar">${G.back}<span>Appearance</span></div><div class="ctx">… the sections above Row details are unchanged …</div>`;
+
+// ═══════════════════════════ TODAY ═══════════════════════════
+const DEF = () => ({ parts: ['TOTAL', 'DATE'], sideFile: 'SIZE', sideFolder: 'COUNT', style: 'NUMERIC', order: 'YMD', sep: '-', relative: true, time: 'off' });
+const T = DEF();
+const SAMPLE_AT = NOW - 12 * 86400000;
+const SAMPLE_FILE = { name: 'Report.pdf', size: 123000, at: SAMPLE_AT };
+const SAMPLE_DIR = { name: 'New folder', dir: true, count: 13, total: 4938100000, at: SAMPLE_AT };
+
+function renderToday() {
+  const sample = (e, side) => `<div class="r"><span class="n">${esc(e.name)}</span><span class="m">${esc(one(side, e, T, false))}</span></div>` +
+    (line(e, T, false) ? `<div class="d">${esc(line(e, T, false))}</div>` : '');
+  const off = ORDER.filter(p => !T.parts.includes(p));
+  const bar = (p, i) => `<div class="barRow"><div class="l">${PARTS[p].label}${hint}</div>` +
+    (i > 0 ? `<span class="ib" data-act="t-up" data-i="${i}">${G.up}</span>` : '') +
+    (i < T.parts.length - 1 ? `<span class="ib" data-act="t-down" data-i="${i}">${G.down}</span>` : '') +
+    `<span class="ib x" data-act="t-rm" data-p="${p}">${G.close()}</span></div>`;
+  const fo = sideOptions(false), dO = sideOptions(true);
+  const STYLE = ['NUMERIC', 'SHORT_MONTH', 'LONG_MONTH'], ORD = ['DMY', 'MDY', 'YMD'], SEPS = ['-', '/', '.'];
+  document.getElementById('today').innerHTML = appbar + `<div class="scroll">` +
+    `<div class="secTitle">Row details</div><div class="secGap"></div><div class="divider"></div>` +
+    `<div class="sample">${sample(SAMPLE_FILE, T.sideFile)}<div style="height:8px"></div>${sample(SAMPLE_DIR, T.sideFolder)}</div>` +
+    (T.parts.length ? '' : `<div class="emptyNote">Nothing under the name.</div>`) +
+    T.parts.map(bar).join('') +
+    (off.length ? `<div class="offHead">Not on the line</div>` + off.map(p => `<div class="barRow" data-act="t-add" data-p="${p}" style="cursor:pointer"><div class="l">${PARTS[p].label}${hint}</div><span class="ib">${G.plus}</span></div>`).join('') : '') +
+    seg('Beside a file', fo.map(sideLabel), fo.indexOf(T.sideFile), 't-sideFile', { withHint: true }) +
+    seg('Beside a folder', dO.map(sideLabel), dO.indexOf(T.sideFolder), 't-sideFolder', { withHint: true }) +
+    toggle('Relative dates', T.relative, 't-rel') +
+    seg('Date', ['All numbers', 'Named month', 'Full month'], STYLE.indexOf(T.style), 't-style') +
+    seg('Order', ['Day first', 'Month first', 'Year first'], ORD.indexOf(T.order), 't-order') +
+    (T.style === 'NUMERIC' ? seg('Separator', SEPS, Math.max(0, SEPS.indexOf(T.sep)), 't-sep') : '') +
+    `</div>`;
+}
+
+// ═══════════════════════════ PROPOSED ═══════════════════════════
+const P = DEF();
+let pvView = null; // null = follow your lists
+let builder = 'A';
+let chipSel = -1;
+const ROWS = [
+  { name: 'Old trips', dir: true, count: 13, total: 4938100000, at: at(0, 14, 32), icon: 'folderPhotos' },
+  { name: 'Notes', dir: true, count: 3, total: 2202009, at: at(1, 9, 5), icon: 'folderDocs' },
+  { name: 'Trail map.pdf', size: 685056, at: at(3, 18, 47), icon: 'pdf' },
+  { name: 'site-backup.zip', size: 197632, at: at(12, 7, 15), icon: 'zip' },
+  { name: 'Reading list.docx', size: 36966, at: at(41, 21, 3), icon: 'docx' },
+];
+const PANE_DP = 338; // the preview's own width; a single pane on a phone held upright
+
+const measurer = document.createElement('canvas').getContext('2d');
+function textWidth(s, px) { measurer.font = `${px}px Roboto, "Segoe UI", system-ui, sans-serif`; return measurer.measureText(s).width; }
+// A fixed width per column so it lines up, wide enough for the widest thing these settings can print.
+function sideWidth(part, isDir, meta) {
+  if (!part) return 0;
+  if (part !== 'DATE') return { KIND: 44, COUNT: 68, TOTAL: 68, SIZE: isDir ? 68 : 62 }[part];
+  if (P.time === 'off' && P.style !== 'LONG_MONTH') return 92;
+  const widest = date(new Date(2026, 8, 28, 22, 58).getTime(), { ...P, relative: false }, NOW, true);
+  return Math.max(92, Math.ceil(textWidth(widest, meta)) + 4);
+}
+
+function previewRows(stepKey) {
+  const s = STEPS[stepKey];
+  return ROWS.map(e => {
+    const side = e.dir ? P.sideFolder : P.sideFile;
+    const fits = side === 'DATE' ? PANE_DP >= 330 : PANE_DP >= 180;
+    const sideText = side && fits ? one(side, e, P, true) : '';
+    const dl = s.two && P.parts.length ? line(e, P, true) : '';
+    return `<div class="row" style="min-height:${s.h}px;padding-top:${s.pad}px;padding-bottom:${s.pad}px">` +
+      `<div class="ic" style="width:${s.icon}px;height:${s.icon}px">${ICONS[e.icon]}</div>` +
+      `<div class="txt"><div class="nm" style="font-size:${s.name}px;font-weight:${e.dir ? 500 : 400}">${esc(e.name)}</div>` +
+      (dl ? `<div class="dl" style="font-size:${s.meta}px">${esc(dl)}</div>` : '') + `</div>` +
+      (side && fits ? `<div class="side" style="width:${sideWidth(side, !!e.dir, s.meta)}px;font-size:${s.meta}px">${esc(sideText)}</div>` : '') +
+      `</div>`;
+  }).join('');
+}
+
+function partSample(p) {
+  const e = ROWS.find(r => applies(p, !!r.dir));
+  return one(p, e, P, true);
+}
+
+function builderA() {
+  const on = P.parts, off = ORDER.filter(p => !on.includes(p));
+  const row = (p, i, isOn) => `<div class="part${isOn ? '' : ' off'}">` +
+    `<span class="cb${isOn ? ' on' : ''}" data-act="p-toggle" data-p="${p}">${isOn ? G.tick : ''}</span>` +
+    `<div class="lab" data-act="p-toggle" data-p="${p}"><div class="a">${PARTS[p].label}</div><div class="b">${PARTS[p].dir === true ? 'Folders' : PARTS[p].dir === false ? 'Files' : 'Files and folders'}</div></div>` +
+    `<span class="val">${esc(partSample(p))}</span>` +
+    `<span class="arrows">${isOn && i > 0 ? `<span class="ib" data-act="p-up" data-i="${i}">${G.up}</span>` : ''}${isOn && i < on.length - 1 ? `<span class="ib" data-act="p-down" data-i="${i}">${G.down}</span>` : ''}</span></div>`;
+  return on.map((p, i) => row(p, i, true)).join('') + off.map(p => row(p, -1, false)).join('');
+}
+function builderB() {
+  const on = P.parts, off = ORDER.filter(p => !on.includes(p));
+  if (chipSel >= on.length) chipSel = -1;
+  const strip = on.length
+    ? on.map((p, i) => `<span class="chipP${i === chipSel ? ' sel' : ''}" data-act="c-sel" data-i="${i}">${PARTS[p].label}<span class="x" data-act="c-rm" data-p="${p}">${G.close(i === chipSel ? 'var(--onAccent)' : 'var(--fg3)')}</span></span>`).join('<span class="dot">·</span>')
+    : `<span class="subHint" style="padding:0">Nothing under the name. Each row is one line.</span>`;
+  const mover = chipSel >= 0
+    ? `<div class="moveBar">Move ${PARTS[on[chipSel]].label}: <button data-act="c-left" ${chipSel === 0 ? 'disabled' : ''}>‹ Earlier</button><button data-act="c-right" ${chipSel === on.length - 1 ? 'disabled' : ''}>Later ›</button></div>`
+    : (on.length > 1 ? `<div class="moveBar">Tap a part to move it.</div>` : '');
+  return `<div class="lineStrip">${strip}</div>${mover}` +
+    (off.length ? `<div class="lineStrip">${off.map(p => `<span class="chipAdd" data-act="p-toggle" data-p="${p}">+ ${PARTS[p].label}</span>`).join('')}</div>` : '');
+}
+
+function renderProposed() {
+  const view = pvView || yourView;
+  const s = STEPS[view];
+  const note = !s.two && P.parts.length
+    ? `<div class="pvNote">${s.label} shows one line per row, so the line under the name is hidden${view === yourView ? ' in your lists' : ''}. It shows in Comfortable.${view !== 'COMFORTABLE' ? ` <b data-act="pv-comf">Use Comfortable</b>` : ''}</div>`
+    : '';
+  const fo = sideOptions(false), dO = sideOptions(true);
+  const STYLE = ['NUMERIC', 'SHORT_MONTH', 'LONG_MONTH'], ORD = ['DMY', 'MDY', 'YMD'], SEPS = ['-', '/', '.'];
+  const sampleAt = at(12, 7, 15);
+  const styleSamples = STYLE.map(st => absolute(sampleAt, { ...P, style: st }, true));
+  const dateBeside = P.sideFile === 'DATE' || P.sideFolder === 'DATE';
+  document.getElementById('proposed').innerHTML = appbar + `<div class="scroll">` +
+    `<div class="secTitle">Row details</div><div class="secSub">What a row in a file list says besides its name.</div><div class="divider"></div>` +
+    `<div class="pv"><div class="pvHead"><span class="grow">Preview</span><span class="mini">` +
+      Object.entries(STEPS).map(([k, v]) => `<span class="${k === view ? 'on' : ''}" data-act="pv-view" data-k="${k}">${v.label}${k === yourView ? ' ✓' : ''}</span>`).join('') +
+    `</span></div>${previewRows(view)}${note}</div>` +
+    `<div class="subHead">Under the name</div>` +
+    `<div class="subHint">In order, joined by dots. A part that doesn't apply to a row is left out of it.</div>` +
+    (builder === 'A' ? builderA() : builderB()) +
+    `<div class="subHead">Beside the name</div>` +
+    seg('Files', fo.map(sideLabel), fo.indexOf(P.sideFile), 'p-sideFile') +
+    seg('Folders', dO.map(sideLabel), dO.indexOf(P.sideFolder), 'p-sideFolder',
+      { status: dateBeside ? 'A date needs a wide pane, so it hides when two panes share a phone screen.' : null }) +
+    `<div class="subHead">Dates</div>` +
+    toggle('Relative dates', P.relative, 'p-rel', 'today, yesterday, 3 days ago: for the last week') +
+    seg('Written as', styleSamples, STYLE.indexOf(P.style), 'p-style') +
+    seg('Order', ['Day first', 'Month first', 'Year first'], ORD.indexOf(P.order), 'p-order') +
+    (P.style === 'NUMERIC' ? seg('Separator', SEPS, Math.max(0, SEPS.indexOf(P.sep)), 'p-sep', { sub: true }) : '') +
+    seg('Time of day', ['Off', timeOf(at(0, 14, 32), '24'), timeOf(at(0, 14, 32), '12')], ['off', '24', '12'].indexOf(P.time), 'p-time',
+      { isNew: true, status: P.time === 'off' ? null : 'When the file was last changed, beside its date.' }) +
+    `</div>`;
+}
+
+// ── events ──
+const move = (list, from, to) => { if (to < 0 || to >= list.length) return list; const l = list.slice(); l.splice(to, 0, l.splice(from, 1)[0]); return l; };
+const toggled = (list, p) => list.includes(p) ? list.filter(x => x !== p) : [...list, p];
+document.addEventListener('click', (ev) => {
+  const el = ev.target.closest('[data-act]');
+  if (!el) return;
+  const a = el.dataset.act, i = +el.dataset.i, p = el.dataset.p;
+  const STYLE = ['NUMERIC', 'SHORT_MONTH', 'LONG_MONTH'], ORD = ['DMY', 'MDY', 'YMD'], SEPS = ['-', '/', '.'];
+  switch (a) {
+    case 't-up': T.parts = move(T.parts, i, i - 1); break;
+    case 't-down': T.parts = move(T.parts, i, i + 1); break;
+    case 't-rm': case 't-add': T.parts = toggled(T.parts, p); break;
+    case 't-sideFile': T.sideFile = sideOptions(false)[i]; break;
+    case 't-sideFolder': T.sideFolder = sideOptions(true)[i]; break;
+    case 't-rel': T.relative = !T.relative; break;
+    case 't-style': T.style = STYLE[i]; break;
+    case 't-order': T.order = ORD[i]; break;
+    case 't-sep': T.sep = SEPS[i]; break;
+    case 'p-toggle': P.parts = toggled(P.parts, p); break;
+    case 'p-up': P.parts = move(P.parts, i, i - 1); break;
+    case 'p-down': P.parts = move(P.parts, i, i + 1); break;
+    case 'c-sel': chipSel = chipSel === i ? -1 : i; break;
+    case 'c-rm': ev.stopPropagation(); P.parts = toggled(P.parts, p); chipSel = -1; break;
+    case 'c-left': if (chipSel > 0) { P.parts = move(P.parts, chipSel, chipSel - 1); chipSel--; } break;
+    case 'c-right': if (chipSel < P.parts.length - 1) { P.parts = move(P.parts, chipSel, chipSel + 1); chipSel++; } break;
+    case 'p-sideFile': P.sideFile = sideOptions(false)[i]; break;
+    case 'p-sideFolder': P.sideFolder = sideOptions(true)[i]; break;
+    case 'p-rel': P.relative = !P.relative; break;
+    case 'p-style': P.style = STYLE[i]; break;
+    case 'p-order': P.order = ORD[i]; break;
+    case 'p-sep': P.sep = SEPS[i]; break;
+    case 'p-time': P.time = ['off', '24', '12'][i]; break;
+    case 'pv-view': pvView = el.dataset.k === yourView ? null : el.dataset.k; break;
+    case 'pv-comf': yourView = 'COMFORTABLE'; pvView = null; renderTop(); break;
+  }
+  renderToday(); renderProposed();
+});
+function renderTop() {
+  document.getElementById('yourView').innerHTML = Object.entries(STEPS).map(([k, v]) =>
+    `<button data-view="${k}" class="${k === yourView ? 'on' : ''}">${v.label}</button>`).join('');
+  const jc = document.getElementById('joinCtl'); if (jc) jc.innerHTML = [[', ', 'Comma'], [' ', 'Space'], [' · ', 'Dot']].map(([j, l]) =>
+    `<button data-join="${j}" class="${j === JOINT ? 'on' : ''}">${l}</button>`).join('');
+}
+document.querySelector('header.top').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.theme) { document.body.classList.toggle('light', b.dataset.theme === 'light'); document.querySelectorAll('[data-theme]').forEach(x => x.classList.toggle('on', x === b)); }
+  if (b.dataset.view) { yourView = b.dataset.view; pvView = null; }
+  if (b.dataset.join != null) JOINT = b.dataset.join;
+  if (b.dataset.builder) { builder = b.dataset.builder; chipSel = -1; document.querySelectorAll('[data-builder]').forEach(x => x.classList.toggle('on', x === b)); }
+  renderTop(); renderToday(); renderProposed();
+});
+renderTop(); renderToday(); renderProposed();
+</script>
+</body>
+</html>

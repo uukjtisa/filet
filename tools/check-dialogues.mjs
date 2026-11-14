@@ -23,10 +23,9 @@
  * Prints "DIALOGUES OK" only after every assertion passes.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
-const MOCK = process.env.FILET_MOCK || join(homedir(), "Desktop", "filet-redesign-mock.html");
+const MOCK = process.env.FILET_MOCK || join(import.meta.dirname, "..", "docs", "design", "mockups", "old", "filet-redesign-mock.html");
 const ACTIONS = "app/src/main/java/dev/niccc2007/filet/browser/SelectionActions.kt";
 const CTX = "app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt";
 
@@ -52,6 +51,9 @@ const DROPPED = {
 const SINCE_THE_MOCK = {
   "Add to playlist": "playlists are later work; the mock predates them",
   "Add to queue": "the queue could not be added to when the mock was drawn",
+  "Change icon": "folder icons came after the mock; drawn in the legacy icons and folder colour mocks",
+  "Copy as path": "came after the mock; drawn in the selection bar picker",
+  "Invert selection": "came after the mock; drawn in the selection bar picker",
 };
 
 /** Things the redesign adds that the app has no action for yet. Not failures; new work. */
@@ -166,10 +168,12 @@ if (process.argv.includes("--selftest")) {
     ["move missing from the row", good.replace('["move","Cut"],', ""), true],
     ["the path dropped from the header", good.replace('<span class="pth2">/p</span>', ""), true],
     ["a quick action repeated in the list", good.replace("Compress ", 'class="t">Rename<'), true],
+    ["an action grown since the mock", good, false, ' SelectionAction("invert", "Invert selection", icons.check)'],
+    ["an unknown action the mock never shows", good, true, ' SelectionAction("teleport", "Teleport", icons.check)'],
   ];
   let bad = 0;
-  for (const [name, html, expect] of CASES) {
-    const got = problems({ actionsSrc, ctxSrc, html }).length > 0;
+  for (const [name, html, expect, more = ""] of CASES) {
+    const got = problems({ actionsSrc: actionsSrc + more, ctxSrc, html }).length > 0;
     if (got !== expect) {
       console.error(`SELFTEST FAILED: ${name} - expected ${expect ? "caught" : "clean"}`);
       bad++;

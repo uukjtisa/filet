@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet - Carry on (mock)</title>
+<style>
+/* Palette: Palette.kt SLATE, names one-for-one with FiletColors (same block as the other mocks). */
+:root, .dark {
+  --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --accentDim:#31434B; --onAccent:#0E1417;
+  --good:#8FB894; --warn:#C9A36A; --bad:#C97F7F; --sel:#243036;
+}
+.light {
+  --bg:#F5F4F0; --surface:#FFFFFF; --raised:#FAF9F6; --sunken:#EBE9E3; --high:#E4E1DA;
+  --line:#DDDAD2; --lineSoft:#E9E6DF; --fg:#22211E; --fg2:#615D55; --fg3:#8B867C;
+  --accent:#3E6E82; --accentDim:#CBDDE4; --onAccent:#FFFFFF;
+  --good:#4B7A52; --warn:#8A6A2E; --bad:#9B4A4A; --sel:#E3EDF1;
+}
+* { box-sizing:border-box; }
+body { margin:0; font:13px/1.35 "Segoe UI", Roboto, system-ui, sans-serif; background:#0b0b0a; color:#ddd;
+  display:flex; gap:26px; padding:24px; align-items:flex-start; }
+.panel { width:330px; flex:none; }
+.panel h1 { font-size:16px; margin:0 0 4px; color:#fff; }
+.panel .sub { color:#999; margin-bottom:14px; }
+.panel h2 { font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#8a8; margin:16px 0 6px; }
+.btns { display:flex; flex-wrap:wrap; gap:6px; }
+.btns button { background:#222; color:#ddd; border:1px solid #333; border-radius:8px; padding:7px 10px; font:12px "Segoe UI", sans-serif; cursor:pointer; }
+.btns button.on { background:#7FA8B8; color:#0E1417; border-color:#7FA8B8; font-weight:600; }
+.rec { color:#8a8; font-size:10.5px; margin-left:5px; }
+.btns button.on .rec { color:#0E1417; opacity:.65; }
+.caption { margin-top:18px; border-top:1px solid #333; padding-top:12px; color:#aaa; font-size:12px; }
+.caption b { color:#ddd; }
+.caption p { margin:0 0 8px; }
+.caption ul { margin:0 0 10px; padding-left:18px; }
+.caption li { margin-bottom:4px; }
+.q { background:#1a1a14; border:1px solid #3a3420; border-radius:8px; padding:8px 10px; margin:8px 0; color:#d8c89a; }
+svg { stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.col { display:flex; flex-direction:column; gap:8px; align-items:center; flex:none; }
+.col .lbl { font-size:12px; color:#bbb; letter-spacing:.5px; }
+.col .lbl b { color:#fff; }
+
+/* ─ Phone shell, as the other mocks draw it ───────────────────────────────── */
+.phone { width:412px; height:880px; flex:none; border-radius:30px; border:8px solid #000; position:relative;
+  overflow:hidden; background:var(--bg); color:var(--fg); box-shadow:0 10px 40px #000a; user-select:none; }
+.status { height:26px; padding:0 16px; display:flex; align-items:center; justify-content:space-between; font-size:11px; color:var(--fg2); background:var(--sunken); }
+.tabs { height:38px; background:var(--sunken); display:flex; align-items:center; gap:4px; padding:0 8px; }
+.tab { padding:6px 12px; border-radius:9px 9px 0 0; font-size:12px; color:var(--fg2); display:flex; gap:6px; align-items:center; }
+.tab svg { width:13px; height:13px; }
+.tab.on { background:var(--bg); color:var(--fg); }
+/* PaneHeader: raised, a 6dp focus dot, the title in mono, the search glyph. */
+.ph { background:var(--raised); display:flex; align-items:center; padding:5px 8px; gap:7px; border-bottom:1px solid var(--lineSoft); }
+.ph .dot { width:6px; height:6px; border-radius:50%; background:var(--accent); flex:none; }
+.ph .pt { flex:1; font:11px Consolas, "Roboto Mono", monospace; color:var(--fg2); }
+.ph .si { width:26px; height:26px; padding:4px; color:var(--fg2); }
+.scroll { position:absolute; top:101px; bottom:58px; left:0; right:0; overflow:auto; scrollbar-width:thin; }
+.nav { position:absolute; left:0; right:0; bottom:0; height:58px; background:var(--raised); border-top:1px solid var(--lineSoft);
+  display:flex; justify-content:space-around; align-items:center; }
+.nav div { display:flex; flex-direction:column; align-items:center; gap:3px; font-size:10px; color:var(--fg3); padding:4px 14px; }
+.nav svg { width:20px; height:20px; }
+
+/* ─ TODAY: ResumeScreen.kt as it is ───────────────────────────────────────── */
+/* TabHeader: surface to background, 15/14/15/11, 16sp semibold, a lineSoft rule under it. */
+.th { background:linear-gradient(var(--surface), var(--bg)); padding:14px 15px 11px; border-bottom:1px solid var(--lineSoft); }
+.th .tt { font-size:16px; font-weight:600; letter-spacing:-.24px; }
+/* ResumeChips: 14 start/end, 6 bottom and NO top padding - the first row sits on the rule. */
+.chips { display:flex; padding:0 14px 6px; }
+.chip { font-size:11.5px; color:var(--fg2); background:var(--sunken); border-radius:999px; padding:6px 11px; margin-right:7px; cursor:pointer; }
+.chip.on { color:var(--accent); background:color-mix(in srgb, var(--accent) 14%, transparent); }
+/* SectionRow */
+.sr { display:flex; align-items:center; padding:13px 15px 4px; }
+.sr .sl { flex:1; font-size:9.5px; letter-spacing:1.1px; font-weight:600; color:var(--fg3); text-transform:uppercase; }
+.sr .sn { font-size:10px; color:var(--fg3); }
+/* The row: thumb 56x36 r5, 11 gap, a column 72% of what is left, the pill straight after it. */
+.trow { display:flex; align-items:center; padding:8px 14px; cursor:pointer; }
+.trow.chosen { background:color-mix(in srgb, var(--accent) 12%, transparent); }
+.tthumb { width:56px; height:36px; border-radius:5px; background:var(--sunken); flex:none; display:grid; place-items:center; color:var(--fg2); overflow:hidden; position:relative; }
+.tthumb svg { width:17px; height:17px; }
+.tcol { width:calc((100% - 67px) * .72); margin-left:11px; min-width:0; flex:none; }
+.tname { font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tline { font:10.5px Consolas, "Roboto Mono", monospace; color:var(--fg3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px; }
+.pill { font-size:9.5px; color:var(--fg3); background:var(--sunken); border:1px solid color-mix(in srgb, var(--fg3) 22%, transparent); border-radius:6px; padding:3px 7px; white-space:nowrap; }
+.fin { font-size:8px; font-weight:700; letter-spacing:.8px; color:var(--good); background:color-mix(in srgb, var(--good) 15%, transparent); border-radius:4px; padding:1px 5px; white-space:nowrap; }
+.tchk { width:18px; height:18px; color:var(--accent); }
+.hair { position:relative; margin:0 14px 4px; height:2px; }
+.hair i, .hair b { position:absolute; left:0; top:0; height:2px; border-radius:1px; }
+.hair i { right:0; background:var(--sunken); }
+.hair b { background:color-mix(in srgb, var(--accent) 70%, transparent); }
+.tsel { display:flex; align-items:center; padding:6px 14px; gap:6px; }
+.tsel .n { flex:1; font-size:12px; font-weight:600; }
+.sb { font-size:11px; color:var(--fg2); padding:4px 7px; border-radius:6px; cursor:pointer; }
+.sb:hover { background:var(--high); }
+.tforget { display:flex; justify-content:flex-end; padding:14px; }
+.tforget span { font-size:11.5px; color:var(--fg3); padding:6px 10px; border-radius:8px; cursor:pointer; }
+.empty { display:flex; flex-direction:column; align-items:center; padding:38px 22px; }
+.empty svg { width:30px; height:30px; color:color-mix(in srgb, var(--fg3) 40%, transparent); }
+.empty .et { margin-top:10px; font-size:12.5px; color:var(--fg2); font-weight:500; }
+.empty .el { margin-top:4px; font-size:12px; color:var(--fg3); text-align:center; }
+
+/* ─ NEW ───────────────────────────────────────────────────────────────────── */
+/* One header block: the title and its count on the left, Forget all on the right; the filters
+   under them as two drop-downs with Select at the end of the same row. */
+.nh { background:linear-gradient(var(--surface), var(--bg)); padding:14px 12px 11px 15px; border-bottom:1px solid var(--lineSoft); position:relative; }
+.nh .top { display:flex; align-items:flex-start; gap:10px; }
+.nh .tw { flex:1; min-width:0; }
+.nh .tt { font-size:16px; font-weight:600; letter-spacing:-.24px; }
+.nh .ts { font-size:11px; color:var(--fg3); margin-top:2px; }
+.fa { display:flex; align-items:center; gap:6px; height:30px; padding:0 11px 0 9px; border-radius:9px; font-size:11.5px; color:var(--fg2);
+  border:1px solid var(--line); background:var(--raised); cursor:pointer; white-space:nowrap; }
+.fa svg { width:14px; height:14px; }
+.fa:hover { color:var(--bad); border-color:color-mix(in srgb, var(--bad) 40%, transparent); }
+.fa.off { opacity:.4; pointer-events:none; }
+.nf { display:flex; align-items:center; gap:7px; margin-top:12px; height:32px; }
+.dd { height:32px; display:flex; align-items:center; gap:7px; padding:0 8px 0 10px; border-radius:9px; background:var(--sunken);
+  border:1px solid var(--lineSoft); font-size:12px; color:var(--fg); cursor:pointer; white-space:nowrap; }
+.dd svg { width:14px; height:14px; color:var(--fg2); }
+.dd .cv { width:12px; height:12px; color:var(--fg3); margin-left:1px; transition:transform .16s ease-out; }
+.dd.open .cv { transform:rotate(180deg); }
+/* A filter moved off its default is lit, so a short list never looks like a missing one. */
+.dd.set { background:color-mix(in srgb, var(--accent) 14%, transparent); border-color:color-mix(in srgb, var(--accent) 35%, transparent); color:var(--accent); }
+.dd.set svg { color:var(--accent); }
+.grow { flex:1; }
+.qb { height:32px; display:flex; align-items:center; gap:6px; padding:0 10px 0 8px; border-radius:9px; font-size:11.5px; color:var(--fg2); cursor:pointer; white-space:nowrap; }
+.qb svg { width:15px; height:15px; }
+.qb:hover { background:var(--high); }
+.qb.danger { color:var(--bad); }
+.qb.dim { opacity:.4; pointer-events:none; }
+.nsel { font-size:12.5px; font-weight:600; flex:1; }
+
+/* The last thing played, large, with both ways back into it. */
+.hero { margin:12px 12px 2px; border-radius:14px; background:var(--raised); border:1px solid var(--lineSoft); padding:10px; display:flex; gap:12px; cursor:pointer; }
+.hero .hth { width:132px; height:82px; border-radius:9px; position:relative; overflow:hidden; flex:none; display:grid; place-items:center; background:var(--sunken); color:var(--fg2); }
+.hero .hth svg.g { width:24px; height:24px; }
+.hero .hw { flex:1; min-width:0; display:flex; flex-direction:column; }
+.hero .hl { font-size:9.5px; letter-spacing:1px; font-weight:600; color:var(--fg3); text-transform:uppercase; }
+.hero .htt { font-size:14px; font-weight:600; line-height:1.25; margin-top:3px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.hero .hm { font:10.5px Consolas, "Roboto Mono", monospace; color:var(--fg3); margin-top:3px; }
+.hero .hb { display:flex; gap:6px; margin-top:auto; padding-top:8px; }
+.go { height:30px; border-radius:9px; background:var(--accent); color:var(--onAccent); font-size:12px; font-weight:600; padding:0 12px 0 9px; display:flex; align-items:center; gap:5px; }
+.go svg { width:13px; height:13px; fill:currentColor; stroke:none; }
+.over { height:30px; padding:0 10px 0 8px; color:var(--fg2); font-size:12px; border-radius:9px; border:1px solid var(--line); display:flex; align-items:center; gap:5px; }
+.over svg { width:13px; height:13px; }
+/* The picture carries how far in it is, along its bottom edge. */
+.pbar { position:absolute; left:0; right:0; bottom:0; height:3px; background:#0009; }
+.pbar b { position:absolute; left:0; top:0; bottom:0; background:var(--accent); }
+.left { position:absolute; right:4px; bottom:6px; font:600 9px/1 "Segoe UI", sans-serif; color:#fff; background:#000a; border-radius:4px; padding:2px 4px; }
+
+.nrow { display:flex; align-items:center; gap:12px; padding:8px 14px; cursor:pointer; }
+.nrow:hover { background:color-mix(in srgb, var(--fg) 3%, transparent); }
+.nrow.chosen { background:color-mix(in srgb, var(--accent) 12%, transparent); }
+.nth { width:64px; height:40px; border-radius:7px; position:relative; overflow:hidden; flex:none; background:var(--sunken); display:grid; place-items:center; color:var(--fg2); }
+.nth svg.g { width:17px; height:17px; }
+.ncol { flex:1; min-width:0; }
+.nt { font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nm { font:10.5px Consolas, "Roboto Mono", monospace; color:var(--fg3); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nr { flex:none; text-align:right; min-width:58px; }
+.nr b { display:block; font-size:12px; font-weight:600; color:var(--fg2); }
+.nr span { font-size:9.5px; color:var(--fg3); white-space:nowrap; }
+.ck { width:22px; height:22px; border-radius:50%; border:1.5px solid var(--line); display:grid; place-items:center; flex:none; }
+.ck.on { background:var(--accent); border-color:var(--accent); color:var(--onAccent); }
+.ck svg { width:13px; height:13px; stroke-width:2.4; }
+
+/* PopMenu: min 200, r14, raised, lineSoft border, 6 inside; PopRow r9, 10/8, icon box 20, 13sp. */
+.pop { position:absolute; z-index:20; min-width:200px; max-width:280px; border-radius:14px; background:var(--raised); border:1px solid var(--lineSoft);
+  padding:6px; box-shadow:0 10px 28px #000b; animation:pop .14s ease-out; }
+@keyframes pop { from { opacity:0; transform:translateY(-4px) scale(.98); } to { opacity:1; transform:none; } }
+.pr { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:9px; cursor:pointer; font-size:13px; }
+.pr:hover { background:var(--high); }
+.pr .ic { width:20px; display:grid; place-items:center; color:var(--fg2); flex:none; }
+.pr .ic svg { width:16px; height:16px; }
+.pr .lb { flex:1; white-space:nowrap; }
+.pr .ct { font-size:11px; color:var(--fg3); }
+.pr .on { width:18px; color:var(--accent); display:grid; place-items:center; }
+.pr .on svg { width:16px; height:16px; }
+.pr.act .ic { color:var(--accent); }
+.pr.danger, .pr.danger .ic { color:var(--bad); }
+.psep { height:1px; margin:6px 10px; background:linear-gradient(90deg, transparent, var(--line) 18%, var(--line) 82%, transparent); }
+.ptitle { font-size:10px; letter-spacing:1px; color:var(--fg3); text-transform:uppercase; padding:8px 10px 5px; }
+.ask { padding:10px 10px 6px; width:250px; }
+.ask .at { font-size:13.5px; font-weight:600; }
+.ask .al { font-size:11.5px; color:var(--fg3); margin-top:4px; line-height:1.4; }
+.ask .ab { display:flex; justify-content:flex-end; gap:6px; margin-top:12px; }
+.ask .ab span { font-size:12px; padding:7px 12px; border-radius:9px; cursor:pointer; color:var(--fg2); }
+.ask .ab span.x { color:var(--bad); background:color-mix(in srgb, var(--bad) 15%, transparent); font-weight:600; }
+.scrim { position:absolute; inset:0; z-index:19; }
+
+.snack { position:absolute; left:12px; right:12px; bottom:68px; z-index:25; border-radius:12px; background:var(--high); color:var(--fg);
+  padding:11px 14px; display:flex; align-items:center; font-size:12.5px; box-shadow:0 8px 22px #0009; animation:pop .16s ease-out; }
+.snack .t { flex:1; }
+.snack .u { color:var(--accent); font-weight:600; cursor:pointer; padding:2px 6px; }
+</style>
+</head>
+<body class="dark">
+
+<div class="panel">
+  <h1>Carry on - round 2</h1>
+  <div class="sub">Left phone is today's page, drawn from the code. Right phone is the proposal. Both work: tap a row, hold one (or right-click), use the filters.</div>
+
+  <h2>Theme</h2>
+  <div class="btns" data-opt="theme"><button data-v="dark">Dark</button><button data-v="light">Light</button></div>
+
+  <h2>List</h2>
+  <div class="btns" data-opt="data"><button data-v="full">13 kept</button><button data-v="empty">Nothing kept</button></div>
+  <div class="btns" style="margin-top:6px"><button id="reset">Put the demo list back</button></div>
+
+  <h2>New page - top card</h2>
+  <div class="btns" data-opt="hero"><button data-v="on">Last played, large<span class="rec">picked</span></button><button data-v="off">Off</button></div>
+
+  <h2>New page - rows</h2>
+  <div class="btns" data-opt="group"><button data-v="day">Grouped by day<span class="rec">picked</span></button><button data-v="none">One list</button></div>
+
+  <h2>New page - how far in</h2>
+  <div class="btns" data-opt="bar"><button data-v="pic">Along the picture</button><button data-v="row">Line under the row (today)<span class="rec">picked</span></button></div>
+
+  <h2>New page - Forget all</h2>
+  <div class="btns" data-opt="forget"><button data-v="ask">Asks first</button><button data-v="undo">Undo after<span class="rec">picked</span></button></div>
+  <div class="btns" data-opt="scope" style="margin-top:6px"><button data-v="all">Clears everything<span class="rec">picked</span></button><button data-v="shown">Clears what the filters show</button></div>
+
+  <div class="caption">
+    <p><b>Round 2 (2026-11-14)</b></p>
+    <p>The page now opens on the decided defaults: the large card for the last thing played, rows grouped by day, how far in shown as the line under each row as today, and Forget all clearing everything with Undo after.</p>
+    <div class="q">Is this the page to build? Say go in Claire's terminal and it gets built as shown.</div>
+    <p><b>Round 1 (2026-11-13)</b></p>
+    <p>What today's page does that the new one fixes:</p>
+    <ul>
+      <li>The two filters are two rows of chips, each three chips wide, so the right half of both rows is empty.</li>
+      <li>The first chip row sits right on the header's rule with no space above it.</li>
+      <li>The title row holds only the title. The count is further down, on a heading of its own.</li>
+      <li>Forget everything is at the very bottom, after the last row. It clears everything at once, with no question and no Undo.</li>
+      <li>The percentage pill is not at the right edge. It sits about three-quarters across, so pills on rows with short titles float in the middle.</li>
+      <li>Select only exists inside a row's hold menu.</li>
+    </ul>
+    <p>The new page:</p>
+    <ul>
+      <li>One header: the title with "9 part way · 4 finished" under it, and <b>Forget all</b> at the top right.</li>
+      <li>The filters are <b>two drop-downs on one row</b>, each listing its counts. A filter moved off its default is lit. <b>Select</b> uses the rest of that row. While selecting, the same row becomes ✕ · N selected · All · Forget, so nothing below it moves.</li>
+      <li>Optional: the last thing played as a large card with Carry on and Start over.</li>
+      <li>Optional: rows grouped by day, with the same headings New files uses.</li>
+      <li>Each row shows its percentage and time left at the right edge. How far in is drawn along the bottom of the picture, and the pictures are a little larger.</li>
+    </ul>
+    <div class="q">Questions are in the terminal: the top card, the day groups, Ask or Undo for Forget all, and whether Forget all clears everything or only what the filters show.</div>
+  </div>
+</div>
+
+<div class="col"><div class="lbl"><b>TODAY</b> · ResumeScreen as built</div><div class="phone" id="pA"></div></div>
+<div class="col"><div class="lbl"><b>NEW</b> · proposal</div><div class="phone" id="pB"></div></div>
+
+<script>
+const I = {
+  search:'<circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  play:'<path d="M8 5.5v13l10-6.5z"/>',
+  prev:'<path d="M6 6v12M18 6l-9 6 9 6z"/>',
+  folderOpen:'<path d="M3 17V7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1"/><path d="M3 17l2.5-6.5h16L19 17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  close:'<path d="M6 6l12 12M18 6L6 18"/>',
+  trash:'<path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5M14 11v5"/>',
+  caret:'<path d="M7 10l5 5 5-5"/>',
+  note:'<path d="M9 18V6l10-2v12"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="16" r="2"/>',
+  film:'<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10 9.5v5l4-2.5z"/>',
+  layers:'<path d="M12 4l9 5-9 5-9-5z"/><path d="M3 14l9 5 9-5"/>',
+  half:'<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
+  done:'<circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/>',
+  both:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>',
+  select:'<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',
+  home:'<path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/>',
+  folder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  activity:'<path d="M3 12h4l3 7 4-14 3 7h4"/>',
+  menu:'<path d="M4 7h16M4 12h16M4 17h16"/>',
+};
+const svg = (n, cls='') => `<svg viewBox="0 0 24 24" class="${cls}">${I[n]}</svg>`;
+
+// ── demo data: generic titles, no real files, no names ──
+const M = 60000;
+const DEMO = [
+  { id:1,  title:'Signals and systems - lecture 07', video:true,  pos:23*M+41e3, dur:48*M+2e3,      ago:2*60,       art:[200,40] },
+  { id:2,  title:'Evening drive mix',                 video:false, pos:41*M+5e3,  dur:72*M+30e3,     ago:5*60,       art:[22,60] },
+  { id:3,  title:'Night walk, city lights',           video:true,  pos:12*M+14e3, dur:12*M+20e3,     ago:7*60,       art:[260,30] },
+  { id:4,  title:'Podcast - episode 112',             video:false, pos:12*M+40e3, dur:58*M+10e3,     ago:26*60,      art:[340,45] },
+  { id:5,  title:'Holiday clips 2025',                video:true,  pos:6*M+2e3,   dur:18*M+44e3,     ago:30*60,      art:[180,55] },
+  { id:6,  title:'Circuit analysis - worked problems, part 2', video:true, pos:12*M+40e3, dur:98*M+2e3, ago:3*1440, art:[210,25] },
+  { id:7,  title:'Lo-fi study session',               video:false, pos:121*M,     dur:121*M,         ago:3*1440+90,  art:[290,50] },
+  { id:8,  title:'Rain sounds, one hour',             video:false, pos:59*M+42e3, dur:60*M,          ago:4*1440,     art:null },
+  { id:9,  title:'Phone camera test 60fps',           video:true,  pos:70e3,      dur:3*M+22e3,      ago:5*1440,     art:[150,35] },
+  { id:10, title:'Interview recording 02',            video:false, pos:8*M+51e3,  dur:34*M+12e3,     ago:9*1440,     art:null },
+  { id:11, title:'Guitar practice take 3',            video:false, pos:4*M+4e3,   dur:4*M+5e3,       ago:12*1440,    art:[30,40] },
+  { id:12, title:'Screen recording - setup',          video:true,  pos:2*M+33e3,  dur:9*M+48e3,      ago:21*1440,    art:[230,15] },
+  { id:13, title:'stream_capture_0412.ts',            video:true,  pos:5*M+20e3,  dur:0,             ago:40*1440,    art:null },
+];
+let points = DEMO.map(p => ({...p}));
+
+// ── the pure rules, as the Kotlin has them ──
+const finished = p => p.dur > 0 && p.pos * 100 >= p.dur * 99;                       // Finished.at
+const pct = p => p.dur > 0 ? Math.floor(Math.min(1, p.pos / p.dur) * 100) : 0;     // Finished.percent
+const clock = ms => { if (ms <= 0) return '0:00'; const t = Math.floor(ms/1000), h = Math.floor(t/3600), m = Math.floor(t%3600/60), s = t%60;
+  return h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${m}:${String(s).padStart(2,'0')}`; };
+const ago = min => min < 1 ? 'just now' : min < 60 ? `${min}m ago` : min < 1440 ? `${Math.floor(min/60)}h ago` : min < 2880 ? 'yesterday' : min < 43200 ? `${Math.floor(min/1440)}d ago` : 'a while ago';
+const line = p => clock(p.pos) + (p.dur > 0 ? ' of ' + clock(p.dur) : '') + '  ·  ' + ago(p.ago);
+const percentText = p => p.dur <= 0 ? '—' : `${pct(p)}%`;
+const leftText = p => { if (p.dur <= 0) return ''; const m = Math.round((p.dur - p.pos) / M);
+  return m < 1 ? 'under a minute' : m < 60 ? `${m} min left` : `${Math.floor(m/60)} h ${m%60} min left`; };
+const KIND = { ALL:'Everything', MUSIC:'Music', VIDEO:'Video' };
+const PROG = { UNFINISHED:'Unfinished', FINISHED:'Finished', BOTH:'Both' };
+const kindOk = (k, p) => k === 'ALL' || (k === 'MUSIC' ? !p.video : p.video);
+const progOk = (g, p) => g === 'BOTH' || (g === 'FINISHED' ? finished(p) : !finished(p));
+// DayBuckets: now is 21:00 on 13 November; named days up to 14 back, then "Earlier this year".
+const NOW_MIN = 21 * 60;
+function bucket(p) {
+  const d = p.ago < NOW_MIN ? 0 : Math.floor((p.ago - NOW_MIN) / 1440) + 1;
+  if (d === 0) return [0, 'Today'];
+  if (d === 1) return [1, 'Yesterday'];
+  if (d < 14) return [d, `${13 - d} November`];
+  return [99, 'Earlier this year'];
+}
+
+function thumb(p, cls) {
+  if (!p.art) return svg(p.video ? 'film' : 'note', 'g');
+  const [h, s] = p.art;
+  if (p.video) return `<div style="position:absolute;inset:0;background:linear-gradient(180deg,hsl(${h} ${s}% 30%),hsl(${h+30} ${s}% 14%) 62%,hsl(${h+60} ${s-10}% 9%))"></div>
+    <div style="position:absolute;left:0;right:0;bottom:0;height:42%;background:linear-gradient(hsl(${h+50} ${s}% 12%),hsl(${h+70} ${s}% 6%))"></div>
+    <div style="position:absolute;width:22%;aspect-ratio:1;border-radius:50%;left:62%;top:20%;background:hsl(${h+20} 70% 70% / .55);filter:blur(1px)"></div>`;
+  return `<div style="position:absolute;inset:0;background:radial-gradient(circle at 30% 30%,hsl(${h} ${s}% 52%),hsl(${h+40} ${s}% 22%))"></div>
+    <div style="position:absolute;width:44%;aspect-ratio:1;border-radius:50%;left:28%;top:12%;border:2px solid hsl(${h} 60% 85% / .5)"></div>`;
+}
+
+// ── state ──
+const S = Object.assign({ theme:'dark', data:'full', hero:'on', group:'day', bar:'row', forget:'undo', scope:'all' },
+  JSON.parse(localStorage.getItem('carryon-mock-r2') || '{}'));
+const A = { kind:'ALL', prog:'UNFINISHED', sel:new Set() };
+const B = { kind:'ALL', prog:'UNFINISHED', sel:new Set(), selecting:false, pop:null, snack:null };
+const save = () => localStorage.setItem('carryon-mock-r2', JSON.stringify(S));
+const all = () => S.data === 'empty' ? [] : points;
+
+function shell(id, body) {
+  const nav = [['home','Home'],['folder','Storage'],['search','Search'],['activity','Activity'],['menu','Menu']]
+    .map(([i,l]) => `<div>${svg(i)}<span>${l}</span></div>`).join('');
+  document.getElementById(id).innerHTML = `
+    <div class="status"><span>21:00</span><span>5G · 82%</span></div>
+    <div class="tabs"><div class="tab">${svg('home')}Home</div><div class="tab on">${svg('clock')}Carry on</div><div class="tab">+</div></div>
+    <div class="ph"><span class="dot"></span><span class="pt">Carry on</span>${svg('search','si')}</div>
+    <div class="scroll" id="${id}s">${body}</div>
+    <nav class="nav">${nav}</nav>`;
+}
+function keepScroll(id, f) { const el = document.getElementById(id + 's'); const y = el ? el.scrollTop : 0; f(); const n = document.getElementById(id + 's'); if (n) n.scrollTop = y; }
+
+// ── TODAY ──
+function renderA() {
+  const rows = all().filter(p => kindOk(A.kind, p) && progOk(A.prog, p));
+  for (const id of [...A.sel]) if (!rows.some(p => p.id === id)) A.sel.delete(id);
+  const selecting = A.sel.size > 0;
+  let h = `<div class="th"><div class="tt">Carry on</div></div>`;
+  h += `<div class="chips">${Object.entries(KIND).map(([k,l]) => `<span class="chip ${A.kind===k?'on':''}" data-a="kind" data-v="${k}">${l}</span>`).join('')}</div>`;
+  h += `<div class="chips">${Object.entries(PROG).map(([k,l]) => `<span class="chip ${A.prog===k?'on':''}" data-a="prog" data-v="${k}">${l}</span>`).join('')}</div>`;
+  if (!rows.length) h += `<div class="empty">${svg('clock')}<div class="et">${all().length ? 'Nothing here with these filters' : 'Nothing to carry on with'}</div></div>`;
+  else if (selecting) h += `<div class="tsel"><span class="n">${A.sel.size} selected</span><span class="sb" data-a="all">${A.sel.size===rows.length?'None':'All'}</span><span class="sb" data-a="forgetSel">Forget</span><span class="sb" data-a="cancel">Cancel</span></div>`;
+  else h += `<div class="sr"><span class="sl">Where you left off</span><span class="sn">${rows.length}</span></div>`;
+  for (const p of rows) {
+    const chosen = A.sel.has(p.id);
+    const right = chosen ? svg('check','tchk') : finished(p) ? `<span class="fin">${pct(p)}% FINISHED</span>` : `<span class="pill">${percentText(p)}</span>`;
+    h += `<div class="trow ${chosen?'chosen':''}" data-row="${p.id}"><div class="tthumb">${thumb(p)}</div>
+      <div class="tcol"><div class="tname">${p.title}</div><div class="tline">${line(p)}</div></div>${right}</div>
+      <div class="hair"><i></i><b style="width:${p.dur>0?Math.min(100,p.pos/p.dur*100):0}%"></b></div>`;
+  }
+  if (all().length) h += `<div class="tforget"><span data-a="clear">Forget everything</span></div>`;
+  keepScroll('pA', () => shell('pA', h));
+}
+
+// ── NEW ──
+function renderB() {
+  const list = all();
+  const rows = list.filter(p => kindOk(B.kind, p) && progOk(B.prog, p));
+  for (const id of [...B.sel]) if (!rows.some(p => p.id === id)) B.sel.delete(id);
+  const part = list.filter(p => !finished(p)).length, done = list.length - part;
+  const filtered = B.kind !== 'ALL' || B.prog !== 'UNFINISHED';
+  const scopeShown = S.scope === 'shown';
+  const forgetCount = scopeShown ? rows.length : list.length;
+  const forgetLabel = scopeShown && filtered ? `Forget these ${rows.length}` : scopeShown ? `Forget these ${rows.length}` : 'Forget all';
+  const sub = list.length ? `${part} part way · ${done} finished` : 'Nothing kept';
+
+  let h = `<div class="nh"><div class="top"><div class="tw"><div class="tt">Carry on</div><div class="ts">${sub}</div></div>
+    <span class="fa ${forgetCount?'':'off'}" data-b="forgetAll" id="faBtn">${svg('trash')}${forgetLabel}</span></div>`;
+  if (B.selecting) {
+    h += `<div class="nf"><span class="qb" data-b="cancel" title="Stop selecting">${svg('close')}</span>
+      <span class="nsel">${B.sel.size} selected</span>
+      <span class="qb" data-b="all">${B.sel.size===rows.length && rows.length ? 'None' : 'All'}</span>
+      <span class="qb danger ${B.sel.size?'':'dim'}" data-b="forgetSel">${svg('trash')}Forget</span></div>`;
+  } else {
+    const kIcon = { ALL:'layers', MUSIC:'note', VIDEO:'film' }[B.kind];
+    const gIcon = { UNFINISHED:'half', FINISHED:'done', BOTH:'both' }[B.prog];
+    h += `<div class="nf">
+      <span class="dd ${B.kind!=='ALL'?'set':''} ${B.pop==='kind'?'open':''}" data-b="ddKind" id="ddKind">${svg(kIcon)}${KIND[B.kind]}${svg('caret','cv')}</span>
+      <span class="dd ${B.prog!=='UNFINISHED'?'set':''} ${B.pop==='prog'?'open':''}" data-b="ddProg" id="ddProg">${svg(gIcon)}${PROG[B.prog]}${svg('caret','cv')}</span>
+      <span class="grow"></span>
+      <span class="qb ${rows.length?'':'dim'}" data-b="select">${svg('select')}Select</span></div>`;
+  }
+  h += `</div>`;
+
+  if (!rows.length) {
+    h += `<div class="empty">${svg('clock')}<div class="et">${list.length ? 'Nothing here with these filters' : 'Nothing to carry on with'}</div>
+      <div class="el">${list.length ? '' : 'Anything you stop part way through shows up here.'}</div></div>`;
+  } else {
+    let rest = rows;
+    if (S.hero === 'on' && !B.selecting) {
+      const p = rows[0]; rest = rows.slice(1);
+      h += `<div class="hero" data-row="${p.id}">
+        <div class="hth">${thumb(p)}${p.dur>0?`<span class="left">${finished(p)?'Finished':clock(p.dur-p.pos)+' left'}</span><div class="pbar"><b style="width:${Math.min(100,p.pos/p.dur*100)}%"></b></div>`:''}</div>
+        <div class="hw"><div class="hl">Last played · ${ago(p.ago)}</div><div class="htt">${p.title}</div><div class="hm">${p.dur>0?clock(p.pos)+' of '+clock(p.dur):clock(p.pos)}</div>
+        <div class="hb"><span class="go" data-b="play" data-id="${p.id}">${svg('play')}${finished(p)?'Play again':'Carry on'}</span>
+        ${finished(p)?'':`<span class="over" data-b="fromStart" data-id="${p.id}">${svg('prev')}Start over</span>`}</div></div></div>`;
+    }
+    let last = null;
+    for (const p of rest) {
+      if (S.group === 'day') {
+        const [k, label] = bucket(p);
+        if (k !== last) { const n = rest.filter(q => bucket(q)[0] === k).length;
+          h += `<div class="sr"><span class="sl">${label}</span><span class="sn">${n}</span></div>`; last = k; }
+      } else if (last === null) { last = 0; h += `<div style="height:6px"></div>`; }
+      const chosen = B.sel.has(p.id);
+      const right = B.selecting ? `<span class="ck ${chosen?'on':''}">${chosen?svg('check'):''}</span>`
+        : finished(p) ? `<span class="fin">${pct(p)}% FINISHED</span>`
+        : `<div class="nr"><b>${percentText(p)}</b><span>${leftText(p)}</span></div>`;
+      const onPic = S.bar === 'pic' && p.dur > 0 ? `<div class="pbar"><b style="width:${Math.min(100,p.pos/p.dur*100)}%"></b></div>` : '';
+      h += `<div class="nrow ${chosen?'chosen':''}" data-row="${p.id}"><div class="nth">${thumb(p)}${onPic}</div>
+        <div class="ncol"><div class="nt">${p.title}</div><div class="nm">${line(p)}</div></div>${right}</div>`;
+      if (S.bar === 'row') h += `<div class="hair"><i></i><b style="width:${p.dur>0?Math.min(100,p.pos/p.dur*100):0}%"></b></div>`;
+    }
+    h += `<div style="height:16px"></div>`;
+  }
+  keepScroll('pB', () => shell('pB', h));
+  const ph = document.getElementById('pB');
+  if (B.pop === 'kind' || B.pop === 'prog') {
+    const isK = B.pop === 'kind', opts = isK ? KIND : PROG, cur = isK ? B.kind : B.prog;
+    const icons = isK ? { ALL:'layers', MUSIC:'note', VIDEO:'film' } : { UNFINISHED:'half', FINISHED:'done', BOTH:'both' };
+    const count = k => list.filter(p => isK ? (kindOk(k, p) && progOk(B.prog, p)) : (kindOk(B.kind, p) && progOk(k, p))).length;
+    const anchor = document.getElementById(isK ? 'ddKind' : 'ddProg').getBoundingClientRect(), base = ph.getBoundingClientRect();
+    ph.insertAdjacentHTML('beforeend', `<div class="scrim" data-b="close"></div><div class="pop" style="left:${anchor.left-base.left-8}px;top:${anchor.bottom-base.top-4}px">
+      <div class="ptitle">${isK ? 'Show' : 'How far'}</div>
+      ${Object.entries(opts).map(([k,l]) => `<div class="pr ${k===cur?'act':''}" data-b="${isK?'setKind':'setProg'}" data-v="${k}"><span class="ic">${svg(icons[k])}</span><span class="lb">${l}</span><span class="ct">${count(k)}</span><span class="on">${k===cur?svg('check'):''}</span></div>`).join('')}</div>`);
+  }
+  if (B.pop === 'ask') {
+    const a = document.getElementById('faBtn').getBoundingClientRect(), base = ph.getBoundingClientRect();
+    ph.insertAdjacentHTML('beforeend', `<div class="scrim" data-b="close"></div><div class="pop ask" style="right:${base.right-a.right-8}px;top:${a.bottom-base.top-4}px">
+      <div class="at">${scopeShown ? `Forget these ${forgetCount}?` : `Forget all ${forgetCount}?`}</div>
+      <div class="al">They leave this list. The files stay where they are.</div>
+      <div class="ab"><span data-b="close">Keep</span><span class="x" data-b="doForget">Forget</span></div></div>`);
+  }
+  if (B.snack) ph.insertAdjacentHTML('beforeend', `<div class="snack"><span class="t">${B.snack.text}</span>${B.snack.undo ? '<span class="u" data-b="undo">Undo</span>' : ''}</div>`);
+}
+
+// ── shared: the hold menu, a toast ──
+let holdMenu = null;
+function openHold(phoneId, id, y) {
+  holdMenu = { phoneId, id, y }; render();
+}
+function drawHold() {
+  if (!holdMenu) return;
+  const ph = document.getElementById(holdMenu.phoneId), base = ph.getBoundingClientRect();
+  const p = points.find(q => q.id === holdMenu.id); if (!p) return;
+  const top = Math.min(holdMenu.y - base.top + 6, 880 - 16 - 260);
+  ph.insertAdjacentHTML('beforeend', `<div class="scrim" data-h="close"></div><div class="pop" style="left:20px;top:${top}px">
+    <div class="pr" data-h="play"><span class="ic">${svg('play')}</span><span class="lb">Carry on</span></div>
+    <div class="pr" data-h="fromStart"><span class="ic">${svg('prev')}</span><span class="lb">Start from the beginning</span></div>
+    <div class="pr" data-h="open"><span class="ic">${svg('folderOpen')}</span><span class="lb">Open location</span></div>
+    <div class="psep"></div>
+    <div class="pr" data-h="select"><span class="ic">${svg('check')}</span><span class="lb">Select</span></div>
+    <div class="pr" data-h="forget"><span class="ic">${svg('close')}</span><span class="lb">Forget this one</span></div></div>`);
+}
+let toastTimer = null;
+function toast(text, undo) {
+  B.snack = { text, undo }; clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { B.snack = null; B.undoBuf = null; render(); }, undo ? 5000 : 1800);
+  render();
+}
+function play(p, fromStart) {
+  const at = fromStart || finished(p) ? '0:00' : clock(p.pos);
+  toast(`${p.video ? 'Video' : 'Music'} player opens ${p.title.length > 26 ? p.title.slice(0, 26) + '…' : p.title} at ${at}`);
+}
+function forget(ids) {
+  const gone = points.filter(p => ids.includes(p.id));
+  points = points.filter(p => !ids.includes(p.id));
+  return gone;
+}
+
+function render() {
+  document.body.className = S.theme;
+  document.querySelectorAll('[data-opt]').forEach(g => g.querySelectorAll('button').forEach(b => b.classList.toggle('on', S[g.dataset.opt] === b.dataset.v)));
+  renderA(); renderB(); drawHold();
+}
+
+// ── wiring ──
+document.querySelectorAll('[data-opt]').forEach(g => g.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return; S[g.dataset.opt] = b.dataset.v; save(); B.pop = null; render();
+}));
+document.getElementById('reset').onclick = () => { points = DEMO.map(p => ({...p})); S.data = 'full'; save(); A.sel.clear(); B.sel.clear(); B.selecting = false; render(); };
+
+let pressT = null, pressed = false;
+function rowDown(e) {
+  const row = e.target.closest('[data-row]'); if (!row || e.button === 2 || e.target.closest('[data-b]')) return;
+  const phoneId = e.target.closest('.phone').id; pressed = false;
+  pressT = setTimeout(() => { pressed = true; holdOrToggle(phoneId, +row.dataset.row, e.clientY); }, 450);
+}
+function holdOrToggle(phoneId, id, y) {
+  if (phoneId === 'pA' && A.sel.size) { toggleA(id); return; }
+  if (phoneId === 'pB' && B.selecting) { toggleB(id); return; }
+  openHold(phoneId, id, y);
+}
+const toggleA = id => { A.sel.has(id) ? A.sel.delete(id) : A.sel.add(id); render(); };
+const toggleB = id => { B.sel.has(id) ? B.sel.delete(id) : B.sel.add(id); render(); };
+document.addEventListener('pointerdown', rowDown);
+document.addEventListener('pointerup', () => clearTimeout(pressT));
+document.addEventListener('pointerleave', () => clearTimeout(pressT));
+document.addEventListener('contextmenu', e => {
+  const row = e.target.closest('[data-row]'); if (!row) return; e.preventDefault();
+  holdOrToggle(e.target.closest('.phone').id, +row.dataset.row, e.clientY);
+});
+
+document.addEventListener('click', e => {
+  if (pressed) { pressed = false; return; }
+  const h = e.target.closest('[data-h]');
+  if (h && holdMenu) {
+    const p = points.find(q => q.id === holdMenu.id), ph = holdMenu.phoneId; holdMenu = null;
+    const act = h.dataset.h;
+    if (act === 'play') play(p); else if (act === 'fromStart') play(p, true);
+    else if (act === 'open') toast('Opens the folder it is in, with it picked out');
+    else if (act === 'select') { if (ph === 'pA') A.sel.add(p.id); else { B.selecting = true; B.sel.add(p.id); } }
+    else if (act === 'forget') forget([p.id]);
+    render(); return;
+  }
+  const a = e.target.closest('#pA [data-a]');
+  if (a) {
+    const v = a.dataset.v;
+    if (a.dataset.a === 'kind') A.kind = v; else if (a.dataset.a === 'prog') A.prog = v;
+    else if (a.dataset.a === 'all') { const rows = all().filter(p => kindOk(A.kind, p) && progOk(A.prog, p));
+      if (A.sel.size === rows.length) A.sel.clear(); else rows.forEach(p => A.sel.add(p.id)); }
+    else if (a.dataset.a === 'forgetSel') { forget([...A.sel]); A.sel.clear(); }
+    else if (a.dataset.a === 'cancel') A.sel.clear();
+    else if (a.dataset.a === 'clear') points = [];   // today: at once, nothing asked, no Undo
+    render(); return;
+  }
+  const b = e.target.closest('#pB [data-b]');
+  if (b) {
+    const k = b.dataset.b, list = all();
+    const rows = list.filter(p => kindOk(B.kind, p) && progOk(B.prog, p));
+    if (k === 'close') B.pop = null;
+    else if (k === 'ddKind') B.pop = B.pop === 'kind' ? null : 'kind';
+    else if (k === 'ddProg') B.pop = B.pop === 'prog' ? null : 'prog';
+    else if (k === 'setKind') { B.kind = b.dataset.v; B.pop = null; }
+    else if (k === 'setProg') { B.prog = b.dataset.v; B.pop = null; }
+    else if (k === 'select') { B.selecting = true; }
+    else if (k === 'cancel') { B.selecting = false; B.sel.clear(); }
+    else if (k === 'all') { if (B.sel.size === rows.length) B.sel.clear(); else rows.forEach(p => B.sel.add(p.id)); }
+    else if (k === 'forgetSel') { const gone = forget([...B.sel]); B.sel.clear(); B.selecting = false;
+      B.undoBuf = gone; toast(`Forgot ${gone.length}`, true); return; }
+    else if (k === 'forgetAll') { if (S.forget === 'ask') B.pop = 'ask'; else { doForgetAll(); return; } }
+    else if (k === 'doForget') { B.pop = null; doForgetAll(); return; }
+    else if (k === 'undo') { if (B.undoBuf) { points = points.concat(B.undoBuf).sort((x, y) => x.ago - y.ago); B.undoBuf = null; } B.snack = null; clearTimeout(toastTimer); }
+    else if (k === 'play') { play(points.find(p => p.id === +b.dataset.id)); return; }
+    else if (k === 'fromStart') { play(points.find(p => p.id === +b.dataset.id), true); return; }
+    render(); return;
+  }
+  const row = e.target.closest('[data-row]');
+  if (row) {
+    const phoneId = row.closest('.phone').id, p = points.find(q => q.id === +row.dataset.row);
+    if (phoneId === 'pA' && A.sel.size) return toggleA(p.id);
+    if (phoneId === 'pB' && B.selecting) return toggleB(p.id);
+    play(p);
+  }
+  if (e.target.closest('[data-h="close"]')) { holdMenu = null; render(); }
+});
+function doForgetAll() {
+  const list = all(), rows = list.filter(p => kindOk(B.kind, p) && progOk(B.prog, p));
+  const ids = (S.scope === 'shown' ? rows : list).map(p => p.id);
+  const gone = forget(ids);
+  if (S.forget === 'undo') { B.undoBuf = gone; toast(`Forgot ${gone.length}`, true); }
+  else render();
+}
+render();
+</script>
+</body>
+</html>

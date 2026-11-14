@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet - Home drive cards: SD, USB, added storage (mock)</title>
+<style>
+/* Palette: Palette.kt SLATE, names one-for-one with FiletColors (same block as the clipboard mock). */
+:root, .dark {
+  --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --accentDim:#31434B; --onAccent:#0E1417;
+  --good:#8FB894; --warn:#C9A36A; --bad:#C97F7F; --sel:#243036;
+}
+.light {
+  --bg:#F5F4F0; --surface:#FFFFFF; --raised:#FAF9F6; --sunken:#EBE9E3; --high:#E4E1DA;
+  --line:#DDDAD2; --lineSoft:#E9E6DF; --fg:#22211E; --fg2:#615D55; --fg3:#8B867C;
+  --accent:#3E6E82; --accentDim:#CBDDE4; --onAccent:#FFFFFF;
+  --good:#4B7A52; --warn:#8A6A2E; --bad:#9B4A4A; --sel:#E3EDF1;
+}
+* { box-sizing:border-box; }
+body { margin:0; font:13px/1.35 "Segoe UI", Roboto, system-ui, sans-serif; background:#0b0b0a; color:#ddd;
+  display:flex; gap:28px; padding:24px; align-items:flex-start; }
+.panel { width:340px; flex:none; }
+.panel h1 { font-size:16px; margin:0 0 4px; color:#fff; }
+.panel .sub { color:#999; margin-bottom:14px; }
+.panel h2 { font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#8a8; margin:16px 0 6px; }
+.btns { display:flex; flex-wrap:wrap; gap:6px; }
+.btns button { background:#222; color:#ddd; border:1px solid #333; border-radius:8px; padding:7px 10px;
+  font:12px "Segoe UI", sans-serif; cursor:pointer; }
+.btns button.on { background:#7FA8B8; color:#0E1417; border-color:#7FA8B8; font-weight:600; }
+.caption { margin-top:18px; border-top:1px solid #333; padding-top:12px; color:#aaa; font-size:12px; }
+.caption b { color:#ddd; }
+.caption p { margin:0 0 8px; }
+.q { background:#1a1a14; border:1px solid #3a3420; border-radius:8px; padding:8px 10px; margin:8px 0; color:#d8c89a; }
+svg { stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
+/* The phone, 412 x 880 dp drawn 1:1. */
+.phone { width:412px; height:880px; flex:none; border-radius:30px; border:8px solid #000; position:relative;
+  overflow:hidden; background:var(--bg); color:var(--fg); box-shadow:0 10px 40px #000a; }
+.status { height:26px; padding:0 16px; display:flex; align-items:center; justify-content:space-between;
+  font-size:11px; color:var(--fg2); background:var(--sunken); }
+.tabs { height:38px; background:var(--sunken); display:flex; align-items:center; gap:4px; padding:0 8px; }
+.tab { padding:6px 12px; border-radius:9px 9px 0 0; font-size:12px; color:var(--fg2); }
+.tab.on { background:var(--bg); color:var(--fg); }
+.scroll { position:absolute; top:64px; bottom:0; left:0; right:0; overflow:auto; padding-bottom:30px; }
+
+/* SectionLabel: 9.5sp, 0.9sp tracking, Medium, fg3, 12dp/7dp padding. */
+.shead { display:flex; align-items:center; }
+.slabel { font-size:9.5px; letter-spacing:.9px; font-weight:500; color:var(--fg3); text-transform:uppercase; padding:7px 12px; flex:1; }
+.slink { font-size:10px; color:var(--accent); padding:4px 8px; }
+.slink.last { padding-right:15px; }
+.sub2 { font-size:9px; letter-spacing:.8px; color:var(--fg3); text-transform:uppercase; padding:6px 15px 0; opacity:.85; }
+
+/* Tiles: FlowRow, 15dp sides, 4/8 top/bottom, 9dp gaps, tile min 150dp, weight 1. */
+.tiles { display:flex; flex-wrap:wrap; gap:9px; padding:4px 15px 8px; }
+.tile { flex:1 1 150px; min-width:150px; }
+
+/* StorageTile: radius 13, 1dp outline, surface, padding 12/8/8/11. */
+.st { border-radius:13px; border:1px solid var(--line); background:var(--surface); padding:8px 8px 11px 12px; cursor:pointer;
+  position:relative; user-select:none; }
+.st.dim { opacity:.55; }
+.st .hd { display:flex; align-items:center; gap:8px; height:17px; }
+.st .hd .ico { width:13px; height:13px; color:var(--accent); flex:none; }
+.st .hd .lbl { flex:1; font-size:10px; letter-spacing:.6px; font-weight:600; color:var(--fg3); text-transform:uppercase;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.st .hd .x { width:17px; height:17px; padding:3px; color:var(--fg3); border-radius:6px; flex:none; }
+.st .hd .ej { width:19px; height:19px; padding:3px; color:var(--fg2); border-radius:6px; flex:none; }
+.st .dot { width:6px; height:6px; border-radius:50%; background:var(--good); animation:breathe 1.1s linear infinite alternate; flex:none; }
+.st .dot.warn { background:var(--warn); }
+@keyframes breathe { from { opacity:1 } to { opacity:.35 } }
+.st .val { margin-top:5px; font-size:19px; font-weight:600; letter-spacing:-.38px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.st .val.soft { color:var(--fg2); }
+.st .cap { margin-top:3px; font-size:10.5px; color:var(--fg3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.st .cap.warn { color:var(--warn); }
+.st .cap.act { color:var(--accent); font-weight:600; }
+.st .bar { margin-top:8px; height:5px; border-radius:3px; background:var(--sunken); overflow:hidden; }
+.st .bar i { display:block; height:100%; border-radius:3px; }
+/* New: added storage has no capacity to show; the slot is a dotted hairline, read as "not this kind", not "empty". */
+.st .bar.none { background:none; border-top:1px dashed var(--line); height:0; margin-top:10px; margin-bottom:3px; }
+/* New: the app a folder comes from, as its own launcher icon in the 13dp icon slot. */
+.appic { width:14px; height:14px; border-radius:4px; display:grid; place-items:center; font:700 7.5px/1 Consolas, monospace; flex:none; }
+.appic.termux { background:#000; color:#fff; border:1px solid #444; }
+.appic.drive { background:#2f6f4f; color:#fff; }
+.appic.drive svg { width:10px; height:10px; stroke-width:2.2; }
+.appic.other { background:#5a4a7a; color:#fff; }
+.chipline { display:flex; gap:5px; margin-top:6px; }
+.chip { font-size:9px; letter-spacing:.4px; padding:2px 6px; border-radius:6px; background:var(--high); color:var(--fg2); text-transform:uppercase; }
+.chip.ro { background:var(--accentDim); color:var(--accent); }
+
+/* New: the line for remembered drives that are not plugged in. Not a tile: a card that says nothing actionable
+   is a tile wasted (the reason offline network cards were taken off Home). */
+.gone { margin:0 15px 8px; border-radius:11px; background:var(--raised); padding:9px 12px; display:flex; align-items:center; gap:10px; cursor:pointer; }
+.gone .ico { width:15px; height:15px; color:var(--fg3); }
+.gone .t { flex:1; font-size:11.5px; color:var(--fg2); }
+.gone .t b { color:var(--fg); font-weight:600; }
+.gone .chev { width:14px; height:14px; color:var(--fg3); }
+
+/* Below Storage, a hint of the next section so the cards sit in context. */
+.next { padding:4px 0; }
+.fake { margin:6px 15px; height:46px; border-radius:11px; background:var(--raised); opacity:.5; }
+
+/* Sheet + menu. */
+.scrim { position:absolute; inset:0; background:#0009; display:none; z-index:20; }
+.sheet { position:absolute; left:0; right:0; bottom:0; background:var(--raised); border-radius:18px 18px 0 0; padding:10px 0 18px; z-index:21; display:none; }
+.sheet .grab { width:36px; height:4px; border-radius:2px; background:var(--line); margin:0 auto 10px; }
+.sheet h3 { margin:0 16px 2px; font-size:16px; font-weight:600; }
+.sheet .s { margin:0 16px 10px; font-size:11.5px; color:var(--fg3); }
+.drow { display:flex; align-items:center; gap:12px; padding:10px 16px; }
+.drow .ti { width:38px; height:38px; border-radius:10px; background:var(--high); display:grid; place-items:center; color:var(--fg2); flex:none; }
+.drow .ti svg { width:18px; height:18px; }
+.drow .m { flex:1; min-width:0; }
+.drow .n { font-size:13.5px; }
+.drow .d { font-size:11px; color:var(--fg3); }
+.drow .b { font-size:12px; color:var(--accent); padding:6px 10px; border-radius:8px; background:var(--accentDim); }
+.drow .b.plain { background:var(--high); color:var(--fg2); }
+.menu { position:absolute; z-index:22; background:var(--high); border-radius:12px; padding:6px 0; min-width:236px; box-shadow:0 8px 24px #000a; display:none; }
+.mi { display:flex; gap:12px; padding:9px 14px; align-items:flex-start; }
+.mi svg { width:16px; height:16px; color:var(--fg2); flex:none; margin-top:1px; }
+.mi .l { font-size:13px; }
+.mi .dd { font-size:10.5px; color:var(--fg3); }
+.mi.danger .l, .mi.danger svg { color:var(--bad); }
+.msep { height:1px; background:var(--line); margin:5px 0; }
+
+/* Plug-in: the new tile arrives the way action cards do: .18s ease-out, and a one-off accent ring. */
+@keyframes arrive { from { transform:scale(.92); opacity:0 } to { transform:none; opacity:1 } }
+.st.arrive { animation:arrive .18s ease-out both; box-shadow:0 0 0 2px var(--accent); transition:box-shadow 1.2s ease-out .6s; }
+.st.arrived { box-shadow:0 0 0 0 transparent; }
+</style>
+</head>
+<body class="dark">
+<div class="panel">
+  <h1>Home drive cards</h1>
+  <div class="sub">SD cards, USB drives, and folders added from other apps</div>
+
+  <h2>View</h2>
+  <div class="btns" id="views">
+    <button data-v="today">Today</button>
+    <button data-v="new" class="on">New</button>
+  </div>
+
+  <h2>Layout of the new cards</h2>
+  <div class="btns" id="layout">
+    <button data-l="flow" class="on">One row of cards</button>
+    <button data-l="grouped">Grouped by kind</button>
+  </div>
+
+  <h2>Folders from one app</h2>
+  <div class="btns" id="groupapp">
+    <button data-g="each" class="on">A card per folder</button>
+    <button data-g="app">One card per app</button>
+  </div>
+
+  <h2>Try</h2>
+  <div class="btns">
+    <button onclick="toggle('old')" id="b-old">Older phone (Android 8-10)</button>
+    <button onclick="toggle('writing')" id="b-writing">Copying to the USB drive</button>
+    <button onclick="toggle('ntfs')" id="b-ntfs">USB drive it can't read</button>
+    <button onclick="plugIn()">Plug in a USB drive</button>
+    <button onclick="openGone()">Not plugged in (the registry)</button>
+    <button onclick="openMenu('sd')">Hold the SD card</button>
+    <button onclick="openMenu('saf')">Hold an app folder</button>
+    <button onclick="document.body.classList.toggle('light');document.body.classList.toggle('dark')">Light / dark</button>
+  </div>
+
+  <div class="caption">
+    <p><b>Today.</b> An SD card or USB drive is a plain storage card named by its volume ID (1A2B-3C4D), with nothing saying it can be pulled out. A folder from another app (Termux's home, a Google Drive folder) has no size to read, so it shows "—" and "Size unknown - may not be readable", which looks broken while it works.</p>
+    <p><b>SD card and USB drive.</b> Their own icons, named by what the system calls them (the card's brand, the drive's label). An eject mark opens Android's safe removal, because only the system can unmount. While Filet writes to one, the caption turns amber and says don't unplug. A drive in a format the phone can't read (often NTFS) says so instead of vanishing.</p>
+    <p><b>Older phones.</b> On Android 8 to 10 an app can't write to an SD card until it's allowed once. The card says Read only, and <i>Allow writing</i> opens the system picker on that card. After that, copy, move and delete work there like on the phone's own storage.</p>
+    <p><b>The registry.</b> Every SD card and USB drive is remembered by its volume ID. Pull it out and its card goes; one line says what isn't plugged in, and opens a list with last seen, Search its files (the index is kept) and Forget. Plug it back in and it's the same drive: its name, its index, its place on Home.</p>
+    <p><b>Folders from apps.</b> The app's own icon and name in the heading, the folder's name as the big line, and what can be known underneath: the item count and whether Filet can write there. No capacity bar, since there is no capacity; a dotted line keeps the row even. Holding it offers Open in the app, and Remove access, which hands the permission back.</p>
+    <div class="q">Two choices to make here: one row of cards or grouped by kind; and for several folders from the same app, one card each or one per app.</div>
+  </div>
+</div>
+
+<div class="phone" id="phone">
+  <div class="status"><span>9:41</span><span>5G · 82%</span></div>
+  <div class="tabs"><div class="tab on">Home</div><div class="tab">Downloads</div><div class="tab">+</div></div>
+  <div class="scroll" id="scroll"></div>
+  <div class="scrim" id="scrim" onclick="closeAll()"></div>
+  <div class="sheet" id="sheet"></div>
+  <div class="menu" id="menu"></div>
+</div>
+
+<script>
+const I = {
+  storage:'<path d="M3 4h18v7H3z"/><path d="M3 13h18v7H3z"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+  wifi:'<path d="M2 9a15 15 0 0 1 20 0"/><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><path d="M12 19.5h.01"/>',
+  sd:'<path d="M9 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7z"/><path d="M10 7v3M13 7v3M16 7v3"/>',
+  usb:'<path d="M12 3v14"/><path d="M9.5 5.5 12 3l2.5 2.5"/><circle cx="12" cy="19" r="2"/><path d="M12 12 8 10V8"/><path d="M12 14l4-2V9"/><path d="M7 7h2v1H7zM15 8h2v1h-2z"/>',
+  terminal:'<path d="M4 5h16v14H4z"/><path d="m7 9 3 3-3 3"/><path d="M12 15h5"/>',
+  close:'<path d="M6 6l12 12M18 6 6 18"/>',
+  eject:'<path d="M12 5 5 13h14z"/><path d="M5 18h14"/>',
+  cloud:'<path d="M7 18h10a4 4 0 0 0 0-8 6 6 0 0 0-11.5 1.5A3.5 3.5 0 0 0 7 18z"/>',
+  chev:'<path d="m9 6 6 6-6 6"/>',
+  open:'<path d="M3 6h6l2 2h10v11H3z"/>',
+  edit:'<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+  info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+  hide:'<path d="M3 3l18 18"/><path d="M10.6 6.1A10 10 0 0 1 22 12a14 14 0 0 1-3 3.6M6.3 6.3A14 14 0 0 0 2 12s3.6 7 10 7a9.6 9.6 0 0 0 4.3-1"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+  link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  unlock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/>',
+};
+const svg = (k, cls='') => `<svg viewBox="0 0 24 24" class="${cls}">${I[k]}</svg>`;
+
+// Capacity.kt STOPS, interpolated linearly per channel.
+const STOPS = [[0,'#3E8FD8'],[.38,'#35B5A6'],[.58,'#7FC14F'],[.74,'#E0C248'],[.84,'#E58A33'],[.90,'#D63B2C'],[1,'#A81D16']];
+function cap(f) {
+  const h = s => [1,3,5].map(i => parseInt(s.slice(i,i+2),16));
+  for (let i=0;i<STOPS.length-1;i++) { const [lo,a]=STOPS[i], [hi,b]=STOPS[i+1];
+    if (f>=lo && f<=hi) { const t=(f-lo)/(hi-lo||1), A=h(a), B=h(b);
+      return `rgb(${A.map((v,j)=>Math.round(v+(B[j]-v)*t)).join(',')})`; } }
+  return STOPS[STOPS.length-1][1];
+}
+const bar = f => f==null ? `<div class="bar"></div>` : `<div class="bar"><i style="width:${f*100}%;background:${cap(f)}"></i></div>`;
+
+const S = { view:'new', layout:'flow', group:'each', old:false, writing:false, ntfs:false, usb:true, arrived:false };
+
+// One tile, in StorageTile's shape. `head` is the icon slot's content.
+function tile({head, label, val, valSoft, capt, captCls='', barHtml, live, eject, dim, id, extra=''}) {
+  return `<div class="tile"><div class="st ${dim?'dim':''} ${id==='usb'&&S.arrived?'arrive':''}" id="t-${id||''}" oncontextmenu="openMenu('${id}');return false">
+    <div class="hd">${head}${live!=null?`<span class="dot ${live==='warn'?'warn':''}"></span>`:''}
+      <span class="lbl">${label}</span>${eject?`<span title="Safely remove: opens Android's storage settings">${svg('eject','ej')}</span>`:''}${svg('close','x')}</div>
+    <div class="val ${valSoft?'soft':''}">${val}</div>
+    <div class="cap ${captCls}">${capt}</div>${extra}${barHtml}</div></div>`;
+}
+const icon = k => svg(k,'ico');
+const app = (k, txt) => `<span class="appic ${k}">${k==='drive'?svg('cloud'):txt}</span>`;
+
+function todayCards() {
+  return [
+    tile({head:icon('storage'), label:'Internal', val:'48.2 GB', capt:'free of 128 GB · 79.8 GB used', barHtml:bar(.62)}),
+    tile({head:icon('storage'), label:'1A2B-3C4D', val:'21.4 GB', capt:'free of 59.5 GB · 38.1 GB used', barHtml:bar(.64)}),
+    tile({head:icon('wifi'), live:true, label:'Studio PC · Movies', val:'1.2 TB', capt:'free of 1.8 TB · 614 GB used', barHtml:bar(.33)}),
+    tile({head:icon('storage'), label:'Home', val:'—', capt:'Size unknown - may not be readable', barHtml:bar(null)}),
+    tile({head:icon('storage'), label:'Filet test', val:'—', capt:'Size unknown - may not be readable', barHtml:bar(null)}),
+  ];
+}
+
+function sdTile() {
+  if (S.old) return tile({id:'sd', head:icon('sd'), label:'SD · SanDisk', val:'21.4 GB',
+    capt:'Read only · <span style="text-decoration:underline">Allow writing</span>', captCls:'act', barHtml:bar(.64), eject:true});
+  return tile({id:'sd', head:icon('sd'), label:'SD · SanDisk', val:'21.4 GB', capt:'free of 59.5 GB · 38.1 GB used', barHtml:bar(.64), eject:true});
+}
+function usbTile() {
+  if (!S.usb) return '';
+  if (S.ntfs) return tile({id:'usb', head:icon('usb'), label:'USB drive', val:"Can't read", valSoft:true,
+    capt:"Its format isn't one this phone reads", barHtml:bar(null), eject:true});
+  if (S.writing) return tile({id:'usb', head:icon('usb'), live:'warn', label:'USB · Kingston', val:'7.9 GB',
+    capt:"Copying 3 files · don't unplug", captCls:'warn', barHtml:bar(.73), eject:true});
+  return tile({id:'usb', head:icon('usb'), label:'USB · Kingston', val:'8.6 GB', capt:'free of 28.8 GB · 20.2 GB used', barHtml:bar(.70), eject:true});
+}
+function appTiles() {
+  if (S.group === 'app') return [
+    tile({id:'saf', head:app('termux','>_'), label:'Termux', val:'home', capt:'142 items · read and write', barHtml:`<div class="bar none"></div>`}),
+    tile({id:'saf', head:app('drive'), label:'Google Drive', val:'3 folders', capt:'Filet test, Photos, Work', barHtml:`<div class="bar none"></div>`}),
+  ];
+  return [
+    tile({id:'saf', head:app('termux','>_'), label:'Termux', val:'home', capt:'142 items · read and write', barHtml:`<div class="bar none"></div>`}),
+    tile({id:'saf', head:app('drive'), label:'Google Drive', val:'Filet test', capt:'4 items · read and write', barHtml:`<div class="bar none"></div>`}),
+  ];
+}
+function goneLine() {
+  return `<div class="gone" onclick="openGone()">${svg('sd','ico')}<div class="t">Not plugged in: <b>SD card · Lexar</b>, <b>USB · Samsung T7</b></div>${svg('chev','chev')}</div>`;
+}
+
+function render() {
+  const sc = document.getElementById('scroll');
+  let h = `<div class="shead"><span class="slabel">Storage</span><span class="slink last">Hide all</span></div>`;
+  if (S.view === 'today') {
+    h += `<div class="tiles">${todayCards().join('')}</div>`;
+  } else if (S.layout === 'flow') {
+    const net = tile({head:icon('wifi'), live:true, label:'Studio PC · Movies', val:'1.2 TB', capt:'free of 1.8 TB · 614 GB used', barHtml:bar(.33)});
+    const cards = [tile({head:icon('storage'), label:'Internal', val:'48.2 GB', capt:'free of 128 GB · 79.8 GB used', barHtml:bar(.62)}),
+      sdTile(), usbTile(), net, ...appTiles()].filter(Boolean);
+    h += `<div class="tiles">${cards.join('')}</div>` + goneLine();
+  } else {
+    h += `<div class="sub2">On this phone</div><div class="tiles">${tile({head:icon('storage'), label:'Internal', val:'48.2 GB', capt:'free of 128 GB · 79.8 GB used', barHtml:bar(.62)})}</div>`;
+    h += `<div class="sub2">Plugged in</div><div class="tiles">${[sdTile(), usbTile()].filter(Boolean).join('')}</div>` + goneLine();
+    h += `<div class="sub2">From apps</div><div class="tiles">${appTiles().join('')}</div>`;
+    h += `<div class="sub2">Network</div><div class="tiles">${tile({head:icon('wifi'), live:true, label:'Studio PC · Movies', val:'1.2 TB', capt:'free of 1.8 TB · 614 GB used', barHtml:bar(.33)})}</div>`;
+  }
+  h += `<div class="next"><div class="shead"><span class="slabel">New in your folders</span></div><div class="fake"></div><div class="fake"></div><div class="fake"></div></div>`;
+  sc.innerHTML = h;
+  if (S.arrived) setTimeout(() => { const t = document.getElementById('t-usb'); if (t) t.classList.add('arrived'); }, 50);
+  for (const b of document.querySelectorAll('#views button')) b.classList.toggle('on', b.dataset.v === S.view);
+  for (const b of document.querySelectorAll('#layout button')) b.classList.toggle('on', b.dataset.l === S.layout);
+  for (const b of document.querySelectorAll('#groupapp button')) b.classList.toggle('on', b.dataset.g === S.group);
+  for (const k of ['old','writing','ntfs']) document.getElementById('b-'+k).classList.toggle('on', S[k]);
+}
+
+function toggle(k) { S[k] = !S[k]; if (k==='ntfs' && S.ntfs) S.writing=false; if (k==='writing' && S.writing) S.ntfs=false; S.view='new'; render(); }
+function plugIn() { S.view='new'; S.usb=false; S.arrived=false; render(); setTimeout(() => { S.usb=true; S.arrived=true; render(); S.arrived=false; }, 350); }
+
+function openGone() {
+  closeAll(); S.view='new'; render();
+  const sh = document.getElementById('sheet');
+  sh.innerHTML = `<div class="grab"></div><h3>Not plugged in</h3><div class="s">Remembered by each drive's own ID. Plug one in and it comes back as the same drive, with its name and its index.</div>
+    <div class="drow"><div class="ti">${svg('sd')}</div><div class="m"><div class="n">SD card · Lexar</div><div class="d">119 GB · last seen 3 days ago · 18,402 files indexed</div></div><span class="b">${'Search'}</span></div>
+    <div class="drow"><div class="ti">${svg('usb')}</div><div class="m"><div class="n">USB · Samsung T7</div><div class="d">1 TB · last seen 2 Nov · 6,120 files indexed</div></div><span class="b">${'Search'}</span></div>
+    <div class="drow"><div class="ti" style="opacity:.5">${svg('usb')}</div><div class="m"><div class="n" style="color:var(--fg2)">USB drive</div><div class="d">seen once, 14 Oct · never opened</div></div><span class="b plain">Forget</span></div>`;
+  document.getElementById('scrim').style.display='block'; sh.style.display='block';
+}
+
+function openMenu(id) {
+  closeAll(); S.view='new'; render();
+  const m = document.getElementById('menu');
+  const mi = (ic, l, d='', cls='') => `<div class="mi ${cls}">${svg(ic)}<div><div class="l">${l}</div>${d?`<div class="dd">${d}</div>`:''}</div></div>`;
+  if (id === 'saf') m.innerHTML = mi('open','Open') + mi('link','Open in Termux','The folder in the app it comes from.') + mi('edit','Rename') + mi('info','Details','Which app, its permission, read and write.') + `<div class="msep"></div>` + mi('hide','Hide from Home') + mi('unlock','Remove access','Hands the permission back. Termux keeps its files.','danger');
+  else if (id === 'usb') m.innerHTML = mi('open','Open') + mi('edit','Rename') + mi('info','Details','Format, ID, size.') + mi('eject','Safely remove',"Android's storage settings, where it can be ejected.") + `<div class="msep"></div>` + mi('hide','Hide from Home');
+  else m.innerHTML = mi('open','Open') + mi('edit','Rename') + mi('info','Details','Format, ID, size, whether Filet can write.') + (S.old ? mi('unlock','Allow writing','The system picker opens on this card. Once.') : '') + mi('eject','Safely remove',"Android's storage settings, where it can be ejected.") + `<div class="msep"></div>` + mi('hide','Hide from Home');
+  const t = document.getElementById('t-' + (id==='saf'?'saf':id)) || document.querySelector('.st');
+  const pr = document.getElementById('phone').getBoundingClientRect(), r = t.getBoundingClientRect();
+  m.style.left = Math.min(r.left - pr.left, 412 - 250) + 'px'; m.style.top = (r.bottom - pr.top - 4) + 'px';
+  document.getElementById('scrim').style.display='block'; m.style.display='block';
+}
+function closeAll() { for (const id of ['scrim','sheet','menu']) document.getElementById(id).style.display='none'; }
+
+document.getElementById('views').onclick = e => { if (e.target.dataset.v) { S.view = e.target.dataset.v; closeAll(); render(); } };
+document.getElementById('layout').onclick = e => { if (e.target.dataset.l) { S.layout = e.target.dataset.l; S.view='new'; render(); } };
+document.getElementById('groupapp').onclick = e => { if (e.target.dataset.g) { S.group = e.target.dataset.g; S.view='new'; render(); } };
+render();
+</script>
+</body>
+</html>

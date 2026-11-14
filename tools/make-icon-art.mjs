@@ -10,16 +10,15 @@
 //   node tools/make-icon-art.mjs            write app/.../icons/IconArtData.kt
 //   node tools/make-icon-art.mjs --check    exit 1 when the written file is not what the mock gives
 //
-// The mock lives outside the repo, beside the other mocks. FILET_ICON_MOCK points at it elsewhere.
+// The mock is docs/design/mockups/filet-browser-icons-mock.html. FILET_ICON_MOCK points at it elsewhere.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const MOCK = process.env.FILET_ICON_MOCK || join(homedir(), "Desktop", "filet-browser-icons-mock.html");
+const MOCK = process.env.FILET_ICON_MOCK || join(ROOT, "docs", "design", "mockups", "filet-browser-icons-mock.html");
 const OUT = join(ROOT, "app/src/main/java/dev/niccc2007/filet/icons/IconArtData.kt");
 const check = process.argv.includes("--check");
 

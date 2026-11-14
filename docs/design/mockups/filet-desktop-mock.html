@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet Desktop - mock, round 1</title>
+<style>
+  :root { --font: "Segoe UI", system-ui, sans-serif; --mono: Consolas, "Cascadia Mono", monospace; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--font); background: #2a2d30; color: #ddd; }
+  .bar { position: sticky; top: 0; z-index: 9; display: flex; gap: 8px; align-items: center; padding: 10px 16px; background: #1b1d1f; border-bottom: 1px solid #333; }
+  .bar b { margin-right: 8px; }
+  .bar button { font: 13px var(--font); padding: 6px 12px; border-radius: 6px; border: 1px solid #444; background: #2b2e31; color: #ddd; cursor: pointer; }
+  .bar button.on { background: #4E7382; border-color: #7FA8B8; color: #fff; }
+  .stage { display: flex; justify-content: center; padding: 28px 16px 40px; }
+  .win { border-radius: 8px; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+  .title { height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 12px; }
+  .title img { width: 16px; height: 16px; }
+  .title .sp { flex: 1; }
+  .title i { font-style: normal; width: 34px; text-align: center; }
+  .notes { max-width: 960px; margin: 0 auto 60px; padding: 0 16px; font-size: 13px; line-height: 1.55; color: #bbb; }
+  .notes h3 { color: #eee; font-size: 14px; margin: 18px 0 6px; }
+  .hidden { display: none !important; }
+
+  /* ── CURRENT: a 1:1 replica of FiletWindow.kt + Kit.kt (Ink palette, sizes in dp = px) ── */
+  .cur { width: 620px; height: 760px; background: #F7F6F2; color: #1C1B19; }
+  .cur .title { background: #fff; color: #1C1B19; border-bottom: 1px solid #E3E1DA; }
+  .cur .body { height: 728px; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+  .cur .card { background: #fff; border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .cur .head { display: flex; align-items: center; padding-bottom: 10px; font-size: 12px; font-weight: 600; color: #6B6964; }
+  .cur .head span { flex: 1; }
+  .cur .row { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+  .cur .row.g8 { gap: 8px; }
+  .cur .in16 { padding-left: 16px; }
+  .cur .muted { color: #6B6964; font-size: 13px; }
+  .cur .small { font-size: 12px; }
+  .cur .warn { color: #9A4A1C; }
+  .cur .accent { color: #2F6B4F; }
+  .cur .mono { font-family: var(--mono); }
+  .cur .w110 { width: 110px; flex: none; }
+  .cur .grow { flex: 1; min-width: 0; }
+  .cur .btn { font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #E3E1DA; background: #fff; color: #1C1B19; white-space: nowrap; cursor: pointer; }
+  .cur .btn.p { background: #2F6B4F; border-color: #2F6B4F; color: #fff; font-weight: 600; }
+  .cur .btn.off { background: transparent; color: #B9B6AE; cursor: default; }
+  .cur .field { font: 14px var(--mono); padding: 7px 10px; border-radius: 6px; border: 1px solid #E3E1DA; background: #fff; color: #1C1B19; }
+  .cur .dot { width: 8px; height: 8px; border-radius: 50%; background: #2F6B4F; flex: none; }
+  .cur .dot.off { background: #6B6964; }
+  .cur .chk { width: 16px; height: 16px; border: 1.5px solid #2F6B4F; border-radius: 3px; background: #2F6B4F; color: #fff; font-size: 11px; display: grid; place-items: center; }
+  .cur .lbl { width: 84px; flex: none; color: #6B6964; font-size: 13px; }
+
+  /* ── PROPOSAL: dark dashboard ── */
+  .dk { width: 1040px; height: 720px; background: #0E1315; color: #E4EBEE; font-size: 14px; }
+  .dk .title { background: #0A0E10; color: #9FB0B6; border-bottom: 1px solid #1E282C; }
+  .dk .body { height: 688px; display: grid; grid-template-rows: auto 1fr; }
+  .dk .strip { display: flex; gap: 10px; padding: 14px 18px; border-bottom: 1px solid #1E282C; align-items: center; }
+  .dk .stat { background: #151C1F; border: 1px solid #1E282C; border-radius: 10px; padding: 8px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 150px; }
+  .dk .stat small { color: #7E9096; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+  .dk .stat b { font-size: 15px; font-weight: 600; }
+  .dk .stat b.ok { color: #6FCF97; }
+  .dk .strip .sp { flex: 1; }
+  .dk .cols { display: grid; grid-template-columns: 430px 1fr; min-height: 0; }
+  .dk .col { overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .dk .col + .col { border-left: 1px solid #1E282C; }
+  .dk h2 { margin: 0; font-size: 12px; letter-spacing: .08em; color: #7E9096; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .dk h2 span { flex: 1; }
+  .dk .panel { background: #151C1F; border: 1px solid #1E282C; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .dk .muted { color: #7E9096; font-size: 12.5px; }
+  .dk .mono { font-family: var(--mono); }
+  .dk .row { display: flex; align-items: center; gap: 8px; }
+  .dk .grow { flex: 1; min-width: 0; }
+  .dk .wrap { flex-wrap: wrap; row-gap: 6px; }
+  .dk .ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dk .btn { font: 12.5px var(--font); padding: 6px 11px; border-radius: 8px; border: 1px solid #2A383D; background: #1A2327; color: #D6E0E3; white-space: nowrap; cursor: pointer; }
+  .dk .btn:hover { border-color: #4E7382; }
+  .dk .btn.p { background: #4E7382; border-color: #7FA8B8; color: #fff; font-weight: 600; }
+  .dk .btn.ghost { background: transparent; }
+  .dk .btn.warn { border-color: #6B4A22; color: #E7B074; }
+  .dk .btn.off { opacity: .4; cursor: default; }
+  .dk .pill { font-size: 11.5px; padding: 3px 9px; border-radius: 99px; font-weight: 600; white-space: nowrap; }
+  .dk .pill.m { background: #163527; color: #6FCF97; }
+  .dk .pill.n { background: #1E2A2F; color: #9FB0B6; }
+  .dk .pill.o { background: #1A1F21; color: #5F6F75; }
+  .dk .pill.x { background: #3A2A14; color: #E7B074; }
+  .dk .tag { font-size: 11px; color: #9FB0B6; border: 1px solid #2A383D; border-radius: 6px; padding: 1px 6px; }
+  .dk .url { background: #0E1315; border: 1px solid #1E282C; border-radius: 8px; padding: 7px 10px; font: 13.5px var(--mono); color: #CFE3EA; }
+  .dk .phone { display: grid; grid-template-columns: 40px 1fr auto; gap: 4px 12px; align-items: center; }
+  .dk .phone.offline { opacity: .62; }
+  .dk .ico { width: 40px; height: 40px; border-radius: 10px; background: #1E2A2F; display: grid; place-items: center; grid-row: span 2; }
+  .dk .ico svg { width: 22px; height: 22px; }
+  .dk .name { font-weight: 600; font-size: 15px; }
+  .dk .acts { grid-column: 2 / 4; display: flex; gap: 6px; flex-wrap: wrap; }
+  .dk .meter { grid-column: 2 / 4; height: 6px; border-radius: 3px; background: #22302F; overflow: hidden; }
+  .dk .meter i { display: block; height: 100%; background: linear-gradient(90deg, #4E7382, #7FA8B8); }
+  .dk .note { grid-column: 2 / 4; font-size: 12px; color: #E7B074; }
+  .dk .toggle { width: 34px; height: 20px; border-radius: 10px; background: #4E7382; position: relative; flex: none; }
+  .dk .toggle::after { content: ""; position: absolute; right: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; }
+  /* the mount sheet */
+  .dk .scrim { position: absolute; inset: 32px 0 0 0; background: rgba(4,8,10,.62); display: grid; place-items: center; }
+  .dk .sheet { width: 460px; background: #151C1F; border: 1px solid #2A383D; border-radius: 14px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+  .dk .sheet h3 { margin: 0; font-size: 16px; }
+  .dk .field { font: 14px var(--mono); padding: 8px 10px; border-radius: 8px; border: 1px solid #2A383D; background: #0E1315; color: #E4EBEE; width: 100%; }
+  .dk .letters { display: flex; flex-wrap: wrap; gap: 6px; }
+  .dk .lt { font: 13px var(--mono); width: 38px; padding: 6px 0; text-align: center; border-radius: 8px; border: 1px solid #2A383D; background: #1A2327; cursor: pointer; }
+  .dk .lt.sel { background: #4E7382; border-color: #7FA8B8; color: #fff; }
+  .dk .lt.rep { border-color: #6B4A22; color: #E7B074; width: auto; padding: 6px 8px; }
+  .dk .lt.rep.sel { background: #6B4A22; color: #fff; }
+  .dk label.k { font-size: 12px; color: #7E9096; margin-bottom: -6px; }
+  .relwin { position: relative; }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <b>Filet Desktop mock</b>
+  <button id="bCur">Current (replica)</button>
+  <button id="bDk" class="on">Dark dashboard (proposal)</button>
+  <span style="flex:1"></span>
+  <button id="bSheet">Open the mount dialog</button>
+</div>
+
+<div class="stage">
+  <!-- ── CURRENT ── -->
+  <div class="win cur hidden" id="cur">
+    <div class="title"><img src="../../../desktop/src/main/resources/filet.png" alt=""><span>Filet Desktop</span><span class="sp"></span><i>&#8211;</i><i>&#9633;</i><i>&#10005;</i></div>
+    <div class="body">
+      <div class="card">
+        <div class="head"><span>SHARING FROM THIS PC</span><button class="btn">Stop</button></div>
+        <div class="row"><b class="w110">Documents</b><span class="muted grow">D:\Documents</span><button class="btn">Rename</button><button class="btn">Change folder</button><button class="btn">read only</button><button class="btn">Remove</button></div>
+        <div class="row"><b class="w110">Media</b><span class="muted grow">E:\Media</span><button class="btn">Rename</button><button class="btn">Change folder</button><button class="btn">read+write</button><button class="btn">Remove</button></div>
+        <div><button class="btn">+ Add a folder</button></div>
+        <div class="row"><span class="muted w110">Documents</span><b class="mono grow" style="font-size:15px">http://192.168.5.20:8322/a/k7x2mq/</b><button class="btn">Copy</button></div>
+        <div class="row" style="padding-left:120px"><span class="muted small grow">Code stays the same every launch.</span><button class="btn">Change code</button></div>
+        <div class="row"><span class="muted w110">Media</span><b class="mono grow" style="font-size:15px">http://192.168.5.20:8322/a/media/</b><button class="btn">Copy</button></div>
+        <div class="row" style="padding-left:120px"><span class="muted small grow">Code stays the same every launch.</span><button class="btn">Change code</button></div>
+        <div class="muted small">Plain HTTP on this network. Anyone who has an address above can open that folder.</div>
+        <div class="row"><span class="muted grow">Port 8322</span><button class="btn">Change port</button></div>
+      </div>
+      <div class="card">
+        <div class="head"><span>PHONES</span><button class="btn">Refresh</button></div>
+        <div class="row g8"><span class="dot"></span><b>Huawei Nova 10</b><span class="accent grow" style="font-size:13px">Mounted on Y:</span></div>
+        <div class="muted in16">NCO-LX1-Whole Phone &middot; 192.168.5.15:11111 &middot; Whole phone &middot; read+write</div>
+        <div class="row g8 in16"><button class="btn">Open in Explorer</button><button class="btn">Unmount</button><button class="btn">Rename</button><button class="btn">Change letter</button></div>
+        <div class="muted small in16">41.2 GB free of 118 GB on the device. Explorer shows this PC's own free space instead.</div>
+        <div class="row g8"><span class="dot"></span><b>LGN-LX2-Whole Phone</b><span class="muted grow">Not mounted</span></div>
+        <div class="muted in16">192.168.5.23:8321 &middot; Whole phone &middot; read+write</div>
+        <div class="row g8 in16"><button class="btn p">Mount</button><button class="btn">Cancel</button></div>
+        <div class="row g8 in16"><span class="lbl">Name</span><span class="field" style="width:220px">LGN-LX2-Whole Phone</span></div>
+        <div class="row g8 in16"><span class="lbl">Drive letter</span><button class="btn">&lt;</button><span class="mono" style="font-size:13px">X:</span><button class="btn">&gt;</button></div>
+        <div class="row g8 in16"><span class="lbl">Access code</span><span class="field" style="width:160px;color:#B9B6AE">access code</span><button class="btn off">Mount</button></div>
+        <div class="muted small in16">Type the access code shown on the device.</div>
+        <div class="row g8"><span class="dot off"></span><b>192.168.5.11:11111</b><span class="accent grow" style="font-size:13px">Mounted on W:</span></div>
+        <div class="muted in16">Filet drive at 192.168.5.11:11111, phone not found there</div>
+        <div class="row g8 in16"><button class="btn">Open in Explorer</button><button class="btn">Unmount</button><button class="btn">Rename</button><button class="btn">Change letter</button></div>
+        <div class="muted small warn in16">Not answering - the device may have left the network or stopped sharing.</div>
+        <div class="row g8"><span class="dot off"></span><b>Old tablet</b><span class="muted grow">Offline</span></div>
+        <div class="muted in16">192.168.100.14:22222</div>
+        <div class="row g8 in16"><button class="btn off">Mount</button><button class="btn">Rename</button><button class="btn">Forget</button></div>
+      </div>
+      <div class="card"><div class="row"><span class="chk">&#10003;</span><span>Start with this computer</span></div></div>
+    </div>
+  </div>
+
+  <!-- ── PROPOSAL ── -->
+  <div class="win dk relwin" id="dk">
+    <div class="title"><img src="../../../desktop/src/main/resources/filet.png" alt=""><span>Filet Desktop</span><span class="sp"></span><i>&#8211;</i><i>&#9633;</i><i>&#10005;</i></div>
+    <div class="body">
+      <div class="strip">
+        <div class="stat"><small>Sharing</small><b class="ok">On &middot; 2 folders</b></div>
+        <div class="stat"><small>This PC</small><b class="mono">192.168.5.20:8322</b></div>
+        <div class="stat"><small>Phones</small><b>2 online &middot; 2 drives</b></div>
+        <span class="sp"></span>
+        <div class="row muted"><span class="toggle"></span>Start with this computer</div>
+      </div>
+      <div class="cols">
+        <!-- left: what this PC offers -->
+        <div class="col">
+          <h2><span>SHARING FROM THIS PC</span><button class="btn">Stop</button><button class="btn p">+ Add a folder</button></h2>
+          <div class="panel">
+            <div class="row"><b class="grow">Documents</b><span class="tag">read only</span></div>
+            <div class="muted mono ell">D:\Documents</div>
+            <div class="url row"><span class="grow ell">http://192.168.5.20:8322/a/k7x2mq/</span><button class="btn ghost">Copy</button></div>
+            <div class="row wrap"><button class="btn">Rename</button><button class="btn">Change folder</button><button class="btn">Change code</button><button class="btn">Make writable</button><span class="grow"></span><button class="btn ghost">Remove</button></div>
+          </div>
+          <div class="panel">
+            <div class="row"><b class="grow">Media</b><span class="tag">read+write</span></div>
+            <div class="muted mono ell">E:\Media</div>
+            <div class="url row"><span class="grow ell">http://192.168.5.20:8322/a/media/</span><button class="btn ghost">Copy</button></div>
+            <div class="row wrap"><button class="btn">Rename</button><button class="btn">Change folder</button><button class="btn">Change code</button><button class="btn">Make read only</button><span class="grow"></span><button class="btn ghost">Remove</button></div>
+          </div>
+          <div class="muted">Plain HTTP on this network. Anyone with an address above can open that folder. &nbsp;<a style="color:#7FA8B8">Port 8322 &middot; change</a></div>
+        </div>
+        <!-- right: phones -->
+        <div class="col" id="phones">
+          <h2><span>PHONES</span><button class="btn">Refresh</button></h2>
+
+          <div class="panel phone">
+            <div class="ico"><svg viewBox="12 12 84 84"><path fill="#4E7382" d="M26,24h16l6,8h30a6,6 0 0 1 6,6v8H16V30a6,6 0 0 1 6,-6z"/><path fill="#7FA8B8" d="M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z"/></svg></div>
+            <div><span class="name">Huawei Nova 10</span> <span class="muted">&nbsp;NCO-LX1-Whole Phone &middot; 192.168.5.15:11111</span></div>
+            <span class="pill m">Mounted on Y:</span>
+            <div class="meter"><i style="width:65%"></i></div>
+            <div class="muted" style="grid-column:2/4">76.8 GB used &middot; 41.2 GB free on the phone &middot; Whole phone, read+write</div>
+            <div class="acts"><button class="btn p">Open in Explorer</button><button class="btn">Unmount</button><button class="btn">Rename</button><button class="btn">Change letter</button></div>
+          </div>
+
+          <div class="panel phone" id="honor">
+            <div class="ico"><svg viewBox="12 12 84 84"><path fill="#4E7382" d="M26,24h16l6,8h30a6,6 0 0 1 6,6v8H16V30a6,6 0 0 1 6,-6z"/><path fill="#7FA8B8" d="M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z"/></svg></div>
+            <div><span class="name" id="honorName">LGN-LX2-Whole Phone</span> <span class="muted">&nbsp;192.168.5.23:8321</span></div>
+            <span class="pill n" id="honorPill">Not mounted</span>
+            <div class="muted" style="grid-column:2/4" id="honorWhat">Whole phone, read+write</div>
+            <div class="acts" id="honorActs"><button class="btn p" data-open>Mount</button></div>
+          </div>
+
+          <div class="panel phone">
+            <div class="ico" style="background:#2A2116"><svg viewBox="0 0 24 24"><path fill="#E7B074" d="M12 2 1 21h22L12 2zm0 6 1 7h-2l1-7zm0 9.5a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4z"/></svg></div>
+            <div><span class="name">Drive W:</span> <span class="muted">&nbsp;Filet drive at 192.168.5.11:11111</span></div>
+            <span class="pill x">Phone not found there</span>
+            <div class="note">Mapped to an address no phone answers on. The Nova is now at 192.168.5.15.</div>
+            <div class="acts"><button class="btn p">Remount at 192.168.5.15:11111</button><button class="btn warn">Unmount</button><button class="btn">Rename</button><button class="btn">Open</button></div>
+          </div>
+
+          <div class="panel phone offline">
+            <div class="ico"><svg viewBox="12 12 84 84"><path fill="#3B4A50" d="M26,24h16l6,8h30a6,6 0 0 1 6,6v8H16V30a6,6 0 0 1 6,-6z"/><path fill="#56676E" d="M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z"/></svg></div>
+            <div><span class="name">Old tablet</span> <span class="muted">&nbsp;last seen at 192.168.100.14:22222</span></div>
+            <span class="pill o">Offline</span>
+            <div class="acts"><button class="btn">Rename</button><button class="btn ghost">Forget</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- the mount sheet -->
+    <div class="scrim hidden" id="scrim">
+      <div class="sheet">
+        <h3>Mount LGN-LX2-Whole Phone</h3>
+        <div class="muted">192.168.5.23:8321 &middot; Whole phone, read+write</div>
+        <label class="k">Name in Explorer</label>
+        <input class="field" id="mName" value="LGN-LX2-Whole Phone">
+        <label class="k">Drive letter</label>
+        <div class="letters" id="letters"></div>
+        <div class="muted" id="letterNote">Free letters from Z: down. Letters held by other drives are not offered.</div>
+        <label class="k">Access code</label>
+        <input class="field" id="mCode" placeholder="shown on the phone's sharing screen">
+        <div class="row"><span class="muted grow" id="mBlock">Type the access code shown on the device.</span><button class="btn ghost" id="mCancel">Cancel</button><button class="btn p off" id="mGo">Mount</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h3>Round 1, 2026-11-12</h3>
+  <p><b>Current (replica)</b> is today's window, copied from <code>FiletWindow.kt</code> and <code>Kit.kt</code>: Ink palette (#F7F6F2 bg, #2F6B4F accent, #9A4A1C warn), 620&times;760, 10px card radius, 6px buttons, every button inline. Warts kept on purpose: one long column, rows of five equal-weight buttons, the mount form unfolding inside the list, the drive-letter stepper, free space as a sentence.</p>
+  <p><b>Dark dashboard (proposal)</b>:</p>
+  <ul>
+    <li>A status strip on top answers "is it working" at a glance: sharing on/off and folder count, this PC's address, phones online and drives mounted. Autostart moves up there as a switch.</li>
+    <li>Two columns: what this PC offers on the left, phones on the right. No scrolling between the two halves.</li>
+    <li>Colours come from the Filet mark: #4E7382 primary, #7FA8B8 accent, on #0E1315 / #151C1F panels. State pills: green mounted, grey not mounted, dim offline, amber for a drive whose phone isn't there.</li>
+    <li>Each phone is a tile: a used/free bar from the phone's own figures, one primary action, the rest secondary.</li>
+    <li>Mount is a dialog, not a form inside the list. The letter picker is a chip row of every letter it may take. Amber chips say "replace X: (name)". Letters held by non-Filet drives never appear.</li>
+  </ul>
+  <p>Try it: the Mount button on the LGN-LX2 tile or "Open the mount dialog" up top. Pick a letter, type any code, press Mount. Not real code: nothing here talks to a phone.</p>
+</div>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  const show = (dark) => {
+    $('#cur').classList.toggle('hidden', dark); $('#dk').classList.toggle('hidden', !dark);
+    $('#bCur').classList.toggle('on', !dark); $('#bDk').classList.toggle('on', dark);
+    localStorage.setItem('filetMockView', dark ? 'dk' : 'cur');
+  };
+  $('#bCur').onclick = () => show(false);
+  $('#bDk').onclick = () => show(true);
+  show(localStorage.getItem('filetMockView') !== 'cur');
+
+  // Letters: taken by other drives are absent; Filet's own are "replace".
+  const taken = new Set(['C', 'D', 'E', 'Z']), filet = { Y: 'Huawei Nova 10', W: 'Drive W:' };
+  let pick = null;
+  const letters = $('#letters');
+  for (let c = 90; c >= 68; c--) {
+    const l = String.fromCharCode(c);
+    if (taken.has(l) && !filet[l]) continue;
+    const b = document.createElement('button');
+    b.className = 'lt' + (filet[l] ? ' rep' : '');
+    b.textContent = filet[l] ? `replace ${l}: (${filet[l]})` : l + ':';
+    b.dataset.l = l;
+    b.onclick = () => { pick = l; render(); };
+    letters.appendChild(b);
+    if (!pick && !filet[l]) pick = l;
+  }
+  const render = () => {
+    letters.querySelectorAll('.lt').forEach((b) => b.classList.toggle('sel', b.dataset.l === pick));
+    $('#letterNote').textContent = filet[pick] ? `${pick}: is ${filet[pick]}. It is unmounted first.` : 'Free letters from Z: down. Letters held by other drives are not offered.';
+    const ok = /^[A-Za-z0-9]{1,64}$/.test($('#mCode').value.replace(/\s/g, ''));
+    $('#mGo').classList.toggle('off', !ok);
+    $('#mBlock').textContent = ok ? '' : 'Type the access code shown on the device.';
+  };
+  $('#mCode').oninput = render;
+  const open = () => { show(true); $('#scrim').classList.remove('hidden'); render(); $('#mCode').focus(); };
+  $('#bSheet').onclick = open;
+  document.querySelector('[data-open]').onclick = open;
+  $('#mCancel').onclick = () => $('#scrim').classList.add('hidden');
+  $('#mGo').onclick = () => {
+    if ($('#mGo').classList.contains('off')) return;
+    $('#scrim').classList.add('hidden');
+    $('#honorName').textContent = $('#mName').value || 'LGN-LX2-Whole Phone';
+    $('#honorPill').className = 'pill m'; $('#honorPill').textContent = `Mounted on ${pick}:`;
+    $('#honorWhat').textContent = '12.3 GB used · 52.9 GB free on the phone · Whole phone, read+write';
+    $('#honorActs').innerHTML = '<button class="btn p">Open in Explorer</button><button class="btn">Unmount</button><button class="btn">Rename</button><button class="btn">Change letter</button>';
+  };
+</script>
+</body>
+</html>

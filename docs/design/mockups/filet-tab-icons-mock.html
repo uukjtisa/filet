@@ -1,0 +1,926 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet: tab shortcut icons (mock)</title>
+<style>
+  :root {
+    --bg: #161614; --surface: #1C1C1A; --raised: #232320; --high: #2A2A26; --line: #2E2E2A;
+    --fg: #E8E6E1; --fg2: #9A968D; --fg3: #6B6860; --accent: #7FA8B8; --good: #8FB894; --bad: #C97F7F;
+    --size: 84px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: rgba(22,22,20,.94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); padding: 14px 24px 12px; }
+  h1 { font-size: 18px; margin: 0 0 2px; letter-spacing: -.2px; }
+  .sub { color: var(--fg2); font-size: 13px; max-width: 900px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px 22px; margin-top: 10px; align-items: center; }
+  .ctl { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--fg2); }
+  .seg { display: inline-flex; background: var(--raised); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { background: none; border: 0; color: var(--fg2); font: inherit; font-size: 12px; padding: 5px 10px; cursor: pointer; }
+  .seg button.on { background: var(--accent); color: #0E1417; }
+  input[type=range] { accent-color: var(--accent); width: 110px; }
+  main { padding: 8px 24px 80px; max-width: 1280px; }
+  section { margin-top: 26px; }
+  h2 { font-size: 11px; letter-spacing: 1.3px; text-transform: uppercase; color: var(--fg3); margin: 0 0 10px; font-weight: 600; }
+  h2 .opt { color: #C9A36A; letter-spacing: .4px; text-transform: none; font-weight: 500; margin-left: 6px; }
+  .wall { border-radius: 16px; padding: 22px 18px 14px; transition: background .25s; }
+  .wall.dark { background: radial-gradient(120% 140% at 20% 0%, #26313A 0%, #12171B 55%, #0B0D0F 100%); }
+  .wall.light { background: radial-gradient(120% 140% at 20% 0%, #F4EFE6 0%, #E4DED2 60%, #D6CFC1 100%); }
+  .wall.color { background: linear-gradient(135deg, #3B2A6B 0%, #7A3E7E 38%, #D0775A 72%, #F2B45C 100%); }
+  .grid { display: flex; flex-wrap: wrap; gap: 18px 20px; }
+  .cell { width: calc(var(--size) + 28px); display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .tile { width: var(--size); height: var(--size); overflow: hidden; flex: none; box-shadow: 0 3px 10px rgba(0,0,0,.35); transition: border-radius .2s; }
+  .tile svg { width: 100%; height: 100%; display: block; }
+  .r4cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 16px; }
+  .r4card { background: #121518; border: 1px solid #262C30; border-radius: 12px; padding: 12px 14px; }
+  .r4h { font-weight: 600; color: var(--fg); margin-bottom: 8px; }
+  .r4body { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .r4cap { font-size: 11px; color: var(--fg3); margin: 4px 0; }
+  .r4note { font-size: 12px; color: var(--fg2, #B7B3AA); margin-top: 8px; }
+  .r4list { background: #161614; border-radius: 10px; padding: 4px 0; width: 230px; }
+  .r4row { display: flex; align-items: center; gap: 10px; padding: 6px 12px; }
+  .r4i { width: 44px; height: 44px; flex: none; display: grid; place-items: center; }
+  .r4n { font-size: 13px; color: #E8E6E1; display: flex; flex-direction: column; }
+  .r4n i { font-style: normal; font-size: 11px; color: #8B867C; }
+  .m-circle .r4list .tile { border-radius: 50%; } .m-squircle .r4list .tile { border-radius: 36%; } .m-square .r4list .tile { border-radius: 22%; }
+  .m-circle .tile { border-radius: 50%; }
+  .m-squircle .tile { border-radius: 36%; }
+  .m-square .tile { border-radius: 22%; }
+  .m-tear .tile { border-radius: 50% 50% 14% 50%; }
+  .lbl { font-size: 12px; text-align: center; line-height: 1.25; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+  .wall.light .lbl { color: #24221E; text-shadow: none; }
+  .meta { display: flex; gap: 6px; align-items: center; font-size: 10.5px; color: rgba(255,255,255,.62); }
+  .wall.light .meta { color: rgba(36,34,30,.65); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .vote { font-size: 10px; border: 1px solid rgba(255,255,255,.25); background: rgba(0,0,0,.25); color: rgba(255,255,255,.8); border-radius: 6px; padding: 1px 7px; cursor: pointer; }
+  .wall.light .vote { border-color: rgba(0,0,0,.2); background: rgba(255,255,255,.5); color: #333; }
+  .vote.ok { background: #8FB894; color: #0E1417; border-color: #8FB894; }
+  .vote.redo { background: #C97F7F; color: #1a0e0e; border-color: #C97F7F; }
+  .ink { font-size: 10px; }
+  .ink.bad { color: #ff9b8f; font-weight: 600; }
+  .row { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+  .card p { margin: 0 0 8px; color: var(--fg2); font-size: 13px; }
+  .card ul { margin: 0; padding-left: 18px; color: var(--fg2); font-size: 13px; }
+  .card li { margin: 3px 0; }
+  .big .tile { width: 210px; height: 210px; }
+  .big .cell { width: 230px; }
+  .phone { width: 372px; border-radius: 34px; padding: 40px 18px 26px; border: 6px solid #0b0b0a; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+  .phone .grid { gap: 20px 10px; justify-content: space-between; }
+  .phone .cell { width: 70px; }
+  .phone .tile { width: 54px; height: 54px; }
+  .phone .lbl { font-size: 10.5px; }
+  .phone .clock { text-align: center; font-size: 44px; font-weight: 300; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.4); margin-bottom: 26px; }
+  .phone.light .clock { color: #24221E; text-shadow: none; }
+  textarea { width: 100%; min-height: 70px; background: var(--raised); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: 12.5px/1.45 ui-monospace, Consolas, monospace; }
+  .btn { background: var(--accent); color: #0E1417; border: 0; border-radius: 7px; padding: 6px 12px; font: inherit; font-size: 12.5px; cursor: pointer; }
+  .log { font-size: 12.5px; color: var(--fg2); }
+  .log b { color: var(--fg); }
+  .swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .sw { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--fg2); background: var(--raised); border-radius: 6px; padding: 3px 8px; }
+  .sw i { width: 34px; height: 12px; border-radius: 3px; display: inline-block; }
+  #summary { font-size: 12.5px; color: var(--fg2); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs id="sharedDefs"></defs></svg>
+
+<header>
+  <h1>Filet tab shortcut icons · round 3</h1>
+  <div class="sub">One home-screen icon per tab. Each keeps Filet's dark tile and the folder's two blues (slate #4E7382, steel #7FA8B8), adds one signature colour per tab, and gets depth from a highlight and a soft ground shadow. Names under the icons are the home-screen names, and each can be changed before the icon is placed. Tap <b>OK</b> or <b>Redo</b>, then copy your notes at the bottom.</div>
+  <div class="controls">
+    <div class="ctl">Mask <span class="seg" id="mask">
+      <button data-v="circle" class="on">Circle</button><button data-v="squircle">Squircle</button><button data-v="square">Rounded square</button><button data-v="tear">Teardrop</button></span></div>
+    <div class="ctl">Wallpaper <span class="seg" id="wall">
+      <button data-v="dark" class="on">Dark</button><button data-v="light">Light</button><button data-v="color">Colourful</button></span></div>
+    <div class="ctl">Tile <span class="seg" id="bg">
+      <button data-v="soft" class="on">Soft light</button><button data-v="flat">Flat #1E1F1D</button></span></div>
+    <div class="ctl">Themed (Android 13+) <span class="seg" id="mono">
+      <button data-v="off" class="on">Off</button><button data-v="dark">Dark</button><button data-v="light">Light</button></span></div>
+    <div class="ctl">Safe circle <span class="seg" id="safe">
+      <button data-v="off" class="on">Hide</button><button data-v="on">Show</button></span></div>
+    <div class="ctl">Filet icon <span class="seg" id="filet">
+      <button data-v="r4tile">1 · Tile</button><button data-v="r5over">2a · Over</button><button data-v="r5tuck">2b · Under</button><button data-v="r5clip">2c · Clip</button><button data-v="r4pics">3 · Picture</button><button data-v="r4lit">4 · Lit</button><button data-v="tabs" class="on">A · Index tabs</button><button data-v="f">B · F</button><button data-v="fan">C · Fan</button><button data-v="page">D · Page</button><button data-v="current">Current</button></span></div>
+    <div class="ctl">Size <input type="range" id="size" min="48" max="150" value="84"></div>
+  </div>
+</header>
+
+<main>
+  <section>
+    <h2>Today</h2>
+    <div class="row">
+      <div class="wall dark js-wall" id="today"></div>
+      <div class="card" style="max-width:520px">
+        <p>Every shortcut that isn't a file uses the Filet icon today. On a home screen, Playlists, Carry on and Search look identical.</p>
+        <p>The icons below give each tab its own picture in the same family.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>A new Filet icon <span class="opt">round 5: the ribbon fixed three ways; these become choices in the app</span></h2>
+    <div class="row">
+      <div class="wall dark js-wall big" id="filetNew"></div>
+      <div class="card" style="max-width:440px">
+        <p><b style="color:var(--fg)">Round 5.</b> You want these <b style="color:var(--fg)">switchable in the app</b>, designs and colours, not one picked and the rest dropped; which ones go in and the default for a new install come later. Round 4's ribbon floated on the front like a sticker, so 2 is now three ways of fixing it: <b style="color:var(--fg)">2a</b> from between the pages and over the lip, <b style="color:var(--fg)">2b</b> tucked under the lip, <b style="color:var(--fg)">2c</b> clipped to the page. Each leans with the front, turns or tucks at the lip in its shadow, and keeps the notch.</p>
+        <p><b style="color:var(--fg)">Round 4.</b> You liked <b style="color:var(--fg)">Has things in it</b>, the in-app folder (first in the row, as the lists draw it), but it is the folder in every list, so on its own it would read as one. Four ways to make it Filet's: <b style="color:var(--fg)">1 · On a tile</b>, <b style="color:var(--fg)">2 · Ribbon</b> (D's gold ribbon over the front), <b style="color:var(--fg)">3 · Picture and file</b> (richer things standing in it) and <b style="color:var(--fg)">4 · Lit</b> (a warm light rising out of it). Each is scaled to fill the safe circle, the way an app icon does. In the row they stand on this page's tile, like A to D; on your phone Filet's icon has no tile behind it (since <code>605d9fe</code>), so the side-by-side below draws them that way, 1 on its own tile. Below the row, each one up close: its 108 canvas with the safe circle, its themed shape, and beside a folder in a list at the same size. A to D from round 3 follow for comparison.</p>
+        <p>The two folders from round 2 are now what every folder looks like inside Filet (see <b style="color:var(--fg)">filet-browser-icons-mock.html</b>). An app icon that is the same folder would be lost among them, so these four are Filet's own, in the same blues, gold and depth.</p>
+        <ul>
+          <li><b style="color:var(--fg)">A · Index tabs</b>: three filing cards with staggered tabs, the way a drawer of files looks from above.</li>
+          <li><b style="color:var(--fg)">B · F</b>: the letter, its top arm cut like the folder's tab.</li>
+          <li><b style="color:var(--fg)">C · Fan</b>: three sheets fanned from a rivet, like a swatch book of files.</li>
+          <li><b style="color:var(--fg)">D · Page</b>: a file whose lower third is the folder's front, with a gold ribbon.</li>
+        </ul>
+        <p style="margin-top:8px">Each keeps its ink inside the safe circle, and each has its own one-colour shape for themed icons (try <i>Themed</i>). The <i>Filet icon</i> switch at the top puts the chosen icon on the phone below.</p>
+      </div>
+    </div>
+  </section>
+
+  <div id="groups"></div>
+
+  <section>
+    <h2>Up close</h2>
+    <div class="wall dark js-wall big" id="close"></div>
+  </section>
+
+  <section>
+    <h2>On a home screen</h2>
+    <div class="row">
+      <div class="phone wall dark js-wall" id="phone"><div class="clock">11:24</div><div class="grid" id="phoneGrid"></div></div>
+      <div class="card" style="max-width:560px">
+        <p><b style="color:var(--fg)">Accents, one per tab</b></p>
+        <div class="swatches" id="swatches"></div>
+        <p style="margin-top:14px"><b style="color:var(--fg)">How they're drawn</b></p>
+        <ul>
+          <li>Only what Android icons can draw: shapes, solid and gradient fills, transparency. No blur and no masks, so the build is the same drawing as this page.</li>
+          <li>Each icon sits on the standard 108-unit adaptive canvas and keeps its ink inside the 66-unit circle, the shape every launcher mask contains. Turn on <i>Safe circle</i> to see it.</li>
+          <li>Themed mode (Android 13+) uses the same line glyph the tab has inside Filet, so a themed home screen still reads the same as the app.</li>
+          <li>Pinned icons follow app updates. If one changes later, the copies already on a home screen change with it.</li>
+        </ul>
+        <p style="margin-top:12px" id="inkSummary">Checking every icon against the safe circle…</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Your notes</h2>
+    <div class="card">
+      <div id="summary">Nothing marked yet.</div>
+      <textarea id="notes" placeholder="Anything else, e.g. 'Playlists: more pink', 'Settings: too plain'"></textarea>
+      <div style="margin-top:8px; display:flex; gap:10px; align-items:center"><button class="btn" id="copy">Copy my notes</button><span id="copied" class="log"></span></div>
+    </div>
+    <div class="r4cards" id="r4detail"></div>
+  </section>
+
+  <section>
+    <h2>Changes</h2>
+    <div class="card log">
+      <div style="margin-bottom:8px"><b>Round 5 · 2026-11-14</b>: from your notes. The designs become a choice in the app (with colours), so nothing is dropped. The ribbon floated over the front, not fixed to anything, so round 4's 2 is replaced by three attached ribbons side by side: 2a over the lip from between the pages, 2b tucked under the lip, 2c clipped to the page. Each leans with the front and keeps the notch.</div>
+      <div style="margin-bottom:8px"><b>Round 4 · 2026-11-14</b>: the app icon is built on <i>Has things in it</i>, with more to it than the folder in a list. It stands first as the starting point, then four versions: 1 · On a tile, 2 · Ribbon, 3 · Picture and file, 4 · Lit, each with its 108 canvas, themed shape, and a side-by-side with a list folder. A to D stay for comparison. Nothing is picked.</div>
+      <div style="margin-bottom:8px"><b>Round 3 · 2026-11-13</b>: Audio and Playlists decided. The two Filet folders from round 2 became the folder icon inside Filet (its own mock: filet-browser-icons-mock.html), so the app needs a mark of its own: four candidates, A to D. Internal storage drops the Filet prefix on the home screen; it is the drive's own name. New files, Scripts and Internal storage still wait on your word.</div>
+      <div style="margin-bottom:8px"><b>Round 2 · 2026-11-13</b>: from your notes. Audio is a pair of notes now, and Playlists took the headphones, with a record and a list card in them. New files is pages with a "new" burst instead of a download tray. Scripts is a scroll with code on it instead of a terminal. Files is named Internal storage, the name Filet already gives that drive (Storage on the bar, where the long name will not fit). Home-screen names that clash with other apps start with Filet. New: the Filet icon redrawn in this style, two ways.</div>
+      <div><b>Round 1 · 2026-11-13</b>: first draft. 21 tab icons in five groups, plus 4 optional action icons (Search, Index now, Start sharing, Stop sharing) for the app-icon hold menu. Brand blues with one accent per tab, a highlight, and a ground shadow.</div>
+    </div>
+  </section>
+</main>
+
+<script>
+// ── colours ──────────────────────────────────────────────────────────────
+const ACC = {
+  amber:  ['#F5D68A', '#E0B25C', '#A97A2E'],
+  green:  ['#B4E39B', '#7FC46A', '#4E8F3E'],
+  gold:   ['#FBE28C', '#E8C15A', '#B08A28'],
+  coral:  ['#F7B49C', '#E58A6A', '#B05E42'],
+  mint:   ['#9BEBD8', '#5FCDB5', '#2F8F7C'],
+  rose:   ['#F6A6BC', '#E0708F', '#A84463'],
+  lime:   ['#D6EE8E', '#B0D65E', '#7A9F2E'],
+  orange: ['#FAC48A', '#F0A050', '#B86E25'],
+  red:    ['#F59A8C', '#E06A5A', '#A63F31'],
+  violet: ['#D3BCF5', '#A884E0', '#7253B0'],
+  sky:    ['#B3DDF7', '#6FB7E8', '#3F80B0'],
+  brown:  ['#E8C29A', '#CF9A5E', '#946233'],
+  indigo: ['#C0C9FA', '#8C9CF0', '#5A68BF'],
+};
+const lin = (id, stops) => `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">${stops.map(([o, c, a]) => `<stop offset="${o}" stop-color="${c}"${a != null ? ` stop-opacity="${a}"` : ''}/>`).join('')}</linearGradient>`;
+const rad = (id, stops, cx = .5, cy = .5, r = .5) => `<radialGradient id="${id}" cx="${cx}" cy="${cy}" r="${r}">${stops.map(([o, c, a]) => `<stop offset="${o}" stop-color="${c}"${a != null ? ` stop-opacity="${a}"` : ''}/>`).join('')}</radialGradient>`;
+const DEFS = [
+  lin('gSteel', [[0, '#C6DDE6'], [.3, '#93B8C6'], [.65, '#7FA8B8'], [1, '#5E8A9B']]),
+  lin('gSlate', [[0, '#6F97A7'], [.5, '#4E7382'], [1, '#385663']]),
+  lin('gDeep', [[0, '#3E5F6C'], [1, '#22343C']]),
+  lin('gSky', [[0, '#22343C'], [1, '#46707F']]),
+  lin('gPaper', [[0, '#E6F0F3'], [1, '#A9C6D2']]),
+  rad('gVinyl', [[0, '#3A3D40'], [.55, '#1A1B1C'], [1, '#0E0F10']]),
+  rad('gGround', [[0, '#000', .5], [1, '#000', 0]]),
+  rad('tileSoft', [[0, '#2D2F2C'], [1, '#191A18']], .36, .26, .95),
+  ...Object.entries(ACC).map(([k, [a, b, c]]) => lin('acc-' + k, [[0, a], [.5, b], [1, c]])),
+].join('');
+document.getElementById('sharedDefs').innerHTML = DEFS;
+
+// ── the cog, as one path so its shading stays still while the teeth go round ──
+function cog(cx, cy, ro, rr, n = 8) {
+  const p = (r, deg) => { const a = deg * Math.PI / 180; return [(cx + r * Math.cos(a)).toFixed(2), (cy + r * Math.sin(a)).toFixed(2)]; };
+  const step = 360 / n; let d = '';
+  for (let k = 0; k < n; k++) {
+    const c = k * step - 90;
+    const [p1, p2, p3, p4] = [p(rr, c - 13), p(ro, c - 8), p(ro, c + 8), p(rr, c + 13)];
+    const next = p(rr, c + step - 13);
+    d += (k === 0 ? `M${p1}` : '') + `L${p2}A${ro},${ro} 0 0 1 ${p3}L${p4}A${rr},${rr} 0 0 1 ${next}`;
+  }
+  return d + 'z';
+}
+const COG = cog(54, 54, 26, 20.5);
+const STAR = 'M54,34 L56.94,41.95 L65.41,42.29 L58.76,47.55 L61.05,55.71 L54,51 L46.95,55.71 L49.24,47.55 L42.59,42.29 L51.06,41.95z';
+function burst(cx, cy, ro, ri, n) {
+  let d = '';
+  for (let k = 0; k < n * 2; k++) {
+    const r = k % 2 ? ri : ro, a = (k * 180 / n - 90) * Math.PI / 180;
+    d += (k ? 'L' : 'M') + (cx + r * Math.cos(a)).toFixed(2) + ',' + (cy + r * Math.sin(a)).toFixed(2);
+  }
+  return d + 'z';
+}
+const BURST = burst(66, 38, 12.5, 9.6, 12);
+const ground = (cx, cy, rx, ry = 3.2) => `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#gGround)"/>`;
+const bar = (x, top, front, topFill) =>
+  `<path d="M${x + 9},${top} l3,-2.4 V71.6 l-3,2.4z" fill="url(#gDeep)"/>` +
+  `<path d="M${x},${top} l3,-2.4 h9 l-3,2.4z" fill="${topFill}"/>` +
+  `<rect x="${x}" y="${top}" width="9" height="${74 - top}" fill="${front}"/>`;
+const waves = (cx, cy, inner, mid, outer) =>
+  `<path d="M${cx - 8.5},${cy - 8.5} a12,12 0 0 1 17,0" fill="none" stroke="${inner}" stroke-width="5" stroke-linecap="round"/>` +
+  `<path d="M${cx - 14.5},${cy - 14.5} a20.5,20.5 0 0 1 29,0" fill="none" stroke="${mid}" stroke-width="5" stroke-linecap="round"/>` +
+  `<path d="M${cx - 20.5},${cy - 20.5} a29,29 0 0 1 41,0" fill="none" stroke="${outer}" stroke-width="5" stroke-linecap="round"/>` +
+  `<circle cx="${cx}" cy="${cy}" r="5.5" fill="url(#gSteel)"/>`;
+
+// ── the icons. Art is drawn on the 108 canvas; mono is the in-app 24-unit line glyph. ──
+const FILET_FLAT = `<g transform="translate(54 54) scale(.8) translate(-54 -54)"><path fill="#4E7382" d="M26,24h16l6,8h30a6,6 0 0 1 6,6v8H16V30a6,6 0 0 1 6,-6z"/><path fill="#7FA8B8" d="M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z"/></g>`;
+const FLAP = 'M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z';
+// The Filet folder with the tab icons' depth. Drawn in the shipped icon's own coordinates and
+// scaled by the same 0.8, so its outline is today's outline.
+const filetNew = (pages) => `<g transform="translate(54 54) scale(.8) translate(-54 -54)">` +
+  `<ellipse cx="54" cy="89" rx="28" ry="3.6" fill="url(#gGround)"/>` +
+  `<path d="M22,24 H42 l6,8 H78 a6,6 0 0 1 6,6 V80 a6,6 0 0 1 -6,6 H22 a6,6 0 0 1 -6,-6 V30 a6,6 0 0 1 6,-6z" fill="url(#gSlate)"/>` +
+  `<path d="M22.5,25.6 H41.2 l6,8 H78" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>` +
+  `<rect x="20" y="39" width="60" height="44" rx="4" fill="url(#gDeep)"/>` +
+  (pages
+    ? `<rect x="27" y="31" width="38" height="40" rx="3" transform="rotate(-7 46 51)" fill="url(#acc-gold)"/>` +
+      `<g transform="rotate(5 57 51)"><rect x="38" y="32" width="38" height="40" rx="3" fill="url(#gPaper)"/>` +
+      `<rect x="43" y="38.5" width="22" height="3" rx="1.5" fill="#4E7382" fill-opacity=".55"/>` +
+      `<rect x="43" y="45" width="27" height="3" rx="1.5" fill="#4E7382" fill-opacity=".55"/></g>`
+    : `<path d="M22,41 H78" stroke="#000" stroke-opacity=".18" stroke-width="3"/>`) +
+  `<path d="${FLAP}" fill="url(#gSteel)"/>` +
+  `<path d="M25.2,55.2 H87" stroke="#fff" stroke-opacity=".5" stroke-width="1.8" stroke-linecap="round"/>` +
+  `</g>`;
+// ── Filet's own mark, four ways. The folder became the folder icon. ──
+// Every one stays inside the 33 circle, unlike today's, which a round mask touches by design.
+const filetTabs = (() => {
+  const T = [37, 46, 55], X = [33, 47.5, 62], B = 79;
+  const tab = (x, t, fill) => `<path d="M${x},${t} V${t - 3.6} a3,3 0 0 1 3,-3 H${x + 9.5} a3,3 0 0 1 3,3 V${t}z" fill="${fill}"/>`;
+  const card = (t, fill) => `<path d="M35.5,${t} H72.5 a4.5,4.5 0 0 1 4.5,4.5 V${B - 4.5} a4.5,4.5 0 0 1 -4.5,4.5 H35.5 a4.5,4.5 0 0 1 -4.5,-4.5 V${t + 4.5} a4.5,4.5 0 0 1 4.5,-4.5z" fill="${fill}"/>`;
+  const lit = (t) => `<path d="M35.5,${t + 1.4} H72.5" stroke="#fff" stroke-opacity=".28" stroke-width="1.4" stroke-linecap="round"/>`;
+  const drop = (t) => `<rect x="31" y="${t - 2.6}" width="46" height="2.6" fill="#000" fill-opacity=".22"/>`;
+  return `<ellipse cx="54" cy="81.5" rx="20" ry="2.8" fill="url(#gGround)"/>` +
+    tab(X[0], T[0], 'url(#gSlate)') + card(T[0], 'url(#gSlate)') + lit(T[0]) + drop(T[1]) +
+    tab(X[1], T[1], 'url(#acc-gold)') + card(T[1], 'url(#acc-gold)') + lit(T[1]) + drop(T[2]) +
+    tab(X[2], T[2], 'url(#gSteel)') + card(T[2], 'url(#gSteel)') + lit(T[2]) +
+    `<rect x="38" y="64" width="22" height="3" rx="1.5" fill="#2C4550" fill-opacity=".45"/>` +
+    `<rect x="38" y="70" width="31" height="3" rx="1.5" fill="#2C4550" fill-opacity=".45"/>`;
+})();
+// One colour, with the gaps drawn in rather than painted: a themed icon is a single colour, so
+// cards that only overlap would melt into one block.
+const filetTabsMono = (() => {
+  const T = [37, 46, 55], X = [33, 47.5, 62];
+  const strip = (x, t, h, fill) => `<path d="M${x},${t} V${t - 3.6} a3,3 0 0 1 3,-3 H${x + 9.5} a3,3 0 0 1 3,3 V${t} H72.5 a4.5,4.5 0 0 1 4.5,4.5 V${t + h} H31 V${t + 4.5} a4.5,4.5 0 0 1 4.5,-4.5z" fill="${fill}"/>`;
+  return strip(X[0], T[0], 6.6, '#4E7382') + strip(X[1], T[1], 6.6, '#4E7382') +
+    `<path d="M${X[2]},55 V51.4 a3,3 0 0 1 3,-3 H${X[2] + 9.5} a3,3 0 0 1 3,3 V55 H72.5 a4.5,4.5 0 0 1 4.5,4.5 V74.5 a4.5,4.5 0 0 1 -4.5,4.5 H35.5 a4.5,4.5 0 0 1 -4.5,-4.5 V59.5 a4.5,4.5 0 0 1 4.5,-4.5z" fill="#7FA8B8"/>`;
+})();
+const filetF =
+  `<ellipse cx="50" cy="82" rx="15" ry="2.8" fill="url(#gGround)"/>` +
+  `<rect x="34" y="27" width="13" height="53" rx="4.5" fill="url(#gSlate)"/>` +
+  `<path d="M37.4,31 V76" stroke="#fff" stroke-opacity=".22" stroke-width="1.6" stroke-linecap="round"/>` +
+  `<rect x="34" y="44" width="13" height="3" fill="#000" fill-opacity=".22"/>` +
+  `<rect x="34" y="61" width="13" height="3" fill="#000" fill-opacity=".22"/>` +
+  `<path d="M41,27 H58 l5,6.5 H73 a4.5,4.5 0 0 1 4.5,4.5 v1.5 a4.5,4.5 0 0 1 -4.5,4.5 H41z" fill="url(#gSteel)"/>` +
+  `<path d="M42,28.6 H57.4 l5,6.5 H73" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>` +
+  `<rect x="41" y="50" width="26" height="11" rx="3.5" fill="url(#acc-gold)"/>` +
+  `<path d="M43,51.5 H64.5" stroke="#fff" stroke-opacity=".4" stroke-width="1.3" stroke-linecap="round"/>`;
+const filetFMono =
+  `<rect x="34" y="27" width="13" height="53" rx="4.5" fill="#4E7382"/>` +
+  `<path d="M41,27 H58 l5,6.5 H73 a4.5,4.5 0 0 1 4.5,4.5 v1.5 a4.5,4.5 0 0 1 -4.5,4.5 H41z" fill="#7FA8B8"/>` +
+  `<rect x="41" y="50" width="26" height="11" rx="3.5" fill="#7FA8B8"/>`;
+const sheet = (rot, fill, extra = '') => `<g transform="translate(54 78) rotate(${rot})"><rect x="-13" y="-44" width="26" height="40" rx="3.5" fill="${fill}"/>` +
+  `<path d="M-10,-42.4 H10" stroke="#fff" stroke-opacity=".35" stroke-width="1.3" stroke-linecap="round"/>${extra}</g>`;
+const filetFan =
+  `<ellipse cx="54" cy="82" rx="16" ry="2.6" fill="url(#gGround)"/>` +
+  sheet(-21, 'url(#acc-gold)') + sheet(21, 'url(#gSlate)') +
+  sheet(0, 'url(#gSteel)', `<rect x="-8" y="-36" width="16" height="2.8" rx="1.4" fill="#2C4550" fill-opacity=".5"/><rect x="-8" y="-30" width="16" height="2.8" rx="1.4" fill="#2C4550" fill-opacity=".5"/><rect x="-8" y="-24" width="10" height="2.8" rx="1.4" fill="#2C4550" fill-opacity=".5"/>`) +
+  `<circle cx="54" cy="78" r="5.6" fill="url(#gDeep)"/><circle cx="54" cy="78" r="2.4" fill="#C6DDE6"/>`;
+const filetFanMono =
+  `<g transform="translate(54 78) rotate(-21)"><rect x="-13" y="-44" width="26" height="40" rx="3.5" fill="none" stroke="#4E7382" stroke-width="2.6"/></g>` +
+  `<g transform="translate(54 78) rotate(21)"><rect x="-13" y="-44" width="26" height="40" rx="3.5" fill="none" stroke="#4E7382" stroke-width="2.6"/></g>` +
+  `<g transform="translate(54 78)"><rect x="-13" y="-44" width="26" height="40" rx="3.5" fill="#7FA8B8"/></g><circle cx="54" cy="78" r="5.6" fill="#7FA8B8"/>`;
+const PAGE = 'M36,28 H64 L76,40 V76 a4,4 0 0 1 -4,4 H36 a4,4 0 0 1 -4,-4 V32 a4,4 0 0 1 4,-4z';
+const filetPage =
+  `<ellipse cx="54" cy="82.5" rx="19" ry="2.6" fill="url(#gGround)"/>` +
+  `<path d="${PAGE}" fill="url(#gPaper)"/>` +
+  `<path d="M64,28 V36 a4,4 0 0 0 4,4 H76z" fill="url(#gSlate)"/>` +
+  `<rect x="40" y="45" width="24" height="3" rx="1.5" fill="#4E7382" fill-opacity=".55"/>` +
+  `<rect x="40" y="51.5" width="30" height="3" rx="1.5" fill="#4E7382" fill-opacity=".55"/>` +
+  `<path d="M32,61 H76 V76 a4,4 0 0 1 -4,4 H36 a4,4 0 0 1 -4,-4z" fill="url(#gSteel)"/>` +
+  `<path d="M33.5,62.6 H74.5" stroke="#fff" stroke-opacity=".5" stroke-width="1.6" stroke-linecap="round"/>` +
+  `<path d="M40,28 H49 V45 L44.5,41.4 L40,45z" fill="url(#acc-gold)"/>` +
+  `<path d="M40,28 H49 V30 H40z" fill="#000" fill-opacity=".18"/>`;
+const filetPageMono =
+  `<path d="${PAGE} M40,45 H64 V48 H40z M40,51.5 H70 V54.5 H40z" fill="#7FA8B8" fill-rule="evenodd"/>`;
+// ── Round 4: built on the in-app folder "Has things in it" ──
+// The folder is filet-browser-icons-mock.html's folderBody in its pages state, copied path for path,
+// with that mock's own paper and ground (this mock's gPaper and gGround are a shade different).
+// Gradients the round 4 art needs ride inside it, so it draws the same wherever it is copied to.
+const R4DEFS = `<defs>` +
+  `<linearGradient id="r4Paper" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F2F7F9"/><stop offset="1" stop-color="#B9D2DC"/></linearGradient>` +
+  `<radialGradient id="r4Ground"><stop offset="0" stop-color="#000" stop-opacity=".45"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>` +
+  `<linearGradient id="r4Tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3E5F6C"/><stop offset=".55" stop-color="#22343C"/><stop offset="1" stop-color="#162227"/></linearGradient>` +
+  `<radialGradient id="r4Sheen" cx=".3" cy=".16" r=".8"><stop offset="0" stop-color="#C6DDE6" stop-opacity=".34"/><stop offset="1" stop-color="#C6DDE6" stop-opacity="0"/></radialGradient>` +
+  `<radialGradient id="r4Pool" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#93B8C6" stop-opacity=".28"/><stop offset="1" stop-color="#93B8C6" stop-opacity="0"/></radialGradient>` +
+  `<radialGradient id="r4Glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#FBE28C" stop-opacity=".95"/><stop offset=".45" stop-color="#E8C15A" stop-opacity=".45"/><stop offset="1" stop-color="#E8C15A" stop-opacity="0"/></radialGradient>` +
+  `<linearGradient id="r4Sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8FC3DE"/><stop offset="1" stop-color="#E6F0F3"/></linearGradient>` +
+  `<linearGradient id="r4Ribbon" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#FBE28C"/><stop offset=".55" stop-color="#E8C15A"/><stop offset="1" stop-color="#B08A28"/></linearGradient>` +
+  `<clipPath id="r4Photo"><rect x="22" y="24" width="34" height="38" rx="3"/></clipPath>` +
+  `<linearGradient id="r5Shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".42"/></linearGradient>` +
+  `<linearGradient id="r5Under" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity=".42"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient>` +
+  `<linearGradient id="r5Ribbon" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F3D27A"/><stop offset="1" stop-color="#DDB04A"/></linearGradient>` +
+  `<clipPath id="r5Lip"><rect x="10" y="50" width="90" height="6.4"/></clipPath>` +
+  `</defs>`;
+const R4_BACK = 'M22,24 H42 l6,8 H78 a6,6 0 0 1 6,6 V80 a6,6 0 0 1 -6,6 H22 a6,6 0 0 1 -6,-6 V30 a6,6 0 0 1 6,-6z';
+// The folder, back to front. mid stands between the back and the front; over lies on the front.
+const r4Folder = ({ mid, over = '', lip = '#fff', lipOpacity = '.5' }) =>
+  `<ellipse cx="54" cy="88.5" rx="31" ry="3.6" fill="url(#r4Ground)"/>` +
+  `<path d="${R4_BACK}" fill="url(#gSlate)"/>` +
+  `<path d="M22.5,25.6 H41.2 l6,8 H78" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>` +
+  `<rect x="20" y="39" width="60" height="44" rx="4" fill="url(#gDeep)"/>` +
+  mid +
+  `<path d="${FLAP}" fill="url(#gSteel)"/>` +
+  `<path d="M25.2,55.2 H87" stroke="${lip}" stroke-opacity="${lipOpacity}" stroke-width="1.8" stroke-linecap="round"/>` + over;
+const R4_GOLD = `<rect x="27" y="31" width="38" height="40" rx="3" transform="rotate(-7 46 51)" fill="url(#acc-gold)"/>`;
+const R4_PAPER = `<g transform="rotate(5 57 51)"><rect x="38" y="32" width="38" height="40" rx="3" fill="url(#r4Paper)"/>` +
+  `<rect x="43" y="38.5" width="22" height="3" rx="1.5" fill="#4E7382" fill-opacity=".55"/>` +
+  `<rect x="43" y="45" width="27" height="3" rx="1.5" fill="#4E7382" fill-opacity=".55"/></g>`;
+// Centred on the folder's own middle, then scaled. At .70 its furthest corner meets the safe circle,
+// so it fills the circle the way an app icon does, not the way a row's icon sits in its slot.
+const r4fit = (inner, k) => `<g transform="translate(54 54) scale(${k}) translate(-54 -55)">${inner}</g>`;
+const R4_START = R4DEFS + r4fit(r4Folder({ mid: R4_GOLD + R4_PAPER }), .70);
+// The list's own framing of the same drawing, for the side-by-side.
+const R4_LIST = R4DEFS + r4Folder({ mid: R4_GOLD + R4_PAPER });
+
+// 1 · On a tile: the folder on a deep slate tile with a sheen, the one thing no list folder has.
+const R4_TILE_BACK = R4DEFS + `<rect x="0" y="0" width="108" height="108" fill="url(#r4Tile)"/><rect x="0" y="0" width="108" height="108" fill="url(#r4Sheen)"/>` +
+  `<ellipse cx="54" cy="58" rx="34" ry="30" fill="url(#r4Pool)"/>`;
+const r4Tile = R4DEFS + r4fit(r4Folder({ mid: R4_GOLD + R4_PAPER }), .62);
+
+// 2 · Ribbon: D's gold ribbon, hung from the page and down over the front, ending in its notch.
+const R4_RIBBON_TOP = `<path d="M62,33 H71 V56 H62z" fill="url(#r4Ribbon)"/><path d="M62,33 H71 V35 H62z" fill="#000" fill-opacity=".18"/>`;
+const R4_RIBBON_OVER = `<path d="M62,53.6 H71 V78 L66.5,74 L62,78z" fill="url(#r4Ribbon)"/>` +
+  `<path d="M62,53.6 H71 V56.2 H62z" fill="#000" fill-opacity=".22"/>` +
+  `<path d="M63.4,57.5 V75.6" stroke="#fff" stroke-opacity=".45" stroke-width="1.2" stroke-linecap="round"/>`;
+const r4Ribbon = R4DEFS + r4fit(r4Folder({ mid: R4_GOLD + R4_PAPER + R4_RIBBON_TOP, over: R4_RIBBON_OVER }), .70);
+
+// 3 · Picture and file: what stands in it is richer, a photo and a document with its type band, raised.
+const R4_PHOTO = `<g transform="rotate(-9 39 44)"><rect x="22" y="24" width="34" height="38" rx="3" fill="#F7FAFB"/>` +
+  `<g clip-path="url(#r4Photo)"><rect x="22" y="24" width="34" height="38" fill="url(#r4Sky)"/>` +
+  `<circle cx="32" cy="32" r="4.2" fill="url(#acc-gold)"/>` +
+  `<path d="M20,54 L31,38 L39,47 L45,41 L58,54z" fill="#7FC46A"/><path d="M20,62 L32,46 L42,55 L48,50 L58,62z" fill="#4E8F3E"/></g>` +
+  `<rect x="22" y="24" width="34" height="38" rx="3" fill="none" stroke="#fff" stroke-opacity=".9" stroke-width="1.6"/></g>`;
+const R4_DOC = `<g transform="translate(3 1) rotate(6 60 46)"><path d="M44,27 H68 L76,35 V66 a3,3 0 0 1 -3,3 H47 a3,3 0 0 1 -3,-3 V30 a3,3 0 0 1 3,-3z" fill="url(#r4Paper)"/>` +
+  `<path d="M68,27 V32 a3,3 0 0 0 3,3 H76z" fill="#93B8C6"/>` +
+  `<rect x="44" y="37" width="32" height="7" fill="url(#acc-red)"/>` +
+  `<rect x="48" y="39.2" width="12" height="2.6" rx="1.3" fill="#fff" fill-opacity=".9"/>` +
+  `<rect x="48" y="47.5" width="22" height="2.6" rx="1.3" fill="#4E7382" fill-opacity=".55"/></g>`;
+const r4Pics = R4DEFS + r4fit(r4Folder({ mid: R4_PHOTO + R4_DOC }), .70);
+
+// 4 · Lit: a warm light rising out of the folder, the pages lit by it, the front's edge catching it.
+const r4spark = (x, y, r) => `<path d="M${x},${y - r} Q${x + r * .18},${y - r * .18} ${x + r},${y} Q${x + r * .18},${y + r * .18} ${x},${y + r} Q${x - r * .18},${y + r * .18} ${x - r},${y} Q${x - r * .18},${y - r * .18} ${x},${y - r}z" fill="#FBE28C"/>`;
+const R4_GLOW = `<ellipse cx="54" cy="44" rx="36" ry="26" fill="url(#r4Glow)"/>`;
+const r4Lit = R4DEFS + r4fit(r4Folder({ mid: R4_GLOW + R4_GOLD + R4_PAPER + r4spark(37, 22, 4.2) + r4spark(72, 18, 3.2) + r4spark(56, 13, 2.6), lip: '#FBE28C', lipOpacity: '.95' }), .70);
+
+// The themed shape: one colour, gaps drawn in. The back's top with the page standing in a window of
+// it, then the front. A tile, a light and colours all fall away, as on every themed icon.
+const R4M_BACK = 'M22,24 H42 l6,8 H78 a6,6 0 0 1 6,6 V50 H16 V30 a6,6 0 0 1 6,-6z M33,32 H74 V50 H33z';
+const R4M_PAGE = 'M36,35 H71 V50 H36z M40,38.6 H62 V41.2 H40z M40,43.8 H67 V46.4 H40z';
+const r4Mono = (extra = '', flap = FLAP) => r4fit(`<path d="${R4M_BACK}" fill="#4E7382" fill-rule="evenodd"/><path d="${R4M_PAGE}" fill="#4E7382" fill-rule="evenodd"/>` +
+  `<path d="${flap}" fill="#7FA8B8" fill-rule="evenodd"/>` + extra, .70);
+const R4M_PLAIN = r4Mono();
+const R4M_TILE = r4fit(`<path d="${R4M_BACK}" fill="#4E7382" fill-rule="evenodd"/><path d="${R4M_PAGE}" fill="#4E7382" fill-rule="evenodd"/><path d="${FLAP}" fill="#7FA8B8"/>`, .62);
+const R4M_RIBBON = r4Mono(`<path d="M62,53 H71 V76 L66.5,72.4 L62,76z" fill="#7FA8B8"/>`, FLAP + ' M60.5,53 H72.5 V79.6 L66.5,74.8 L60.5,79.6z');
+const R4M_PICS = r4fit(`<path d="${R4M_BACK}" fill="#4E7382" fill-rule="evenodd"/>` +
+  `<path d="M36,35 H71 V50 H36z M60,37.4 a3,3 0 1 0 .01,0z M38.5,49 L46,40.5 L51,46 L55,42 L62.5,49z" fill="#4E7382" fill-rule="evenodd"/>` +
+  `<path d="${FLAP}" fill="#7FA8B8"/>`, .70);
+const R4M_LIT = r4Mono(r4spark(37, 22, 4.2).replace('#FBE28C', '#4E7382') + r4spark(72, 18, 3.2).replace('#FBE28C', '#4E7382') + r4spark(56, 13, 2.6).replace('#FBE28C', '#4E7382'));
+
+// ── Round 5: the ribbon, fixed to the icon. Round 4's lay on the front like a sticker: straight, with no
+// fold and no shade. Each of these is held by something, leans with the front (whose sides lean about
+// 0.24 across for every unit down), and keeps D's notch. ──
+// Hanging down the front, leaning with it, with its own shadow on the front and a light down one edge.
+const R5_HANG = 'M65.6,56.6 H72.6 L67.7,77 L65.2,72.8 L60.7,77z';
+const r5Hang = (top = 56.6) => {
+  const k = .24, d = (y) => (y - 56.6) * -k;
+  const path = `M${65.6 + d(top)},${top} H${72.6 + d(top)} L67.7,77 L65.2,72.8 L60.7,77z`;
+  return `<path d="M${66.8 + d(top)},${top + 1} H${73.8 + d(top)} L68.9,78 L66.4,73.8 L61.9,78z" fill="#000" fill-opacity=".16"/>` +
+    `<path d="${path}" fill="url(#r5Ribbon)"/>` +
+    `<path d="M${66.9 + d(top + 1.6)},${top + 1.6} L62.6,75.6" stroke="#fff" stroke-opacity=".4" stroke-width="1.1" stroke-linecap="round"/>`;
+};
+// Where it turns over the lip: a crease at the top of the turn, the lip's own light carried across it,
+// and the shade of the turn's underside just below.
+const R5_BEND = `<path d="M65.8,52.4 H72.8 L72.6,56.8 H65.6z" fill="url(#r5Ribbon)"/>` +
+  `<path d="M65.8,52.4 H72.8 V54 H65.8z" fill="#000" fill-opacity=".3"/>` +
+  `<path d="M65.9,55.2 H72.5" stroke="#fff" stroke-opacity=".6" stroke-width="1.5" stroke-linecap="round"/>` +
+  `<path d="M65.6,56.8 H72.6 L72.4,58.2 H65.4z" fill="#000" fill-opacity=".22"/>`;
+// The paper page, with whatever lies on it drawn in its own turn, so it tilts with the page.
+const r5Paper = (on) => `<g transform="rotate(5 57 51)"><rect x="38" y="32" width="38" height="40" rx="3" fill="url(#r4Paper)"/>` +
+  `<rect x="43" y="38.5" width="22" height="3" rx="1.5" fill="#4E7382" fill-opacity=".55"/>` +
+  `<rect x="43" y="45" width="27" height="3" rx="1.5" fill="#4E7382" fill-opacity=".55"/>${on}</g>`;
+// Down the page to the lip, darkening as it goes into the front's shadow.
+const r5OnPage = (top) => `<path d="M66,${top} H73 V53.6 H66z" fill="url(#r5Ribbon)"/><path d="M66,44 H73 V53.6 H66z" fill="url(#r5Shade)"/>`;
+
+// 2a · From between the pages: it rises from behind the paper page, turns over its top edge onto its
+// face, runs down into the front's shadow, turns over the lip and hangs down the front.
+const R5_OVER_PAGE = r5OnPage(32) +
+  `<path d="M66,33 V31.1 q0,-1.3 1.3,-1.3 H71.7 q1.3,0 1.3,1.3 V33z" fill="url(#r5Ribbon)"/>` +
+  `<path d="M66,31.1 q0,-1.3 1.3,-1.3 H71.7 q1.3,0 1.3,1.3 V32 H66z" fill="#8A6A2A" fill-opacity=".45"/>` +
+  `<path d="M66.2,33.2 H72.8" stroke="#000" stroke-opacity=".16" stroke-width=".9"/>` +
+  `<path d="M67.1,34 V43" stroke="#fff" stroke-opacity=".45" stroke-width="1" stroke-linecap="round"/>`;
+const r5Over = R4DEFS + r4fit(r4Folder({ mid: R4_GOLD + r5Paper(R5_OVER_PAGE), over: r5Hang() + R5_BEND }), .70);
+
+// 2b · Tucked under the lip: the front holds it. Its top goes under the lip, in the lip's shadow, and it
+// hangs down the front. The pages stay as they were.
+const r5Tuck = R4DEFS + r4fit(r4Folder({ mid: R4_GOLD + R4_PAPER, over: r5Hang(53.6) +
+  `<path d="M${65.6 + .72},53.6 H${72.6 + .72} L${72.6 + .03},59.4 H${65.6 + .03}z" fill="url(#r5Under)"/>` +
+  `<g clip-path="url(#r5Lip)"><path d="${FLAP}" fill="url(#gSteel)"/></g>` +
+  `<path d="M25.2,55.2 H87" stroke="#fff" stroke-opacity=".5" stroke-width="1.8" stroke-linecap="round"/>` }), .70);
+
+// 2c · Clipped to the page: a steel clip holds it at the page's top edge; it runs down the page, turns
+// over the lip and hangs down the front.
+const R5_CLIP_PAGE = r5OnPage(33) + `<path d="M67.1,37 V44" stroke="#fff" stroke-opacity=".45" stroke-width="1" stroke-linecap="round"/>` +
+  `<path d="M67.2,30 C67.2,26.2 71.8,26.2 71.8,30" fill="none" stroke="#C6DDE6" stroke-width="1.3" stroke-linecap="round"/>` +
+  `<rect x="64.6" y="29.4" width="9.8" height="6.2" rx="1.5" fill="url(#gSteel)"/>` +
+  `<path d="M65.6,32 H73.4" stroke="#2C4550" stroke-opacity=".6" stroke-width=".9"/>` +
+  `<path d="M65.6,30.4 H73.4" stroke="#fff" stroke-opacity=".55" stroke-width=".8" stroke-linecap="round"/>` +
+  `<path d="M64.6,35.6 H74.4 V36.6 H64.6z" fill="#000" fill-opacity=".18"/>`;
+const r5Clip = R4DEFS + r4fit(r4Folder({ mid: R4_GOLD + r5Paper(R5_CLIP_PAGE), over: r5Hang() + R5_BEND }), .70);
+
+// Themed shapes: the ribbon cut out of the front with a gap round it, and, where it runs down the page,
+// out of the page too, so one colour still shows a ribbon.
+const R5M_HANG = 'M65.8,53 H72.8 L72.6,56.6 L67.7,77 L65.2,72.8 L60.7,77 L65.6,56.6z';
+const R5M_HOLE = 'M64.3,53 H74.3 L74.1,56.6 L69.1,78.8 L65.2,75.1 L59.3,78.8 L64.1,56.6z';
+const R5M_TUCK_HOLE = 'M64.3,56.4 H74.1 L69.1,78.8 L65.2,75.1 L59.3,78.8z';
+const R5M_TUCK = 'M65.8,57.9 H72.6 L67.7,77 L65.2,72.8 L60.7,77z';
+const r5Mono = (pageRibbon, pageHole, hang, hole) => r4fit(
+  `<path d="${R4M_BACK}" fill="#4E7382" fill-rule="evenodd"/>` +
+  `<path d="${R4M_PAGE}${pageHole}" fill="#4E7382" fill-rule="evenodd"/>${pageRibbon}` +
+  `<path d="${FLAP} ${hole}" fill="#7FA8B8" fill-rule="evenodd"/><path d="${hang}" fill="#7FA8B8"/>`, .70);
+const R5M_OVER = r5Mono(`<path d="M65.8,53 V35.5 a3.5,3.5 0 0 1 7,0 V53z" fill="#4E7382"/>`, ' M64.3,35 H71 V50 H64.3z', R5M_HANG, R5M_HOLE);
+const R5M_TUCK_ART = r5Mono('', '', R5M_TUCK, R5M_TUCK_HOLE);
+const R5M_CLIP = r5Mono(`<rect x="64.6" y="31.6" width="9.4" height="3.4" rx="1" fill="#4E7382"/><path d="M65.8,53 V37 H72.8 V53z" fill="#4E7382"/>`, ' M64.3,35 H71 V50 H64.3z', R5M_HANG, R5M_HOLE);
+const R4_NEW = ['r4tile', 'r5over', 'r5tuck', 'r5clip', 'r4pics', 'r4lit'];
+const R4_NOTE = {
+  r4tile: 'The folder on a deep slate tile with a sheen. No folder in a list sits on a tile.',
+  r5over: 'Rises from between the pages, turns over the paper\'s top edge, runs down into the front\'s shadow, turns over the lip with a crease, and hangs down the front, leaning with it.',
+  r5tuck: 'The front holds it: its top goes under the lip, in the lip\'s shadow, and it hangs down the front. The pages stay as they were.',
+  r5clip: 'A steel clip holds it to the page\'s top edge; it runs down the page, turns over the lip with a crease, and hangs down the front.',
+  r4pics: 'A photo and a document with its red type band stand in it, raised. Richer than a list\'s pages.',
+  r4lit: 'A warm light rises out of it and catches the front\'s edge, with three sparks above.',
+};
+
+const FILETS = {
+  r4tile: { id: 'filet-r4tile', label: 'Filet', group: null, acc: null, art: r4Tile, back: R4_TILE_BACK, monoArt: R4M_TILE, monoFill: true },
+  r5over: { id: 'filet-r5over', label: 'Filet', group: null, acc: null, art: r5Over, monoArt: R5M_OVER, monoFill: true },
+  r5tuck: { id: 'filet-r5tuck', label: 'Filet', group: null, acc: null, art: r5Tuck, monoArt: R5M_TUCK_ART, monoFill: true },
+  r5clip: { id: 'filet-r5clip', label: 'Filet', group: null, acc: null, art: r5Clip, monoArt: R5M_CLIP, monoFill: true },
+  r4pics: { id: 'filet-r4pics', label: 'Filet', group: null, acc: null, art: r4Pics, monoArt: R4M_PICS, monoFill: true },
+  r4lit: { id: 'filet-r4lit', label: 'Filet', group: null, acc: null, art: r4Lit, monoArt: R4M_LIT, monoFill: true },
+  tabs: { id: 'filet-tabs', label: 'Filet', group: null, acc: null, art: filetTabs, monoArt: filetTabsMono, monoFill: true },
+  f: { id: 'filet-f', label: 'Filet', group: null, acc: null, art: filetF, monoArt: filetFMono, monoFill: true },
+  fan: { id: 'filet-fan', label: 'Filet', group: null, acc: null, art: filetFan, monoArt: filetFanMono, monoFill: true },
+  page: { id: 'filet-page', label: 'Filet', group: null, acc: null, art: filetPage, monoArt: filetPageMono, monoFill: true },
+  current: { id: 'filet', label: 'Filet', group: null, acc: null, art: FILET_FLAT, monoFill: true },
+};
+const CANDIDATES = [['r4tile', '1 · On a tile'], ['r5over', '2a · Ribbon over the lip'], ['r5tuck', '2b · Ribbon under the lip'], ['r5clip', '2c · Ribbon clipped on'], ['r4pics', '3 · Picture and file'], ['r4lit', '4 · Lit'], ['tabs', 'A · Index tabs'], ['f', 'B · F'], ['fan', 'C · Fan'], ['page', 'D · Page']];
+let FILET = FILETS.tabs;
+
+const ICONS = [
+  // Places
+  { id: 'home', label: 'Home', group: 'Places', acc: 'amber', mono: ['m4 11 8-7 8 7v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z'],
+    art: ground(54, 78.5, 21, 3.4) +
+      `<rect x="66" y="31" width="7" height="14" rx="1.4" fill="url(#gSlate)"/>` +
+      `<rect x="34" y="45" width="40" height="32" rx="3.2" fill="url(#gSteel)"/>` +
+      `<path d="M64,48 V77 H70.8 a3.2,3.2 0 0 0 3.2,-3.2 V48z" fill="#000" fill-opacity=".14"/>` +
+      `<path d="M28.2,46.6 L51.3,26.8 a4.2,4.2 0 0 1 5.4,0 L79.8,46.6 a2.6,2.6 0 0 1 -1.7,4.6 H29.9 a2.6,2.6 0 0 1 -1.7,-4.6z" fill="url(#gSlate)"/>` +
+      `<path d="M29.6,47.4 L51.9,28.3 a3.2,3.2 0 0 1 2.1,-0.8 V31.2 L33.4,48.9z" fill="#fff" fill-opacity=".16"/>` +
+      `<rect x="48" y="58" width="12" height="19" rx="2.2" fill="url(#A)"/>` +
+      `<circle cx="57" cy="68" r="1.1" fill="{a3}"/>` +
+      `<rect x="38" y="57" width="7.5" height="7.5" rx="1.4" fill="{a1}"/>` +
+      `<rect x="62.5" y="57" width="7.5" height="7.5" rx="1.4" fill="{a1}" fill-opacity=".8"/>` },
+  { id: 'files', label: 'Internal storage', bar: 'Storage', group: 'Places', acc: 'green', mono: ['M3 4h18v7H3z', 'M3 13h18v7H3z', 'M7 7.5h.01M7 16.5h.01'],
+    art: ground(54, 79, 22, 3.4) +
+      `<rect x="28" y="55" width="52" height="21" rx="5" fill="url(#gSlate)"/>` +
+      `<rect x="28" y="31" width="52" height="21" rx="5" fill="url(#gSteel)"/>` +
+      `<rect x="31" y="33" width="46" height="2.6" rx="1.3" fill="#fff" fill-opacity=".24"/>` +
+      `<rect x="31" y="57" width="46" height="2.6" rx="1.3" fill="#fff" fill-opacity=".14"/>` +
+      `<rect x="55" y="40" width="18" height="3.4" rx="1.7" fill="#2C4550" fill-opacity=".75"/>` +
+      `<rect x="55" y="64" width="18" height="3.4" rx="1.7" fill="#1E2F36" fill-opacity=".8"/>` +
+      `<circle cx="37.5" cy="41.5" r="5.5" fill="{a1}" fill-opacity=".25"/><circle cx="37.5" cy="41.5" r="2.8" fill="url(#A)"/>` +
+      `<circle cx="37.5" cy="65.5" r="5.5" fill="{a1}" fill-opacity=".2"/><circle cx="37.5" cy="65.5" r="2.8" fill="url(#A)"/>` +
+      `<circle cx="45" cy="41.5" r="1.8" fill="#2C4550" fill-opacity=".6"/><circle cx="45" cy="65.5" r="1.8" fill="#1E2F36" fill-opacity=".7"/>` },
+  { id: 'bookmarks', label: 'Bookmarks', group: 'Places', acc: 'gold', mono: ['m12 4 2.4 5 5.6.8-4 3.9 1 5.5-5-2.7-5 2.7 1-5.5-4-3.9 5.6-.8z'],
+    art: ground(54, 80, 16, 3) +
+      `<path d="M40,27 h28 a4,4 0 0 1 4,4 v45.6 a1.6,1.6 0 0 1 -2.5,1.3 L54,67.6 L38.5,77.9 a1.6,1.6 0 0 1 -2.5,-1.3 V31 a4,4 0 0 1 4,-4z" fill="url(#gSteel)"/>` +
+      `<path d="M54,27 h14 a4,4 0 0 1 4,4 v45.6 a1.6,1.6 0 0 1 -2.5,1.3 L54,67.6z" fill="#000" fill-opacity=".13"/>` +
+      `<path d="M40,27 h28 a4,4 0 0 1 4,4 v2 H36 v-2 a4,4 0 0 1 4,-4z" fill="#fff" fill-opacity=".22"/>` +
+      `<path d="${STAR}" transform="translate(0 1.8)" fill="#000" fill-opacity=".28"/>` +
+      `<path d="${STAR}" fill="url(#A)" stroke="{a2}" stroke-width="1.6" stroke-linejoin="round"/>` },
+  { id: 'opened', label: 'Opened', group: 'Places', acc: 'coral', mono: ['M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0', 'M12 7.5V12l3 2'],
+    art: ground(52, 80, 18, 3) +
+      `<path d="M39,26 h19 l14,14 v34 a4,4 0 0 1 -4,4 h-29 a4,4 0 0 1 -4,-4 v-44 a4,4 0 0 1 4,-4z" fill="url(#gSteel)"/>` +
+      `<path d="M58,26 v10 a4,4 0 0 0 4,4 h10z" fill="url(#gSlate)"/>` +
+      `<rect x="41" y="46" width="20" height="3.2" rx="1.6" fill="#2C4550" fill-opacity=".55"/>` +
+      `<rect x="41" y="53" width="15" height="3.2" rx="1.6" fill="#2C4550" fill-opacity=".55"/>` +
+      `<rect x="41" y="60" width="11" height="3.2" rx="1.6" fill="#2C4550" fill-opacity=".55"/>` +
+      `<circle cx="66" cy="66" r="14" fill="url(#gDeep)"/>` +
+      `<circle cx="66" cy="66" r="11" fill="url(#A)"/>` +
+      `<path d="M58.6,61.6 a9,9 0 0 1 5.2,-4.3" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="1.6" stroke-linecap="round"/>` +
+      `<path d="M66,59.5 V66 l4.6,3" fill="none" stroke="#3B1E15" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>` },
+  { id: 'newfiles', label: 'New files', group: 'Places', acc: 'mint', mono: ['M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7', 'M18 3v6M15 6h6', 'M8.5 13h7M8.5 16.5h5'],
+    art: ground(52, 80, 18, 3) +
+      `<rect x="40" y="29" width="30" height="38" rx="4" transform="rotate(8 55 48)" fill="url(#gSlate)"/>` +
+      `<path d="M36,33 h18 l11,11 v30 a4,4 0 0 1 -4,4 h-25 a4,4 0 0 1 -4,-4 v-37 a4,4 0 0 1 4,-4z" fill="url(#gSteel)"/>` +
+      `<path d="M54,33 v8 a3,3 0 0 0 3,3 h8z" fill="url(#gSlate)"/>` +
+      `<rect x="37.5" y="50" width="18" height="3" rx="1.5" fill="#2C4550" fill-opacity=".55"/>` +
+      `<rect x="37.5" y="56.5" width="21" height="3" rx="1.5" fill="#2C4550" fill-opacity=".55"/>` +
+      `<rect x="37.5" y="63" width="13" height="3" rx="1.5" fill="#2C4550" fill-opacity=".55"/>` +
+      `<path d="${BURST}" transform="translate(0 1.4)" fill="#000" fill-opacity=".25"/>` +
+      `<path d="${BURST}" fill="url(#A)" stroke="{a2}" stroke-width="1.2" stroke-linejoin="round"/>` +
+      `<path d="M66,32.5 q0.8,4.6 5,5.5 q-4.2,0.9 -5,5.5 q-0.8,-4.6 -5,-5.5 q4.2,-0.9 5,-5.5z" fill="#fff" fill-opacity=".95"/>` +
+      `<path d="M30.5,70 q0.5,2.6 2.8,3.1 q-2.3,0.5 -2.8,3.1 q-0.5,-2.6 -2.8,-3.1 q2.3,-0.5 2.8,-3.1z" fill="{a1}" fill-opacity=".8"/>` },
+
+  // Collections
+  { id: 'playlists', label: 'Playlists', group: 'Collections', acc: 'rose', mono: ['M4 6h11M4 10.5h11M4 15h7', 'M18 17.5V7l3-1', 'M18 17.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0'],
+    art: ground(54, 80, 22, 3.2) +
+      `<circle cx="54" cy="55" r="18" fill="url(#gVinyl)"/>` +
+      `<circle cx="54" cy="55" r="14.5" fill="none" stroke="#fff" stroke-opacity=".08" stroke-width=".9"/>` +
+      `<circle cx="54" cy="55" r="11" fill="none" stroke="#fff" stroke-opacity=".08" stroke-width=".9"/>` +
+      `<path d="M62.5,42 a15.5,15.5 0 0 1 6.5,7.5" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width="1.8" stroke-linecap="round"/>` +
+      `<circle cx="54" cy="55" r="6.5" fill="url(#A)"/>` +
+      `<circle cx="54" cy="55" r="1.5" fill="#0E0F10"/>` +
+      `<path d="M34,58 V52 a20,20 0 0 1 40,0 v6" fill="none" stroke="url(#gSlate)" stroke-width="6" stroke-linecap="round"/>` +
+      `<path d="M36.68,42 A20,20 0 0 1 45.55,33.87" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width="1.6" stroke-linecap="round"/>` +
+      `<rect x="28" y="52" width="12" height="21" rx="5.5" fill="url(#gSteel)"/>` +
+      `<rect x="68" y="52" width="12" height="21" rx="5.5" fill="url(#gSteel)"/>` +
+      `<rect x="37.5" y="54" width="5" height="17" rx="2.5" fill="url(#A)"/>` +
+      `<rect x="65.5" y="54" width="5" height="17" rx="2.5" fill="url(#A)"/>` +
+      `<rect x="45" y="64.5" width="18" height="13" rx="3" fill="url(#gSteel)"/>` +
+      `<rect x="48" y="67.6" width="7.5" height="1.8" rx=".9" fill="#2C4550" fill-opacity=".7"/>` +
+      `<rect x="48" y="70.6" width="9.5" height="1.8" rx=".9" fill="#2C4550" fill-opacity=".7"/>` +
+      `<rect x="48" y="73.6" width="5.5" height="1.8" rx=".9" fill="#2C4550" fill-opacity=".7"/>` +
+      `<path d="M58.6,67.4 v5.4 l4.4,-2.7z" fill="{a2}" stroke="{a2}" stroke-width=".8" stroke-linejoin="round"/>` },
+  { id: 'carryon', label: 'Carry on', group: 'Collections', acc: 'lime', mono: ['M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0', 'm10 8.5 5.5 3.5-5.5 3.5z'],
+    art: ground(54, 80, 18, 3) +
+      `<circle cx="54" cy="52" r="24" fill="none" stroke="url(#gDeep)" stroke-width="7"/>` +
+      `<path d="M54,28 A24,24 0 1 1 31.17,59.42" fill="none" stroke="url(#A)" stroke-width="7" stroke-linecap="round"/>` +
+      `<circle cx="54" cy="52" r="17" fill="url(#gSteel)"/>` +
+      `<path d="M54,35.5 a16.5,16.5 0 0 1 14.29,8.25" fill="none" stroke="#fff" stroke-opacity=".32" stroke-width="1.8" stroke-linecap="round"/>` +
+      `<path d="M49.5,43.6 v16.8 a1.6,1.6 0 0 0 2.4,1.4 l13.4,-8.4 a1.6,1.6 0 0 0 0,-2.8 l-13.4,-8.4 a1.6,1.6 0 0 0 -2.4,1.4z" fill="url(#gDeep)"/>` +
+      `<circle cx="31.17" cy="59.42" r="1.9" fill="#fff" fill-opacity=".9"/>` },
+
+  // Categories
+  { id: 'photos', label: 'Photos', group: 'Categories', acc: 'orange', mono: ['M3 4h18v16H3z', 'M10 9.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0', 'm4 17 5-5 4 4 3-3 4 4'],
+    art: ground(54, 78, 22, 3) +
+      `<rect x="28" y="31" width="52" height="43" rx="6" fill="url(#gSlate)"/>` +
+      `<rect x="32" y="35" width="44" height="35" rx="3.5" fill="url(#gSky)"/>` +
+      `<circle cx="64" cy="46" r="9" fill="{a1}" fill-opacity=".22"/>` +
+      `<circle cx="64" cy="46" r="5.5" fill="url(#A)"/>` +
+      `<path d="M32,66.5 L45,51.2 a2,2 0 0 1 3,0 L64.5,70 H35.5 a3.5,3.5 0 0 1 -3.5,-3.5z" fill="#5F8C9D"/>` +
+      `<path d="M43,70 L59.3,55.3 a2,2 0 0 1 2.8,0 L76,66.5 a3.5,3.5 0 0 1 -3.5,3.5z" fill="url(#gSteel)"/>` +
+      `<rect x="31" y="33" width="46" height="1.8" rx=".9" fill="#fff" fill-opacity=".2"/>` },
+  { id: 'videos', label: 'Videos', group: 'Categories', acc: 'red', mono: ['M3 5h18v14H3z', 'm10 9 5 3-5 3z'],
+    art: ground(54, 79, 22, 3) +
+      `<g transform="rotate(-11 31 46)"><rect x="30" y="36" width="46" height="9" rx="2.4" fill="url(#gDeep)"/>` +
+      `<path d="M37,36 h7 l-4.6,9 h-7z M51,36 h7 l-4.6,9 h-7z M65,36 h7 l-4.6,9 h-7z" fill="url(#A)"/></g>` +
+      `<rect x="30" y="47" width="48" height="29" rx="4" fill="url(#gSteel)"/>` +
+      `<path d="M34,47 h40 a4,4 0 0 1 4,4 v3 H30 v-3 a4,4 0 0 1 4,-4z" fill="url(#gDeep)"/>` +
+      `<path d="M37,47 h7 l-3.6,7 h-7z M51,47 h7 l-3.6,7 h-7z M65,47 h7 l-3.6,7 h-7z" fill="#D9E6EC" fill-opacity=".85"/>` +
+      `<circle cx="33.5" cy="46.5" r="2.4" fill="url(#gSlate)"/>` +
+      `<path d="M49,59 v11.5 a1.4,1.4 0 0 0 2.1,1.2 l10,-5.8 a1.4,1.4 0 0 0 0,-2.4 l-10,-5.8 a1.4,1.4 0 0 0 -2.1,1.2z" fill="url(#A)"/>` },
+  { id: 'audio', label: 'Audio', group: 'Categories', acc: 'violet', mono: ['M9 18V6l10-2v12', 'M9 18a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0', 'M19 16a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0'],
+    art: ground(52, 80, 18, 3) +
+      `<path d="M31,44.5 a9,9 0 0 1 4,-8" fill="none" stroke="{a1}" stroke-opacity=".75" stroke-width="2.4" stroke-linecap="round"/>` +
+      `<path d="M26.5,47 a14,14 0 0 1 6,-13" fill="none" stroke="{a1}" stroke-opacity=".45" stroke-width="2.4" stroke-linecap="round"/>` +
+      `<rect x="43" y="40" width="4" height="29" rx="1.5" fill="url(#gSlate)"/>` +
+      `<rect x="70" y="32" width="4" height="29" rx="1.5" fill="url(#gSlate)"/>` +
+      `<path d="M43,39 L74,30.5 V37.5 L43,46z" fill="url(#A)" stroke="url(#A)" stroke-width="1" stroke-linejoin="round"/>` +
+      `<path d="M44,39.4 L73,31.4" stroke="#fff" stroke-opacity=".4" stroke-width="1.2" stroke-linecap="round"/>` +
+      `<ellipse cx="38.5" cy="69" rx="8.6" ry="6.4" transform="rotate(-22 38.5 69)" fill="url(#gSteel)"/>` +
+      `<ellipse cx="65.5" cy="61" rx="8.6" ry="6.4" transform="rotate(-22 65.5 61)" fill="url(#gSteel)"/>` +
+      `<ellipse cx="35.6" cy="66.6" rx="3.2" ry="1.6" transform="rotate(-22 35.6 66.6)" fill="#fff" fill-opacity=".45"/>` +
+      `<ellipse cx="62.6" cy="58.6" rx="3.2" ry="1.6" transform="rotate(-22 62.6 58.6)" fill="#fff" fill-opacity=".45"/>` },
+  { id: 'packages', label: 'Packages', group: 'Categories', acc: 'green', mono: ['M4 4h16a3 3 0 0 1 0 0v16H4z', 'M9 15V9l3 4 3-4v6'],
+    art: ground(54, 81, 20, 3) +
+      `<g transform="translate(54 54) scale(1.12) translate(-54 -54)">` +
+      `<path d="M54,28 L76,40 L54,52 L32,40z" fill="url(#gSteel)"/>` +
+      `<path d="M32,40 L54,52 V78 L32,66z" fill="url(#gSlate)"/>` +
+      `<path d="M76,40 L54,52 V78 L76,66z" fill="url(#gDeep)"/>` +
+      `<path d="M40.8,35.2 L45.2,32.8 L67.2,44.8 L62.8,47.2z" fill="url(#A)"/>` +
+      `<path d="M62.8,47.2 L67.2,44.8 V70.8 L62.8,73.2z" fill="{a3}"/>` +
+      `<path d="M32,40 L54,52 L76,40" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width="1.1" stroke-linejoin="round"/></g>` },
+  { id: 'documents', label: 'Documents', group: 'Categories', acc: 'sky', mono: ['M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z', 'M14 3v5h5', 'M8.5 13h7M8.5 16.5h5'],
+    art: ground(53, 80, 18, 3) +
+      `<rect x="42" y="28" width="30" height="42" rx="4" transform="rotate(7 57 49)" fill="url(#gSlate)"/>` +
+      `<path d="M38,28 h19 l13,13 v35 a4,4 0 0 1 -4,4 h-28 a4,4 0 0 1 -4,-4 v-44 a4,4 0 0 1 4,-4z" fill="url(#gSteel)"/>` +
+      `<path d="M57,28 v9 a4,4 0 0 0 4,4 h9z" fill="url(#gSlate)"/>` +
+      `<rect x="39" y="51" width="24" height="6" rx="2" fill="url(#A)" fill-opacity=".8"/>` +
+      `<rect x="40" y="45" width="20" height="3.2" rx="1.6" fill="#2C4550" fill-opacity=".6"/>` +
+      `<rect x="40" y="52.4" width="21" height="3.2" rx="1.6" fill="#2C4550" fill-opacity=".6"/>` +
+      `<rect x="40" y="59.8" width="17" height="3.2" rx="1.6" fill="#2C4550" fill-opacity=".6"/>` +
+      `<rect x="40" y="67.2" width="21" height="3.2" rx="1.6" fill="#2C4550" fill-opacity=".6"/>` },
+  { id: 'archives', label: 'Archives', group: 'Categories', acc: 'brown', mono: ['M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z', 'M11 6h2M11 9h2M11 12h2M11 15h2'],
+    art: ground(54, 79, 21, 3) +
+      `<rect x="33" y="40" width="42" height="36" rx="3.5" fill="url(#gSlate)"/>` +
+      `<rect x="33" y="42" width="42" height="3.5" fill="#000" fill-opacity=".2"/>` +
+      `<rect x="30" y="31" width="48" height="12" rx="3.5" fill="url(#gSteel)"/>` +
+      `<rect x="33" y="33" width="42" height="1.8" rx=".9" fill="#fff" fill-opacity=".25"/>` +
+      [44, 47, 50, 53, 56].map(y => `<rect x="50.5" y="${y}" width="3.5" height="2" rx=".8" fill="{a1}"/><rect x="54" y="${y + 1.5}" width="3.5" height="2" rx=".8" fill="{a2}"/>`).join('') +
+      `<rect x="50" y="59" width="8" height="12" rx="2.6" fill="url(#A)"/>` +
+      `<circle cx="54" cy="66.5" r="1.6" fill="#2A1A0C" fill-opacity=".7"/>` },
+
+  // Tools
+  { id: 'remotes', label: 'Remotes', group: 'Tools', acc: 'indigo', mono: ['M7 18a4 4 0 0 1-.6-7.96A6 6 0 0 1 18 9a4.5 4.5 0 0 1 0 9z'],
+    art: ground(50, 79, 20, 3) +
+      `<rect x="28" y="50" width="26" height="26" rx="4" fill="url(#gSlate)"/>` +
+      `<rect x="32" y="56" width="13" height="3.2" rx="1.6" fill="#1E2F36" fill-opacity=".8"/>` +
+      `<rect x="32" y="63" width="13" height="3.2" rx="1.6" fill="#1E2F36" fill-opacity=".8"/>` +
+      `<rect x="32" y="70" width="13" height="3.2" rx="1.6" fill="#1E2F36" fill-opacity=".8"/>` +
+      `<circle cx="49.5" cy="57.6" r="1.7" fill="{a1}"/><circle cx="49.5" cy="64.6" r="1.7" fill="{a1}"/><circle cx="49.5" cy="71.6" r="1.7" fill="{a1}" fill-opacity=".45"/>` +
+      `<path d="M52,54 a8,8 0 0 1 0.5,-15.9 a11,11 0 0 1 21,-3 a9.5,9.5 0 0 1 1.5,18.9z" fill="url(#gSteel)"/>` +
+      `<path d="M52,54 H75" stroke="#2C4550" stroke-opacity=".35" stroke-width="1.2"/>` +
+      `<path d="M60,50 v-8 M56.8,45 l3.2,-3.2 l3.2,3.2" fill="none" stroke="url(#A)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>` +
+      `<path d="M67.5,40.5 v8 M64.3,45.5 l3.2,3.2 l3.2,-3.2" fill="none" stroke="url(#A)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>` },
+  { id: 'share', label: 'Share', group: 'Tools', acc: 'mint', mono: ['M3.5 9.5a13 13 0 0 1 17 0', 'M6.5 13a9 9 0 0 1 11 0', 'M9.5 16.4a5 5 0 0 1 5 0', 'M12 20h.01'],
+    art: ground(54, 81, 15, 2.8) +
+      `<path d="M46,35.5 a11.5,11.5 0 0 1 16,0" fill="none" stroke="url(#A)" stroke-width="4.2" stroke-linecap="round"/>` +
+      `<path d="M41.2,30.2 a18.5,18.5 0 0 1 25.6,0" fill="none" stroke="{a1}" stroke-opacity=".75" stroke-width="4.2" stroke-linecap="round"/>` +
+      `<rect x="42" y="41" width="24" height="38" rx="5" fill="url(#gSteel)"/>` +
+      `<rect x="45.5" y="46" width="17" height="26" rx="2" fill="url(#gDeep)"/>` +
+      `<rect x="50.5" y="74.3" width="7" height="2" rx="1" fill="#2C4550" fill-opacity=".6"/>` +
+      `<circle cx="54" cy="59" r="7.5" fill="none" stroke="{a1}" stroke-opacity=".35" stroke-width="1.4"/>` +
+      `<circle cx="54" cy="59" r="3.6" fill="url(#A)"/>` },
+  { id: 'apps', label: 'Apps', group: 'Tools', acc: 'orange', mono: ['M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'],
+    art: ground(54, 80, 21, 3) +
+      `<rect x="31" y="31" width="20" height="20" rx="6" fill="url(#gSteel)"/>` +
+      `<rect x="57" y="31" width="20" height="20" rx="6" fill="url(#A)"/>` +
+      `<rect x="31" y="57" width="20" height="20" rx="6" fill="url(#gSlate)"/>` +
+      `<rect x="57" y="57" width="20" height="20" rx="6" fill="url(#gDeep)"/>` +
+      `<rect x="34" y="33" width="14" height="2" rx="1" fill="#fff" fill-opacity=".3"/>` +
+      `<rect x="60" y="33" width="14" height="2" rx="1" fill="#fff" fill-opacity=".35"/>` +
+      `<rect x="34" y="59" width="14" height="2" rx="1" fill="#fff" fill-opacity=".16"/>` +
+      `<path d="M67,61.5 v9 M63,66.8 l4,4 l4,-4" fill="none" stroke="{a1}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>` },
+  { id: 'shortcuts', label: 'Shortcuts', group: 'Tools', acc: 'red', mono: ['M9 4h6l-1 6 3 3H7l3-3z', 'M12 13v7'],
+    art: ground(52, 80, 20, 3) +
+      `<g transform="rotate(-6 51 59)"><rect x="31" y="42" width="40" height="34" rx="4" fill="url(#gSlate)"/>` +
+      `<rect x="35" y="58" width="22" height="3" rx="1.5" fill="#1E2F36" fill-opacity=".55"/><rect x="35" y="65" width="16" height="3" rx="1.5" fill="#1E2F36" fill-opacity=".55"/></g>` +
+      `<ellipse cx="54.6" cy="62.4" rx="3.4" ry="1.6" fill="#000" fill-opacity=".35"/>` +
+      `<g transform="rotate(18 60 45)">` +
+      `<path d="M59.3,49 h1.4 l-0.25,14 a0.45,0.45 0 0 1 -0.9,0z" fill="#C9DCE4"/>` +
+      `<path d="M55,33 h10 l-1.8,13 h-6.4z" fill="url(#A)"/>` +
+      `<ellipse cx="60" cy="47.5" rx="10" ry="3.4" fill="url(#A)"/>` +
+      `<rect x="51" y="27" width="18" height="7" rx="3.5" fill="{a1}"/>` +
+      `<rect x="53.5" y="28.4" width="9" height="1.8" rx=".9" fill="#fff" fill-opacity=".5"/></g>` },
+  { id: 'scripts', label: 'Scripts', group: 'Tools', acc: 'lime', mono: ['M6 4h9l4 4v12H6z', 'm10 12 2 2-2 2M13.5 16h2.5'],
+    art: ground(54, 80, 20, 3) +
+      `<rect x="34" y="33" width="40" height="40" fill="url(#gPaper)"/>` +
+      `<rect x="34" y="38" width="40" height="3" fill="#000" fill-opacity=".12"/>` +
+      `<path d="M47,46 l-6,6 l6,6 M61,46 l6,6 l-6,6" fill="none" stroke="url(#A)" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>` +
+      `<path d="M56.5,44 l-5,16" fill="none" stroke="{a3}" stroke-width="3.6" stroke-linecap="round"/>` +
+      `<rect x="43" y="63.5" width="22" height="2.6" rx="1.3" fill="#4E7382" fill-opacity=".55"/>` +
+      `<rect x="31" y="29" width="46" height="9" rx="4.5" fill="url(#gSlate)"/>` +
+      `<rect x="34" y="30.2" width="40" height="2" rx="1" fill="#fff" fill-opacity=".28"/>` +
+      `<circle cx="33" cy="33.5" r="3" fill="url(#gDeep)"/><circle cx="75" cy="33.5" r="3" fill="url(#gDeep)"/>` +
+      `<rect x="31" y="69" width="46" height="9" rx="4.5" fill="url(#gSlate)"/>` +
+      `<rect x="34" y="70.2" width="40" height="2" rx="1" fill="#fff" fill-opacity=".2"/>` +
+      `<circle cx="33" cy="73.5" r="3" fill="url(#gDeep)"/><circle cx="75" cy="73.5" r="3" fill="url(#gDeep)"/>` },
+  { id: 'qr', label: 'QR Scanner', group: 'Tools', acc: 'rose', mono: ['M4 8.5V4h4.5', 'M15.5 4H20v4.5', 'M20 15.5V20h-4.5', 'M8.5 20H4v-4.5', 'M8 8h3v3H8z', 'M13 8h3v3h-3z', 'M8 13h3v3H8z', 'M13.5 13.5h1v1h-1zM15.5 15.5h.5v.5h-.5z'],
+    art:
+      `<path d="M33,43 V38 a5,5 0 0 1 5,-5 h5 M65,33 h5 a5,5 0 0 1 5,5 v5 M75,65 v5 a5,5 0 0 1 -5,5 h-5 M43,75 h-5 a5,5 0 0 1 -5,-5 v-5" fill="none" stroke="url(#gSteel)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>` +
+      [[39, 39], [57, 39], [39, 57]].map(([x, y]) => `<rect x="${x}" y="${y}" width="12" height="12" rx="2.5" fill="url(#gSlate)"/><rect x="${x + 3.5}" y="${y + 3.5}" width="5" height="5" rx="1" fill="#C9DCE4"/>`).join('') +
+      `<rect x="58" y="58" width="4.5" height="4.5" rx="1" fill="url(#gSlate)"/><rect x="64.5" y="64.5" width="4.5" height="4.5" rx="1" fill="url(#gSlate)"/><rect x="64.5" y="58" width="4.5" height="4.5" rx="1" fill="#C9DCE4" fill-opacity=".8"/><rect x="58" y="64.5" width="4.5" height="4.5" rx="1" fill="#C9DCE4" fill-opacity=".55"/>` +
+      `<rect x="31" y="48.5" width="46" height="11" rx="5.5" fill="{a1}" fill-opacity=".16"/>` +
+      `<rect x="31" y="52.5" width="46" height="3" rx="1.5" fill="url(#A)"/>` },
+
+  // Filet
+  { id: 'activity', label: 'Activity', group: 'Filet', acc: 'coral', mono: ['M4 18V9M9.5 18V5M15 18v-6M20.5 18v-9'],
+    art: ground(55, 76, 24, 3) +
+      bar(29, 58, 'url(#gSteel)', '#C9DCE4') + bar(42, 38, 'url(#A)', '{a1}') + bar(55, 50, 'url(#gSteel)', '#C9DCE4') + bar(68, 44, 'url(#gSteel)', '#C9DCE4') },
+  { id: 'settings', label: 'Settings', group: 'Filet', acc: 'gold', mono: ['M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0', 'M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3'],
+    art: ground(54, 81, 19, 3) +
+      `<path d="${COG}" fill="url(#gSteel)"/>` +
+      `<path d="M41,45 a15.5,15.5 0 0 1 9,-6.6" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="1.8" stroke-linecap="round"/>` +
+      `<circle cx="54" cy="54" r="10.5" fill="url(#gDeep)"/>` +
+      `<circle cx="54" cy="54" r="6.5" fill="url(#A)"/>` +
+      `<circle cx="52.2" cy="52" r="1.6" fill="#fff" fill-opacity=".55"/>` },
+
+  // Actions (optional)
+  { id: 'search', label: 'Search', group: 'Actions', acc: 'amber', mono: ['M18 11a7 7 0 1 1-14 0 7 7 0 0 1 14 0', 'm20 20-3.5-3.5'],
+    art: ground(57, 79, 18, 3) +
+      `<rect x="57.5" y="60.5" width="18" height="9" rx="4.5" transform="rotate(45 66.5 65)" fill="url(#gSlate)"/>` +
+      `<circle cx="49" cy="48" r="15" fill="{a1}" fill-opacity=".2"/>` +
+      `<circle cx="49" cy="48" r="15" fill="none" stroke="url(#gSteel)" stroke-width="7"/>` +
+      `<circle cx="49" cy="48" r="11.3" fill="none" stroke="url(#A)" stroke-width="1.6"/>` +
+      `<path d="M40.5,44.5 a9,9 0 0 1 5.8,-5.9" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="2.4" stroke-linecap="round"/>` },
+  { id: 'index', label: 'Index now', group: 'Actions', acc: 'mint', mono: ['M19.5 12a7.5 7.5 0 0 1-13 5.1M4.5 12a7.5 7.5 0 0 1 13-5.1', 'M17.5 3.5v3.5H14M6.5 20.5V17H10'],
+    art: ground(54, 80, 17, 2.8) +
+      `<rect x="48" y="40" width="17" height="21" rx="3" fill="url(#gSlate)"/>` +
+      `<rect x="43" y="45" width="17" height="21" rx="3" fill="url(#gSteel)"/>` +
+      `<rect x="46.5" y="51" width="10" height="2.4" rx="1.2" fill="#2C4550" fill-opacity=".6"/>` +
+      `<rect x="46.5" y="56.5" width="7" height="2.4" rx="1.2" fill="#2C4550" fill-opacity=".6"/>` +
+      `<path d="M33.5,47 A21.5,21.5 0 0 1 70.5,39.5" fill="none" stroke="url(#A)" stroke-width="5" stroke-linecap="round"/>` +
+      `<path d="M74.5,61 A21.5,21.5 0 0 1 37.5,68.5" fill="none" stroke="url(#A)" stroke-width="5" stroke-linecap="round"/>` +
+      `<path d="M73.8,43.3 L72.86,36.13 L66.82,41.37z" fill="{a2}" stroke="{a2}" stroke-width="2" stroke-linejoin="round"/>` +
+      `<path d="M34.2,64.74 L35.16,71.89 L41.16,66.61z" fill="{a2}" stroke="{a2}" stroke-width="2" stroke-linejoin="round"/>` },
+  { id: 'startshare', label: 'Start sharing', group: 'Actions', acc: 'green', mono: ['M3.5 9.5a13 13 0 0 1 17 0', 'M6.5 13a9 9 0 0 1 11 0', 'M9.5 16.4a5 5 0 0 1 5 0', 'M12 20h.01'],
+    art: ground(54, 76, 14, 2.6) + `<circle cx="54" cy="66" r="10" fill="{a1}" fill-opacity=".22"/>` + waves(54, 66, 'url(#gSteel)', 'url(#gSlate)', 'url(#A)') },
+  { id: 'stopshare', label: 'Stop sharing', group: 'Actions', acc: 'red', mono: ['M3.5 9.5a13 13 0 0 1 17 0', 'M6.5 13a9 9 0 0 1 11 0', 'M9.5 16.4a5 5 0 0 1 5 0', 'M14.5 14.5h6v6h-6z'],
+    art: ground(52, 75, 14, 2.6) + waves(50, 62, '#4E7382', '#3E5F6C', '#34505C') +
+      `<circle cx="68" cy="68" r="11" fill="url(#gDeep)"/>` +
+      `<circle cx="68" cy="68" r="9" fill="url(#A)"/>` +
+      `<rect x="64.2" y="64.2" width="7.6" height="7.6" rx="1.6" fill="#fff" fill-opacity=".92"/>` },
+];
+
+// The name on the home screen. Names that clash with another app or a system screen start with Filet.
+const HOME_NAME = {
+  home: 'Filet Home', bookmarks: 'Filet Bookmarks', playlists: 'Filet Playlists',
+  photos: 'Filet Photos', videos: 'Filet Videos', audio: 'Filet Audio', documents: 'Filet Documents',
+  share: 'Filet Share', apps: 'Filet Apps', shortcuts: 'Filet Shortcuts', qr: 'Filet QR', activity: 'Filet Activity',
+  settings: 'Filet Settings', search: 'Filet Search',
+};
+const homeName = (icon) => HOME_NAME[icon.id] || icon.label;
+const CHANGED = ['newfiles', 'playlists', 'audio', 'scripts'];
+
+const GROUPS = [
+  ['Places', ''], ['Collections', ''], ['Categories', ''], ['Tools', ''], ['Filet', ''],
+  ['Actions', 'optional · for the app-icon hold menu, where actions sit next to tabs'],
+];
+
+// ── rendering ────────────────────────────────────────────────────────────
+const state = JSON.parse(localStorage.getItem('filet-tab-icons') || '{}');
+if (!['r4tile', 'r5over', 'r5tuck', 'r5clip', 'r4pics', 'r4lit', 'tabs', 'f', 'fan', 'page', 'current'].includes(state.filet)) state.filet = 'tabs'; state.mask ??= 'circle'; state.wall ??= 'dark'; state.bg ??= 'soft'; state.mono ??= 'off'; state.safe ??= 'off'; state.size ??= 84; state.votes ??= {}; state.notes ??= '';
+const save = () => localStorage.setItem('filet-tab-icons', JSON.stringify(state));
+if (state.round !== 2) { for (const id of CHANGED) delete state.votes[id]; state.round = 2; save(); }
+// A link can carry a view, e.g. #mono=dark&wall=light&mask=squircle&size=120 (not saved).
+for (const [k, v] of new URLSearchParams(location.hash.slice(1))) state[k] = k === 'size' ? +v : v;
+
+const THEMED = { dark: { bg: '#25323A', fg: '#BFD6DF' }, light: { bg: '#DCE8EC', fg: '#24414C' } };
+const resolve = (icon) => {
+  if (!icon.acc) return icon.art;
+  const [a1, a2, a3] = ACC[icon.acc];
+  return icon.art.replaceAll('url(#A)', `url(#acc-${icon.acc})`).replaceAll('{a1}', a1).replaceAll('{a2}', a2).replaceAll('{a3}', a3);
+};
+function monoArt(icon, fg) {
+  if (icon.monoFill) return (icon.monoArt || icon.art).replaceAll('#4E7382', fg).replaceAll('#7FA8B8', fg);
+  return `<g transform="translate(32 32) scale(1.8333)" fill="none" stroke="${fg}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icon.mono.map(d => `<path d="${d}"/>`).join('')}</g>`;
+}
+function tileSVG(icon) {
+  const themed = state.mono !== 'off' ? THEMED[state.mono] : null;
+  const bg = themed ? themed.bg : (state.bg === 'soft' ? 'url(#tileSoft)' : '#1E1F1D');
+  const body = themed ? monoArt(icon, themed.fg) : resolve(icon);
+  const safe = state.safe === 'on' ? `<circle cx="54" cy="54" r="33" fill="none" stroke="#ff5f8f" stroke-width=".6" stroke-dasharray="2 1.6"/>` : '';
+  const back = !themed && icon.back ? icon.back : `<rect x="0" y="0" width="108" height="108" fill="${bg}"/>`;
+  return `<svg viewBox="18 18 72 72" xmlns="http://www.w3.org/2000/svg">${back}${body}${safe}</svg>`;
+}
+function cell(icon, opts = {}) {
+  const v = state.votes[icon.id];
+  const ink = INK[icon.id];
+  const inkHtml = ink ? `<span class="ink ${ink.out ? 'bad' : ''}" title="How far the ink reaches from the centre, in canvas units; the safe circle is 33">${ink.out ? ink.out + ' px outside' : 'r ' + ink.maxR.toFixed(1) + (ink.vsToday ? ' / today ' + ink.vsToday.toFixed(1) : ' / 33')}</span>` : '';
+  const name = opts.bare ? icon.label : homeName(icon);
+  const inApp = !opts.bare && icon.bar ? `<div class="meta">in Filet: ${icon.label}${icon.bar ? ' · bar: ' + icon.bar : ''}</div>` : '';
+  return `<div class="cell"><div class="tile">${tileSVG(icon)}</div><div class="lbl">${name}</div>${inApp}` +
+    (opts.bare ? '' :
+      `<div class="meta">${icon.acc ? `<span class="dot" style="background:${ACC[icon.acc][1]}"></span>${icon.acc}` : ''} ${inkHtml}</div>` +
+      `<div class="meta"><button class="vote ${v === 'ok' ? 'ok' : ''}" data-id="${icon.id}" data-v="ok">OK</button><button class="vote ${v === 'redo' ? 'redo' : ''}" data-id="${icon.id}" data-v="redo">Redo</button></div>`) +
+    `</div>`;
+}
+const INK = {};
+// ── round 4, each new one up close: the 108 canvas, the themed shape, and beside a list's folder ──
+function canvas108(icon) {
+  const art = resolve(icon);
+  return `<svg viewBox="0 0 108 108" width="150" height="150" xmlns="http://www.w3.org/2000/svg" style="display:block;background:repeating-conic-gradient(#20262A 0% 25%, #191E21 0% 50%) 0 0/12px 12px;border-radius:6px">` +
+    (icon.back || '') + art +
+    `<rect x="18" y="18" width="72" height="72" fill="none" stroke="#9FC6D4" stroke-width=".5" stroke-dasharray="2 1.6"/>` +
+    `<circle cx="54" cy="54" r="33" fill="none" stroke="#ff5f8f" stroke-width=".6" stroke-dasharray="2 1.6"/></svg>`;
+}
+function monoTile(icon, mode) {
+  const T = THEMED[mode];
+  return `<div class="tile" style="width:64px;height:64px"><svg viewBox="18 18 72 72" xmlns="http://www.w3.org/2000/svg"><rect width="108" height="108" fill="${T.bg}"/>${monoArt(icon, T.fg)}</svg></div>`;
+}
+function besideRow(icon, label) {
+  const lrow = (g, name, meta) => `<div class="r4row"><span class="r4i">${g}</span><span class="r4n">${name}<i>${meta}</i></span></div>`;
+  const listFolder = `<svg viewBox="10 12 88 88" width="44" height="44" xmlns="http://www.w3.org/2000/svg" style="display:block">${R4_LIST}</svg>`;
+  return `<div class="r4list">` + lrow(listFolder, 'Documents', '12 items · a folder in a list') +
+    lrow(`<div class="tile" style="width:44px;height:44px;box-shadow:none;background:transparent"><svg viewBox="18 18 72 72" xmlns="http://www.w3.org/2000/svg">${icon.back || ''}${resolve(icon)}</svg></div>`, label, icon.back ? 'the app icon, on its own tile' : 'the app icon, no tile, as on your phone') + `</div>`;
+}
+function renderR4() {
+  const el = document.getElementById('r4detail');
+  if (!el) return;
+  el.innerHTML = R4_NEW.map((k) => {
+    const icon = FILETS[k], label = CANDIDATES.find(([c]) => c === k)[1];
+    const ink = INK[icon.id];
+    return `<div class="r4card"><div class="r4h">${label}</div><div class="r4body">` +
+      `<div><div class="r4cap">108 canvas</div>${canvas108(icon)}<div class="r4cap">${ink ? 'ink reaches r ' + ink.maxR.toFixed(1) + ' of 33' : 'measuring…'}</div></div>` +
+      `<div><div class="r4cap">Themed, dark and light</div><div style="display:flex;gap:8px">${monoTile(icon, 'dark')}${monoTile(icon, 'light')}</div></div>` +
+      `<div><div class="r4cap">Beside a folder in a list</div>${besideRow(icon, 'Filet')}</div>` +
+      `</div><div class="r4note">${R4_NOTE[k]}</div></div>`;
+  }).join('');
+}
+function render() {
+  document.documentElement.style.setProperty('--size', state.size + 'px');
+  document.body.className = 'm-' + state.mask;
+  document.querySelectorAll('.js-wall').forEach(w => { w.classList.remove('dark', 'light', 'color'); w.classList.add(state.wall); });
+  FILET = FILETS[state.filet] || FILETS.tabs;
+  const asFilet = (label) => ({ ...FILETS.current, label });
+  document.getElementById('today').innerHTML = `<div class="grid">${['Playlists', 'Carry on', 'Search'].map(l => cell(asFilet(l), { bare: true })).join('')}</div>`;
+  document.getElementById('groups').innerHTML = GROUPS.map(([g, note]) => {
+    const items = ICONS.filter(i => i.group === g);
+    return `<section><h2>${g} <span style="color:var(--fg3);letter-spacing:0">· ${items.length}</span>${note ? `<span class="opt">${note}</span>` : ''}</h2>` +
+      `<div class="wall js-wall ${state.wall}"><div class="grid">${(g === 'Places' ? cell(FILET, { bare: true }) : '') + items.map(i => cell(i)).join('')}</div></div></section>`;
+  }).join('');
+  const start = cell({ id: 'filet-r4start', label: 'Start · Has things in it', group: null, acc: null, art: R4_START, monoArt: R4M_PLAIN, monoFill: true }, { bare: true });
+  document.getElementById('filetNew').innerHTML = `<div class="grid">${start}${[...CANDIDATES, ['current', 'Current']].map(([k, l]) => cell({ ...FILETS[k], label: l }, { filet: true })).join('')}</div>`;
+  renderR4();
+  const byId = Object.fromEntries(ICONS.map(i => [i.id, i]));
+  document.getElementById('close').innerHTML = `<div class="grid">${['playlists', 'carryon', 'home'].map(id => cell(byId[id], { bare: true })).join('')}${cell(FILET, { bare: true })}</div>`;
+  document.getElementById('phoneGrid').innerHTML = [FILET, ...['playlists', 'carryon', 'photos', 'videos', 'bookmarks', 'scripts', 'qr', 'share', 'files', 'apps', 'settings'].map(id => byId[id])].map(i => cell(i, { bare: true })).join('');
+  document.getElementById('swatches').innerHTML = ICONS.filter(i => i.group !== 'Actions').map(i => `<span class="sw"><i style="background:linear-gradient(90deg,${ACC[i.acc].join(',')})"></i>${i.label}</span>`).join('');
+  for (const [id, v] of [['mask', state.mask], ['wall', state.wall], ['bg', state.bg], ['mono', state.mono], ['safe', state.safe], ['filet', state.filet]])
+    document.querySelectorAll(`#${id} button`).forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  document.getElementById('size').value = state.size;
+  document.getElementById('notes').value = state.notes;
+  summary();
+}
+function summary() {
+  const all = [...CANDIDATES.map(([k, l]) => ({ id: FILETS[k].id, label: 'Filet ' + l })), ...ICONS];
+  const ok = all.filter(i => state.votes[i.id] === 'ok').map(i => i.label);
+  const redo = all.filter(i => state.votes[i.id] === 'redo').map(i => i.label);
+  document.getElementById('summary').innerHTML = (ok.length || redo.length)
+    ? `<b style="color:var(--good)">OK (${ok.length})</b>: ${ok.join(', ') || '-'}<br><b style="color:var(--bad)">Redo (${redo.length})</b>: ${redo.join(', ') || '-'}`
+    : 'Nothing marked yet.';
+}
+document.addEventListener('click', e => {
+  const seg = e.target.closest('.seg button');
+  if (seg) { state[seg.parentElement.id] = seg.dataset.v; save(); render(); return; }
+  const vote = e.target.closest('.vote');
+  if (vote) { const { id, v } = vote.dataset; state.votes[id] = state.votes[id] === v ? undefined : v; save(); render(); }
+});
+document.getElementById('size').addEventListener('input', e => { state.size = +e.target.value; save(); document.documentElement.style.setProperty('--size', state.size + 'px'); });
+document.getElementById('notes').addEventListener('input', e => { state.notes = e.target.value; save(); });
+document.getElementById('copy').addEventListener('click', async () => {
+  const all = [...CANDIDATES.map(([k, l]) => ({ id: FILETS[k].id, label: 'Filet ' + l })), ...ICONS];
+  const ok = all.filter(i => state.votes[i.id] === 'ok').map(i => i.label);
+  const redo = all.filter(i => state.votes[i.id] === 'redo').map(i => i.label);
+  const text = `Tab icons round 3\nOK: ${ok.join(', ') || '-'}\nRedo: ${redo.join(', ') || '-'}\nMask: ${state.mask}, tile: ${state.bg}, Filet icon: ${state.filet}\n${state.notes}`.trim();
+  try { await navigator.clipboard.writeText(text); document.getElementById('copied').textContent = 'Copied. Paste it in the terminal.'; }
+  catch { document.getElementById('copied').textContent = 'Copy failed; select the box and copy it.'; }
+});
+
+// ── the safe-zone check: draws each icon's ink and measures how far it reaches ──
+async function inkCheck(icon) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="432" height="432" viewBox="0 0 108 108"><defs>${DEFS}</defs>${resolve(icon)}</svg>`;
+  const img = new Image();
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  await img.decode();
+  const c = document.createElement('canvas'); c.width = c.height = 432;
+  const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+  const d = ctx.getImageData(0, 0, 432, 432).data;
+  let out = 0, maxR = 0;
+  for (let y = 0; y < 432; y++) for (let x = 0; x < 432; x++) {
+    if (d[(y * 432 + x) * 4 + 3] < 40) continue;
+    const r = Math.hypot(x + .5 - 216, y + .5 - 216) / 4;
+    if (r > maxR) maxR = r;
+    if (r > 33) out++;
+  }
+  return { out, maxR };
+}
+(async () => {
+  render();
+  let bad = [];
+  // The new marks are held to the same circle as the tab icons.
+  for (const [k, l] of CANDIDATES) {
+    INK[FILETS[k].id] = await inkCheck(FILETS[k]);
+    if (INK[FILETS[k].id].out) bad.push('Filet ' + l);
+  }
+  for (const i of ICONS) { try { INK[i.id] = await inkCheck(i); if (INK[i.id].out) bad.push(i.label); } catch (e) { bad.push(i.label + ' (not checked)'); } }
+  const worst = Math.max(...Object.values(INK).map(v => v.maxR));
+  document.getElementById('inkSummary').innerHTML = bad.length
+    ? `<b style="color:var(--bad)">Outside the safe circle:</b> ${bad.join(', ')}`
+    : `<b style="color:var(--good)">All ${ICONS.length} tab icons keep their ink inside the safe circle.</b> The furthest reaches r ${Math.max(...ICONS.map(i => INK[i.id].maxR)).toFixed(1)} of 33. The Filet candidates do too: ${CANDIDATES.map(([k, l]) => l.split(' · ')[1] + ' r ' + INK[FILETS[k].id].maxR.toFixed(1)).join(', ')}.`;
+  renderR4();
+  document.body.dataset.ink = JSON.stringify(Object.fromEntries(Object.entries(INK).map(([k, v]) => [k, [v.out, +v.maxR.toFixed(1)]])));
+  render();
+})();
+</script>
+</body>
+</html>

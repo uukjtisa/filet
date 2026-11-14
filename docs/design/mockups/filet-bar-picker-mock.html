@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet · bottom bar picker and hold menu · round 1</title>
+<style>
+:root {
+  --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --onAccent:#0E1417; --sel:#243036;
+}
+body.light {
+  --bg:#F5F4F0; --surface:#FFFFFF; --raised:#FAF9F6; --sunken:#EBE9E3; --high:#E4E1DA;
+  --line:#DDDAD2; --lineSoft:#E9E6DF; --fg:#22211E; --fg2:#615D55; --fg3:#8B867C;
+  --accent:#3E6E82; --onAccent:#FFFFFF; --sel:#E3EDF1;
+}
+* { box-sizing:border-box; }
+html { background:#0D0D0C; }
+body { margin:0; font:14px/1.45 Roboto, "Segoe UI", system-ui, sans-serif; color:#D9D6CF; background:#0D0D0C; }
+.page { max-width:1240px; margin:0 auto; padding:26px 22px 60px; }
+h1 { font-size:20px; margin:0 0 4px; color:#EDEAE3; font-weight:600; }
+.lead { color:#9A968D; max-width:900px; margin:0 0 16px; }
+h2 { font-size:15px; margin:34px 0 4px; color:#EDEAE3; font-weight:600; }
+.sub { color:#9A968D; max-width:900px; margin:0 0 14px; font-size:13px; }
+.controls { display:flex; flex-wrap:wrap; gap:14px 22px; padding:12px 14px; background:#1A1A18; border:1px solid #2A2A26; border-radius:12px; position:sticky; top:8px; z-index:20; }
+.ctl { display:flex; align-items:center; gap:8px; font-size:12.5px; color:#9A968D; }
+.seg { display:inline-flex; border:1px solid #34342F; border-radius:8px; overflow:hidden; }
+.seg button { background:transparent; color:#B7B3AA; border:0; padding:5px 10px; font:inherit; cursor:pointer; }
+.seg button + button { border-left:1px solid #34342F; }
+.seg button.on { background:#2F4550; color:#E8F2F6; }
+.pair { display:flex; flex-wrap:wrap; gap:28px; align-items:flex-start; }
+.col { display:flex; flex-direction:column; gap:8px; }
+.tag { font-size:11px; letter-spacing:1.2px; text-transform:uppercase; color:#8B867C; }
+.tag b { color:#C9C5BC; }
+.note { font-size:12px; color:#8B867C; max-width:360px; }
+
+/* ── the phone ── */
+.phone { width:360px; height:740px; border-radius:30px; border:9px solid #050505; background:var(--bg); color:var(--fg);
+  display:flex; flex-direction:column; overflow:hidden; box-shadow:0 18px 50px #0008; position:relative; }
+.status { height:24px; flex:none; display:flex; align-items:center; justify-content:space-between; padding:0 16px; font-size:11px; color:var(--fg2); }
+.head { flex:none; height:46px; display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:1px solid var(--lineSoft); }
+.head .t { font-size:16px; font-weight:500; flex:1; }
+.head svg { width:19px; height:19px; color:var(--fg2); }
+.scroll { flex:1; overflow-y:auto; overflow-x:hidden; scrollbar-width:thin; position:relative; }
+
+/* settings pieces, as SettingsPage draws them */
+.sec { padding-top:20px; }
+.sec .t { font-size:13.5px; font-weight:600; color:var(--fg2); padding:0 14px; }
+.sec .s { font-size:11px; line-height:15px; color:var(--fg3); padding:2px 14px 9px; }
+.sec hr { border:0; border-top:1px solid var(--lineSoft); margin:0 0 4px; }
+.barrow { display:flex; align-items:center; padding:9px 6px 9px 16px; min-height:50px; }
+.barrow .txt { flex:1; min-width:0; }
+.barrow .l { font-size:13px; color:var(--fg); }
+.barrow .d { font-size:10px; color:var(--fg3); }
+.ib { width:32px; height:32px; display:grid; place-items:center; border-radius:50%; color:var(--fg2); cursor:pointer; flex:none; }
+.ib:hover { background:var(--high); }
+.ib svg { width:16px; height:16px; }
+.ib.x { color:var(--fg3); } .ib.x svg { width:14px; height:14px; }
+.ib.add { color:var(--accent); cursor:default; } .ib.add:hover { background:none; }
+.offhead { font-size:9px; letter-spacing:1.3px; color:var(--fg3); padding:14px 16px 4px; }
+.clickrow { cursor:pointer; } .clickrow:hover { background:var(--high); }
+
+/* the new picker */
+.preview { margin:2px 12px 10px; border-radius:14px; background:var(--sunken); border:1px solid var(--lineSoft); padding:8px 8px 9px; }
+.preview .cap { font-size:9.5px; letter-spacing:1.1px; color:var(--fg3); padding:0 4px 6px; display:flex; justify-content:space-between; }
+.preview .bar { border-radius:10px; overflow:hidden; }
+.dragrow { display:flex; align-items:center; gap:10px; height:50px; padding:0 6px 0 6px; background:var(--bg); position:relative; transition:transform .16s ease-out, box-shadow .16s ease-out; }
+.dragrow.lifted { transition:none; z-index:5; background:var(--raised); box-shadow:0 8px 22px #0007; border-radius:10px; }
+.grip { width:30px; height:42px; display:grid; place-items:center; color:var(--fg3); cursor:grab; touch-action:none; flex:none; }
+.grip:active { cursor:grabbing; }
+.grip svg { width:16px; height:16px; }
+.dragrow .txt { flex:1; min-width:0; }
+.dragrow .l { font-size:13px; color:var(--fg); }
+.dragrow .d { font-size:10px; color:var(--fg3); }
+.grouplabel { font-size:10.5px; font-weight:500; color:var(--fg3); padding:8px 17px 4px; }
+.addrow { display:flex; align-items:center; gap:10px; height:46px; padding:0 8px 0 36px; cursor:pointer; }
+.addrow:hover { background:var(--high); }
+.addrow .l { flex:1; font-size:13px; color:var(--fg); }
+.addrow .plus { font-size:11px; color:var(--accent); padding-right:8px; }
+.addrow.full { cursor:default; opacity:.45; } .addrow.full:hover { background:none; }
+
+/* tiles */
+.arttile { width:30px; height:30px; border-radius:8.1px; overflow:hidden; border:1px solid var(--lineSoft); flex:none; }
+.arttile svg { width:100%; height:100%; display:block; }
+.glyphtile { width:30px; height:30px; border-radius:8.1px; background:var(--sunken); border:1px solid var(--lineSoft); display:grid; place-items:center; color:var(--fg2); flex:none; }
+.glyphtile svg { width:16px; height:16px; }
+
+/* the bottom bar, as BottomNav and NavItem draw it */
+.nav { flex:none; background:var(--raised); padding:4px 0; display:flex; border-top:1px solid var(--lineSoft); }
+.nav.scrolls { overflow-x:auto; scrollbar-width:none; }
+.nav .ni { display:flex; flex-direction:column; align-items:center; padding:4px 14px; border-radius:9px; cursor:pointer; flex:1 1 0; min-width:0; }
+.nav.scrolls .ni { flex:none; }
+.nav .ni:hover { background:var(--high); }
+.nav .ni .g { width:19px; height:19px; color:var(--fg2); display:grid; place-items:center; }
+.nav .ni .g svg { width:19px; height:19px; }
+.nav.drawn .ni .g, .nav.drawn .ni .g svg { width:23px; height:23px; }
+.nav .ni .c { font-size:9.5px; color:var(--fg3); white-space:nowrap; margin-top:1px; }
+.gesture { height:14px; flex:none; background:var(--raised); display:grid; place-items:center; }
+.gesture i { width:110px; height:4px; border-radius:2px; background:var(--fg3); opacity:.5; }
+
+/* shortcuts tab pieces, as ShortcutCatalogue draws them */
+.foldhead { display:flex; align-items:center; gap:7px; padding:14px 15px 8px; }
+.foldhead svg { width:12px; height:12px; color:var(--fg3); }
+.foldhead .t { flex:1; font-size:9.5px; letter-spacing:1.1px; font-weight:600; color:var(--fg3); }
+.foldhead .n { font-size:10px; color:var(--fg3); }
+.cat { display:flex; align-items:center; gap:11px; margin:0 12px 7px; padding:9px 11px; border-radius:10px; border:1px solid var(--lineSoft); background:var(--raised); }
+.cat .txt { flex:1; min-width:0; }
+.cat .l { font-size:13px; color:var(--fg); }
+.cat .d { font-size:10px; color:var(--fg3); line-height:14px; }
+.cat .add { font-size:11px; color:var(--accent); }
+.pill { font-size:9.5px; color:var(--fg2); background:var(--high); padding:2px 7px; border-radius:20px; white-space:nowrap; }
+.expl { font-size:11px; color:var(--fg3); padding:0 16px 10px; line-height:15px; }
+
+/* a launcher's hold popup: the launcher's look, not Filet's */
+.launch { margin:4px 12px 12px; border-radius:16px; padding:16px 0 14px; background:linear-gradient(160deg,#30475A,#1B2630 60%,#141A20); position:relative; }
+.launch.flat { background:linear-gradient(160deg,#3D3F45,#24262B); }
+.popup { width:214px; margin:0 auto 10px; background:#F3F2F0; color:#1D1C1A; border-radius:16px; padding:6px 0; box-shadow:0 10px 26px #0008; }
+.popup .pr { display:flex; align-items:center; gap:12px; padding:7px 14px; font-size:13px; }
+.popup .pr .ic { width:28px; height:28px; border-radius:50%; overflow:hidden; flex:none; }
+.popup .pr .ic svg { width:100%; height:100%; display:block; }
+.popup .sep { height:1px; background:#0001; margin:4px 0; }
+.popup .pr.sys { color:#555; font-size:12px; } .popup .pr.sys .ic { background:#E4E2DE; }
+.appicon { width:54px; height:54px; margin:0 auto; border-radius:50%; overflow:hidden; box-shadow:0 2px 8px #0006; }
+.appicon svg { width:100%; height:100%; display:block; }
+.applbl { text-align:center; color:#fff; font-size:11.5px; margin-top:5px; text-shadow:0 1px 2px #000a; }
+.full-note { font-size:10.5px; color:var(--fg3); padding:4px 16px 8px; }
+
+textarea { width:100%; max-width:900px; height:110px; background:#151514; color:#E8E6E1; border:1px solid #2E2E2A; border-radius:10px; padding:10px; font:13px/1.45 inherit; }
+.changes div { margin:6px 0; color:#B7B3AA; font-size:13px; max-width:900px; }
+.ask { margin:10px 0 0; padding:10px 14px; border-left:3px solid #7FA8B8; background:#151a1c; border-radius:6px; color:#C9D7DC; font-size:13px; max-width:900px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs id="sharedDefs"></defs></svg>
+<div class="page">
+  <h1>Bottom bar picker and hold menu · round 1</h1>
+  <p class="lead">Left: today, as Settings draws it now. Right: the proposal. Both phones work. Add, remove, drag the <b>⠿</b> grip, flip the switches up top, and the bar at the bottom of each phone follows. The icons are the final tab icons, pulled straight from the tab icon mock.</p>
+
+  <div class="controls">
+    <div class="ctl">Theme <span class="seg" data-k="theme"><button data-v="dark">Dark</button><button data-v="light">Light</button></span></div>
+    <div class="ctl">Icons on the bar itself <span class="seg" data-k="barIcons"><button data-v="line">Line (today)</button><button data-v="drawn">Drawn</button></span></div>
+    <div class="ctl">Reorder with <span class="seg" data-k="order"><button data-v="drag">Grip only</button><button data-v="both">Grip + arrows</button></span></div>
+    <div class="ctl">Preview above the list <span class="seg" data-k="preview"><button data-v="on">On</button><button data-v="off">Off</button></span></div>
+    <div class="ctl">Sharing is <span class="seg" data-k="sharing"><button data-v="off">Off</button><button data-v="on">On</button></span></div>
+  </div>
+
+  <h2>1 · Settings › Bottom bar</h2>
+  <p class="sub">Today it's two flat lists: the bar with up/down/remove arrows, then 19 things in the order the code declares them, with no icons. The proposal keeps the same section and order rules (the last item can't be removed; past six the bar scrolls sideways) and changes four things: an icon on every row, a grip to drag, "Not on the bar" grouped like the side bar, and a preview of the bar at the top of the section.</p>
+  <div class="pair">
+    <div class="col"><div class="tag"><b>Today</b> · as built</div><div class="phone" id="phoneOld"></div></div>
+    <div class="col"><div class="tag"><b>New</b> · proposal</div><div class="phone" id="phoneNew"></div>
+      <div class="note">TalkBack: holding a row gives <i>Move up</i> and <i>Move down</i> as actions, so the order can still be changed without dragging. The grip is the only place a drag starts, so scrolling the list never picks a row up by accident.</div></div>
+  </div>
+
+  <h2>2 · The hold menu (holding Filet's icon on the home screen)</h2>
+  <p class="sub">Today the four are fixed: Search, Bookmarks, Start/Stop sharing, Index now. The proposal adds a <b>Hold menu</b> section to the Shortcuts tab where you pick the four from every tab plus the actions. Four is a hard cap because launchers drop anything past it, and which ones they drop varies by launcher. The sharing entry still flips between Start and Stop on its own.</p>
+  <div class="pair">
+    <div class="col"><div class="tag"><b>Today</b> · fixed, no setting</div><div class="phone" id="phoneMenuOld"></div></div>
+    <div class="col"><div class="tag"><b>New</b> · Shortcuts tab › Hold menu</div><div class="phone" id="phoneMenuNew"></div></div>
+  </div>
+
+  <h2>Your notes</h2>
+  <textarea id="notes" placeholder="Anything to change. Kept in this browser."></textarea>
+
+  <h2>Changes</h2>
+  <div class="changes">
+    <div><b>Round 1 · 2026-11-13</b>: first draft. Bottom bar picker with an icon on every row, drag grip, grouped "Not on the bar" and a live preview. Hold menu chooser in the Shortcuts tab, four entries from every tab plus the actions, with the sharing flip. Switches for the bar's own icons (line or drawn), grip with or without arrows, and the preview on or off.</div>
+  </div>
+  <div class="ask">The open choices are the switches up top: <b>drawn or line icons on the bar itself</b>, <b>grip only or grip + arrows</b>, and <b>whether the preview earns its place</b> when the real bar is already at the bottom of the screen. Tell me which, or what to change.</div>
+</div>
+
+<script>
+const DATA = {"defs":"<linearGradient id=\"gSteel\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#C6DDE6\"/><stop offset=\"0.3\" stop-color=\"#93B8C6\"/><stop offset=\"0.65\" stop-color=\"#7FA8B8\"/><stop offset=\"1\" stop-color=\"#5E8A9B\"/></linearGradient><linearGradient id=\"gSlate\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#6F97A7\"/><stop offset=\"0.5\" stop-color=\"#4E7382\"/><stop offset=\"1\" stop-color=\"#385663\"/></linearGradient><linearGradient id=\"gDeep\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#3E5F6C\"/><stop offset=\"1\" stop-color=\"#22343C\"/></linearGradient><linearGradient id=\"gSky\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#22343C\"/><stop offset=\"1\" stop-color=\"#46707F\"/></linearGradient><linearGradient id=\"gPaper\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#E6F0F3\"/><stop offset=\"1\" stop-color=\"#A9C6D2\"/></linearGradient><radialGradient id=\"gVinyl\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\"><stop offset=\"0\" stop-color=\"#3A3D40\"/><stop offset=\"0.55\" stop-color=\"#1A1B1C\"/><stop offset=\"1\" stop-color=\"#0E0F10\"/></radialGradient><radialGradient id=\"gGround\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\"0.5\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><radialGradient id=\"tileSoft\" cx=\"0.36\" cy=\"0.26\" r=\"0.95\"><stop offset=\"0\" stop-color=\"#2D2F2C\"/><stop offset=\"1\" stop-color=\"#191A18\"/></radialGradient><linearGradient id=\"acc-amber\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F5D68A\"/><stop offset=\"0.5\" stop-color=\"#E0B25C\"/><stop offset=\"1\" stop-color=\"#A97A2E\"/></linearGradient><linearGradient id=\"acc-green\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#B4E39B\"/><stop offset=\"0.5\" stop-color=\"#7FC46A\"/><stop offset=\"1\" stop-color=\"#4E8F3E\"/></linearGradient><linearGradient id=\"acc-gold\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#FBE28C\"/><stop offset=\"0.5\" stop-color=\"#E8C15A\"/><stop offset=\"1\" stop-color=\"#B08A28\"/></linearGradient><linearGradient id=\"acc-coral\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F7B49C\"/><stop offset=\"0.5\" stop-color=\"#E58A6A\"/><stop offset=\"1\" stop-color=\"#B05E42\"/></linearGradient><linearGradient id=\"acc-mint\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#9BEBD8\"/><stop offset=\"0.5\" stop-color=\"#5FCDB5\"/><stop offset=\"1\" stop-color=\"#2F8F7C\"/></linearGradient><linearGradient id=\"acc-rose\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F6A6BC\"/><stop offset=\"0.5\" stop-color=\"#E0708F\"/><stop offset=\"1\" stop-color=\"#A84463\"/></linearGradient><linearGradient id=\"acc-lime\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#D6EE8E\"/><stop offset=\"0.5\" stop-color=\"#B0D65E\"/><stop offset=\"1\" stop-color=\"#7A9F2E\"/></linearGradient><linearGradient id=\"acc-orange\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#FAC48A\"/><stop offset=\"0.5\" stop-color=\"#F0A050\"/><stop offset=\"1\" stop-color=\"#B86E25\"/></linearGradient><linearGradient id=\"acc-red\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F59A8C\"/><stop offset=\"0.5\" stop-color=\"#E06A5A\"/><stop offset=\"1\" stop-color=\"#A63F31\"/></linearGradient><linearGradient id=\"acc-violet\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#D3BCF5\"/><stop offset=\"0.5\" stop-color=\"#A884E0\"/><stop offset=\"1\" stop-color=\"#7253B0\"/></linearGradient><linearGradient id=\"acc-sky\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#B3DDF7\"/><stop offset=\"0.5\" stop-color=\"#6FB7E8\"/><stop offset=\"1\" stop-color=\"#3F80B0\"/></linearGradient><linearGradient id=\"acc-brown\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#E8C29A\"/><stop offset=\"0.5\" stop-color=\"#CF9A5E\"/><stop offset=\"1\" stop-color=\"#946233\"/></linearGradient><linearGradient id=\"acc-indigo\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#C0C9FA\"/><stop offset=\"0.5\" stop-color=\"#8C9CF0\"/><stop offset=\"1\" stop-color=\"#5A68BF\"/></linearGradient>","filet":"<g transform=\"translate(54 54) scale(.8) translate(-54 -54)\"><path fill=\"#4E7382\" d=\"M26,24h16l6,8h30a6,6 0 0 1 6,6v8H16V30a6,6 0 0 1 6,-6z\"/><path fill=\"#7FA8B8\" d=\"M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z\"/></g>","icons":{"home":{"label":"Home","bar":null,"group":"Places","art":"<ellipse cx=\"54\" cy=\"78.5\" rx=\"21\" ry=\"3.4\" fill=\"url(#gGround)\"/><rect x=\"66\" y=\"31\" width=\"7\" height=\"14\" rx=\"1.4\" fill=\"url(#gSlate)\"/><rect x=\"34\" y=\"45\" width=\"40\" height=\"32\" rx=\"3.2\" fill=\"url(#gSteel)\"/><path d=\"M64,48 V77 H70.8 a3.2,3.2 0 0 0 3.2,-3.2 V48z\" fill=\"#000\" fill-opacity=\".14\"/><path d=\"M28.2,46.6 L51.3,26.8 a4.2,4.2 0 0 1 5.4,0 L79.8,46.6 a2.6,2.6 0 0 1 -1.7,4.6 H29.9 a2.6,2.6 0 0 1 -1.7,-4.6z\" fill=\"url(#gSlate)\"/><path d=\"M29.6,47.4 L51.9,28.3 a3.2,3.2 0 0 1 2.1,-0.8 V31.2 L33.4,48.9z\" fill=\"#fff\" fill-opacity=\".16\"/><rect x=\"48\" y=\"58\" width=\"12\" height=\"19\" rx=\"2.2\" fill=\"url(#acc-amber)\"/><circle cx=\"57\" cy=\"68\" r=\"1.1\" fill=\"#A97A2E\"/><rect x=\"38\" y=\"57\" width=\"7.5\" height=\"7.5\" rx=\"1.4\" fill=\"#F5D68A\"/><rect x=\"62.5\" y=\"57\" width=\"7.5\" height=\"7.5\" rx=\"1.4\" fill=\"#F5D68A\" fill-opacity=\".8\"/>","mono":["m4 11 8-7 8 7v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"]},"files":{"label":"Internal storage","bar":"Storage","group":"Places","art":"<ellipse cx=\"54\" cy=\"79\" rx=\"22\" ry=\"3.4\" fill=\"url(#gGround)\"/><rect x=\"28\" y=\"55\" width=\"52\" height=\"21\" rx=\"5\" fill=\"url(#gSlate)\"/><rect x=\"28\" y=\"31\" width=\"52\" height=\"21\" rx=\"5\" fill=\"url(#gSteel)\"/><rect x=\"31\" y=\"33\" width=\"46\" height=\"2.6\" rx=\"1.3\" fill=\"#fff\" fill-opacity=\".24\"/><rect x=\"31\" y=\"57\" width=\"46\" height=\"2.6\" rx=\"1.3\" fill=\"#fff\" fill-opacity=\".14\"/><rect x=\"55\" y=\"40\" width=\"18\" height=\"3.4\" rx=\"1.7\" fill=\"#2C4550\" fill-opacity=\".75\"/><rect x=\"55\" y=\"64\" width=\"18\" height=\"3.4\" rx=\"1.7\" fill=\"#1E2F36\" fill-opacity=\".8\"/><circle cx=\"37.5\" cy=\"41.5\" r=\"5.5\" fill=\"#B4E39B\" fill-opacity=\".25\"/><circle cx=\"37.5\" cy=\"41.5\" r=\"2.8\" fill=\"url(#acc-green)\"/><circle cx=\"37.5\" cy=\"65.5\" r=\"5.5\" fill=\"#B4E39B\" fill-opacity=\".2\"/><circle cx=\"37.5\" cy=\"65.5\" r=\"2.8\" fill=\"url(#acc-green)\"/><circle cx=\"45\" cy=\"41.5\" r=\"1.8\" fill=\"#2C4550\" fill-opacity=\".6\"/><circle cx=\"45\" cy=\"65.5\" r=\"1.8\" fill=\"#1E2F36\" fill-opacity=\".7\"/>","mono":["M3 4h18v7H3z","M3 13h18v7H3z","M7 7.5h.01M7 16.5h.01"]},"bookmarks":{"label":"Bookmarks","bar":null,"group":"Places","art":"<ellipse cx=\"54\" cy=\"80\" rx=\"16\" ry=\"3\" fill=\"url(#gGround)\"/><path d=\"M40,27 h28 a4,4 0 0 1 4,4 v45.6 a1.6,1.6 0 0 1 -2.5,1.3 L54,67.6 L38.5,77.9 a1.6,1.6 0 0 1 -2.5,-1.3 V31 a4,4 0 0 1 4,-4z\" fill=\"url(#gSteel)\"/><path d=\"M54,27 h14 a4,4 0 0 1 4,4 v45.6 a1.6,1.6 0 0 1 -2.5,1.3 L54,67.6z\" fill=\"#000\" fill-opacity=\".13\"/><path d=\"M40,27 h28 a4,4 0 0 1 4,4 v2 H36 v-2 a4,4 0 0 1 4,-4z\" fill=\"#fff\" fill-opacity=\".22\"/><path d=\"M54,34 L56.94,41.95 L65.41,42.29 L58.76,47.55 L61.05,55.71 L54,51 L46.95,55.71 L49.24,47.55 L42.59,42.29 L51.06,41.95z\" transform=\"translate(0 1.8)\" fill=\"#000\" fill-opacity=\".28\"/><path d=\"M54,34 L56.94,41.95 L65.41,42.29 L58.76,47.55 L61.05,55.71 L54,51 L46.95,55.71 L49.24,47.55 L42.59,42.29 L51.06,41.95z\" fill=\"url(#acc-gold)\" stroke=\"#E8C15A\" stroke-width=\"1.6\" stroke-linejoin=\"round\"/>","mono":["m12 4 2.4 5 5.6.8-4 3.9 1 5.5-5-2.7-5 2.7 1-5.5-4-3.9 5.6-.8z"]},"opened":{"label":"Opened","bar":null,"group":"Places","art":"<ellipse cx=\"52\" cy=\"80\" rx=\"18\" ry=\"3\" fill=\"url(#gGround)\"/><path d=\"M39,26 h19 l14,14 v34 a4,4 0 0 1 -4,4 h-29 a4,4 0 0 1 -4,-4 v-44 a4,4 0 0 1 4,-4z\" fill=\"url(#gSteel)\"/><path d=\"M58,26 v10 a4,4 0 0 0 4,4 h10z\" fill=\"url(#gSlate)\"/><rect x=\"41\" y=\"46\" width=\"20\" height=\"3.2\" rx=\"1.6\" fill=\"#2C4550\" fill-opacity=\".55\"/><rect x=\"41\" y=\"53\" width=\"15\" height=\"3.2\" rx=\"1.6\" fill=\"#2C4550\" fill-opacity=\".55\"/><rect x=\"41\" y=\"60\" width=\"11\" height=\"3.2\" rx=\"1.6\" fill=\"#2C4550\" fill-opacity=\".55\"/><circle cx=\"66\" cy=\"66\" r=\"14\" fill=\"url(#gDeep)\"/><circle cx=\"66\" cy=\"66\" r=\"11\" fill=\"url(#acc-coral)\"/><path d=\"M58.6,61.6 a9,9 0 0 1 5.2,-4.3\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".45\" stroke-width=\"1.6\" stroke-linecap=\"round\"/><path d=\"M66,59.5 V66 l4.6,3\" fill=\"none\" stroke=\"#3B1E15\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>","mono":["M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0","M12 7.5V12l3 2"]},"newfiles":{"label":"New files","bar":null,"group":"Places","art":"<ellipse cx=\"52\" cy=\"80\" rx=\"18\" ry=\"3\" fill=\"url(#gGround)\"/><rect x=\"40\" y=\"29\" width=\"30\" height=\"38\" rx=\"4\" transform=\"rotate(8 55 48)\" fill=\"url(#gSlate)\"/><path d=\"M36,33 h18 l11,11 v30 a4,4 0 0 1 -4,4 h-25 a4,4 0 0 1 -4,-4 v-37 a4,4 0 0 1 4,-4z\" fill=\"url(#gSteel)\"/><path d=\"M54,33 v8 a3,3 0 0 0 3,3 h8z\" fill=\"url(#gSlate)\"/><rect x=\"37.5\" y=\"50\" width=\"18\" height=\"3\" rx=\"1.5\" fill=\"#2C4550\" fill-opacity=\".55\"/><rect x=\"37.5\" y=\"56.5\" width=\"21\" height=\"3\" rx=\"1.5\" fill=\"#2C4550\" fill-opacity=\".55\"/><rect x=\"37.5\" y=\"63\" width=\"13\" height=\"3\" rx=\"1.5\" fill=\"#2C4550\" fill-opacity=\".55\"/><path d=\"M66.00,25.50L68.48,28.73L72.25,27.17L72.79,31.21L76.83,31.75L75.27,35.52L78.50,38.00L75.27,40.48L76.83,44.25L72.79,44.79L72.25,48.83L68.48,47.27L66.00,50.50L63.52,47.27L59.75,48.83L59.21,44.79L55.17,44.25L56.73,40.48L53.50,38.00L56.73,35.52L55.17,31.75L59.21,31.21L59.75,27.17L63.52,28.73z\" transform=\"translate(0 1.4)\" fill=\"#000\" fill-opacity=\".25\"/><path d=\"M66.00,25.50L68.48,28.73L72.25,27.17L72.79,31.21L76.83,31.75L75.27,35.52L78.50,38.00L75.27,40.48L76.83,44.25L72.79,44.79L72.25,48.83L68.48,47.27L66.00,50.50L63.52,47.27L59.75,48.83L59.21,44.79L55.17,44.25L56.73,40.48L53.50,38.00L56.73,35.52L55.17,31.75L59.21,31.21L59.75,27.17L63.52,28.73z\" fill=\"url(#acc-mint)\" stroke=\"#5FCDB5\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/><path d=\"M66,32.5 q0.8,4.6 5,5.5 q-4.2,0.9 -5,5.5 q-0.8,-4.6 -5,-5.5 q4.2,-0.9 5,-5.5z\" fill=\"#fff\" fill-opacity=\".95\"/><path d=\"M30.5,70 q0.5,2.6 2.8,3.1 q-2.3,0.5 -2.8,3.1 q-0.5,-2.6 -2.8,-3.1 q2.3,-0.5 2.8,-3.1z\" fill=\"#9BEBD8\" fill-opacity=\".8\"/>","mono":["M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7","M18 3v6M15 6h6","M8.5 13h7M8.5 16.5h5"]},"playlists":{"label":"Playlists","bar":null,"group":"Collections","art":"<ellipse cx=\"54\" cy=\"80\" rx=\"22\" ry=\"3.2\" fill=\"url(#gGround)\"/><circle cx=\"54\" cy=\"55\" r=\"18\" fill=\"url(#gVinyl)\"/><circle cx=\"54\" cy=\"55\" r=\"14.5\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".08\" stroke-width=\".9\"/><circle cx=\"54\" cy=\"55\" r=\"11\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".08\" stroke-width=\".9\"/><path d=\"M62.5,42 a15.5,15.5 0 0 1 6.5,7.5\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".3\" stroke-width=\"1.8\" stroke-linecap=\"round\"/><circle cx=\"54\" cy=\"55\" r=\"6.5\" fill=\"url(#acc-rose)\"/><circle cx=\"54\" cy=\"55\" r=\"1.5\" fill=\"#0E0F10\"/><path d=\"M34,58 V52 a20,20 0 0 1 40,0 v6\" fill=\"none\" stroke=\"url(#gSlate)\" stroke-width=\"6\" stroke-linecap=\"round\"/><path d=\"M36.68,42 A20,20 0 0 1 45.55,33.87\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".3\" stroke-width=\"1.6\" stroke-linecap=\"round\"/><rect x=\"28\" y=\"52\" width=\"12\" height=\"21\" rx=\"5.5\" fill=\"url(#gSteel)\"/><rect x=\"68\" y=\"52\" width=\"12\" height=\"21\" rx=\"5.5\" fill=\"url(#gSteel)\"/><rect x=\"37.5\" y=\"54\" width=\"5\" height=\"17\" rx=\"2.5\" fill=\"url(#acc-rose)\"/><rect x=\"65.5\" y=\"54\" width=\"5\" height=\"17\" rx=\"2.5\" fill=\"url(#acc-rose)\"/><rect x=\"45\" y=\"64.5\" width=\"18\" height=\"13\" rx=\"3\" fill=\"url(#gSteel)\"/><rect x=\"48\" y=\"67.6\" width=\"7.5\" height=\"1.8\" rx=\".9\" fill=\"#2C4550\" fill-opacity=\".7\"/><rect x=\"48\" y=\"70.6\" width=\"9.5\" height=\"1.8\" rx=\".9\" fill=\"#2C4550\" fill-opacity=\".7\"/><rect x=\"48\" y=\"73.6\" width=\"5.5\" height=\"1.8\" rx=\".9\" fill=\"#2C4550\" fill-opacity=\".7\"/><path d=\"M58.6,67.4 v5.4 l4.4,-2.7z\" fill=\"#E0708F\" stroke=\"#E0708F\" stroke-width=\".8\" stroke-linejoin=\"round\"/>","mono":["M4 6h11M4 10.5h11M4 15h7","M18 17.5V7l3-1","M18 17.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0"]},"carryon":{"label":"Carry on","bar":null,"group":"Collections","art":"<ellipse cx=\"54\" cy=\"80\" rx=\"18\" ry=\"3\" fill=\"url(#gGround)\"/><circle cx=\"54\" cy=\"52\" r=\"24\" fill=\"none\" stroke=\"url(#gDeep)\" stroke-width=\"7\"/><path d=\"M54,28 A24,24 0 1 1 31.17,59.42\" fill=\"none\" stroke=\"url(#acc-lime)\" stroke-width=\"7\" stroke-linecap=\"round\"/><circle cx=\"54\" cy=\"52\" r=\"17\" fill=\"url(#gSteel)\"/><path d=\"M54,35.5 a16.5,16.5 0 0 1 14.29,8.25\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".32\" stroke-width=\"1.8\" stroke-linecap=\"round\"/><path d=\"M49.5,43.6 v16.8 a1.6,1.6 0 0 0 2.4,1.4 l13.4,-8.4 a1.6,1.6 0 0 0 0,-2.8 l-13.4,-8.4 a1.6,1.6 0 0 0 -2.4,1.4z\" fill=\"url(#gDeep)\"/><circle cx=\"31.17\" cy=\"59.42\" r=\"1.9\" fill=\"#fff\" fill-opacity=\".9\"/>","mono":["M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0","m10 8.5 5.5 3.5-5.5 3.5z"]},"photos":{"label":"Photos","bar":null,"group":"Categories","art":"<ellipse cx=\"54\" cy=\"78\" rx=\"22\" ry=\"3\" fill=\"url(#gGround)\"/><rect x=\"28\" y=\"31\" width=\"52\" height=\"43\" rx=\"6\" fill=\"url(#gSlate)\"/><rect x=\"32\" y=\"35\" width=\"44\" height=\"35\" rx=\"3.5\" fill=\"url(#gSky)\"/><circle cx=\"64\" cy=\"46\" r=\"9\" fill=\"#FAC48A\" fill-opacity=\".22\"/><circle cx=\"64\" cy=\"46\" r=\"5.5\" fill=\"url(#acc-orange)\"/><path d=\"M32,66.5 L45,51.2 a2,2 0 0 1 3,0 L64.5,70 H35.5 a3.5,3.5 0 0 1 -3.5,-3.5z\" fill=\"#5F8C9D\"/><path d=\"M43,70 L59.3,55.3 a2,2 0 0 1 2.8,0 L76,66.5 a3.5,3.5 0 0 1 -3.5,3.5z\" fill=\"url(#gSteel)\"/><rect x=\"31\" y=\"33\" width=\"46\" height=\"1.8\" rx=\".9\" fill=\"#fff\" fill-opacity=\".2\"/>","mono":["M3 4h18v16H3z","M10 9.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0","m4 17 5-5 4 4 3-3 4 4"]},"videos":{"label":"Videos","bar":null,"group":"Categories","art":"<ellipse cx=\"54\" cy=\"79\" rx=\"22\" ry=\"3\" fill=\"url(#gGround)\"/><g transform=\"rotate(-11 31 46)\"><rect x=\"30\" y=\"36\" width=\"46\" height=\"9\" rx=\"2.4\" fill=\"url(#gDeep)\"/><path d=\"M37,36 h7 l-4.6,9 h-7z M51,36 h7 l-4.6,9 h-7z M65,36 h7 l-4.6,9 h-7z\" fill=\"url(#acc-red)\"/></g><rect x=\"30\" y=\"47\" width=\"48\" height=\"29\" rx=\"4\" fill=\"url(#gSteel)\"/><path d=\"M34,47 h40 a4,4 0 0 1 4,4 v3 H30 v-3 a4,4 0 0 1 4,-4z\" fill=\"url(#gDeep)\"/><path d=\"M37,47 h7 l-3.6,7 h-7z M51,47 h7 l-3.6,7 h-7z M65,47 h7 l-3.6,7 h-7z\" fill=\"#D9E6EC\" fill-opacity=\".85\"/><circle cx=\"33.5\" cy=\"46.5\" r=\"2.4\" fill=\"url(#gSlate)\"/><path d=\"M49,59 v11.5 a1.4,1.4 0 0 0 2.1,1.2 l10,-5.8 a1.4,1.4 0 0 0 0,-2.4 l-10,-5.8 a1.4,1.4 0 0 0 -2.1,1.2z\" fill=\"url(#acc-red)\"/>","mono":["M3 5h18v14H3z","m10 9 5 3-5 3z"]},"audio":{"label":"Audio","bar":null,"group":"Categories","art":"<ellipse cx=\"52\" cy=\"80\" rx=\"18\" ry=\"3\" fill=\"url(#gGround)\"/><path d=\"M31,44.5 a9,9 0 0 1 4,-8\" fill=\"none\" stroke=\"#D3BCF5\" stroke-opacity=\".75\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M26.5,47 a14,14 0 0 1 6,-13\" fill=\"none\" stroke=\"#D3BCF5\" stroke-opacity=\".45\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><rect x=\"43\" y=\"40\" width=\"4\" height=\"29\" rx=\"1.5\" fill=\"url(#gSlate)\"/><rect x=\"70\" y=\"32\" width=\"4\" height=\"29\" rx=\"1.5\" fill=\"url(#gSlate)\"/><path d=\"M43,39 L74,30.5 V37.5 L43,46z\" fill=\"url(#acc-violet)\" stroke=\"url(#acc-violet)\" stroke-width=\"1\" stroke-linejoin=\"round\"/><path d=\"M44,39.4 L73,31.4\" stroke=\"#fff\" stroke-opacity=\".4\" stroke-width=\"1.2\" stroke-linecap=\"round\"/><ellipse cx=\"38.5\" cy=\"69\" rx=\"8.6\" ry=\"6.4\" transform=\"rotate(-22 38.5 69)\" fill=\"url(#gSteel)\"/><ellipse cx=\"65.5\" cy=\"61\" rx=\"8.6\" ry=\"6.4\" transform=\"rotate(-22 65.5 61)\" fill=\"url(#gSteel)\"/><ellipse cx=\"35.6\" cy=\"66.6\" rx=\"3.2\" ry=\"1.6\" transform=\"rotate(-22 35.6 66.6)\" fill=\"#fff\" fill-opacity=\".45\"/><ellipse cx=\"62.6\" cy=\"58.6\" rx=\"3.2\" ry=\"1.6\" transform=\"rotate(-22 62.6 58.6)\" fill=\"#fff\" fill-opacity=\".45\"/>","mono":["M9 18V6l10-2v12","M9 18a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0","M19 16a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"]},"packages":{"label":"Packages","bar":null,"group":"Categories","art":"<ellipse cx=\"54\" cy=\"81\" rx=\"20\" ry=\"3\" fill=\"url(#gGround)\"/><g transform=\"translate(54 54) scale(1.12) translate(-54 -54)\"><path d=\"M54,28 L76,40 L54,52 L32,40z\" fill=\"url(#gSteel)\"/><path d=\"M32,40 L54,52 V78 L32,66z\" fill=\"url(#gSlate)\"/><path d=\"M76,40 L54,52 V78 L76,66z\" fill=\"url(#gDeep)\"/><path d=\"M40.8,35.2 L45.2,32.8 L67.2,44.8 L62.8,47.2z\" fill=\"url(#acc-green)\"/><path d=\"M62.8,47.2 L67.2,44.8 V70.8 L62.8,73.2z\" fill=\"#4E8F3E\"/><path d=\"M32,40 L54,52 L76,40\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".3\" stroke-width=\"1.1\" stroke-linejoin=\"round\"/></g>","mono":["M4 4h16a3 3 0 0 1 0 0v16H4z","M9 15V9l3 4 3-4v6"]},"documents":{"label":"Documents","bar":null,"group":"Categories","art":"<ellipse cx=\"53\" cy=\"80\" rx=\"18\" ry=\"3\" fill=\"url(#gGround)\"/><rect x=\"42\" y=\"28\" width=\"30\" height=\"42\" rx=\"4\" transform=\"rotate(7 57 49)\" fill=\"url(#gSlate)\"/><path d=\"M38,28 h19 l13,13 v35 a4,4 0 0 1 -4,4 h-28 a4,4 0 0 1 -4,-4 v-44 a4,4 0 0 1 4,-4z\" fill=\"url(#gSteel)\"/><path d=\"M57,28 v9 a4,4 0 0 0 4,4 h9z\" fill=\"url(#gSlate)\"/><rect x=\"39\" y=\"51\" width=\"24\" height=\"6\" rx=\"2\" fill=\"url(#acc-sky)\" fill-opacity=\".8\"/><rect x=\"40\" y=\"45\" width=\"20\" height=\"3.2\" rx=\"1.6\" fill=\"#2C4550\" fill-opacity=\".6\"/><rect x=\"40\" y=\"52.4\" width=\"21\" height=\"3.2\" rx=\"1.6\" fill=\"#2C4550\" fill-opacity=\".6\"/><rect x=\"40\" y=\"59.8\" width=\"17\" height=\"3.2\" rx=\"1.6\" fill=\"#2C4550\" fill-opacity=\".6\"/><rect x=\"40\" y=\"67.2\" width=\"21\" height=\"3.2\" rx=\"1.6\" fill=\"#2C4550\" fill-opacity=\".6\"/>","mono":["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z","M14 3v5h5","M8.5 13h7M8.5 16.5h5"]},"archives":{"label":"Archives","bar":null,"group":"Categories","art":"<ellipse cx=\"54\" cy=\"79\" rx=\"21\" ry=\"3\" fill=\"url(#gGround)\"/><rect x=\"33\" y=\"40\" width=\"42\" height=\"36\" rx=\"3.5\" fill=\"url(#gSlate)\"/><rect x=\"33\" y=\"42\" width=\"42\" height=\"3.5\" fill=\"#000\" fill-opacity=\".2\"/><rect x=\"30\" y=\"31\" width=\"48\" height=\"12\" rx=\"3.5\" fill=\"url(#gSteel)\"/><rect x=\"33\" y=\"33\" width=\"42\" height=\"1.8\" rx=\".9\" fill=\"#fff\" fill-opacity=\".25\"/><rect x=\"50.5\" y=\"44\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#E8C29A\"/><rect x=\"54\" y=\"45.5\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#CF9A5E\"/><rect x=\"50.5\" y=\"47\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#E8C29A\"/><rect x=\"54\" y=\"48.5\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#CF9A5E\"/><rect x=\"50.5\" y=\"50\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#E8C29A\"/><rect x=\"54\" y=\"51.5\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#CF9A5E\"/><rect x=\"50.5\" y=\"53\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#E8C29A\"/><rect x=\"54\" y=\"54.5\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#CF9A5E\"/><rect x=\"50.5\" y=\"56\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#E8C29A\"/><rect x=\"54\" y=\"57.5\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#CF9A5E\"/><rect x=\"50\" y=\"59\" width=\"8\" height=\"12\" rx=\"2.6\" fill=\"url(#acc-brown)\"/><circle cx=\"54\" cy=\"66.5\" r=\"1.6\" fill=\"#2A1A0C\" fill-opacity=\".7\"/>","mono":["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z","M11 6h2M11 9h2M11 12h2M11 15h2"]},"remotes":{"label":"Remotes","bar":null,"group":"Tools","art":"<ellipse cx=\"50\" cy=\"79\" rx=\"20\" ry=\"3\" fill=\"url(#gGround)\"/><rect x=\"28\" y=\"50\" width=\"26\" height=\"26\" rx=\"4\" fill=\"url(#gSlate)\"/><rect x=\"32\" y=\"56\" width=\"13\" height=\"3.2\" rx=\"1.6\" fill=\"#1E2F36\" fill-opacity=\".8\"/><rect x=\"32\" y=\"63\" width=\"13\" height=\"3.2\" rx=\"1.6\" fill=\"#1E2F36\" fill-opacity=\".8\"/><rect x=\"32\" y=\"70\" width=\"13\" height=\"3.2\" rx=\"1.6\" fill=\"#1E2F36\" fill-opacity=\".8\"/><circle cx=\"49.5\" cy=\"57.6\" r=\"1.7\" fill=\"#C0C9FA\"/><circle cx=\"49.5\" cy=\"64.6\" r=\"1.7\" fill=\"#C0C9FA\"/><circle cx=\"49.5\" cy=\"71.6\" r=\"1.7\" fill=\"#C0C9FA\" fill-opacity=\".45\"/><path d=\"M52,54 a8,8 0 0 1 0.5,-15.9 a11,11 0 0 1 21,-3 a9.5,9.5 0 0 1 1.5,18.9z\" fill=\"url(#gSteel)\"/><path d=\"M52,54 H75\" stroke=\"#2C4550\" stroke-opacity=\".35\" stroke-width=\"1.2\"/><path d=\"M60,50 v-8 M56.8,45 l3.2,-3.2 l3.2,3.2\" fill=\"none\" stroke=\"url(#acc-indigo)\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M67.5,40.5 v8 M64.3,45.5 l3.2,3.2 l3.2,-3.2\" fill=\"none\" stroke=\"url(#acc-indigo)\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>","mono":["M7 18a4 4 0 0 1-.6-7.96A6 6 0 0 1 18 9a4.5 4.5 0 0 1 0 9z"]},"share":{"label":"Share","bar":null,"group":"Tools","art":"<ellipse cx=\"54\" cy=\"81\" rx=\"15\" ry=\"2.8\" fill=\"url(#gGround)\"/><path d=\"M46,35.5 a11.5,11.5 0 0 1 16,0\" fill=\"none\" stroke=\"url(#acc-mint)\" stroke-width=\"4.2\" stroke-linecap=\"round\"/><path d=\"M41.2,30.2 a18.5,18.5 0 0 1 25.6,0\" fill=\"none\" stroke=\"#9BEBD8\" stroke-opacity=\".75\" stroke-width=\"4.2\" stroke-linecap=\"round\"/><rect x=\"42\" y=\"41\" width=\"24\" height=\"38\" rx=\"5\" fill=\"url(#gSteel)\"/><rect x=\"45.5\" y=\"46\" width=\"17\" height=\"26\" rx=\"2\" fill=\"url(#gDeep)\"/><rect x=\"50.5\" y=\"74.3\" width=\"7\" height=\"2\" rx=\"1\" fill=\"#2C4550\" fill-opacity=\".6\"/><circle cx=\"54\" cy=\"59\" r=\"7.5\" fill=\"none\" stroke=\"#9BEBD8\" stroke-opacity=\".35\" stroke-width=\"1.4\"/><circle cx=\"54\" cy=\"59\" r=\"3.6\" fill=\"url(#acc-mint)\"/>","mono":["M3.5 9.5a13 13 0 0 1 17 0","M6.5 13a9 9 0 0 1 11 0","M9.5 16.4a5 5 0 0 1 5 0","M12 20h.01"]},"apps":{"label":"Apps","bar":null,"group":"Tools","art":"<ellipse cx=\"54\" cy=\"80\" rx=\"21\" ry=\"3\" fill=\"url(#gGround)\"/><rect x=\"31\" y=\"31\" width=\"20\" height=\"20\" rx=\"6\" fill=\"url(#gSteel)\"/><rect x=\"57\" y=\"31\" width=\"20\" height=\"20\" rx=\"6\" fill=\"url(#acc-orange)\"/><rect x=\"31\" y=\"57\" width=\"20\" height=\"20\" rx=\"6\" fill=\"url(#gSlate)\"/><rect x=\"57\" y=\"57\" width=\"20\" height=\"20\" rx=\"6\" fill=\"url(#gDeep)\"/><rect x=\"34\" y=\"33\" width=\"14\" height=\"2\" rx=\"1\" fill=\"#fff\" fill-opacity=\".3\"/><rect x=\"60\" y=\"33\" width=\"14\" height=\"2\" rx=\"1\" fill=\"#fff\" fill-opacity=\".35\"/><rect x=\"34\" y=\"59\" width=\"14\" height=\"2\" rx=\"1\" fill=\"#fff\" fill-opacity=\".16\"/><path d=\"M67,61.5 v9 M63,66.8 l4,4 l4,-4\" fill=\"none\" stroke=\"#FAC48A\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>","mono":["M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"]},"shortcuts":{"label":"Shortcuts","bar":null,"group":"Tools","art":"<ellipse cx=\"52\" cy=\"80\" rx=\"20\" ry=\"3\" fill=\"url(#gGround)\"/><g transform=\"rotate(-6 51 59)\"><rect x=\"31\" y=\"42\" width=\"40\" height=\"34\" rx=\"4\" fill=\"url(#gSlate)\"/><rect x=\"35\" y=\"58\" width=\"22\" height=\"3\" rx=\"1.5\" fill=\"#1E2F36\" fill-opacity=\".55\"/><rect x=\"35\" y=\"65\" width=\"16\" height=\"3\" rx=\"1.5\" fill=\"#1E2F36\" fill-opacity=\".55\"/></g><ellipse cx=\"54.6\" cy=\"62.4\" rx=\"3.4\" ry=\"1.6\" fill=\"#000\" fill-opacity=\".35\"/><g transform=\"rotate(18 60 45)\"><path d=\"M59.3,49 h1.4 l-0.25,14 a0.45,0.45 0 0 1 -0.9,0z\" fill=\"#C9DCE4\"/><path d=\"M55,33 h10 l-1.8,13 h-6.4z\" fill=\"url(#acc-red)\"/><ellipse cx=\"60\" cy=\"47.5\" rx=\"10\" ry=\"3.4\" fill=\"url(#acc-red)\"/><rect x=\"51\" y=\"27\" width=\"18\" height=\"7\" rx=\"3.5\" fill=\"#F59A8C\"/><rect x=\"53.5\" y=\"28.4\" width=\"9\" height=\"1.8\" rx=\".9\" fill=\"#fff\" fill-opacity=\".5\"/></g>","mono":["M9 4h6l-1 6 3 3H7l3-3z","M12 13v7"]},"scripts":{"label":"Scripts","bar":null,"group":"Tools","art":"<ellipse cx=\"54\" cy=\"80\" rx=\"20\" ry=\"3\" fill=\"url(#gGround)\"/><rect x=\"34\" y=\"33\" width=\"40\" height=\"40\" fill=\"url(#gPaper)\"/><rect x=\"34\" y=\"38\" width=\"40\" height=\"3\" fill=\"#000\" fill-opacity=\".12\"/><path d=\"M47,46 l-6,6 l6,6 M61,46 l6,6 l-6,6\" fill=\"none\" stroke=\"url(#acc-lime)\" stroke-width=\"3.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M56.5,44 l-5,16\" fill=\"none\" stroke=\"#7A9F2E\" stroke-width=\"3.6\" stroke-linecap=\"round\"/><rect x=\"43\" y=\"63.5\" width=\"22\" height=\"2.6\" rx=\"1.3\" fill=\"#4E7382\" fill-opacity=\".55\"/><rect x=\"31\" y=\"29\" width=\"46\" height=\"9\" rx=\"4.5\" fill=\"url(#gSlate)\"/><rect x=\"34\" y=\"30.2\" width=\"40\" height=\"2\" rx=\"1\" fill=\"#fff\" fill-opacity=\".28\"/><circle cx=\"33\" cy=\"33.5\" r=\"3\" fill=\"url(#gDeep)\"/><circle cx=\"75\" cy=\"33.5\" r=\"3\" fill=\"url(#gDeep)\"/><rect x=\"31\" y=\"69\" width=\"46\" height=\"9\" rx=\"4.5\" fill=\"url(#gSlate)\"/><rect x=\"34\" y=\"70.2\" width=\"40\" height=\"2\" rx=\"1\" fill=\"#fff\" fill-opacity=\".2\"/><circle cx=\"33\" cy=\"73.5\" r=\"3\" fill=\"url(#gDeep)\"/><circle cx=\"75\" cy=\"73.5\" r=\"3\" fill=\"url(#gDeep)\"/>","mono":["M6 4h9l4 4v12H6z","m10 12 2 2-2 2M13.5 16h2.5"]},"qr":{"label":"QR Scanner","bar":null,"group":"Tools","art":"<path d=\"M33,43 V38 a5,5 0 0 1 5,-5 h5 M65,33 h5 a5,5 0 0 1 5,5 v5 M75,65 v5 a5,5 0 0 1 -5,5 h-5 M43,75 h-5 a5,5 0 0 1 -5,-5 v-5\" fill=\"none\" stroke=\"url(#gSteel)\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"39\" y=\"39\" width=\"12\" height=\"12\" rx=\"2.5\" fill=\"url(#gSlate)\"/><rect x=\"42.5\" y=\"42.5\" width=\"5\" height=\"5\" rx=\"1\" fill=\"#C9DCE4\"/><rect x=\"57\" y=\"39\" width=\"12\" height=\"12\" rx=\"2.5\" fill=\"url(#gSlate)\"/><rect x=\"60.5\" y=\"42.5\" width=\"5\" height=\"5\" rx=\"1\" fill=\"#C9DCE4\"/><rect x=\"39\" y=\"57\" width=\"12\" height=\"12\" rx=\"2.5\" fill=\"url(#gSlate)\"/><rect x=\"42.5\" y=\"60.5\" width=\"5\" height=\"5\" rx=\"1\" fill=\"#C9DCE4\"/><rect x=\"58\" y=\"58\" width=\"4.5\" height=\"4.5\" rx=\"1\" fill=\"url(#gSlate)\"/><rect x=\"64.5\" y=\"64.5\" width=\"4.5\" height=\"4.5\" rx=\"1\" fill=\"url(#gSlate)\"/><rect x=\"64.5\" y=\"58\" width=\"4.5\" height=\"4.5\" rx=\"1\" fill=\"#C9DCE4\" fill-opacity=\".8\"/><rect x=\"58\" y=\"64.5\" width=\"4.5\" height=\"4.5\" rx=\"1\" fill=\"#C9DCE4\" fill-opacity=\".55\"/><rect x=\"31\" y=\"48.5\" width=\"46\" height=\"11\" rx=\"5.5\" fill=\"#F6A6BC\" fill-opacity=\".16\"/><rect x=\"31\" y=\"52.5\" width=\"46\" height=\"3\" rx=\"1.5\" fill=\"url(#acc-rose)\"/>","mono":["M4 8.5V4h4.5","M15.5 4H20v4.5","M20 15.5V20h-4.5","M8.5 20H4v-4.5","M8 8h3v3H8z","M13 8h3v3h-3z","M8 13h3v3H8z","M13.5 13.5h1v1h-1zM15.5 15.5h.5v.5h-.5z"]},"activity":{"label":"Activity","bar":null,"group":"Filet","art":"<ellipse cx=\"55\" cy=\"76\" rx=\"24\" ry=\"3\" fill=\"url(#gGround)\"/><path d=\"M38,58 l3,-2.4 V71.6 l-3,2.4z\" fill=\"url(#gDeep)\"/><path d=\"M29,58 l3,-2.4 h9 l-3,2.4z\" fill=\"#C9DCE4\"/><rect x=\"29\" y=\"58\" width=\"9\" height=\"16\" fill=\"url(#gSteel)\"/><path d=\"M51,38 l3,-2.4 V71.6 l-3,2.4z\" fill=\"url(#gDeep)\"/><path d=\"M42,38 l3,-2.4 h9 l-3,2.4z\" fill=\"#F7B49C\"/><rect x=\"42\" y=\"38\" width=\"9\" height=\"36\" fill=\"url(#acc-coral)\"/><path d=\"M64,50 l3,-2.4 V71.6 l-3,2.4z\" fill=\"url(#gDeep)\"/><path d=\"M55,50 l3,-2.4 h9 l-3,2.4z\" fill=\"#C9DCE4\"/><rect x=\"55\" y=\"50\" width=\"9\" height=\"24\" fill=\"url(#gSteel)\"/><path d=\"M77,44 l3,-2.4 V71.6 l-3,2.4z\" fill=\"url(#gDeep)\"/><path d=\"M68,44 l3,-2.4 h9 l-3,2.4z\" fill=\"#C9DCE4\"/><rect x=\"68\" y=\"44\" width=\"9\" height=\"30\" fill=\"url(#gSteel)\"/>","mono":["M4 18V9M9.5 18V5M15 18v-6M20.5 18v-9"]},"settings":{"label":"Settings","bar":null,"group":"Filet","art":"<ellipse cx=\"54\" cy=\"81\" rx=\"19\" ry=\"3\" fill=\"url(#gGround)\"/><path d=\"M49.39,34.03L50.38,28.25A26,26 0 0 1 57.62,28.25L58.61,34.03A20.5,20.5 0 0 1 64.86,36.62L69.65,33.24A26,26 0 0 1 74.76,38.35L71.38,43.14A20.5,20.5 0 0 1 73.97,49.39L79.75,50.38A26,26 0 0 1 79.75,57.62L73.97,58.61A20.5,20.5 0 0 1 71.38,64.86L74.76,69.65A26,26 0 0 1 69.65,74.76L64.86,71.38A20.5,20.5 0 0 1 58.61,73.97L57.62,79.75A26,26 0 0 1 50.38,79.75L49.39,73.97A20.5,20.5 0 0 1 43.14,71.38L38.35,74.76A26,26 0 0 1 33.24,69.65L36.62,64.86A20.5,20.5 0 0 1 34.03,58.61L28.25,57.62A26,26 0 0 1 28.25,50.38L34.03,49.39A20.5,20.5 0 0 1 36.62,43.14L33.24,38.35A26,26 0 0 1 38.35,33.24L43.14,36.62A20.5,20.5 0 0 1 49.39,34.03z\" fill=\"url(#gSteel)\"/><path d=\"M41,45 a15.5,15.5 0 0 1 9,-6.6\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".35\" stroke-width=\"1.8\" stroke-linecap=\"round\"/><circle cx=\"54\" cy=\"54\" r=\"10.5\" fill=\"url(#gDeep)\"/><circle cx=\"54\" cy=\"54\" r=\"6.5\" fill=\"url(#acc-gold)\"/><circle cx=\"52.2\" cy=\"52\" r=\"1.6\" fill=\"#fff\" fill-opacity=\".55\"/>","mono":["M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0","M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"]},"search":{"label":"Search","bar":null,"group":"Actions","art":"<ellipse cx=\"57\" cy=\"79\" rx=\"18\" ry=\"3\" fill=\"url(#gGround)\"/><rect x=\"57.5\" y=\"60.5\" width=\"18\" height=\"9\" rx=\"4.5\" transform=\"rotate(45 66.5 65)\" fill=\"url(#gSlate)\"/><circle cx=\"49\" cy=\"48\" r=\"15\" fill=\"#F5D68A\" fill-opacity=\".2\"/><circle cx=\"49\" cy=\"48\" r=\"15\" fill=\"none\" stroke=\"url(#gSteel)\" stroke-width=\"7\"/><circle cx=\"49\" cy=\"48\" r=\"11.3\" fill=\"none\" stroke=\"url(#acc-amber)\" stroke-width=\"1.6\"/><path d=\"M40.5,44.5 a9,9 0 0 1 5.8,-5.9\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".6\" stroke-width=\"2.4\" stroke-linecap=\"round\"/>","mono":["M18 11a7 7 0 1 1-14 0 7 7 0 0 1 14 0","m20 20-3.5-3.5"]},"index":{"label":"Index now","bar":null,"group":"Actions","art":"<ellipse cx=\"54\" cy=\"80\" rx=\"17\" ry=\"2.8\" fill=\"url(#gGround)\"/><rect x=\"48\" y=\"40\" width=\"17\" height=\"21\" rx=\"3\" fill=\"url(#gSlate)\"/><rect x=\"43\" y=\"45\" width=\"17\" height=\"21\" rx=\"3\" fill=\"url(#gSteel)\"/><rect x=\"46.5\" y=\"51\" width=\"10\" height=\"2.4\" rx=\"1.2\" fill=\"#2C4550\" fill-opacity=\".6\"/><rect x=\"46.5\" y=\"56.5\" width=\"7\" height=\"2.4\" rx=\"1.2\" fill=\"#2C4550\" fill-opacity=\".6\"/><path d=\"M33.5,47 A21.5,21.5 0 0 1 70.5,39.5\" fill=\"none\" stroke=\"url(#acc-mint)\" stroke-width=\"5\" stroke-linecap=\"round\"/><path d=\"M74.5,61 A21.5,21.5 0 0 1 37.5,68.5\" fill=\"none\" stroke=\"url(#acc-mint)\" stroke-width=\"5\" stroke-linecap=\"round\"/><path d=\"M73.8,43.3 L72.86,36.13 L66.82,41.37z\" fill=\"#5FCDB5\" stroke=\"#5FCDB5\" stroke-width=\"2\" stroke-linejoin=\"round\"/><path d=\"M34.2,64.74 L35.16,71.89 L41.16,66.61z\" fill=\"#5FCDB5\" stroke=\"#5FCDB5\" stroke-width=\"2\" stroke-linejoin=\"round\"/>","mono":["M19.5 12a7.5 7.5 0 0 1-13 5.1M4.5 12a7.5 7.5 0 0 1 13-5.1","M17.5 3.5v3.5H14M6.5 20.5V17H10"]},"startshare":{"label":"Start sharing","bar":null,"group":"Actions","art":"<ellipse cx=\"54\" cy=\"76\" rx=\"14\" ry=\"2.6\" fill=\"url(#gGround)\"/><circle cx=\"54\" cy=\"66\" r=\"10\" fill=\"#B4E39B\" fill-opacity=\".22\"/><path d=\"M45.5,57.5 a12,12 0 0 1 17,0\" fill=\"none\" stroke=\"url(#gSteel)\" stroke-width=\"5\" stroke-linecap=\"round\"/><path d=\"M39.5,51.5 a20.5,20.5 0 0 1 29,0\" fill=\"none\" stroke=\"url(#gSlate)\" stroke-width=\"5\" stroke-linecap=\"round\"/><path d=\"M33.5,45.5 a29,29 0 0 1 41,0\" fill=\"none\" stroke=\"url(#acc-green)\" stroke-width=\"5\" stroke-linecap=\"round\"/><circle cx=\"54\" cy=\"66\" r=\"5.5\" fill=\"url(#gSteel)\"/>","mono":["M3.5 9.5a13 13 0 0 1 17 0","M6.5 13a9 9 0 0 1 11 0","M9.5 16.4a5 5 0 0 1 5 0","M12 20h.01"]},"stopshare":{"label":"Stop sharing","bar":null,"group":"Actions","art":"<ellipse cx=\"52\" cy=\"75\" rx=\"14\" ry=\"2.6\" fill=\"url(#gGround)\"/><path d=\"M41.5,53.5 a12,12 0 0 1 17,0\" fill=\"none\" stroke=\"#4E7382\" stroke-width=\"5\" stroke-linecap=\"round\"/><path d=\"M35.5,47.5 a20.5,20.5 0 0 1 29,0\" fill=\"none\" stroke=\"#3E5F6C\" stroke-width=\"5\" stroke-linecap=\"round\"/><path d=\"M29.5,41.5 a29,29 0 0 1 41,0\" fill=\"none\" stroke=\"#34505C\" stroke-width=\"5\" stroke-linecap=\"round\"/><circle cx=\"50\" cy=\"62\" r=\"5.5\" fill=\"url(#gSteel)\"/><circle cx=\"68\" cy=\"68\" r=\"11\" fill=\"url(#gDeep)\"/><circle cx=\"68\" cy=\"68\" r=\"9\" fill=\"url(#acc-red)\"/><rect x=\"64.2\" y=\"64.2\" width=\"7.6\" height=\"7.6\" rx=\"1.6\" fill=\"#fff\" fill-opacity=\".92\"/>","mono":["M3.5 9.5a13 13 0 0 1 17 0","M6.5 13a9 9 0 0 1 11 0","M9.5 16.4a5 5 0 0 1 5 0","M14.5 14.5h6v6h-6z"]}}};
+document.getElementById('sharedDefs').innerHTML = DATA.defs;
+const I = DATA.icons;
+
+// ── line glyphs (24 units), for the bar and for actions with no drawing ──
+const EXTRA = {
+  split: ['M4 5h16v14H4z', 'M12 5v14'],
+  newtab: ['M12 5v14', 'M5 12h14'],
+  closetabs: ['M8 4h12v12', 'M4 8h12v12H4z', 'm7.5 11.5 5 5', 'm12.5 11.5-5 5'],
+  up: ['m6 15 6-6 6 6'], down: ['m6 9 6 6 6-6'], x: ['M6 6l12 12', 'M18 6 6 18'], plus: ['M12 5v14', 'M5 12h14'],
+  caret: ['m6 9 6 6 6-6'], chev: ['m9 6 6 6-6 6'], back: ['M15 6l-6 6 6 6'], search: I.search.mono,
+  grip: ['M9 6h.01', 'M15 6h.01', 'M9 12h.01', 'M15 12h.01', 'M9 18h.01', 'M15 18h.01'],
+};
+const line = (paths, w = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${paths.map(d => `<path d="${d}"/>`).join('')}</svg>`;
+const gripSvg = `<svg viewBox="0 0 24 24" fill="currentColor">${[6, 12, 18].flatMap(y => [9, 15].map(x => `<circle cx="${x}" cy="${y}" r="1.7"/>`)).join('')}</svg>`;
+const tileSvg = (art) => `<svg viewBox="18 18 72 72"><rect width="108" height="108" fill="url(#tileSoft)"/>${I[art].art}</svg>`;
+const bareSvg = (art) => `<svg viewBox="24 24 60 60">${I[art].art}</svg>`;
+const circleSvg = (art) => `<svg viewBox="18 18 72 72"><rect width="108" height="108" fill="url(#tileSoft)"/>${I[art].art}</svg>`;
+
+// ── what can go on the bar, in BarItem's order ──
+const BAR = [
+  ['home', 'Home', 'home', 'Places'], ['files', 'Storage', 'files', 'Places'], ['bookmarks', 'Bookmarks', 'bookmarks', 'Places'],
+  ['recent', 'Opened', 'opened', 'Places'], ['newfiles', 'New files', 'newfiles', 'Places'],
+  ['playlists', 'Playlists', 'playlists', 'Collections'], ['resume', 'Carry on', 'carryon', 'Collections'],
+  ['cat.images', 'Photos', 'photos', 'Categories'], ['cat.videos', 'Videos', 'videos', 'Categories'], ['cat.audio', 'Audio', 'audio', 'Categories'],
+  ['cat.apps', 'Packages', 'packages', 'Categories'], ['cat.documents', 'Documents', 'documents', 'Categories'], ['cat.archives', 'Archives', 'archives', 'Categories'],
+  ['remotes', 'Remotes', 'remotes', 'Tools'], ['sharing', 'Share', 'share', 'Tools'], ['apps', 'Apps', 'apps', 'Tools'],
+  ['shortcuts', 'Shortcuts', 'shortcuts', 'Tools'], ['scripts', 'Scripts', 'scripts', 'Tools'], ['scan', 'QR Scanner', 'qr', 'Tools'],
+  ['activity', 'Activity', 'activity', 'Filet'], ['settings', 'Settings', 'settings', 'Filet'],
+  ['search', 'Search', 'search', 'Actions'], ['split', 'Split', null, 'Actions'], ['newtab', 'New tab', null, 'Actions'], ['closetabs', 'Close all tabs', null, 'Actions'],
+].map(([id, label, art, group]) => ({ id, label, art, group }));
+const BY = Object.fromEntries(BAR.map(b => [b.id, b]));
+const GROUPS = ['Places', 'Collections', 'Categories', 'Tools', 'Filet', 'Actions'];
+const DEFAULT_BAR = ['home', 'files', 'activity', 'bookmarks', 'sharing', 'remotes'];
+
+// ── the hold menu's choices: every tab plus the actions; the share pair is one entry ──
+const MENU = [
+  ...BAR.filter(b => b.group !== 'Actions').map(b => ({ id: 'tab:' + b.id, label: b.id === 'files' ? 'Internal storage' : b.label, art: b.art, group: b.group })),
+  { id: 'search', label: 'Search', art: 'search', group: 'Actions', desc: 'Opens Filet with the search box focused' },
+  { id: 'index', label: 'Index now', art: 'index', group: 'Actions', desc: 'Starts a crawl without opening Settings' },
+  { id: 'share', label: 'Start sharing', art: 'startshare', group: 'Actions', desc: 'Says Stop sharing while a share is running' },
+];
+const MBY = Object.fromEntries(MENU.map(m => [m.id, m]));
+const DEFAULT_MENU = ['search', 'tab:bookmarks', 'share', 'index'];
+const MAX_MENU = 4;
+
+// ── state, kept in this browser ──
+const KEY = 'filet-barpick-r1';
+const state = Object.assign({ theme: 'dark', barIcons: 'line', order: 'drag', preview: 'on', sharing: 'off',
+  oldBar: DEFAULT_BAR.slice(), newBar: DEFAULT_BAR.slice(), menu: DEFAULT_MENU.slice(), notes: '' }, JSON.parse(localStorage.getItem(KEY) || '{}'));
+const save = () => localStorage.setItem(KEY, JSON.stringify(state));
+
+const move = (list, from, to) => { const l = list.slice(); l.splice(to, 0, l.splice(from, 1)[0]); return l; };
+const toggled = (list, id) => list.includes(id) ? (list.length <= 1 ? list : list.filter(x => x !== id)) : [...list, id];
+
+function icon(b, drawn) {
+  if (drawn && b.art) return bareSvg(b.art);
+  return line(b.art ? I[b.art].mono : EXTRA[b.id]);
+}
+function tile(b) {
+  return b.art ? `<div class="arttile">${tileSvg(b.art)}</div>` : `<div class="glyphtile">${line(EXTRA[b.id])}</div>`;
+}
+function nav(ids, drawn) {
+  const scrolls = ids.length > 6;
+  return `<div class="nav ${scrolls ? 'scrolls' : ''} ${drawn ? 'drawn' : ''}">` + ids.map(id => {
+    const b = BY[id];
+    return `<div class="ni"><div class="g">${icon(b, drawn)}</div><div class="c">${b.label}</div></div>`;
+  }).join('') + `</div>`;
+}
+const frame = (title, body, ids) =>
+  `<div class="status"><span>9:41</span><span>▴ ▮ 86%</span></div>` +
+  `<div class="head">${line(EXTRA.back)}<span class="t">${title}</span>${line(EXTRA.search)}</div>` +
+  `<div class="scroll">${body}</div>` + (ids ? nav(ids, state.barIcons === 'drawn') : '') + `<div class="gesture"><i></i></div>`;
+const section = (t, s) => `<div class="sec"><div class="t">${t}</div>${s ? `<div class="s">${s}</div>` : '<div style="height:9px"></div>'}<hr></div>`;
+const count = (n) => n > 6 ? `${n} on the bar · scrolls sideways` : `${n} on the bar`;
+
+// ── today ──
+function renderOld() {
+  const bar = state.oldBar;
+  let h = section('Tree view', '') + `<div class="barrow"><div class="txt"><div class="l">Back closes the folder you leave</div><div class="d">In the tree view. Folders open inside it close with it.</div></div></div>`;
+  h += section('Bottom bar', count(bar.length));
+  bar.forEach((id, i) => {
+    h += `<div class="barrow"><div class="txt"><div class="l">${BY[id].label}</div><div class="d">Position ${i + 1}</div></div>` +
+      (i > 0 ? `<div class="ib" data-old="up" data-i="${i}">${line(EXTRA.up)}</div>` : '') +
+      (i < bar.length - 1 ? `<div class="ib" data-old="down" data-i="${i}">${line(EXTRA.down)}</div>` : '') +
+      (bar.length > 1 ? `<div class="ib x" data-old="rm" data-id="${id}">${line(EXTRA.x)}</div>` : '') + `</div>`;
+  });
+  const off = BAR.filter(b => !bar.includes(b.id));
+  if (off.length) h += `<div class="offhead">Not on the bar</div>` + off.map(b =>
+    `<div class="barrow clickrow" data-old="add" data-id="${b.id}"><div class="txt"><div class="l">${b.label}</div></div><div class="ib add">${line(EXTRA.plus)}</div></div>`).join('');
+  h += section('Selection bar', '6 of 6 on the bar');
+  document.getElementById('phoneOld').innerHTML = frame('Settings', h, bar);
+}
+
+// ── new ──
+let drag = null; // { i, y0, dy }
+function renderNew() {
+  const bar = state.newBar;
+  const el = document.getElementById('phoneNew');
+  const keepScroll = el.querySelector('.scroll')?.scrollTop || 0;
+  let h = section('Tree view', '') + `<div class="barrow"><div class="txt"><div class="l">Back closes the folder you leave</div><div class="d">In the tree view. Folders open inside it close with it.</div></div></div>`;
+  h += section('Bottom bar', count(bar.length) + ' · drag ⠿ to change the order');
+  if (state.preview === 'on') h += `<div class="preview"><div class="cap"><span>YOUR BAR</span><span>${bar.length > 6 ? 'scrolls sideways' : ''}</span></div><div class="bar">${nav(bar, state.barIcons === 'drawn')}</div></div>`;
+  bar.forEach((id, i) => {
+    const b = BY[id];
+    const lifted = drag && drag.i === i;
+    h += `<div class="dragrow ${lifted ? 'lifted' : ''}" style="${lifted ? `transform:translateY(${drag.dy}px)` : ''}">` +
+      `<div class="grip" data-grip="${i}" title="Drag to move">${gripSvg}</div>${tile(b)}` +
+      `<div class="txt"><div class="l">${b.label}</div><div class="d">Position ${i + 1}</div></div>` +
+      (state.order === 'both' && i > 0 ? `<div class="ib" data-new="up" data-i="${i}">${line(EXTRA.up)}</div>` : '') +
+      (state.order === 'both' && i < bar.length - 1 ? `<div class="ib" data-new="down" data-i="${i}">${line(EXTRA.down)}</div>` : '') +
+      (bar.length > 1 ? `<div class="ib x" data-new="rm" data-id="${id}" title="Take off the bar">${line(EXTRA.x)}</div>` : '<div style="width:32px"></div>') + `</div>`;
+  });
+  const off = BAR.filter(b => !bar.includes(b.id));
+  if (off.length) {
+    h += `<div class="offhead">NOT ON THE BAR · TAP TO ADD AT THE END</div>`;
+    for (const g of GROUPS) {
+      const items = off.filter(b => b.group === g);
+      if (!items.length) continue;
+      h += `<div class="grouplabel">${g}</div>` + items.map(b =>
+        `<div class="addrow" data-new="add" data-id="${b.id}">${tile(b)}<span class="l">${b.label}</span><span class="plus">Add</span></div>`).join('');
+    }
+  }
+  h += section('Selection bar', '6 of 6 on the bar');
+  el.innerHTML = frame('Settings', h, bar);
+  el.querySelector('.scroll').scrollTop = keepScroll;
+}
+
+// ── hold menu ──
+function popupRows(entries) {
+  return entries.map(m => {
+    const art = m.id === 'share' && state.sharing === 'on' ? 'stopshare' : m.art;
+    const label = m.id === 'share' && state.sharing === 'on' ? 'Stop sharing' : m.label;
+    return `<div class="pr"><div class="ic">${circleSvg(art)}</div>${label}</div>`;
+  }).join('') + `<div class="sep"></div><div class="pr sys"><div class="ic"></div>App info</div>`;
+}
+const filetIcon = `<svg viewBox="18 18 72 72"><rect width="108" height="108" fill="#1E1F1D"/>${DATA.filet}</svg>`;
+const launcher = (entries, flat) => `<div class="launch ${flat ? 'flat' : ''}"><div class="popup">${popupRows(entries)}</div><div class="appicon">${filetIcon}</div><div class="applbl">Filet</div></div>`;
+
+function renderMenuOld() {
+  const fixed = [MBY['search'], { id: 'bm', label: 'Bookmarks', art: 'bookmarks' }, MBY['share'], MBY['index']];
+  const h = `<div class="expl" style="padding-top:14px">Holding Filet's icon on the home screen, today. There's no setting for it; these four are fixed in the code.</div>` + launcher(fixed, true);
+  document.getElementById('phoneMenuOld').innerHTML = frame('Home screen', h, null);
+}
+
+let mdrag = null;
+function renderMenuNew() {
+  const el = document.getElementById('phoneMenuNew');
+  const keepScroll = el.querySelector('.scroll')?.scrollTop || 0;
+  const chosen = state.menu.map(id => MBY[id]);
+  const full = chosen.length >= MAX_MENU;
+  let h = `<div class="foldhead">${line(EXTRA.caret)}<span class="t">ON YOUR HOME SCREEN</span><span class="n">2</span></div>` +
+    `<div class="cat">${tile({ art: 'playlists' })}<div class="txt"><div class="l">Playlists</div><div class="d">Tab</div></div></div>` +
+    `<div class="cat">${tile({ art: 'photos' })}<div class="txt"><div class="l">Photos</div><div class="d">Tab</div></div></div>`;
+  h += `<div class="foldhead">${line(EXTRA.caret)}<span class="t">HOLD MENU</span><span class="n">${chosen.length} of ${MAX_MENU}</span></div>` +
+    `<div class="expl">What shows when you hold Filet's icon on the home screen. Most launchers show four, so four is the most.</div>` +
+    launcher(chosen, false);
+  chosen.forEach((m, i) => {
+    const lifted = mdrag && mdrag.i === i;
+    const label = m.id === 'share' && state.sharing === 'on' ? 'Stop sharing' : m.label;
+    const art = m.id === 'share' && state.sharing === 'on' ? 'stopshare' : m.art;
+    h += `<div class="dragrow ${lifted ? 'lifted' : ''}" style="margin:0 6px;${lifted ? `transform:translateY(${mdrag.dy}px)` : ''}">` +
+      `<div class="grip" data-mgrip="${i}">${gripSvg}</div>${tile({ art })}` +
+      `<div class="txt"><div class="l">${label}</div><div class="d">${m.id.startsWith('tab:') ? 'Tab' : (m.desc || '')}</div></div>` +
+      (chosen.length > 1 ? `<div class="ib x" data-menu="rm" data-id="${m.id}">${line(EXTRA.x)}</div>` : '') + `</div>`;
+  });
+  if (full) h += `<div class="full-note">Four in. Take one out to add another.</div>`;
+  const off = MENU.filter(m => !state.menu.includes(m.id));
+  for (const g of ['Actions', ...GROUPS.filter(g => g !== 'Actions')]) {
+    const items = off.filter(m => m.group === g);
+    if (!items.length) continue;
+    h += `<div class="grouplabel">${g === 'Actions' ? 'Actions' : g + ' tabs'}</div>` + items.map(m =>
+      `<div class="addrow ${full ? 'full' : ''}" data-menu="add" data-id="${m.id}">${tile({ art: m.art })}<span class="l">${m.label}</span><span class="plus">${full ? '' : 'Add'}</span></div>`).join('');
+  }
+  h += `<div class="foldhead">${line(EXTRA.chev)}<span class="t">TABS</span><span class="n">21</span></div>` +
+    `<div class="foldhead">${line(EXTRA.chev)}<span class="t">ACTIONS</span><span class="n">3</span></div>` +
+    `<div class="foldhead">${line(EXTRA.chev)}<span class="t">SCRIPTS</span><span class="n">0</span></div><div style="height:20px"></div>`;
+  el.innerHTML = frame('Shortcuts', h, state.newBar);
+  el.querySelector('.scroll').scrollTop = keepScroll;
+}
+
+function renderAll() {
+  document.body.classList.toggle('light', state.theme === 'light');
+  document.querySelectorAll('.seg').forEach(s => s.querySelectorAll('button').forEach(b => b.classList.toggle('on', state[s.dataset.k] === b.dataset.v)));
+  renderOld(); renderNew(); renderMenuOld(); renderMenuNew();
+}
+
+// ── events ──
+document.querySelectorAll('.seg').forEach(s => s.addEventListener('click', e => {
+  const v = e.target.dataset.v; if (!v) return; state[s.dataset.k] = v; save(); renderAll();
+}));
+document.addEventListener('click', e => {
+  const o = e.target.closest('[data-old]'), n = e.target.closest('[data-new]'), m = e.target.closest('[data-menu]');
+  if (o) {
+    const i = +o.dataset.i;
+    if (o.dataset.old === 'up') state.oldBar = move(state.oldBar, i, i - 1);
+    if (o.dataset.old === 'down') state.oldBar = move(state.oldBar, i, i + 1);
+    if (o.dataset.old === 'rm' || o.dataset.old === 'add') state.oldBar = toggled(state.oldBar, o.dataset.id);
+    save(); renderOld();
+  } else if (n) {
+    const i = +n.dataset.i;
+    if (n.dataset.new === 'up') state.newBar = move(state.newBar, i, i - 1);
+    if (n.dataset.new === 'down') state.newBar = move(state.newBar, i, i + 1);
+    if (n.dataset.new === 'rm' || n.dataset.new === 'add') state.newBar = toggled(state.newBar, n.dataset.id);
+    save(); renderNew(); renderMenuNew();
+  } else if (m) {
+    if (m.dataset.menu === 'rm' && state.menu.length > 1) state.menu = state.menu.filter(x => x !== m.dataset.id);
+    if (m.dataset.menu === 'add' && state.menu.length < MAX_MENU) state.menu = [...state.menu, m.dataset.id];
+    save(); renderMenuNew();
+  }
+});
+const ROW = 50;
+document.addEventListener('pointerdown', e => {
+  const g = e.target.closest('[data-grip]'), mg = e.target.closest('[data-mgrip]');
+  if (g) { drag = { i: +g.dataset.grip, y0: e.clientY, dy: 0 }; e.preventDefault(); renderNew(); }
+  if (mg) { mdrag = { i: +mg.dataset.mgrip, y0: e.clientY, dy: 0 }; e.preventDefault(); renderMenuNew(); }
+});
+document.addEventListener('pointermove', e => {
+  for (const [d, key, render] of [[drag, 'newBar', renderNew], [mdrag, 'menu', renderMenuNew]]) {
+    if (!d) continue;
+    const list = state[key];
+    const want = Math.max(0, Math.min(list.length - 1, d.i + Math.round((e.clientY - d.y0) / ROW)));
+    if (want !== d.i) { state[key] = move(list, d.i, want); d.y0 += (want - d.i) * ROW; d.i = want; }
+    d.dy = e.clientY - d.y0;
+    render(); if (key === 'newBar') renderMenuNew();
+  }
+});
+document.addEventListener('pointerup', () => {
+  if (drag || mdrag) { drag = null; mdrag = null; save(); renderNew(); renderMenuNew(); }
+});
+const notes = document.getElementById('notes');
+notes.value = state.notes || '';
+notes.addEventListener('input', () => { state.notes = notes.value; save(); });
+renderAll();
+</script>
+</body>
+</html>

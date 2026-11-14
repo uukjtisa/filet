@@ -1,0 +1,1423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet · Share page · round 2</title>
+<style>
+
+:root {
+  --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --onAccent:#0E1417; --sel:#243036;
+}
+body.light {
+  --bg:#F5F4F0; --surface:#FFFFFF; --raised:#FAF9F6; --sunken:#EBE9E3; --high:#E4E1DA;
+  --line:#DDDAD2; --lineSoft:#E9E6DF; --fg:#22211E; --fg2:#615D55; --fg3:#8B867C;
+  --accent:#3E6E82; --onAccent:#FFFFFF; --sel:#E3EDF1;
+}
+* { box-sizing:border-box; }
+html { background:#0D0D0C; }
+body { margin:0; font:14px/1.45 Roboto, "Segoe UI", system-ui, sans-serif; color:#D9D6CF; background:#0D0D0C; }
+.page { max-width:1260px; margin:0 auto; padding:26px 22px 60px; }
+h1 { font-size:20px; margin:0 0 4px; color:#EDEAE3; font-weight:600; }
+.lead { color:#9A968D; max-width:940px; margin:0 0 16px; }
+.lead b { color:#C9C5BC; font-weight:500; }
+h2 { font-size:15px; margin:38px 0 4px; color:#EDEAE3; font-weight:600; }
+.sub { color:#9A968D; max-width:940px; margin:0 0 14px; font-size:13px; }
+.sub b { color:#C9C5BC; font-weight:500; }
+.controls { display:flex; flex-wrap:wrap; gap:12px 22px; padding:12px 14px; background:#1A1A18; border:1px solid #2A2A26; border-radius:12px; position:sticky; top:8px; z-index:20; }
+.ctl { display:flex; align-items:center; gap:8px; font-size:12.5px; color:#9A968D; }
+.cseg { display:inline-flex; border:1px solid #34342F; border-radius:8px; overflow:hidden; }
+.cseg button { background:transparent; color:#B7B3AA; border:0; padding:5px 10px; font:inherit; cursor:pointer; }
+.cseg button + button { border-left:1px solid #34342F; }
+.cseg button.on { background:#2F4550; color:#E8F2F6; }
+.pair { display:flex; flex-wrap:wrap; gap:26px; align-items:flex-start; }
+.col { display:flex; flex-direction:column; gap:8px; }
+.tag { font-size:11px; letter-spacing:1.2px; text-transform:uppercase; color:#8B867C; }
+.tag b { color:#C9C5BC; }
+.tag .now { color:#9FC6D4; letter-spacing:.4px; text-transform:none; margin-left:6px; }
+.note { font-size:12px; color:#8B867C; max-width:360px; }
+.ask { margin:10px 0 0; padding:10px 14px; border-left:3px solid #7FA8B8; background:#151a1c; border-radius:6px; color:#C9D7DC; font-size:13px; max-width:940px; }
+.ask b { color:#E8F2F6; font-weight:500; }
+.ask.done { border-left-color:#7FB894; background:#141a16; color:#B9CDBE; }
+.dec { display:inline-block; margin-left:8px; font-size:11px; color:#9FD3AE; border:1px solid #3E6A4B; border-radius:6px; padding:0 6px; }
+.find { max-width:940px; color:#C9C5BC; font-size:13px; background:#121211; border:1px solid #2A2A26; border-radius:10px; padding:12px 16px; margin:10px 0; }
+.find h3 { margin:0 0 6px; font-size:13.5px; color:#EDEAE3; font-weight:600; }
+.find p { margin:6px 0; }
+.find b { color:#E3DFD7; font-weight:500; }
+.find .risk { color:#E8C15A; }
+.find code, .find pre { font-size:11.5px; }
+.find pre { margin:6px 0; padding:8px 10px; }
+.find a { color:#9FC6D4; }
+.home { width:250px; height:290px; border-radius:22px; border:7px solid #050505; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+.home .wp { position:absolute; inset:0; }
+.home .grid { position:relative; display:grid; grid-template-columns:repeat(4, 1fr); gap:16px 4px; padding:38px 10px 0; }
+.home .app { display:flex; flex-direction:column; align-items:center; gap:4px; font-size:9.5px; color:#fff; text-shadow:0 1px 2px #0009; text-align:center; position:relative; }
+.home .app .i { width:44px; height:44px; display:grid; place-items:center; position:relative; }
+.home .app .gen { width:40px; height:40px; border-radius:11px; }
+.home .app.grey .i { filter:grayscale(1) opacity(.45); }
+.home .app.gone .i { outline:1.5px dashed #ffffff88; outline-offset:2px; border-radius:12px; }
+.home .app .new { position:absolute; top:-6px; right:-2px; font-size:8px; background:#E8C15A; color:#1a1408; border-radius:5px; padding:0 4px; }
+.home .pg { position:absolute; bottom:12px; left:0; right:0; text-align:center; font-size:10px; color:#ffffffaa; }
+.home .ph { position:relative; text-align:center; font-size:10px; color:#ffffffcc; padding-top:10px; }
+.placeholder { width:40px; height:40px; border-radius:11px; border:1.5px dashed #ffffffaa; display:grid; place-items:center; font-size:8px; color:#fff; line-height:1.1; }
+.cands { display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; }
+.cand { display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:6px; border-radius:10px; border:1px solid #2E2E2A; background:#141413; color:#B7B3AA; font:12px inherit; cursor:pointer; text-align:center; }
+.cand > span:last-child { grid-column:1 / 3; }
+.cand .cw { display:grid; place-items:center; height:62px; border-radius:8px; }
+.cand.on { border-color:#7FA8B8; color:#E8F2F6; background:#18211f; }
+.cats { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; padding:12px; }
+.catchip { display:flex; flex-direction:column; align-items:center; padding:12px 10px; border-radius:14px; background:var(--raised, #1f1f1d); border:1px solid var(--lineSoft); }
+.catchip .cg { width:34px; height:34px; display:grid; place-items:center; }
+.catchip .cground { width:34px; height:34px; border-radius:11px; display:grid; place-items:center; }
+.catchip .cl { margin-top:8px; font-size:11.5px; color:var(--fg); }
+.btns { border-collapse:collapse; margin:8px 0; font-size:12px; }
+.btns th, .btns td { border:1px solid #2A2A26; padding:4px 8px; text-align:left; vertical-align:top; }
+.btns th { color:#8B867C; font-weight:500; }
+.segrow.wait { opacity:.55; }
+.segrow.wait .chips span { cursor:default; }
+.waitnote { font-size:10.5px; color:var(--fg3); padding:0 14px 8px 14px; line-height:14px; }
+.rules { max-width:940px; color:#B7B3AA; font-size:13px; padding-left:18px; }
+.rules li { margin:5px 0; }
+.rules b { color:#E3DFD7; font-weight:500; }
+textarea { width:100%; max-width:940px; height:110px; background:#151514; color:#E8E6E1; border:1px solid #2E2E2A; border-radius:10px; padding:10px; font:13px/1.45 inherit; }
+.changes div { margin:6px 0; color:#B7B3AA; font-size:13px; max-width:940px; }
+
+/* ── the phone ── */
+.phone { width:360px; border-radius:30px; border:9px solid #050505; background:var(--bg); color:var(--fg);
+  display:flex; flex-direction:column; overflow:hidden; box-shadow:0 18px 50px #0008; position:relative; }
+.phone.tall { height:760px; }
+.phone.panel { width:316px; border-radius:20px; border-width:6px; }
+.phone.panel.now { box-shadow:0 0 0 2px #7FA8B8, 0 18px 50px #0008; }
+.status { height:24px; flex:none; display:flex; align-items:center; justify-content:space-between; padding:0 16px; font-size:11px; color:var(--fg2); }
+.head { flex:none; height:44px; display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:1px solid var(--lineSoft); }
+.head .t { font-size:15px; font-weight:500; flex:1; }
+.head svg { width:19px; height:19px; color:var(--fg2); }
+.scroll { flex:1; overflow-y:auto; overflow-x:hidden; scrollbar-width:thin; position:relative; }
+
+/* settings, as SettingsPage draws it */
+.groups { display:flex; gap:6px; padding:8px 12px 4px; overflow:hidden; }
+.groups span { font-size:12px; padding:7px 13px; border-radius:999px; background:var(--sunken); color:var(--fg2); white-space:nowrap; }
+.groups span.on { background:var(--accent); color:var(--onAccent); font-weight:600; }
+.divider { height:1px; background:var(--lineSoft); }
+.hintline { font-size:11px; color:var(--fg3); background:var(--sunken); padding:7px 14px; }
+.sec { padding-top:20px; }
+.sec.first { padding-top:8px; }
+.sec .t { font-size:13.5px; font-weight:600; color:var(--fg2); padding:0 14px 9px; }
+.sec .divider { margin-bottom:4px; }
+.segrow { padding:6px 14px; }
+.segrow.indent { padding-left:44px; }
+.segrow .l { font-size:12px; color:var(--fg2); display:flex; align-items:center; gap:4px; }
+.segrow .chips { margin-top:5px; display:flex; width:max-content; max-width:100%; flex-wrap:wrap; border:1px solid var(--lineSoft); border-radius:8px; overflow:hidden; }
+.segrow .chips span { font-size:11.5px; padding:6px 12px; color:var(--fg2); white-space:nowrap; cursor:pointer; }
+.segrow .chips span.on { background:var(--accent); color:var(--onAccent); }
+.newblock { background:color-mix(in srgb, var(--accent) 7%, transparent); border-left:2px solid var(--accent); padding-bottom:6px; }
+.info { width:13px; height:13px; border-radius:50%; border:1px solid var(--fg3); color:var(--fg3); font-size:9px; line-height:11px; text-align:center; font-style:normal; cursor:help; }
+.grouplabel { font-size:12px; color:var(--fg2); padding:8px 14px 0; display:flex; align-items:center; gap:4px; }
+.slider { padding:6px 14px; }
+.slider .r { display:flex; font-size:12px; color:var(--fg2); }
+.slider .r b { margin-left:auto; color:var(--fg); font-weight:500; }
+.slider .track { position:relative; height:20px; }
+.slider .track i { position:absolute; left:0; right:0; top:9px; height:3px; border-radius:2px; background:var(--high); }
+.slider .track em { position:absolute; left:0; width:20%; top:9px; height:3px; border-radius:2px; background:var(--accent); }
+.slider .track u { position:absolute; left:calc(20% - 8px); top:3px; width:16px; height:16px; border-radius:50%; background:var(--accent); }
+.toggle { display:flex; align-items:center; padding:9px 14px; font-size:13px; }
+.toggle .tt { flex:1; display:flex; align-items:center; gap:4px; }
+.switch { width:34px; height:20px; border-radius:10px; background:var(--high); position:relative; }
+.switch::after { content:""; position:absolute; top:3px; left:3px; width:14px; height:14px; border-radius:50%; background:var(--fg3); }
+.switch.on { background:var(--accent); } .switch.on::after { left:17px; background:#fff; }
+.sample { padding:8px 14px; font-family:ui-monospace, Consolas, monospace; }
+.sample .r { display:flex; font-size:12px; } .sample .r span:last-child { margin-left:auto; color:var(--fg2); }
+.sample .d { font-size:11px; color:var(--fg3); }
+.barrow { display:flex; align-items:center; padding:9px 6px 9px 16px; min-height:46px; font-size:13px; }
+.barrow .x { margin-left:auto; color:var(--fg3); font-size:12px; padding:0 10px; }
+.lpreview { margin:4px 12px 8px; border-radius:12px; background:var(--sunken); border:1px solid var(--lineSoft); padding:9px 8px 8px; display:flex; justify-content:space-around; align-items:flex-end; }
+.lpreview > div { display:flex; flex-direction:column; align-items:center; gap:4px; font-size:9.5px; color:var(--fg3); }
+.lpreview .ic { height:34px; display:grid; place-items:center; }
+
+/* list rows, as RowViews draws them at the List step */
+.lrow { display:flex; align-items:center; padding:0 12px; height:46px; gap:10px; }
+.lrow .ic { width:24px; height:24px; flex:none; display:grid; place-items:center; }
+.lrow .ic svg { display:block; }
+.lrow .nm { flex:1; min-width:0; }
+.lrow .nm .a { font-size:13px; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.lrow .nm .b { font-size:11px; color:var(--fg3); }
+.lrow .sd { font-size:11px; color:var(--fg2); }
+.crumb { font-size:11px; color:var(--fg3); padding:8px 14px 4px; }
+
+/* grid tiles, as FileTileBody draws them at Medium grid */
+.tiles { display:grid; grid-template-columns:repeat(3, 1fr); padding:6px; gap:0; }
+.tile { display:flex; flex-direction:column; align-items:center; padding:10px 6px; }
+.tile .slot { width:64px; height:64px; display:grid; place-items:center; }
+.tile .nm { font-size:11.5px; color:var(--fg); text-align:center; margin-top:7px; line-height:1.2; max-width:92px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tile .sz { font-size:10px; color:var(--fg3); }
+
+/* a category gallery, as CategoryGallery draws it */
+.gal { padding:4px 6px 10px; }
+.gal .dh { font-size:11.5px; color:var(--fg2); padding:10px 6px 6px; font-weight:500; }
+.gal .g { display:grid; grid-template-columns:repeat(4, 1fr); gap:3px; }
+.gal .t { aspect-ratio:1; border-radius:6px; background:var(--sunken); overflow:hidden; display:grid; place-items:center; position:relative; }
+.gal .t svg { display:block; }
+.gal .t .vid { position:absolute; left:4px; bottom:3px; font-size:9px; color:#fff; text-shadow:0 1px 2px #000; }
+
+/* the tab strip, as TabChip draws it at Normal */
+.strip { display:flex; background:var(--surface); padding:2px 4px; border-bottom:1px solid var(--lineSoft); overflow:hidden; }
+.chip { display:flex; align-items:center; padding:5px 8px; margin:3px 2px; border-radius:7px; flex:none; }
+.chip.on { background:var(--bg); }
+.chip .g { display:grid; place-items:center; }
+.chip .tl { font-size:11.5px; color:var(--fg2); margin-left:5px; max-width:110px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.chip.on .tl { color:var(--fg); }
+.chip .cx { margin-left:3px; width:15px; height:15px; display:grid; place-items:center; color:var(--fg3); }
+.chip .cx svg { width:11px; height:11px; }
+
+/* the bar picker rows and the bar, as BarPicker and NavItem draw them */
+.dragrow { display:flex; align-items:center; gap:10px; height:50px; padding:0 6px; }
+.grip { width:30px; display:grid; place-items:center; color:var(--fg3); }
+.grip svg { width:16px; height:16px; }
+.dragrow .txt { flex:1; min-width:0; }
+.dragrow .l { font-size:13px; color:var(--fg); }
+.dragrow .d { font-size:10px; color:var(--fg3); }
+.dragrow .xx { color:var(--fg3); padding:0 10px; display:grid; place-items:center; }
+.dragrow .xx svg { width:14px; height:14px; }
+.addrow { display:flex; align-items:center; gap:10px; height:46px; padding:0 8px 0 36px; }
+.addrow .l { flex:1; font-size:13px; color:var(--fg); }
+.addrow .plus { font-size:11px; color:var(--accent); padding-right:8px; }
+.offhead { font-size:9px; letter-spacing:1.3px; color:var(--fg3); padding:14px 16px 4px; }
+.nav { flex:none; background:var(--raised); padding:4px 0; display:flex; border-top:1px solid var(--lineSoft); }
+.nav .ni { display:flex; flex-direction:column; align-items:center; padding:4px 0; flex:1 1 0; min-width:0; }
+.nav .ni .g { width:19px; height:19px; display:grid; place-items:center; }
+.nav .ni .c { font-size:9.5px; color:var(--fg3); white-space:nowrap; margin-top:1px; }
+.nav .ni.on .c { color:var(--accent); }
+.bartag { font-size:9.5px; letter-spacing:1px; color:var(--fg3); text-align:center; padding:6px 0 2px; background:var(--raised); }
+
+/* tiles: drawn art alone, or a glyph on a sunken tile */
+.arttile { width:30px; height:30px; flex:none; }
+.arttile svg { width:100%; height:100%; display:block; }
+.glyphtile { width:30px; height:30px; border-radius:8px; background:var(--sunken); border:1px solid var(--lineSoft); display:grid; place-items:center; flex:none; }
+.glyphbox { width:30px; height:30px; display:grid; place-items:center; flex:none; }
+
+/* the Shortcuts tab, as ShortcutsScreen draws it */
+.sch { display:flex; align-items:center; padding:14px 11px 11px 15px; border-bottom:1px solid var(--lineSoft); }
+.sch .t { flex:1; font-size:16px; font-weight:600; letter-spacing:-.24px; }
+.sch .n { font-size:12px; color:var(--accent); }
+.foldhead { display:flex; align-items:center; gap:7px; padding:14px 15px 8px; }
+.foldhead .t { flex:1; font-size:9.5px; letter-spacing:1.1px; font-weight:600; color:var(--fg3); }
+.foldhead .n { font-size:10px; color:var(--fg3); }
+.srow { display:flex; align-items:center; gap:11px; margin:0 12px 7px; padding:9px 11px; border-radius:10px; border:1px solid var(--lineSoft); background:var(--raised); }
+.srow .txt { flex:1; min-width:0; }
+.srow .l { font-size:13px; color:var(--fg); }
+.srow .d { font-size:10px; color:var(--fg3); }
+.srow .b { font-size:11px; color:var(--fg2); background:var(--high); padding:3px 8px; border-radius:6px; margin-left:4px; }
+.srow .add { font-size:11px; color:var(--accent); }
+
+/* emblems and the round trip */
+.mat { display:grid; gap:10px 18px; align-items:end; }
+.mat .h { font-size:11px; color:#8B867C; text-align:center; }
+.mat .rh { font-size:11.5px; color:#B7B3AA; align-self:center; }
+.cell { display:grid; place-items:center; background:var(--bg); border-radius:12px; padding:8px; }
+.trip { display:flex; flex-wrap:wrap; gap:22px; align-items:flex-start; }
+.stepper { display:flex; gap:8px; align-items:center; margin:6px 0 14px; }
+.stepper button { background:#22303A; color:#E8F2F6; border:1px solid #34505E; border-radius:8px; padding:6px 12px; font:inherit; font-size:12.5px; cursor:pointer; }
+.stepper button:disabled { opacity:.35; cursor:default; }
+.stepper .dots { display:flex; gap:6px; margin-left:6px; }
+.stepper .dots i { width:9px; height:9px; border-radius:50%; background:#34342F; cursor:pointer; }
+.stepper .dots i.on { background:#7FA8B8; }
+.store { background:#121211; border:1px solid #2A2A26; border-radius:10px; padding:10px 12px; font:12px/1.5 ui-monospace, Consolas, monospace; color:#B7B3AA; min-width:300px; }
+.store .k { color:#8B867C; font-family:Roboto, "Segoe UI", sans-serif; font-size:11px; letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; }
+.store .ch { color:#E8C15A; }
+.stepnote { font-size:13px; color:#C9C5BC; max-width:520px; margin:0 0 10px; }
+.stepnote b { color:#EDEAE3; font-weight:500; }
+.svgdefs { position:absolute; width:0; height:0; }
+#pop { display:none; position:fixed; z-index:50; max-width:280px; background:#24241F; color:#E8E6E1; border:1px solid #3A3A34; border-radius:10px; padding:9px 11px; font-size:12px; box-shadow:0 10px 30px #0009; }
+/* the Change icon and App icon sheets, as the dialogue kit draws them below 600dp: a bottom sheet */
+.ci-sheet { width:340px; background:var(--raised); color:var(--fg); border-radius:20px 20px 0 0; box-shadow:0 -10px 40px rgba(0,0,0,.35); border:1px solid var(--line); }
+.ci-sheet button { font:inherit; color:inherit; background:none; border:0; cursor:pointer; padding:0; }
+.ci-sheet .dh { display:flex; align-items:flex-start; gap:11px; padding:15px 16px 12px; }
+.ci-sheet .dh .di { width:32px; height:32px; border-radius:9px; flex:none; display:grid; place-items:center; color:var(--accent); background:color-mix(in srgb, var(--accent) 18%, transparent); }
+.ci-sheet .dh .di svg { width:17px; height:17px; }
+.ci-sheet .dh .tt { flex:1; padding-top:1px; min-width:0; }
+.ci-sheet .dh .t { font-size:14.5px; font-weight:500; line-height:1.3; }
+.ci-sheet .dh .s { font-size:11px; color:var(--fg3); line-height:15px; margin-top:2px; }
+.ci-sheet .dh .x { width:26px; height:26px; padding:6px; color:var(--fg3); flex:none; }
+.ci-sheet .dh .x svg { width:14px; height:14px; display:block; }
+.ci-sheet .db { padding:2px 16px 14px; }
+.ci-sheet .df { display:flex; gap:8px; padding:10px 16px 14px; }
+.ci-sheet .btn { flex:1; text-align:center; border-radius:10px; padding:9px 15px; font-size:12.5px; background:var(--raised); border:1px solid var(--line); color:var(--fg); }
+.ci-sheet .btn.p { background:var(--accent); border-color:transparent; color:var(--onAccent); font-weight:500; }
+.ci-sheet .btn[disabled] { opacity:.45; cursor:default; }
+.ci-sec { display:flex; align-items:center; gap:10px; padding:14px 0 8px; }
+.ci-sec span { font-size:9.5px; letter-spacing:1.2px; font-weight:600; color:var(--fg3); text-transform:uppercase; white-space:nowrap; }
+.ci-sec i { flex:1; height:1px; background:var(--lineSoft); }
+.ci-prev { display:flex; gap:10px; background:var(--sunken); border-radius:12px; padding:10px; }
+.ci-prev > div { flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; font-size:11px; color:var(--fg3); }
+.ci-prev .ico { width:96px; height:96px; display:grid; place-items:center; }
+.ci-sheet .ci-hs { display:flex; gap:4px; overflow-x:auto; scrollbar-width:none; margin-top:10px; }
+.ci-sheet .ci-hs button { flex:none; font-size:11.5px; color:var(--fg2); background:var(--high); border-radius:6px; padding:4px 9px; white-space:nowrap; }
+.ci-sheet .ci-hs button.on { background:var(--accent); color:var(--onAccent); font-weight:600; }
+.ci-sheet .ci-emgrid { display:grid; grid-template-columns:repeat(8, 1fr); gap:4px; max-height:158px; overflow-y:auto; margin-top:6px; scrollbar-width:thin; }
+.ci-sheet .ci-emgrid button { aspect-ratio:1; border-radius:9px; background:var(--sunken); border:1.5px solid transparent; padding:6px; }
+.ci-sheet .ci-emgrid button svg { width:100%; height:100%; display:block; }
+.ci-sheet .ci-emgrid button.on { background:var(--sel); border-color:var(--accent); }
+.ci-sheet .ci-colours { display:flex; gap:3px; overflow-x:auto; scrollbar-width:none; }
+.ci-sheet .ci-colours button { flex:none; width:30px; height:30px; border-radius:50%; border:2px solid transparent; padding:3px; }
+.ci-sheet .ci-colours button i { display:block; width:100%; height:100%; border-radius:50%; }
+.ci-sheet .ci-colours button.on { border-color:var(--accent); }
+.ci-sheet .ci-reset { font-size:12.5px; color:var(--accent); padding:4px 0; margin-top:10px; display:inline-block; }
+.ci-tick { display:flex; gap:10px; align-items:flex-start; border-radius:11px; padding:10px 11px; background:var(--sunken); border:1px solid var(--line); margin-top:10px; text-align:left; width:100%; color:var(--fg); }
+.ci-tick[data-ci] { cursor:pointer; }
+.ci-tick b { flex:none; width:18px; height:18px; border-radius:5px; border:1px solid var(--line); margin-top:1px; display:grid; place-items:center; }
+.ci-tick.on { background:color-mix(in srgb, var(--accent) 9%, transparent); border-color:var(--accent); }
+.ci-tick.on b { background:var(--accent); border-color:var(--accent); color:var(--onAccent); }
+.ci-tick b svg { width:12px; height:12px; }
+.ci-tick .l { font-size:12.5px; color:var(--fg); }
+.ci-tick .s2 { font-size:10.5px; color:var(--fg3); line-height:15px; }
+.ci-tick.grey, .ci-tick.grey.on { background:var(--sunken); border-color:var(--line); cursor:default; }
+.ci-tick.grey b, .ci-tick.grey.on b { background:var(--high); border-color:var(--line); color:var(--fg3); }
+.ci-tick.grey .l { color:var(--fg3); }
+.ci-tick.grey .s2 { color:var(--fg2); }
+.ci-hps { display:flex; gap:8px; }
+.ci-hp { flex:1; border-radius:14px; padding:10px 0 8px; display:flex; flex-direction:column; align-items:center; }
+.ci-hp .ic { width:52px; height:52px; }
+.ci-hp .nm { font-size:11px; padding-top:5px; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.6); }
+.ci-hp.wl .nm { color:#1B1A17; text-shadow:none; }
+.ci-sheet .ci-designs { display:grid; grid-template-columns:repeat(6, 1fr); gap:5px; }
+.ci-sheet .ci-designs button { border-radius:10px; background:var(--sunken); border:1.5px solid transparent; padding:4px 2px 3px; display:flex; flex-direction:column; align-items:center; font-size:10.5px; color:var(--fg3); }
+.ci-sheet .ci-designs button .m { width:38px; height:38px; }
+.ci-sheet .ci-designs button.on { background:var(--sel); border-color:var(--accent); color:var(--fg); }
+.ci-sheet .ci-icolours { display:flex; gap:5px; }
+.ci-sheet .ci-icolours button { flex:1; display:flex; align-items:center; gap:6px; border-radius:10px; background:var(--sunken); border:1.5px solid transparent; padding:6px 7px; font-size:11.5px; color:var(--fg2); }
+.ci-sheet .ci-icolours button i { width:16px; height:16px; border-radius:50%; flex:none; }
+.ci-sheet .ci-icolours button.on { border-color:var(--accent); background:var(--sel); color:var(--fg); }
+.ci-cap { font-size:11px; color:var(--fg3); line-height:15px; padding-top:8px; }
+.ci-cap b { color:var(--fg); font-weight:500; }
+.navrow { display:flex; align-items:center; gap:8px; padding:9px 14px; cursor:pointer; }
+.navrow .l { flex:1; font-size:12px; color:var(--fg2); display:flex; align-items:center; gap:4px; }
+.navrow .v { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--fg); }
+.navrow .mi { width:24px; height:24px; }
+.navrow .chev { color:var(--fg3); font-size:17px; line-height:1; }
+
+:root { --good:#8FB894; --warn:#C9A36A; --bad:#C97F7F; --snackAct:#3E6E82; }
+body.light { --good:#4B7A52; --warn:#8A6A2E; --bad:#9B4A4A; --snackAct:#9FC6D4; }
+:root, body.light { --accentDim:color-mix(in srgb, var(--accent) 18%, transparent); }
+.phone { user-select:none; }
+.phone .scroll { padding-bottom:4px; }
+.mono { font-family:ui-monospace, Consolas, monospace; }
+.ell { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.xbtn { cursor:pointer; }
+
+/* TabHeader */
+.tabhead { padding:14px 15px 11px; background:linear-gradient(var(--surface), var(--bg)); border-bottom:1px solid var(--lineSoft); }
+.tabhead .tt { font-size:16px; font-weight:600; letter-spacing:-.24px; }
+.tabhead .acts { display:flex; flex-wrap:wrap; gap:7px; margin-top:11px; }
+.tbtn { display:inline-flex; align-items:center; gap:6px; border-radius:9px; padding:6px 11px; font-size:11.5px; background:var(--raised); border:1px solid var(--line); color:var(--fg); cursor:pointer; }
+.tbtn.p { background:var(--accent); border-color:var(--accent); color:var(--onAccent); }
+
+/* ShareCard */
+.scard { margin:12px 15px; border-radius:14px; border:1px solid var(--line); background:var(--surface); overflow:hidden; }
+.scard .top { display:flex; align-items:center; gap:11px; padding:13px 14px; border-bottom:1px solid var(--lineSoft); }
+.livedot { width:17px; height:17px; border-radius:50%; display:grid; place-items:center; background:color-mix(in srgb, var(--good) 22%, transparent); animation:pulse 2.2s ease-in-out infinite alternate; flex:none; }
+.livedot i { width:9px; height:9px; border-radius:50%; background:var(--good); }
+.livedot.busy { animation-duration:.9s; background:color-mix(in srgb, var(--accent) 22%, transparent); }
+.livedot.busy i { background:var(--accent); }
+@keyframes pulse { from { opacity:.35; } to { opacity:1; } }
+.scard .ttl { font-size:13px; font-weight:600; }
+.scard .sum { font-size:10.5px; color:var(--fg3); display:flex; align-items:center; gap:7px; }
+.pips { display:flex; gap:3px; } .pips i { width:5px; height:5px; border-radius:50%; display:block; }
+.scard .body { padding:14px; }
+.lbl9 { font-size:9px; letter-spacing:1px; color:var(--fg3); text-transform:uppercase; }
+.pin { font:21px ui-monospace, Consolas, monospace; letter-spacing:2px; color:var(--accent); }
+.smallbtn { font-size:11.5px; color:var(--fg); background:var(--high); border:1px solid var(--lineSoft); border-radius:7px; padding:6px 11px; cursor:pointer; display:inline-block; white-space:nowrap; }
+.smallbtn.grey { color:var(--fg3); cursor:default; border-color:transparent; }
+.warnt { font-size:10px; color:var(--warn); line-height:13px; }
+.addr { display:flex; align-items:center; gap:8px; padding:5px 2px; border-radius:8px; cursor:pointer; }
+.addr .k { font-size:9px; padding:2px 5px; border-radius:5px; flex:none; }
+.addr .u { font:12px ui-monospace, Consolas, monospace; flex:1; min-width:0; }
+.natnote { font-size:9.5px; color:var(--fg3); line-height:12px; padding:0 2px 3px; }
+.tline { display:flex; align-items:center; padding:2px 0; font-size:12px; min-height:36px; }
+.tline .l { flex:1; } .tline .l small { display:block; font-size:10px; color:var(--fg3); line-height:13px; }
+.msw { width:52px; height:32px; border-radius:16px; background:var(--high); border:2px solid var(--line); position:relative; cursor:pointer; flex:none; }
+.msw::after { content:""; position:absolute; top:50%; left:6px; width:16px; height:16px; margin-top:-8px; border-radius:50%; background:var(--fg3); transition:left .12s, width .12s, height .12s; }
+.msw.on { background:var(--accent); border-color:var(--accent); }
+.msw.on::after { left:22px; width:24px; height:24px; margin-top:-12px; background:var(--onAccent); }
+.idle { display:flex; align-items:center; padding:6px 0; font-size:12px; }
+.idle .l { flex:1; }
+.chp { font-size:11px; color:var(--fg2); background:var(--high); border-radius:6px; padding:4px 8px; margin-left:5px; cursor:pointer; white-space:nowrap; }
+.chp.on { background:var(--accent); color:var(--onAccent); }
+.fold { display:flex; align-items:center; gap:10px; padding:8px 0; cursor:pointer; border-top:1px solid var(--lineSoft); border-bottom:1px solid var(--lineSoft); margin:2px 0 4px; }
+.fold .l { flex:1; font-size:12px; } .fold .l small { display:block; font-size:10px; color:var(--fg3); }
+.fold .caret { color:var(--fg3); font-size:10px; transition:transform .15s; } .fold.open .caret { transform:rotate(90deg); }
+.stopline { display:flex; align-items:center; gap:10px; margin-top:8px; }
+
+/* rows */
+.sect { display:flex; align-items:center; padding:13px 15px 4px; }
+.sect .l { flex:1; font-size:9.5px; letter-spacing:1.1px; font-weight:600; color:var(--fg3); text-transform:uppercase; }
+.sect .a { font-size:10px; color:var(--accent); padding:2px 4px; cursor:pointer; }
+.sect .n { font-size:10px; color:var(--fg3); }
+.cap { font-size:10.5px; color:var(--fg3); line-height:14px; padding:0 15px 4px; }
+.nrow { display:flex; align-items:center; gap:10px; padding:7px 14px; }
+.nrow .tx { flex:1; min-width:0; }
+.nrow .a { font-size:12.5px; }
+.nrow .b { font-size:10px; color:var(--fg3); margin-top:2px; }
+.nrow .b.mono { font-size:9.5px; }
+.thumb { width:34px; height:34px; border-radius:8px; background:var(--sunken); border:1px solid var(--lineSoft); display:grid; place-items:center; flex:none; }
+.sb { font-size:11px; color:var(--fg2); padding:4px 7px; border-radius:6px; cursor:pointer; white-space:nowrap; }
+.go { font-size:11px; color:var(--accent); padding:2px 4px; cursor:pointer; white-space:nowrap; }
+.dot7 { width:7px; height:7px; border-radius:50%; flex:none; }
+.prow { display:flex; align-items:center; padding:9px 14px; gap:10px; cursor:pointer; }
+.prow .tx { flex:1; min-width:0; } .prow .a { font-size:13px; } .prow .b { font-size:10px; color:var(--fg3); }
+.grow2 { padding:7px 14px; display:flex; align-items:center; gap:5px; }
+.grow2 .tx { flex:1; min-width:0; } .grow2 .a { font-size:12px; font-weight:500; } .grow2 .b { font-size:10px; color:var(--fg3); }
+.rules2 { padding:6px 14px; } .rules2 .t { font-size:11px; color:var(--fg2); margin:0 0 5px; }
+.rules2 .chp { margin:0 5px 0 0; padding:4px 9px; }
+.rules2 small { display:block; font-size:9.5px; color:var(--fg3); margin-top:4px; }
+.empty2 { padding:38px 22px; text-align:center; } .empty2 .t { font-size:12.5px; color:var(--fg2); font-weight:500; margin-top:10px; }
+.empty2 .l { font-size:12px; color:var(--fg3); line-height:19px; margin-top:4px; }
+.empty2 svg { margin:0 auto; opacity:.4; }
+
+/* the proposed shared-file rows */
+.shrow { display:flex; align-items:center; gap:11px; padding:9px 10px 9px 14px; position:relative; cursor:pointer; }
+.shrow:hover { background:color-mix(in srgb, var(--fg) 4%, transparent); }
+.shrow .thumb { width:40px; height:40px; border-radius:9px; }
+.shrow .tx { flex:1; min-width:0; }
+.shrow .a { font-size:13px; }
+.shrow .real { font-size:10px; color:var(--fg3); margin-top:1px; }
+.shrow .meta { display:flex; flex-wrap:wrap; gap:2px 9px; margin-top:4px; font-size:10px; color:var(--fg2); }
+.shrow .meta span { display:inline-flex; align-items:center; gap:3px; white-space:nowrap; }
+.shrow .meta .lk { color:var(--warn); }
+.shrow .meta .pz { color:var(--fg3); }
+.shrow.paused .thumb, .shrow.paused .a, .shrow.paused .real { opacity:.5; }
+.shrow.sel { background:var(--sel); }
+.shrow .ck { width:20px; height:20px; border-radius:6px; border:1.5px solid var(--fg3); flex:none; display:grid; place-items:center; color:var(--onAccent); }
+.shrow.sel .ck { background:var(--accent); border-color:var(--accent); }
+.shrow .ck svg { width:13px; height:13px; }
+.qrb { width:36px; height:36px; border-radius:9px; display:grid; place-items:center; background:var(--high); border:1px solid var(--lineSoft); cursor:pointer; flex:none; color:var(--fg2); }
+.qrb:hover { border-color:var(--accent); }
+.offnote { margin:4px 15px 6px; font-size:10.5px; color:var(--warn); }
+
+/* overlays inside a phone */
+.ov { position:absolute; inset:0; z-index:10; }
+.ov .scrim { position:absolute; inset:0; background:rgba(0,0,0,.52); }
+.ov .ci-sheet { position:absolute; left:0; right:0; bottom:0; width:auto; max-height:88%; overflow-y:auto; scrollbar-width:thin; }
+.ov .ci-sheet.mid { left:18px; right:18px; bottom:auto; top:50%; transform:translateY(-50%); border-radius:20px; }
+.ci-sheet .btn { cursor:pointer; }
+.ci-sheet .btn.bad { color:var(--bad); }
+.ci-sheet .dh .di.warn { color:var(--warn); background:color-mix(in srgb, var(--warn) 18%, transparent); }
+.dcap { font-size:11px; color:var(--fg3); line-height:15px; }
+.dfield { margin-top:4px; border:1px solid var(--accent); border-radius:10px; padding:10px 12px; font-size:13px; background:var(--sunken); }
+.dfield .lab { font-size:10px; color:var(--accent); margin-bottom:2px; }
+.qrwrap { display:flex; flex-direction:column; align-items:center; gap:8px; padding:4px 0 2px; }
+.linkrow { display:flex; align-items:center; gap:8px; background:var(--sunken); border:1px solid var(--lineSoft); border-radius:10px; padding:7px 7px 7px 11px; margin-top:10px; }
+.linkrow .u { flex:1; min-width:0; font:11px ui-monospace, Consolas, monospace; color:var(--fg2); }
+.cline { display:flex; gap:7px; align-items:flex-start; font-size:11px; color:var(--fg2); line-height:15px; margin-top:8px; }
+.cline svg { flex:none; margin-top:1px; }
+.cline.warn { color:var(--warn); }
+.peer { display:flex; align-items:center; gap:10px; padding:8px 2px; }
+.peer .av { width:30px; height:30px; border-radius:50%; background:var(--high); display:grid; place-items:center; flex:none; }
+.peer .tx { flex:1; min-width:0; } .peer .a { font-size:12.5px; } .peer .b { font-size:10px; color:var(--fg3); }
+.peer .b.ok { color:var(--good); } .peer .b.no { color:var(--bad); }
+.bar3 { height:3px; border-radius:2px; background:var(--high); margin-top:4px; overflow:hidden; }
+.bar3 i { display:block; height:100%; background:var(--accent); width:0; transition:width .2s linear; }
+.spin { width:13px; height:13px; border-radius:50%; border:2px solid var(--accent); border-right-color:transparent; animation:spin .8s linear infinite; display:inline-block; vertical-align:-2px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.frow { display:flex; align-items:center; gap:11px; background:var(--sunken); border-radius:11px; padding:9px 11px; }
+.frow .tx { flex:1; min-width:0; } .frow .a { font-size:12.5px; } .frow .b { font-size:10.5px; color:var(--fg3); }
+
+/* the hold menu */
+.pmenu { position:absolute; right:12px; z-index:12; width:236px; background:var(--raised); border:1px solid var(--line); border-radius:12px; box-shadow:0 10px 30px #0008; padding:5px 0; }
+.pm { display:flex; align-items:center; gap:11px; padding:8px 14px; font-size:12.5px; cursor:pointer; color:var(--fg); }
+.pm:hover { background:var(--sunken); }
+.pm .r { margin-left:auto; color:var(--fg3); font-size:11px; }
+.pm.bad { color:var(--bad); }
+.pm .tk { margin-left:auto; width:16px; height:16px; border-radius:4px; border:1.5px solid var(--fg3); display:grid; place-items:center; color:var(--onAccent); }
+.pm .tk.on { background:var(--accent); border-color:var(--accent); }
+.pm .tk svg { width:11px; height:11px; }
+.pmsep { height:1px; background:var(--lineSoft); margin:4px 0; }
+.pmchips { display:flex; flex-wrap:wrap; gap:4px; padding:0 14px 8px 40px; }
+.pmchips .chp { margin:0; }
+.pmhead { padding:6px 14px 6px; font-size:10.5px; color:var(--fg3); border-bottom:1px solid var(--lineSoft); margin-bottom:4px; }
+
+/* selecting */
+.selbar { position:absolute; left:0; right:0; bottom:50px; z-index:8; background:var(--raised); border-top:1px solid var(--line); display:flex; align-items:center; gap:6px; padding:8px 10px; font-size:12px; }
+.selbar .n { flex:1; color:var(--fg2); }
+.selbar .stop { background:color-mix(in srgb, var(--bad) 16%, transparent); color:var(--bad); border-radius:9px; padding:7px 11px; cursor:pointer; }
+.selbar .stop.dis { opacity:.45; cursor:default; }
+
+/* the message, with a button, and the cards */
+.snack { position:absolute; left:12px; right:12px; bottom:62px; z-index:9; background:var(--fg); color:var(--bg); border-radius:10px; padding:9px 12px; font-size:12px; display:flex; align-items:center; gap:10px; animation:tIn .15s ease-out; }
+.snack .m { flex:1; }
+.snack b { color:var(--snackAct); font-weight:600; cursor:pointer; white-space:nowrap; }
+.toast { position:absolute; left:0; right:0; bottom:62px; display:flex; justify-content:center; z-index:9; pointer-events:none; }
+.toast span { font-size:12px; color:var(--bg); background:var(--fg); border-radius:20px; padding:7px 14px; max-width:85%; text-align:center; animation:tIn .15s ease-out; }
+@keyframes tIn { from { opacity:0; } to { opacity:1; } }
+.cards { position:absolute; z-index:9; top:34px; right:10px; display:flex; flex-direction:column; align-items:flex-end; gap:6px; pointer-events:none; }
+.card { pointer-events:auto; position:relative; display:flex; align-items:center; gap:10px; max-width:280px; padding:8px 4px 8px 10px; background:var(--high); border:1px solid var(--lineSoft); border-radius:10px; overflow:hidden; box-shadow:0 5px 14px #0007; cursor:pointer; animation:inR .18s cubic-bezier(0,0,.58,1) both; }
+.card .cic { width:26px; height:26px; border-radius:8px; background:var(--accentDim); display:grid; place-items:center; flex:none; }
+.card .ctx { max-width:190px; min-width:0; }
+.card .w1 { font-size:12px; color:var(--fg2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.card .w2 { font-size:11.5px; color:var(--accent); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.card .cx { width:30px; height:30px; display:grid; place-items:center; flex:none; }
+.card .hair { position:absolute; left:0; bottom:0; height:2px; width:100%; background:color-mix(in srgb, var(--accent) 55%, transparent); animation:hair 3s linear forwards; }
+@keyframes hair { from { width:100%; } to { width:0; } }
+@keyframes inR { from { transform:translateX(110%); opacity:0; } to { transform:none; opacity:1; } }
+
+/* nav */
+.nav { flex:none; background:var(--raised); padding:4px 0; display:flex; border-top:1px solid var(--lineSoft); height:50px; }
+.nav .ni { display:flex; flex-direction:column; align-items:center; padding:4px 0; flex:1 1 0; min-width:0; }
+.nav .ni .c { font-size:9.5px; color:var(--fg3); white-space:nowrap; margin-top:1px; }
+.nav .ni.on .c { color:var(--accent); }
+.crumb { font-size:11px; color:var(--fg3); padding:8px 14px 4px; }
+.lrow2 { display:flex; align-items:center; gap:10px; padding:0 12px; height:46px; cursor:pointer; }
+.lrow2 .tx { flex:1; min-width:0; } .lrow2 .a { font-size:13px; } .lrow2 .b { font-size:10.5px; color:var(--fg3); }
+.lrow2 .sd { font-size:11px; color:var(--fg3); }
+.lrow2.sel { background:var(--sel); }
+
+/* settings rows from the notifications page */
+.colhead { display:flex; justify-content:flex-end; gap:6px; padding:2px 14px 0; }
+.colhead span { width:42px; text-align:center; font-size:10px; color:var(--fg3); }
+.note10 { font-size:10.5px; color:var(--fg3); padding:0 14px 6px; line-height:14px; }
+.grow { display:flex; align-items:center; padding:9px 14px; }
+.grow .caret { width:14px; color:var(--fg3); font-size:10px; flex:none; transform:rotate(90deg); }
+.grow .tx { flex:1; min-width:0; } .grow .a { font-size:13px; } .grow .b { font-size:10.5px; color:var(--fg3); line-height:14px; }
+.arow { display:flex; align-items:center; padding:7px 14px 7px 44px; }
+.arow .tx { flex:1; min-width:0; font-size:12.5px; color:var(--fg2); display:flex; align-items:center; gap:8px; }
+.arow.new { background:color-mix(in srgb, var(--accent) 7%, transparent); border-left:2px solid var(--accent); padding-left:42px; }
+.sw { width:42px; height:26px; display:grid; place-items:center; flex:none; cursor:pointer; }
+.sw + .sw, .sw + .dash, .dash + .sw { margin-left:6px; }
+.sw i { width:41.6px; height:25.6px; border-radius:13px; background:var(--high); border:1.6px solid var(--line); position:relative; display:block; }
+.sw i::after { content:""; position:absolute; top:50%; left:5px; width:12.8px; height:12.8px; margin-top:-6.4px; border-radius:50%; background:var(--fg3); transition:left .12s, width .12s, height .12s; }
+.sw.on i { background:var(--accent); border-color:var(--accent); }
+.sw.on i::after { left:19px; width:19.2px; height:19.2px; margin-top:-9.6px; background:var(--onAccent); }
+.dash { width:42px; text-align:center; color:var(--fg3); font-size:12px; flex:none; }
+.newtag { font-size:9px; color:var(--accent); border:1px solid var(--accent); border-radius:5px; padding:0 4px; margin-left:4px; }
+
+/* Android's share sheet, drawn generically */
+.asheet { position:absolute; left:0; right:0; bottom:0; z-index:10; background:#202124; color:#E8EAED; border-radius:24px 24px 0 0; padding:10px 14px 18px; }
+body.light .asheet { background:#F8F9FA; color:#202124; }
+.asheet .hdl { width:32px; height:4px; border-radius:2px; background:#5F6368; margin:0 auto 12px; }
+.asheet .prev { display:flex; align-items:center; gap:10px; padding:4px 4px 12px; border-bottom:1px solid #3C4043; }
+body.light .asheet .prev { border-color:#DADCE0; }
+.asheet .prev .ph { width:40px; height:40px; border-radius:8px; background:linear-gradient(135deg, #6E8FA0, #C9A36A); flex:none; }
+.asheet .prev .a { font-size:13px; } .asheet .prev .b { font-size:11px; opacity:.65; }
+.asheet .grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:14px 4px; padding-top:14px; }
+.asheet .app { display:flex; flex-direction:column; align-items:center; gap:5px; font-size:10.5px; text-align:center; line-height:12px; cursor:pointer; border-radius:12px; padding:4px 0; }
+.asheet .app.ours:hover { background:#ffffff14; }
+.asheet .app .ic { width:46px; height:46px; border-radius:50%; display:grid; place-items:center; color:#fff; font-weight:600; font-size:15px; }
+.asheet .app .sub2 { font-size:9.5px; opacity:.6; }
+.asheet .app.ours .ic { background:#1E1F1D; box-shadow:0 0 0 2px #7FA8B8; }
+
+/* the browser on a phone without Filet */
+.bbar { flex:none; display:flex; align-items:center; gap:8px; padding:8px 10px; background:#202124; color:#E8EAED; font-size:11.5px; }
+.bbar .u { flex:1; min-width:0; background:#303134; border-radius:16px; padding:6px 12px; font-family:ui-monospace, Consolas, monospace; font-size:10.5px; }
+.site { flex:1; background:#161614; color:#E8E6E1; padding:40px 24px; position:relative; }
+.site .mark { width:44px; height:44px; border-radius:12px; background:#7FA8B8; color:#0E1417; display:grid; place-items:center; font-weight:800; font-size:22px; margin-bottom:18px; }
+.site .kind { font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#6B6860; }
+.site h3 { font-size:22px; margin:4px 0 6px; font-weight:650; }
+.site p { color:#9A968D; margin:0 0 18px; font-size:14px; }
+.site .b1 { display:block; text-align:center; border-radius:12px; padding:13px 16px; font-weight:600; margin-bottom:10px; font-size:14px; }
+.site .go1 { background:#7FA8B8; color:#0E1417; } .site .get1 { background:#2A2A26; color:#E8E6E1; }
+.site .small { font-size:12.5px; color:#6B6860; margin-top:16px; }
+.dlbar { position:absolute; left:10px; right:10px; bottom:12px; background:#303134; color:#E8EAED; border-radius:12px; padding:10px 12px; font-size:12px; display:flex; align-items:center; gap:10px; animation:tIn .2s; }
+.dlbar b { color:#8AB4F8; font-weight:500; }
+
+/* the Activity tab's rows (ActivitySheet.kt JobRow) */
+.jrow { padding:8px 15px; }
+.jtop { display:flex; align-items:center; gap:11px; }
+.jtop .tx { flex:1; min-width:0; } .jtop .a { font-size:12.5px; } .jtop .b { font-size:10px; color:var(--fg3); }
+.jtop .w { font-size:10px; color:var(--fg3); white-space:nowrap; } .jtop .w.ok { color:var(--good); }
+.jtop .stopx { width:30px; height:30px; display:grid; place-items:center; border-radius:8px; cursor:pointer; }
+.bar5 { height:5px; border-radius:3px; background:var(--high); margin-top:6px; overflow:hidden; }
+.bar5 i { display:block; height:100%; background:var(--accent); transition:width .2s linear; }
+.dayl { font-size:11px; font-weight:500; color:var(--fg2); padding:12px 15px 5px; }
+
+/* page bits */
+.stage { display:flex; flex-wrap:wrap; gap:26px; align-items:flex-start; }
+.picks { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 12px; }
+.picks button, .demo button { background:#1F1F1D; color:#C9C5BC; border:1px solid #34342F; border-radius:8px; padding:6px 11px; font:12.5px inherit; cursor:pointer; }
+.picks button.on { background:#2F4550; color:#E8F2F6; border-color:#4E7382; }
+.demo { display:flex; flex-wrap:wrap; gap:6px; }
+.whatlist { max-width:330px; color:#B7B3AA; font-size:12.5px; padding-left:18px; margin:0; }
+.whatlist li { margin:6px 0; } .whatlist b { color:#E3DFD7; font-weight:500; }
+.pick { display:flex; align-items:center; gap:11px; border-radius:11px; }
+.pick .m { width:30px; height:30px; flex:none; }
+.pick .v { font-size:12.5px; } .pick .k { font-size:10px; color:var(--fg3); }
+.qn { font-weight:600; color:#9FC6D4; margin-right:4px; }
+.rec { color:#9FD3AE; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs id="tabDefs"></defs></svg>
+<div class="page">
+<h1>Share over this network · round 2</h1>
+<p class="lead">Round 2: your third round of answers and your two corrections, drawn. Links and QRs now point at this phone's own address, so they work on a Wi-Fi with no internet. The access code stays as it is, with the lock as an extra on top. Pushes arrive whenever Filet is open, behind a pop-up switch. Every Accept ends in a "received" result, and everything the share does is logged in Activity. <b>Today</b> is NearbyScreen.kt as it is now, warts included. <b>Proposed</b> is the same share on the same server. Everything clicks. Hold or right-click a shared file for its menu. Every question is answered; the answers are listed under Changes.</p>
+
+<div class="controls">
+  <div class="ctl">Theme <span class="cseg" data-ctl="theme"><button data-v="dark">Dark</button><button data-v="light">Light</button></span></div>
+  <div class="ctl">Sharing <span class="cseg" data-ctl="running"><button data-v="1">On</button><button data-v="0">Off</button></span></div>
+  <div class="ctl demo"><button id="simDl">Someone downloads Beach.jpg</button><button id="simDl2">A browser downloads Report.pdf</button><button id="simPush">Galaxy A54 sends you a file</button><button id="simCancel">Galaxy A54 cancels</button><button id="reset">Reset the demo</button></div>
+</div>
+
+<h2>1 · The page</h2>
+<p class="sub">Same card, same server, same addresses, same access code. The shared files move up from the bottom to right under the card, because they are what the page is for now, and each one becomes a row you can act on. <b>Add files</b> and <b>Fast share</b> sit in the header. Tap a row's QR button, or hold the row. Devices gets the pop-up switch and a Block on each phone. Press "Galaxy A54 sends you a file" at the top, with pop-ups on and then off.</p>
+<div class="stage">
+  <div class="col"><div class="tag"><b>Today</b> NearbyScreen.kt</div><div class="phone tall" id="today"></div></div>
+  <div class="col"><div class="tag"><b>Proposed</b></div><div class="phone tall" id="prop"></div></div>
+  <div class="col"><div class="tag"><b>What changed</b></div>
+    <ul class="whatlist">
+      <li><b>Shared files first.</b> Under the card, not after Devices. The section header has <b>Select</b> to stop several at once.</li>
+      <li><b>A row per file:</b> the name others see, with the real name under it if you renamed it, then size, lock, "stops in 3 h", and downloads with when the last one was. The QR button is at the end.</li>
+      <li><b>Hold or right-click</b> for: Show QR and link, Rename for others, Expiry, Pause, One-time link, Lock, Stop sharing.</li>
+      <li><b>A folder</b> says it downloads as a zip in a browser.</li>
+      <li><b>The card's settings fold</b> into one line that says how they're set, so the list shows without scrolling. Tap it to change them.</li>
+      <li><b>Require a PIN stays</b> as it is today. The lock is an extra lock on one file, on top of the access code, for things others shouldn't get. A locked file asks for its own lock code, shown on the card under the access code.</li>
+      <li><b>Devices</b> starts with <b>Pop-ups</b>: On, Off for 1 hour, Off. It covers every phone, trusted ones too. Off for 1 hour turns itself back on.</li>
+      <li><b>While pop-ups are off</b>, a phone sending you something shows here as <b>sharing</b>. Tap it to see what it's sending. It leaves the list within about 30 s of the sender cancelling, leaving the Wi-Fi or closing Filet, and after 10 minutes at the latest.</li>
+      <li><b>Each phone</b> says if it sends without asking, and has <b>Block</b>. A blocked phone's pushes are turned away without a pop-up, and Activity logs them.</li>
+      <li><b>Pushes arrive whenever Filet is open</b>, not only while sharing. Turn Sharing off at the top and send again.</li>
+      <li>Received files, Let in and Connected are unchanged.</li>
+    </ul>
+  </div>
+</div>
+
+<h2>2 · Fast share</h2>
+<p class="sub">One sheet holds both ways: the QR at the top, and the Filets on this network under it. If sharing is off, opening it starts sharing. Pick what's being shared. A locked file asks first. The QR and Copy link are the same direct link, on this phone's own address.</p>
+<div class="picks" id="fsPicks"></div>
+<div class="stage">
+  <div class="col"><div class="tag"><b>Your phone</b> fast share, opened from a file</div><div class="phone tall" id="fs"></div></div>
+  <div class="col"><div class="tag"><b>What the QR holds</b></div><div class="find" style="max-width:420px" id="linkFind"></div></div>
+</div>
+
+<h2>3 · The other phone</h2>
+<p class="sub">Four ways the file arrives. Send from the sheet above, or play each one here. The Filets are on their Storage tab: a push arrives whenever Filet is open. After Accept there is always a "received" result, from a trusted phone too. It's an Activity card that stays until you close it. Every file a trusted phone pushes gets one too.</p>
+<div class="demo" style="margin-bottom:12px"><button data-play="ask">Play: a Filet that asks</button><button data-play="trusted">Play: a trusted Filet</button><button data-play="scan">Play: Filet's own scanner</button><button data-play="web">Play: any camera</button></div>
+<div class="stage" id="recv"></div>
+
+<h2>4 · Ways in</h2>
+<p class="sub">The hold menu, the selection bar, a viewer's Share button, the Share page, and Android's share sheet. The Filet items in each one work. Fast share opens section 2's sheet.</p>
+<div class="stage" id="ways"></div>
+
+<h2>5 · The share in Activity</h2>
+<p class="sub">Everything the share does is logged on the Activity tab, in ActivitySheet.kt's rows: downloads by others, pushes sent and received, and shares started, paused and stopped. Do things elsewhere on this page and they land here. The started card and the end message stay switchable in Settings › Activity.</p>
+<div class="stage">
+  <div class="col"><div class="tag"><b>Activity</b> this phone</div><div class="phone tall" id="log" style="height:560px"></div></div>
+  <div class="col"><div class="tag"><b>Settings › Activity</b> from the notifications mock</div><div class="phone tall" id="act" style="height:560px"></div></div>
+  <div class="col"><div class="tag"><b>One-time and paused</b></div>
+    <ul class="whatlist">
+      <li><b>One-time link:</b> the first finished download stops it. The message says so. Try it: make Beach.jpg one-time from its menu, then download it.</li>
+      <li><b>Paused:</b> stays on the list and keeps its link. A download gets "Paused by the owner" and nothing is counted.</li>
+      <li><b>Who:</b> a Filet gives its name. A browser is "A browser" plus its address, as on Let in.</li>
+    </ul>
+  </div>
+</div>
+
+<h2>6 · How it works</h2>
+<div id="how"></div>
+
+<h2>Notes</h2>
+<p class="sub">Kept in this browser:</p>
+<textarea id="notes" placeholder="Your notes"></textarea>
+
+<h2>Changes</h2>
+<div class="changes">
+  <div><b>Answers, 2026-11-14.</b> Every question answered, so they're out of the mock. The list sits under the card (Q1). One sheet (Q5). Expiry starts at 1 day for a fast share, Never for added files (Q6). Several files as drawn (Q7). Pair first, with the four-digit check (Q9). Keep "Nearby", in the hold menu and in Android's share sheet; internet sharing is Filet Portal, "Portal" in the tools bar (Q10). From another app: add, message, stay (Q11). Every download, a folder or zip counting as one, and the same card for every file a trusted phone pushes, switchable in Settings › Activity (Q12). Names decided (Q13). Locked files ask for their own lock code, on the card under the access code (Q14). The received result is the card, "Photo.jpg received · Filet/Received" with "Open where it is"; the dialog is dropped (Q15).</div>
+  <div><b>Round 2, 2026-11-14.</b> Corrections: the QR and Copy link are a direct link on this phone's own address (no github.io), every Accept ends in a "received" dialog or Activity card (switch at the top), and the share's work is logged on the Activity tab. The answers: the access code stays and the lock is extra (Q2), locked files are listed with a lock (Q3), the QR's one-file key (Q4), pushes whenever Filet is open with the pop-up switch, Block and the "sharing" row (Q8). New: Q14 and Q15.</div>
+  <div><b>Round 1, 2026-11-14.</b> First draw of both answer rounds. Today's page replicated from NearbyScreen.kt. Proposed page, fast share sheet, lock warning, hold menu, select to stop, rename, expiry, pause, one-time, receiving on a Filet (asks / trusted), the camera with and without Filet, the five ways in, and the download card and message on the Activity page.</div>
+</div>
+</div>
+
+<script>
+const GL = {"Share":{"kind":"stroke","d":["M12 15V4","m8 8 4-4 4 4","M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"],"width":1.7},"Lock":{"kind":"stroke","d":["M5 11h14v9H5z","M8 11V8a4 4 0 0 1 8 0v3"],"width":1.7},"Download":{"kind":"stroke","d":["M12 4v11M8 11l4 4 4-4M5 20h14"],"width":1.7},"Device":{"kind":"stroke","d":["M7 3h10v18H7z","M10.5 18.5h3"],"width":1.7},"Wifi":{"kind":"stroke","d":["M3.5 9.5a13 13 0 0 1 17 0","M6.5 13a9 9 0 0 1 11 0","M9.5 16.4a5 5 0 0 1 5 0","M12 20h.01"],"width":1.7},"Link":{"kind":"stroke","d":["M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 1 0-5.7-5.7L11.6 6.8","M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 1 0 5.7 5.7l1.4-1.4"],"width":1.7},"Close":{"kind":"stroke","d":["M6 6l12 12M18 6 6 18"],"width":1.9},"More":{"kind":"filled","d":["M13.7 5a1.7 1.7 0 1 1-3.4 0 1.7 1.7 0 0 1 3.4 0","M13.7 12a1.7 1.7 0 1 1-3.4 0 1.7 1.7 0 0 1 3.4 0","M13.7 19a1.7 1.7 0 1 1-3.4 0 1.7 1.7 0 0 1 3.4 0"],"width":1.7},"Check":{"kind":"stroke","d":["m5 12.5 4.5 4.5L19 7"],"width":2.2},"Timer":{"kind":"stroke","d":["M20.5 13a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0","M9.5 3h5M12 8.5V13"],"width":1.7},"Pause":{"kind":"filled","d":["M7.5 5h3.2v14H7.5z","M13.3 5h3.2v14h-3.2z"],"width":1.7},"PlaySolid":{"kind":"filled","d":["M7.5 4.4v15.2L20 12z"],"width":1.7},"Plus":{"kind":"stroke","d":["M12 5v14M5 12h14"],"width":1.9},"Folder":{"kind":"stroke","d":["M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],"width":1.7},"File":{"kind":"stroke","d":["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z","M14 3v5h5"],"width":1.7},"Image":{"kind":"stroke","d":["M3 4h18v16H3z","M10 9.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0","m4 17 5-5 4 4 3-3 4 4"],"width":1.7},"Video":{"kind":"stroke","d":["M3 5h18v14H3z","m10 9 5 3-5 3z"],"width":1.7},"Audio":{"kind":"stroke","d":["M9 18V6l10-2v12","M9 18a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0","M19 16a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"],"width":1.7},"Doc":{"kind":"stroke","d":["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z","M14 3v5h5","M8.5 13h7M8.5 16.5h5"],"width":1.7},"Zip":{"kind":"stroke","d":["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z","M11 6h2M11 9h2M11 12h2M11 15h2"],"width":1.7},"Apk":{"kind":"stroke","d":["M4 4h16a3 3 0 0 1 0 0v16H4z","M9 15V9l3 4 3-4v6"],"width":1.7},"Scan":{"kind":"stroke","d":["M4 8.5V4h4.5","M15.5 4H20v4.5","M20 15.5V20h-4.5","M8.5 20H4v-4.5","M8 8h3v3H8z","M13 8h3v3h-3z","M8 13h3v3H8z","M13.5 13.5h1v1h-1zM15.5 15.5h.5v.5h-.5z"],"width":1.7},"Rename":{"kind":"stroke","d":["M4 20h4l10-10-4-4L4 16z","m14 6 4 4"],"width":1.7},"Copy":{"kind":"stroke","d":["M9 9h11v11H9z","M5 15V6a2 2 0 0 1 2-2h8"],"width":1.7},"Cut":{"kind":"stroke","d":["M12 4v16M4 12h16M12 4 9 7M12 4l3 3M12 20l-3-3M12 20l3-3M4 12l3-3M4 12l3 3M20 12l-3-3M20 12l-3 3"],"width":1.7},"Star":{"kind":"stroke","d":["m12 4 2.4 5 5.6.8-4 3.9 1 5.5-5-2.7-5 2.7 1-5.5-4-3.9 5.6-.8z"],"width":1.7},"Info":{"kind":"stroke","d":["M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0","M12 11v5.5M12 7.8v.01"],"width":1.7},"Key":{"kind":"stroke","d":["M14.5 12a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0","M13.5 10.5H21v3M18 10.5v3"],"width":1.7},"Delete":{"kind":"stroke","d":["M5 7h14M10 7V5h4v2M6.5 7l1 13h9l1-13"],"width":1.7},"Open":{"kind":"stroke","d":["M14 4h6v6","M20 4 11 13","M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"],"width":1.7},"Home":{"kind":"stroke","d":["m4 11 8-7 8 7v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"],"width":1.7},"Storage":{"kind":"stroke","d":["M3 4h18v7H3z","M3 13h18v7H3z","M7 7.5h.01M7 16.5h.01"],"width":1.7},"Jobs":{"kind":"stroke","d":["M4 18V9M9.5 18V5M15 18v-6M20.5 18v-9"],"width":1.7},"Search":{"kind":"stroke","d":["M18 11a7 7 0 1 1-14 0 7 7 0 0 1 14 0","m20 20-3.5-3.5"],"width":1.9},"SelectBox":{"kind":"stroke","d":["M8 4h8a4 4 0 0 1 4 4v8a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4z","M8.5 12l2.5 2.5 4.5-5"],"width":1.7},"Mark":{"kind":"stroke","d":["M6 18V6l12 12V6","M4.5 20.4c5-1.6 11-2.2 15 .2"],"width":1.6}};
+const TABDATA = {"defs":"<linearGradient id=\"t-gSteel\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#C6DDE6\"/><stop offset=\"0.3\" stop-color=\"#93B8C6\"/><stop offset=\"0.65\" stop-color=\"#7FA8B8\"/><stop offset=\"1\" stop-color=\"#5E8A9B\"/></linearGradient><linearGradient id=\"t-gSlate\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#6F97A7\"/><stop offset=\"0.5\" stop-color=\"#4E7382\"/><stop offset=\"1\" stop-color=\"#385663\"/></linearGradient><linearGradient id=\"t-gDeep\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#3E5F6C\"/><stop offset=\"1\" stop-color=\"#22343C\"/></linearGradient><linearGradient id=\"t-gSky\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#22343C\"/><stop offset=\"1\" stop-color=\"#46707F\"/></linearGradient><linearGradient id=\"t-gPaper\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#E6F0F3\"/><stop offset=\"1\" stop-color=\"#A9C6D2\"/></linearGradient><radialGradient id=\"t-gVinyl\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\"><stop offset=\"0\" stop-color=\"#3A3D40\"/><stop offset=\"0.55\" stop-color=\"#1A1B1C\"/><stop offset=\"1\" stop-color=\"#0E0F10\"/></radialGradient><radialGradient id=\"t-gGround\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\"0.5\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><radialGradient id=\"t-tileSoft\" cx=\"0.36\" cy=\"0.26\" r=\"0.95\"><stop offset=\"0\" stop-color=\"#2D2F2C\"/><stop offset=\"1\" stop-color=\"#191A18\"/></radialGradient><linearGradient id=\"t-acc-amber\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F5D68A\"/><stop offset=\"0.5\" stop-color=\"#E0B25C\"/><stop offset=\"1\" stop-color=\"#A97A2E\"/></linearGradient><linearGradient id=\"t-acc-green\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#B4E39B\"/><stop offset=\"0.5\" stop-color=\"#7FC46A\"/><stop offset=\"1\" stop-color=\"#4E8F3E\"/></linearGradient><linearGradient id=\"t-acc-gold\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#FBE28C\"/><stop offset=\"0.5\" stop-color=\"#E8C15A\"/><stop offset=\"1\" stop-color=\"#B08A28\"/></linearGradient><linearGradient id=\"t-acc-coral\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F7B49C\"/><stop offset=\"0.5\" stop-color=\"#E58A6A\"/><stop offset=\"1\" stop-color=\"#B05E42\"/></linearGradient><linearGradient id=\"t-acc-mint\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#9BEBD8\"/><stop offset=\"0.5\" stop-color=\"#5FCDB5\"/><stop offset=\"1\" stop-color=\"#2F8F7C\"/></linearGradient><linearGradient id=\"t-acc-rose\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F6A6BC\"/><stop offset=\"0.5\" stop-color=\"#E0708F\"/><stop offset=\"1\" stop-color=\"#A84463\"/></linearGradient><linearGradient id=\"t-acc-lime\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#D6EE8E\"/><stop offset=\"0.5\" stop-color=\"#B0D65E\"/><stop offset=\"1\" stop-color=\"#7A9F2E\"/></linearGradient><linearGradient id=\"t-acc-orange\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#FAC48A\"/><stop offset=\"0.5\" stop-color=\"#F0A050\"/><stop offset=\"1\" stop-color=\"#B86E25\"/></linearGradient><linearGradient id=\"t-acc-red\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F59A8C\"/><stop offset=\"0.5\" stop-color=\"#E06A5A\"/><stop offset=\"1\" stop-color=\"#A63F31\"/></linearGradient><linearGradient id=\"t-acc-violet\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#D3BCF5\"/><stop offset=\"0.5\" stop-color=\"#A884E0\"/><stop offset=\"1\" stop-color=\"#7253B0\"/></linearGradient><linearGradient id=\"t-acc-sky\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#B3DDF7\"/><stop offset=\"0.5\" stop-color=\"#6FB7E8\"/><stop offset=\"1\" stop-color=\"#3F80B0\"/></linearGradient><linearGradient id=\"t-acc-brown\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#E8C29A\"/><stop offset=\"0.5\" stop-color=\"#CF9A5E\"/><stop offset=\"1\" stop-color=\"#946233\"/></linearGradient><linearGradient id=\"t-acc-indigo\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#C0C9FA\"/><stop offset=\"0.5\" stop-color=\"#8C9CF0\"/><stop offset=\"1\" stop-color=\"#5A68BF\"/></linearGradient>","filet":"<g transform=\"translate(54 54) scale(.8) translate(-54 -54)\"><path fill=\"#4E7382\" d=\"M26,24h16l6,8h30a6,6 0 0 1 6,6v8H16V30a6,6 0 0 1 6,-6z\"/><path fill=\"#7FA8B8\" d=\"M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z\"/></g>"};
+document.getElementById('tabDefs').innerHTML = TABDATA.defs;
+
+const KEY = 'filet-share-page-r2';
+const ITEMS = [
+  { id: 'a', name: 'IMG_2040.jpg', alias: 'Beach.jpg', kind: 'Image', size: '3.1 MB', bytes: 3.1, path: '/storage/emulated/0/DCIM/Camera/IMG_2040.jpg', lock: false, exp: '3h', dl: 4, last: '12 min ago', paused: false, once: false },
+  { id: 'b', name: 'Report.pdf', alias: '', kind: 'Doc', size: '220 KB', bytes: 0.2, path: '/storage/emulated/0/Documents/Report.pdf', lock: true, exp: 'never', dl: 1, last: 'yesterday', paused: false, once: false },
+  { id: 'c', name: 'Trip to Baguio', alias: '', kind: 'Folder', size: '61 items · 412 MB', bytes: 412, path: '/storage/emulated/0/DCIM/Trip to Baguio', lock: false, exp: '1d', dl: 0, last: '', paused: false, once: false, folder: true },
+  { id: 'd', name: 'app-release.apk', alias: '', kind: 'Apk', size: '18.4 MB', bytes: 18.4, path: '/storage/emulated/0/Download/app-release.apk', lock: false, exp: 'never', dl: 0, last: '', paused: false, once: true },
+  { id: 'e', name: 'song.mp3', alias: '', kind: 'Audio', size: '5.2 MB', bytes: 5.2, path: '/storage/emulated/0/Music/song.mp3', lock: false, exp: 'never', dl: 2, last: '2 h ago', paused: true, once: false },
+];
+const PEERS = [
+  { id: 'p1', name: 'Galaxy A54', paired: true, will: 'accept', seen: '2m ago' },
+  { id: 'p2', name: 'Redmi Note 13', paired: true, will: 'accept', seen: 'just now' },
+  { id: 'p3', name: 'Pixel 7', paired: false, will: 'decline', seen: '5m ago' },
+];
+const DEF = { theme: 'dark', running: true, pin: true, uploads: false, idle: 30, notes: '', items: ITEMS, trusted: ['p2'],
+  cardOn: true, msgOn: true, fsPick: 'a', recvAs: 'dialog', popups: 'on', blocked: [] };
+const state = Object.assign(structuredClone(DEF), JSON.parse(localStorage.getItem(KEY) || '{}'));
+const save = () => localStorage.setItem(KEY, JSON.stringify(state));
+// Live only, never saved: the demo's moving parts.
+const live = { today: { pin: true, uploads: false, idle: 30, shared: ITEMS.map(x => x.id), grants: 1, clients: 1 },
+  menu: null, selecting: false, sel: [], sends: {}, undo: null, ov: {}, fsOpen: true, lockAsked: false };
+
+const css = (n) => getComputedStyle(document.body).getPropertyValue(n).trim();
+function line(name, colour, px) {
+  const g = GL[name];
+  if (!g) return '';
+  const paths = g.kind === 'mixed'
+    ? g.strokes.map(d => `<path d="${d}"/>`).join('') + g.fills.map(d => `<path d="${d}" fill="${colour}" stroke="none"/>`).join('')
+    : g.kind === 'filled' ? g.d.map(d => `<path d="${d}" fill="${colour}" stroke="none"/>`).join('')
+    : g.d.map(d => `<path d="${d}"/>`).join('');
+  return `<svg viewBox="0 0 24 24" width="${px}" height="${px}" fill="none" stroke="${colour}" stroke-width="${g.width}" stroke-linecap="round" stroke-linejoin="round" style="display:block">${paths}</svg>`;
+}
+const TICK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>`;
+const QRG = (c, px) => `<svg viewBox="0 0 24 24" width="${px}" height="${px}" fill="none" stroke="${c}" stroke-width="1.7" stroke-linejoin="round"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.2"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1.2"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1.2"/><path d="M14 14h2.5v2.5H14zM18 18h2.5v2.5H18zM14 19.5h1.5M19.5 14v1.5" stroke-linecap="round"/></svg>`;
+const filetArt = (px) => `<svg viewBox="18 18 72 72" width="${px}" height="${px}" style="display:block">${TABDATA.filet}</svg>`;
+const item = (id) => state.items.find(x => x.id === id);
+const shown = (x) => x.alias || x.name;
+const EXP = [['never', 'Never'], ['1h', '1 h'], ['3h', '3 h'], ['1d', '1 day'], ['1w', '1 week']];
+const expText = (e) => ({ '1h': 'stops in 1 h', '3h': 'stops in 3 h', '1d': 'stops in 1 day', '1w': 'stops in 7 days' })[e] || '';
+const dlText = (x) => x.dl ? `${x.dl} download${x.dl > 1 ? 's' : ''}${x.last ? ', last ' + x.last : ''}` : 'No downloads yet';
+
+// A QR-like picture, drawn and not encoded: finders, timing and an alignment mark are where a
+// version 3 code has them, the rest is seeded from the link so each file gets its own.
+function qrSVG(seed, px, badge = true) {
+  const n = 29, q = 3, cells = [];
+  let h = 2166136261;
+  for (const ch of seed) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+  const rnd = () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 1000) / 1000; };
+  const finder = (r, c) => (r < 7 && c < 7) || (r < 7 && c >= n - 7) || (r >= n - 7 && c < 7);
+  const near = (r, c) => (r < 8 && c < 8) || (r < 8 && c >= n - 8) || (r >= n - 8 && c < 8);
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    let on;
+    if (finder(r, c)) {
+      const R = r >= n - 7 ? r - (n - 7) : r, C = c >= n - 7 ? c - (n - 7) : c;
+      on = R === 0 || R === 6 || C === 0 || C === 6 || (R >= 2 && R <= 4 && C >= 2 && C <= 4);
+    } else if (near(r, c)) on = false;
+    else if (r === 6 || c === 6) on = (r + c) % 2 === 0;
+    else if (r >= 20 && r <= 24 && c >= 20 && c <= 24) on = r === 20 || r === 24 || c === 20 || c === 24 || (r === 22 && c === 22);
+    else on = rnd() > 0.52;
+    if (badge && r >= 10 && r <= 18 && c >= 10 && c <= 18) on = false;
+    if (on) cells.push(`<rect x="${c + q}" y="${r + q}" width="1.02" height="1.02"/>`);
+  }
+  const W = n + q * 2;
+  const bdg = badge ? `<g transform="translate(${W / 2 - 4.6} ${W / 2 - 4.6})"><rect width="9.2" height="9.2" rx="${0.075 * W}" fill="#fff"/><rect x="0.35" y="0.35" width="8.5" height="8.5" rx="${0.06 * W}" fill="#1E1F1D"/>` +
+    `<svg x="2" y="0.8" width="5.2" height="5.2" viewBox="18 18 72 72">${TABDATA.filet}</svg>` +
+    line('Mark', '#ECEEF0', 1.8).replace('<svg ', '<svg x="1.75" y="6.15" ') +
+    `<text x="3.9" y="7.65" font-size="1.9" font-family="Segoe UI, Roboto, sans-serif" font-weight="600" fill="#ECEEF0">filet</text></g>` : '';
+  return `<svg viewBox="0 0 ${W} ${W}" width="${px}" height="${px}" style="display:block;border-radius:${(8 * px / 132).toFixed(1)}px;background:#fff" shape-rendering="crispEdges"><g fill="#121418">${cells.join('')}</g>${bdg}</svg>`;
+}
+
+// ── shared bits ──
+const status = () => `<div class="status"><span>9:41</span><span>Wi-Fi · 82%</span></div>`;
+function nav(on) {
+  const items = [['Home', 'Home'], ['Storage', 'Storage'], ['Wifi', 'Share'], ['Jobs', 'Activity']];
+  return `<div class="nav">${items.map(([g, l]) => `<div class="ni ${l === on ? 'on' : ''}">${line(g, l === on ? css('--accent') : css('--fg2'), 19)}<span class="c">${l}</span></div>`).join('')}</div>`;
+}
+function msw(on, attr) { return `<span class="msw ${on ? 'on' : ''}" ${attr}></span>`; }
+function sw(on, attr) { return `<span class="sw ${on ? 'on' : ''}" ${attr}><i></i></span>`; }
+const thumb = (kind, px = 34, ic = 15) => `<span class="thumb" style="width:${px}px;height:${px}px">${line(kind, css('--fg3'), ic)}</span>`;
+
+const toastTimers = {};
+function toast(host, msg) {
+  const box = document.querySelector(`#${host} [data-toast]`);
+  if (!box) return;
+  box.innerHTML = `<span>${msg}</span>`;
+  clearTimeout(toastTimers[host]);
+  toastTimers[host] = setTimeout(() => { box.innerHTML = ''; }, 1900);
+}
+function snack(host, msg, act, onAct, ms = 4000) {
+  const box = document.querySelector(`#${host} [data-snack]`);
+  if (!box) return;
+  box.innerHTML = `<div class="snack"><span class="m">${msg}</span>${act ? `<b>${act}</b>` : ''}</div>`;
+  if (act) box.querySelector('b').onclick = () => { box.innerHTML = ''; onAct && onAct(); };
+  clearTimeout(toastTimers[host + 's']);
+  toastTimers[host + 's'] = setTimeout(() => { box.innerHTML = ''; }, ms);
+}
+function card(host, w1, w2, glyph = 'Download') {
+  const box = document.querySelector(`#${host} [data-cards]`);
+  if (!box) return;
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.innerHTML = `<span class="cic">${line(glyph, css('--accent'), 14)}</span><span class="ctx"><div class="w1">${w1}</div><div class="w2">${w2}</div></span><span class="cx">${line('Close', css('--fg3'), 14)}</span><i class="hair"></i>`;
+  box.prepend(el);
+  const gone = () => el.remove();
+  el.onclick = gone;
+  setTimeout(gone, 3000);
+}
+function paint(el, html) {
+  const sel = ':scope > [data-cards], :scope > [data-snack], :scope > [data-toast]';
+  const phones = el.classList.contains('phone') ? [el] : [...el.querySelectorAll('.phone[id]')];
+  const saved = phones.map(p => [p.id, [...p.querySelectorAll(sel)]]);
+  el.innerHTML = html;
+  for (const [id, nodes] of saved) {
+    const ph = document.getElementById(id);
+    if (!ph || !nodes.length) continue;
+    ph.querySelectorAll(sel).forEach(n => n.remove());
+    nodes.forEach(n => ph.appendChild(n));
+  }
+}
+const hosts = () => `<div class="cards" data-cards></div><div data-snack></div><div class="toast" data-toast></div>`;
+
+// ── 1. today, as NearbyScreen draws it ──
+function shareCardToday(t) {
+  if (!state.running) return `<div class="scard"><div class="body"><div style="font-size:14px;font-weight:500">Not sharing</div>
+    <div style="font-size:11px;color:var(--fg3);line-height:15px;margin-top:4px">Anyone on this network can open the URL in a browser. No app, no account.</div>
+    <div style="margin-top:10px"><span class="smallbtn" data-run="1">Start sharing</span></div></div></div>`;
+  const n = t ? t.shared.length : state.items.length;
+  return `<div class="scard"><div class="top"><span class="livedot"><i></i></span><div style="flex:1"><div class="ttl">Sharing</div>
+      <div class="sum">${n} file${n === 1 ? '' : 's'} · 1 device connected<span class="pips"><i style="background:var(--good)"></i></span></div></div></div>
+    <div class="body">
+      <div style="display:flex;gap:14px;align-items:flex-start">${qrSVG('http://192.168.1.23:8080/', 132, true)}
+        <div style="flex:1;min-width:0">${(t ? t.pin : state.pin) ? `<div class="lbl9">Access code</div><div style="display:flex;align-items:center;flex-wrap:wrap;gap:5px"><span class="pin">482 913</span>
+          <span class="smallbtn" data-toastmsg="Code copied">Copy</span><span class="smallbtn" data-toastmsg="Opens the Access code dialogue">Set</span></div><div style="height:9px"></div>` : ''}
+          ${t ? '' : `<div class="lbl9">Lock code</div><div style="display:flex;align-items:center;gap:5px"><span class="pin" style="font-size:16px">507 146</span><span class="smallbtn" data-toastmsg="Code copied">Copy</span></div><div style="font-size:9.5px;color:var(--fg3);margin:2px 0 9px">For locked files</div>`}
+          <div class="warnt">Transfer is not encrypted on this network.</div></div></div>
+      <div style="height:12px"></div><div class="lbl9">Open on another device</div><div style="height:4px"></div>
+      <div class="addr" data-toastmsg="URL copied"><span class="k" style="color:var(--good);background:color-mix(in srgb, var(--good) 14%, transparent)">Wi-Fi</span><span class="u ell">http://192.168.1.23:8080</span></div>
+      <div class="addr" data-toastmsg="URL copied"><span class="k" style="color:var(--warn);background:color-mix(in srgb, var(--warn) 14%, transparent)">Mobile</span><span class="u ell" style="color:var(--fg3)">http://10.71.4.188:8080</span></div>
+      <div class="natnote">Mobile data is behind your carrier's NAT — another device cannot reach this one.</div>
+      <div style="height:12px"></div>
+      ${t ? `<div class="tline"><span class="l">Require a PIN</span>${msw(t.pin, 'data-t="pin"')}</div>
+      <div class="tline"><span class="l">Allow uploads</span>${msw(t.uploads, 'data-t="uploads"')}</div>
+      <div class="idle"><span class="l">Stop after idle</span>${[10, 30, 120].map(m => `<span class="chp ${t.idle === m ? 'on' : ''}" data-tidle="${m}">${m}m</span>`).join('')}</div>`
+      : `<div class="fold ${live.cardOpen ? 'open' : ''}" data-cardfold="1"><span class="l">Settings<small>${live.cardOpen ? 'PIN, uploads and idle stop' : `PIN ${state.pin ? 'on' : 'off'} · uploads ${state.uploads ? 'on' : 'off'} · stops after ${state.idle}m idle`}</small></span><span class="caret">▶</span></div>` +
+        (live.cardOpen ? `<div class="tline"><span class="l">Require a PIN<small>As today. Locked files ask for the lock code on top.</small></span>${msw(state.pin, 'data-p="pin"')}</div>
+      <div class="tline"><span class="l">Allow uploads</span>${msw(state.uploads, 'data-p="uploads"')}</div>
+      <div class="idle"><span class="l">Stop after idle</span>${[10, 30, 120].map(m => `<span class="chp ${state.idle === m ? 'on' : ''}" data-pidle="${m}">${m}m</span>`).join('')}</div>` : '')}
+      <div class="stopline"><span class="tbtn" data-run="0">${line('Close', css('--fg2'), 13)}Stop sharing</span></div>
+    </div></div>`;
+}
+function peerRowToday(p) {
+  return `<div class="prow" data-toastmsg="${p.paired ? 'Opens ' + p.name + "'s share in a pane" : 'Opens the four-digit pairing check'}"><span class="dot7" style="background:${p.paired ? 'var(--good)' : 'var(--fg3)'}"></span>
+    <div class="tx"><div class="a ell">${p.name}</div><div class="b">${p.paired ? 'paired' : 'new'} · Wi-Fi · ${p.seen}</div></div>
+    <span style="font-size:11px;color:var(--accent)">${p.paired ? 'Open' : 'Pair'}</span>${p.paired ? `<span style="width:18px;height:18px;margin-left:10px;padding:2px">${line('Close', css('--fg3'), 14)}</span>` : ''}</div>`;
+}
+function renderToday() {
+  const t = live.today;
+  const el = document.getElementById('today');
+  const top = el.querySelector('.scroll')?.scrollTop || 0;
+  const shares = t.shared.map(item).filter(Boolean);
+  paint(el, status() + `<div class="scroll">` +
+    `<div class="tabhead"><div class="tt">Share over this network</div></div>` +
+    shareCardToday(t) +
+    `<div class="nrow" style="cursor:pointer" data-toastmsg="Opens Filet/Received"><span style="width:17px;height:17px">${line('Download', css('--accent'), 17)}</span><div class="tx"><div class="a">Received files</div><div class="b mono ell">/storage/emulated/0/Filet/Received</div></div><span class="go">›</span></div>` +
+    (t.grants ? `<div class="sect"><span class="l">Let in (1)</span><span class="a" data-tgrant="0">Revoke all</span></div>
+      <div class="grow2"><div class="tx"><div class="a">Chrome on Windows</div><div class="b ell">192.168.1.40 · let in 20m ago · until you revoke it</div></div><span class="smallbtn" data-toastmsg="Link copied">Copy link</span><span class="smallbtn" data-tgrant="0">Revoke</span></div>
+      <div class="rules2"><div class="t">New links expire</div>${['Never', '15m', '1h', '8h'].map((l, i) => `<span class="chp ${i === 0 ? 'on' : ''}">${l}</span>`).join('')}
+      <div class="t" style="margin-top:7px">…or after no activity for</div>${['Never', '10m', '30m', '2h'].map((l, i) => `<span class="chp ${i === 0 ? 'on' : ''}">${l}</span>`).join('')}
+      <small>Existing links keep the rule they were made with.</small></div>` : '') +
+    (state.running && t.clients ? `<div class="sect"><span class="l">Connected</span></div><div class="nrow"><span class="dot7" style="background:var(--good)"></span><div class="tx"><div class="a mono">192.168.1.40</div><div class="b">Chrome on Windows · browsing</div></div><span class="sb" data-tkick="1">Kick</span></div>` : '') +
+    `<div class="sect"><span class="l">Devices</span></div>` + PEERS.map(peerRowToday).join('') +
+    `<div class="sect"><span class="l">Shared (${shares.length} linked)</span></div>` +
+    `<div class="cap">Filet/Shared is offered as-is. Shared files stream from where they are.</div>` +
+    shares.map(x => `<div class="nrow">${thumb(x.kind)}<div class="tx"><div class="a ell">${x.name}</div><div class="b mono ell">${x.path}</div></div><span class="sb" data-trevoke="${x.id}">Revoke</span></div>`).join('') +
+    `<div style="height:24px"></div></div>` + nav('Share') + hosts());
+  el.querySelector('.scroll').scrollTop = top;
+}
+
+// ── 1. proposed ──
+function shrow(x) {
+  const sel = live.selecting, on = live.sel.includes(x.id);
+  const meta = [
+    x.lock ? `<span class="lk">${line('Lock', css('--warn'), 11)}Locked</span>` : '',
+    x.paused ? `<span class="pz">${line('Pause', css('--fg3'), 11)}Paused</span>` : '',
+    x.once ? `<span>${line('Link', css('--fg2'), 11)}One-time</span>` : '',
+    expText(x.exp) ? `<span>${line('Timer', css('--fg2'), 11)}${expText(x.exp)}</span>` : '',
+    `<span>${line('Download', css('--fg2'), 11)}${dlText(x)}</span>`,
+    x.folder ? `<span>${line('Zip', css('--fg2'), 11)}zip in a browser</span>` : '',
+  ].filter(Boolean).join('');
+  return `<div class="shrow ${x.paused ? 'paused' : ''} ${on ? 'sel' : ''}" data-row="${x.id}">
+    ${sel ? `<span class="ck">${on ? TICK : ''}</span>` : ''}
+    ${thumb(x.kind, 40, 17)}
+    <div class="tx"><div class="a ell">${shown(x)}</div><div class="real ell">${x.alias ? x.name + ' · ' : ''}${x.size}</div><div class="meta">${meta}</div></div>
+    ${sel ? '' : `<span class="qrb" data-qr="${x.id}" title="Show QR and link">${QRG(css('--fg2'), 19)}</span>`}</div>`;
+}
+function peerRowNew(p) {
+  const trusted = state.trusted.includes(p.id), blocked = state.blocked.includes(p.id);
+  return `<div class="prow" style="${blocked ? 'opacity:.55' : ''}" data-toastmsg="${p.paired ? 'Opens ' + p.name + "'s share in a pane" : 'Opens the four-digit pairing check'}"><span class="dot7" style="background:${p.paired ? 'var(--good)' : 'var(--fg3)'}"></span>
+    <div class="tx"><div class="a ell">${p.name}</div><div class="b">${blocked ? '<span style="color:var(--bad)">blocked</span>' : (p.paired ? 'paired' : 'new') + ' · Wi-Fi · ' + p.seen}${trusted && !blocked ? ' · <span style="color:var(--good)">sends without asking</span>' : ''}</div></div>
+    <span class="sb" data-block="${p.id}">${blocked ? 'Unblock' : 'Block'}</span><span style="font-size:11px;color:var(--accent)">${p.paired ? 'Open' : 'Pair'}</span></div>`;
+}
+const POPS = [['on', 'On'], ['hour', 'Off for 1 hour'], ['off', 'Off']];
+function devicesNew() {
+  const o = live.offer;
+  return `<div class="sect"><span class="l">Devices</span></div>
+    <div class="idle" style="padding:2px 14px 0"><span class="l">Pop-ups<small style="display:block;font-size:10px;color:var(--fg3)">When a Filet sends you something</small></span>${POPS.map(([k, l]) => `<span class="chp ${state.popups === k ? 'on' : ''}" data-popups="${k}">${l}</span>`).join('')}</div>
+    ${state.popups === 'hour' ? '<div class="cap">Back on at 10:41 by itself.</div>' : ''}
+    ${o ? `<div class="prow" data-offer="1"><span class="livedot busy"><i></i></span><div class="tx"><div class="a ell">${o.from}</div><div class="b" style="color:var(--accent)">sharing · ${o.name} · ${o.size}</div></div><span style="font-size:11px;color:var(--accent)">Open</span></div>
+      <div class="cap">Leaves the list within about 30 s of ${o.from} cancelling, leaving the Wi-Fi or closing Filet, and after 10 min at the latest.</div>` : ''}
+    ${PEERS.map(peerRowNew).join('')}`;
+}
+function renderProp() {
+  const el = document.getElementById('prop');
+  const top = el.querySelector('.scroll')?.scrollTop || 0;
+  const items = state.items;
+  paint(el, status() + `<div class="scroll">` +
+    `<div class="tabhead"><div class="tt">Share over this network</div><div class="acts"><span class="tbtn" data-add="1">${line('Plus', css('--fg2'), 13)}Add files</span><span class="tbtn" data-fastpick="1">${QRG(css('--fg2'), 13)}Fast share</span></div></div>` +
+    shareCardToday(null) +
+    `<div class="sect"><span class="l">Shared (${items.length})</span>${items.length ? `<span class="a" data-select="1">${live.selecting ? 'Done' : 'Select'}</span>` : ''}</div>` +
+    (!state.running && items.length ? `<div class="offnote">Sharing is off. These come back when it starts.</div>` : '') +
+    (items.length ? items.map(shrow).join('') : `<div class="empty2">${line('Share', css('--fg3'), 30)}<div class="t">Nothing shared yet</div><div class="l">Add files, or hold a file and pick Fast share.</div></div>`) +
+    `<div class="cap" style="padding-top:6px">Filet/Shared is offered as-is. Hold a file for more.</div>` +
+    `<div class="nrow" style="cursor:pointer" data-toastmsg="Opens Filet/Received"><span style="width:17px;height:17px">${line('Download', css('--accent'), 17)}</span><div class="tx"><div class="a">Received files</div><div class="b mono ell">/storage/emulated/0/Filet/Received</div></div><span class="go">›</span></div>` +
+    devicesNew() +
+    `<div class="sect"><span class="l">Let in (1)</span><span class="a">Revoke all</span></div>
+     <div class="grow2"><div class="tx"><div class="a">Chrome on Windows</div><div class="b ell">192.168.1.40 · let in 20m ago · until you revoke it</div></div><span class="smallbtn">Copy link</span><span class="smallbtn">Revoke</span></div>` +
+    `<div style="height:${live.selecting ? 70 : 24}px"></div></div>` + nav('Share') +
+    (live.selecting ? `<div class="selbar"><span class="n">${live.sel.length} selected</span><span class="sb" data-selall="1">All</span><span class="stop ${live.sel.length ? '' : 'dis'}" data-stopsel="1">Stop sharing${live.sel.length ? ' ' + live.sel.length : ''}</span></div>` : '') +
+    (live.menu ? menuHTML() : '') + overlay('prop') + hosts());
+  el.querySelector('.scroll').scrollTop = top;
+  if (live.menu) {
+    const r = el.querySelector(`[data-row="${live.menu}"]`), m = el.querySelector('.pmenu');
+    if (r && m) {
+      const pr = el.getBoundingClientRect(), rr = r.getBoundingClientRect();
+      let y = rr.bottom - pr.top - 4;
+      if (y + m.offsetHeight > el.clientHeight - 56) y = Math.max(30, rr.top - pr.top - m.offsetHeight + 4);
+      m.style.top = y + 'px';
+    }
+  }
+}
+function menuHTML() {
+  const x = item(live.menu);
+  if (!x) return '';
+  const tk = (on) => `<span class="tk ${on ? 'on' : ''}">${on ? TICK : ''}</span>`;
+  return `<div class="pmenu"><div class="pmhead ell">${shown(x)}</div>
+    <div class="pm" data-m="qr">${QRG(css('--fg2'), 16)}Show QR and link</div>
+    <div class="pm" data-m="rename">${line('Rename', css('--fg2'), 16)}Rename for others</div>
+    <div class="pm" data-m="exp">${line('Timer', css('--fg2'), 16)}Expiry<span class="r">${(EXP.find(e => e[0] === x.exp) || EXP[0])[1]}</span></div>
+    <div class="pmchips">${EXP.map(([k, l]) => `<span class="chp ${x.exp === k ? 'on' : ''}" data-mexp="${k}">${l}</span>`).join('')}</div>
+    <div class="pm" data-m="pause">${line(x.paused ? 'PlaySolid' : 'Pause', css('--fg2'), 16)}${x.paused ? 'Resume' : 'Pause'}</div>
+    <div class="pm" data-m="once">${line('Link', css('--fg2'), 16)}One-time link${tk(x.once)}</div>
+    <div class="pm" data-m="lock">${line('Lock', css('--fg2'), 16)}Lock${tk(x.lock)}</div>
+    <div class="pm" data-m="select">${line('SelectBox', css('--fg2'), 16)}Select</div>
+    <div class="pmsep"></div>
+    <div class="pm bad" data-m="stop">${line('Close', css('--bad'), 16)}Stop sharing</div></div>`;
+}
+
+// ── overlays: the fast share sheet, the lock warning, rename, add files ──
+function overlay(host) {
+  const o = live.ov[host];
+  if (!o) return '';
+  if (o.kind === 'lock') return `<div class="ov"><div class="scrim" data-ovclose="1"></div><div class="ci-sheet mid">
+    <div class="dh"><span class="di warn">${line('Lock', css('--warn'), 17)}</span><div class="tt"><div class="t">Fast share</div><div class="s">${o.ids.map(i => shown(item(i))).join(', ')}</div></div></div>
+    <div class="db"><div style="font-size:13px;line-height:19px;color:var(--fg2)">You enabled restricted access for this. Fast share bypasses it.</div></div>
+    <div class="df"><span class="btn" data-ovclose="1">Cancel</span><span class="btn p" data-lockok="1">Continue</span></div></div></div>`;
+  if (o.kind === 'rename') {
+    const x = item(o.id);
+    return `<div class="ov"><div class="scrim" data-ovclose="1"></div><div class="ci-sheet">
+    <div class="dh"><span class="di">${line('Rename', css('--accent'), 17)}</span><div class="tt"><div class="t">Rename for others</div><div class="s">${x.name}</div></div><span class="x" data-ovclose="1">${line('Close', css('--fg3'), 14)}</span></div>
+    <div class="db"><div class="dfield"><div class="lab">Name others see</div><input id="rnIn" value="${shown(x)}" style="all:unset;width:100%;font-size:13px"></div>
+      <div class="dcap" style="margin-top:8px">Only the name on the share. The file keeps its own name.</div></div>
+    <div class="df"><span class="btn" data-rnreal="1">Use the real name</span><span class="btn p" data-rnok="1">Rename</span></div></div></div>`;
+  }
+  if (o.kind === 'add') return `<div class="ov"><div class="scrim" data-ovclose="1"></div><div class="ci-sheet">
+    <div class="dh"><span class="di">${line('Plus', css('--accent'), 17)}</span><div class="tt"><div class="t">Add files</div><div class="s">Internal storage › DCIM › Camera</div></div><span class="x" data-ovclose="1">${line('Close', css('--fg3'), 14)}</span></div>
+    <div class="db" style="padding:0 6px 6px">${PICK.map(p => `<div class="lrow2 ${o.sel.includes(p.id) ? 'sel' : ''}" data-pick="${p.id}">${thumb(p.kind, 30, 14)}<div class="tx"><div class="a ell">${p.name}</div><div class="b">${p.date}</div></div><span class="sd">${p.size}</span></div>`).join('')}</div>
+    <div class="df"><span class="btn" ${o.sel.length === 1 ? 'data-addfast="1"' : 'disabled'}>Fast share</span><span class="btn p" ${o.sel.length ? 'data-addok="1"' : 'disabled'}>${o.sel.length > 1 ? 'Share ' + o.sel.length : 'Share'}</span></div></div></div>`;
+  if (o.kind === 'ask') return `<div class="ov"><div class="scrim"></div><div class="ci-sheet mid">
+    <div class="dh"><span class="di">${line('Download', css('--accent'), 17)}</span><div class="tt"><div class="t">${o.offer ? o.from + ' is sharing' : o.from + ' wants to send you a file'}</div><div class="s">A Filet on this network</div></div></div>
+    <div class="db"><div class="frow">${thumb(o.k, 34, 15)}<div class="tx"><div class="a">${o.name}</div><div class="b">${o.size}</div></div></div>
+      <div class="dcap" style="margin-top:10px">It goes to Filet/Received.</div>
+      <button class="ci-tick ${o.always ? 'on' : ''}" data-palways="1"><b>${o.always ? TICK : ''}</b><span><span class="l">Always accept from this phone</span></span></button></div>
+    <div class="df"><span class="btn" data-pr="decline">Decline</span><span class="btn p" data-pr="accept">Accept</span></div></div></div>`;
+  if (o.kind === 'got') return `<div class="ov"><div class="scrim" data-ovclose="1"></div><div class="ci-sheet mid">
+    <div class="dh"><span class="di">${line('Download', css('--good'), 17)}</span><div class="tt"><div class="t">Received</div><div class="s">from ${o.from}</div></div></div>
+    <div class="db"><div class="frow">${thumb(o.k || 'Image', 34, 15)}<div class="tx"><div class="a ell">${o.name}</div><div class="b">${o.size}</div></div></div>
+      <div class="dcap" style="margin-top:10px">${o.many ? 'They are' : 'It is'} in Internal storage › Filet › Received.</div></div>
+    <div class="df"><span class="btn" data-ovclose="1">Close</span><span class="btn p" data-gotopen="1">${o.many ? 'Go to folder' : 'Open location'}</span></div></div></div>`;
+  if (o.kind === 'fast') return `<div class="ov"><div class="scrim" data-ovclose="1"></div>${fastSheet(host, o)}</div>`;
+  return '';
+}
+const PICK = [
+  { id: 'n1', name: 'IMG_2051.jpg', kind: 'Image', size: '2.8 MB', date: 'Today, 9:12' },
+  { id: 'n2', name: 'VID_2052.mp4', kind: 'Video', size: '48 MB', date: 'Today, 9:14' },
+  { id: 'n3', name: 'notes.txt', kind: 'Doc', size: '4 KB', date: 'Yesterday' },
+];
+function fastSheet(host, o) {
+  const xs = o.ids.map(item).filter(Boolean);
+  const many = xs.length > 1, x = xs[0];
+  const title = many ? `${xs.length} files` : shown(x);
+  const size = many ? `${(xs.reduce((s, y) => s + y.bytes, 0)).toFixed(1)} MB` : x.size;
+  const url = linkFor(xs);
+  const locked = xs.some(y => y.lock);
+  const lines = [
+    `<div class="cline">${line('Scan', css('--fg3'), 14)}<span>Any camera: the browser downloads it at once. No page, no code. Filet's own scanner downloads it in Filet.</span></div>`,
+    `<div class="cline ${locked ? 'warn' : ''}">${line('Key', css(locked ? '--warn' : '--fg3'), 14)}<span>${locked ? 'Opens even though it\'s locked: ' : 'No code to type: '}the link's key opens ${many ? 'these files' : 'this file'} and nothing else, until you stop this fast share.</span></div>`,
+    `<div class="cline">${line('Wifi', css('--fg3'), 14)}<span>Same Wi-Fi only. On a phone with Filet, the camera still opens the browser.</span></div>`,
+    many ? `<div class="cline">${line('Zip', css('--fg3'), 14)}<span>One link for all of them. A browser gets a zip, Filet gets the files.</span></div>` :
+      x.folder ? `<div class="cline">${line('Zip', css('--fg3'), 14)}<span>A browser gets it as a zip. Filet gets the folder.</span></div>` : '',
+    o.started ? `<div class="cline">${line('Wifi', css('--good'), 14)}<span>Sharing started for this. It stops after ${state.idle} min idle, as set.</span></div>` : '',
+  ].join('');
+  const peers = PEERS.map(p => {
+    const s = (live.sends[host] || {})[p.id] || { st: 'idle' };
+    const trusted = state.trusted.includes(p.id);
+    let sub, btn;
+    if (s.st === 'idle') { sub = trusted ? 'sends without asking' : 'asks first'; btn = `<span class="smallbtn" data-send="${p.id}">Send</span>`; }
+    if (s.st === 'asking') { sub = `<span class="spin"></span> Waiting for ${p.name} to accept…`; btn = `<span class="sb" data-sendcancel="${p.id}">Cancel</span>`; }
+    if (s.st === 'sending') { sub = `Sending · ${Math.round(s.p)}%<div class="bar3"><i style="width:${s.p}%"></i></div>`; btn = ''; }
+    if (s.st === 'sent') { sub = `<span class="ok">Sent · in its Filet/Received</span>`; btn = ''; }
+    if (s.st === 'declined') { sub = `<span class="no">Declined</span>`; btn = `<span class="smallbtn" data-send="${p.id}">Again</span>`; }
+    return `<div class="peer"><span class="av">${line('Device', css('--fg2'), 15)}</span><div class="tx"><div class="a">${p.name}</div><div class="b ${s.st === 'sent' ? 'ok' : s.st === 'declined' ? 'no' : ''}">${sub}</div></div>${btn}</div>`;
+  }).join('');
+  return `<div class="ci-sheet">
+    <div class="dh"><span class="di">${QRG(css('--accent'), 17)}</span><div class="tt"><div class="t">${o.again ? title : 'Fast share'}</div><div class="s">${o.again ? size + (xs.every(y => y.alias) && !many ? ' · ' + x.name : '') : title + ' · ' + size}</div></div><span class="x" data-ovclose="1">${line('Close', css('--fg3'), 14)}</span></div>
+    <div class="db">
+      <div class="qrwrap">${qrSVG(url, 188, true)}</div>
+      <div class="linkrow"><span class="u ell">${url.replace('http://', '')}</span><span class="smallbtn" data-toastmsg="Link copied">Copy</span></div>
+      ${lines}
+      <div class="ci-sec"><span>Send to a Filet nearby</span><i></i></div>
+      ${peers}
+    </div>
+    <div class="df"><span class="btn bad" data-faststop="1">${many ? 'Stop sharing these' : 'Stop sharing this'}</span><span class="btn p" data-ovclose="1">Done</span></div></div>`;
+}
+// The direct link: this phone's address, the share's own route, and a key for just these files.
+function linkFor(xs) {
+  const key = 'k' + xs.map(x => x.id).join('') + 'R7m4';
+  if (xs.length > 1) return `http://192.168.1.23:8080/z?k=${key}`;
+  return `http://192.168.1.23:8080/${xs[0].folder ? 'zd' : 'f'}/T${xs[0].id}9fQ2?k=${key}`;
+}
+
+// ── 2. fast share stage ──
+const FS_PICKS = [['a', 'Beach.jpg'], ['b', 'Report.pdf (locked)'], ['c', 'Trip to Baguio (folder)'], ['ab', '2 files']];
+function renderFsPicks() {
+  document.getElementById('fsPicks').innerHTML = FS_PICKS.map(([k, l]) => `<button data-fsp="${k}" class="${state.fsPick === k ? 'on' : ''}">${l}</button>`).join('') + `<button data-fsp="reopen">Open it again</button>`;
+}
+function browserBehind() {
+  const rows = [['Image', 'IMG_2040.jpg', '3.1 MB'], ['Image', 'IMG_2041.jpg', '2.9 MB'], ['Video', 'VID_2042.mp4', '61 MB'], ['Image', 'IMG_2043.jpg', '3.4 MB'], ['Image', 'IMG_2044.jpg', '3.0 MB']];
+  return `<div class="head"><span class="t">Camera</span>${line('Search', css('--fg2'), 19)}${line('More', css('--fg2'), 19)}</div>
+   <div class="scroll" style="overflow:hidden"><div class="crumb">Internal storage › DCIM › Camera</div>${rows.map(([k, n, s], i) => `<div class="lrow2 ${i === 0 ? 'sel' : ''}">${thumb(k, 30, 14)}<div class="tx"><div class="a">${n}</div><div class="b">14 Nov 2026</div></div><span class="sd">${s}</span></div>`).join('')}</div>`;
+}
+function openFast(host, ids, again = false) {
+  const xs = ids.map(item).filter(Boolean);
+  if (!xs.length) return;
+  live.sends[host] = {};
+  const started = !state.running;
+  if (started) setRunning(true);
+  if (!again) logMoment('Wifi', `Fast share: ${xs.length === 1 ? shown(xs[0]) : xs.length + ' files'}`);
+  const go = { kind: 'fast', ids, again, started };
+  if (!again && xs.some(x => x.lock)) live.ov[host] = { kind: 'lock', ids, next: go };
+  else live.ov[host] = go;
+  renderAll();
+}
+function renderFs() {
+  const el = document.getElementById('fs');
+  const keep = el.querySelector('.ov .ci-sheet')?.scrollTop || 0;
+  paint(el, status() + browserBehind() + nav('Storage') + overlay('fs') + hosts());
+  const s = el.querySelector('.ov .ci-sheet'); if (s) s.scrollTop = keep;
+  const xs = (state.fsPick === 'ab' ? ['a', 'b'] : [state.fsPick]).map(item).filter(Boolean);
+  const url = xs.length ? linkFor(xs) : '';
+  document.getElementById('linkFind').innerHTML = `<h3>The link in the QR, and Copy link</h3>
+    <p><code>${url}</code></p>
+    <p><b>192.168.1.23:8080</b> this phone's Wi-Fi address and the share's port, as on the card. No internet needed: github.io is only for sharing over the internet.</p>
+    <p><b>/f/</b> the file, by its token, the route the web page already downloads from. A folder is <code>/zd/</code> and several files one <code>/z</code>, a zip either way. <b>k</b> the key: opens these files and nothing else, until the fast share is stopped. Never the access code.</p>
+    <p><b>Any camera:</b> the browser opens it and the file comes as an attachment, so it downloads at once. <b>Filet's scanner:</b> knows the link's shape and downloads in its own screen.</p>`;
+}
+
+// ── 3. the other phone ──
+const RECV = { ask: { st: 'idle' }, trusted: { st: 'idle' }, scan: { st: 'idle', p: 0 }, web: { st: 'idle' } };
+function renderRecv() {
+  const r = RECV;
+  const back = (t) => `<div class="head"><span class="t">${t}</span></div><div class="scroll" style="overflow:hidden"><div class="crumb">Internal storage › Download</div>${[['Doc', 'invoice.pdf', '180 KB'], ['Image', 'meme.png', '640 KB'], ['Zip', 'backup.zip', '1.4 GB']].map(([k, n, s]) => `<div class="lrow2">${thumb(k, 30, 14)}<div class="tx"><div class="a">${n}</div><div class="b">12 Nov 2026</div></div><span class="sd">${s}</span></div>`).join('')}</div>`;
+  const askDlg = r.ask.st === 'asking' ? `<div class="ov"><div class="scrim"></div><div class="ci-sheet mid">
+    <div class="dh"><span class="di">${line('Download', css('--accent'), 17)}</span><div class="tt"><div class="t">nova 10 wants to send you ${r.ask.many ? 'files' : 'a file'}</div><div class="s">A Filet on this network</div></div></div>
+    <div class="db"><div class="frow">${thumb(r.ask.kind || 'Image', 34, 15)}<div class="tx"><div class="a">${r.ask.name || 'Beach.jpg'}</div><div class="b ell">${r.ask.size || '3.1 MB'}</div></div></div>
+      <div class="dcap" style="margin-top:10px">${r.ask.many ? 'They go' : 'It goes'} to Filet/Received.</div>
+      <button class="ci-tick ${r.ask.always ? 'on' : ''}" data-always="1"><b>${r.ask.always ? TICK : ''}</b><span><span class="l">Always accept from this phone</span><span class="dcap" style="display:block">Next time it arrives without asking. Undo on the Share page.</span></span></button></div>
+    <div class="df"><span class="btn" data-recv="decline">Decline</span><span class="btn p" data-recv="accept">Accept</span></div></div></div>` : '';
+  const scanDlg = r.scan.st !== 'idle' ? `<div class="ov"><div class="scrim"></div><div class="ci-sheet">
+    <div class="dh"><span class="di">${line('Download', css('--accent'), 17)}</span><div class="tt"><div class="t">Download</div><div class="s">from nova 10 · 192.168.1.23</div></div><span class="x" data-scanx="1">${line('Close', css('--fg3'), 14)}</span></div>
+    <div class="db"><div class="frow">${thumb('Image', 34, 15)}<div class="tx"><div class="a">Beach.jpg</div><div class="b">${r.scan.st === 'done' ? '3.1 MB · saved' : (3.1 * r.scan.p / 100).toFixed(1) + ' of 3.1 MB'}</div><div class="bar3"><i style="width:${r.scan.p}%"></i></div></div></div>
+      <div class="dcap" style="margin-top:10px">Saves to Filet/Received. No browser, and no code to type.</div></div>
+    <div class="df">${r.scan.st === 'done' ? `<span class="btn" data-scanx="1">Close</span><span class="btn p" data-toastmsg="Opens Filet/Received with it selected" data-host="rScan">Open location</span>` : `<span class="btn" data-scanx="1">Cancel</span>`}</div></div></div>` : '';
+  const web = r.web;
+  paint(document.getElementById('recv'),
+    `<div class="col"><div class="tag"><b>A Filet that asks</b> Galaxy A54</div><div class="phone panel" id="rAsk" style="height:520px;width:284px">${status()}${back('Download')}${nav('Storage')}${askDlg}${overlay('rAsk')}${hosts()}</div></div>` +
+    `<div class="col"><div class="tag"><b>A trusted Filet</b> Redmi Note 13</div><div class="phone panel" id="rTrust" style="height:520px;width:284px">${status()}${back('Download')}${nav('Storage')}${overlay('rTrust')}${hosts()}</div></div>` +
+    `<div class="col"><div class="tag"><b>Filet's own scanner</b></div><div class="phone panel" id="rScan" style="height:520px;width:284px">${status()}${back('Download')}${nav('Storage')}${scanDlg}${hosts()}</div></div>` +
+    `<div class="col"><div class="tag"><b>Any camera</b> with or without Filet</div><div class="phone panel" id="rWeb" style="height:520px;width:284px">${status()}
+      <div class="bbar"><span class="u ell">${web.st === 'idle' ? 'Point a camera at the QR' : '192.168.1.23:8080/f/Ta9fQ2?k=kaR7m4'}</span></div>
+      <div class="site" style="display:grid;place-items:center;color:#6B6860;font-size:13px;text-align:center">${web.st === 'idle' ? 'Nothing open yet. Press Play.' : 'No page: the browser goes straight to the download.'}
+        ${web.st === 'idle' ? '' : `<div class="dlbar">${line('Download', '#8AB4F8', 16)}<span style="flex:1">Beach.jpg · ${web.st === 'done' ? '3.1 MB' : 'downloading…'}</span>${web.st === 'done' ? '<b>Open</b>' : ''}</div>`}</div></div></div>`);
+}
+function playRecv(kind) {
+  if (kind === 'ask') { RECV.ask = { st: 'asking', always: false }; renderRecv(); }
+  if (kind === 'trusted') {
+    renderRecv();
+    setTimeout(() => received('rTrust', { name: 'Beach.jpg', size: '3.1 MB', k: 'Image', from: 'nova 10' }), 600);
+  }
+  if (kind === 'scan') {
+    RECV.scan = { st: 'going', p: 0 }; renderRecv();
+    const t = setInterval(() => {
+      RECV.scan.p = Math.min(100, RECV.scan.p + 9);
+      if (RECV.scan.p >= 100) { RECV.scan.st = 'done'; clearInterval(t); }
+      renderRecv();
+    }, 120);
+  }
+  if (kind === 'web') { RECV.web = { st: 'going' }; renderRecv(); setTimeout(() => { RECV.web = { st: 'done' }; renderRecv(); }, 1400); }
+}
+
+// ── 4. ways in ──
+function renderWays() {
+  const A = css('--accent'), F2 = css('--fg2');
+  const menuRow = (g, l, cls = '', attr = '') => `<div class="pm ${cls}" ${attr}>${typeof g === 'string' && GL[g] ? line(g, cls.includes('bad') ? css('--bad') : F2, 16) : g}${l}</div>`;
+  const hold = `<div class="pmenu" style="position:relative;right:auto;top:0;width:250px;box-shadow:none"><div class="pmhead">IMG_2040.jpg</div>` +
+    menuRow('Copy', 'Copy') + menuRow('Cut', 'Move') + menuRow('Share', 'Send') + menuRow('Zip', 'Compress') + menuRow('Rename', 'Rename') + menuRow('Open', 'Open with') + menuRow('Info', 'Details') +
+    `<div class="pmsep"></div>` + menuRow('Star', 'Bookmark') + menuRow('Wifi', 'Nearby', '', 'data-wayadd="a"') +
+    menuRow(QRG(A, 16), '<span style="color:var(--accent)">Fast share</span> <span class="newtag">new</span>', '', 'data-wayfast="a"') + menuRow('Home', 'Shortcut') +
+    `<div class="pmsep"></div>` + menuRow('Delete', 'Delete', 'bad') + `</div>`;
+  const selbar = `<div style="width:300px;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--bg)">
+    <div class="lrow2 sel">${thumb('Image', 30, 14)}<div class="tx"><div class="a">IMG_2040.jpg</div><div class="b">14 Nov 2026</div></div><span class="sd">3.1 MB</span></div>
+    <div class="lrow2 sel">${thumb('Doc', 30, 14)}<div class="tx"><div class="a">Report.pdf</div><div class="b">13 Nov 2026</div></div><span class="sd">220 KB</span></div>
+    <div style="display:flex;background:var(--raised);border-top:1px solid var(--lineSoft);padding:6px 4px">${[['Copy', 'Copy'], ['Cut', 'Move'], [null, 'Fast share'], ['Rename', 'Rename'], ['Delete', 'Delete'], ['More', 'More']].map(([g, l]) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9.5px;color:${l === 'Fast share' ? A : 'var(--fg2)'};cursor:${l === 'Fast share' ? 'pointer' : 'default'}" ${l === 'Fast share' ? 'data-wayfast="ab"' : ''}>${g ? line(g, F2, 18) : QRG(A, 18)}${l}</div>`).join('')}</div></div>
+    <div class="note" style="margin-top:6px">Two selected, after adding Fast share in Settings › Selection bar. It's also in More, so it's there without adding it.</div>`;
+  const choice = `<div class="ci-sheet" style="width:300px;border-radius:20px">
+    <div class="dh"><span class="di">${line('Share', A, 17)}</span><div class="tt"><div class="t">Share IMG_2040.jpg</div></div><span class="x">${line('Close', css('--fg3'), 14)}</span></div>
+    <div class="db">${[['Share', 'Share to another app', 'The Android share sheet', ''], ['Wifi', 'Share over your network', 'A link any browser can open', 'Filet'], [null, 'Fast share', 'A QR, or straight to a Filet nearby', 'Filet']].map(([g, l, d, tag], i) =>
+      `<div class="pick" style="border:1px solid ${tag ? 'color-mix(in srgb, var(--accent) 35%, transparent)' : 'var(--lineSoft)'};margin-top:${i ? 6 : 0}px;padding:10px 11px;cursor:${i === 2 ? 'pointer' : 'default'}" ${i === 2 ? 'data-wayfast="a"' : ''}><span class="m" style="display:grid;place-items:center;border-radius:8px;background:var(--accentDim)">${g ? line(g, A, 16) : QRG(A, 16)}</span><span style="flex:1"><div class="v">${l}${i === 2 ? ' <span class="newtag">new</span>' : ''}</div><div class="k">${d}</div></span>${tag ? `<span style="font-size:9.5px;color:var(--accent);background:var(--accentDim);border-radius:6px;padding:3px 7px">${tag}</span>` : ''}</div>`).join('')}</div></div>
+    <div class="note" style="margin-top:6px">The Share button in the image, video, audio and text viewers. ShareTarget.kt gets a third target.</div>`;
+  const page = `<div style="width:300px;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--bg)"><div class="tabhead"><div class="tt">Share over this network</div><div class="acts"><span class="tbtn" data-wayaddbtn="1">${line('Plus', F2, 13)}Add files</span><span class="tbtn" data-wayfast="a">${QRG(F2, 13)}Fast share</span></div></div></div>
+    <div class="note" style="margin-top:6px">The page's own header. Add files opens a picker. Fast share there picks one file and goes straight to the sheet.</div>`;
+  const apps = [['M', '#1A73E8', 'Messages', ''], ['G', '#D93025', 'Gmail', ''], ['D', '#188038', 'Drive', ''], ['B', '#5F6368', 'Bluetooth', '']];
+  const asheet = `<div class="phone panel" id="aShare" style="height:520px;width:284px">${status()}
+    <div class="head"><span class="t">Gallery</span></div><div class="scroll" style="background:linear-gradient(160deg,#3a4a52,#6a5a3a)"></div>
+    <div class="ov"><div class="scrim"></div><div class="asheet"><div class="hdl"></div>
+      <div class="prev"><span class="ph"></span><div><div class="a">IMG_2040.jpg</div><div class="b">1 image</div></div></div>
+      <div class="grid">
+        <div class="app ours" data-aw="fast"><span class="ic">${filetArt(30)}</span><span>Fast share<div class="sub2">Filet</div></span></div>
+        <div class="app ours" data-aw="add"><span class="ic">${filetArt(30)}</span><span>Nearby<div class="sub2">Filet</div></span></div>
+        ${apps.map(([c, bg, l]) => `<div class="app"><span class="ic" style="background:${bg}">${c}</span><span>${l}</span></div>`).join('')}
+        <div class="app"><span class="ic" style="background:#3C4043">${line('Copy', '#E8EAED', 18)}</span><span>Copy</span></div>
+        <div class="app"><span class="ic" style="background:#3C4043">…</span><span>More</span></div>
+      </div></div></div>${hosts()}</div>
+    <div class="note" style="margin-top:6px">Android's sheet, drawn plainly: every phone dresses it differently. Two Filet targets with Filet's icon, told apart by their names. Tap either.</div>`;
+  paint(document.getElementById('ways'),
+    `<div class="col"><div class="tag"><b>Hold a file</b></div>${hold}</div>` +
+    `<div class="col"><div class="tag"><b>The selection bar</b></div>${selbar}<div style="height:16px"></div><div class="tag"><b>The Share page</b></div>${page}</div>` +
+    `<div class="col"><div class="tag"><b>A viewer's Share button</b></div>${choice}</div>` +
+    `<div class="col"><div class="tag"><b>Android's share sheet</b> from another app</div>${asheet}</div>`);
+}
+
+// ── 5. the activity page ──
+function renderAct() {
+  const el = document.getElementById('act');
+  paint(el, status() + `<div class="head"><span class="t">Settings</span></div><div class="scroll">` +
+    `<div class="sec first"><div class="t">Cards and messages</div><div class="divider"></div></div>` +
+    `<div class="note10">A card when work starts, a message when it ends. Activity lists every job either way.</div>` +
+    `<div class="colhead"><span>Starts</span><span>Ends</span></div>` +
+    `<div class="grow"><span class="caret">▶</span><div class="tx"><div class="a">Network</div><div class="b">Fetch from a remote · Downloads from other apps · Downloads from your share</div></div>${sw(true, '')}${sw(state.msgOn, 'data-act="msgOn"')}</div>` +
+    `<div class="arow"><span class="tx">${line('Download', css('--fg3'), 15)}Fetch from a remote</span>${sw(true, '')}<span class="dash">—</span></div>` +
+    `<div class="arow"><span class="tx">${line('Download', css('--fg3'), 15)}Downloads from other apps</span>${sw(true, '')}<span class="dash">—</span></div>` +
+    `<div class="arow new"><span class="tx">${line('Wifi', css('--fg3'), 15)}<span>Downloads from your share<span class="newtag">new</span></span></span>${sw(state.cardOn, 'data-act="cardOn"')}${sw(state.msgOn, 'data-act="msgOn"')}</div>` +
+    `<div class="arow new"><span class="tx">${line('Share', css('--fg3'), 15)}<span>Pushes to and from Filets nearby<span class="newtag">new</span></span></span>${sw(state.cardOn, 'data-act="cardOn"')}${sw(state.msgOn, 'data-act="msgOn"')}</div>` +
+    `<div class="note10" style="padding-top:8px">The "received" result after Accept always shows, whichever way these are set. Starts: "Galaxy A54 is downloading" with the file's name. Ends: "Galaxy A54 downloaded Beach.jpg".</div>` +
+    `<div class="sec"><div class="t">Started cards</div><div class="divider"></div></div><div class="stub" style="margin:6px 14px;padding:14px;border:1px dashed var(--line);border-radius:10px;font-size:11px;color:var(--fg3);text-align:center">Stays for, Sits at, Stacks up to: unchanged</div>` +
+    `</div>` + nav('Activity') + hosts());
+}
+
+// ── 6. how it works ──
+function renderHow() {
+  document.getElementById('how').innerHTML = `
+  <div class="find"><h3>Built on what's there</h3>
+    <p><b>The share.</b> SharedSet already serves each file by token at <code>/f/&lt;token&gt;</code>, and an entry already has an alias and an expiry (<code>SharedEntry.alias</code>, <code>expires</code>). Rename for others and Expiry fill fields that exist. Lock, Pause, One-time and the download count are new fields on SharedEntry.</p>
+    <p><b>The QR.</b> The one QR maker (FiletQr, with the badge). Its contents are a plain link on this phone's address, not a FiletLink. New: a key on SharedEntry, minted by fast share, accepted on <code>/f/</code>, <code>/zd/</code> and <code>/z</code> beside grants and cookies, dropped at Stop. <code>/f/</code> already sends files as attachments.</p>
+    <p><b>Received files.</b> Filet/Received is SharedSet's <code>quarantine</code> folder, where browser uploads land today. Pushed files land there too.</p>
+    <p><b>Pushes.</b> Discovery and pairing are Peers.kt as they are. Pushes arrive whenever Filet is open, so a listener runs while Filet is in front, even with sharing off, and it answers pushes only. Pop-ups, Block and the "sharing" row decide what you see.</p>
+    <p><b>Activity.</b> JobKind gains the share, serving and pushes. Sharing is a running job you can stop. Moments (paused, stopped, turned away) are a row type with a time instead of a state word.</p></div>
+  <div class="find"><h3>Things to check on a real phone</h3>
+    <p><span class="risk">The camera.</span> Your phone's camera and a second phone's open the link in the browser, and the browser downloads at once.</p>
+    <p><span class="risk">Plain http.</span> Some browsers warn about downloads over http. Check that a download from an address on your own network isn't blocked.</p>
+    <p><span class="risk">The listener.</span> With Filet open and sharing off: the port it holds, and the battery.</p></div>`;
+}
+
+// ── wiring ──
+function renderAll() {
+  document.body.classList.toggle('light', state.theme === 'light');
+  document.querySelectorAll('.cseg[data-ctl]').forEach(s => s.querySelectorAll('button').forEach(b => {
+    const v = s.dataset.ctl === 'running' ? (state.running ? '1' : '0') : state[s.dataset.ctl];
+    b.classList.toggle('on', b.dataset.v === String(v));
+  }));
+  renderToday(); renderProp(); renderFsPicks(); renderFs(); renderRecv(); renderWays(); renderAct(); renderLog(); renderHow();
+}
+function hostOf(el) { const p = el.closest('.phone'); return p ? p.id : null; }
+function setSend(host, pid, s) {
+  (live.sends[host] ??= {})[pid] = s;
+  const p = PEERS.find(z => z.id === pid), xs = ((live.ov[host] || {}).ids || ['a']).map(item).filter(Boolean);
+  const what = xs.length === 1 ? shown(xs[0]) : `${xs.length} files`, id = 'push-' + host + pid;
+  if (s.st === 'sending') logRun(id, 'Share', `Sending ${what} to ${p.name}`, 'Wi-Fi', s.p);
+  if (s.st === 'sent') logEnd(id, 'done', xs.length === 1 ? xs[0].size : '');
+  if (s.st === 'declined') { logRun(id, 'Share', `Sending ${what} to ${p.name}`, '', 0); logEnd(id, 'stopped', `${p.name} declined`); }
+  renderAll();
+}
+function sendTo(host, pid) {
+  const p = PEERS.find(z => z.id === pid);
+  const trusted = state.trusted.includes(pid);
+  const run = () => {
+    let pct = 0;
+    setSend(host, pid, { st: 'sending', p: 0 });
+    const t = setInterval(() => {
+      pct += 12;
+      if (pct >= 100) { clearInterval(t); setSend(host, pid, { st: 'sent' }); return; }
+      setSend(host, pid, { st: 'sending', p: pct });
+    }, 140);
+  };
+  if (trusted) { run(); return; }
+  setSend(host, pid, { st: 'asking' });
+  if (pid === 'p1') {
+    const xs = ((live.ov[host] || {}).ids || ['a']).map(item).filter(Boolean);
+    const one = xs.length === 1 ? xs[0] : null;
+    RECV.ask = { st: 'asking', always: false, from: host, name: one ? shown(one) : `${xs.length} files`, size: one ? one.size : xs.map(shown).join(', '), kind: one ? one.kind : 'File', many: !one };
+    renderRecv(); return;
+  }
+  setTimeout(() => { if ((live.sends[host] || {})[pid]?.st === 'asking') { p.will === 'decline' ? setSend(host, pid, { st: 'declined' }) : run(); } }, 1800);
+}
+function download(id, who) {
+  const x = item(id);
+  if (!x) { toast('prop', 'Not shared any more'); return; }
+  if (!state.running) { toast('prop', 'Sharing is off: nothing is served'); return; }
+  if (x.paused) { toast('prop', `${shown(x)} is paused: they get "Paused by the owner"`); logMoment('Pause', `Turned away ${who}: ${shown(x)} is paused`); return; }
+  for (const h of ['prop', 'act']) if (state.cardOn) card(h, `${who} is downloading`, shown(x));
+  const lid = 'dl' + Date.now();
+  let pc = 0;
+  const tk = setInterval(() => { pc = Math.min(95, pc + 12); logRun(lid, 'Download', `Serving ${shown(x)} to ${who}`, 'Wi-Fi', pc); }, 180);
+  setTimeout(() => {
+    clearInterval(tk); logEnd(lid, 'done', x.size);
+    x.dl++; x.last = 'just now';
+    let msg = `${who} downloaded ${shown(x)}`;
+    if (x.once) { state.items = state.items.filter(y => y.id !== id); msg = `${who} downloaded ${shown(x)}. One-time link used, so it stopped`; }
+    save(); renderAll();
+    for (const h of ['prop', 'act']) if (state.msgOn || x.once) toast(h, msg);
+  }, 1600);
+}
+
+document.addEventListener('click', (e) => {
+  if (Date.now() - heldAt < 500) return;
+  const t = e.target.closest('[data-v],[data-toastmsg],[data-run],[data-t],[data-p],[data-tidle],[data-pidle],[data-trevoke],[data-tgrant],[data-tkick],[data-qr],[data-row],[data-m],[data-mexp],[data-select],[data-selall],[data-stopsel],[data-ovclose],[data-lockok],[data-rnok],[data-rnreal],[data-add],[data-pick],[data-addok],[data-addfast],[data-fastpick],[data-send],[data-sendcancel],[data-faststop],[data-fsp],[data-play],[data-recv],[data-always],[data-scanx],[data-wayfast],[data-wayadd],[data-wayaddbtn],[data-aw],[data-act],[data-cardfold],[data-popups],[data-block],[data-offer],[data-pr],[data-palways],[data-gotopen],[data-logstop]');
+  if (!t) { if (live.menu && !e.target.closest('.pmenu')) { live.menu = null; renderProp(); } return; }
+  const d = t.dataset, host = hostOf(t);
+  if (d.v !== undefined && t.closest('.cseg')) {
+    const k = t.closest('.cseg').dataset.ctl;
+    if (k === 'running') setRunning(d.v === '1'); else state[k] = d.v;
+    save(); renderAll(); return;
+  }
+  if (d.toastmsg) { toast(d.host || host, d.toastmsg); return; }
+  if (d.run !== undefined) { setRunning(d.run === '1'); renderAll(); return; }
+  if (d.t) { live.today[d.t] = !live.today[d.t]; renderToday(); return; }
+  if (d.p) { state[d.p] = !state[d.p]; save(); renderProp(); return; }
+  if (d.tidle) { live.today.idle = +d.tidle; renderToday(); return; }
+  if (d.pidle) { state.idle = +d.pidle; save(); renderProp(); return; }
+  if (d.trevoke) { live.today.shared = live.today.shared.filter(i => i !== d.trevoke); renderToday(); return; }
+  if (d.tgrant) { live.today.grants = 0; renderToday(); return; }
+  if (d.tkick) { live.today.clients = 0; renderToday(); return; }
+  if (d.qr) { live.menu = null; openFast(host, [d.qr], true); return; }
+  if (d.m) {
+    const x = item(live.menu);
+    if (!x) return;
+    if (d.m === 'qr') { live.menu = null; openFast('prop', [x.id], true); return; }
+    if (d.m === 'rename') { live.menu = null; live.ov.prop = { kind: 'rename', id: x.id }; renderProp(); document.getElementById('rnIn')?.select(); return; }
+    if (d.m === 'pause') { x.paused = !x.paused; live.menu = null; save(); logMoment(x.paused ? 'Pause' : 'PlaySolid', `${x.paused ? 'Paused' : 'Resumed'} ${shown(x)}`); renderAll(); toast('prop', x.paused ? `${shown(x)} paused` : `${shown(x)} back on`); return; }
+    if (d.m === 'once') { x.once = !x.once; save(); renderProp(); return; }
+    if (d.m === 'lock') { x.lock = !x.lock; save(); renderProp(); return; }
+    if (d.m === 'select') { live.menu = null; live.selecting = true; live.sel = [x.id]; renderProp(); return; }
+    if (d.m === 'stop') { stopSharing([x.id]); return; }
+    return;
+  }
+  if (d.mexp) { const x = item(live.menu); x.exp = d.mexp; save(); renderProp(); return; }
+  if (d.select) { live.selecting = !live.selecting; live.sel = []; renderProp(); return; }
+  if (d.selall) { live.sel = live.sel.length === state.items.length ? [] : state.items.map(x => x.id); renderProp(); return; }
+  if (d.stopsel) { if (live.sel.length) { stopSharing(live.sel.slice()); live.selecting = false; live.sel = []; renderProp(); } return; }
+  if (d.row) {
+    if (live.selecting) { live.sel = live.sel.includes(d.row) ? live.sel.filter(i => i !== d.row) : [...live.sel, d.row]; renderProp(); return; }
+    toast('prop', 'Opens the file, as anywhere in Filet. Hold for its menu.'); return;
+  }
+  if (d.ovclose) { delete live.ov[host]; renderAll(); return; }
+  if (d.lockok) { live.ov[host] = live.ov[host].next; renderAll(); return; }
+  if (d.rnok || d.rnreal) {
+    const x = item(live.ov.prop.id), v = d.rnreal ? '' : document.getElementById('rnIn').value.trim();
+    x.alias = v && v !== x.name ? v : '';
+    delete live.ov.prop; save(); renderAll(); toast('prop', x.alias ? `Others see ${x.alias}` : 'Back to its real name'); return;
+  }
+  if (d.add || d.wayaddbtn) { live.ov.prop = { kind: 'add', sel: [] }; renderProp(); if (d.wayaddbtn) document.getElementById('prop').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if (d.pick) { const o = live.ov.prop; o.sel = o.sel.includes(d.pick) ? o.sel.filter(i => i !== d.pick) : [...o.sel, d.pick]; renderProp(); return; }
+  if (d.addok || d.addfast) {
+    const ids = addPicked(live.ov.prop.sel);
+    delete live.ov.prop;
+    if (d.addfast) { save(); openFast('prop', ids); return; }
+    save(); logMoment('Plus', `Shared ${ids.length > 1 ? ids.length + ' files' : shown(item(ids[0]))}`); renderAll(); toast('prop', `Added ${ids.length} to Share`); return;
+  }
+  if (d.fastpick) { const x = state.items.find(y => !y.lock) || state.items[0]; if (x) openFast('prop', [x.id]); return; }
+  if (d.send) { sendTo(host, d.send); return; }
+  if (d.sendcancel) { setSend(host, d.sendcancel, { st: 'idle' }); if (RECV.ask.from === host) { RECV.ask = { st: 'idle' }; renderRecv(); } return; }
+  if (d.faststop) { const ids = live.ov[host].ids; delete live.ov[host]; stopSharing(ids, host); return; }
+  if (d.fsp) {
+    if (d.fsp !== 'reopen') state.fsPick = d.fsp;
+    save();
+    const ids = state.fsPick === 'ab' ? ['a', 'b'] : [state.fsPick];
+    for (const i of ids) if (!item(i)) state.items.push(structuredClone(ITEMS.find(x => x.id === i)));
+    save();
+    openFast('fs', ids); return;
+  }
+  if (d.play) { playRecv(d.play); return; }
+  if (d.always) { RECV.ask.always = !RECV.ask.always; renderRecv(); return; }
+  if (d.recv) {
+    const from = RECV.ask.from, always = RECV.ask.always, got = RECV.ask.name || 'Beach.jpg', many = RECV.ask.many;
+    RECV.lastSize = RECV.ask.size; RECV.lastKind = RECV.ask.kind;
+    RECV.ask = { st: 'idle' }; renderRecv();
+    if (d.recv === 'accept') {
+      if (always && !state.trusted.includes('p1')) { state.trusted.push('p1'); save(); }
+      setTimeout(() => received('rAsk', { name: got, size: RECV.lastSize || '3.1 MB', k: RECV.lastKind || 'Image', from: 'nova 10', many }), 900);
+      if (from) {
+        let pct = 0;
+        const tm = setInterval(() => { pct += 14; if (pct >= 100) { clearInterval(tm); setSend(from, 'p1', { st: 'sent' }); return; } setSend(from, 'p1', { st: 'sending', p: pct }); }, 120);
+      }
+    } else {
+      toast('rAsk', 'Declined');
+      if (from) setSend(from, 'p1', { st: 'declined' });
+    }
+    return;
+  }
+  if (d.scanx) { RECV.scan = { st: 'idle', p: 0 }; renderRecv(); return; }
+  if (d.wayfast) {
+    const ids = d.wayfast === 'ab' ? ['a', 'b'] : ['a'];
+    if (!ids.every(item)) { toast('prop', 'Reset the demo first: that file isn\'t shared any more'); return; }
+    state.fsPick = d.wayfast; save();
+    openFast('fs', ids);
+    document.getElementById('fs').scrollIntoView({ behavior: 'smooth', block: 'center' }); return;
+  }
+  if (d.wayadd) { toast('prop', 'Already shared: Beach.jpg'); document.getElementById('prop').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if (d.aw) {
+    if (d.aw === 'add') { snack('aShare', 'Added to Share over this network. Sharing is on.', '', null, 3000); return; }
+    state.fsPick = 'a'; save(); openFast('fs', ['a']);
+    document.getElementById('fs').scrollIntoView({ behavior: 'smooth', block: 'center' }); return;
+  }
+  if (d.act) { state[d.act] = !state[d.act]; save(); renderAct(); return; }
+  if (d.cardfold) { live.cardOpen = !live.cardOpen; renderProp(); return; }
+  if (d.popups) { state.popups = d.popups; save(); renderProp(); return; }
+  if (d.block) {
+    const p = PEERS.find(z => z.id === d.block), on = state.blocked.includes(p.id);
+    state.blocked = on ? state.blocked.filter(i => i !== p.id) : [...state.blocked, p.id];
+    if (!on && live.offer && live.offer.pid === p.id) live.offer = null;
+    save(); renderProp(); toast('prop', on ? `${p.name} unblocked` : `${p.name} blocked: its pushes are turned away`); return;
+  }
+  if (d.offer) { live.ov.prop = { kind: 'ask', offer: true, ...live.offer }; renderProp(); return; }
+  if (d.palways) { live.ov.prop.always = !live.ov.prop.always; renderProp(); return; }
+  if (d.pr) {
+    const o = live.ov.prop; delete live.ov.prop; live.offer = null;
+    if (d.pr === 'decline') { logMoment('Close', `Declined ${o.name} from ${o.from}`); renderAll(); toast('prop', 'Declined'); return; }
+    if (o.always && !state.trusted.includes(o.pid)) { state.trusted.push(o.pid); save(); }
+    takeIn(o); return;
+  }
+  if (d.gotopen) { delete live.ov[host]; renderAll(); toast(host, 'Opens Filet/Received with it selected'); return; }
+  if (d.logstop) { setRunning(false); renderAll(); return; }
+});
+
+// The "received" result after every Accept: a dialog, or an Activity card that stays until closed.
+function received(host, o) {
+  const box = document.querySelector(`#${host} [data-cards]`);
+  if (!box) return;
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.innerHTML = `<span class="cic">${line('Download', css('--good'), 14)}</span><span class="ctx"><div class="w1">${o.name} received · Filet/Received</div><div class="w2">Open where it is</div></span><span class="cx" data-x="1">${line('Close', css('--fg3'), 14)}</span>`;
+  box.prepend(el);
+  el.onclick = (e) => { el.remove(); if (!e.target.closest('[data-x]')) toast(host, 'Opens Filet/Received with it selected'); };
+}
+// An incoming push on this phone: a pop-up, a "sharing" row while pop-ups are off, or turned away.
+const INCOMING = { pid: 'p1', from: 'Galaxy A54', name: 'IMG_0088.jpg', size: '2.4 MB', k: 'Image' };
+function takeIn(o) {
+  const lid = 'in' + Date.now(); let pc = 0;
+  const tk = setInterval(() => {
+    pc += 20; if (pc < 100) { logRun(lid, 'Download', `Receiving ${o.name} from ${o.from}`, 'to Filet/Received', pc); renderLog(); return; }
+    clearInterval(tk); logEnd(lid, 'done', `Filet/Received · ${o.size}`); renderAll(); received('prop', o);
+  }, 160);
+  renderAll();
+}
+document.getElementById('simPush').onclick = () => {
+  if (state.blocked.includes('p1')) { logMoment('Close', 'Turned away a push from Galaxy A54: blocked'); renderLog(); toast('prop', 'Galaxy A54 is blocked: turned away'); return; }
+  if (state.popups === 'on' && state.trusted.includes('p1')) { takeIn({ ...INCOMING }); document.getElementById('prop').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if (state.popups === 'on') live.ov.prop = { kind: 'ask', ...INCOMING };
+  else { live.offer = { ...INCOMING }; toast('prop', 'Pop-ups are off: Galaxy A54 shows under Devices'); }
+  renderProp(); document.getElementById('prop').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+document.getElementById('simCancel').onclick = () => {
+  if (live.ov.prop && live.ov.prop.kind === 'ask') delete live.ov.prop;
+  else if (!live.offer) { toast('prop', 'Nothing from Galaxy A54 to cancel'); return; }
+  live.offer = null; renderProp(); toast('prop', 'Galaxy A54 cancelled: gone from the list');
+};
+
+// ── 5. the Activity tab ──
+const clock = () => new Date().toTimeString().slice(0, 5);
+const LOG = [
+  { id: 'y1', g: 'Zip', t: 'Extracting backup.zip', s: 'to Download › backup', st: 'done', day: 'Yesterday' },
+  { id: 'y2', g: 'Download', t: 'Receiving meme.png from Galaxy A54', s: 'Filet/Received · 640 KB', st: 'done', day: 'Yesterday' },
+  { id: 'y3', g: 'Wifi', t: 'Sharing over this network', s: 'on for 2 h 10 min · 3 downloads', st: 'stopped', day: 'Yesterday' },
+  { id: 't1', g: 'Copy', t: 'Copying 3 items', s: 'to DCIM › Trip to Baguio', st: 'done', day: 'Today' },
+];
+live.log = structuredClone(LOG);
+function logRun(id, g, t, s, p) {
+  let r = live.log.find(z => z.id === id);
+  if (!r) { r = { id, g, t, s, day: 'Today' }; live.log.unshift(r); }
+  Object.assign(r, { st: 'running', p });
+}
+function logEnd(id, st, s) { const r = live.log.find(z => z.id === id); if (r) { r.st = st; if (s) r.s = s; r.p = null; } }
+function logMoment(g, t) { live.log.unshift({ id: 'm' + Date.now() + Math.random(), g, t, s: '', st: 'moment', at: clock(), day: 'Today' }); }
+function setRunning(on) {
+  if (on === state.running) return;
+  state.running = on; save();
+  if (on) logRun('sess' + Date.now(), 'Wifi', 'Sharing over this network', '192.168.1.23:8080 · just started', null);
+  else { const r = live.log.find(z => z.st === 'running' && z.t === 'Sharing over this network'); if (r) logEnd(r.id, 'stopped', 'on for 42 min · 4 downloads'); }
+}
+if (state.running) logRun('sess0', 'Wifi', 'Sharing over this network', '192.168.1.23:8080 · on for 42 min', null);
+function renderLog() {
+  const el = document.getElementById('log');
+  const tint = (r) => r.st === 'done' ? css('--good') : r.st === 'running' ? css('--accent') : r.st === 'failed' ? css('--bad') : css('--fg3');
+  const word = (r) => r.st === 'moment' ? r.at : r.st === 'running' ? '' : r.st;
+  const row = (r) => `<div class="jrow"><div class="jtop">${line(r.g, tint(r), 17)}<div class="tx"><div class="a">${r.t}</div><div class="b">Filet${r.s ? ' · ' + r.s : ''}</div></div>` +
+    `<span class="w ${r.st === 'done' ? 'ok' : ''}">${word(r)}</span>${r.st === 'running' && r.t === 'Sharing over this network' ? `<span class="stopx" data-logstop="1">${line('Close', css('--bad'), 14)}</span>` : ''}</div>` +
+    (r.st === 'running' && r.p != null ? `<div class="bar5"><i style="width:${r.p}%"></i></div><div style="font-size:10.5px;color:var(--fg2);margin-top:3px">${Math.round(r.p)}%</div>` : '') + `</div>`;
+  const run = live.log.filter(r => r.st === 'running'), fin = live.log.filter(r => r.st !== 'running');
+  const day = (d) => { const g = fin.filter(r => r.day === d); return g.length ? `<div class="dayl">${d}</div>` + g.map(row).join('') : ''; };
+  paint(el, status() + `<div class="scroll"><div class="tabhead"><div class="tt">Activity</div><div class="acts"><span class="tbtn">${line('Delete', css('--fg2'), 13)}Clear finished</span></div></div>` +
+    (run.length ? `<div class="sect"><span class="l">Running</span></div>` + run.map(row).join('') : '') +
+    `<div class="sect"><span class="l">Finished</span></div>` + day('Today') + day('Yesterday') + `<div style="height:20px"></div></div>` + nav('Activity') + hosts());
+}
+function addPicked(sel) {
+  const ids = [];
+  for (const pid of sel) {
+    const p = PICK.find(z => z.id === pid);
+    const id = 'n' + Math.random().toString(36).slice(2, 7);
+    state.items.push({ id, name: p.name, alias: '', kind: p.kind, size: p.size, bytes: parseFloat(p.size), path: '/storage/emulated/0/DCIM/Camera/' + p.name, lock: false, exp: 'never', dl: 0, last: '', paused: false, once: false });
+    ids.push(id);
+  }
+  return ids;
+}
+function stopSharing(ids, host = 'prop') {
+  const gone = state.items.filter(x => ids.includes(x.id));
+  state.items = state.items.filter(x => !ids.includes(x.id));
+  live.menu = null; save();
+  const what = gone.length > 1 ? `${gone.length} files` : shown(gone[0]);
+  logMoment('Close', `Stopped sharing ${what}`); renderAll();
+  snack(host, `Stopped sharing ${what}`, 'Undo', () => {
+    state.items = state.items.concat(gone); save(); logMoment('Wifi', `Sharing ${what} again`); renderAll();
+  });
+}
+
+// Hold (or right-click) a shared row for its menu.
+let heldAt = 0, holdTimer = null;
+document.addEventListener('pointerdown', (e) => {
+  const r = e.target.closest('#prop [data-row]');
+  if (e.button !== 0 || !r || e.target.closest('[data-qr]') || live.selecting) return;
+  holdTimer = setTimeout(() => { heldAt = Date.now(); live.menu = r.dataset.row; renderProp(); }, 450);
+});
+document.addEventListener('pointerup', () => clearTimeout(holdTimer));
+document.addEventListener('pointerleave', () => clearTimeout(holdTimer));
+document.addEventListener('contextmenu', (e) => {
+  const r = e.target.closest('#prop [data-row]');
+  if (!r || live.selecting) return;
+  e.preventDefault(); live.menu = r.dataset.row; renderProp();
+});
+
+document.getElementById('simDl').onclick = () => download('a', 'Galaxy A54');
+document.getElementById('simDl2').onclick = () => download('b', 'A browser at 192.168.1.40');
+document.getElementById('reset').onclick = () => { localStorage.removeItem(KEY); location.reload(); };
+const notes = document.getElementById('notes');
+notes.value = state.notes;
+notes.oninput = () => { state.notes = notes.value; save(); };
+
+{
+  const ids = state.fsPick === 'ab' ? ['a', 'b'] : [state.fsPick];
+  if (ids.every(item)) live.ov.fs = { kind: 'fast', ids, again: false };
+}
+renderAll();
+</script>
+</body>
+</html>

@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet - Home edit state (mock)</title>
+<style>
+/* Palette: Palette.kt SLATE, names one-for-one with FiletColors (same block as the other mocks). */
+:root, .dark {
+  --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --accentDim:#31434B; --onAccent:#0E1417;
+  --good:#8FB894; --warn:#C9A36A; --bad:#C97F7F; --sel:#243036;
+}
+.light {
+  --bg:#F5F4F0; --surface:#FFFFFF; --raised:#FAF9F6; --sunken:#EBE9E3; --high:#E4E1DA;
+  --line:#DDDAD2; --lineSoft:#E9E6DF; --fg:#22211E; --fg2:#615D55; --fg3:#8B867C;
+  --accent:#3E6E82; --accentDim:#CBDDE4; --onAccent:#FFFFFF;
+  --good:#4B7A52; --warn:#8A6A2E; --bad:#9B4A4A; --sel:#E3EDF1;
+}
+* { box-sizing:border-box; }
+body { margin:0; font:13px/1.35 "Segoe UI", Roboto, system-ui, sans-serif; background:#0b0b0a; color:#ddd;
+  display:flex; gap:28px; padding:24px; align-items:flex-start; }
+.panel { width:340px; flex:none; }
+.panel h1 { font-size:16px; margin:0 0 4px; color:#fff; }
+.panel .sub { color:#999; margin-bottom:14px; }
+.panel h2 { font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#8a8; margin:16px 0 6px; }
+.btns { display:flex; flex-wrap:wrap; gap:6px; }
+.btns button { background:#222; color:#ddd; border:1px solid #333; border-radius:8px; padding:7px 10px; font:12px "Segoe UI", sans-serif; cursor:pointer; }
+.btns button.on { background:#7FA8B8; color:#0E1417; border-color:#7FA8B8; font-weight:600; }
+.caption { margin-top:18px; border-top:1px solid #333; padding-top:12px; color:#aaa; font-size:12px; }
+.caption b { color:#ddd; }
+.caption p { margin:0 0 8px; }
+.q { background:#1a1a14; border:1px solid #3a3420; border-radius:8px; padding:8px 10px; margin:8px 0; color:#d8c89a; }
+svg { stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+
+.phone { width:412px; height:880px; flex:none; border-radius:30px; border:8px solid #000; position:relative;
+  overflow:hidden; background:var(--bg); color:var(--fg); box-shadow:0 10px 40px #000a; }
+.status { height:26px; padding:0 16px; display:flex; align-items:center; justify-content:space-between; font-size:11px; color:var(--fg2); background:var(--sunken); }
+.tabs { height:38px; background:var(--sunken); display:flex; align-items:center; gap:4px; padding:0 8px; }
+.tab { padding:6px 12px; border-radius:9px 9px 0 0; font-size:12px; color:var(--fg2); }
+.tab.on { background:var(--bg); color:var(--fg); }
+/* The pane header: title, then its glyphs. Search was already here; Edit joins it. */
+.phead { height:40px; display:flex; align-items:center; padding:0 6px 0 14px; gap:2px; border-bottom:1px solid var(--lineSoft); }
+.phead .t { flex:1; font-size:14px; font-weight:600; }
+.hbtn { height:32px; min-width:32px; border-radius:9px; display:flex; align-items:center; justify-content:center; gap:5px; color:var(--fg2); padding:0 7px; cursor:pointer; font-size:12px; }
+.hbtn svg { width:17px; height:17px; }
+.hbtn.lab { background:var(--high); color:var(--fg); padding:0 10px 0 8px; }
+/* Round 3: Edit is a pencil the size of search, not a worded button. */
+.hbtn.edit { color:var(--fg2); }
+/* Edit state header: replaces the pane header in place, so nothing below moves. */
+.ehead { height:40px; display:flex; align-items:center; padding:0 6px 0 14px; gap:6px; background:var(--accentDim); color:var(--accent); }
+.ehead .t { flex:1; font-size:13px; font-weight:600; white-space:nowrap; }
+.ehead > svg { width:16px; height:16px; flex:none; }
+.ehead .reset { font-size:12px; color:var(--fg2); padding:6px 8px; cursor:pointer; }
+.ehead .done { font-size:12.5px; font-weight:600; background:var(--accent); color:var(--onAccent); border-radius:9px; padding:7px 14px; cursor:pointer; }
+
+.scroll { position:absolute; top:104px; bottom:0; left:0; right:0; overflow:auto; padding-bottom:40px; }
+.slabel { font-size:9.5px; letter-spacing:.9px; font-weight:500; color:var(--fg3); text-transform:uppercase; padding:7px 12px; flex:1; }
+.shead { display:flex; align-items:center; }
+.slink { font-size:10px; color:var(--accent); padding:4px 8px; }
+
+/* Storage tiles: StorageTile geometry. */
+.tiles { display:flex; flex-wrap:wrap; gap:9px; padding:4px 15px 8px; }
+.tile { flex:1 1 150px; min-width:150px; position:relative; }
+.st { border-radius:13px; border:1px solid var(--line); background:var(--surface); padding:8px 8px 11px 12px; }
+.st .hd { display:flex; align-items:center; gap:8px; height:17px; }
+.st .hd .ico { width:13px; height:13px; color:var(--accent); flex:none; }
+.st .hd .lbl { flex:1; font-size:10px; letter-spacing:.6px; font-weight:600; color:var(--fg3); text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.st .hd .x { width:17px; height:17px; padding:3px; color:var(--fg3); }
+.st .val { margin-top:5px; font-size:19px; font-weight:600; letter-spacing:-.38px; }
+.st .cap { margin-top:3px; font-size:10.5px; color:var(--fg3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.st .bar { margin-top:8px; height:5px; border-radius:3px; background:var(--sunken); overflow:hidden; }
+.st .bar i { display:block; height:100%; border-radius:3px; }
+.st .bar.none { background:none; border-top:1px dashed var(--line); height:0; margin-top:10px; margin-bottom:3px; }
+.appic { width:14px; height:14px; border-radius:4px; display:grid; place-items:center; font:700 7.5px/1 Consolas, monospace; flex:none; }
+.appic.termux { background:#000; color:#fff; border:1px solid #444; }
+.appic.drive { background:#2f6f4f; color:#fff; }
+.appic.drive svg { width:10px; height:10px; stroke-width:2.2; }
+.sub2 { font-size:9px; letter-spacing:.8px; color:var(--fg3); text-transform:uppercase; padding:6px 15px 0; }
+/* In edit, each drive tile gets an eye in the corner: hide this drive only. */
+.teye { position:absolute; top:-6px; right:-6px; width:24px; height:24px; border-radius:50%; background:var(--high); border:1px solid var(--line);
+  display:grid; place-items:center; color:var(--fg2); cursor:pointer; }
+.teye svg { width:13px; height:13px; }
+.tile.off .st { opacity:.38; border-style:dashed; }
+.tile.off .teye { color:var(--fg3); }
+/* Round 2: in edit, a drive is held and dragged among the others. A grip leads its heading. */
+.st .hd .grip { width:13px; height:13px; color:var(--fg3); flex:none; margin:0 -4px 0 -5px; }
+.ecard .tile { touch-action:none; user-select:none; cursor:grab; }
+.tile.held { z-index:5; cursor:grabbing; }
+.tile.held .st { transform:scale(1.04); box-shadow:0 10px 24px #000c; border-color:var(--accent); transition:transform .14s ease-out, box-shadow .14s; }
+.tile.held .teye { display:none; }
+
+/* SwitcherGroup-style cards for the feeds and categories. */
+.group { margin:6px 10px; border-radius:13px; background:var(--raised); overflow:hidden; }
+.group .gh { display:flex; align-items:center; padding:10px 12px; gap:8px; }
+.group .gh .gt { flex:1; font-size:12.5px; font-weight:600; }
+.group .gh svg { width:14px; height:14px; color:var(--fg3); }
+.cats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; padding:0 10px 10px; }
+.cat { background:var(--surface); border-radius:11px; padding:12px 8px; display:flex; flex-direction:column; align-items:center; gap:6px; font-size:11.5px; color:var(--fg2); }
+.cat svg { width:20px; height:20px; color:var(--accent); }
+.frow { display:flex; align-items:center; gap:11px; padding:0 12px; }
+.frow .fi { border-radius:8px; background:var(--high); flex:none; }
+.frow .fn { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.frow .fm { font-size:10.5px; color:var(--fg3); }
+.full { padding:9px 12px 11px; font-size:11.5px; color:var(--accent); display:flex; gap:8px; align-items:center; }
+.full svg { width:13px; height:13px; }
+.cache { margin:6px 10px; border-radius:13px; background:var(--raised); padding:11px 12px; display:flex; gap:10px; align-items:center; font-size:12px; color:var(--fg2); }
+.cache svg { width:16px; height:16px; color:var(--warn); }
+
+/* ─ Edit state ─────────────────────────────────────────────────────────────── */
+/* Each card keeps its full drawing and gains a frame: a strip above it, an accent outline around it. */
+.ecard { margin:8px 8px 12px; border-radius:15px; outline:1.5px dashed var(--accentDim); outline-offset:0; position:relative; transition:transform .18s ease-out, box-shadow .18s; background:var(--bg); }
+.ecard.lift { transform:scale(1.02); box-shadow:0 10px 26px #000c; outline-style:solid; outline-color:var(--accent); z-index:3; }
+.estrip { display:flex; align-items:center; gap:4px; padding:4px 4px 2px 2px; }
+.estrip .hdl { width:34px; height:30px; display:grid; place-items:center; color:var(--fg3); cursor:grab; }
+.estrip .hdl svg { width:17px; height:17px; }
+.estrip .nm { flex:1; font-size:11px; letter-spacing:.7px; text-transform:uppercase; color:var(--fg2); font-weight:600; }
+.ebtn { height:30px; border-radius:9px; display:flex; align-items:center; gap:5px; padding:0 9px; color:var(--fg2); cursor:pointer; font-size:11.5px; }
+.ebtn svg { width:15px; height:15px; }
+.ebtn.on { background:var(--accentDim); color:var(--accent); }
+.ebtn.arrow { padding:0 6px; }
+/* A card's own options, opened under its strip and above its drawing, so the effect is right below the control. */
+.eopts { margin:0 8px 8px; border-radius:11px; background:var(--sunken); padding:9px 10px 10px; display:flex; flex-direction:column; gap:9px; }
+.orow { display:flex; align-items:center; gap:10px; }
+.orow .ol { width:96px; flex:none; font-size:11px; color:var(--fg3); }
+.seg { display:inline-flex; border:1px solid var(--lineSoft); border-radius:8px; overflow:hidden; flex-wrap:wrap; }
+.seg span { font-size:11.5px; color:var(--fg2); padding:6px 11px; cursor:pointer; }
+.seg span.on { background:var(--accent); color:var(--onAccent); }
+.slider { flex:1; display:flex; flex-direction:column; gap:2px; }
+.slider input { width:100%; accent-color:var(--accent); }
+.slider .ends { display:flex; justify-content:space-between; font-size:9.5px; color:var(--fg3); }
+.hint { font-size:10.5px; color:var(--fg3); }
+.ecard .body { pointer-events:none; }
+.ecard .body .tile { pointer-events:auto; }
+/* Hidden cards: a tray at the end, each a one-line ghost with Show. */
+.tray { margin:14px 8px 8px; border-radius:13px; border:1px dashed var(--line); padding:6px 0; }
+.tray .tl { font-size:9.5px; letter-spacing:.9px; color:var(--fg3); text-transform:uppercase; padding:5px 12px 3px; }
+.ghost { display:flex; align-items:center; gap:10px; padding:8px 12px; color:var(--fg3); }
+.ghost .gn { flex:1; font-size:12.5px; }
+.ghost .show { font-size:12px; color:var(--accent); padding:4px 8px; cursor:pointer; }
+.saved { text-align:center; font-size:10.5px; color:var(--fg3); padding:10px 20px 4px; }
+/* A first-time line under the header, gone after the first edit. */
+.coach { margin:8px 10px 0; padding:8px 11px; border-radius:10px; background:var(--sel); color:var(--fg2); font-size:11.5px; }
+.coach b { color:var(--fg); }
+</style>
+</head>
+<body class="dark">
+<div class="panel">
+  <h1>Home edit state</h1>
+  <div class="sub">A visible Edit button, and editing the real Home in place</div>
+
+  <h2>View</h2>
+  <div class="btns" id="views">
+    <button data-v="today">Today: Rearrange list</button>
+    <button data-v="home">New: Home</button>
+    <button data-v="edit" class="on">New: editing</button>
+  </div>
+
+  <h2>Try in the edit state</h2>
+  <div class="btns">
+    <button onclick="openOpts('storage')">Storage options</button>
+    <button onclick="openOpts('arrived')">New files options</button>
+    <button onclick="openOpts('categories')">Categories options</button>
+    <button onclick="liftDemo()">Drag a card</button>
+    <button onclick="hideCard('cache')">Hide a card</button>
+    <button onclick="toggleDrive('gd')">Hide one drive</button>
+    <button onclick="moveDriveDemo()">Move a drive</button>
+    <button onclick="document.body.classList.toggle('light');document.body.classList.toggle('dark')">Light / dark</button>
+  </div>
+
+  <div class="caption">
+    <p><b>Round 4 - no control in the header.</b> The pencil beside search looked out of place, so the header is as it was. The way in is a hold: on any empty part of Home, or on a card's heading, whose menu now opens with Edit Home. In this mock, hold the empty space below the last card.</p>
+    <p><b>Round 3 - a quieter way in.</b> The word Edit made the button too wide beside search. Now it's a pencil the same size as the search glyph, beside it. Holding any empty part of Home opens the edit state too; holding a file, a drive or a card's heading keeps its own menu.</p>
+    <p><b>Round 2 - the drives move too.</b> In the edit state every drive can be moved among the others: hold it and drag, and the drives it passes slide out of its way. A grip in front of its icon (where the card strips keep their handle too) says it moves; the x is not drawn while editing, since the eye does that job. Grouped by kind, a drive moves within its own group. The order is saved with the rest and comes back with Import; a drive plugged in for the first time joins at the end.</p>
+    <p><b>Today.</b> The only way in is to hold a card's heading and pick Rearrange. Then every card disappears and a list of names takes its place, so you're arranging words, not Home. Only the two file feeds have options, under their names, with a small preview because the real card isn't on screen.</p>
+    <p><b>The way in.</b> A hold on any empty part of Home, or Edit Home in the menu a held card heading opens (round 4; rounds 1 to 3 had a button in the header).</p>
+    <p><b>Editing.</b> Home stays Home: every card drawn in full with its real contents, live. Each card gets a strip on top with a drag handle, its name, Options, up and down arrows, and an eye to hide it. Drag by the handle or tap the arrows; the card lifts and the others slide out of its way. Every change shows at once on the real card below.</p>
+    <p><b>Options, per card.</b> Storage: one row of cards or grouped by kind, a card per folder or one per app, and show or hide capacity bars. Each drive tile gets its own eye to take just that drive off Home. New files and Opened: how many rows, the density, and same density for both. Categories: which categories show, and list or gallery for photos, videos and audio.</p>
+    <p><b>Hidden cards</b> collect in a tray at the end, one line each with Show, so nothing hidden is out of reach.</p>
+    <p><b>Saving.</b> Every change is saved as it's made, into the same settings as the rest: Export carries Home's layout under Appearance and layout, and Import brings it back. Reset puts Home back to its first arrangement. Done or Back leaves.</p>
+    <p><b>Decided</b> as drawn; the header control went in round 4.</p>
+  </div>
+</div>
+
+<div class="phone" id="phone">
+  <div class="status"><span>9:41</span><span>5G · 82%</span></div>
+  <div class="tabs"><div class="tab on">Home</div><div class="tab">Downloads</div><div class="tab">+</div></div>
+  <div id="head"></div>
+  <div class="scroll" id="scroll"></div>
+</div>
+
+<script>
+const I = {
+  storage:'<path d="M3 4h18v7H3z"/><path d="M3 13h18v7H3z"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+  wifi:'<path d="M2 9a15 15 0 0 1 20 0"/><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><path d="M12 19.5h.01"/>',
+  sd:'<path d="M9 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7z"/><path d="M10 7v3M13 7v3M16 7v3"/>',
+  usb:'<path d="M12 3v14"/><path d="M9.5 5.5 12 3l2.5 2.5"/><circle cx="12" cy="19" r="2"/><path d="M12 12 8 10V8"/><path d="M12 14l4-2V9"/>',
+  close:'<path d="M6 6l12 12M18 6 6 18"/>', eject:'<path d="M12 5 5 13h14z"/><path d="M5 18h14"/>',
+  cloud:'<path d="M7 18h10a4 4 0 0 0 0-8 6 6 0 0 0-11.5 1.5A3.5 3.5 0 0 0 7 18z"/>',
+  grip:'<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>', edit:'<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+  menu:'<path d="M4 7h16M4 12h16M4 17h16"/>', eye:'<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  eyeoff:'<path d="M3 3l18 18"/><path d="M10.6 6.1A10 10 0 0 1 22 12a14 14 0 0 1-3 3.6M6.3 6.3A14 14 0 0 0 2 12s3.6 7 10 7a9.6 9.6 0 0 0 4.3-1"/>',
+  tune:'<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  up:'<path d="m6 15 6-6 6 6"/>', down:'<path d="m6 9 6 6 6-6"/>', chev:'<path d="m6 9 6 6 6-6"/>', right:'<path d="m9 6 6 6-6 6"/>',
+  image:'<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
+  video:'<path d="M3 5h18v14H3z"/><path d="m10 9 5 3-5 3z"/>', audio:'<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+  apk:'<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6"/>', doc:'<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
+  zip:'<path d="M6 3h12v18H6z"/><path d="M11 5h2M11 8h2M11 11h2"/>', clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  download:'<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>', warn:'<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
+};
+const svg = (k, cls='') => `<svg viewBox="0 0 24 24" class="${cls}">${I[k]}</svg>`;
+const STOPS = [[0,'#3E8FD8'],[.38,'#35B5A6'],[.58,'#7FC14F'],[.74,'#E0C248'],[.84,'#E58A33'],[.90,'#D63B2C'],[1,'#A81D16']];
+function cap(f) { const h = s => [1,3,5].map(i => parseInt(s.slice(i,i+2),16));
+  for (let i=0;i<STOPS.length-1;i++) { const [lo,a]=STOPS[i], [hi,b]=STOPS[i+1];
+    if (f>=lo && f<=hi) { const t=(f-lo)/(hi-lo||1), A=h(a), B=h(b); return `rgb(${A.map((v,j)=>Math.round(v+(B[j]-v)*t)).join(',')})`; } }
+  return STOPS[STOPS.length-1][1]; }
+
+const DEFAULT_ORDER = ['storage','categories','arrived','opened','cache'];
+const NAMES = { storage:'Storage', categories:'Categories', arrived:'New files', opened:'Recently opened', cache:'Filet cache reminder' };
+const S = {
+  view:'edit', order:[...DEFAULT_ORDER], hidden:[], opts:null, lift:null,
+  storageLayout:'flow', perApp:'each', bars:true, offDrives:[], driveOrder:['int','sd','net','tx','gd'],
+  arrivedCount:5, openedCount:5, density:40, linked:true,
+  cats:{images:true,videos:true,audio:true,apps:true,documents:true,archives:true}, gallery:{images:true,videos:false,audio:false},
+};
+
+// ── Home's cards, drawn the same in both states ─────────────────────────────────
+function tile(id, head, label, val, capt, f) {
+  const off = S.offDrives.includes(id);
+  if (S.view !== 'edit' && off) return '';
+  const barHtml = f === undefined ? `<div class="bar none"></div>` : (S.bars ? (f == null ? `<div class="bar"></div>` : `<div class="bar"><i style="width:${f*100}%;background:${cap(f)}"></i></div>`) : '');
+  return `<div class="tile ${off?'off':''} ${drag&&drag.id===id?'held':''}" data-id="${id}" onpointerdown="tileDown(event,'${id}')"><div class="st"><div class="hd">${S.view==='edit'?svg('grip','grip'):''}${head}<span class="lbl">${label}</span>${S.view==='edit'?'':svg('close','x')}</div>
+    <div class="val">${val}</div><div class="cap">${capt}</div>${barHtml}</div>
+    ${S.view==='edit'?`<span class="teye" title="${off?'Show':'Hide'} this drive" onclick="toggleDrive('${id}')">${svg(off?'eyeoff':'eye')}</span>`:''}</div>`;
+}
+const ico = k => svg(k,'ico');
+const app = (k,t) => `<span class="appic ${k}">${k==='drive'?svg('cloud'):t}</span>`;
+// Which group each drive falls in when Storage is grouped by kind. A drive moves only within its own.
+const KIND = { int:'phone', sd:'plugged', tx:'apps', gd:'apps', net:'network' };
+const KINDS = [['phone','On this phone'],['plugged','Plugged in'],['apps','From apps'],['network','Network']];
+function storageBody() {
+  const T = {
+    int: () => tile('int', ico('storage'), 'Internal', '48.2 GB', 'free of 128 GB · 79.8 GB used', .62),
+    sd: () => tile('sd', ico('sd'), 'SD · SanDisk', '21.4 GB', 'free of 59.5 GB · 38.1 GB used', .64),
+    net: () => tile('net', ico('wifi'), 'Studio PC · Movies', '1.2 TB', 'free of 1.8 TB · 614 GB used', .33),
+    tx: () => tile('tx', app('termux','>_'), 'Termux', 'home', '142 items · read and write'),
+    gd: () => S.perApp === 'app' ? tile('gd', app('drive'), 'Google Drive', '3 folders', 'Filet test, Photos, Work')
+      : tile('gd', app('drive'), 'Google Drive', 'Filet test', '4 items · read and write'),
+  };
+  // In the edit state the strip above names the card, so the heading is not drawn twice.
+  const head = S.view === 'edit' ? '' : `<div class="shead"><span class="slabel">Storage</span><span class="slink">Hide all</span></div>`;
+  if (S.storageLayout === 'flow') return head + `<div class="tiles">${S.driveOrder.map(id => T[id]()).join('')}</div>`;
+  return head + KINDS.map(([k, name]) => { const ids = S.driveOrder.filter(id => KIND[id] === k);
+    return ids.length ? `<div class="sub2">${name}</div><div class="tiles">${ids.map(id => T[id]()).join('')}</div>` : ''; }).join('');
+}
+
+// ── holding a drive and dragging it (edit state only) ─────────────────────────────────
+// Hold 350 ms without moving more than 8 px, then the tile lifts and follows the finger. Passing over
+// another drive (of the same kind, when grouped) moves it there; the others slide 180 ms ease-out.
+let drag = null;
+const HOLD_MS = 350, SLOP = 8;
+function tileDown(e, id) {
+  if (S.view !== 'edit' || e.target.closest('.teye')) return;
+  const sx = e.clientX, sy = e.clientY;
+  const early = ev => { if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > SLOP) stop(); };
+  const stop = () => { clearTimeout(timer); window.removeEventListener('pointerup', stop); window.removeEventListener('pointermove', early); };
+  const timer = setTimeout(() => { stop(); liftTile(id, sx, sy); }, HOLD_MS);
+  window.addEventListener('pointerup', stop); window.addEventListener('pointermove', early);
+}
+function tileEl(id) { return document.querySelector(`.tile[data-id="${id}"]`); }
+function liftTile(id, x, y) {
+  touched();
+  const r = tileEl(id).getBoundingClientRect();
+  drag = { id, gx: x - r.left, gy: y - r.top, x, y };
+  render(true); follow();
+  const move = ev => { drag.x = ev.clientX; drag.y = ev.clientY; follow(); passOver(); };
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+    const held = tileEl(drag.id); drag = null; if (held) { held.style.transition = 'transform .18s ease-out'; held.style.transform = ''; }
+    setTimeout(() => render(true), 190); };
+  window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+}
+function follow() { const el = tileEl(drag.id); if (!el) return; el.style.transition = 'none'; el.style.transform = '';
+  const r = el.getBoundingClientRect(); el.style.transform = `translate(${drag.x - drag.gx - r.left}px, ${drag.y - drag.gy - r.top}px)`; }
+function passOver() {
+  const under = document.elementsFromPoint(drag.x, drag.y).map(n => n.closest && n.closest('.tile')).find(t => t && t.dataset.id !== drag.id);
+  if (!under) return;
+  const to = under.dataset.id;
+  if (S.storageLayout === 'grouped' && KIND[to] !== KIND[drag.id]) return;
+  const o = S.driveOrder.filter(x => x !== drag.id), at = o.indexOf(to), from = S.driveOrder.indexOf(drag.id);
+  o.splice(from <= S.driveOrder.indexOf(to) ? at + 1 : at, 0, drag.id);
+  slide(() => { S.driveOrder = o; render(true); }); follow();
+}
+// FLIP: note where every other tile was, re-draw, then let each one travel from there to its new place.
+function slide(change) {
+  const before = {}; document.querySelectorAll('.tile').forEach(t => before[t.dataset.id] = t.getBoundingClientRect());
+  change();
+  document.querySelectorAll('.tile').forEach(t => { const b = before[t.dataset.id]; if (!b || (drag && t.dataset.id === drag.id)) return;
+    const a = t.getBoundingClientRect(); t.style.transition = 'none'; t.style.transform = `translate(${b.left - a.left}px, ${b.top - a.top}px)`;
+    requestAnimationFrame(() => { t.style.transition = 'transform .18s ease-out'; t.style.transform = ''; }); });
+}
+function moveDriveDemo() { S.view = 'edit'; touched(); S.opts = null; render();
+  setTimeout(() => { const c = document.getElementById('c-storage'); if (c) c.scrollIntoView({block:'start'}); }, 20);
+  setTimeout(() => slide(() => { const o = S.driveOrder.filter(x => x !== 'gd'); o.splice(0, 0, 'gd'); S.driveOrder = o; render(true); }), 400); }
+function catsBody() {
+  const all = [['images','image','Photos'],['videos','video','Videos'],['audio','audio','Audio'],['apps','apk','Packages'],['documents','doc','Documents'],['archives','zip','Archives']];
+  const shown = all.filter(([id]) => S.cats[id]);
+  return `<div class="group"><div class="gh"><span class="gt">Categories</span>${svg('chev')}</div><div class="cats">${shown.map(([,ic,l]) => `<div class="cat">${svg(ic)}${l}</div>`).join('')}</div></div>`;
+}
+function feedBody(kind) {
+  const n = kind === 'arrived' ? S.arrivedCount : S.openedCount;
+  const d = S.density / 100, h = Math.round(52 - 16*d), icon = Math.round(34 - 10*d);
+  const rows = kind === 'arrived'
+    ? [['IMG_20261112_221340.jpg','Camera · 9 min ago'],['invoice-november.pdf','Download · 1 h ago'],['Movies 2026.mkv','Studio PC · 3 h ago'],['notes.md','Termux · 5 h ago'],['beat.flac','Telegram · yesterday'],['Screenshot_0113.png','Screenshots · yesterday'],['setup.apk','Download · 2 days ago'],['scan-04.jpg','Documents · 2 days ago'],['a.zip','Download · 3 days ago'],['b.mp4','Camera · 3 days ago'],['c.pdf','Download · 4 days ago'],['d.txt','Termux · 5 days ago']]
+    : [['Filet test','Google Drive · just now'],['draft.txt','Termux · 12 min ago'],['Movies 2026.mkv','Studio PC · 3 h ago'],['DCIM','Internal · yesterday'],['report.docx','Documents · yesterday'],['track01.mp3','Music · 2 days ago'],['x.pdf','Download · 3 days ago'],['y.png','Pictures · 3 days ago'],['z.mp4','Movies · 4 days ago'],['w.txt','Notes · 5 days ago'],['v.zip','Download · 6 days ago'],['u.jpg','Camera · 6 days ago']];
+  return `<div class="group"><div class="gh"><span class="gt">${NAMES[kind]}</span>${svg('chev')}</div>
+    ${rows.slice(0, n).map(([a,b]) => `<div class="frow" style="height:${h}px"><div class="fi" style="width:${icon}px;height:${icon}px"></div><div style="min-width:0"><div class="fn">${a}</div><div class="fm">${b}</div></div></div>`).join('')}
+    <div class="full">${svg(kind==='arrived'?'download':'clock')}Full list</div></div>`;
+}
+function cacheBody() { return `<div class="cache">${svg('warn')}<span>Filet's cache is 2.4 GB. <span style="color:var(--accent)">Clear it</span></span></div>`; }
+const BODY = { storage:storageBody, categories:catsBody, arrived:()=>feedBody('arrived'), opened:()=>feedBody('opened'), cache:cacheBody };
+
+// ── each card's options ─────────────────────────────────────────────────────────
+const seg = (key, choices, cur) => `<span class="seg">${choices.map(([v,l]) => `<span class="${v===cur?'on':''}" onclick="setOpt('${key}','${v}')">${l}</span>`).join('')}</span>`;
+function opts(id) {
+  if (id === 'storage') return `<div class="eopts">
+    <div class="orow"><span class="ol">Layout</span>${seg('storageLayout',[['flow','One row'],['grouped','Grouped by kind']],S.storageLayout)}</div>
+    <div class="orow"><span class="ol">Folders from one app</span>${seg('perApp',[['each','A card each'],['app','One per app']],S.perApp)}</div>
+    <div class="orow"><span class="ol">Capacity bars</span>${seg('bars',[['true','Show'],['false','Hide']],String(S.bars))}</div>
+    <div class="hint">Hold a drive and drag it to move it. The eye on a drive takes just that drive off Home.</div></div>`;
+  if (id === 'arrived' || id === 'opened') { const k = id === 'arrived' ? 'arrivedCount' : 'openedCount';
+    return `<div class="eopts">
+    <div class="orow"><span class="ol">Show</span>${seg(k,[[3,'3'],[5,'5'],[8,'8'],[12,'12']].map(([v,l])=>[String(v),l]),String(S[k]))}</div>
+    <div class="orow"><span class="ol">Density</span><span class="slider"><input type="range" min="0" max="100" value="${S.density}" oninput="S.density=+this.value;render(true)"><span class="ends"><span>Comfortable</span><span>Compact</span></span></span></div>
+    <div class="orow"><span class="ol">Both feeds</span>${seg('linked',[['true','Same density'],['false','Each its own']],String(S.linked))}</div></div>`; }
+  if (id === 'categories') { const all = [['images','Photos'],['videos','Videos'],['audio','Audio'],['apps','Packages'],['documents','Documents'],['archives','Archives']];
+    return `<div class="eopts">
+    <div class="orow" style="align-items:flex-start"><span class="ol">Shown</span><span class="seg">${all.map(([id,l]) => `<span class="${S.cats[id]?'on':''}" onclick="S.cats.${id}=!S.cats.${id};render(true)">${l}</span>`).join('')}</span></div>
+    <div class="orow"><span class="ol">Opens as</span><span class="seg">${[['images','Photos'],['videos','Videos'],['audio','Audio']].map(([id,l]) => `<span class="${S.gallery[id]?'on':''}" onclick="S.gallery.${id}=!S.gallery.${id};render(true)">${l}: ${S.gallery[id]?'gallery':'list'}</span>`).join('')}</span></div></div>`; }
+  return `<div class="eopts"><div class="hint">This card has nothing to set.</div></div>`;
+}
+function setOpt(k, v) { S[k] = v === 'true' ? true : v === 'false' ? false : (/^\d+$/.test(v) ? +v : v); render(true); }
+
+// ── the two states ─────────────────────────────────────────────────────────────
+function render(keepScroll) {
+  const sc = document.getElementById('scroll'), top = sc.scrollTop;
+  const head = document.getElementById('head');
+  if (S.view === 'edit') {
+    head.innerHTML = `<div class="ehead">${svg('edit')}<span class="t">Editing Home</span><span class="reset" onclick="reset()">Reset</span><span class="done" onclick="S.view='home';render()">Done</span></div>`;
+  } else if (S.view === 'home') {
+    head.innerHTML = `<div class="phead"><span class="t">Home</span><span class="hbtn">${svg('search')}</span></div>`;
+  } else {
+    head.innerHTML = `<div class="phead"><span class="t">Home</span><span class="hbtn">${svg('search')}</span></div>`;
+  }
+  let h = '';
+  if (S.view === 'today') {
+    h += `<div style="margin:4px 10px;border-radius:12px;background:var(--sunken);border:1px solid var(--lineSoft);overflow:hidden">
+      <div style="display:flex;align-items:center;padding:6px 6px 2px 13px"><span style="flex:1;font-size:12.5px;font-weight:500">Rearrange</span><span style="color:var(--accent);font-size:12.5px;font-weight:500;padding:8px 10px">Done</span></div>`;
+    for (const id of DEFAULT_ORDER) {
+      h += `<div style="height:48px;display:flex;align-items:center;padding:0 4px"><span style="width:40px;display:grid;place-items:center;color:var(--fg3)">${svg('menu','').replace('<svg','<svg style="width:18px;height:18px"')}</span><span style="flex:1;font-size:13px;margin-left:4px">${NAMES[id]}</span><span style="width:40px;display:grid;place-items:center;color:var(--fg2)">${svg('eye').replace('<svg','<svg style="width:18px;height:18px"')}</span></div>`;
+      if (id === 'arrived' || id === 'opened') h += `<div style="padding:0 14px 10px 48px;font-size:11px;color:var(--fg3)">Show 3 · 5 · 8 · 12 &nbsp; Density ——●—— &nbsp; [two-row preview]</div>`;
+    }
+    h += `<div style="height:6px"></div></div><div class="saved">Every card is gone from the screen while this list is up.</div>`;
+  } else if (S.view === 'home') {
+    for (const id of S.order) if (!S.hidden.includes(id)) h += BODY[id]();
+  } else {
+    if (!S.touched) h += `<div class="coach">Everything here is live. <b>Drag</b> a card by its handle, tap <b>Options</b> to change it, or the <b>eye</b> to hide it.</div>`;
+    S.order.filter(id => !S.hidden.includes(id)).forEach((id, i, arr) => {
+      const open = S.opts === id;
+      h += `<div class="ecard ${S.lift===id?'lift':''}" id="c-${id}">
+        <div class="estrip"><span class="hdl" title="Drag to move">${svg('menu')}</span><span class="nm">${NAMES[id]}</span>
+          <span class="ebtn ${open?'on':''}" onclick="openOpts('${id}')">${svg('tune')}Options</span>
+          <span class="ebtn arrow" onclick="move('${id}',-1)" style="${i===0?'opacity:.3':''}">${svg('up')}</span>
+          <span class="ebtn arrow" onclick="move('${id}',1)" style="${i===arr.length-1?'opacity:.3':''}">${svg('down')}</span>
+          <span class="ebtn" onclick="hideCard('${id}')" title="Hide">${svg('eye')}</span></div>
+        ${open ? opts(id) : ''}<div class="body">${BODY[id]()}</div></div>`;
+    });
+    if (S.hidden.length) h += `<div class="tray"><div class="tl">Hidden</div>${S.hidden.map(id => `<div class="ghost">${svg('eyeoff').replace('<svg','<svg style="width:15px;height:15px"')}<span class="gn">${NAMES[id]}</span><span class="show" onclick="showCard('${id}')">Show</span></div>`).join('')}</div>`;
+    h += `<div class="saved">Saved as you go, with your other settings. Export and Import carry it.</div>`;
+  }
+  sc.innerHTML = h;
+  if (keepScroll) sc.scrollTop = top;
+  for (const b of document.querySelectorAll('#views button')) b.classList.toggle('on', b.dataset.v === S.view);
+}
+function touched() { S.touched = true; }
+function openOpts(id) { S.view='edit'; touched(); S.opts = S.opts === id ? null : id; render(true);
+  setTimeout(() => { const c = document.getElementById('c-'+id); if (c) c.scrollIntoView({block:'start', behavior:'smooth'}); }, 30); }
+function move(id, by) { touched(); const i = S.order.indexOf(id), j = i + by; if (j < 0 || j >= S.order.length) return;
+  [S.order[i], S.order[j]] = [S.order[j], S.order[i]]; S.lift = id; render(true); setTimeout(() => { S.lift = null; render(true); }, 260); }
+function hideCard(id) { S.view='edit'; touched(); if (!S.hidden.includes(id)) S.hidden.push(id); if (S.opts===id) S.opts=null; render(true); }
+function showCard(id) { S.hidden = S.hidden.filter(x => x !== id); render(true); }
+function toggleDrive(id) { S.view='edit'; touched(); S.offDrives = S.offDrives.includes(id) ? S.offDrives.filter(x=>x!==id) : [...S.offDrives, id]; render(true); }
+function liftDemo() { S.view='edit'; touched(); S.opts=null; render(); move('arrived', -1); }
+function reset() { Object.assign(S, { order:[...DEFAULT_ORDER], hidden:[], opts:null, storageLayout:'flow', perApp:'each', bars:true, offDrives:[], driveOrder:['int','sd','net','tx','gd'], arrivedCount:5, openedCount:5, density:40, linked:true,
+  cats:{images:true,videos:true,audio:true,apps:true,documents:true,archives:true}, gallery:{images:true,videos:false,audio:false} }); render(); }
+// Round 4: a hold on empty space below the cards is the way in.
+(() => { let t = null; const sc = document.getElementById('scroll');
+  sc.addEventListener('pointerdown', e => { if (S.view !== 'home' || e.target !== sc) return; t = setTimeout(() => { S.view = 'edit'; render(); }, 450); });
+  for (const k of ['pointerup','pointerleave','pointercancel']) sc.addEventListener(k, () => clearTimeout(t)); })();
+document.getElementById('views').onclick = e => { if (e.target.dataset.v) { S.view = e.target.dataset.v; S.opts = null; render(); } };
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,1199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet · Cards and messages · round 3</title>
+<style>
+:root {
+  --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --accentDim:#31434B; --onAccent:#0E1417; --sel:#243036; --bad:#C97F7F;
+}
+body.light {
+  --bg:#F5F4F0; --surface:#FFFFFF; --raised:#FAF9F6; --sunken:#EBE9E3; --high:#E4E1DA;
+  --line:#DDDAD2; --lineSoft:#E9E6DF; --fg:#22211E; --fg2:#615D55; --fg3:#8B867C;
+  --accent:#3E6E82; --accentDim:#CBDDE4; --onAccent:#FFFFFF; --sel:#E3EDF1; --bad:#9B4A4A;
+}
+* { box-sizing:border-box; }
+html { background:#0D0D0C; }
+body { margin:0; font:14px/1.45 Roboto, "Segoe UI", system-ui, sans-serif; color:#D9D6CF; background:#0D0D0C; }
+.page { max-width:1260px; margin:0 auto; padding:26px 22px 60px; }
+h1 { font-size:20px; margin:0 0 4px; color:#EDEAE3; font-weight:600; }
+.lead { color:#9A968D; max-width:940px; margin:0 0 16px; }
+.lead b, .sub b { color:#C9C5BC; font-weight:500; }
+h2 { font-size:15px; margin:38px 0 4px; color:#EDEAE3; font-weight:600; }
+.sub { color:#9A968D; max-width:940px; margin:0 0 14px; font-size:13px; }
+.controls { display:flex; flex-wrap:wrap; gap:12px 22px; padding:12px 14px; background:#1A1A18; border:1px solid #2A2A26; border-radius:12px; position:sticky; top:8px; z-index:30; }
+.ctl { display:flex; align-items:center; gap:8px; font-size:12.5px; color:#9A968D; }
+.cseg { display:inline-flex; border:1px solid #34342F; border-radius:8px; overflow:hidden; }
+.cseg button { background:transparent; color:#B7B3AA; border:0; padding:5px 10px; font:inherit; cursor:pointer; }
+.cseg button + button { border-left:1px solid #34342F; }
+.cseg button.on { background:#2F4550; color:#E8F2F6; }
+.pair { display:flex; flex-wrap:wrap; gap:26px; align-items:flex-start; }
+.col { display:flex; flex-direction:column; gap:8px; }
+.tag { font-size:11px; letter-spacing:1.2px; text-transform:uppercase; color:#8B867C; }
+.tag b { color:#C9C5BC; }
+.tag .now { color:#9FC6D4; letter-spacing:.4px; text-transform:none; margin-left:6px; }
+.ask { margin:10px 0 0; padding:10px 14px; border-left:3px solid #7FA8B8; background:#151a1c; border-radius:6px; color:#C9D7DC; font-size:13px; max-width:940px; }
+.ask b { color:#E8F2F6; font-weight:500; }
+.ask.done { border-left-color:#7FB894; background:#141a16; color:#B9CDBE; }
+.dec { display:inline-block; margin-left:8px; font-size:11px; color:#9FD3AE; border:1px solid #3E6A4B; border-radius:6px; padding:0 6px; }
+.lockv { color:#E3DFD7; }
+.rules { max-width:940px; color:#B7B3AA; font-size:13px; padding-left:18px; }
+.rules li { margin:5px 0; }
+.rules b { color:#E3DFD7; font-weight:500; }
+textarea { width:100%; max-width:940px; height:110px; background:#151514; color:#E8E6E1; border:1px solid #2E2E2A; border-radius:10px; padding:10px; font:13px/1.45 inherit; }
+.changes div { margin:6px 0; color:#B7B3AA; font-size:13px; max-width:940px; }
+.runs { display:flex; flex-wrap:wrap; gap:8px; max-width:360px; }
+.runs button { background:#1E2629; color:#D6E4EA; border:1px solid #34505E; border-radius:8px; padding:6px 10px; font:inherit; font-size:12px; cursor:pointer; }
+.runs button.bad { border-color:#6E3D3D; background:#2A1C1C; color:#F0D2D2; }
+.runs .lbl { width:100%; font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#8B867C; margin-top:6px; }
+code, pre { font-family:ui-monospace, Consolas, monospace; }
+pre { background:#121211; border:1px solid #2A2A26; border-radius:10px; padding:12px 14px; color:#C9C5BC; font-size:12px; line-height:1.5; max-width:940px; overflow-x:auto; }
+pre .c { color:#7D7A72; }
+table.reg { border-collapse:collapse; font-size:12.5px; max-width:1100px; }
+table.reg th { text-align:left; font-weight:500; color:#8B867C; font-size:11px; letter-spacing:.8px; text-transform:uppercase; padding:6px 12px 6px 0; border-bottom:1px solid #2A2A26; }
+table.reg td { padding:6px 12px 6px 0; border-bottom:1px solid #1E1E1C; color:#C9C5BC; vertical-align:middle; }
+table.reg td.k { font-family:ui-monospace, Consolas, monospace; color:#9FC6D4; }
+table.reg td.no { color:#6B6860; }
+table.reg tr.g td { color:#EDEAE3; font-weight:500; padding-top:12px; border-bottom:0; }
+
+/* ── the phone ── */
+.phone { width:360px; border-radius:30px; border:9px solid #050505; background:var(--bg); color:var(--fg);
+  display:flex; flex-direction:column; overflow:hidden; box-shadow:0 18px 50px #0008; position:relative; }
+.phone.tall { height:760px; }
+.phone.small { width:262px; height:470px; border-radius:22px; border-width:7px; }
+.phone.now { box-shadow:0 0 0 2px #7FA8B8, 0 18px 50px #0008; }
+.status { height:24px; flex:none; display:flex; align-items:center; justify-content:space-between; padding:0 16px; font-size:11px; color:var(--fg2); }
+.head { flex:none; height:44px; display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:1px solid var(--lineSoft); }
+.head .t { font-size:15px; font-weight:500; flex:1; }
+.scroll { flex:1; overflow-y:auto; overflow-x:hidden; scrollbar-width:thin; position:relative; }
+
+/* settings, as SettingsPage draws it */
+.groups { display:flex; gap:6px; padding:8px 12px 4px; overflow:hidden; }
+.groups span { font-size:12px; padding:7px 13px; border-radius:999px; background:var(--sunken); color:var(--fg2); white-space:nowrap; flex:none; }
+.groups span.on { background:var(--accent); color:var(--onAccent); font-weight:600; }
+.groups span.newroom { outline:1.5px dashed var(--accent); outline-offset:-1.5px; }
+.divider { height:1px; background:var(--lineSoft); }
+.hintline { font-size:11px; color:var(--fg3); background:var(--sunken); padding:7px 14px; }
+.sec { padding-top:20px; }
+.sec.first { padding-top:8px; }
+.sec .t { font-size:13.5px; font-weight:600; color:var(--fg2); padding:0 14px 9px; display:flex; align-items:center; gap:8px; }
+.sec .t .moved { font-size:10px; font-weight:400; color:var(--accent); }
+.sec .divider { margin-bottom:4px; }
+.segrow { padding:6px 14px; }
+.segrow .l { font-size:12px; color:var(--fg2); display:flex; align-items:center; gap:4px; }
+.segrow .chips { margin-top:5px; display:flex; width:max-content; max-width:100%; flex-wrap:wrap; border:1px solid var(--lineSoft); border-radius:8px; overflow:hidden; }
+.segrow .chips span { font-size:11.5px; padding:6px 12px; color:var(--fg2); white-space:nowrap; cursor:pointer; }
+.segrow .chips span.on { background:var(--accent); color:var(--onAccent); }
+.info { width:13px; height:13px; border-radius:50%; border:1px solid var(--fg3); color:var(--fg3); font-size:9px; line-height:11px; text-align:center; font-style:normal; cursor:help; flex:none; }
+.stub { margin:6px 14px; padding:16px 12px; border:1px dashed var(--line); border-radius:10px; font-size:11px; color:var(--fg3); text-align:center; }
+.filerow { display:flex; align-items:center; padding:6px 16px; }
+.filerow .tx { flex:1; }
+.filerow .a { font-size:13px; display:flex; align-items:center; gap:4px; }
+.filerow .b { font-size:10.5px; color:var(--fg3); }
+.smallbtn { font-size:11.5px; color:var(--fg); background:var(--high); border:1px solid var(--lineSoft); border-radius:7px; padding:6px 11px; cursor:pointer; display:inline-block; }
+.btnrow { padding:6px 14px 4px; display:flex; gap:8px; }
+.note10 { font-size:10.5px; color:var(--fg3); padding:0 14px 6px; line-height:14px; }
+.newblock { background:color-mix(in srgb, var(--accent) 6%, transparent); }
+
+/* the switch rows: a group, its actions, two columns */
+.colhead { display:flex; justify-content:flex-end; gap:6px; padding:2px 14px 0; }
+.colhead span { width:42px; text-align:center; font-size:10px; color:var(--fg3); letter-spacing:.3px; }
+.grow { display:flex; align-items:center; padding:9px 14px; cursor:pointer; }
+.grow .caret { width:14px; color:var(--fg3); font-size:10px; flex:none; transition:transform .15s; }
+.grow.open .caret { transform:rotate(90deg); }
+.grow .tx { flex:1; min-width:0; }
+.grow .a { font-size:13px; display:flex; align-items:center; gap:4px; }
+.grow .b { font-size:10.5px; color:var(--fg3); line-height:14px; }
+.arow { display:flex; align-items:center; padding:7px 14px 7px 44px; }
+.arow .tx { flex:1; min-width:0; font-size:12.5px; color:var(--fg2); display:flex; align-items:center; gap:8px; }
+.arow .tx svg { flex:none; }
+.sw { width:42px; height:26px; display:grid; place-items:center; flex:none; cursor:pointer; }
+.sw + .sw, .sw + .dash, .dash + .sw { margin-left:6px; }
+.sw i { width:41.6px; height:25.6px; border-radius:13px; background:var(--high); border:1.6px solid var(--line); position:relative; display:block; }
+.sw i::after { content:""; position:absolute; top:50%; left:5px; width:12.8px; height:12.8px; margin-top:-6.4px; border-radius:50%; background:var(--fg3); transition:left .12s, width .12s, height .12s; }
+.sw.on i { background:var(--accent); border-color:var(--accent); }
+.sw.on i::after { left:19px; width:19.2px; height:19.2px; margin-top:-9.6px; background:var(--onAccent); }
+.sw.some i { background:color-mix(in srgb, var(--accent) 45%, var(--high)); border-color:color-mix(in srgb, var(--accent) 45%, var(--high)); }
+.dash { width:42px; text-align:center; color:var(--fg3); font-size:12px; flex:none; }
+
+/* the browser behind the cards */
+.strip { display:flex; background:var(--surface); padding:2px 4px; border-bottom:1px solid var(--lineSoft); overflow:hidden; flex:none; }
+.chip { display:flex; align-items:center; padding:5px 8px; margin:3px 2px; border-radius:7px; flex:none; }
+.chip.on { background:var(--bg); }
+.chip .tl { font-size:11.5px; color:var(--fg2); margin-left:5px; white-space:nowrap; }
+.chip.on .tl { color:var(--fg); }
+.crumb { font-size:11px; color:var(--fg3); padding:8px 14px 4px; }
+.lrow { display:flex; align-items:center; padding:0 12px; height:46px; gap:10px; }
+.lrow .ic { width:24px; height:24px; flex:none; }
+.lrow .nm { flex:1; min-width:0; }
+.lrow .nm .a { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.lrow .nm .b { font-size:11px; color:var(--fg3); }
+.lrow .sd { font-size:11px; color:var(--fg2); }
+.nav { flex:none; background:var(--raised); padding:4px 0; display:flex; border-top:1px solid var(--lineSoft); height:50px; }
+.nav .ni { display:flex; flex-direction:column; align-items:center; padding:4px 0; flex:1 1 0; min-width:0; }
+.nav .ni .c { font-size:9.5px; color:var(--fg3); white-space:nowrap; margin-top:1px; }
+.nav .ni.on .c { color:var(--accent); }
+
+/* the started cards, as StartedCard draws them */
+.cards { position:absolute; z-index:5; display:flex; flex-direction:column; gap:6px; pointer-events:none; }
+.cards.TR { top:34px; right:10px; align-items:flex-end; }
+.cards.TL { top:34px; left:10px; align-items:flex-start; }
+.cards.BR { bottom:110px; right:10px; align-items:flex-end; flex-direction:column-reverse; }
+.cards.BL { bottom:110px; left:10px; align-items:flex-start; flex-direction:column-reverse; }
+.small .cards.BR, .small .cards.BL { bottom:104px; }
+.card { pointer-events:auto; position:relative; display:flex; align-items:center; gap:10px; max-width:280px; padding:8px 4px 8px 10px;
+  background:var(--high); border:1px solid var(--lineSoft); border-radius:10px; overflow:hidden; box-shadow:0 5px 14px #0007; cursor:pointer; }
+body.light .card { box-shadow:0 5px 14px #0003; }
+.card .cic { width:26px; height:26px; border-radius:8px; background:var(--accentDim); display:grid; place-items:center; flex:none; }
+.card .ctx { max-width:190px; min-width:0; }
+.card .w1 { font-size:12px; color:var(--fg2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.card .w2 { font-size:11.5px; color:var(--accent); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.card .cx { width:30px; height:30px; border-radius:50%; display:grid; place-items:center; flex:none; }
+.card .hair { position:absolute; left:0; bottom:0; height:2px; width:100%; background:color-mix(in srgb, var(--accent) 55%, transparent); }
+.card.live .hair { animation:hair var(--life) linear forwards; }
+@keyframes hair { from { width:100%; } to { width:0; } }
+.R .card.live { animation:inR .18s cubic-bezier(0,0,.58,1) both; }
+.L .card.live { animation:inL .18s cubic-bezier(0,0,.58,1) both; }
+.R .card.out { animation:outR .16s cubic-bezier(.42,0,1,1) both; }
+.L .card.out { animation:outL .16s cubic-bezier(.42,0,1,1) both; }
+@keyframes inR { from { transform:translateX(110%); opacity:0; } to { transform:none; opacity:1; } }
+@keyframes inL { from { transform:translateX(-110%); opacity:0; } to { transform:none; opacity:1; } }
+@keyframes outR { from { transform:none; opacity:1; } to { transform:translateX(110%); opacity:0; } }
+@keyframes outL { from { transform:none; opacity:1; } to { transform:translateX(-110%); opacity:0; } }
+.small .card { transform-origin:right top; }
+
+/* the finished message, as Toast draws it */
+.toast { position:absolute; left:0; right:0; bottom:70px; display:flex; justify-content:center; z-index:6; pointer-events:none; }
+.toast span { font-size:12px; color:var(--bg); background:var(--fg); border-radius:20px; padding:7px 14px; max-width:85%; text-align:center; animation:tIn .15s ease-out; }
+@keyframes tIn { from { opacity:0; } to { opacity:1; } }
+.svgdefs { position:absolute; width:0; height:0; }
+#pop { display:none; position:fixed; z-index:50; max-width:280px; background:#24241F; color:#E8E6E1; border:1px solid #3A3A34; border-radius:10px; padding:9px 11px; font-size:12px; box-shadow:0 10px 30px #0009; }
+</style>
+</head>
+<body>
+<div id="pop"></div>
+<svg class="svgdefs" aria-hidden="true"><defs id="sharedDefs"></defs><defs id="tabDefs"></defs><defs id="toneDefs"></defs></svg>
+<div class="page">
+  <h1>Cards and messages · round 3</h1>
+  <p class="lead">Filet tells you about work twice: a <b>started card</b> top right the moment a job begins (StartedCards.kt), and a <b>finished message</b> at the bottom when it ends (the Toast in BrowserScreen). This is the page that lets you choose both, <b>per group</b> (copy and move, archives, delete, network…) with <b>each action's own switch</b> under it, plus how long a card stays, where it sits and how many stack. Not the system notifications: those stay in Android's settings. Everything here works; <b>every name is a proposal</b> waiting on your OK.</p>
+
+  <div class="controls">
+    <div class="ctl">Theme <span class="cseg" data-k="theme"><button data-v="dark">Dark</button><button data-v="light">Light</button></span></div>
+    <div class="ctl">A failed job's message <span class="lockv">Always shows</span><span class="dec">decided, 2026-11-14</span></div>
+    <div class="ctl"><span class="cseg"><button id="reset">Reset the demo</button></span></div>
+  </div>
+
+  <h2>1 · Settings: today beside the new page</h2>
+  <p class="sub">Today, the only setting about this is <b>Keep finished jobs</b>, in Storage › Activity. Decided: a new <b>Activity</b> room, after Storage. <b>Keep finished jobs</b> comes first, moved in from Storage, then the switches, then the three card settings (the order is decided too). Tap a group to open it, flip any switch, then <b>Show a sample card</b>: it lands on this phone, where you set it. Every switch also drives the phone in section 2.</p>
+  <div class="pair">
+    <div class="col"><div class="tag"><b>Today</b> · Settings › Storage</div><div class="phone tall" id="setToday"></div></div>
+    <div class="col"><div class="tag"><b>Proposed</b> · Settings › Activity</div><div class="phone tall R" id="setNew"></div></div>
+  </div>
+
+  <h2>2 · Try it: start some work</h2>
+  <p class="sub">Each button starts a pretend job with the words the real job would use. The card follows your Starts switch and the three card settings, and the message follows the Ends switch. A tap on a card would open Activity at that job, so it closes the card here. Start several at once to see the stack, and one more than it holds to see the oldest pushed out early.</p>
+  <div class="pair">
+    <div class="phone tall R" id="demo"></div>
+    <div class="runs" id="runs"></div>
+  </div>
+
+  <h2>3 · Where a card can sit</h2>
+  <p class="sub">The four places, each with two cards and a finished message. At the top, cards hang under the status bar as they do today, newest at the top. At the bottom, they stack <b>upward from just above the finished message</b>, newest at the bottom, so a card never covers the message or the bar. Cards slide in from their own side. The current choice is ringed.</p>
+  <div class="pair" id="corners"></div>
+
+  <h2>4 · The one list every switch comes from</h2>
+  <p class="sub">The page is built from <code>JobKind</code>, the list that already gives every job its Activity icon. Each kind gets its group, its name and whether it posts a finished message in one exhaustive <code>when</code>, so a new kind doesn't compile until it has a place here, and the page draws one row per kind. The setting keeps only what you turned <b>off</b>, so a new kind arrives switched on, like everything today.</p>
+  <table class="reg" id="reg"></table>
+  <pre id="code"></pre>
+
+  <h2>Rules the build must keep</h2>
+  <ul class="rules">
+    <li><b>One list.</b> Groups, rows and switches are drawn from <code>JobKind.entries</code>, never typed out. A test walks every kind and checks it has a group, a name, and a row on the page. A group with one action shows as one row with no caret.</li>
+    <li><b>Off is what's stored.</b> One key, <code>notices.v1</code>, holds the kinds whose card or message you turned off, plus the three card settings. Unknown names in it are skipped, so a file from a newer Filet still loads. It travels with Export like the other look-and-feel settings.</li>
+    <li><b>A switch only where there's something to switch.</b> A kind that posts no finished message today shows a dash in Ends, not a switch that does nothing.</li>
+    <li><b>Activity still lists everything.</b> These switches only decide what pops up. Every job is still a row in Activity, and Keep finished jobs works as it does now.</li>
+    <li><b>A refusal still gets its dialogue.</b> When Android or a server refuses (the Denial dialogue), that is not a finished message and none of these switches hide it.</li>
+    <li><b>The stack holds what you chose.</b> One more card than "Stacks up to" pushes the oldest out early, as the fourth does today. A card still leaves on its own timer, even with system animations off.</li>
+    <li><b>Messages that aren't about a job are untouched:</b> "Path copied", "Renamed", "Select something first", every one of those keeps showing.</li>
+    <li><b>A failure always shows.</b> A failed job's message ignores its Ends switch. A switch that stops "3 copied" never hides that nothing was copied.</li>
+    <li><b>Stays for is the cards' only.</b> The finished message keeps its 1.9 s.</li>
+    <li><b>Default:</b> everything on, 3 s, top right, 3 at once. That's today's app.</li>
+  </ul>
+
+  <h2>Questions</h2>
+  <div class="ask done"><b>1. Where it lives.</b> A new <b>Activity</b> room in Settings, after Storage, with Keep finished jobs moved into it.<span class="dec">decided, 2026-11-14</span></div>
+  <div class="ask done"><b>2. A failed job.</b> Its message ("IMG_2040.jpg: No space left") always shows, even with that action's Ends switched off.<span class="dec">decided, 2026-11-14</span></div>
+  <div class="ask done"><b>3. Kinds with no finished message today.</b> Indexing, Folder sizes, Beat maps, Fetches from a remote, Downloads from other apps and Everything else stay card-only, with a dash under Ends.<span class="dec">decided, 2026-11-14</span></div>
+  <div class="ask done"><b>4. Stays for.</b> It sets the started cards only. The finished message keeps its 1.9 s.<span class="dec">decided, 2026-11-14</span></div>
+  <div class="ask done"><b>5. Names</b> (all decided<span class="dec">decided, 2026-11-14</span>): the room <b>Activity</b>; the section <b>Cards and messages</b> with columns <b>Starts</b> and <b>Ends</b>; the groups <b>Copy and move · Archives · Delete · Network · Saving · Background work · Tools · Everything else</b>; the action names in section 4; the card section <b>Started cards</b> with <b>Stays for · Sits at · Stacks up to</b>. One change: on the page, the Activity section comes first and the cards after it.</div>
+
+  <h2>Your notes</h2>
+  <textarea id="notes" placeholder="Anything to change. Kept in this browser."></textarea>
+
+  <h2>Changes</h2>
+  <div class="changes">
+    <div><b>Round 3, 2026-11-14.</b> All the names decided. One change: the Activity section (Keep finished jobs) is first on the page, then Cards and messages, then Started cards. Every question is answered now.</div>
+    <div><b>Round 2, 2026-11-14.</b> Your four answers locked in and marked: the Activity room after Storage with Keep finished jobs moved in; a failure's message always shows (the bar toggle is gone); the six silent kinds stay card-only; Stays for sets the cards only. Still open: every name.</div>
+    <div><b>Round 1, 2026-11-14.</b> First draft: per-group and per-action switches for the started cards and the finished messages, the three card settings, a card in each place, the one list they all come from.</div>
+  </div>
+</div>
+
+<script>
+// ── colours ──────────────────────────────────────────────────────────────
+// The tab icons' accents, plus Filet's own blue for a folder with no colour chosen.
+const ACC = {
+  steel:  ['#4E7382', '#385663', '#22343C'],
+  amber:  ['#F5D68A', '#E0B25C', '#A97A2E'],
+  green:  ['#B4E39B', '#7FC46A', '#4E8F3E'],
+  gold:   ['#FBE28C', '#E8C15A', '#B08A28'],
+  coral:  ['#F7B49C', '#E58A6A', '#B05E42'],
+  mint:   ['#9BEBD8', '#5FCDB5', '#2F8F7C'],
+  rose:   ['#F6A6BC', '#E0708F', '#A84463'],
+  lime:   ['#D6EE8E', '#B0D65E', '#7A9F2E'],
+  orange: ['#FAC48A', '#F0A050', '#B86E25'],
+  red:    ['#F59A8C', '#E06A5A', '#A63F31'],
+  violet: ['#D3BCF5', '#A884E0', '#7253B0'],
+  sky:    ['#B3DDF7', '#6FB7E8', '#3F80B0'],
+  brown:  ['#E8C29A', '#CF9A5E', '#946233'],
+  indigo: ['#C0C9FA', '#8C9CF0', '#5A68BF'],
+};
+const COLOUR_NAMES = { steel: 'Filet blue', amber: 'Amber', green: 'Green', gold: 'Gold', coral: 'Coral', mint: 'Mint', rose: 'Rose', lime: 'Lime', orange: 'Orange', red: 'Red', violet: 'Violet', sky: 'Sky', brown: 'Brown', indigo: 'Indigo' };
+const mix = (hex, to, f) => {
+  const a = hex.match(/\w\w/g).map(h => parseInt(h, 16)), b = to.match(/\w\w/g).map(h => parseInt(h, 16));
+  return '#' + a.map((v, i) => Math.round(v + (b[i] - v) * f).toString(16).padStart(2, '0')).join('');
+};
+const lin = (id, stops) => `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">${stops.map(([o, c, a]) => `<stop offset="${o}" stop-color="${c}"${a != null ? ` stop-opacity="${a}"` : ''}/>`).join('')}</linearGradient>`;
+const rad = (id, stops, cx = .5, cy = .5, r = .5) => `<radialGradient id="${id}" cx="${cx}" cy="${cy}" r="${r}">${stops.map(([o, c, a]) => `<stop offset="${o}" stop-color="${c}"${a != null ? ` stop-opacity="${a}"` : ''}/>`).join('')}</radialGradient>`;
+const DEFS = [
+  lin('gSteel', [[0, '#C6DDE6'], [.3, '#93B8C6'], [.65, '#7FA8B8'], [1, '#5E8A9B']]),
+  lin('gSlate', [[0, '#6F97A7'], [.5, '#4E7382'], [1, '#385663']]),
+  lin('gDeep', [[0, '#3E5F6C'], [1, '#22343C']]),
+  lin('gSub0', [[0, '#7A9FAE'], [1, '#4F7484']]),
+  lin('gSub1', [[0, '#8FB3C1'], [1, '#628898']]),
+  lin('gSub2', [[0, '#A4C4D0'], [1, '#749BAA']]),
+  lin('gStack1', [[0, '#5A8090'], [1, '#2E4852']]),
+  lin('gStack2', [[0, '#46697A'], [1, '#243A43']]),
+  lin('gSubG0', [[0, '#E2C27A'], [1, '#B08A3A']]),
+  lin('gSubG1', [[0, '#EDD08C'], [1, '#C29A48']]),
+  lin('gSubG2', [[0, '#F6DFA2'], [1, '#D3AD58']]),
+  lin('gStackG1', [[0, '#DDBA6C'], [1, '#9E7A2E']]),
+  lin('gStackG2', [[0, '#C9A250'], [1, '#7E5F26']]),
+  lin('gSubIn', [[0, '#6E5524'], [1, '#3A2B10']]),
+  lin('gSubBack', [[0, '#C9A250'], [1, '#7E5F26']]),
+  lin('gSubFront', [[0, '#F8E3A8'], [.5, '#EDCC7E'], [1, '#D3AD58']]),
+  lin('gPaper', [[0, '#F2F7F9'], [1, '#B9D2DC']]),
+  rad('gGround', [[0, '#000', .45], [1, '#000', 0]]),
+  ...Object.entries(ACC).map(([k, [a, b, c]]) => lin('acc-' + k, [[0, a], [.5, b], [1, c]])),
+  // The whole-folder colours: the back in the mid and dark tone, the front in the light ones.
+  ...Object.entries(ACC).filter(([k]) => k !== 'steel').flatMap(([k, [a, b, c]]) => [
+    lin('bb-' + k, [[0, mix(b, '#ffffff', .1)], [.5, b], [1, c]]),
+    lin('bf-' + k, [[0, mix(a, '#ffffff', .45)], [.35, a], [.7, mix(a, b, .5)], [1, b]]),
+    lin('bi-' + k, [[0, mix(c, '#000000', .25)], [1, mix(c, '#000000', .6)]]),
+  ]),
+].join('');
+document.getElementById('sharedDefs').innerHTML = DEFS;
+
+// ── shape helpers. Everything comes out as path data, which is what VectorDrawable and
+// Compose both read, so the build copies these strings rather than redrawing anything. ──
+const n = (v) => +(+v).toFixed(2);
+const C = (cx, cy, r) => `M${n(cx - r)},${n(cy)}a${n(r)},${n(r)} 0 1 0 ${n(2 * r)},0a${n(r)},${n(r)} 0 1 0 ${n(-2 * r)},0z`;
+const EL = (cx, cy, rx, ry) => `M${n(cx - rx)},${n(cy)}a${n(rx)},${n(ry)} 0 1 0 ${n(2 * rx)},0a${n(rx)},${n(ry)} 0 1 0 ${n(-2 * rx)},0z`;
+const RR = (x, y, w, h, r) => `M${n(x + r)},${n(y)}h${n(w - 2 * r)}a${n(r)},${n(r)} 0 0 1 ${n(r)},${n(r)}v${n(h - 2 * r)}a${n(r)},${n(r)} 0 0 1 ${n(-r)},${n(r)}h${n(-(w - 2 * r))}a${n(r)},${n(r)} 0 0 1 ${n(-r)},${n(-r)}v${n(-(h - 2 * r))}a${n(r)},${n(r)} 0 0 1 ${n(r)},${n(-r)}z`;
+function star(cx, cy, ro, ri, pts = 5) {
+  let d = '';
+  for (let k = 0; k < pts * 2; k++) {
+    const r = k % 2 ? ri : ro, a = (k * 180 / pts - 90) * Math.PI / 180;
+    d += (k ? 'L' : 'M') + n(cx + r * Math.cos(a)) + ',' + n(cy + r * Math.sin(a));
+  }
+  return d + 'z';
+}
+function cog(cx, cy, ro, rr, cnt = 8) {
+  const p = (r, deg) => { const a = deg * Math.PI / 180; return `${n(cx + r * Math.cos(a))},${n(cy + r * Math.sin(a))}`; };
+  const step = 360 / cnt; let d = '';
+  for (let k = 0; k < cnt; k++) {
+    const c = k * step - 90;
+    d += (k === 0 ? `M${p(rr, c - 13)}` : '') + `L${p(ro, c - 8)}A${ro},${ro} 0 0 1 ${p(ro, c + 8)}L${p(rr, c + 13)}A${rr},${rr} 0 0 1 ${p(rr, c + step - 13)}`;
+  }
+  return d + 'z';
+}
+// A glyph is a list of parts on a 24-unit box. f: filled. s: stroked at that width.
+// e: even-odd, so shapes inside it are holes. o: opacity. tone: 'light' uses the pale stop.
+const F = (d, x = {}) => ({ d, ...x });
+const S = (d, s, x = {}) => ({ d, s, ...x });
+
+// ── emblems, for folders ─────────────────────────────────────────────────
+const EMBLEMS = [
+  // Media
+  { id: 'music', label: 'Music', group: 'Media', parts: [F('M8.6,4.8 L20,2.4 V6.6 L8.6,9z'), F(RR(8.6, 6, 2.2, 12.4, .6)), F(RR(17.8, 4, 2.2, 12.4, .6)), F(EL(6.6, 18.6, 3.6, 2.8)), F(EL(15.8, 16.4, 3.6, 2.8))] },
+  { id: 'headphones', label: 'Headphones', group: 'Media', parts: [S('M4.5,15 V12 a7.5,7.5 0 0 1 15,0 V15', 2.4), F(RR(2.6, 12.8, 5.4, 8.4, 2.2)), F(RR(16, 12.8, 5.4, 8.4, 2.2))] },
+  { id: 'mic', label: 'Microphone', group: 'Media', parts: [F(RR(8.5, 2.5, 7, 12, 3.5)), S('M5.5,11 a6.5,6.5 0 0 0 13,0', 2), S('M12,17.5 V21 M8.5,21.2 H15.5', 2)] },
+  { id: 'podcast', label: 'Podcast', group: 'Media', parts: [F(RR(9.4, 4.5, 5.2, 9, 2.6)), S('M5.4,6 a8,8 0 0 0 0,10', 1.8), S('M18.6,6 a8,8 0 0 1 0,10', 1.8), S('M12,13.5 V20 M9,20.6 H15', 2)] },
+  { id: 'film', label: 'Film', group: 'Media', parts: [F(RR(2.5, 5, 19, 14, 2) + [4.6, 8.6, 12.6, 16.6].map(x => RR(x, 6.6, 2.4, 1.8, .4) + RR(x, 15.6, 2.4, 1.8, .4)).join('') + 'M10,9.4 L15,12 L10,14.6z', { e: 1 })] },
+  { id: 'camera', label: 'Camera', group: 'Media', parts: [F('M8,7.5 L9.6,4.6 H14.4 L16,7.5z'), F(RR(2.5, 7, 19, 13, 3) + C(12, 13.4, 4.6) + C(12, 13.4, 2.4), { e: 1 })] },
+  { id: 'picture', label: 'Picture', group: 'Media', parts: [F(RR(2.5, 4, 19, 16, 2.5) + 'M4.8,17.6 L9.6,11.4 L13,15.6 L15.2,13 L19.2,17.6z' + C(16.2, 8.6, 1.9), { e: 1 })] },
+  { id: 'play', label: 'Play', group: 'Media', parts: [F(C(12, 12, 9.5) + 'M9.8,7.6 L16.6,12 L9.8,16.4z', { e: 1 })] },
+  { id: 'speaker', label: 'Sound', group: 'Media', parts: [F('M3.5,9 H7.5 L12.5,5 V19 L7.5,15 H3.5z'), S('M15.5,9 a4,4 0 0 1 0,6', 1.8), S('M18,6.5 a7.5,7.5 0 0 1 0,11', 1.8)] },
+  { id: 'audiobook', label: 'Audiobook', group: 'Media', parts: [F('M2.5,9 C6,7.5 9.5,7.8 11.4,9.6 V21 C9.5,19.3 6,19 2.5,20.5z'), F('M21.5,9 C18,7.5 14.5,7.8 12.6,9.6 V21 C14.5,19.3 18,19 21.5,20.5z', { o: .78 }), S('M4.5,8 V6.5 a7.5,4.5 0 0 1 15,0 V8', 1.8)] },
+  { id: 'book', label: 'Book', group: 'Media', parts: [F('M2.5,6 C6,4.5 9.5,4.8 11.4,6.6 V20 C9.5,18.3 6,18 2.5,19.5z'), F('M21.5,6 C18,4.5 14.5,4.8 12.6,6.6 V20 C14.5,18.3 18,18 21.5,19.5z', { o: .78 })] },
+  // Work
+  { id: 'document', label: 'Document', group: 'Work', parts: [F('M6.5,2.5 H14 L19,7.5 V20 Q19,21.5 17.5,21.5 H6.5 Q5,21.5 5,20 V4 Q5,2.5 6.5,2.5z' + RR(8, 10.6, 8, 1.7, .85) + RR(8, 14, 8, 1.7, .85) + RR(8, 17.4, 5, 1.7, .85), { e: 1 })] },
+  { id: 'briefcase', label: 'Work', group: 'Work', parts: [S('M9,6.5 V5 a1.5,1.5 0 0 1 1.5,-1.5 h3 a1.5,1.5 0 0 1 1.5,1.5 V6.5', 1.8), F(RR(2.5, 6.5, 19, 13.5, 2.5) + RR(10.4, 11, 3.2, 2.8, .6), { e: 1 })] },
+  { id: 'chart', label: 'Chart', group: 'Work', parts: [F(RR(3.5, 13, 4, 7.5, 1)), F(RR(10, 8, 4, 12.5, 1)), F(RR(16.5, 4, 4, 16.5, 1))] },
+  { id: 'pen', label: 'Pen', group: 'Work', parts: [F('M15.6,3.2 L20.8,8.4 L9.2,20 L3.4,20.6 L4,14.8z'), F('M14.2,4.6 L19.4,9.8 L17.8,11.4 L12.6,6.2z', { tone: 'light' })] },
+  { id: 'calendar', label: 'Calendar', group: 'Work', parts: [F(RR(3, 5, 18, 16, 2.5) + [5.6, 10.6, 15.6].map(x => RR(x, 10.4, 2.8, 2.6, .5)).join('') + [5.6, 10.6].map(x => RR(x, 15, 2.8, 2.6, .5)).join(''), { e: 1 }), F(RR(7, 2.6, 2.2, 5, 1.1), { tone: 'light' }), F(RR(14.8, 2.6, 2.2, 5, 1.1), { tone: 'light' })] },
+  { id: 'school', label: 'School', group: 'Work', parts: [F('M12,4 L23,9 L12,14 L1,9z'), F('M6,11.6 V16 C6,18.4 18,18.4 18,16 V11.6 L12,14.4z', { o: .8 }), S('M21,9.5 V15.5', 1.4)] },
+  { id: 'code', label: 'Code', group: 'Work', parts: [S('M8,7 L3,12 L8,17', 2.6), S('M16,7 L21,12 L16,17', 2.6), S('M13.6,5 L10.4,19', 2.4)] },
+  { id: 'clipboard', label: 'List', group: 'Work', parts: [F(RR(4.5, 4, 15, 18, 2) + RR(7.5, 10, 9, 1.7, .85) + RR(7.5, 13.6, 9, 1.7, .85) + RR(7.5, 17.2, 6, 1.7, .85), { e: 1 }), F(RR(8.5, 2.4, 7, 3.8, 1.3), { tone: 'light' })] },
+  // Apps and web
+  { id: 'download', label: 'Download', group: 'Apps & web', parts: [F('M10,3 H14 V11 H18.5 L12,17.8 L5.5,11 H10z'), F(RR(4, 19.2, 16, 2.6, 1.3))] },
+  { id: 'cloud', label: 'Cloud', group: 'Apps & web', parts: [F('M7,19.5 a5,5 0 0 1 -.6,-9.96 A6.5,6.5 0 0 1 18.6,8.9 A4.8,4.8 0 0 1 17.5,19.5z')] },
+  { id: 'chat', label: 'Chat', group: 'Apps & web', parts: [F('M4,3.5 H20 a2,2 0 0 1 2,2 V15 a2,2 0 0 1 -2,2 H10 L5.5,21 V17 H4 a2,2 0 0 1 -2,-2 V5.5 a2,2 0 0 1 2,-2z' + C(7.5, 10.3, 1.35) + C(12, 10.3, 1.35) + C(16.5, 10.3, 1.35), { e: 1 })] },
+  { id: 'send', label: 'Send', group: 'Apps & web', parts: [F('M2.5,11.2 L21.5,3 L11.4,13.4z'), F('M11.4,13.4 L21.5,3 L15.2,21z', { o: .72 })] },
+  { id: 'game', label: 'Games', group: 'Apps & web', parts: [F('M7,6.5 H17 a5,5 0 0 1 4.9,6 L20.8,17.6 a2.6,2.6 0 0 1 -4.5,1.2 L14.2,16 H9.8 L7.7,18.8 a2.6,2.6 0 0 1 -4.5,-1.2 L2.1,12.5 A5,5 0 0 1 7,6.5z' + 'M6.2,9.6 h1.6 v1.6 h1.6 v1.6 h-1.6 v1.6 h-1.6 v-1.6 h-1.6 v-1.6 h1.6z' + C(16, 10.6, 1.25) + C(18.2, 12.8, 1.25), { e: 1 })] },
+  { id: 'phone', label: 'Phone', group: 'Apps & web', parts: [F(RR(6.5, 2, 11, 20, 2.6) + RR(8, 4.4, 8, 13, .8) + C(12, 19.7, .9), { e: 1 })] },
+  { id: 'globe', label: 'Web', group: 'Apps & web', parts: [S(C(12, 12, 9), 1.9), S('M3,12 H21', 1.6), S(EL(12, 12, 4, 9), 1.6)] },
+  { id: 'link', label: 'Link', group: 'Apps & web', parts: [S('M10.2,14 a3.5,3.5 0 0 1 0,-5 l2.5,-2.5 a3.5,3.5 0 0 1 5,5 l-1.2,1.2', 2.3), S('M13.8,10 a3.5,3.5 0 0 1 0,5 l-2.5,2.5 a3.5,3.5 0 0 1 -5,-5 l1.2,-1.2', 2.3)] },
+  { id: 'transfer', label: 'Transfer', group: 'Apps & web', parts: [S('M3.5,8 H18 M14.5,4.5 L18,8 L14.5,11.5', 2.2), S('M20.5,16 H6 M9.5,12.5 L6,16 L9.5,19.5', 2.2)] },
+  { id: 'bag', label: 'Shopping', group: 'Apps & web', parts: [F('M4.6,8 H19.4 L18.4,20.6 a1.6,1.6 0 0 1 -1.6,1.4 H7.2 a1.6,1.6 0 0 1 -1.6,-1.4z'), S('M9,8 V6.5 a3,3 0 0 1 6,0 V8', 1.8)] },
+  // Places and life
+  { id: 'home', label: 'Home', group: 'Places & life', parts: [F('M12,3 L22,11.5 H19 V20.5 H14.5 V15 H9.5 V20.5 H5 V11.5 H2z')] },
+  { id: 'star', label: 'Star', group: 'Places & life', parts: [F(star(12, 12.6, 10, 4.3))] },
+  { id: 'heart', label: 'Heart', group: 'Places & life', parts: [F('M12,21 C5,16 2,12.5 2,8.5 A4.8,4.8 0 0 1 12,6.2 A4.8,4.8 0 0 1 22,8.5 C22,12.5 19,16 12,21z')] },
+  { id: 'car', label: 'Car', group: 'Places & life', parts: [F('M4,12 L6,6.5 a2,2 0 0 1 1.9,-1.4 H16.1 a2,2 0 0 1 1.9,1.4 L20,12 a2,2 0 0 1 1.5,2 V17.5 H2.5 V14 A2,2 0 0 1 4,12z' + 'M6.8,11 L8,7.4 H16 L17.2,11z', { e: 1 }), F(C(7, 18, 2.3)), F(C(17, 18, 2.3))] },
+  { id: 'plane', label: 'Travel', group: 'Places & life', parts: [F('M21,16 V14 L13.5,9.5 V4 a1.5,1.5 0 0 0 -3,0 V9.5 L3,14 V16 L10.5,13.8 V18.6 L8.5,20 V21.5 L12,20.5 L15.5,21.5 V20 L13.5,18.6 V13.8z')] },
+  { id: 'mountain', label: 'Outdoors', group: 'Places & life', parts: [F('M2,20 L9,8 L13,14 L15.5,11 L22,20z'), F(C(17.5, 6, 2.2), { tone: 'light' })] },
+  { id: 'gift', label: 'Gift', group: 'Places & life', parts: [F(RR(3, 8.6, 18, 4.2, 1)), F(RR(4.5, 12.8, 15, 8.7, 1) + RR(11, 12.8, 2, 8.7, 0), { e: 1 }), S('M12,8.6 C10,4.8 6,5.4 7,7.8 C7.8,9.3 12,8.6 12,8.6 C12,8.6 16.2,9.3 17,7.8 C18,5.4 14,4.8 12,8.6', 1.6)] },
+  { id: 'paw', label: 'Pets', group: 'Places & life', parts: [F(EL(12, 16, 5, 4.2)), F(EL(6, 10.5, 1.9, 2.4)), F(EL(10, 7.2, 1.9, 2.4)), F(EL(14, 7.2, 1.9, 2.4)), F(EL(18, 10.5, 1.9, 2.4))] },
+  { id: 'leaf', label: 'Nature', group: 'Places & life', parts: [F('M20,4 C9,4 4,9.5 4,16 C4,18 4.6,19.5 5.2,20.5 C7,13 12,10 15,9 C11.5,11.5 8.5,15 7.2,20.5 C14.5,21 20,15 20,4z')] },
+  { id: 'food', label: 'Food', group: 'Places & life', parts: [S('M6,3 V9 a2.5,2.5 0 0 0 5,0 V3 M8.5,9.5 V21', 2), F('M17.5,3 C15,5 14.5,10 16.4,12.4 V21 H18.6 V3z')] },
+  // Things
+  { id: 'lock', label: 'Private', group: 'Things', parts: [S('M8,10.5 V8 a4,4 0 0 1 8,0 V10.5', 2.2), F(RR(5, 10.5, 14, 10.5, 2) + C(12, 15, 1.6) + RR(11.3, 15, 1.4, 3.2, .5), { e: 1 })] },
+  { id: 'key', label: 'Key', group: 'Things', parts: [F(C(7.5, 12, 4.8) + C(7.5, 12, 1.9), { e: 1 }), F(RR(11.2, 10.8, 10.3, 2.4, 1)), F(RR(17, 12.6, 2, 3.4, .5)), F(RR(19.8, 12.6, 1.7, 2.6, .5))] },
+  { id: 'bell', label: 'Bell', group: 'Things', parts: [F('M12,3 a1.5,1.5 0 0 1 1.5,1.5 V5.2 A6,6 0 0 1 18,11 V15.5 L20,18 H4 L6,15.5 V11 A6,6 0 0 1 10.5,5.2 V4.5 A1.5,1.5 0 0 1 12,3z'), F(C(12, 20, 1.9))] },
+  { id: 'ringtone', label: 'Ringtone', group: 'Things', parts: [F('M12,4.8 a1.2,1.2 0 0 1 1.2,1.2 V6.5 A4.8,4.8 0 0 1 16.8,11.2 V14.8 L18.4,16.8 H5.6 L7.2,14.8 V11.2 A4.8,4.8 0 0 1 10.8,6.5 V6 A1.2,1.2 0 0 1 12,4.8z'), F(C(12, 18.7, 1.5)), S('M3.6,6.5 a10,10 0 0 0 0,8', 1.7), S('M20.4,6.5 a10,10 0 0 1 0,8', 1.7)] },
+  { id: 'alarm', label: 'Alarm', group: 'Things', parts: [F(C(12, 13.4, 8) + 'M11.2,8.4 h1.6 v4.4 h3.4 v1.6 h-5z', { e: 1 }), S('M3.4,6.4 L6.6,3.4', 2.2), S('M17.4,3.4 L20.6,6.4', 2.2)] },
+  { id: 'crop', label: 'Screenshot', group: 'Things', parts: [S('M6.5,2.5 V17.5 H21.5', 2.6), S('M2.5,6.5 H17.5 V21.5', 2.6)] },
+  { id: 'cog', label: 'System', group: 'Things', parts: [F(cog(12, 12, 10, 7.6) + C(12, 12, 3.2), { e: 1 })] },
+  { id: 'box', label: 'Archive', group: 'Things', parts: [F(RR(2.5, 4, 19, 5, 1)), F('M4,9.8 H20 V19 a2,2 0 0 1 -2,2 H6 a2,2 0 0 1 -2,-2z' + RR(9, 12.4, 6, 2.2, 1.1), { e: 1 })] },
+  { id: 'backup', label: 'Backup', group: 'Things', parts: [S('M19.6,10 A8,8 0 0 0 5.4,7.6', 2.2), S('M4.4,14 A8,8 0 0 0 18.6,16.4', 2.2), F('M2.6,3.8 L4.6,10 L9.6,7.2z'), F('M21.4,20.2 L19.4,14 L14.4,16.8z')] },
+  { id: 'trash', label: 'Bin', group: 'Things', parts: [F(RR(4, 5, 16, 2.4, 1.2)), F(RR(9.5, 3, 5, 2.6, 1)), F('M5.6,8.6 H18.4 L17.4,20.4 a1.4,1.4 0 0 1 -1.4,1.3 H8 a1.4,1.4 0 0 1 -1.4,-1.3z' + RR(8.7, 11, 1.6, 7.6, .8) + RR(11.2, 11, 1.6, 7.6, .8) + RR(13.7, 11, 1.6, 7.6, .8), { e: 1 })] },
+  { id: 'flag', label: 'Flag', group: 'Things', parts: [F(RR(4, 2.5, 2, 19.5, 1)), F('M6,3.5 H19 L16,8.5 L19,13.5 H6z')] },
+  { id: 'bookmark', label: 'Saved', group: 'Things', parts: [F('M6,2.5 H18 a1,1 0 0 1 1,1 V21.5 L12,17 L5,21.5 V3.5 a1,1 0 0 1 1,-1z')] },
+  { id: 'sparkle', label: 'Favourite', group: 'Things', parts: [F('M11,3 C11.8,9 14.6,11.8 20.6,12.6 C14.6,13.4 11.8,16.2 11,22 C10.2,16.2 7.4,13.4 1.4,12.6 C7.4,11.8 10.2,9 11,3z'), F('M19,2 C19.3,4 20,4.7 22,5 C20,5.3 19.3,6 19,8 C18.7,6 18,5.3 16,5 C18,4.7 18.7,4 19,2z', { tone: 'light' })] },
+  { id: 'fire', label: 'Hot', group: 'Things', parts: [F('M12,22 C7,22 4.5,18.5 4.5,15 C4.5,10.5 8.5,8.5 9,3 C12.5,5 13.5,8 13,10.5 C14.5,9.5 15.3,8 15.5,6.5 C18,9 19.5,12 19.5,15 C19.5,18.5 17,22 12,22z' + 'M12,20 C10,20 8.8,18.6 8.8,17 C8.8,15 10.5,14 11,12 C12.8,13.2 13.2,14.6 13,15.8 C13.8,15.4 14.4,14.6 14.6,14 C15.2,15 15.3,16 15.2,17 C15.1,18.6 14,20 12,20z', { e: 1 })] },
+];
+const EM = Object.fromEntries(EMBLEMS.map(e => [e.id, e]));
+const EM_GROUPS = ['Media', 'Work', 'Apps & web', 'Places & life', 'Things'];
+
+// ── rich emblems: small scenes that fill the folder's front ─────────────
+// Drawn on a 40 x 30 box, placed across the front flap. Each part has a tone:
+// m the colour's gradient, l its pale tone, d its deep tone, k darker still, w paper white,
+// g gold, r alert red. s: stroked at that width. e: even-odd holes. o: opacity.
+const R = (t, d, x = {}) => ({ t, d, ...x });
+const RS = (t, d, s, x = {}) => ({ t, d, s, ...x });
+// A stripe across the clapper arm, from t0 to t1 along it.
+function armStripe(t0, t1) {
+  const P = (t, lo) => lo ? [5.2 + 29 * t, 14.8 - 6.5 * t] : [4 + 29 * t, 9.5 - 6.5 * t];
+  const a = P(t0, 0), b = P(t1, 0), c = P(t1 - .07, 1), d = P(t0 - .07, 1);
+  return `M${n(a[0])},${n(a[1])} L${n(b[0])},${n(b[1])} L${n(c[0])},${n(c[1])} L${n(d[0])},${n(d[1])}z`;
+}
+const RICH = {
+  download: [
+    R('m', C(14, 9.5, 4.6)), R('m', C(21, 7, 6)), R('m', C(27.6, 10, 4)), R('m', RR(10, 9.6, 21.5, 4.8, 2.4)),
+    R('d', 'M3,17 H11.5 L14,21.5 H26 L28.5,17 H37 V26.5 a3,3 0 0 1 -3,3 H6 a3,3 0 0 1 -3,-3z'),
+    R('k', 'M14,21.5 H26 L25.2,23.2 H14.8z', { o: .7 }),
+    R('w', RR(17.6, 3.5, 4.8, 12.5, 1.2)), R('w', 'M12.4,14.4 H27.6 L20,22.6z'),
+  ],
+  document: [
+    R('l', 'M5.4,5.4 L21.8,2.6 L25.4,24.6 L9,27.4z'),
+    R('w', 'M14,1.5 H27.2 L33.4,7.7 V27.4 a1.6,1.6 0 0 1 -1.6,1.6 H15.6 A1.6,1.6 0 0 1 14,27.4z'),
+    R('m', 'M27.2,1.5 V6.1 a1.6,1.6 0 0 0 1.6,1.6 H33.4z'),
+    R('d', RR(17, 5.6, 7, 2.6, 1.1)),
+    R('m', RR(17, 11, 13, 1.9, .95)), R('m', RR(17, 15, 13, 1.9, .95)), R('m', RR(17, 19, 9, 1.9, .95)),
+    R('g', 'M34.4,13.4 L37.8,16.8 L28.2,26.4 L24.8,23z'), R('k', 'M24.8,23 L28.2,26.4 L23.4,27.8z'),
+  ],
+  camera: [
+    R('m', 'M11.6,9 L14.2,3.8 a1.6,1.6 0 0 1 1.4,-.9 H24.4 a1.6,1.6 0 0 1 1.4,.9 L28.4,9z'),
+    R('k', RR(29.6, 5, 5.6, 3.6, 1.3)),
+    R('m', RR(2, 8, 36, 20.5, 4.2)),
+    R('d', RR(2, 21.5, 36, 3, 0), { o: .35 }),
+    R('l', RR(5.2, 11, 6.2, 3.6, 1.1)),
+    R('k', C(20, 18, 8.6)), R('l', C(20, 18, 6.6)), R('d', C(20, 18, 4.8)), R('k', C(20, 18, 2.4)),
+    R('w', C(17.9, 15.9, 1.5)),
+  ],
+  picture: [
+    R('l', 'M3.6,6.2 L25.6,2.6 L28.6,21.4 L6.6,25z'),
+    R('w', RR(10, 6, 28.5, 23, 2.6)),
+    R('l', RR(12.3, 8.3, 23.9, 18.4, 1.4)),
+    R('g', C(30.4, 12.6, 2.6)),
+    R('m', 'M12.3,26.7 V22.2 L18.6,14.4 L23.6,20 L26.8,16.8 L36.2,26.7z'),
+    R('d', 'M12.3,26.7 V23.6 Q17.6,20.4 23.4,22.8 T36.2,23 V26.7z'),
+  ],
+  film: [
+    R('m', RR(4, 12, 32, 17, 2.6)),
+    R('k', RR(4, 12, 32, 4.6, 1.4)),
+    ...[7.4, 14.6, 21.8, 29].map(x => R('w', `M${x},12 h3.6 l-2.6,4.6 h-3.6z`)),
+    R('k', 'M4,9.5 L33,3 L34.2,8.3 L5.2,14.8z'),
+    ...[[.12, .24], [.36, .48], [.6, .72], [.84, .96]].map(([a, b]) => R('w', armStripe(a, b))),
+    R('l', C(5.6, 12.4, 1.8)),
+    R('l', RR(8, 20, 15, 2, 1), { o: .85 }), R('l', RR(8, 24, 21, 2, 1), { o: .85 }),
+  ],
+  music: [
+    R('k', C(13, 16, 11.4)),
+    RS('l', C(13, 16, 8.4), .8, { o: .35 }), RS('l', C(13, 16, 6.4), .8, { o: .25 }),
+    R('m', C(13, 16, 4.2)), R('w', C(13, 16, 1.1)),
+    R('m', 'M23.6,7.2 L37.6,3.6 V7.6 L23.6,11.2z'),
+    R('m', RR(23.6, 8, 2.4, 15, .6)), R('m', RR(35.2, 5, 2.4, 15, .6)),
+    R('m', EL(22.2, 23, 3.6, 2.8)), R('m', EL(33.8, 20, 3.6, 2.8)),
+  ],
+  podcast: [
+    RS('l', 'M9.4,6 a12,12 0 0 0 0,15', 2.2), RS('l', 'M5,2.6 a17,17 0 0 0 0,22', 2.2, { o: .7 }),
+    RS('l', 'M30.6,6 a12,12 0 0 1 0,15', 2.2), RS('l', 'M35,2.6 a17,17 0 0 1 0,22', 2.2, { o: .7 }),
+    RS('k', 'M12.6,12.4 a7.4,7.4 0 0 0 14.8,0', 2.2),
+    R('m', RR(14.6, .6, 10.8, 17, 5.4)),
+    R('d', RR(16.8, 5.4, 6.4, 1.5, .75), { o: .6 }), R('d', RR(16.8, 8.6, 6.4, 1.5, .75), { o: .6 }), R('d', RR(16.8, 11.8, 6.4, 1.5, .75), { o: .6 }),
+    R('k', RR(19, 19.6, 2, 6, .6)), R('k', RR(13.6, 25.4, 12.8, 2.8, 1.4)),
+  ],
+  mic: [
+    ...[[2, 12, 6], [5.6, 9, 12], [9.2, 11.4, 7.2], [28.8, 11.4, 7.2], [32.4, 8, 14], [36, 12, 6]].map(([x, y, h]) => R('l', RR(x, y, 2, h, 1))),
+    RS('k', 'M13.2,11.6 a6.8,6.8 0 0 0 13.6,0', 2.2),
+    R('m', RR(15, .8, 10, 16, 5)),
+    R('d', RR(17, 5.4, 6, 1.5, .75), { o: .6 }), R('d', RR(17, 8.6, 6, 1.5, .75), { o: .6 }),
+    R('k', RR(19, 18.6, 2, 6.4, .6)), R('k', RR(14.4, 24.8, 11.2, 2.8, 1.4)),
+    R('w', C(34, 4.4, 3.9)), R('r', C(34, 4.4, 2.8)),
+  ],
+  book: [
+    R('m', 'M2,9.4 Q11,6.4 20,10.4 Q29,6.4 38,9.4 V28 Q29,25 20,29 Q11,25 2,28z'),
+    R('w', 'M4,8.6 Q12,5.6 19,9.4 V26.8 Q12,23.6 4,26.2z'),
+    R('w', 'M36,8.6 Q28,5.6 21,9.4 V26.8 Q28,23.6 36,26.2z'),
+    ...[12.4, 16, 19.6].flatMap(y => [RS('d', `M7,${y} Q12,${y - 1.6} 16.4,${y + .4}`, 1.1, { o: .4 }), RS('d', `M23.6,${y + .4} Q28,${y - 1.6} 33,${y}`, 1.1, { o: .4 })]),
+    R('g', 'M27.6,7.2 V15.6 L29.8,13.8 L32,15.6 V6.8z'),
+  ],
+  audiobook: [
+    R('m', 'M2,11.4 Q11,8.4 20,12.4 Q29,8.4 38,11.4 V29 Q29,26 20,30 Q11,26 2,29z'),
+    R('w', 'M4,10.6 Q12,7.6 19,11.4 V27.8 Q12,24.6 4,27.2z'),
+    R('w', 'M36,10.6 Q28,7.6 21,11.4 V27.8 Q28,24.6 36,27.2z'),
+    ...[16, 19.6, 23.2].flatMap(y => [RS('d', `M7,${y} Q12,${y - 1.6} 16.4,${y + .4}`, 1.1, { o: .4 }), RS('d', `M23.6,${y + .4} Q28,${y - 1.6} 33,${y}`, 1.1, { o: .4 })]),
+    RS('k', 'M8.6,12 V9.4 a11.4,8.4 0 0 1 22.8,0 V12', 2.4),
+    R('k', RR(5.6, 9.6, 5.6, 9, 2.4)), R('k', RR(28.8, 9.6, 5.6, 9, 2.4)),
+    R('l', RR(7, 11, 2.2, 6.2, 1.1), { o: .7 }), R('l', RR(31, 11, 2.2, 6.2, 1.1), { o: .7 }),
+  ],
+  ringtone: [
+    RS('l', 'M9.6,9 a9,9 0 0 0 0,12', 2), RS('l', 'M5.4,5.6 a14,14 0 0 0 0,19', 2, { o: .7 }),
+    RS('l', 'M30.4,9 a9,9 0 0 1 0,12', 2), RS('l', 'M34.6,5.6 a14,14 0 0 1 0,19', 2, { o: .7 }),
+    R('m', RR(13, .8, 14, 28.4, 3.2)),
+    R('k', RR(15, 4, 10, 19.6, 1.2)),
+    R('l', C(20, 26.2, 1.2)),
+    R('w', RR(20.6, 7.4, 1.6, 9.4, .5)), R('w', 'M22.2,7.4 Q25.2,8.4 24.6,11.8 Q23.6,9.9 22.2,10.1z'), R('w', EL(19.5, 16.8, 2.5, 1.9)),
+  ],
+  alarm: [
+    R('k', 'M3.4,10.6 A7.4,7.4 0 0 1 12.8,2.6z'), R('k', 'M36.6,10.6 A7.4,7.4 0 0 0 27.2,2.6z'),
+    RS('k', 'M11,25.6 L8,29.2 M29,25.6 L32,29.2', 2.4),
+    R('k', RR(18, 1.4, 4, 3.2, 1.1)),
+    R('m', C(20, 16, 12.2)),
+    R('w', C(20, 16, 9.6)),
+    R('d', RR(19.3, 7.4, 1.4, 2.4, .5)), R('d', RR(19.3, 22.2, 1.4, 2.4, .5)), R('d', RR(11.4, 15.3, 2.4, 1.4, .5)), R('d', RR(26.2, 15.3, 2.4, 1.4, .5)),
+    RS('k', 'M20,16 V10.6 M20,16 L24.6,18.6', 1.9),
+    R('m', C(20, 16, 1.5)),
+  ],
+  bell: [
+    RS('l', 'M6,7.4 L3,5.6 M5,12.4 H1.6 M6,17.4 L3,19.2', 1.6),
+    R('m', 'M20,2 a2,2 0 0 1 2,2 V5 A8,8 0 0 1 28,13 V19 L31,23 H9 L12,19 V13 A8,8 0 0 1 18,5 V4 a2,2 0 0 1 2,-2z'),
+    RS('l', 'M15,13 a5.4,5.4 0 0 1 3,-4.2', 1.5),
+    R('d', RR(8, 22, 24, 2.8, 1.4)),
+    R('k', C(20, 27.2, 2.7)),
+    R('w', C(30.6, 6.4, 5.4)), R('r', C(30.6, 6.4, 4.3)), R('w', RR(29.85, 3.9, 1.5, 5, .4)),
+  ],
+  cog: [
+    R('m', cog(14.6, 17.4, 11.4, 8.8, 8) + C(14.6, 17.4, 3.8), { e: 1 }),
+    R('l', cog(31.2, 8.6, 7.6, 5.8, 7) + C(31.2, 8.6, 2.4), { e: 1 }),
+    R('k', cog(32, 24.6, 5.2, 3.9, 6) + C(32, 24.6, 1.6), { e: 1 }),
+  ],
+  chat: [
+    R('l', 'M16,1.4 H35 a3,3 0 0 1 3,3 V15 a3,3 0 0 1 -3,3 H34 V22 L29.5,18 H16 a3,3 0 0 1 -3,-3 V4.4 a3,3 0 0 1 3,-3z'),
+    R('d', RR(27, 5.6, 7.4, 1.7, .85), { o: .4 }), R('d', RR(30, 9.4, 4.4, 1.7, .85), { o: .4 }),
+    R('m', 'M5,8 H24 a3,3 0 0 1 3,3 V22 a3,3 0 0 1 -3,3 H12 L6.5,29.4 V25 H5 a3,3 0 0 1 -3,-3 V11 a3,3 0 0 1 3,-3z'),
+    R('w', C(8.5, 16.5, 1.8)), R('w', C(14.5, 16.5, 1.8)), R('w', C(20.5, 16.5, 1.8)),
+  ],
+  send: [
+    R('l', C(3.6, 26.4, 1.3), { o: .8 }), R('l', C(8, 25, 1.3), { o: .8 }), R('l', C(12.4, 24.6, 1.3), { o: .8 }),
+    R('l', 'M4,14.6 L37.4,2.4 L16.6,19.4z'),
+    R('m', 'M16.6,19.4 L37.4,2.4 L27.4,28.2z'),
+    R('d', 'M16.6,19.4 L19.6,27.6 L23,22.6z'),
+  ],
+  transfer: [
+    R('m', RR(1.6, 4.4, 12.4, 23.2, 2.8)), R('w', RR(3.6, 7.6, 8.4, 15, 1)), R('l', C(7.8, 25.2, 1)),
+    R('m', RR(26, 2.4, 12.4, 23.2, 2.8)), R('w', RR(28, 5.6, 8.4, 15, 1)), R('l', C(32.2, 23.2, 1)),
+    R('d', RR(5.2, 10, 5, 1.6, .8), { o: .5 }), R('d', RR(5.2, 13.4, 5, 1.6, .8), { o: .5 }),
+    R('d', RR(29.6, 8, 5, 1.6, .8), { o: .5 }), R('d', RR(29.6, 11.4, 5, 1.6, .8), { o: .5 }),
+    RS('k', 'M15,11.6 H24.4 M21.4,8.6 L24.6,11.6 L21.4,14.6', 2.2),
+    RS('k', 'M25,19.2 H15.6 M18.6,16.2 L15.4,19.2 L18.6,22.2', 2.2),
+  ],
+};
+// Placed across the front flap, a little over its top edge.
+function richOn(parts, colour, whole = false) {
+  const [a1, a2, a3] = ACC[colour];
+  const tone = {
+    m: whole ? '#F6FAFB' : `url(#acc-${colour})`,
+    l: mix(a1, '#ffffff', whole ? .7 : .45),
+    w: '#F8FBFC',
+    d: whole ? mix(a3, '#000000', .15) : a3,
+    k: mix(a3, '#000000', .38),
+    g: 'url(#acc-gold)',
+    r: '#E5534B',
+  };
+  const line = { ...tone, m: whole ? '#F6FAFB' : a2, g: ACC.gold[1] };
+  const rim = mix(a3, '#000000', .25);
+  const paint = (p, shade) => {
+    const op = p.o != null ? ` opacity="${p.o}"` : '';
+    if (p.s) return `<path d="${p.d}" fill="none" stroke="${shade || line[p.t]}" stroke-width="${p.s}" stroke-linecap="round" stroke-linejoin="round"${op}/>`;
+    const edge = shade || p.t === 'k' || p.t === 'r' ? '' : ` stroke="${rim}" stroke-width=".55" stroke-opacity=".55" stroke-linejoin="round"`;
+    return `<path d="${p.d}" fill="${shade || tone[p.t]}"${p.e ? ' fill-rule="evenodd"' : ''}${edge}${op}/>`;
+  };
+  const shade = mix(a3, '#000000', .45);
+  return `<g transform="translate(33.5 53.5) scale(1.05)"><g transform="translate(0 1.5)" opacity=".34">${parts.map(p => paint(p, shade)).join('')}</g>${parts.map(p => paint(p)).join('')}</g>`;
+}
+
+// One glyph's parts, painted. paint: { fill, stroke, light } as colours or url()s.
+function glyph(parts, paint) {
+  return parts.map(p => {
+    const op = p.o != null ? ` fill-opacity="${p.o}" stroke-opacity="${p.o}"` : '';
+    if (p.s) return `<path d="${p.d}" fill="none" stroke="${p.tone === 'light' ? paint.light : paint.stroke}" stroke-width="${p.s}" stroke-linecap="round" stroke-linejoin="round"${op}/>`;
+    const rim = paint.edge && p.tone !== 'light' ? ` stroke="${paint.edge}" stroke-width=".6" stroke-linejoin="round"` : '';
+    return `<path d="${p.d}" fill="${p.tone === 'light' ? paint.light : paint.fill}"${p.e ? ' fill-rule="evenodd"' : ''}${rim}${op}/>`;
+  }).join('');
+}
+// The glyph with a soft drop under it: the depth the tab icons have, kept to shapes and opacity.
+function emblemOn(parts, colour, cx, cy, scale, onLight = true, whole = false) {
+  const [a1, a2, a3] = ACC[colour];
+  const t = (dx = 0, dy = 0) => `translate(${n(cx - 12 * scale + dx)} ${n(cy - 12 * scale + dy)}) scale(${scale})`;
+  const shadowC = whole ? mix(a3, '#000000', .35) : a3;
+  const shadow = glyph(parts, { fill: shadowC, stroke: shadowC, light: shadowC });
+  const main = whole
+    ? glyph(parts, { fill: '#F6FAFB', stroke: '#F6FAFB', light: mix(a1, '#ffffff', .6) })
+    : glyph(parts, { fill: `url(#acc-${colour})`, stroke: a2, light: a1, edge: a3 });
+  return `<g transform="${t(0, scale * 1.1)}" opacity="${whole ? .45 : .4}">${shadow}</g><g transform="${t()}">${main}</g>`;
+}
+
+// ── things that stand in a folder ────────────────────────────────────────
+const SKIES = [
+  ['#FBD38D', '#E8875F', '#7D3E3A', '#B8574A', '#FFF1C2'],
+  ['#A9DBF8', '#5C9DCF', '#2F5D44', '#4F8A5C', '#FFF6D6'],
+  ['#D2C2F5', '#7A63B8', '#3A2E5C', '#5C4A8A', '#FFE3F0'],
+  ['#9FE8CF', '#3E9580', '#24493F', '#3B7366', '#F4FFE0'],
+  ['#F8B5C8', '#C45C80', '#5A2A3E', '#8A3F5D', '#FFE9D2'],
+];
+// A picture, drawn inside the card's own frame so nothing needs clipping.
+function photoArt(seed, x, y, w, h) {
+  const [s1, s2, h1, h2, sun] = SKIES[seed % SKIES.length];
+  const id = 'ph' + seed;
+  if (!document.getElementById(id)) document.getElementById('sharedDefs').insertAdjacentHTML('beforeend', lin(id, [[0, s1], [1, s2]]));
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#${id})"/>` +
+    `<circle cx="${n(x + w * .7)}" cy="${n(y + h * .3)}" r="${n(w * .13)}" fill="${sun}" fill-opacity=".9"/>` +
+    `<path d="M${x},${n(y + h * .78)} L${n(x + w * .32)},${n(y + h * .5)} L${n(x + w * .55)},${n(y + h * .72)} L${n(x + w * .72)},${n(y + h * .6)} L${x + w},${n(y + h * .8)} V${y + h} H${x}z" fill="${h2}"/>` +
+    `<path d="M${x},${n(y + h * .9)} L${n(x + w * .4)},${n(y + h * .74)} L${x + w},${n(y + h * .92)} V${y + h} H${x}z" fill="${h1}"/>`;
+}
+function coverArt(seed, x, y, w, h) {
+  const keys = ['violet', 'rose', 'sky', 'orange', 'mint'];
+  const k = keys[seed % keys.length];
+  const [a1, a2, a3] = ACC[k];
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#acc-${k})"/>` +
+    `<circle cx="${n(x + w * .62)}" cy="${n(y + h * .62)}" r="${n(w * .42)}" fill="${a3}" fill-opacity=".55"/>` +
+    `<circle cx="${n(x + w * .62)}" cy="${n(y + h * .62)}" r="${n(w * .16)}" fill="${a1}"/>` +
+    `<rect x="${n(x + w * .12)}" y="${n(y + h * .14)}" width="${n(w * .42)}" height="${n(h * .07)}" rx="${n(h * .035)}" fill="#fff" fill-opacity=".85"/>`;
+}
+// The three places a thing stands in the folder: left, right, and the middle at the front.
+// P is a lone thing: lower, so it stands in the folder and peeks over the back rather than
+// balancing on the front's edge.
+const SLOT = { L: [37, 41, -9], R: [71, 41, 9], M: [54, 37, 0], P: [54, 47, -3] };
+function item(it, slot, paint) {
+  const [cx, cy, rot] = SLOT[slot];
+  const g = (inner) => `<g transform="translate(${cx} ${cy}) rotate(${rot})">${inner}</g>`;
+  if (it.kind === 'media') {
+    const body = it.media === 'audio' ? coverArt(it.seed || 0, -11.5, -14.5, 23, 29) : photoArt(it.seed || 0, -11.5, -14.5, 23, 29);
+    const play = it.media === 'video' ? `<circle cx="0" cy="-2" r="5.2" fill="#000" fill-opacity=".45"/><path d="M-1.8,-5 L3,-2 L-1.8,1z" fill="#fff"/>` : '';
+    return g(`<rect x="-13" y="-16" width="26" height="32" rx="2.4" fill="#F3F7F8"/>${body}${play}`);
+  }
+  if (it.kind === 'file') {
+    const fam = FAMILIES[typeOf(it.ext)];
+    const [a1, a2, a3] = ACC[fam.acc];
+    return g(`<path d="M-11,-16 H5 L11,-10 V14 a2,2 0 0 1 -2,2 H-9 a2,2 0 0 1 -2,-2 V-14 a2,2 0 0 1 2,-2z" fill="url(#gPaper)"/>` +
+      `<path d="M5,-16 V-12 a2,2 0 0 0 2,2 H11z" fill="url(#gSteel)"/>` +
+      (fam.glyph ? `<g transform="translate(-7.2 -13) scale(.6)">${glyph(GLYPHS[fam.glyph], { fill: `url(#acc-${fam.acc})`, stroke: a2, light: a1 })}</g>` : '') +
+      `<rect x="-11" y="2.5" width="22" height="6" fill="url(#acc-${fam.acc})"/>`);
+  }
+  // A folder in the folder: a portrait folder of its own, gold, opening to the outside, so the
+  // one on the left is drawn mirrored.
+  return g(subFolder(it.full, slot === 'L'));
+}
+
+// Which things stand in the folder. The rule the build implements as one tested function.
+function pick(children) {
+  const by = { folder: [], file: [], media: [] };
+  for (const c of children) by[c.kind].push(c);
+  const kinds = ['media', 'folder', 'file'].filter(k => by[k].length);
+  if (!kinds.length) return [];
+  // Different types first, so three files are three kinds of file when there are three kinds.
+  const varied = (list) => {
+    const seen = new Set(), first = [], rest = [];
+    for (const c of list) { const key = c.ext || c.media || c.kind; (seen.has(key) ? rest : first).push(c); seen.add(key); }
+    return [...first, ...rest];
+  };
+  if (kinds.length === 1) return varied(by[kinds[0]]).slice(0, 3);
+  const out = kinds.map(k => varied(by[k])[0]);
+  for (let i = 1; out.length < 3; i++) {
+    let added = false;
+    for (const k of kinds) { const v = varied(by[k]); if (v[i] && out.length < 3) { out.push(v[i]); added = true; } }
+    if (!added) break;
+  }
+  return out;
+}
+// A folder standing in the folder, drawn as a folder is: a back with its tab at the top on the
+// outer side, and a front that covers nearly all of it, leaving the back's top edge and the tab
+// showing. Portrait, taller than the things beside it. When it has anything in it a sheet shows
+// between the back and the front, above the front's edge. Drawn about its centre; the left one is
+// mirrored so its tab faces out.
+const SUB = {
+  back: 'M-13,-11.5 a2.5,2.5 0 0 1 2.5,-2.5 H-1.6 a1.6,1.6 0 0 0 1.3,-.7 l1.9,-2.8 a1.6,1.6 0 0 1 1.3,-.7 H10.5 a2.5,2.5 0 0 1 2.5,2.5 V15 a3,3 0 0 1 -3,3 H-10 a3,3 0 0 1 -3,-3z',
+  sheet: 'M-10,-14.4 a1.6,1.6 0 0 1 1.6,-1.6 H8 a1.6,1.6 0 0 1 1.6,1.6 V4 H-10z',
+  lines: ['M-7,-13.2 h11 a.8,.8 0 0 1 0,1.6 h-11 a.8,.8 0 0 1 0,-1.6z', 'M-7,-10.6 h13.5 a.8,.8 0 0 1 0,1.6 h-13.5 a.8,.8 0 0 1 0,-1.6z'],
+  front: 'M-13,-7.6 a2,2 0 0 1 2,-2 H11 a2,2 0 0 1 2,2 V15 a3,3 0 0 1 -3,3 H-10 a3,3 0 0 1 -3,-3z',
+  lip: 'M-11,-8.4 H11',
+  tabLip: 'M2.6,-16.5 H10.4',
+};
+function subFolder(full, mirror) {
+  const body = `<path d="${SUB.back}" fill="url(#gSubBack)"/>` +
+    `<path d="${SUB.tabLip}" stroke="#fff" stroke-opacity=".35" stroke-width="1.1" stroke-linecap="round"/>` +
+    (full ? `<path d="${SUB.sheet}" fill="url(#gPaper)"/>` + SUB.lines.map(d => `<path d="${d}" fill="#4E7382" fill-opacity=".5"/>`).join('') : '') +
+    `<path d="${SUB.front}" fill="url(#gSubFront)" stroke="#8A6A2A" stroke-opacity=".45" stroke-width=".6"/>` +
+    `<path d="${SUB.lip}" stroke="#fff" stroke-opacity=".5" stroke-width="1.3" stroke-linecap="round"/>`;
+  return mirror ? `<g transform="scale(-1 1)">${body}</g>` : body;
+}
+const onlyFolders = (items) => items && items.length > 0 && items.every(it => it.kind === 'folder');
+const slotsFor = (count) => count === 1 ? ['M'] : count === 2 ? ['L', 'R'] : ['M', 'L', 'R'];
+
+// ── the folder ───────────────────────────────────────────────────────────
+// Drawn in the shipped Filet folder's own coordinates, unscaled: the tab icons' depth, the
+// two blues, and an open front the contents stand behind.
+const BACK = 'M22,24 H42 l6,8 H78 a6,6 0 0 1 6,6 V80 a6,6 0 0 1 -6,6 H22 a6,6 0 0 1 -6,-6 V30 a6,6 0 0 1 6,-6z';
+const FLAP = 'M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z';
+function folderBody({ state, colour = 'steel', whole = false, ground = true, items = null, emblem = null, paper = false, lone = false, sub = false }) {
+  const tinted = whole && colour !== 'steel';
+  const back = tinted ? `url(#bb-${colour})` : 'url(#gSlate)';
+  const inside = tinted ? `url(#bi-${colour})` : 'url(#gDeep)';
+  const flap = tinted ? `url(#bf-${colour})` : 'url(#gSteel)';
+  const pageBack = colour === 'steel' || tinted ? 'url(#acc-gold)' : `url(#acc-${colour})`;
+  let mid = '', behind = '';
+  if (state === 'empty') mid = `<path d="M22,41 H78" stroke="#000" stroke-opacity=".18" stroke-width="3"/>`;
+  else if (state === 'pages' || !items || !items.length) {
+    mid = paper
+      ? `<g transform="rotate(4 57 51)"><rect x="34" y="30" width="40" height="40" rx="3" fill="#F3F7F8"/></g>`
+      : `<rect x="27" y="31" width="38" height="40" rx="3" transform="rotate(-7 46 51)" fill="${pageBack}"/>` +
+        `<g transform="rotate(5 57 51)"><rect x="38" y="32" width="38" height="40" rx="3" fill="url(#gPaper)"/>` +
+        `<rect x="43" y="38.5" width="22" height="3" rx="1.5" fill="#4E7382" fill-opacity=".55"/>` +
+        `<rect x="43" y="45" width="27" height="3" rx="1.5" fill="#4E7382" fill-opacity=".55"/></g>`;
+  } else {
+    const slots = lone && items.length === 1 ? ['P'] : slotsFor(items.length);
+    const drawn = items.map((it, i) => [it, slots[i]]);
+    // Back to front: the sides first, the middle last.
+    drawn.sort((a, b) => (a[1] === 'M') - (b[1] === 'M'));
+    mid = drawn.map(([it, s]) => item(it, s)).join('');
+  }
+  return (ground ? `<ellipse cx="54" cy="88.5" rx="31" ry="3.6" fill="url(#gGround)"/>` : '') +
+    behind +
+    `<path d="${BACK}" fill="${back}"/>` +
+    `<path d="M22.5,25.6 H41.2 l6,8 H78" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>` +
+    `<rect x="20" y="39" width="60" height="44" rx="4" fill="${inside}"/>` +
+    mid +
+    `<path d="${FLAP}" fill="${flap}"/>` +
+    `<path d="M25.2,55.2 H87" stroke="#fff" stroke-opacity=".5" stroke-width="1.8" stroke-linecap="round"/>` +
+    (!emblem ? '' : window.state?.emblems === 'simple' ? emblemOn(EM[emblem].parts, colour, 54.5, 69.6, 1.08, true, tinted)
+      : RICH[emblem] ? richOn(RICH[emblem], colour, tinted)
+      // Not drawn as a scene yet: the glyph, larger.
+      : emblemOn(EM[emblem].parts, colour, 54.5, 69, 1.32, true, tinted));
+}
+const svg = (inner, vb = '10 12 88 88') => `<svg viewBox="${vb}" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
+function folderSVG(f, opts = {}) {
+  const whole = state.paint === 'whole';
+  const kids = f.cover ? [f.cover] : pick(f.children || []);
+  const st = f.children && f.children.length === 0 && !f.cover ? 'empty' : (opts.pages || !kids.length ? 'pages' : 'items');
+  return svg(folderBody({ state: st, colour: f.colour || 'steel', whole, items: kids, emblem: f.emblem, lone: !f.cover }));
+}
+
+// ── file types ───────────────────────────────────────────────────────────
+const GLYPHS = {
+  lines: [F(RR(4, 4.5, 16, 2.4, 1.2)), F(RR(4, 9, 16, 2.4, 1.2)), F(RR(4, 13.5, 16, 2.4, 1.2)), F(RR(4, 18, 10, 2.4, 1.2))],
+  doc: [F(RR(4, 3.6, 11, 3.6, 1.2)), F(RR(4, 9.6, 16, 2.2, 1.1)), F(RR(4, 13.6, 16, 2.2, 1.1)), F(RR(4, 17.6, 11, 2.2, 1.1))],
+  pdf: [F(RR(4, 4, 7.4, 7.4, 1.2)), F(RR(13, 4.4, 7, 2.2, 1.1)), F(RR(13, 8.6, 7, 2.2, 1.1)), F(RR(4, 13.4, 16, 2.2, 1.1)), F(RR(4, 17.6, 12, 2.2, 1.1))],
+  sheet: [F(RR(3, 4, 18, 16, 2) + [4.7, 9.95, 15.2].flatMap(x => [9.2, 14.1].map(y => RR(x, y, 4.1, 3.7, .4))).join(''), { e: 1 })],
+  slides: [F(RR(3, 3.5, 18, 13, 1.6) + RR(6.5, 9.8, 2.4, 4.2, .4) + RR(10.8, 7.4, 2.4, 6.6, .4) + RR(15.1, 8.8, 2.4, 5.2, .4), { e: 1 }), S('M12,16.5 V20.6 M8.4,21 L12,18.6 L15.6,21', 1.6)],
+  md: [F('M2.5,18 V6 H5.6 L8.6,10.4 L11.6,6 H14.7 V18 H11.8 V11 L8.6,15.2 L5.4,11 V18z'), F('M17,6 H20 V12.6 H22 L18.5,18 L15,12.6 H17z')],
+  subs: [F(RR(2.5, 3.6, 19, 13.4, 2.4) + RR(5.5, 7.6, 13, 2.1, 1.05) + RR(5.5, 11.4, 9, 2.1, 1.05), { e: 1 }), F('M6.4,16.4 V21.2 L11.4,16.4z')],
+  markup: [S('M8,7 L3.5,12 L8,17', 2.6), S('M16,7 L20.5,12 L16,17', 2.6), S('M13.6,5 L10.4,19', 2.4)],
+  tree: [F(C(12, 4.8, 2.6)), F(C(5.6, 18.6, 2.6)), F(C(18.4, 18.6, 2.6)), F(C(12, 18.6, 2.6), { tone: 'light' }), S('M12,7.4 V16 M5.6,16 V12.4 H18.4 V16', 1.7)],
+  style: [S('M8.6,4 C6.2,4 6.4,5.8 6.4,8 C6.4,10.4 5.6,12 3.8,12 C5.6,12 6.4,13.6 6.4,16 C6.4,18.2 6.2,20 8.6,20', 2.1), S('M15.4,4 C17.8,4 17.6,5.8 17.6,8 C17.6,10.4 18.4,12 20.2,12 C18.4,12 17.6,13.6 17.6,16 C17.6,18.2 17.8,20 15.4,20', 2.1), S('M11,8.6 L10.2,15.4 M13.8,8.6 L13,15.4 M9.4,10.6 H15 M9,13.4 H14.6', 1.3)],
+  script: [S('M8.6,4 C6.2,4 6.4,5.8 6.4,8 C6.4,10.4 5.6,12 3.8,12 C5.6,12 6.4,13.6 6.4,16 C6.4,18.2 6.2,20 8.6,20', 2.1), S('M15.4,4 C17.8,4 17.6,5.8 17.6,8 C17.6,10.4 18.4,12 20.2,12 C18.4,12 17.6,13.6 17.6,16 C17.6,18.2 17.8,20 15.4,20', 2.1), F(C(10, 12, 1.45)), F(C(14, 12, 1.45))],
+  json: [S('M8.6,4 C6.2,4 6.4,5.8 6.4,8 C6.4,10.4 5.6,12 3.8,12 C5.6,12 6.4,13.6 6.4,16 C6.4,18.2 6.2,20 8.6,20', 2.1), S('M15.4,4 C17.8,4 17.6,5.8 17.6,8 C17.6,10.4 18.4,12 20.2,12 C18.4,12 17.6,13.6 17.6,16 C17.6,18.2 17.8,20 15.4,20', 2.1), F(C(12, 9.4, 1.45)), F(C(12, 14.6, 1.45))],
+  code: [F(RR(3, 4.6, 10, 2.4, 1.2)), F(RR(7, 9.2, 13, 2.4, 1.2)), F(RR(7, 13.8, 9, 2.4, 1.2), { tone: 'light' }), F(RR(3, 18.4, 7, 2.4, 1.2))],
+  prompt: [S('M4,6.5 L9.5,12 L4,17.5', 2.7), F(RR(11.5, 16, 9, 2.7, 1.35))],
+  sliders: [S('M3.5,6.5 H20.5 M3.5,12 H20.5 M3.5,17.5 H20.5', 1.7), F(C(9, 6.5, 2.5)), F(C(15.5, 12, 2.5)), F(C(7, 17.5, 2.5))],
+  db: [F('M4,6.4 C4,3.4 20,3.4 20,6.4 C20,9.4 4,9.4 4,6.4z', { tone: 'light' }), F('M4,8.6 C4,11.6 20,11.6 20,8.6 V12 C20,15 4,15 4,12z'), F('M4,14 C4,17 20,17 20,14 V17.4 C20,20.4 4,20.4 4,17.4z')],
+  zip: [F(RR(10.6, 2, 2.8, 2, .4)), F(RR(10.6, 4.6, 2.8, 2, .4), { tone: 'light' }), F(RR(10.6, 7.2, 2.8, 2, .4)), F(RR(10.6, 9.8, 2.8, 2, .4), { tone: 'light' }), F(RR(9, 12.6, 6, 8.6, 2) + RR(10.8, 16, 2.4, 3, 1), { e: 1 })],
+  cube: [F('M12,2.5 L21,7 L12,11.5 L3,7z', { tone: 'light' }), F('M3,7 L12,11.5 V21.5 L3,17z', { o: .82 }), F('M21,7 L12,11.5 V21.5 L21,17z')],
+  layers: [F('M12,3 L21,7.5 L12,12 L3,7.5z', { tone: 'light' }), F('M3,11.2 L12,15.7 L21,11.2 V12.8 L12,17.3 L3,12.8z'), F('M3,15.6 L12,20.1 L21,15.6 V17.2 L12,21.7 L3,17.2z')],
+  chip: [F(RR(6, 6, 12, 12, 2) + RR(9, 9, 6, 6, 1), { e: 1 }), S('M9,3 V6 M12,3 V6 M15,3 V6 M9,18 V21 M12,18 V21 M15,18 V21 M3,9 H6 M3,12 H6 M3,15 H6 M18,9 H21 M18,12 H21 M18,15 H21', 1.6)],
+  puzzle: [F('M4,8 H8.2 a2.6,2.6 0 1 1 5,0 H17 V11.8 a2.6,2.6 0 1 1 0,5 V21 H4z')],
+  window: [F(RR(2.5, 4, 19, 16, 2) + RR(4.5, 8.4, 15, 9.6, .8), { e: 1 }), F(C(5.6, 6.2, .9), { tone: 'light' }), F(C(8.2, 6.2, .9), { tone: 'light' })],
+  disc: [F(C(12, 12, 9.5) + C(12, 12, 2.4), { e: 1 }), S('M12,5.2 a6.8,6.8 0 0 1 6.8,6.8', 1.5, { tone: 'light' })],
+  bits: [S(EL(5.5, 7.2, 2, 2.8), 1.6), F(RR(11.1, 4.2, 1.8, 6, .9)), S(EL(18.5, 7.2, 2, 2.8), 1.6), F(RR(4.6, 13.8, 1.8, 6, .9)), S(EL(12, 16.8, 2, 2.8), 1.6), F(RR(17.6, 13.8, 1.8, 6, .9))],
+  magnet: [F('M4.5,3 H10 V12 a2,2 0 0 0 4,0 V3 H19.5 V12 a7.5,7.5 0 0 1 -15,0z'), F(RR(4.5, 3, 5.5, 3.6, .6), { tone: 'light' }), F(RR(14, 3, 5.5, 3.6, .6), { tone: 'light' })],
+  font: [F('M2,19 L8.2,4 H10.4 L16.6,19 H13.7 L12.3,15.3 H6.3 L4.9,19z' + 'M7.2,12.9 H11.4 L9.3,7.6z', { e: 1 }), F(C(19.2, 15.6, 3) + C(19.2, 15.6, 1.3), { e: 1 }), F(RR(21, 12.4, 1.6, 6.6, .8))],
+  hex: [F('M12,2.5 L20.5,7.25 V16.75 L12,21.5 L3.5,16.75 V7.25z' + 'M12,7.2 L16.4,9.6 V14.4 L12,16.8 L7.6,14.4 V9.6z', { e: 1 })],
+  picture: EM.picture.parts,
+  film: EM.film.parts,
+  music: EM.music.parts,
+};
+const FAMILIES = {
+  text:     { label: 'Plain text', glyph: 'lines', acc: 'steel', exts: ['txt', 'log'] },
+  markdown: { label: 'Markdown', glyph: 'md', acc: 'mint', exts: ['md', 'markdown', 'mdown', 'mkd'] },
+  word:     { label: 'Documents', glyph: 'doc', acc: 'sky', exts: ['doc', 'docx', 'odt', 'rtf'] },
+  pdf:      { label: 'PDF', glyph: 'pdf', acc: 'red', exts: ['pdf'] },
+  sheet:    { label: 'Spreadsheets', glyph: 'sheet', acc: 'green', exts: ['xls', 'xlsx', 'xlsm', 'ods', 'csv'] },
+  slides:   { label: 'Slides', glyph: 'slides', acc: 'orange', exts: ['ppt', 'pptx', 'odp'] },
+  subs:     { label: 'Subtitles', glyph: 'subs', acc: 'rose', exts: ['srt', 'vtt'] },
+  markup:   { label: 'Web pages', glyph: 'markup', acc: 'coral', exts: ['html', 'htm', 'xhtml'] },
+  xml:      { label: 'XML', glyph: 'tree', acc: 'gold', exts: ['xml'] },
+  style:    { label: 'Style sheets', glyph: 'style', acc: 'sky', exts: ['css', 'scss'] },
+  script:   { label: 'JavaScript', glyph: 'script', acc: 'amber', exts: ['js', 'mjs', 'cjs', 'jsx', 'tsx'] },
+  json:     { label: 'JSON', glyph: 'json', acc: 'lime', exts: ['json', 'map'] },
+  source:   { label: 'Source code', glyph: 'code', acc: 'violet', exts: ['kt', 'kts', 'java', 'py', 'lua', 'c', 'h', 'cpp', 'hpp', 'rs', 'go', 'rb', 'php', 'cs', 'smali', 'gradle', 'pro'] },
+  shell:    { label: 'Shell scripts', glyph: 'prompt', acc: 'green', exts: ['sh', 'bash', 'gradlew'] },
+  config:   { label: 'Settings files', glyph: 'sliders', acc: 'brown', exts: ['yml', 'yaml', 'toml', 'ini', 'cfg', 'conf', 'properties'] },
+  sql:      { label: 'Databases', glyph: 'db', acc: 'indigo', exts: ['sql', 'db', 'sqlite'] },
+  archive:  { label: 'Archives', glyph: 'zip', acc: 'brown', exts: ['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'zst', 'jar'] },
+  package:  { label: 'App packages', glyph: 'cube', acc: 'green', exts: ['apk'], note: 'only when it has no icon of its own' },
+  bundle:   { label: 'App bundles', glyph: 'layers', acc: 'green', exts: ['xapk', 'apks', 'apkm'] },
+  dex:      { label: 'Dex', glyph: 'chip', acc: 'violet', exts: ['dex', 'odex', 'vdex'] },
+  lib:      { label: 'Libraries', glyph: 'puzzle', acc: 'indigo', exts: ['so', 'o', 'a', 'dll'] },
+  exe:      { label: 'Programs', glyph: 'window', acc: 'sky', exts: ['exe'] },
+  disc:     { label: 'Disc images', glyph: 'disc', acc: 'brown', exts: ['iso', 'img'] },
+  binary:   { label: 'Raw data', glyph: 'bits', acc: 'steel', exts: ['bin', 'dat', 'arsc'] },
+  torrent:  { label: 'Torrents', glyph: 'magnet', acc: 'coral', exts: ['torrent'] },
+  font:     { label: 'Fonts', glyph: 'font', acc: 'rose', exts: ['ttf', 'otf', 'woff', 'woff2'] },
+  wasm:     { label: 'WebAssembly', glyph: 'hex', acc: 'violet', exts: ['wasm'] },
+  image:    { label: 'Pictures without a preview', glyph: 'picture', acc: 'amber', exts: ['svg', 'tif', 'tiff', 'eps', 'emf', 'wmf', 'pict'] },
+  video:    { label: 'Videos without a preview', glyph: 'film', acc: 'red', exts: ['flv', 'wmv'] },
+  audio:    { label: 'Music without cover art', glyph: 'music', acc: 'violet', exts: ['mp3', 'wav', 'amr', 'mid', 'midi', 'xmf', 'rtttl', 'wma'], note: 'music files with embedded art show the art instead' },
+  other:    { label: 'Anything else', glyph: null, acc: 'steel', exts: ['xyz', ''] },
+};
+// Five letters is what fits the tag. Longer names get the short form people already use.
+const SHORT = { markdown: 'md', mdown: 'md', gradle: 'grdl', gradlew: 'grdlw', properties: 'props', torrent: 'torr', sqlite: 'sqlt' };
+const EXT_FAMILY = {};
+for (const [k, f] of Object.entries(FAMILIES)) for (const e of f.exts) EXT_FAMILY[e] = k;
+const typeOf = (ext) => EXT_FAMILY[ext] || 'other';
+function typeSVG(ext, opts = {}) {
+  const famKey = typeOf(ext), fam = FAMILIES[famKey];
+  const [a1, a2, a3] = ACC[fam.acc];
+  const label = ext ? (SHORT[ext] || ext).toUpperCase() : '';
+  const fs = label.length <= 3 ? 12.5 : label.length === 4 ? 10.8 : 9;
+  return svg(
+    `<ellipse cx="55" cy="93.5" rx="24" ry="3" fill="url(#gGround)"/>` +
+    `<path d="M34,16 H66 L80,30 V86 a6,6 0 0 1 -6,6 H34 a6,6 0 0 1 -6,-6 V22 a6,6 0 0 1 6,-6z" fill="url(#gPaper)"/>` +
+    `<path d="M66,16 L80,30 V86 a6,6 0 0 1 -6,6 H66z" fill="#000" fill-opacity=".05"/>` +
+    `<path d="M66,16 V26 a4,4 0 0 0 4,4 H80z" fill="url(#gSteel)"/>` +
+    `<path d="M34.5,17.6 H65" stroke="#fff" stroke-opacity=".8" stroke-width="1.6" stroke-linecap="round"/>` +
+    (fam.glyph ? emblemOn(GLYPHS[fam.glyph], fam.acc, 53, 43, 1.3) : `<text x="54" y="50" text-anchor="middle" font-family="system-ui,Segoe UI,Roboto,sans-serif" font-size="24" font-weight="700" fill="#4E7382" fill-opacity=".45">${ext ? '' : '?'}</text>`) +
+    (label ? `<path d="M21,64 H70 a4,4 0 0 1 4,4 V76 a4,4 0 0 1 -4,4 H21 a3,3 0 0 1 -3,-3 V67 a3,3 0 0 1 3,-3z" fill="url(#acc-${fam.acc})"/>` +
+      `<path d="M18.6,78.6 L28,84 V80z" fill="${a3}"/>` +
+      `<path d="M21.5,65.4 H70" stroke="#fff" stroke-opacity=".35" stroke-width="1.2" stroke-linecap="round"/>` +
+      `<text x="46" y="${n(72 + fs * .36)}" text-anchor="middle" font-family="system-ui,Segoe UI,Roboto,sans-serif" font-size="${fs}" font-weight="800" letter-spacing=".3" fill="#fff">${label}</text>` : ''));
+}
+function mediaThumbSVG(it) {
+  const body = it.media === 'audio' ? coverArt(it.seed || 0, 14, 14, 80, 80) : photoArt(it.seed || 0, 14, 14, 80, 80);
+  const play = it.media === 'video' ? `<circle cx="54" cy="54" r="13" fill="#000" fill-opacity=".45"/><path d="M49.5,46.5 L62,54 L49.5,61.5z" fill="#fff"/>` : '';
+  return svg(`<defs><clipPath id="clip${it.seed}${it.media}"><rect x="14" y="14" width="80" height="80" rx="10"/></clipPath></defs><g clip-path="url(#clip${it.seed}${it.media})">${body}</g>${play}`);
+}
+
+// ── the examples ─────────────────────────────────────────────────────────
+const P = (seed) => ({ kind: 'media', media: 'image', seed });
+const V = (seed) => ({ kind: 'media', media: 'video', seed });
+const A = (seed) => ({ kind: 'media', media: 'audio', seed });
+const Fi = (ext) => ({ kind: 'file', ext });
+const Fo = (full = true) => ({ kind: 'folder', full });
+const STATES = [
+  { id: 'st-empty', label: 'Empty', meta: 'nothing inside', f: { children: [] } },
+  { id: 'st-pages', label: 'Has things in it', meta: 'drawn pages: while the look inside loads, and below 22dp', f: { children: [Fi('txt')] }, pages: true },
+  { id: 'st-media', label: 'Only pictures, video, music', meta: 'three of their own thumbnails', f: { children: [P(1), V(0), A(0), P(3)] } },
+  { id: 'st-files', label: 'Only files', meta: 'three file icons, different types first', f: { children: [Fi('pdf'), Fi('pdf'), Fi('docx'), Fi('zip'), Fi('txt')] } },
+  { id: 'st-folders', label: 'Only folders', meta: 'portrait gold folders standing in it, the left one mirrored; a sheet in the ones that aren’t empty', f: { children: [Fo(true), Fo(false), Fo(true)] } },
+  { id: 'st-folders2', label: 'Only folders, two', meta: 'two inside', f: { children: [Fo(true), Fo(true)] } },
+  { id: 'st-folders1', label: 'Only folders, one', meta: 'one inside, peeking', f: { children: [Fo(true)] } },
+  { id: 'st-mixed', label: 'A mix', meta: 'one of each: a folder, a file, a picture', f: { children: [Fo(true), Fi('pdf'), P(2), Fi('txt'), P(4)] } },
+  { id: 'st-two', label: 'Two things', meta: 'what’s there, side by side', f: { children: [Fi('xlsx'), P(0)] } },
+  { id: 'st-one', label: 'One thing', meta: 'standing in it, peeking over the back', f: { children: [V(4)] } },
+  { id: 'st-cover', label: 'A cover you chose', meta: 'Change icon › Use a photo from inside', f: { children: [P(0), P(1), Fi('pdf')], cover: P(2), emblem: 'heart', colour: 'rose' } },
+];
+const DEFAULTS = [
+  { place: 'Download', emblem: 'download', colour: 'green', full: [Fi('apk'), Fi('pdf'), P(1), Fi('zip')] },
+  { place: 'Documents', emblem: 'document', colour: 'sky', full: [Fi('docx'), Fi('pdf'), Fi('xlsx')] },
+  { place: 'DCIM', emblem: 'camera', colour: 'amber', full: [Fo(true), Fo(true), Fo(false)] },
+  { place: 'Pictures', emblem: 'picture', colour: 'gold', full: [P(2), P(4), P(3)] },
+  { place: 'Movies', emblem: 'film', colour: 'red', full: [V(0), V(2), V(1)] },
+  { place: 'Music', emblem: 'music', colour: 'violet', full: [A(0), A(1), A(2)] },
+  { place: 'Podcasts', emblem: 'podcast', colour: 'orange', full: [A(3), Fi('mp3'), A(4)] },
+  { place: 'Audiobooks', emblem: 'audiobook', colour: 'brown', full: [A(2), Fi('m4b')] },
+  { place: 'Recordings', emblem: 'mic', colour: 'coral', full: [Fi('mp3'), Fi('wav'), Fi('amr')] },
+  { place: 'Ringtones', emblem: 'ringtone', colour: 'rose', full: [Fi('mp3'), Fi('ogg')] },
+  { place: 'Alarms', emblem: 'alarm', colour: 'orange', full: [Fi('mp3')] },
+  { place: 'Notifications', emblem: 'bell', colour: 'gold', full: [Fi('ogg'), Fi('mp3')] },
+  { place: 'Android', emblem: 'cog', colour: 'steel', full: [Fo(true), Fo(true), Fo(true)] },
+  { place: 'WhatsApp', emblem: 'chat', colour: 'green', full: [Fo(true), Fo(true), Fo(false)] },
+  { place: 'Telegram', emblem: 'send', colour: 'sky', full: [Fo(true), Fo(true)] },
+  { place: 'Bluetooth', emblem: 'transfer', colour: 'indigo', full: [P(3), Fi('pdf'), Fi('vcf')] },
+];
+
+// ── state ────────────────────────────────────────────────────────────────
+</script>
+<script>
+const TABDATA = {"defs":"<linearGradient id=\"t-gSteel\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#C6DDE6\"/><stop offset=\"0.3\" stop-color=\"#93B8C6\"/><stop offset=\"0.65\" stop-color=\"#7FA8B8\"/><stop offset=\"1\" stop-color=\"#5E8A9B\"/></linearGradient><linearGradient id=\"t-gSlate\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#6F97A7\"/><stop offset=\"0.5\" stop-color=\"#4E7382\"/><stop offset=\"1\" stop-color=\"#385663\"/></linearGradient><linearGradient id=\"t-gDeep\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#3E5F6C\"/><stop offset=\"1\" stop-color=\"#22343C\"/></linearGradient><linearGradient id=\"t-gSky\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#22343C\"/><stop offset=\"1\" stop-color=\"#46707F\"/></linearGradient><linearGradient id=\"t-gPaper\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#E6F0F3\"/><stop offset=\"1\" stop-color=\"#A9C6D2\"/></linearGradient><radialGradient id=\"t-gVinyl\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\"><stop offset=\"0\" stop-color=\"#3A3D40\"/><stop offset=\"0.55\" stop-color=\"#1A1B1C\"/><stop offset=\"1\" stop-color=\"#0E0F10\"/></radialGradient><radialGradient id=\"t-gGround\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\"><stop offset=\"0\" stop-color=\"#000\" stop-opacity=\"0.5\"/><stop offset=\"1\" stop-color=\"#000\" stop-opacity=\"0\"/></radialGradient><radialGradient id=\"t-tileSoft\" cx=\"0.36\" cy=\"0.26\" r=\"0.95\"><stop offset=\"0\" stop-color=\"#2D2F2C\"/><stop offset=\"1\" stop-color=\"#191A18\"/></radialGradient><linearGradient id=\"t-acc-amber\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F5D68A\"/><stop offset=\"0.5\" stop-color=\"#E0B25C\"/><stop offset=\"1\" stop-color=\"#A97A2E\"/></linearGradient><linearGradient id=\"t-acc-green\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#B4E39B\"/><stop offset=\"0.5\" stop-color=\"#7FC46A\"/><stop offset=\"1\" stop-color=\"#4E8F3E\"/></linearGradient><linearGradient id=\"t-acc-gold\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#FBE28C\"/><stop offset=\"0.5\" stop-color=\"#E8C15A\"/><stop offset=\"1\" stop-color=\"#B08A28\"/></linearGradient><linearGradient id=\"t-acc-coral\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F7B49C\"/><stop offset=\"0.5\" stop-color=\"#E58A6A\"/><stop offset=\"1\" stop-color=\"#B05E42\"/></linearGradient><linearGradient id=\"t-acc-mint\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#9BEBD8\"/><stop offset=\"0.5\" stop-color=\"#5FCDB5\"/><stop offset=\"1\" stop-color=\"#2F8F7C\"/></linearGradient><linearGradient id=\"t-acc-rose\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F6A6BC\"/><stop offset=\"0.5\" stop-color=\"#E0708F\"/><stop offset=\"1\" stop-color=\"#A84463\"/></linearGradient><linearGradient id=\"t-acc-lime\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#D6EE8E\"/><stop offset=\"0.5\" stop-color=\"#B0D65E\"/><stop offset=\"1\" stop-color=\"#7A9F2E\"/></linearGradient><linearGradient id=\"t-acc-orange\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#FAC48A\"/><stop offset=\"0.5\" stop-color=\"#F0A050\"/><stop offset=\"1\" stop-color=\"#B86E25\"/></linearGradient><linearGradient id=\"t-acc-red\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#F59A8C\"/><stop offset=\"0.5\" stop-color=\"#E06A5A\"/><stop offset=\"1\" stop-color=\"#A63F31\"/></linearGradient><linearGradient id=\"t-acc-violet\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#D3BCF5\"/><stop offset=\"0.5\" stop-color=\"#A884E0\"/><stop offset=\"1\" stop-color=\"#7253B0\"/></linearGradient><linearGradient id=\"t-acc-sky\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#B3DDF7\"/><stop offset=\"0.5\" stop-color=\"#6FB7E8\"/><stop offset=\"1\" stop-color=\"#3F80B0\"/></linearGradient><linearGradient id=\"t-acc-brown\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#E8C29A\"/><stop offset=\"0.5\" stop-color=\"#CF9A5E\"/><stop offset=\"1\" stop-color=\"#946233\"/></linearGradient><linearGradient id=\"t-acc-indigo\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#C0C9FA\"/><stop offset=\"0.5\" stop-color=\"#8C9CF0\"/><stop offset=\"1\" stop-color=\"#5A68BF\"/></linearGradient>","filet":"<g transform=\"translate(54 54) scale(.8) translate(-54 -54)\"><path fill=\"#4E7382\" d=\"M26,24h16l6,8h30a6,6 0 0 1 6,6v8H16V30a6,6 0 0 1 6,-6z\"/><path fill=\"#7FA8B8\" d=\"M24,53h64a4,4 0 0 1 3.9,4.9l-5.6,24A6,6 0 0 1 80.4,86H21a4,4 0 0 1 -3.9,-4.9l5.6,-24A6,6 0 0 1 24,53z\"/></g>","icons":{"home":{"label":"Home","bar":null,"group":"Places","art":"<ellipse cx=\"54\" cy=\"78.5\" rx=\"21\" ry=\"3.4\" fill=\"url(#t-gGround)\"/><rect x=\"66\" y=\"31\" width=\"7\" height=\"14\" rx=\"1.4\" fill=\"url(#t-gSlate)\"/><rect x=\"34\" y=\"45\" width=\"40\" height=\"32\" rx=\"3.2\" fill=\"url(#t-gSteel)\"/><path d=\"M64,48 V77 H70.8 a3.2,3.2 0 0 0 3.2,-3.2 V48z\" fill=\"#000\" fill-opacity=\".14\"/><path d=\"M28.2,46.6 L51.3,26.8 a4.2,4.2 0 0 1 5.4,0 L79.8,46.6 a2.6,2.6 0 0 1 -1.7,4.6 H29.9 a2.6,2.6 0 0 1 -1.7,-4.6z\" fill=\"url(#t-gSlate)\"/><path d=\"M29.6,47.4 L51.9,28.3 a3.2,3.2 0 0 1 2.1,-0.8 V31.2 L33.4,48.9z\" fill=\"#fff\" fill-opacity=\".16\"/><rect x=\"48\" y=\"58\" width=\"12\" height=\"19\" rx=\"2.2\" fill=\"url(#t-acc-amber)\"/><circle cx=\"57\" cy=\"68\" r=\"1.1\" fill=\"#A97A2E\"/><rect x=\"38\" y=\"57\" width=\"7.5\" height=\"7.5\" rx=\"1.4\" fill=\"#F5D68A\"/><rect x=\"62.5\" y=\"57\" width=\"7.5\" height=\"7.5\" rx=\"1.4\" fill=\"#F5D68A\" fill-opacity=\".8\"/>","mono":["m4 11 8-7 8 7v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"]},"files":{"label":"Internal storage","bar":"Storage","group":"Places","art":"<ellipse cx=\"54\" cy=\"79\" rx=\"22\" ry=\"3.4\" fill=\"url(#t-gGround)\"/><rect x=\"28\" y=\"55\" width=\"52\" height=\"21\" rx=\"5\" fill=\"url(#t-gSlate)\"/><rect x=\"28\" y=\"31\" width=\"52\" height=\"21\" rx=\"5\" fill=\"url(#t-gSteel)\"/><rect x=\"31\" y=\"33\" width=\"46\" height=\"2.6\" rx=\"1.3\" fill=\"#fff\" fill-opacity=\".24\"/><rect x=\"31\" y=\"57\" width=\"46\" height=\"2.6\" rx=\"1.3\" fill=\"#fff\" fill-opacity=\".14\"/><rect x=\"55\" y=\"40\" width=\"18\" height=\"3.4\" rx=\"1.7\" fill=\"#2C4550\" fill-opacity=\".75\"/><rect x=\"55\" y=\"64\" width=\"18\" height=\"3.4\" rx=\"1.7\" fill=\"#1E2F36\" fill-opacity=\".8\"/><circle cx=\"37.5\" cy=\"41.5\" r=\"5.5\" fill=\"#B4E39B\" fill-opacity=\".25\"/><circle cx=\"37.5\" cy=\"41.5\" r=\"2.8\" fill=\"url(#t-acc-green)\"/><circle cx=\"37.5\" cy=\"65.5\" r=\"5.5\" fill=\"#B4E39B\" fill-opacity=\".2\"/><circle cx=\"37.5\" cy=\"65.5\" r=\"2.8\" fill=\"url(#t-acc-green)\"/><circle cx=\"45\" cy=\"41.5\" r=\"1.8\" fill=\"#2C4550\" fill-opacity=\".6\"/><circle cx=\"45\" cy=\"65.5\" r=\"1.8\" fill=\"#1E2F36\" fill-opacity=\".7\"/>","mono":["M3 4h18v7H3z","M3 13h18v7H3z","M7 7.5h.01M7 16.5h.01"]},"bookmarks":{"label":"Bookmarks","bar":null,"group":"Places","art":"<ellipse cx=\"54\" cy=\"80\" rx=\"16\" ry=\"3\" fill=\"url(#t-gGround)\"/><path d=\"M40,27 h28 a4,4 0 0 1 4,4 v45.6 a1.6,1.6 0 0 1 -2.5,1.3 L54,67.6 L38.5,77.9 a1.6,1.6 0 0 1 -2.5,-1.3 V31 a4,4 0 0 1 4,-4z\" fill=\"url(#t-gSteel)\"/><path d=\"M54,27 h14 a4,4 0 0 1 4,4 v45.6 a1.6,1.6 0 0 1 -2.5,1.3 L54,67.6z\" fill=\"#000\" fill-opacity=\".13\"/><path d=\"M40,27 h28 a4,4 0 0 1 4,4 v2 H36 v-2 a4,4 0 0 1 4,-4z\" fill=\"#fff\" fill-opacity=\".22\"/><path d=\"M54,34 L56.94,41.95 L65.41,42.29 L58.76,47.55 L61.05,55.71 L54,51 L46.95,55.71 L49.24,47.55 L42.59,42.29 L51.06,41.95z\" transform=\"translate(0 1.8)\" fill=\"#000\" fill-opacity=\".28\"/><path d=\"M54,34 L56.94,41.95 L65.41,42.29 L58.76,47.55 L61.05,55.71 L54,51 L46.95,55.71 L49.24,47.55 L42.59,42.29 L51.06,41.95z\" fill=\"url(#t-acc-gold)\" stroke=\"#E8C15A\" stroke-width=\"1.6\" stroke-linejoin=\"round\"/>","mono":["m12 4 2.4 5 5.6.8-4 3.9 1 5.5-5-2.7-5 2.7 1-5.5-4-3.9 5.6-.8z"]},"opened":{"label":"Opened","bar":null,"group":"Places","art":"<ellipse cx=\"52\" cy=\"80\" rx=\"18\" ry=\"3\" fill=\"url(#t-gGround)\"/><path d=\"M39,26 h19 l14,14 v34 a4,4 0 0 1 -4,4 h-29 a4,4 0 0 1 -4,-4 v-44 a4,4 0 0 1 4,-4z\" fill=\"url(#t-gSteel)\"/><path d=\"M58,26 v10 a4,4 0 0 0 4,4 h10z\" fill=\"url(#t-gSlate)\"/><rect x=\"41\" y=\"46\" width=\"20\" height=\"3.2\" rx=\"1.6\" fill=\"#2C4550\" fill-opacity=\".55\"/><rect x=\"41\" y=\"53\" width=\"15\" height=\"3.2\" rx=\"1.6\" fill=\"#2C4550\" fill-opacity=\".55\"/><rect x=\"41\" y=\"60\" width=\"11\" height=\"3.2\" rx=\"1.6\" fill=\"#2C4550\" fill-opacity=\".55\"/><circle cx=\"66\" cy=\"66\" r=\"14\" fill=\"url(#t-gDeep)\"/><circle cx=\"66\" cy=\"66\" r=\"11\" fill=\"url(#t-acc-coral)\"/><path d=\"M58.6,61.6 a9,9 0 0 1 5.2,-4.3\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".45\" stroke-width=\"1.6\" stroke-linecap=\"round\"/><path d=\"M66,59.5 V66 l4.6,3\" fill=\"none\" stroke=\"#3B1E15\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>","mono":["M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0","M12 7.5V12l3 2"]},"newfiles":{"label":"New files","bar":null,"group":"Places","art":"<ellipse cx=\"52\" cy=\"80\" rx=\"18\" ry=\"3\" fill=\"url(#t-gGround)\"/><rect x=\"40\" y=\"29\" width=\"30\" height=\"38\" rx=\"4\" transform=\"rotate(8 55 48)\" fill=\"url(#t-gSlate)\"/><path d=\"M36,33 h18 l11,11 v30 a4,4 0 0 1 -4,4 h-25 a4,4 0 0 1 -4,-4 v-37 a4,4 0 0 1 4,-4z\" fill=\"url(#t-gSteel)\"/><path d=\"M54,33 v8 a3,3 0 0 0 3,3 h8z\" fill=\"url(#t-gSlate)\"/><rect x=\"37.5\" y=\"50\" width=\"18\" height=\"3\" rx=\"1.5\" fill=\"#2C4550\" fill-opacity=\".55\"/><rect x=\"37.5\" y=\"56.5\" width=\"21\" height=\"3\" rx=\"1.5\" fill=\"#2C4550\" fill-opacity=\".55\"/><rect x=\"37.5\" y=\"63\" width=\"13\" height=\"3\" rx=\"1.5\" fill=\"#2C4550\" fill-opacity=\".55\"/><path d=\"M66.00,25.50L68.48,28.73L72.25,27.17L72.79,31.21L76.83,31.75L75.27,35.52L78.50,38.00L75.27,40.48L76.83,44.25L72.79,44.79L72.25,48.83L68.48,47.27L66.00,50.50L63.52,47.27L59.75,48.83L59.21,44.79L55.17,44.25L56.73,40.48L53.50,38.00L56.73,35.52L55.17,31.75L59.21,31.21L59.75,27.17L63.52,28.73z\" transform=\"translate(0 1.4)\" fill=\"#000\" fill-opacity=\".25\"/><path d=\"M66.00,25.50L68.48,28.73L72.25,27.17L72.79,31.21L76.83,31.75L75.27,35.52L78.50,38.00L75.27,40.48L76.83,44.25L72.79,44.79L72.25,48.83L68.48,47.27L66.00,50.50L63.52,47.27L59.75,48.83L59.21,44.79L55.17,44.25L56.73,40.48L53.50,38.00L56.73,35.52L55.17,31.75L59.21,31.21L59.75,27.17L63.52,28.73z\" fill=\"url(#t-acc-mint)\" stroke=\"#5FCDB5\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/><path d=\"M66,32.5 q0.8,4.6 5,5.5 q-4.2,0.9 -5,5.5 q-0.8,-4.6 -5,-5.5 q4.2,-0.9 5,-5.5z\" fill=\"#fff\" fill-opacity=\".95\"/><path d=\"M30.5,70 q0.5,2.6 2.8,3.1 q-2.3,0.5 -2.8,3.1 q-0.5,-2.6 -2.8,-3.1 q2.3,-0.5 2.8,-3.1z\" fill=\"#9BEBD8\" fill-opacity=\".8\"/>","mono":["M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7","M18 3v6M15 6h6","M8.5 13h7M8.5 16.5h5"]},"playlists":{"label":"Playlists","bar":null,"group":"Collections","art":"<ellipse cx=\"54\" cy=\"80\" rx=\"22\" ry=\"3.2\" fill=\"url(#t-gGround)\"/><circle cx=\"54\" cy=\"55\" r=\"18\" fill=\"url(#t-gVinyl)\"/><circle cx=\"54\" cy=\"55\" r=\"14.5\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".08\" stroke-width=\".9\"/><circle cx=\"54\" cy=\"55\" r=\"11\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".08\" stroke-width=\".9\"/><path d=\"M62.5,42 a15.5,15.5 0 0 1 6.5,7.5\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".3\" stroke-width=\"1.8\" stroke-linecap=\"round\"/><circle cx=\"54\" cy=\"55\" r=\"6.5\" fill=\"url(#t-acc-rose)\"/><circle cx=\"54\" cy=\"55\" r=\"1.5\" fill=\"#0E0F10\"/><path d=\"M34,58 V52 a20,20 0 0 1 40,0 v6\" fill=\"none\" stroke=\"url(#t-gSlate)\" stroke-width=\"6\" stroke-linecap=\"round\"/><path d=\"M36.68,42 A20,20 0 0 1 45.55,33.87\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".3\" stroke-width=\"1.6\" stroke-linecap=\"round\"/><rect x=\"28\" y=\"52\" width=\"12\" height=\"21\" rx=\"5.5\" fill=\"url(#t-gSteel)\"/><rect x=\"68\" y=\"52\" width=\"12\" height=\"21\" rx=\"5.5\" fill=\"url(#t-gSteel)\"/><rect x=\"37.5\" y=\"54\" width=\"5\" height=\"17\" rx=\"2.5\" fill=\"url(#t-acc-rose)\"/><rect x=\"65.5\" y=\"54\" width=\"5\" height=\"17\" rx=\"2.5\" fill=\"url(#t-acc-rose)\"/><rect x=\"45\" y=\"64.5\" width=\"18\" height=\"13\" rx=\"3\" fill=\"url(#t-gSteel)\"/><rect x=\"48\" y=\"67.6\" width=\"7.5\" height=\"1.8\" rx=\".9\" fill=\"#2C4550\" fill-opacity=\".7\"/><rect x=\"48\" y=\"70.6\" width=\"9.5\" height=\"1.8\" rx=\".9\" fill=\"#2C4550\" fill-opacity=\".7\"/><rect x=\"48\" y=\"73.6\" width=\"5.5\" height=\"1.8\" rx=\".9\" fill=\"#2C4550\" fill-opacity=\".7\"/><path d=\"M58.6,67.4 v5.4 l4.4,-2.7z\" fill=\"#E0708F\" stroke=\"#E0708F\" stroke-width=\".8\" stroke-linejoin=\"round\"/>","mono":["M4 6h11M4 10.5h11M4 15h7","M18 17.5V7l3-1","M18 17.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0"]},"carryon":{"label":"Carry on","bar":null,"group":"Collections","art":"<ellipse cx=\"54\" cy=\"80\" rx=\"18\" ry=\"3\" fill=\"url(#t-gGround)\"/><circle cx=\"54\" cy=\"52\" r=\"24\" fill=\"none\" stroke=\"url(#t-gDeep)\" stroke-width=\"7\"/><path d=\"M54,28 A24,24 0 1 1 31.17,59.42\" fill=\"none\" stroke=\"url(#t-acc-lime)\" stroke-width=\"7\" stroke-linecap=\"round\"/><circle cx=\"54\" cy=\"52\" r=\"17\" fill=\"url(#t-gSteel)\"/><path d=\"M54,35.5 a16.5,16.5 0 0 1 14.29,8.25\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".32\" stroke-width=\"1.8\" stroke-linecap=\"round\"/><path d=\"M49.5,43.6 v16.8 a1.6,1.6 0 0 0 2.4,1.4 l13.4,-8.4 a1.6,1.6 0 0 0 0,-2.8 l-13.4,-8.4 a1.6,1.6 0 0 0 -2.4,1.4z\" fill=\"url(#t-gDeep)\"/><circle cx=\"31.17\" cy=\"59.42\" r=\"1.9\" fill=\"#fff\" fill-opacity=\".9\"/>","mono":["M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0","m10 8.5 5.5 3.5-5.5 3.5z"]},"photos":{"label":"Photos","bar":null,"group":"Categories","art":"<ellipse cx=\"54\" cy=\"78\" rx=\"22\" ry=\"3\" fill=\"url(#t-gGround)\"/><rect x=\"28\" y=\"31\" width=\"52\" height=\"43\" rx=\"6\" fill=\"url(#t-gSlate)\"/><rect x=\"32\" y=\"35\" width=\"44\" height=\"35\" rx=\"3.5\" fill=\"url(#t-gSky)\"/><circle cx=\"64\" cy=\"46\" r=\"9\" fill=\"#FAC48A\" fill-opacity=\".22\"/><circle cx=\"64\" cy=\"46\" r=\"5.5\" fill=\"url(#t-acc-orange)\"/><path d=\"M32,66.5 L45,51.2 a2,2 0 0 1 3,0 L64.5,70 H35.5 a3.5,3.5 0 0 1 -3.5,-3.5z\" fill=\"#5F8C9D\"/><path d=\"M43,70 L59.3,55.3 a2,2 0 0 1 2.8,0 L76,66.5 a3.5,3.5 0 0 1 -3.5,3.5z\" fill=\"url(#t-gSteel)\"/><rect x=\"31\" y=\"33\" width=\"46\" height=\"1.8\" rx=\".9\" fill=\"#fff\" fill-opacity=\".2\"/>","mono":["M3 4h18v16H3z","M10 9.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0","m4 17 5-5 4 4 3-3 4 4"]},"videos":{"label":"Videos","bar":null,"group":"Categories","art":"<ellipse cx=\"54\" cy=\"79\" rx=\"22\" ry=\"3\" fill=\"url(#t-gGround)\"/><g transform=\"rotate(-11 31 46)\"><rect x=\"30\" y=\"36\" width=\"46\" height=\"9\" rx=\"2.4\" fill=\"url(#t-gDeep)\"/><path d=\"M37,36 h7 l-4.6,9 h-7z M51,36 h7 l-4.6,9 h-7z M65,36 h7 l-4.6,9 h-7z\" fill=\"url(#t-acc-red)\"/></g><rect x=\"30\" y=\"47\" width=\"48\" height=\"29\" rx=\"4\" fill=\"url(#t-gSteel)\"/><path d=\"M34,47 h40 a4,4 0 0 1 4,4 v3 H30 v-3 a4,4 0 0 1 4,-4z\" fill=\"url(#t-gDeep)\"/><path d=\"M37,47 h7 l-3.6,7 h-7z M51,47 h7 l-3.6,7 h-7z M65,47 h7 l-3.6,7 h-7z\" fill=\"#D9E6EC\" fill-opacity=\".85\"/><circle cx=\"33.5\" cy=\"46.5\" r=\"2.4\" fill=\"url(#t-gSlate)\"/><path d=\"M49,59 v11.5 a1.4,1.4 0 0 0 2.1,1.2 l10,-5.8 a1.4,1.4 0 0 0 0,-2.4 l-10,-5.8 a1.4,1.4 0 0 0 -2.1,1.2z\" fill=\"url(#t-acc-red)\"/>","mono":["M3 5h18v14H3z","m10 9 5 3-5 3z"]},"audio":{"label":"Audio","bar":null,"group":"Categories","art":"<ellipse cx=\"52\" cy=\"80\" rx=\"18\" ry=\"3\" fill=\"url(#t-gGround)\"/><path d=\"M31,44.5 a9,9 0 0 1 4,-8\" fill=\"none\" stroke=\"#D3BCF5\" stroke-opacity=\".75\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><path d=\"M26.5,47 a14,14 0 0 1 6,-13\" fill=\"none\" stroke=\"#D3BCF5\" stroke-opacity=\".45\" stroke-width=\"2.4\" stroke-linecap=\"round\"/><rect x=\"43\" y=\"40\" width=\"4\" height=\"29\" rx=\"1.5\" fill=\"url(#t-gSlate)\"/><rect x=\"70\" y=\"32\" width=\"4\" height=\"29\" rx=\"1.5\" fill=\"url(#t-gSlate)\"/><path d=\"M43,39 L74,30.5 V37.5 L43,46z\" fill=\"url(#t-acc-violet)\" stroke=\"url(#t-acc-violet)\" stroke-width=\"1\" stroke-linejoin=\"round\"/><path d=\"M44,39.4 L73,31.4\" stroke=\"#fff\" stroke-opacity=\".4\" stroke-width=\"1.2\" stroke-linecap=\"round\"/><ellipse cx=\"38.5\" cy=\"69\" rx=\"8.6\" ry=\"6.4\" transform=\"rotate(-22 38.5 69)\" fill=\"url(#t-gSteel)\"/><ellipse cx=\"65.5\" cy=\"61\" rx=\"8.6\" ry=\"6.4\" transform=\"rotate(-22 65.5 61)\" fill=\"url(#t-gSteel)\"/><ellipse cx=\"35.6\" cy=\"66.6\" rx=\"3.2\" ry=\"1.6\" transform=\"rotate(-22 35.6 66.6)\" fill=\"#fff\" fill-opacity=\".45\"/><ellipse cx=\"62.6\" cy=\"58.6\" rx=\"3.2\" ry=\"1.6\" transform=\"rotate(-22 62.6 58.6)\" fill=\"#fff\" fill-opacity=\".45\"/>","mono":["M9 18V6l10-2v12","M9 18a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0","M19 16a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"]},"packages":{"label":"Packages","bar":null,"group":"Categories","art":"<ellipse cx=\"54\" cy=\"81\" rx=\"20\" ry=\"3\" fill=\"url(#t-gGround)\"/><g transform=\"translate(54 54) scale(1.12) translate(-54 -54)\"><path d=\"M54,28 L76,40 L54,52 L32,40z\" fill=\"url(#t-gSteel)\"/><path d=\"M32,40 L54,52 V78 L32,66z\" fill=\"url(#t-gSlate)\"/><path d=\"M76,40 L54,52 V78 L76,66z\" fill=\"url(#t-gDeep)\"/><path d=\"M40.8,35.2 L45.2,32.8 L67.2,44.8 L62.8,47.2z\" fill=\"url(#t-acc-green)\"/><path d=\"M62.8,47.2 L67.2,44.8 V70.8 L62.8,73.2z\" fill=\"#4E8F3E\"/><path d=\"M32,40 L54,52 L76,40\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".3\" stroke-width=\"1.1\" stroke-linejoin=\"round\"/></g>","mono":["M4 4h16a3 3 0 0 1 0 0v16H4z","M9 15V9l3 4 3-4v6"]},"documents":{"label":"Documents","bar":null,"group":"Categories","art":"<ellipse cx=\"53\" cy=\"80\" rx=\"18\" ry=\"3\" fill=\"url(#t-gGround)\"/><rect x=\"42\" y=\"28\" width=\"30\" height=\"42\" rx=\"4\" transform=\"rotate(7 57 49)\" fill=\"url(#t-gSlate)\"/><path d=\"M38,28 h19 l13,13 v35 a4,4 0 0 1 -4,4 h-28 a4,4 0 0 1 -4,-4 v-44 a4,4 0 0 1 4,-4z\" fill=\"url(#t-gSteel)\"/><path d=\"M57,28 v9 a4,4 0 0 0 4,4 h9z\" fill=\"url(#t-gSlate)\"/><rect x=\"39\" y=\"51\" width=\"24\" height=\"6\" rx=\"2\" fill=\"url(#t-acc-sky)\" fill-opacity=\".8\"/><rect x=\"40\" y=\"45\" width=\"20\" height=\"3.2\" rx=\"1.6\" fill=\"#2C4550\" fill-opacity=\".6\"/><rect x=\"40\" y=\"52.4\" width=\"21\" height=\"3.2\" rx=\"1.6\" fill=\"#2C4550\" fill-opacity=\".6\"/><rect x=\"40\" y=\"59.8\" width=\"17\" height=\"3.2\" rx=\"1.6\" fill=\"#2C4550\" fill-opacity=\".6\"/><rect x=\"40\" y=\"67.2\" width=\"21\" height=\"3.2\" rx=\"1.6\" fill=\"#2C4550\" fill-opacity=\".6\"/>","mono":["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z","M14 3v5h5","M8.5 13h7M8.5 16.5h5"]},"archives":{"label":"Archives","bar":null,"group":"Categories","art":"<ellipse cx=\"54\" cy=\"79\" rx=\"21\" ry=\"3\" fill=\"url(#t-gGround)\"/><rect x=\"33\" y=\"40\" width=\"42\" height=\"36\" rx=\"3.5\" fill=\"url(#t-gSlate)\"/><rect x=\"33\" y=\"42\" width=\"42\" height=\"3.5\" fill=\"#000\" fill-opacity=\".2\"/><rect x=\"30\" y=\"31\" width=\"48\" height=\"12\" rx=\"3.5\" fill=\"url(#t-gSteel)\"/><rect x=\"33\" y=\"33\" width=\"42\" height=\"1.8\" rx=\".9\" fill=\"#fff\" fill-opacity=\".25\"/><rect x=\"50.5\" y=\"44\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#E8C29A\"/><rect x=\"54\" y=\"45.5\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#CF9A5E\"/><rect x=\"50.5\" y=\"47\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#E8C29A\"/><rect x=\"54\" y=\"48.5\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#CF9A5E\"/><rect x=\"50.5\" y=\"50\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#E8C29A\"/><rect x=\"54\" y=\"51.5\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#CF9A5E\"/><rect x=\"50.5\" y=\"53\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#E8C29A\"/><rect x=\"54\" y=\"54.5\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#CF9A5E\"/><rect x=\"50.5\" y=\"56\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#E8C29A\"/><rect x=\"54\" y=\"57.5\" width=\"3.5\" height=\"2\" rx=\".8\" fill=\"#CF9A5E\"/><rect x=\"50\" y=\"59\" width=\"8\" height=\"12\" rx=\"2.6\" fill=\"url(#t-acc-brown)\"/><circle cx=\"54\" cy=\"66.5\" r=\"1.6\" fill=\"#2A1A0C\" fill-opacity=\".7\"/>","mono":["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z","M11 6h2M11 9h2M11 12h2M11 15h2"]},"remotes":{"label":"Remotes","bar":null,"group":"Tools","art":"<ellipse cx=\"50\" cy=\"79\" rx=\"20\" ry=\"3\" fill=\"url(#t-gGround)\"/><rect x=\"28\" y=\"50\" width=\"26\" height=\"26\" rx=\"4\" fill=\"url(#t-gSlate)\"/><rect x=\"32\" y=\"56\" width=\"13\" height=\"3.2\" rx=\"1.6\" fill=\"#1E2F36\" fill-opacity=\".8\"/><rect x=\"32\" y=\"63\" width=\"13\" height=\"3.2\" rx=\"1.6\" fill=\"#1E2F36\" fill-opacity=\".8\"/><rect x=\"32\" y=\"70\" width=\"13\" height=\"3.2\" rx=\"1.6\" fill=\"#1E2F36\" fill-opacity=\".8\"/><circle cx=\"49.5\" cy=\"57.6\" r=\"1.7\" fill=\"#C0C9FA\"/><circle cx=\"49.5\" cy=\"64.6\" r=\"1.7\" fill=\"#C0C9FA\"/><circle cx=\"49.5\" cy=\"71.6\" r=\"1.7\" fill=\"#C0C9FA\" fill-opacity=\".45\"/><path d=\"M52,54 a8,8 0 0 1 0.5,-15.9 a11,11 0 0 1 21,-3 a9.5,9.5 0 0 1 1.5,18.9z\" fill=\"url(#t-gSteel)\"/><path d=\"M52,54 H75\" stroke=\"#2C4550\" stroke-opacity=\".35\" stroke-width=\"1.2\"/><path d=\"M60,50 v-8 M56.8,45 l3.2,-3.2 l3.2,3.2\" fill=\"none\" stroke=\"url(#t-acc-indigo)\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M67.5,40.5 v8 M64.3,45.5 l3.2,3.2 l3.2,-3.2\" fill=\"none\" stroke=\"url(#t-acc-indigo)\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>","mono":["M7 18a4 4 0 0 1-.6-7.96A6 6 0 0 1 18 9a4.5 4.5 0 0 1 0 9z"]},"share":{"label":"Share","bar":null,"group":"Tools","art":"<ellipse cx=\"54\" cy=\"81\" rx=\"15\" ry=\"2.8\" fill=\"url(#t-gGround)\"/><path d=\"M46,35.5 a11.5,11.5 0 0 1 16,0\" fill=\"none\" stroke=\"url(#t-acc-mint)\" stroke-width=\"4.2\" stroke-linecap=\"round\"/><path d=\"M41.2,30.2 a18.5,18.5 0 0 1 25.6,0\" fill=\"none\" stroke=\"#9BEBD8\" stroke-opacity=\".75\" stroke-width=\"4.2\" stroke-linecap=\"round\"/><rect x=\"42\" y=\"41\" width=\"24\" height=\"38\" rx=\"5\" fill=\"url(#t-gSteel)\"/><rect x=\"45.5\" y=\"46\" width=\"17\" height=\"26\" rx=\"2\" fill=\"url(#t-gDeep)\"/><rect x=\"50.5\" y=\"74.3\" width=\"7\" height=\"2\" rx=\"1\" fill=\"#2C4550\" fill-opacity=\".6\"/><circle cx=\"54\" cy=\"59\" r=\"7.5\" fill=\"none\" stroke=\"#9BEBD8\" stroke-opacity=\".35\" stroke-width=\"1.4\"/><circle cx=\"54\" cy=\"59\" r=\"3.6\" fill=\"url(#t-acc-mint)\"/>","mono":["M3.5 9.5a13 13 0 0 1 17 0","M6.5 13a9 9 0 0 1 11 0","M9.5 16.4a5 5 0 0 1 5 0","M12 20h.01"]},"apps":{"label":"Apps","bar":null,"group":"Tools","art":"<ellipse cx=\"54\" cy=\"80\" rx=\"21\" ry=\"3\" fill=\"url(#t-gGround)\"/><rect x=\"31\" y=\"31\" width=\"20\" height=\"20\" rx=\"6\" fill=\"url(#t-gSteel)\"/><rect x=\"57\" y=\"31\" width=\"20\" height=\"20\" rx=\"6\" fill=\"url(#t-acc-orange)\"/><rect x=\"31\" y=\"57\" width=\"20\" height=\"20\" rx=\"6\" fill=\"url(#t-gSlate)\"/><rect x=\"57\" y=\"57\" width=\"20\" height=\"20\" rx=\"6\" fill=\"url(#t-gDeep)\"/><rect x=\"34\" y=\"33\" width=\"14\" height=\"2\" rx=\"1\" fill=\"#fff\" fill-opacity=\".3\"/><rect x=\"60\" y=\"33\" width=\"14\" height=\"2\" rx=\"1\" fill=\"#fff\" fill-opacity=\".35\"/><rect x=\"34\" y=\"59\" width=\"14\" height=\"2\" rx=\"1\" fill=\"#fff\" fill-opacity=\".16\"/><path d=\"M67,61.5 v9 M63,66.8 l4,4 l4,-4\" fill=\"none\" stroke=\"#FAC48A\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>","mono":["M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"]},"shortcuts":{"label":"Shortcuts","bar":null,"group":"Tools","art":"<ellipse cx=\"52\" cy=\"80\" rx=\"20\" ry=\"3\" fill=\"url(#t-gGround)\"/><g transform=\"rotate(-6 51 59)\"><rect x=\"31\" y=\"42\" width=\"40\" height=\"34\" rx=\"4\" fill=\"url(#t-gSlate)\"/><rect x=\"35\" y=\"58\" width=\"22\" height=\"3\" rx=\"1.5\" fill=\"#1E2F36\" fill-opacity=\".55\"/><rect x=\"35\" y=\"65\" width=\"16\" height=\"3\" rx=\"1.5\" fill=\"#1E2F36\" fill-opacity=\".55\"/></g><ellipse cx=\"54.6\" cy=\"62.4\" rx=\"3.4\" ry=\"1.6\" fill=\"#000\" fill-opacity=\".35\"/><g transform=\"rotate(18 60 45)\"><path d=\"M59.3,49 h1.4 l-0.25,14 a0.45,0.45 0 0 1 -0.9,0z\" fill=\"#C9DCE4\"/><path d=\"M55,33 h10 l-1.8,13 h-6.4z\" fill=\"url(#t-acc-red)\"/><ellipse cx=\"60\" cy=\"47.5\" rx=\"10\" ry=\"3.4\" fill=\"url(#t-acc-red)\"/><rect x=\"51\" y=\"27\" width=\"18\" height=\"7\" rx=\"3.5\" fill=\"#F59A8C\"/><rect x=\"53.5\" y=\"28.4\" width=\"9\" height=\"1.8\" rx=\".9\" fill=\"#fff\" fill-opacity=\".5\"/></g>","mono":["M9 4h6l-1 6 3 3H7l3-3z","M12 13v7"]},"scripts":{"label":"Scripts","bar":null,"group":"Tools","art":"<ellipse cx=\"54\" cy=\"80\" rx=\"20\" ry=\"3\" fill=\"url(#t-gGround)\"/><rect x=\"34\" y=\"33\" width=\"40\" height=\"40\" fill=\"url(#t-gPaper)\"/><rect x=\"34\" y=\"38\" width=\"40\" height=\"3\" fill=\"#000\" fill-opacity=\".12\"/><path d=\"M47,46 l-6,6 l6,6 M61,46 l6,6 l-6,6\" fill=\"none\" stroke=\"url(#t-acc-lime)\" stroke-width=\"3.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M56.5,44 l-5,16\" fill=\"none\" stroke=\"#7A9F2E\" stroke-width=\"3.6\" stroke-linecap=\"round\"/><rect x=\"43\" y=\"63.5\" width=\"22\" height=\"2.6\" rx=\"1.3\" fill=\"#4E7382\" fill-opacity=\".55\"/><rect x=\"31\" y=\"29\" width=\"46\" height=\"9\" rx=\"4.5\" fill=\"url(#t-gSlate)\"/><rect x=\"34\" y=\"30.2\" width=\"40\" height=\"2\" rx=\"1\" fill=\"#fff\" fill-opacity=\".28\"/><circle cx=\"33\" cy=\"33.5\" r=\"3\" fill=\"url(#t-gDeep)\"/><circle cx=\"75\" cy=\"33.5\" r=\"3\" fill=\"url(#t-gDeep)\"/><rect x=\"31\" y=\"69\" width=\"46\" height=\"9\" rx=\"4.5\" fill=\"url(#t-gSlate)\"/><rect x=\"34\" y=\"70.2\" width=\"40\" height=\"2\" rx=\"1\" fill=\"#fff\" fill-opacity=\".2\"/><circle cx=\"33\" cy=\"73.5\" r=\"3\" fill=\"url(#t-gDeep)\"/><circle cx=\"75\" cy=\"73.5\" r=\"3\" fill=\"url(#t-gDeep)\"/>","mono":["M6 4h9l4 4v12H6z","m10 12 2 2-2 2M13.5 16h2.5"]},"qr":{"label":"QR Scanner","bar":null,"group":"Tools","art":"<path d=\"M33,43 V38 a5,5 0 0 1 5,-5 h5 M65,33 h5 a5,5 0 0 1 5,5 v5 M75,65 v5 a5,5 0 0 1 -5,5 h-5 M43,75 h-5 a5,5 0 0 1 -5,-5 v-5\" fill=\"none\" stroke=\"url(#t-gSteel)\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"39\" y=\"39\" width=\"12\" height=\"12\" rx=\"2.5\" fill=\"url(#t-gSlate)\"/><rect x=\"42.5\" y=\"42.5\" width=\"5\" height=\"5\" rx=\"1\" fill=\"#C9DCE4\"/><rect x=\"57\" y=\"39\" width=\"12\" height=\"12\" rx=\"2.5\" fill=\"url(#t-gSlate)\"/><rect x=\"60.5\" y=\"42.5\" width=\"5\" height=\"5\" rx=\"1\" fill=\"#C9DCE4\"/><rect x=\"39\" y=\"57\" width=\"12\" height=\"12\" rx=\"2.5\" fill=\"url(#t-gSlate)\"/><rect x=\"42.5\" y=\"60.5\" width=\"5\" height=\"5\" rx=\"1\" fill=\"#C9DCE4\"/><rect x=\"58\" y=\"58\" width=\"4.5\" height=\"4.5\" rx=\"1\" fill=\"url(#t-gSlate)\"/><rect x=\"64.5\" y=\"64.5\" width=\"4.5\" height=\"4.5\" rx=\"1\" fill=\"url(#t-gSlate)\"/><rect x=\"64.5\" y=\"58\" width=\"4.5\" height=\"4.5\" rx=\"1\" fill=\"#C9DCE4\" fill-opacity=\".8\"/><rect x=\"58\" y=\"64.5\" width=\"4.5\" height=\"4.5\" rx=\"1\" fill=\"#C9DCE4\" fill-opacity=\".55\"/><rect x=\"31\" y=\"48.5\" width=\"46\" height=\"11\" rx=\"5.5\" fill=\"#F6A6BC\" fill-opacity=\".16\"/><rect x=\"31\" y=\"52.5\" width=\"46\" height=\"3\" rx=\"1.5\" fill=\"url(#t-acc-rose)\"/>","mono":["M4 8.5V4h4.5","M15.5 4H20v4.5","M20 15.5V20h-4.5","M8.5 20H4v-4.5","M8 8h3v3H8z","M13 8h3v3h-3z","M8 13h3v3H8z","M13.5 13.5h1v1h-1zM15.5 15.5h.5v.5h-.5z"]},"activity":{"label":"Activity","bar":null,"group":"Filet","art":"<ellipse cx=\"55\" cy=\"76\" rx=\"24\" ry=\"3\" fill=\"url(#t-gGround)\"/><path d=\"M38,58 l3,-2.4 V71.6 l-3,2.4z\" fill=\"url(#t-gDeep)\"/><path d=\"M29,58 l3,-2.4 h9 l-3,2.4z\" fill=\"#C9DCE4\"/><rect x=\"29\" y=\"58\" width=\"9\" height=\"16\" fill=\"url(#t-gSteel)\"/><path d=\"M51,38 l3,-2.4 V71.6 l-3,2.4z\" fill=\"url(#t-gDeep)\"/><path d=\"M42,38 l3,-2.4 h9 l-3,2.4z\" fill=\"#F7B49C\"/><rect x=\"42\" y=\"38\" width=\"9\" height=\"36\" fill=\"url(#t-acc-coral)\"/><path d=\"M64,50 l3,-2.4 V71.6 l-3,2.4z\" fill=\"url(#t-gDeep)\"/><path d=\"M55,50 l3,-2.4 h9 l-3,2.4z\" fill=\"#C9DCE4\"/><rect x=\"55\" y=\"50\" width=\"9\" height=\"24\" fill=\"url(#t-gSteel)\"/><path d=\"M77,44 l3,-2.4 V71.6 l-3,2.4z\" fill=\"url(#t-gDeep)\"/><path d=\"M68,44 l3,-2.4 h9 l-3,2.4z\" fill=\"#C9DCE4\"/><rect x=\"68\" y=\"44\" width=\"9\" height=\"30\" fill=\"url(#t-gSteel)\"/>","mono":["M4 18V9M9.5 18V5M15 18v-6M20.5 18v-9"]},"settings":{"label":"Settings","bar":null,"group":"Filet","art":"<ellipse cx=\"54\" cy=\"81\" rx=\"19\" ry=\"3\" fill=\"url(#t-gGround)\"/><path d=\"M49.39,34.03L50.38,28.25A26,26 0 0 1 57.62,28.25L58.61,34.03A20.5,20.5 0 0 1 64.86,36.62L69.65,33.24A26,26 0 0 1 74.76,38.35L71.38,43.14A20.5,20.5 0 0 1 73.97,49.39L79.75,50.38A26,26 0 0 1 79.75,57.62L73.97,58.61A20.5,20.5 0 0 1 71.38,64.86L74.76,69.65A26,26 0 0 1 69.65,74.76L64.86,71.38A20.5,20.5 0 0 1 58.61,73.97L57.62,79.75A26,26 0 0 1 50.38,79.75L49.39,73.97A20.5,20.5 0 0 1 43.14,71.38L38.35,74.76A26,26 0 0 1 33.24,69.65L36.62,64.86A20.5,20.5 0 0 1 34.03,58.61L28.25,57.62A26,26 0 0 1 28.25,50.38L34.03,49.39A20.5,20.5 0 0 1 36.62,43.14L33.24,38.35A26,26 0 0 1 38.35,33.24L43.14,36.62A20.5,20.5 0 0 1 49.39,34.03z\" fill=\"url(#t-gSteel)\"/><path d=\"M41,45 a15.5,15.5 0 0 1 9,-6.6\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".35\" stroke-width=\"1.8\" stroke-linecap=\"round\"/><circle cx=\"54\" cy=\"54\" r=\"10.5\" fill=\"url(#t-gDeep)\"/><circle cx=\"54\" cy=\"54\" r=\"6.5\" fill=\"url(#t-acc-gold)\"/><circle cx=\"52.2\" cy=\"52\" r=\"1.6\" fill=\"#fff\" fill-opacity=\".55\"/>","mono":["M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0","M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"]},"search":{"label":"Search","bar":null,"group":"Actions","art":"<ellipse cx=\"57\" cy=\"79\" rx=\"18\" ry=\"3\" fill=\"url(#t-gGround)\"/><rect x=\"57.5\" y=\"60.5\" width=\"18\" height=\"9\" rx=\"4.5\" transform=\"rotate(45 66.5 65)\" fill=\"url(#t-gSlate)\"/><circle cx=\"49\" cy=\"48\" r=\"15\" fill=\"#F5D68A\" fill-opacity=\".2\"/><circle cx=\"49\" cy=\"48\" r=\"15\" fill=\"none\" stroke=\"url(#t-gSteel)\" stroke-width=\"7\"/><circle cx=\"49\" cy=\"48\" r=\"11.3\" fill=\"none\" stroke=\"url(#t-acc-amber)\" stroke-width=\"1.6\"/><path d=\"M40.5,44.5 a9,9 0 0 1 5.8,-5.9\" fill=\"none\" stroke=\"#fff\" stroke-opacity=\".6\" stroke-width=\"2.4\" stroke-linecap=\"round\"/>","mono":["M18 11a7 7 0 1 1-14 0 7 7 0 0 1 14 0","m20 20-3.5-3.5"]},"index":{"label":"Index now","bar":null,"group":"Actions","art":"<ellipse cx=\"54\" cy=\"80\" rx=\"17\" ry=\"2.8\" fill=\"url(#t-gGround)\"/><rect x=\"48\" y=\"40\" width=\"17\" height=\"21\" rx=\"3\" fill=\"url(#t-gSlate)\"/><rect x=\"43\" y=\"45\" width=\"17\" height=\"21\" rx=\"3\" fill=\"url(#t-gSteel)\"/><rect x=\"46.5\" y=\"51\" width=\"10\" height=\"2.4\" rx=\"1.2\" fill=\"#2C4550\" fill-opacity=\".6\"/><rect x=\"46.5\" y=\"56.5\" width=\"7\" height=\"2.4\" rx=\"1.2\" fill=\"#2C4550\" fill-opacity=\".6\"/><path d=\"M33.5,47 A21.5,21.5 0 0 1 70.5,39.5\" fill=\"none\" stroke=\"url(#t-acc-mint)\" stroke-width=\"5\" stroke-linecap=\"round\"/><path d=\"M74.5,61 A21.5,21.5 0 0 1 37.5,68.5\" fill=\"none\" stroke=\"url(#t-acc-mint)\" stroke-width=\"5\" stroke-linecap=\"round\"/><path d=\"M73.8,43.3 L72.86,36.13 L66.82,41.37z\" fill=\"#5FCDB5\" stroke=\"#5FCDB5\" stroke-width=\"2\" stroke-linejoin=\"round\"/><path d=\"M34.2,64.74 L35.16,71.89 L41.16,66.61z\" fill=\"#5FCDB5\" stroke=\"#5FCDB5\" stroke-width=\"2\" stroke-linejoin=\"round\"/>","mono":["M19.5 12a7.5 7.5 0 0 1-13 5.1M4.5 12a7.5 7.5 0 0 1 13-5.1","M17.5 3.5v3.5H14M6.5 20.5V17H10"]},"startshare":{"label":"Start sharing","bar":null,"group":"Actions","art":"<ellipse cx=\"54\" cy=\"76\" rx=\"14\" ry=\"2.6\" fill=\"url(#t-gGround)\"/><circle cx=\"54\" cy=\"66\" r=\"10\" fill=\"#B4E39B\" fill-opacity=\".22\"/><path d=\"M45.5,57.5 a12,12 0 0 1 17,0\" fill=\"none\" stroke=\"url(#t-gSteel)\" stroke-width=\"5\" stroke-linecap=\"round\"/><path d=\"M39.5,51.5 a20.5,20.5 0 0 1 29,0\" fill=\"none\" stroke=\"url(#t-gSlate)\" stroke-width=\"5\" stroke-linecap=\"round\"/><path d=\"M33.5,45.5 a29,29 0 0 1 41,0\" fill=\"none\" stroke=\"url(#t-acc-green)\" stroke-width=\"5\" stroke-linecap=\"round\"/><circle cx=\"54\" cy=\"66\" r=\"5.5\" fill=\"url(#t-gSteel)\"/>","mono":["M3.5 9.5a13 13 0 0 1 17 0","M6.5 13a9 9 0 0 1 11 0","M9.5 16.4a5 5 0 0 1 5 0","M12 20h.01"]},"stopshare":{"label":"Stop sharing","bar":null,"group":"Actions","art":"<ellipse cx=\"52\" cy=\"75\" rx=\"14\" ry=\"2.6\" fill=\"url(#t-gGround)\"/><path d=\"M41.5,53.5 a12,12 0 0 1 17,0\" fill=\"none\" stroke=\"#4E7382\" stroke-width=\"5\" stroke-linecap=\"round\"/><path d=\"M35.5,47.5 a20.5,20.5 0 0 1 29,0\" fill=\"none\" stroke=\"#3E5F6C\" stroke-width=\"5\" stroke-linecap=\"round\"/><path d=\"M29.5,41.5 a29,29 0 0 1 41,0\" fill=\"none\" stroke=\"#34505C\" stroke-width=\"5\" stroke-linecap=\"round\"/><circle cx=\"50\" cy=\"62\" r=\"5.5\" fill=\"url(#t-gSteel)\"/><circle cx=\"68\" cy=\"68\" r=\"11\" fill=\"url(#t-gDeep)\"/><circle cx=\"68\" cy=\"68\" r=\"9\" fill=\"url(#t-acc-red)\"/><rect x=\"64.2\" y=\"64.2\" width=\"7.6\" height=\"7.6\" rx=\"1.6\" fill=\"#fff\" fill-opacity=\".92\"/>","mono":["M3.5 9.5a13 13 0 0 1 17 0","M6.5 13a9 9 0 0 1 11 0","M9.5 16.4a5 5 0 0 1 5 0","M14.5 14.5h6v6h-6z"]}}};
+</script>
+<script>
+// ════════════════════════════════════════════════════════════════════════
+// This mock. The drawn art above is the final icon mocks' own code, copied unchanged;
+// the line glyphs are Icons.kt's, read off the source.
+// ════════════════════════════════════════════════════════════════════════
+const TI = TABDATA.icons;
+document.getElementById('tabDefs').innerHTML = TABDATA.defs;
+const KEY = 'filet-notices-r3';
+const DEF = {
+  theme: 'dark', build: 'main', paint: 'emblem', failures: 'always', notes: '',
+  off: { start: [], end: [] }, life: 3000, corner: 'TR', max: 3, open: ['COPY_MOVE'],
+};
+const state = Object.assign(structuredClone(DEF), JSON.parse(localStorage.getItem(KEY) || '{}'));
+state.failures = 'always'; // decided, 2026-11-14: a failure's message always shows
+const save = () => localStorage.setItem(KEY, JSON.stringify(state));
+
+// ── a build's colours: the generator's brand-tone sum, unchanged ──
+const ANCHOR = { main: ['#4E7382', '#7FA8B8'], debug: ['#8A5A2B', '#D99A5B'] };
+function hslOf(hex) {
+  const v = parseInt(hex.slice(1), 16), r = (v >> 16 & 255) / 255, g = (v >> 8 & 255) / 255, b = (v & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+  if (d !== 0) { if (max === r) h = 60 * (((g - b) / d) % 6); else if (max === g) h = 60 * ((b - r) / d + 2); else h = 60 * ((r - g) / d + 4); }
+  return { h: (h + 360) % 360, s, l };
+}
+function hexOf({ h, s, l }) {
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  const hx = (q) => Math.round(Math.max(0, Math.min(1, q + m)) * 255).toString(16).padStart(2, '0');
+  return ('#' + hx(r) + hx(g) + hx(b)).toUpperCase();
+}
+const isBrand = (hex) => { const { h, s } = hslOf(hex); return h >= 185 && h <= 212 && s >= 0.12 && s <= 0.42; };
+function makeTone([fs, fl], [ts, tl]) {
+  const A = [hslOf(fs), hslOf(fl)], B = [hslOf(ts), hslOf(tl)];
+  const turn = (i) => ((B[i].h - A[i].h + 540) % 360) - 180;
+  const dh = [turn(0), turn(1)], ks = [0, 1].map(i => A[i].s ? B[i].s / A[i].s : 1), dl = [0, 1].map(i => B[i].l - A[i].l);
+  const lerp = (v, t) => v[0] + (v[1] - v[0]) * t;
+  return (c) => {
+    if (!isBrand(c)) return c;
+    const x = hslOf(c), t = Math.max(0, Math.min(1, (x.l - A[0].l) / (A[1].l - A[0].l)));
+    return hexOf({ h: (x.h + lerp(dh, t) + 360) % 360, s: Math.max(0, Math.min(1, x.s * lerp(ks, t))), l: Math.max(0, Math.min(1, x.l + lerp(dl, t))) });
+  };
+}
+const toDebug = makeTone(ANCHOR.main, ANCHOR.debug);
+let TONED = new Set();
+function buildTonedDefs() {
+  const src = document.getElementById('sharedDefs').innerHTML + document.getElementById('tabDefs').innerHTML;
+  TONED = new Set([...src.matchAll(/id="([^"]+)"/g)].map(m => m[1]));
+  document.getElementById('toneDefs').innerHTML = toneText(src.replace(/id="([^"]+)"/g, 'id="$1-d"'));
+}
+const toneText = (s) => s.replace(/url\(#([^)]+)\)/g, (m, id) => TONED.has(id) ? `url(#${id}-d)` : m).replace(/#[0-9a-fA-F]{6}\b/g, (h) => toDebug(h));
+const tone = (s) => state.build === 'debug' ? toneText(s) : s;
+const toneHex = (h) => state.build === 'debug' ? toDebug(h) : h;
+
+
+const GL = {"Copy":{"kind":"stroke","d":["M9 9h11v11H9z","M5 15V6a2 2 0 0 1 2-2h8"],"width":1.7},"Move":{"kind":"stroke","d":["M12 4v16M4 12h16","m9 7 3-3 3 3M9 17l3 3 3-3","m7 9-3 3 3 3M17 9l3 3-3 3"],"width":1.7},"Delete":{"kind":"stroke","d":["M5 7h14M10 7V5h4v2M6.5 7l1 13h9l1-13"],"width":1.7},"Zip":{"kind":"stroke","d":["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z","M11 6h2M11 9h2M11 12h2M11 15h2"],"width":1.7},"Save":{"kind":"stroke","d":["M5 4h11l3 3v13H5z","M8.5 4v5h6.5V4","M8.5 13h7v7h-7z"],"width":1.7},"Search":{"kind":"stroke","d":["M18 11a7 7 0 1 1-14 0 7 7 0 0 1 14 0","m20 20-3.5-3.5"],"width":1.9},"Storage":{"kind":"stroke","d":["M3 4h18v7H3z","M3 13h18v7H3z","M7 7.5h.01M7 16.5h.01"],"width":1.7},"Audio":{"kind":"stroke","d":["M9 18V6l10-2v12","M9 18a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0","M19 16a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"],"width":1.7},"Script":{"kind":"stroke","d":["M6 4h9l4 4v12H6z","m10 12 2 2-2 2M13.5 16h2.5"],"width":1.7},"Apk":{"kind":"stroke","d":["M4 4h16a3 3 0 0 1 0 0v16H4z","M9 15V9l3 4 3-4v6"],"width":1.7},"Download":{"kind":"stroke","d":["M12 4v11M8 11l4 4 4-4M5 20h14"],"width":1.7},"Jobs":{"kind":"stroke","d":["M4 18V9M9.5 18V5M15 18v-6M20.5 18v-9"],"width":1.7},"Close":{"kind":"stroke","d":["M6 6l12 12M18 6 6 18"],"width":1.9},"Home":{"kind":"stroke","d":["m4 11 8-7 8 7v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"],"width":1.7},"Image":{"kind":"stroke","d":["M3 4h18v16H3z","M10 9.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0","m4 17 5-5 4 4 3-3 4 4"],"width":1.7},"Cog":{"kind":"stroke","d":["M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0","M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"],"width":1.7},"Folder":{"kind":"stroke","d":["M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],"width":1.7}};
+function line(name, colour, px) {
+  const g = GL[name];
+  return `<svg viewBox="0 0 24 24" width="${px}" height="${px}" fill="none" stroke="${colour}" stroke-width="${g.width}" stroke-linecap="round" stroke-linejoin="round" style="display:block">${g.d.map(d => `<path d="${d}"/>`).join('')}</svg>`;
+}
+const css = (v) => getComputedStyle(document.body).getPropertyValue(v).trim();
+const fit = (s) => s.replace('<svg ', '<svg style="width:100%;height:100%;display:block" ');
+
+// ── the one list: JobKind, in its own order, and what this page adds to each ──
+const GROUPS = [
+  ['COPY_MOVE', 'Copy and move'], ['ARCHIVES', 'Archives'], ['DELETE', 'Delete'], ['NETWORK', 'Network'],
+  ['SAVING', 'Saving'], ['BACKGROUND', 'Background work'], ['TOOLS', 'Tools'], ['OTHER', 'Everything else'],
+];
+const KINDS = [
+  { k: 'COPY', group: 'COPY_MOVE', label: 'Copy', glyph: 'Copy', ends: true, start: ['Copying 3 items', 'to Camera'], end: '3 copied', ms: 2400 },
+  { k: 'MOVE', group: 'COPY_MOVE', label: 'Move', glyph: 'Move', ends: true, start: ['Moving 1 item', 'to Archive'], end: '1 moved', ms: 1600 },
+  { k: 'DELETE', group: 'DELETE', label: 'Delete', glyph: 'Delete', ends: true, start: ['Deleting 2 items', 'in Download'], end: '2 deleted', ms: 900 },
+  { k: 'COMPRESS', group: 'ARCHIVES', label: 'Compress', glyph: 'Zip', ends: true, start: ['Compressing 4 items', 'into Photos.zip'], end: '4 compressed into Photos.zip', ms: 2600 },
+  { k: 'EXTRACT', group: 'ARCHIVES', label: 'Extract', glyph: 'Zip', ends: true, start: ['Extracting backup.zip', 'to backup'], end: '12 extracted', ms: 2200 },
+  { k: 'SAVE', group: 'SAVING', label: 'Save', glyph: 'Save', ends: true, start: ['Saving', 'notes.txt'], end: 'Saved', ms: 700, note: 'edits written back' },
+  { k: 'INDEX', group: 'BACKGROUND', label: 'Indexing', glyph: 'Search', ends: false, start: ['Indexing', 'Download'], ms: 1800, note: 'for search' },
+  { k: 'MEASURE', group: 'BACKGROUND', label: 'Folder sizes', glyph: 'Storage', ends: false, start: ['Measuring', 'DCIM'], ms: 1500 },
+  { k: 'BEAT', group: 'BACKGROUND', label: 'Beat maps', glyph: 'Audio', ends: false, start: ['Measuring the beat', 'song.mp3'], ms: 2000 },
+  { k: 'SCRIPT', group: 'TOOLS', label: 'Scripts', glyph: 'Script', ends: true, start: ['Running script', 'Back up DCIM'], end: 'Script finished', ms: 2000 },
+  { k: 'APK', group: 'TOOLS', label: 'APK tools', glyph: 'Apk', ends: true, start: ['Signing', 'app-release.apk'], end: 'Signed: app-release-signed.apk', ms: 2400, note: 'sign, decompile, rebuild' },
+  { k: 'FETCH', group: 'NETWORK', label: 'Fetch from a remote', glyph: 'Download', ends: false, start: ['Fetching', 'IMG_2040.jpg'], ms: 1600, note: 'before it opens' },
+  { k: 'DOWNLOAD', group: 'NETWORK', label: 'Downloads from other apps', glyph: 'Download', ends: false, start: ['Downloading', 'Trawl'], ms: 2600, note: 'Trawl, over the bridge' },
+  { k: 'OTHER', group: 'OTHER', label: 'Everything else', glyph: 'Jobs', ends: false, start: ['Working', 'Filet'], ms: 1200 },
+];
+const KIND = Object.fromEntries(KINDS.map(x => [x.k, x]));
+const inGroup = (g) => KINDS.filter(x => x.group === g);
+const isOn = (col, k) => !state.off[col].includes(k);
+function setOn(col, ks, on) {
+  const set = new Set(state.off[col]);
+  for (const k of ks) on ? set.delete(k) : set.add(k);
+  state.off[col] = [...set];
+}
+
+// ── small parts ──
+const head = (t) => `<div class="status"><span>9:41</span><span>▴ ▮ 86%</span></div>${t ? `<div class="head"><span class="t">${t}</span></div>` : ''}`;
+const info = (t) => `<i class="info" title="${t}">i</i>`;
+const ROOMS = ['Appearance', 'Browsing', 'Controls', 'Playback', 'Reading', 'Search', 'Storage', 'System'];
+function rooms(on, extra) {
+  const list = extra ? [...ROOMS.slice(0, 7), extra, ROOMS[7]] : ROOMS;
+  // Scrolled so the open room shows, as the strip does when you tap it.
+  const i = list.indexOf(on);
+  return `<div class="groups" style="margin-left:${-Math.max(0, i - 2) * 86}px">${list.map(r => `<span class="${r === on ? 'on' : ''} ${r === extra ? 'newroom' : ''}">${r}</span>`).join('')}</div><div class="divider"></div><div class="hintline">Tap ⓘ or hold a setting for details.</div>`;
+}
+const section = (t, first, tail = '') => `<div class="sec ${first ? 'first' : ''}"><div class="t">${t}${tail}</div><div class="divider"></div></div>`;
+function segRow(label, opts, chosen, hint, key = '') {
+  return `<div class="segrow"><div class="l">${label}${info(hint)}</div><div class="chips">` +
+    opts.map(([v, l]) => `<span class="${String(v) === String(chosen) ? 'on' : ''}"${key ? ` data-set="${key}:${v}"` : ''}>${l}</span>`).join('') + `</div></div>`;
+}
+const keepRow = (key) => segRow('Keep finished jobs', [[1, '1 day'], [7, '7 days'], [30, '30 days'], [0, 'Forever']], 7, 'How long Activity lists a job after it ends. Running jobs are never removed.', key);
+const sw = (on, attr, some = false) => `<span class="sw ${on ? 'on' : ''} ${some ? 'some' : ''}" ${attr}><i></i></span>`;
+
+// ── 1 · Settings ──
+function settingsToday() {
+  return head('Settings') + `<div class="scroll">${rooms('Storage')}` +
+    section('Filet storage', true) + `<div class="stub">The cache card, unchanged</div>` +
+    `<div class="filerow"><div class="tx"><div class="a">Settings file${info('Every setting as text.')}</div><div class="b">filet.json in the Filet folder. Save it to apply.</div></div><span class="smallbtn">Edit</span></div>` +
+    section('Activity') + keepRow('') +
+    section('Storage access') + `<div class="stub">The storage access card, unchanged</div></div>`;
+}
+function groupRows() {
+  let h = '';
+  for (const [g, gl] of GROUPS) {
+    const ks = inGroup(g), many = ks.length > 1, open = many && state.open.includes(g);
+    const startOn = ks.filter(x => isOn('start', x.k)), endable = ks.filter(x => x.ends), endOn = endable.filter(x => isOn('end', x.k));
+    const offCount = (ks.length - startOn.length) + (endable.length - endOn.length);
+    const sub = many ? (offCount ? `${offCount} switch${offCount > 1 ? 'es' : ''} off inside` : ks.map(x => x.label).join(' · ')) : (KIND[ks[0].k].note || '');
+    const startSw = sw(startOn.length > 0, `data-grp="start:${g}"`, startOn.length > 0 && startOn.length < ks.length);
+    const endSw = endable.length ? sw(endOn.length > 0, `data-grp="end:${g}"`, endOn.length > 0 && endOn.length < endable.length) : `<span class="dash" title="Ends silently today">—</span>`;
+    h += `<div class="grow ${open ? 'open' : ''}" ${many ? `data-fold="${g}"` : ''}><span class="caret">${many ? '▶' : ''}</span><div class="tx"><div class="a">${gl}${info(hintFor(g))}</div>${sub ? `<div class="b">${sub}</div>` : ''}</div>${startSw}${endSw}</div>`;
+    if (open) for (const x of ks) {
+      h += `<div class="arow"><span class="tx">${line(x.glyph, css('--fg3'), 15)}${x.label}</span>${sw(isOn('start', x.k), `data-one="start:${x.k}"`)}${x.ends ? sw(isOn('end', x.k), `data-one="end:${x.k}"`) : `<span class="dash" title="Ends silently today">—</span>`}</div>`;
+    }
+  }
+  return h;
+}
+function hintFor(g) {
+  const ks = inGroup(g);
+  return ks.map(x => `${x.label}: "${x.start[0]} ${x.start[1]}"${x.ends ? ` then "${x.end}"` : ', no message at the end'}`).join('. ') + '.';
+}
+function settingsNew() {
+  return head('Settings') + `<div class="scroll">${rooms('Activity', 'Activity')}` +
+    section('Activity', true, `<span class="moved">moved here from Storage</span>`) + keepRow('') +
+    `<div class="newblock">` +
+    section('Cards and messages') +
+    `<div class="note10">A card when work starts, a message when it ends. Activity lists every job either way.</div>` +
+    `<div class="colhead"><span>Starts</span><span>Ends</span></div>` + groupRows() +
+    section('Started cards') +
+    segRow('Stays for', [[2000, '2 s'], [3000, '3 s'], [5000, '5 s'], [8000, '8 s']], state.life, 'How long a card stays before it slides away. The line along its bottom counts it down. Finished messages keep their 1.9 s.', 'life') +
+    segRow('Sits at', [['TR', 'Top right'], ['TL', 'Top left'], ['BR', 'Bottom right'], ['BL', 'Bottom left']], state.corner, 'At the bottom, cards stack upward from just above the finished message.', 'corner') +
+    segRow('Stacks up to', [[1, '1'], [2, '2'], [3, '3'], [5, '5']], state.max, 'Cards on screen at once. One more pushes the oldest out early.', 'max') +
+    `<div class="btnrow"><span class="smallbtn" id="sample">Show a sample card</span></div></div>` +
+    `<div style="height:60px"></div></div><div class="cards ${state.corner}" data-host="set"></div><div class="toast" data-toast="set"></div>`;
+}
+function renderSettings() {
+  const old = document.querySelector('#setNew .scroll'), top = old ? old.scrollTop : 0;
+  document.getElementById('setToday').innerHTML = settingsToday();
+  document.getElementById('setNew').innerHTML = settingsNew();
+  document.querySelector('#setNew .scroll').scrollTop = top;
+}
+
+// ── the browser behind the cards ──
+function browser(compact) {
+  const T = (n) => css(n);
+  const rows = [
+    ['Camera', '214 items', drawn(folderSVG({ children: [P(1), P(3), P(0)], emblem: 'camera', colour: 'amber' }))],
+    ['Screenshots', '48 items', drawn(folderSVG({ children: [P(2), P(4)] }))],
+    ['Trip to Baguio', '61 items', drawn(folderSVG({ children: [P(2), P(4), P(0)], emblem: 'plane', colour: 'sky' }))],
+    ['IMG_2040.jpg', '3.1 MB', `<div style="width:24px;height:24px;border-radius:4px;overflow:hidden">${mediaThumbSVG(P(3)).replace('<svg ', '<svg style="width:100%;height:100%;display:block;transform:scale(1.25)" ')}</div>`],
+    ['Report.pdf', '220 KB', drawn(typeSVG('pdf'))],
+    ['backup.zip', '1.4 GB', drawn(typeSVG('zip'))],
+    ['notes.txt', '4 KB', drawn(typeSVG('txt'))],
+    ['song.mp3', '5.2 MB', drawn(typeSVG('mp3'))],
+  ].slice(0, compact ? 5 : 8);
+  const tabs = [['home', 'Home'], ['photos', 'DCIM', true], ['playlists', 'Playlists']];
+  const nav = [['Home', 'Home'], ['Storage', 'Storage'], ['Image', 'Photos'], ['Audio', 'Playlists'], ['Jobs', 'Activity']];
+  return head('') +
+    `<div class="strip">${tabs.map(([a, l, on]) => `<div class="chip ${on ? 'on' : ''}"><span style="width:19px;height:19px">${fit(tone(svg(TI[a].art, '24 24 60 60')))}</span><span class="tl">${l}</span></div>`).join('')}</div>` +
+    `<div class="scroll" style="overflow:hidden"><div class="crumb">Internal storage › DCIM</div>${rows.map(([n, m, ic]) => `<div class="lrow"><span class="ic">${ic}</span><span class="nm"><div class="a">${n}</div><div class="b">2 Nov 2026</div></span><span class="sd">${m}</span></div>`).join('')}</div>` +
+    `<div class="nav">${nav.map(([g, l], i) => `<div class="ni ${i === 1 ? 'on' : ''}">${line(g, i === 1 ? T('--accent') : T('--fg2'), 19)}<span class="c">${l}</span></div>`).join('')}</div>`;
+}
+const drawn = (s) => `<div style="width:24px;height:24px">${fit(tone(s))}</div>`;
+
+// ── the cards and the message, live ──
+const HOSTS = {};
+function hostState(name) { return HOSTS[name] ??= { cards: [] }; }
+function cardHTML(x, live) {
+  return `<span class="cic">${line(KIND[x.k].glyph, css('--accent'), 14)}</span><span class="ctx"><div class="w1">${x.w1}</div>${x.w2 ? `<div class="w2">${x.w2}</div>` : ''}</span><span class="cx">${line('Close', css('--fg3'), 14)}</span><i class="hair"></i>`;
+}
+function spawn(name, k, words) {
+  if (!isOn('start', k)) return;
+  const box = document.querySelector(`[data-host="${name}"]`);
+  if (!box) return;
+  const hs = hostState(name);
+  const el = document.createElement('div');
+  el.className = 'card live';
+  el.style.setProperty('--life', state.life + 'ms');
+  el.innerHTML = cardHTML({ k, w1: words[0], w2: words[1] });
+  box.prepend(el);
+  const c = { el, leaving: false };
+  hs.cards.unshift(c);
+  const leave = () => {
+    if (c.leaving) return;
+    c.leaving = true;
+    el.classList.remove('live'); el.classList.add('out');
+    setTimeout(() => { el.remove(); hs.cards = hs.cards.filter(z => z !== c); }, 160);
+  };
+  el.onclick = leave;
+  // The life is a timer, not the line's animation, as StartedCard does it.
+  setTimeout(leave, state.life);
+  hs.cards.filter(z => !z.leaving).slice(state.max).forEach(z => z.el.click());
+}
+const toastTimers = {};
+function toast(name, msg) {
+  const box = document.querySelector(`[data-toast="${name}"]`);
+  if (!box) return;
+  box.innerHTML = `<span>${msg}</span>`;
+  clearTimeout(toastTimers[name]);
+  toastTimers[name] = setTimeout(() => { box.innerHTML = ''; }, 1900);
+}
+function run(name, k, fail) {
+  const x = KIND[k];
+  const words = fail ? ['Copying 1 item', 'to SD card'] : x.start;
+  spawn(name, k, words);
+  setTimeout(() => {
+    if (fail) { if (isOn('end', k) || state.failures === 'always') toast(name, 'IMG_2040.jpg: No space left on the card'); return; }
+    if (x.ends && isOn('end', k)) toast(name, x.end);
+  }, x.ms);
+}
+
+// ── 2 · the demo ──
+function renderDemo() {
+  document.getElementById('demo').innerHTML = browser(false) + `<div class="cards ${state.corner}" data-host="demo"></div><div class="toast" data-toast="demo"></div>`;
+  HOSTS.demo = { cards: [] };
+  const side = state.corner[1] === 'R' ? 'R' : 'L';
+  for (const id of ['demo', 'setNew']) { const e = document.getElementById(id); e.classList.remove('R', 'L'); e.classList.add(side); }
+  document.getElementById('runs').innerHTML =
+    `<div class="lbl">One job</div>` + KINDS.map(x => `<button data-run="${x.k}">${x.label}</button>`).join('') +
+    `<div class="lbl">More at once</div><button data-many="3">Three at once</button><button data-many="6">Six at once</button>` +
+    `<div class="lbl">Something going wrong</div><button class="bad" data-fail="COPY">A copy that fails</button>`;
+}
+
+// ── 3 · the four places ──
+function renderCorners() {
+  let h = '';
+  for (const [c, l] of [['TR', 'Top right · today'], ['TL', 'Top left'], ['BR', 'Bottom right'], ['BL', 'Bottom left']]) {
+    const on = state.corner === c;
+    const cards = [
+      { k: 'EXTRACT', w1: 'Extracting backup.zip', w2: 'to backup' },
+      { k: 'COPY', w1: 'Copying 3 items', w2: 'to Camera' },
+    ].map(x => `<div class="card" style="--life:0s">${cardHTML(x)}</div>`).join('');
+    h += `<div class="col"><div class="tag"><b>${l}</b>${on ? '<span class="now">chosen</span>' : ''}</div><div class="phone small ${on ? 'now' : ''}">${browser(true)}<div class="cards ${c}" style="transform:scale(.86);transform-origin:${c[0] === 'T' ? 'top' : 'bottom'} ${c[1] === 'R' ? 'right' : 'left'}">${cards}</div><div class="toast" style="bottom:66px"><span style="animation:none">3 copied</span></div></div></div>`;
+  }
+  document.getElementById('corners').innerHTML = h;
+}
+
+// ── 4 · the list ──
+function renderRegistry() {
+  let h = `<tr><th>JobKind</th><th>Action, on the page</th><th>Starts: the card says</th><th>Ends: the message says</th></tr>`;
+  for (const [g, gl] of GROUPS) {
+    h += `<tr class="g"><td colspan="4">${gl}</td></tr>`;
+    for (const x of inGroup(g)) h += `<tr><td class="k">${x.k}</td><td>${x.label}${x.note ? ` <span style="color:#7D7A72">(${x.note})</span>` : ''}</td><td>${x.start[0]} · <span style="color:#9FC6D4">${x.start[1]}</span></td><td class="${x.ends ? '' : 'no'}">${x.ends ? x.end : '— ends silently today'}</td></tr>`;
+  }
+  document.getElementById('reg').innerHTML = h;
+  const pad = (s, n) => s + ' '.repeat(Math.max(1, n - s.length));
+  document.getElementById('code').innerHTML =
+    `<span class="c">// Proposed, in jobs/: every kind's place on the page. Exhaustive, so a new JobKind</span>\n` +
+    `<span class="c">// does not compile until it says which group it is in and whether it posts a message.</span>\n` +
+    `enum class NoticeGroup(val label: String) {\n` + GROUPS.map(([g, l]) => `    ${g}("${l}"),`).join('\n') + `\n}\n\n` +
+    `data class Notice(val group: NoticeGroup, val label: String, val ends: Boolean)\n\n` +
+    `fun JobKind.notice(): Notice = when (this) {\n` +
+    KINDS.map(x => `    ${pad('JobKind.' + x.k, 18)}-> Notice(NoticeGroup.${pad(x.group + ',', 12)}${pad('"' + x.label + '",', 29)}ends = ${x.ends})`).join('\n') + `\n}\n\n` +
+    `<span class="c">// notices.v1: only what is off, so a new kind arrives on.</span>\n` +
+    `{ "startOff": ["INDEX"], "endOff": [], "lifeMs": 3000, "corner": "TOP_RIGHT", "max": 3 }`;
+}
+
+// ── drawing it all ──
+function render() {
+  document.body.classList.toggle('light', state.theme === 'light');
+  document.querySelectorAll('.controls .cseg[data-k]').forEach(s => s.querySelectorAll('button').forEach(b => b.classList.toggle('on', state[s.dataset.k] === b.dataset.v)));
+  buildTonedDefs();
+  renderSettings(); renderDemo(); renderCorners(); renderRegistry();
+  HOSTS.set = { cards: [] };
+  save();
+}
+// A switch flip redraws only the settings page, so cards already on the demo phone keep running.
+function soft() { renderSettings(); HOSTS.set = { cards: [] }; save(); }
+document.addEventListener('click', (e) => {
+  const pop = document.getElementById('pop');
+  const inf = e.target.closest('.info');
+  if (inf && inf.title) {
+    const r = inf.getBoundingClientRect();
+    pop.textContent = inf.title; pop.style.display = 'block';
+    pop.style.left = Math.min(r.left, innerWidth - 300) + 'px'; pop.style.top = (r.bottom + 6) + 'px';
+    e.stopPropagation(); return;
+  }
+  pop.style.display = 'none';
+  const c = e.target.closest('.controls .cseg[data-k] button');
+  if (c) { state[c.parentElement.dataset.k] = c.dataset.v; render(); return; }
+  const one = e.target.closest('[data-one]');
+  if (one) { const [col, k] = one.dataset.one.split(':'); setOn(col, [k], !isOn(col, k)); soft(); return; }
+  const grp = e.target.closest('[data-grp]');
+  if (grp) {
+    const [col, g] = grp.dataset.grp.split(':');
+    const ks = inGroup(g).filter(x => col === 'start' || x.ends).map(x => x.k);
+    // All on turns them all off; anything less turns them all on.
+    setOn(col, ks, !ks.every(k => isOn(col, k))); soft(); return;
+  }
+  const fold = e.target.closest('[data-fold]');
+  if (fold) { const g = fold.dataset.fold; state.open = state.open.includes(g) ? state.open.filter(x => x !== g) : [...state.open, g]; soft(); return; }
+  const set = e.target.closest('[data-set]');
+  if (set) {
+    const [k, v] = set.dataset.set.split(':');
+    state[k] = k === 'corner' ? v : +v;
+    if (k === 'corner') render(); else soft();
+    return;
+  }
+  if (e.target.closest('#sample')) {
+    const pick = KINDS.filter(x => isOn('start', x.k));
+    if (!pick.length) return;
+    const x = pick[(Date.now() / 1000 | 0) % pick.length];
+    run('set', x.k); return;
+  }
+  const r = e.target.closest('[data-run]');
+  if (r) { run('demo', r.dataset.run); return; }
+  const m = e.target.closest('[data-many]');
+  if (m) { ['COPY', 'EXTRACT', 'DELETE', 'MOVE', 'COMPRESS', 'SAVE'].slice(0, +m.dataset.many).forEach((k, i) => setTimeout(() => run('demo', k), i * 140)); return; }
+  const f = e.target.closest('[data-fail]');
+  if (f) { run('demo', f.dataset.fail, true); return; }
+});
+document.getElementById('reset').onclick = () => { const notes = state.notes; Object.assign(state, structuredClone(DEF), { notes }); render(); };
+const notes = document.getElementById('notes');
+notes.value = state.notes || '';
+notes.oninput = () => { state.notes = notes.value; save(); };
+render();
+</script>
+</body>
+</html>

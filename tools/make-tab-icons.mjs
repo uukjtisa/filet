@@ -19,16 +19,15 @@
 //   node tools/make-tab-icons.mjs --check    exit 1 when a written file is not what the mock gives,
 //                                            or an icon's ink leaves the 33-unit safe circle
 //
-// The mock lives outside the repo, beside the other mocks. FILET_TAB_MOCK points at it elsewhere.
+// The mock is docs/design/mockups/filet-tab-icons-mock.html. FILET_TAB_MOCK points at it elsewhere.
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const MOCK = process.env.FILET_TAB_MOCK || join(homedir(), "Desktop", "filet-tab-icons-mock.html");
+const MOCK = process.env.FILET_TAB_MOCK || join(ROOT, "docs", "design", "mockups", "filet-tab-icons-mock.html");
 const RES = join(ROOT, "app/src/main/res");
 const KT = join(ROOT, "app/src/main/java/dev/niccc2007/filet/shortcuts/TabIconRes.kt");
 const check = process.argv.includes("--check");

@@ -1,0 +1,1203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Filet — selection bar + dock</title>
+<style>
+/* Slate dark, lifted straight out of Palette.kt. Do not eyeball these. */
+:root{
+  --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210;
+  --high:#2A2A26; --line:#2E2E2A; --lineSoft:#232320;
+  --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --accentDim:#31434B; --onAccent:#0E1417;
+  --bad:#C97F7F; --sel:#243036; --drop:#2C4049;
+  /* Overwritten per track by the sampler. These are the theme accent, so a player with no
+     artwork, or one whose artwork cannot be read, looks like the rest of the app rather
+     than looking broken. */
+  --pal:#7FA8B8; --palOn:#0E1417; --palSoft:rgba(127,168,184,.15); --palEdge:rgba(127,168,184,.45);
+  /* 423dp wide at density 408 is the phone this is judged on. 1dp = 1px here. */
+  --w:423px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#0d0d0c;color:var(--fg);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+.page{max-width:1180px;margin:0 auto;padding:22px 16px 90px}
+h1{font-size:19px;margin:0 0 4px;font-weight:600}
+.sub{color:var(--fg2);font-size:12.5px;margin:0 0 20px;line-height:1.55}
+h2{font-size:14px;margin:30px 0 4px;font-weight:600}
+h2 .n{color:var(--fg3);font-weight:400}
+.note{color:var(--fg3);font-size:11.5px;line-height:1.6;margin:0 0 12px;max-width:62ch}
+.note b{color:var(--fg2);font-weight:600}
+.row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+
+/* the phone */
+.phone{width:var(--w);border:1px solid var(--line);border-radius:14px;overflow:hidden;
+  background:var(--bg);position:relative;flex:0 0 auto}
+.phone .list{padding:0}
+.ent{display:flex;align-items:center;gap:12px;padding:9px 14px}
+.ent .ic{width:34px;height:34px;border-radius:9px;background:var(--high);
+  display:grid;place-items:center;flex:0 0 auto}
+.ent .tx{min-width:0;flex:1}
+.ent .nm{font-size:13.5px;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ent .mt{font-size:10.5px;color:var(--fg3);margin-top:2px}
+.ent.on{background:var(--sel)}
+.ent .sz{font-size:10.5px;color:var(--fg3)}
+svg{display:block}
+.st{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.st.t{stroke-width:1.9}
+
+/* measured height badge */
+.hgt{position:absolute;right:6px;background:var(--accent);color:var(--onAccent);
+  font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:5px;z-index:9}
+
+/* ── selection bars ───────────────────────────────────────── */
+.selbar{background:var(--raised);border-top:1px solid var(--lineSoft);position:relative}
+.selhead{display:flex;align-items:center;padding:0 4px 0 12px;gap:8px}
+.cnt{font-size:12px;font-weight:500;color:var(--accent);white-space:nowrap}
+.pin{font-size:11.5px;color:var(--fg2);padding:6px 9px;border-radius:7px;white-space:nowrap;cursor:pointer}
+.pin:hover{background:var(--high)}
+.pin.m{font-weight:500}
+.scroller{flex:1;min-width:0;overflow:hidden;position:relative}
+.scrollrow{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+.scrollrow::-webkit-scrollbar{display:none}
+.fade{position:absolute;inset:0 0 0 auto;width:38px;pointer-events:none;
+  background:linear-gradient(90deg,transparent 0,var(--raised) 55%,var(--raised) 100%);
+  display:grid;place-items:center;justify-items:end;padding-right:4px;color:var(--fg2)}
+
+/* A — what shipped: horizontal pill */
+.pillA{display:flex;align-items:center;gap:6px;padding:6px 12px 6px 9px;border-radius:16px;
+  background:var(--high);color:var(--fg2);font-size:11px;white-space:nowrap;flex:0 0 auto}
+
+/* B — stacked, tightened */
+.pillB{display:flex;flex-direction:column;align-items:center;gap:1px;padding:4px 10px 3px;
+  border-radius:11px;color:var(--fg2);flex:0 0 auto;min-width:50px}
+.pillB .cap{font-size:9px;letter-spacing:.1px;color:var(--fg3);line-height:1.1}
+.pillB:hover{background:var(--high)}
+
+/* C — stacked on a chip */
+.pillC{display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 9px 4px;
+  border-radius:12px;background:var(--high);color:var(--fg2);flex:0 0 auto;min-width:52px}
+.pillC .cap{font-size:9.5px;color:var(--fg3);line-height:1.1}
+
+/* D — count on its own line above */
+.selD .top{display:flex;align-items:center;gap:8px;padding:5px 10px 0 12px}
+.selD .bot{display:flex;align-items:center;padding:0 4px 0 8px;gap:8px}
+
+
+/* ══ 3 · the music player ═══════════════════════════════════ */
+.pl{position:relative;height:790px;overflow:hidden;background:var(--bg);
+  display:flex;flex-direction:column}
+
+/* The ambient light, in THREE layers rather than one blurred copy.
+   One blurred copy of a dark picture is a dark rectangle: round 2 produced almost no colour
+   because the clip is nearly black. Saturation is pushed hard first so what colour there is
+   survives the blur, a second tighter copy puts a hot spot behind the artwork, and a vignette
+   pins the corners down so the text at the bottom always has something to sit on. */
+/* SPREAD, not shouted.
+   The previous pass turned every dial up at once - saturation 5.5, brightness 2.1, opacity
+   .85, a screen-blended hot spot - and the result was a wall of colour rather than a room
+   with a light in it. Intensity is back near where it was; what grew is the AREA: a wider
+   blur over a larger inset, so the colour carries to the edges and down the screen instead
+   of sitting in one bright patch. */
+.wash{position:absolute;inset:-45%;background-image:var(--art);background-size:cover;
+  background-position:center;filter:blur(110px) saturate(3.4) brightness(1.55);opacity:.52}
+.wash2{position:absolute;left:-30%;right:-30%;top:-30%;height:105%;background-image:var(--art);
+  background-size:cover;background-position:center;
+  filter:blur(80px) saturate(3.8) brightness(1.7);opacity:.34;
+  -webkit-mask-image:radial-gradient(78% 72% at 50% 40%,#000 0%,transparent 88%);
+  mask-image:radial-gradient(78% 72% at 50% 40%,#000 0%,transparent 88%)}
+/* The veil only does the bottom now.
+   It used to start dimming at the very top, which took the colour away in the same breath
+   as making it - the wash was being asked to be bright and then painted over. The text at
+   the bottom still needs ground under it, so that half is unchanged. */
+/* The veil keeps its one job: ground under the text at the bottom. It starts late and
+   arrives gently, so the colour is allowed to travel most of the screen first. */
+.washveil{position:absolute;inset:0;background:
+  linear-gradient(180deg,rgba(22,22,20,0) 0%,rgba(22,22,20,0) 54%,rgba(22,22,20,.38) 76%,rgba(22,22,20,.88) 100%)}
+.plbody{position:relative;z-index:2;display:flex;flex-direction:column;height:100%}
+
+.pltop{display:flex;align-items:center;gap:10px;padding:12px 12px 2px}
+.pltop .ico{width:36px;height:36px;border-radius:18px;display:grid;place-items:center;
+  color:var(--fg);cursor:pointer;opacity:.85}
+.pltop .ico:hover{background:rgba(255,255,255,.09);opacity:1}
+.pltop .ctx{flex:1;text-align:center;min-width:0}
+.pltop .ctx .k{font-size:8.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--fg3);
+  display:flex;align-items:center;justify-content:center;gap:6px}
+/* Uninterrupted is a MODE, and a mode belongs in the chrome.
+   It was a chip in a row with speed and a sleep timer, which read as trivia - and it is not
+   trivia: it is the switch that decides whether a phone call can take the sound away. It is
+   a lit button in the bar now, so the state is readable without opening anything, and when
+   it is on the eyebrow says so in WORDS, because a glyph alone is a state somebody has to
+   learn. */
+.pltop .ico.mode{position:relative}
+.pltop .ico.mode.on{color:var(--pal);background:var(--palSoft);opacity:1}
+.pltop .ico.mode.on::after{content:"";position:absolute;right:5px;bottom:5px;width:5px;height:5px;
+  border-radius:3px;background:var(--pal);box-shadow:0 0 0 2px rgba(22,22,20,.9)}
+.kflag{color:var(--pal);font-weight:700;letter-spacing:1.3px;display:none}
+.pl.unint .kflag{display:inline}
+.pl.unint .kdot{display:inline}
+.kdot{display:none;color:var(--fg3)}
+.pltop .ctx .v{font-size:11.5px;color:var(--fg2);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;margin-top:1px}
+
+.artwrap{padding:14px 28px 0;display:grid;place-items:center;flex:1;min-height:0}
+.artbox{position:relative;width:100%;max-height:100%;aspect-ratio:1}
+.art{width:100%;height:100%;border-radius:20px;background-image:var(--art);
+  background-size:cover;background-position:center;
+  box-shadow:0 30px 70px rgba(0,0,0,.70), 0 4px 14px rgba(0,0,0,.45),
+             inset 0 0 0 1px rgba(255,255,255,.07);
+  transition:transform .4s cubic-bezier(.2,.8,.2,1),box-shadow .4s}
+.art.paused{transform:scale(.885);box-shadow:0 14px 34px rgba(0,0,0,.55),
+             inset 0 0 0 1px rgba(255,255,255,.07)}
+.badge2{position:absolute;top:10px;left:10px;padding:4px 9px;border-radius:50px;font-size:9px;
+  font-weight:700;letter-spacing:.7px;background:rgba(0,0,0,.52);color:#fff;
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);display:flex;align-items:center;gap:5px;
+  border:1px solid rgba(255,255,255,.14)}
+
+.meta{padding:24px 28px 0}
+.plrow{display:flex;align-items:center;gap:10px}
+/* A filename is not a song title: it is long, it has no spaces, and it cannot wrap. So it
+   SCROLLS, which is what every player does with a title that will not fit, and it only
+   scrolls when it has to. */
+.ttlwrap{overflow:hidden;position:relative;min-width:0;flex:1;width:100%;max-width:100%}
+/* The fade is on BOTH ends, and only while it scrolls.
+   One-sided it looked right going out and wrong coming back: the text slid left into a hard
+   vertical cut while the other end dissolved, so the same motion read as polished in one
+   direction and broken in the other. A mask that is always on would also clip the first
+   letter of a title that fits, which is most of them - hence the class. */
+.ttlwrap.runs{
+  -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 7%,#000 93%,transparent 100%);
+  mask-image:linear-gradient(90deg,transparent 0,#000 7%,#000 93%,transparent 100%)}
+.ttl{font-size:22px;font-weight:750;letter-spacing:-.5px;line-height:1.2;white-space:nowrap;
+  display:inline-block}
+.ttlwrap.runs .ttl{animation:slide 14s ease-in-out infinite}
+@keyframes slide{0%,10%{transform:translateX(0)}48%,60%{transform:translateX(var(--run,-120px))}
+  100%{transform:translateX(0)}}
+.art2{font-size:13px;color:var(--fg2);margin-top:6px;display:flex;align-items:center;gap:7px}
+.art2 .dot{width:3px;height:3px;border-radius:2px;background:var(--fg3)}
+.heart{width:38px;height:38px;border-radius:19px;display:grid;place-items:center;
+  color:var(--fg3);cursor:pointer;flex:0 0 auto}
+.heart:hover{color:var(--pal);background:rgba(255,255,255,.06)}
+.heart.on{color:var(--pal)}
+
+.bar{margin:22px 28px 0;position:relative;height:18px;display:flex;align-items:center;cursor:pointer}
+.bar .trk{height:4px;width:100%;border-radius:3px;background:rgba(255,255,255,.16)}
+.bar .fil{position:absolute;height:4px;border-radius:3px;width:34%;
+  background:linear-gradient(90deg,var(--fg) 0%,var(--pal) 100%)}
+.bar .kn{position:absolute;left:34%;width:12px;height:12px;border-radius:7px;background:var(--pal);
+  transform:translateX(-50%);transition:transform .14s;box-shadow:0 1px 5px rgba(0,0,0,.5)}
+.bar:hover .kn{transform:translateX(-50%) scale(1.4)}
+.times{display:flex;justify-content:space-between;margin:6px 28px 0;
+  font-size:10.5px;color:var(--fg3);font-variant-numeric:tabular-nums;letter-spacing:.2px}
+
+.tr{display:flex;align-items:center;justify-content:space-between;padding:18px 28px 0}
+.tb{display:grid;place-items:center;color:var(--fg2);cursor:pointer;border-radius:50%;
+  transition:color .14s,background .14s,transform .12s}
+.tb:hover{color:var(--fg)}
+.tb:active{transform:scale(.92)}
+.tb.on{color:var(--pal);background:var(--palSoft)}
+.tb.big{width:68px;height:68px;background:var(--pal);color:var(--palOn);
+  box-shadow:0 10px 28px rgba(0,0,0,.5);transition:transform .15s}
+.tb.big:hover{transform:scale(1.055)}
+.tb.big:active{transform:scale(.97)}
+.tb.mid{width:48px;height:48px}
+.tb.sm{width:40px;height:40px}
+
+/* The switches that belong to the PLAYER rather than to Settings.
+   Uninterrupted is here because it is a decision you make about the thing playing right now
+   - "do not let anything stop this" is a thought you have while listening, not one you have
+   while configuring. Settings keeps the same switch; this is the same value, nearer. */
+.chips{display:flex;gap:7px;padding:16px 28px 0;flex-wrap:wrap}
+.chip{display:flex;align-items:center;gap:6px;font-size:10.5px;padding:6px 11px;border-radius:50px;
+  border:1px solid rgba(255,255,255,.13);color:var(--fg3);cursor:pointer;
+  background:rgba(255,255,255,.04)}
+.chip:hover{border-color:rgba(255,255,255,.26);color:var(--fg2)}
+.chip.on{background:var(--palSoft);border-color:var(--palEdge);color:var(--pal)}
+
+.qhandle{margin-top:16px;padding:13px 22px 16px;display:flex;align-items:center;gap:10px;
+  cursor:pointer;color:var(--fg2);font-size:12px;border-top:1px solid rgba(255,255,255,.07)}
+.qhandle .c{margin-left:auto;font-size:11px;color:var(--fg3)}
+.qhandle:hover{color:var(--fg);background:rgba(255,255,255,.03)}
+
+.qsheet{position:absolute;left:0;right:0;bottom:0;top:30%;background:var(--surface);
+  border-radius:20px 20px 0 0;z-index:9;transform:translateY(104%);
+  transition:transform .26s cubic-bezier(.2,.85,.25,1);
+  box-shadow:0 -14px 40px rgba(0,0,0,.6);display:flex;flex-direction:column}
+.qsheet.up{transform:none}
+.qrow{display:flex;align-items:center;gap:11px;padding:7px 16px;cursor:pointer}
+.qrow:hover{background:var(--high)}
+.qrow.now{background:var(--palSoft)}
+.qth{width:34px;height:34px;border-radius:8px;background-image:var(--art);background-size:cover;
+  background-position:center;flex:0 0 auto;position:relative;overflow:hidden}
+.qth .v{position:absolute;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center}
+.qn{width:18px;text-align:right;font-size:10.5px;color:var(--fg3);font-variant-numeric:tabular-nums}
+.qrow.now .qn{color:var(--pal)}
+.qt{flex:1;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qsub{font-size:10px;color:var(--fg3);margin-top:1px}
+.qrow.now .qt{color:var(--pal);font-weight:600}
+.qd{font-size:10.5px;color:var(--fg3);font-variant-numeric:tabular-nums}
+.eq{display:flex;align-items:flex-end;gap:2px;height:12px;width:18px;justify-content:center}
+.eq i{width:2.5px;background:var(--pal);border-radius:1px;animation:bb .9s ease-in-out infinite}
+.eq i:nth-child(1){height:40%;animation-delay:0s}
+.eq i:nth-child(2){height:95%;animation-delay:.18s}
+.eq i:nth-child(3){height:60%;animation-delay:.36s}
+@keyframes bb{0%,100%{transform:scaleY(.4)}50%{transform:scaleY(1)}}
+
+/* The immersive face gets OUT OF THE WAY.
+   A full glass panel across the bottom is a second screen stuck to the first: it covers a
+   third of the picture permanently, which defeats the only thing this face is for. So the
+   controls are small, they float, and they retract - the same bargain a video player makes,
+   and for the same reason.
+
+   Tap the picture to bring them back. Nothing is ever unreachable: the bar fades rather
+   than unmounting, so a tap lands on it either way. */
+.mini{margin-top:auto;position:relative;padding:0 14px 14px;
+  transition:opacity .22s ease,transform .26s cubic-bezier(.2,.8,.2,1)}
+.pl.hid .mini{opacity:0;transform:translateY(14px);pointer-events:none}
+.pl.hid .pltop{opacity:0;transform:translateY(-10px);pointer-events:none}
+.pltop{transition:opacity .22s ease,transform .26s cubic-bezier(.2,.8,.2,1)}
+.minibar{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:50px;
+  background:rgba(18,18,16,.55);-webkit-backdrop-filter:blur(22px) saturate(1.4);
+  backdrop-filter:blur(22px) saturate(1.4);border:1px solid rgba(255,255,255,.11)}
+.minibar .mb{width:34px;height:34px;border-radius:17px;display:grid;place-items:center;
+  color:#fff;cursor:pointer;flex:0 0 auto}
+.minibar .mb:hover{background:rgba(255,255,255,.12)}
+.minibar .mb.pp{width:42px;height:42px;background:var(--pal);color:var(--palOn)}
+.minibar .mb.on{color:var(--pal)}
+.minitx{flex:1;min-width:0}
+.minitx .t{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.minitx .s{font-size:10px;color:rgba(255,255,255,.62);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.minibar2{display:flex;align-items:center;gap:8px;margin:0 6px 8px;font-size:10px;
+  color:rgba(255,255,255,.7);font-variant-numeric:tabular-nums}
+.minibar2 .trk{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.22);
+  position:relative;cursor:pointer}
+.minibar2 .fil{position:absolute;left:0;top:0;bottom:0;width:34%;border-radius:2px;
+  background:var(--pal)}
+.tapzone{position:absolute;inset:0;z-index:1;cursor:pointer}
+/* The fill is the BLURRED copy; the sharp one is contained on top of it.
+   `cover` on the artwork itself crops a square to a band on a tall screen and a 9:16 video
+   frame worst of all - which is half of what this player holds. Letterboxing alone would put
+   the controls on bare black and lose the effect, so the blurred copy fills the gap, which
+   is what every video app does with a mismatched aspect. Nothing is stretched and nothing is
+   cropped: the two jobs are done by two layers. */
+.fullart{position:absolute;inset:0;background-image:var(--art);background-size:cover;
+  background-position:center;filter:blur(46px) saturate(2.4) brightness(1.25);transform:scale(1.2)}
+/* Centred on the room left above the controls, not pinned near the top: the pill is only
+   about 90dp tall, so hanging the picture off the top left a dead third in the middle. */
+.fullsharp{position:absolute;left:0;right:0;top:7%;height:66%;background-image:var(--art);
+  background-size:contain;background-repeat:no-repeat;background-position:center;
+  filter:drop-shadow(0 22px 48px rgba(0,0,0,.6))}
+.fullveil{position:absolute;inset:0;background:
+  linear-gradient(180deg,rgba(22,22,20,.14) 0%,rgba(22,22,20,.30) 36%,rgba(22,22,20,.90) 100%)}
+
+/* ── the dock ─────────────────────────────────────────────── */
+.canvas{position:relative;height:430px;background:var(--bg);overflow:hidden}
+.dock{position:absolute;right:12px;bottom:12px;display:flex;flex-direction:column;
+  align-items:flex-end;gap:8px;z-index:5}
+.fab{width:50px;height:50px;border-radius:25px;background:var(--accent);color:var(--onAccent);
+  display:grid;place-items:center;cursor:pointer;box-shadow:0 5px 16px rgba(0,0,0,.45);
+  transition:transform .18s cubic-bezier(.2,.8,.2,1)}
+.fab.open{transform:rotate(45deg)}
+.fab.sm{width:42px;height:42px;background:var(--high);color:var(--fg2);box-shadow:0 3px 10px rgba(0,0,0,.4)}
+.leaf{display:flex;align-items:center;gap:9px;opacity:0;transform:translateY(8px);
+  pointer-events:none;transition:opacity .16s ease,transform .18s cubic-bezier(.2,.8,.2,1)}
+.dock.open .leaf{opacity:1;transform:none;pointer-events:auto}
+.dock.open .leaf:nth-child(1){transition-delay:.00s}
+.dock.open .leaf:nth-child(2){transition-delay:.03s}
+.dock.open .leaf:nth-child(3){transition-delay:.06s}
+.dock.open .leaf:nth-child(4){transition-delay:.09s}
+.lbl{background:var(--surface);border:1px solid var(--line);color:var(--fg);
+  font-size:11.5px;padding:6px 10px;border-radius:8px;white-space:nowrap}
+.badge{position:absolute;top:-3px;right:-3px;min-width:17px;height:17px;border-radius:9px;
+  background:var(--accent);color:var(--onAccent);font-size:10px;font-weight:700;
+  display:grid;place-items:center;padding:0 4px;border:2px solid var(--bg)}
+.rel{position:relative}
+
+
+/* The files inside a batch.
+   Reported on round 1: the tray said "Move - 3 items" and nothing else, so there was no way
+   to see WHICH three, and no way to drop one you did not mean to pick up. A count is a
+   summary of something; if the something cannot be opened, the count is all there is.
+   So a batch is a disclosure, the same shape the APK inspector uses for its contents. */
+.batch{flex-wrap:wrap}
+.chev{width:26px;height:26px;border-radius:13px;display:grid;place-items:center;color:var(--fg3);
+  cursor:pointer;flex:0 0 auto;transition:transform .2s cubic-bezier(.2,.8,.2,1)}
+.batch.open .chev{transform:rotate(180deg);color:var(--fg2)}
+.files{flex-basis:100%;overflow:hidden;max-height:0;transition:max-height .24s cubic-bezier(.2,.8,.2,1)}
+.batch.open .files{max-height:360px;overflow-y:auto}
+.files .inner{margin-top:9px;padding-top:8px;border-top:1px solid var(--line)}
+/* Every file is pickable.
+   A batch-level Paste was the only way to act, so a batch you half wanted was a batch you
+   had to split by hand - open it, remove the ones you did not want, and lose them from the
+   clipboard to paste the rest. Ticking is non-destructive: the batch keeps everything and
+   the button pastes what is ticked. */
+.frow{display:flex;align-items:center;gap:9px;padding:6px 2px 6px 0;cursor:pointer;
+  border-radius:8px}
+.frow:hover{background:var(--sunken)}
+.tick{width:17px;height:17px;border-radius:5px;border:1.5px solid var(--fg3);flex:0 0 auto;
+  display:grid;place-items:center;color:transparent;transition:background .12s,border-color .12s}
+.frow.on .tick{background:var(--accent);border-color:var(--accent);color:var(--onAccent)}
+.frow.gone{cursor:default;opacity:.6}
+.frow.gone .tick{border-style:dashed}
+.allrow{display:flex;align-items:center;gap:9px;padding:2px 2px 7px 0;font-size:10.5px;
+  color:var(--fg3)}
+.allrow .lk{cursor:pointer;color:var(--fg2);text-decoration:underline;
+  text-decoration-color:var(--line);text-underline-offset:2px}
+.allrow .lk:hover{color:var(--accent)}
+.frow .fi{width:22px;height:22px;border-radius:6px;background:var(--sunken);display:grid;
+  place-items:center;color:var(--fg3);flex:0 0 auto}
+.frow .fn{flex:1;min-width:0;font-size:11.5px;color:var(--fg2);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.frow .fs{font-size:10px;color:var(--fg3);font-variant-numeric:tabular-nums}
+.frow .fx{width:22px;height:22px;border-radius:11px;display:grid;place-items:center;
+  color:var(--fg3);cursor:pointer;font-size:13px;flex:0 0 auto}
+.frow .fx:hover{background:var(--sunken);color:var(--bad)}
+.frow.gone .fn{color:var(--bad);text-decoration:line-through;text-decoration-color:var(--fg3)}
+
+/* ── clipboard tray, round 2 ────────────────────────────────
+   Round 1 was a list of bordered strips: four hairlines competing with the batch
+   icons, a Paste button on every row shouting at the same volume as the one at the
+   bottom, and a header that said "Clipboard" and nothing else. It read like a table.
+   Now: a grab handle, cards instead of strips, one loud button, and the DESTINATION
+   promoted to the thing the sheet is about. */
+.tray{position:absolute;left:0;right:0;bottom:0;background:var(--surface);
+  border-radius:20px 20px 0 0;transform:translateY(102%);
+  transition:transform .24s cubic-bezier(.2,.85,.25,1);z-index:8;max-height:92%;
+  display:flex;flex-direction:column;
+  box-shadow:0 -14px 40px rgba(0,0,0,.55);
+  border-top:1px solid rgba(255,255,255,.06)}
+.tray.up{transform:none}
+.grab{width:36px;height:4px;border-radius:2px;background:var(--high);margin:9px auto 4px}
+.trayhead{display:flex;align-items:baseline;padding:4px 16px 2px;gap:9px}
+.trayhead .t{font-size:16px;font-weight:650;letter-spacing:-.2px}
+.trayhead .n{font-size:11.5px;color:var(--fg3)}
+.trayhead .a{margin-left:auto;font-size:11.5px;color:var(--fg3);cursor:pointer;
+  padding:5px 9px;border-radius:8px}
+.trayhead .a:hover{background:var(--high);color:var(--fg2)}
+/* The destination is what the whole sheet acts on, so it is a stated line and not a
+   footnote - in split view "here" is otherwise a guess. */
+/* One line, the way the path strip reads everywhere else in the app.
+   It had grown into three: a label, the folder name in bold, and the path underneath - which
+   says the same thing twice and takes the height of a list row to do it. The path IS the
+   name; repeating its last segment above it in bold is decoration.
+
+   `unicode-bidi:plaintext` with `direction:rtl` is what puts the ellipsis at the START
+   without the leading slash being dragged round to the other end - which is exactly what
+   happened the first time this was tried with `direction:rtl` alone. */
+.dest{margin:6px 16px 2px;display:flex;align-items:center;gap:8px;padding:7px 10px;
+  border-radius:9px;background:var(--sunken);min-width:0}
+.dest .k{font-size:8.5px;letter-spacing:1.1px;text-transform:uppercase;color:var(--fg3);
+  flex:0 0 auto}
+.dest .p{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--fg2);flex:1;
+  min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  direction:rtl;unicode-bidi:plaintext;text-align:left}
+.batches{padding:8px 12px 4px;overflow-y:auto}
+.batch{display:flex;align-items:center;gap:11px;padding:11px 12px;margin-bottom:8px;
+  border-radius:13px;background:var(--raised);border:1px solid transparent;cursor:pointer;
+  transition:border-color .14s,background .14s}
+.batch:hover{border-color:var(--line);background:var(--high)}
+.batch.dead{opacity:.72}
+.bi{width:34px;height:34px;border-radius:10px;background:var(--high);display:grid;place-items:center;
+  color:var(--fg2);flex:0 0 auto}
+.bi.mv{color:var(--accent);background:var(--accentDim)}
+.btx{flex:1;min-width:0}
+.bt1{font-size:13px;color:var(--fg);font-weight:500;letter-spacing:-.1px}
+.bt2{font-size:10.5px;color:var(--fg3);margin-top:2px;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.verb{font-size:9px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+  padding:2px 6px;border-radius:5px;background:var(--high);color:var(--fg3);margin-right:6px}
+.verb.mv{background:var(--accentDim);color:var(--accent)}
+.again{font-size:9.5px;color:var(--fg3);border:1px solid var(--line);border-radius:5px;
+  padding:1px 5px;margin-left:6px}
+/* Per-batch paste is QUIET. One loud button in a sheet, and it is the one at the
+   bottom; three accent buttons in a column make none of them the answer. */
+.go{font-size:11px;padding:7px 11px;border-radius:9px;background:var(--high);color:var(--fg);
+  cursor:pointer;white-space:nowrap;border:1px solid var(--line)}
+.go:hover{border-color:var(--accent);color:var(--accent)}
+.go.g{opacity:.5;cursor:default}
+.xx{width:28px;height:28px;border-radius:14px;display:grid;place-items:center;color:var(--fg3);
+  cursor:pointer;flex:0 0 auto}
+.xx:hover{background:var(--sunken);color:var(--bad)}
+.trayfoot{padding:8px 16px 16px}
+.wide{display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;padding:12px;
+  border-radius:13px;background:var(--accent);color:var(--onAccent);font-weight:650;cursor:pointer;
+  box-shadow:0 4px 14px rgba(0,0,0,.35)}
+.wide small{font-weight:400;opacity:.72;font-size:11px}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.52);opacity:0;pointer-events:none;
+  transition:opacity .2s;z-index:7}
+.scrim.on{opacity:1;pointer-events:auto}
+
+/* paste pill */
+.ppill{position:absolute;right:12px;bottom:12px;display:flex;align-items:center;gap:4px;
+  background:var(--accent);color:var(--onAccent);border-radius:50px;
+  padding:9px 6px 9px 14px;font-size:12px;font-weight:500;cursor:pointer;z-index:4;
+  box-shadow:0 4px 14px rgba(0,0,0,.4)}
+.ppill .x{width:24px;height:24px;border-radius:12px;display:grid;place-items:center;font-size:14px}
+.stack{position:relative;width:15px;height:15px;margin-right:2px}
+.stack i{position:absolute;inset:0;border:1.5px solid currentColor;border-radius:3px}
+.stack i:nth-child(2){transform:translate(3px,-3px);opacity:.55}
+
+/* chooser */
+.pick{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.pick button{background:var(--raised);border:1px solid var(--line);color:var(--fg2);
+  font-size:11.5px;padding:7px 12px;border-radius:9px;cursor:pointer;font-family:inherit}
+.pick button.on{background:var(--accent);border-color:var(--accent);color:var(--onAccent);font-weight:600}
+.caps{margin-top:34px;border-top:1px solid var(--line);padding-top:16px}
+.caps h3{font-size:12.5px;margin:0 0 6px}
+.caps p{font-size:11.5px;color:var(--fg3);line-height:1.65;margin:0 0 10px;max-width:70ch}
+.tag{display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.4px;
+  background:var(--accentDim);color:var(--accent);padding:2px 6px;border-radius:5px;
+  vertical-align:middle;margin-left:6px}
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1>Filet — the selection bar, and the dock</h1>
+<p class="sub">
+Slate dark, 423dp wide, real tokens out of <code>Palette.kt</code> and real icon paths out of
+<code>Icons.kt</code>. Heights are the ones the layout actually produces. Everything with a
+cursor is clickable.
+</p>
+
+<!-- ══════════════ selection bar ══════════════ -->
+<h2>1 · The selection bar <span class="n">— thicker than now, thinner than before</span></h2>
+<p class="note">
+What shipped is <b>A</b>, and it measures <b>39dp</b> &mdash; you are right that it is thin.
+What it replaced was a 30dp circle over a 9.5sp caption at roughly <b>56dp</b>, <i>plus</i> a
+full nav bar underneath it, and that pair was the complaint. B and C put the caption back and
+land between the two; the nav bar stepping aside means even C is well under what you had.
+Heights on the buttons are measured from the layout, not typed. Click to compare.
+</p>
+
+<div class="pick" id="pickBar">
+  <button data-v="A" class="on">A · pills (shipped, 44dp)</button>
+  <button data-v="B">B · stacked, tight (52dp)</button>
+  <button data-v="C">C · stacked on a chip (56dp)</button>
+  <button data-v="D">D · count on its own line (72dp)</button>
+</div>
+
+<div class="row">
+  <div class="phone">
+    <div class="list">
+      <div class="ent on"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24"><path class="st" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+        <div class="tx"><div class="nm">Camera</div><div class="mt">2026-10-09</div></div><div class="sz">418 items</div></div>
+      <div class="ent on"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24"><path class="st" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path class="st" d="M14 3v5h5"/></svg></div>
+        <div class="tx"><div class="nm">20261011.log</div><div class="mt">19 h ago</div></div><div class="sz">30.2 KB</div></div>
+      <div class="ent"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24"><path class="st" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path class="st" d="M14 3v5h5"/></svg></div>
+        <div class="tx"><div class="nm">msgstore-increment-2.db.crypt14</div><div class="mt">12 h ago</div></div><div class="sz">44.5 KB</div></div>
+      <div class="ent on"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24"><path class="st" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+        <div class="tx"><div class="nm">Trawl</div><div class="mt">yesterday</div></div><div class="sz">9 items</div></div>
+      <div class="ent"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24"><path class="st" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path class="st" d="M14 3v5h5"/></svg></div>
+        <div class="tx"><div class="nm">20261010.log</div><div class="mt">yesterday</div></div><div class="sz">28.1 KB</div></div>
+    </div>
+    <div id="barSlot"></div>
+  </div>
+
+  <div style="flex:1;min-width:250px">
+    <div id="barNote" class="note" style="max-width:48ch"></div>
+  </div>
+</div>
+
+<!-- ══════════════ the dock ══════════════ -->
+<h2>2 · The dock <span class="n">— new things, and the clipboard</span></h2>
+<p class="note">
+One button, bottom right, above the bottom bar. Tap to fan out: <b>New folder</b>, <b>New file</b>,
+<b>New archive</b>, and <b>Clipboard</b> carrying a count. Tap Clipboard for the tray.
+A long-press on the main button drags the whole dock to the other side — but it is a round
+button in a corner, not a rearrangeable bar: see the note under it.
+</p>
+
+<div class="pick" id="pickDock">
+  <button data-v="closed" class="on">Dock closed</button>
+  <button data-v="open">Dock fanned out</button>
+  <button data-v="tray">Clipboard tray</button>
+  <button data-v="pill">Paste pill, 3 batches</button>
+</div>
+
+<div class="row">
+  <div class="phone">
+    <div class="canvas" id="canvas">
+      <div class="list">
+        <div class="ent"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24"><path class="st" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+          <div class="tx"><div class="nm">Android</div><div class="mt">2025-11-02</div></div><div class="sz">9 items</div></div>
+        <div class="ent"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24"><path class="st" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+          <div class="tx"><div class="nm">DCIM</div><div class="mt">today</div></div><div class="sz">3 items</div></div>
+        <div class="ent"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24"><path class="st" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+          <div class="tx"><div class="nm">Download</div><div class="mt">today</div></div><div class="sz">212 items</div></div>
+        <div class="ent"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24"><path class="st" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+          <div class="tx"><div class="nm">Music</div><div class="mt">8 h ago</div></div><div class="sz">61 items</div></div>
+        <div class="ent"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24"><path class="st" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path class="st" d="M14 3v5h5"/></svg></div>
+          <div class="tx"><div class="nm">20261011.log</div><div class="mt">19 h ago</div></div><div class="sz">30.2 KB</div></div>
+        <div class="ent"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24"><path class="st" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path class="st" d="M14 3v5h5"/></svg></div>
+          <div class="tx"><div class="nm">status_backup.db.crypt14</div><div class="mt">17 h ago</div></div><div class="sz">1.1 MB</div></div>
+      </div>
+
+      <div class="scrim" id="scrim"></div>
+
+      <div class="ppill" id="ppill" style="display:none">
+        <span class="stack"><i></i><i></i></span>
+        Paste 3 batches here
+        <span class="x">×</span>
+      </div>
+
+      <div class="dock" id="dock">
+        <div class="leaf"><span class="lbl">New archive</span>
+          <div class="fab sm"><svg width="19" height="19" viewBox="0 0 24 24"><path class="st" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path class="st" d="M11 6h2M11 9h2M11 12h2M11 15h2"/></svg></div></div>
+        <div class="leaf"><span class="lbl">New file</span>
+          <div class="fab sm"><svg width="19" height="19" viewBox="0 0 24 24"><path class="st" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path class="st" d="M14 3v5h5"/></svg></div></div>
+        <div class="leaf"><span class="lbl">New folder</span>
+          <div class="fab sm"><svg width="19" height="19" viewBox="0 0 24 24"><path class="st" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div></div>
+        <div class="leaf"><span class="lbl">Clipboard · 3</span>
+          <div class="fab sm rel" id="clipBtn"><svg width="19" height="19" viewBox="0 0 24 24"><path class="st" d="M8 4h8v3H8z"/><path class="st" d="M8 5.5H6a2 2 0 0 0-2 2V19a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5a2 2 0 0 0-2-2h-2"/></svg>
+            <span class="badge">3</span></div></div>
+        <div class="fab rel" id="fab"><svg width="22" height="22" viewBox="0 0 24 24"><path class="st t" d="M12 5v14M5 12h14"/></svg>
+          <span class="badge" id="fabBadge">3</span></div>
+      </div>
+
+      <div class="tray" id="tray">
+        <div class="grab"></div>
+        <div class="trayhead">
+          <span class="t">Clipboard</span><span class="n">3 batches &middot; 11 items</span>
+          <span class="a">Clear all</span>
+        </div>
+        <div class="dest">
+          <span class="k">Pasting into</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" style="flex:0 0 auto;color:var(--fg3)"><path class="st" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          <span class="p">/storage/emulated/0/Download</span>
+        </div>
+        <div class="batches">
+          <div class="batch open">
+            <div class="bi"><svg width="17" height="17" viewBox="0 0 24 24"><path class="st" d="M9 9h11v11H9z"/><path class="st" d="M5 15V6a2 2 0 0 1 2-2h8"/></svg></div>
+            <div class="btx">
+              <div class="bt1">7 items<span class="again">pasted 2&times;</span></div>
+              <div class="bt2"><span class="verb">Copy</span>DCIM/Camera &middot; 58 MB</div>
+            </div>
+            <span class="go">Paste</span><span class="chev"><svg width="15" height="15" viewBox="0 0 24 24"><path class="st t" d="M6 9l6 6 6-6"/></svg></span>
+            <div class="files"><div class="inner"><div class="allrow"><span class="n-sel">all picked</span> &middot; <span class="lk js-none">none</span> &middot; <span class="lk js-all">all</span></div><div class="frow on"><span class="tick"><svg width="11" height="11" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="fi"><svg width="12" height="12" viewBox="0 0 24 24"><path class="st" d="M4 5h16v14H4z"/><path class="st" d="m5 16 4.5-4.5 3 3L16 11l3 3"/></svg></div><span class="fn">IMG_20261009_114522.jpg</span><span class="fs">3.1 MB</span><span class="fx">&times;</span></div><div class="frow on"><span class="tick"><svg width="11" height="11" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="fi"><svg width="12" height="12" viewBox="0 0 24 24"><path class="st" d="M4 5h16v14H4z"/><path class="st" d="m5 16 4.5-4.5 3 3L16 11l3 3"/></svg></div><span class="fn">IMG_20261009_114530.jpg</span><span class="fs">2.8 MB</span><span class="fx">&times;</span></div><div class="frow on"><span class="tick"><svg width="11" height="11" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="fi"><svg width="12" height="12" viewBox="0 0 24 24"><path class="st" d="M4 5h16v14H4z"/><path class="st" d="m5 16 4.5-4.5 3 3L16 11l3 3"/></svg></div><span class="fn">IMG_20261009_114611.jpg</span><span class="fs">3.4 MB</span><span class="fx">&times;</span></div><div class="frow on"><span class="tick"><svg width="11" height="11" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="fi"><svg width="12" height="12" viewBox="0 0 24 24"><path class="st" d="M3 5h18v14H3z"/><path class="st" d="m10 9 5 3-5 3z"/></svg></div><span class="fn">VID_20261009_120104.mp4</span><span class="fs">41 MB</span><span class="fx">&times;</span></div><div class="frow on"><span class="tick"><svg width="11" height="11" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="fi"><svg width="12" height="12" viewBox="0 0 24 24"><path class="st" d="M4 5h16v14H4z"/><path class="st" d="m5 16 4.5-4.5 3 3L16 11l3 3"/></svg></div><span class="fn">IMG_20261009_123002.jpg</span><span class="fs">2.2 MB</span><span class="fx">&times;</span></div><div class="frow on"><span class="tick"><svg width="11" height="11" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="fi"><svg width="12" height="12" viewBox="0 0 24 24"><path class="st" d="M4 5h16v14H4z"/><path class="st" d="m5 16 4.5-4.5 3 3L16 11l3 3"/></svg></div><span class="fn">IMG_20261009_123015.jpg</span><span class="fs">2.9 MB</span><span class="fx">&times;</span></div><div class="frow on"><span class="tick"><svg width="11" height="11" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="fi"><svg width="12" height="12" viewBox="0 0 24 24"><path class="st" d="M4 5h16v14H4z"/><path class="st" d="m5 16 4.5-4.5 3 3L16 11l3 3"/></svg></div><span class="fn">IMG_20261009_123101.jpg</span><span class="fs">3.0 MB</span><span class="fx">&times;</span></div></div></div>
+          </div>
+          <div class="batch">
+            <div class="bi mv"><svg width="17" height="17" viewBox="0 0 24 24"><path class="st" d="M12 4v16M4 12h16M12 4 9 7M12 4l3 3M12 20l-3-3M12 20l3-3M4 12l3-3M4 12l3 3M20 12l-3-3M20 12l-3 3"/></svg></div>
+            <div class="btx">
+              <div class="bt1">3 items</div>
+              <div class="bt2"><span class="verb mv">Move</span>Download/invoices &middot; 551 KB</div>
+            </div>
+            <span class="go">Move</span><span class="chev"><svg width="15" height="15" viewBox="0 0 24 24"><path class="st t" d="M6 9l6 6 6-6"/></svg></span>
+            <div class="files"><div class="inner"><div class="allrow"><span class="n-sel">all picked</span> &middot; <span class="lk js-none">none</span> &middot; <span class="lk js-all">all</span></div><div class="frow on"><span class="tick"><svg width="11" height="11" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="fi"><svg width="12" height="12" viewBox="0 0 24 24"><path class="st" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path class="st" d="M14 3v5h5"/></svg></div><span class="fn">invoice-2026-08.pdf</span><span class="fs">184 KB</span><span class="fx">&times;</span></div><div class="frow on"><span class="tick"><svg width="11" height="11" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="fi"><svg width="12" height="12" viewBox="0 0 24 24"><path class="st" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path class="st" d="M14 3v5h5"/></svg></div><span class="fn">invoice-2026-09.pdf</span><span class="fs">191 KB</span><span class="fx">&times;</span></div><div class="frow on"><span class="tick"><svg width="11" height="11" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="fi"><svg width="12" height="12" viewBox="0 0 24 24"><path class="st" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path class="st" d="M14 3v5h5"/></svg></div><span class="fn">invoice-2026-10.pdf</span><span class="fs">176 KB</span><span class="fx">&times;</span></div></div></div>
+          </div>
+          <div class="batch dead">
+            <div class="bi"><svg width="17" height="17" viewBox="0 0 24 24"><path class="st" d="M9 9h11v11H9z"/><path class="st" d="M5 15V6a2 2 0 0 1 2-2h8"/></svg></div>
+            <div class="btx">
+              <div class="bt1">1 item</div>
+              <div class="bt2" style="color:var(--bad)"><span class="verb">Copy</span>Music &middot; no longer there</div>
+            </div>
+            <span class="go g">Paste</span><span class="chev"><svg width="15" height="15" viewBox="0 0 24 24"><path class="st t" d="M6 9l6 6 6-6"/></svg></span>
+            <div class="files"><div class="inner"><div class="allrow"><span class="n-sel">all picked</span> &middot; <span class="lk js-none">none</span> &middot; <span class="lk js-all">all</span></div><div class="frow gone"><span class="tick"><svg width="11" height="11" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="fi"><svg width="12" height="12" viewBox="0 0 24 24"><path class="st" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path class="st" d="M14 3v5h5"/></svg></div><span class="fn">northernlights.m4a</span><span class="fs">&mdash;</span><span class="fx">&times;</span></div></div></div>
+          </div>
+        </div>
+        <div class="trayfoot">
+          <span class="wide">Paste all 11 here <small>7 copied, 3 moved</small></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex:1;min-width:250px">
+    <p class="note">
+      <b>Why a corner button and not a rearrangeable side bar.</b> The bottom of this screen
+      already carries the nav bar, the now-playing strip, the selection bar and the paste pill.
+      A fifth draggable band would cover the list permanently and has to collide-detect against
+      four others. A round button in a corner moves out of the way by being small, and it can
+      still be dragged left or right if the right corner is wrong for your thumb.
+    </p>
+    <p class="note">
+      <b>The badge is the point.</b> With nothing copied the dock is just +. With something on
+      the clipboard it carries a count you cannot walk past, which is the actual fault today:
+      after Copy the app holds state that nothing on screen mentions.
+    </p>
+    <p class="note">
+      <b>The paste pill stays.</b> It is already per-pane and already knows which folder "here"
+      means. With one batch it reads <i>Paste 7 here</i> exactly as now; with several it reads
+      <i>Paste 3 batches here</i> and opens the tray on a long press. The dock is the way in when
+      nothing is copied; the pill is the way in when something is.
+    </p>
+  </div>
+</div>
+
+
+<!-- the music player -->
+<h2>3 &middot; The music player <span class="n">&mdash; beautified</span></h2>
+<p class="note">
+Artwork is the real poster frame out of the clip you tested with, so the ambient colour is
+what Filet would actually derive from it. <b>A</b> is what ships today. B, C and D are the
+revamp at three levels of commitment. Tap the big button to pause &mdash; the art reacts.
+Tap the queue handle at the bottom.
+</p>
+
+<div class="pick" id="pickPl">
+  <button data-v="A" class="on">A &middot; today</button>
+  <button data-v="B">B &middot; ambient wash</button>
+  <button data-v="C">C &middot; editorial</button>
+  <button data-v="D">D &middot; immersive</button>
+</div>
+
+<div class="row">
+  <div class="phone" style="--art:url('filet-mock-art.jpg')">
+    <div id="plSlot"></div>
+  </div>
+  <div style="flex:1;min-width:250px"><div id="plNote" class="note" style="max-width:50ch"></div></div>
+</div>
+
+<div class="caps">
+  <h3>What changed, newest first</h3>
+  <p><b>Round 4</b> — the marquee fades at <i>both</i> ends and only runs when the title does
+  not fit, measured rather than guessed. C's title no longer crosses the artwork: its wrapper
+  had <code>flex:1</code> in a block parent, which does nothing, so it sized to its own text
+  and clipped nothing. D is rebuilt twice over — blurred fill under a contained sharp copy so
+  nothing is stretched, and small retractable controls instead of the glass panel, because a
+  panel across the bottom defeats the one thing that face is for. The wash is wider and
+  fainter. And <b>the controls take their colour from the artwork</b>, sampled weighted
+  towards the pixels that carry colour and then lightened until it clears 4.5:1 against the
+  panel, with the glyph going black or white by whichever wins.<span class="tag">DECIDED</span></p>
+  <p><b>Round 3</b> — you pick which files to paste, not the whole batch: every file in
+  an open batch has a tick and the button counts them, so <i>Paste</i> and <i>Paste 4</i> are
+  one control at two states. The × still removes a file for good, which is a different
+  intention. On the player: the ambient light is three layers instead of one, because one
+  blurred copy of a nearly black clip is a dark rectangle; the title scrolls, since a filename
+  is long and cannot wrap; and <b>Uninterrupted</b> now sits on a chip row under the transport
+  in the title bar, lit, with the word in the eyebrow when it is on. <b>B</b> chosen,
+  <b>D</b> rebuilt rather than dropped.</p>
+  <p><b>Round 2</b> — the music player, four faces, on the real poster frame. The clipboard
+  tray opens each batch to its individual files, with a size and an × per file: a count you
+  cannot open is all there is. Its destination is stated as a folder name rather than a raw
+  path, because the raw one was rendering back to front. The selection bar is settled at
+  <b>C</b>.</p>
+  <p><b>Round 1</b> — four selection-bar heights against the real list, and the dock with a
+  clipboard tray built from the batch model in <code>docs/design/clipboard-tray.md</code>.
+  Nothing is in the app yet.</p>
+</div>
+
+</div>
+
+<script>
+/* ── the four selection bars, built from the same action list ── */
+const ACTIONS = [
+  ['Copy',  '<path class="st" d="M9 9h11v11H9z"/><path class="st" d="M5 15V6a2 2 0 0 1 2-2h8"/>'],
+  ['Move',  '<path class="st" d="M12 4v16M4 12h16M12 4 9 7M12 4l3 3M12 20l-3-3M12 20l3-3M4 12l3-3M4 12l3 3M20 12l-3-3M20 12l-3 3"/>'],
+  ['Rename','<path class="st" d="M4 20h4l10-10-4-4L4 16z"/><path class="st" d="m14 6 4 4"/>'],
+  ['Delete','<path class="st" d="M5 7h14M10 7V5h4v2M6.5 7l1 13h9l1-13"/>'],
+  ['Share', '<path class="st" d="M12 15V4"/><path class="st" d="m8 8 4-4 4 4"/><path class="st" d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/>'],
+];
+const ic = (p, s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24">${p}</svg>`;
+
+function bar(v){
+  const items = ACTIONS.map(([n,p])=>{
+    if(v==='A') return `<span class="pillA">${ic(p,16)}${n}</span>`;
+    if(v==='B') return `<span class="pillB">${ic(p,20)}<span class="cap">${n}</span></span>`;
+    return `<span class="pillC">${ic(p,19)}<span class="cap">${n}</span></span>`;
+  }).join('');
+  const scroller = `<div class="scroller"><div class="scrollrow">${items}</div>
+     <div class="fade">${ic('<path class="st" d="M5 12h13M13 7l5 5-5 5"/>',16)}</div></div>`;
+  const tail = `<span class="pin">All</span><span class="pin m">More</span><span class="pin">Clear</span>`;
+
+  if(v==='D') return `<div class="selbar selD">
+      <div class="top"><span class="cnt">3 selected</span><span style="flex:1"></span>${tail}</div>
+      <div class="bot">${scroller}</div></div>`;
+  return `<div class="selbar">
+      <div class="selhead" style="padding-top:${v==='A'?5:4}px;padding-bottom:${v==='A'?5:4}px">
+        <span class="cnt">3 selected</span>${scroller}${tail}</div></div>`;
+}
+
+const NAVICONS = [
+  ['Files',    '<path class="st" d="M3 4h18v7H3z"/><path class="st" d="M3 13h18v7H3z"/><path class="st" d="M7 7.5h.01M7 16.5h.01"/>'],
+  ['Search',   '<path class="st t" d="M18 11a7 7 0 1 1-14 0 7 7 0 0 1 14 0"/><path class="st t" d="m20 20-3.5-3.5"/>'],
+  ['Activity', '<path class="st" d="M4 18V9M9.5 18V5M15 18v-6M20.5 18v-9"/>'],
+  ['Bookmarks','<path class="st" d="m12 4 2.4 5 5.6.8-4 3.9 1 5.5-5-2.7-5 2.7 1-5.5-4-3.9 5.6-.8z"/>'],
+  ['Home',     '<path class="st" d="m4 11 8-7 8 7v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/>'],
+];
+const NAV = `<div style="display:flex;justify-content:space-evenly;background:var(--raised);
+  border-top:1px solid var(--lineSoft);padding:5px 0 7px">
+  ${NAVICONS.map(([n,p])=>
+   `<span style="display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--fg2)">
+      ${ic(p,19)}
+      <span style="font-size:9.5px;color:var(--fg3)">${n}</span></span>`).join('')}
+  </div>`;
+
+const NOTES = {
+A:`<b>A &mdash; what is in the app now.</b> Icon and label side by side. Shortest and most
+   legible per pixel, but no caption under the icon, which is the thing you missed. Five
+   actions fit in about 320px, so the row still scrolls on a narrow phone.`,
+B:`<b>B &mdash; the old shape, tightened.</b> Caption back under the icon, but the icon drops
+   from a 30dp circle to a bare 20dp glyph and the padding comes in. No chip behind it, so the
+   row reads as one band rather than as five separate buttons.`,
+C:`<b>C &mdash; the old shape, on a chip.</b> Same stack as B with the rounded
+   <code>high</code> chip kept, so each action still looks tappable. This is closest to what
+   you had before &mdash; the difference is that the nav bar no longer sits underneath it, so
+   the total chrome is still well down on what you complained about.`,
+D:`<b>D &mdash; the count gets its own line.</b> The action row uses the full width, so more
+   actions are visible before it scrolls, and <i>All / More / Clear</i> sit top right out of
+   the way of your thumb. The thickest of the four.`};
+
+/* Heights are MEASURED, never typed. A label that claims 52dp while the layout produces 39
+   is worse than no label: it is the number somebody makes the decision on. */
+function measure(v){
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:absolute;left:-9999px;top:0;width:423px';
+  probe.innerHTML = bar(v);
+  document.body.appendChild(probe);
+  const h = Math.round(probe.querySelector('.selbar').getBoundingClientRect().height);
+  probe.remove();
+  return h;
+}
+
+const slot = document.getElementById('barSlot');
+const bnote = document.getElementById('barNote');
+function setBar(v){
+  slot.innerHTML = bar(v) + NAV;
+  bnote.innerHTML = NOTES[v];
+  requestAnimationFrame(()=>{
+    const el = slot.querySelector('.selbar');
+    const h = Math.round(el.getBoundingClientRect().height);
+    const tag = document.createElement('span');
+    tag.className='hgt'; tag.style.top='-9px'; tag.textContent = h+'dp';
+    el.appendChild(tag);
+  });
+}
+const LABEL = {A:'A · pills (shipped)', B:'B · stacked, tight',
+               C:'C · stacked on a chip', D:'D · count on its own line'};
+document.querySelectorAll('#pickBar button').forEach(b=>{
+  const v = b.dataset.v;
+  b.textContent = LABEL[v] + ' — ' + measure(v) + 'dp';
+  b.onclick=()=>{
+    document.querySelectorAll('#pickBar button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); setBar(v);
+  };
+});
+setBar('A');
+
+/* ── the dock ── */
+const dock=document.getElementById('dock'), tray=document.getElementById('tray'),
+      scrim=document.getElementById('scrim'), ppill=document.getElementById('ppill'),
+      fab=document.getElementById('fab');
+function setDock(v){
+  dock.classList.toggle('open', v==='open'||v==='tray');
+  tray.classList.toggle('up', v==='tray');
+  scrim.classList.toggle('on', v==='tray');
+  ppill.style.display = v==='pill' ? 'flex' : 'none';
+  dock.style.display  = v==='pill' ? 'none' : 'flex';
+  fab.classList.toggle('open', v==='open'||v==='tray');
+}
+document.querySelectorAll('#pickDock button').forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll('#pickDock button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); setDock(b.dataset.v);
+  };
+});
+fab.onclick=()=>{ const open=dock.classList.contains('open'); setDock(open?'closed':'open'); };
+document.getElementById('clipBtn').onclick=e=>{ e.stopPropagation(); setDock('tray'); };
+scrim.onclick=()=>setDock('open');
+ppill.onclick=()=>setDock('tray');
+setDock('closed');
+
+
+/* ── the artwork's colour, with a contrast floor ──────────────────────────
+   Taking the average of a picture gives mud: average a green room and you get grey-green,
+   and on a dark panel that is invisible. So the sample is weighted towards the pixels that
+   actually carry colour, and then the result is FORCED to pass a contrast ratio against the
+   panel it will sit on - which is the part that stops a dark track producing a button
+   nobody can see.
+
+   Both halves matter. Without the weighting the colour is wrong; without the floor the
+   colour is right and unreadable. */
+const PANEL = [0x16, 0x16, 0x14];           // the ground these sit on
+
+function lum(c) {
+  const f = c.map(function (v) {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2];
+}
+function ratio(a, b) {
+  const x = lum(a), y = lum(b);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+function rgb2hsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let h = 0;
+  if (d) {
+    h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h *= 60; if (h < 0) h += 360;
+  }
+  const l = (mx + mn) / 2;
+  const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  return [h, sat, l];
+}
+function hsl2rgb(h, sv, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * sv, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2;
+  let p = [0, 0, 0];
+  if (h < 60) p = [c, x, 0]; else if (h < 120) p = [x, c, 0]; else if (h < 180) p = [0, c, x];
+  else if (h < 240) p = [0, x, c]; else if (h < 300) p = [x, 0, c]; else p = [c, 0, x];
+  return p.map(function (v) { return Math.round((v + m) * 255); });
+}
+
+function paletteFrom(img, apply) {
+  let data;
+  try {
+    const n = 24, cv = document.createElement('canvas');
+    cv.width = n; cv.height = n;
+    const cx = cv.getContext('2d', { willReadFrequently: true });
+    cx.drawImage(img, 0, 0, n, n);
+    data = cx.getImageData(0, 0, n, n).data;
+  } catch (e) {
+    return;                                  // tainted canvas, or no artwork: keep the default
+  }
+  // Weighted by saturation AND by how far the pixel is from black, so the few lit pixels in
+  // a dark frame decide the hue instead of being outvoted by the shadows.
+  let sx = 0, sy = 0, ss = 0, sl = 0, w = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const hsl = rgb2hsl(data[i], data[i + 1], data[i + 2]);
+    const weight = Math.pow(hsl[1], 1.4) * Math.min(1, hsl[2] * 2.4) + 0.001;
+    const rad = hsl[0] * Math.PI / 180;
+    sx += Math.cos(rad) * weight; sy += Math.sin(rad) * weight;
+    ss += hsl[1] * weight; sl += hsl[2] * weight; w += weight;
+  }
+  if (!w) return;
+  let h = Math.atan2(sy / w, sx / w) * 180 / Math.PI; if (h < 0) h += 360;
+  let sat = Math.min(0.82, Math.max(0.42, ss / w * 1.5));
+  let l = 0.62;
+
+  // The floor. Lighten until it clears 4.5:1 against the panel, which is the readable-text
+  // threshold and therefore more than enough for a filled control.
+  let col = hsl2rgb(h, sat, l);
+  let guard = 0;
+  while (ratio(col, PANEL) < 4.5 && l < 0.92 && guard++ < 40) {
+    l += 0.02; col = hsl2rgb(h, sat, l);
+  }
+  // And the glyph ON the filled button goes black or white by whichever wins against it, so
+  // a pale yellow gets dark text and a deep blue gets light.
+  const on = ratio(col, [0, 0, 0]) >= ratio(col, [255, 255, 255]) ? '#12110F' : '#FFFFFF';
+  apply('rgb(' + col.join(',') + ')', on,
+        'rgba(' + col.join(',') + ',.16)', 'rgba(' + col.join(',') + ',.45)');
+}
+
+/* ── the marquee only runs when the title does not fit ───────────────────
+   The class drives the animation AND the two-sided fade, so a title that fits is neither
+   animated nor clipped at its first letter. Measured, because the answer depends on the
+   font and on how wide the phone is. */
+function measureTitles(root) {
+  root.querySelectorAll('.ttlwrap').forEach(function (w) {
+    const t = w.querySelector('.ttl');
+    if (!t) return;
+    const over = t.scrollWidth - w.clientWidth;
+    w.classList.toggle('runs', over > 6);
+    // The distance is the overflow, not a guess: a fixed translate under-scrolls a long
+    // name and over-scrolls a short one, and both look like a bug rather than a scroll.
+    w.style.setProperty('--run', (-over - 6) + 'px');
+  });
+}
+
+/* the player */
+const I = {
+  down:  '<path class="st t" d="M6 9l6 6 6-6"/>',
+  rows:  '<path class="st t" d="M4 7h16M4 12h16M4 17h16"/>',
+  dots:  '<path class="st t" d="M12 5.5v.01M12 12v.01M12 18.5v.01"/>',
+  prev:  '<path d="M7 6v12M19 6 10 12l9 6z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>',
+  next:  '<path d="M17 6v12M5 6l9 6-9 6z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>',
+  play:  '<path d="M8 5.5 19 12 8 18.5z" fill="currentColor"/>',
+  pause: '<path d="M8 5.5h3.2v13H8zM12.8 5.5H16v13h-3.2z" fill="currentColor"/>',
+  shuf:  '<path class="st" d="M16 4l3 3-3 3M16 14l3 3-3 3M4 7h4l8 10h3M4 17h4l2-2.5M14 9.5 16 7h3"/>',
+  rep:   '<path class="st" d="M7 7h10v3l4-4-4-4v3H5v6h2zM17 17H7v-3l-4 4 4 4v-3h12v-6h-2z"/>',
+  heart: '<path class="st" d="M12 20s-7-4.4-7-9.3A4 4 0 0 1 12 8a4 4 0 0 1 7-1.3c0 4.9-7 13.3-7 13.3z"/>',
+  vid:   '<path class="st" d="M3 5h18v14H3z"/><path class="st" d="m10 9 5 3-5 3z"/>',
+  shield:'<path class="st" d="M12 3.5 19 6v6c0 4.2-3 7-7 8.5C8 19 5 16.2 5 12V6z"/>',
+  speed: '<path class="st" d="M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0"/><path class="st" d="M12 12l4-3"/>',
+  timer: '<path class="st" d="M20.5 13a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0"/><path class="st" d="M9.5 3h5M12 8.5V13"/>'
+};
+const SVG = (p, s) => '<svg width="' + (s||20) + '" height="' + (s||20) + '" viewBox="0 0 24 24">' + p + '</svg>';
+
+const QUEUE = [
+  ['Afterglow', '3:41'], ['71a8e55085393f44dbb49966a23ca3e0', '0:21'],
+  ['northernlights', '2:58'], ['Consume feat. Goon Des Garcons', '4:12'],
+  ['space song (slowed + reverb)', '5:30'], ['How (demo)', '2:04'],
+  ['505', '4:13'], ['Rather Pretend', '3:22']
+];
+const queueHTML = () => QUEUE.map(function (row, i) {
+  const bars = '<span class="eq"><i></i><i></i><i></i></span>';
+  const num = '<span class="qn">' + (i + 1) + '</span>';
+  // The second track is the video, so it carries the thumb and the marker; the rest are
+  // ordinary audio and get a number. A queue of identical rows tells you nothing about
+  // which of them is the odd one out, which in a FOLDER queue is the useful fact.
+  const art = i === 1
+    ? '<span class="qth"><span class="v">' + SVG(I.vid, 13) + '</span></span>'
+    : '';
+  return '<div class="qrow ' + (i === 1 ? 'now' : '') + '">' + (i === 1 ? bars : num) + art +
+    '<span class="qt">' + row[0] +
+    (i === 1 ? '<div class="qsub">video, playing as audio</div>' : '') +
+    '</span><span class="qd">' + row[1] + '</span></div>';
+}).join('');
+
+const TITLE = '71a8e55085393f44dbb49966a23ca3e0';
+const SUB = 'SimpleTikTokMod';
+
+const transport = '<div class="tr">' +
+  '<span class="tb sm">' + SVG(I.shuf, 19) + '</span>' +
+  '<span class="tb mid">' + SVG(I.prev, 26) + '</span>' +
+  '<span class="tb big js-pp">' + SVG(I.pause, 28) + '</span>' +
+  '<span class="tb mid">' + SVG(I.next, 26) + '</span>' +
+  '<span class="tb sm on">' + SVG(I.rep, 19) + '</span></div>';
+
+const scrub = '<div class="bar"><div class="trk"></div><div class="fil"></div><div class="kn"></div></div>' +
+  '<div class="times"><span>0:07</span><span>-0:14</span></div>';
+
+const chips = '<div class="chips">' +
+  '<span class="chip">' + SVG(I.speed, 13) + ' 1.0&times;</span>' +
+  '<span class="chip">' + SVG(I.timer, 13) + ' Sleep</span></div>';
+
+const qhandle = '<div class="qhandle js-q">' + SVG(I.rows, 17) +
+  ' Up next <span class="c">2 of 8</span></div>';
+
+const qsheet = '<div class="qsheet" id="qsheet"><div class="grab"></div>' +
+  '<div class="trayhead"><span class="t">Up next</span><span class="n">8 in this folder</span>' +
+  '<span class="a js-qc">Close</span></div>' +
+  '<div style="overflow-y:auto">' + queueHTML() + '</div></div>';
+
+const topbar = '<div class="pltop"><span class="ico">' + SVG(I.down, 20) + '</span>' +
+  '<div class="ctx"><div class="k">' +
+    '<span class="kflag">Uninterrupted</span><span class="kdot">&middot;</span>' +
+    '<span>Playing from folder</span></div>' +
+  '<div class="v">Download / SimpleTikTokMod</div></div>' +
+  '<span class="ico mode js-un" title="Uninterrupted playback">' + SVG(I.shield, 20) + '</span>' +
+  '<span class="ico">' + SVG(I.dots, 18) + '</span></div>';
+
+/* A - today, replicated: flat background, art on `raised`, centred stack. */
+const A = '<div class="pl" style="background:var(--bg)"><div class="plbody">' +
+  '<div class="pltop" style="padding:10px 8px"><span class="ico">' + SVG(I.down, 20) + '</span>' +
+  '<div class="ctx" style="text-align:left;padding-left:2px">' +
+  '<div class="v" style="font-size:13px;color:var(--fg)">' + TITLE + '</div>' +
+  '<div class="v" style="font-size:10.5px">2 of 8</div></div>' +
+  '<span class="ico">' + SVG(I.rows, 18) + '</span><span class="ico">' + SVG(I.vid, 18) + '</span>' +
+  '<span class="ico">' + SVG(I.dots, 18) + '</span></div>' +
+  '<div style="padding:0 26px;display:grid;place-items:center;flex:1">' +
+  '<div style="width:100%;aspect-ratio:1;border-radius:14px;background:var(--raised);' +
+  'background-image:var(--art);background-size:cover;background-position:center"></div>' +
+  '<div style="height:22px"></div>' +
+  '<div style="text-align:center;font-size:19px;font-weight:600">' + TITLE + '</div>' +
+  '<div style="text-align:center;font-size:12.5px;color:var(--fg2);margin-top:4px">' + SUB + '</div>' +
+  '<div style="width:100%">' + scrub + transport + '</div>' +
+  '<div style="height:14px"></div></div></div></div>';
+
+/* B - ambient wash */
+const B = '<div class="pl"><div class="wash"></div><div class="washveil"></div>' +
+  '<div class="plbody">' + topbar +
+  '<div class="artwrap"><div class="artbox">' +
+  '<span class="badge2">' + SVG(I.vid, 12) + ' VIDEO</span>' +
+  '<div class="art js-art"></div></div></div>' +
+  '<div class="meta"><div class="plrow">' +
+  '<div style="flex:1;min-width:0"><div class="ttlwrap"><span class="ttl">' + TITLE + '</span></div>' +
+  '<div class="art2">' + SVG(I.vid, 13) + ' ' + SUB +
+  '<span class="dot"></span>playing as audio</div></div>' +
+  '<span class="heart">' + SVG(I.heart, 21) + '</span></div></div>' +
+  scrub + transport + chips + qhandle + '</div>' + qsheet + '</div>';
+
+/* C - editorial */
+const C = '<div class="pl"><div class="wash" style="opacity:.26"></div><div class="washveil"></div>' +
+  '<div class="plbody">' + topbar +
+  '<div style="padding:10px 26px 0;display:flex;gap:16px;align-items:flex-end">' +
+  '<div class="artbox" style="width:44%;flex:0 0 auto;min-width:0">' +
+  '<span class="badge2" style="margin:7px">' + SVG(I.vid, 11) + ' VIDEO</span>' +
+  '<div class="art js-art" style="border-radius:14px"></div></div>' +
+  '<div style="flex:1;min-width:0;padding-bottom:4px;overflow:hidden">' +
+  '<div style="font-size:9px;letter-spacing:1.4px;text-transform:uppercase;color:var(--fg3)">Now playing</div>' +
+  '<div class="ttlwrap" style="margin-top:6px"><span class="ttl" style="font-size:18px">' +
+  TITLE + '</span></div>' +
+  '<div class="art2" style="font-size:12px">' + SUB + '</div></div></div>' +
+  '<div style="height:8px"></div>' + scrub + transport + chips + qhandle + '</div>' + qsheet + '</div>';
+
+/* D - immersive */
+const D = '<div class="pl"><div class="fullart"></div><div class="fullsharp"></div>' +
+  '<div class="fullveil"></div>' +
+  '<div class="tapzone js-tap"></div>' +
+  '<div class="plbody" style="pointer-events:none">' + topbar +
+  '<div class="mini" style="pointer-events:auto">' +
+  '<div class="minibar2"><span>0:07</span>' +
+  '<span class="trk"><span class="fil"></span></span><span>-0:14</span></div>' +
+  '<div class="minibar">' +
+  '<div class="minitx"><div class="t">' + TITLE + '</div>' +
+  '<div class="s">' + SUB + ' &middot; playing as audio</div></div>' +
+  '<span class="mb">' + SVG(I.prev, 20) + '</span>' +
+  '<span class="mb pp js-pp">' + SVG(I.pause, 20) + '</span>' +
+  '<span class="mb">' + SVG(I.next, 20) + '</span>' +
+  '<span class="mb on">' + SVG(I.rep, 17) + '</span>' +
+  '<span class="mb js-q">' + SVG(I.rows, 17) + '</span>' +
+  '</div></div></div>' + qsheet + '</div>';
+
+const PL = { A: A, B: B, C: C, D: D };
+const PLNOTE = {
+A: '<b>A &mdash; what ships today.</b> A flat background, the artwork in a rounded box on ' +
+   '<code>raised</code>, everything centred. Nothing is wrong with it and nothing about it is ' +
+   'memorable; it looks like a preview pane, which is what it used to be.',
+B: '<b>B &mdash; ambient wash. Chosen.</b> Round 3 after your note that it was not doing ' +
+   'enough yet &mdash; it was not: one blurred copy of a nearly black clip is a dark rectangle. ' +
+   'The light is three layers now: a wide copy pushed hard on saturation so what colour exists ' +
+   'survives the blur, a tighter hot spot behind the art, and a vignette so the text at the ' +
+   'bottom always has ground under it. Then turned back DOWN: the pass that raised every ' +
+   'dial at once gave a wall of colour rather than a room with a light in it. What grew ' +
+   'instead is the area &mdash; a wider blur over a larger inset, and a veil that starts ' +
+   'late &mdash; so the colour carries to the edges and down the screen while staying faint.' +
+   '<br><br><b>The controls take their colour from the artwork too</b>, with a floor under it: ' +
+   'the hue is sampled weighted towards the pixels that actually carry colour (averaging a ' +
+   'picture gives mud), then lightened until it clears 4.5:1 against the panel, and the glyph ' +
+   'on the filled button goes black or white by whichever wins. A dark track therefore cannot ' +
+   'produce a button nobody can see. No artwork at all falls back to the theme accent.' +
+   '<br><br>Also: the title SCROLLS, because a filename is not a song title &mdash; it is long, ' +
+   'it has no spaces and it cannot wrap. The art has a deeper shadow and an inner hairline. ' +
+   'The queue rows carry a thumb and say which entry is the video. And the chip row under the ' +
+   'transport holds the genuinely secondary switches, speed and a sleep timer.' +
+   '<br><br><b>Uninterrupted sits in the title bar</b>, not in that row. It was a chip beside ' +
+   'speed and sleep, which read as trivia, and it is not trivia &mdash; it is the switch that ' +
+   'decides whether a phone call can take the sound away. A lit button in the bar states the ' +
+   'mode without anything being opened, and when it is on the eyebrow says the WORD, because ' +
+   'a glyph on its own is a state somebody has to learn. Same value as the Settings switch.',
+C: '<b>C &mdash; editorial.</b> Art drops to under half the width and the type carries the ' +
+   'screen, Apple-Music-style. Buys a lot of vertical room &mdash; useful on a short phone, and ' +
+   'for the video case, where a 9:16 clip in a square box is mostly letterbox. Less impact than ' +
+   'B, more on screen.',
+D: '<b>D &mdash; immersive.</b> Two fixes from your notes. The crop: filling a tall screen ' +
+   'with a square image crops it to a band, worst of all for a 9:16 video frame &mdash; so it ' +
+   'is two layers now, the BLURRED copy filling the screen and the sharp one contained on top ' +
+   'of it. Nothing is stretched and nothing is lost.' +
+   '<br><br>And the controls are <b>small and retractable</b> rather than a glass panel. A ' +
+   'panel across the bottom is a second screen stuck to the first: it covers a third of the ' +
+   'picture permanently, which defeats the only thing this face is for. Now they are a ' +
+   'floating pill &mdash; title, transport, repeat, queue &mdash; and <b>tapping the picture ' +
+   'retracts them</b>. They fade rather than unmount, so a tap always lands on something.'
+};
+
+const plSlot = document.getElementById('plSlot'), plNote = document.getElementById('plNote');
+function setPl(v) {
+  plSlot.innerHTML = PL[v];
+  const s0 = plSlot.querySelector('.pl'), u0 = plSlot.querySelector('.js-un');
+  if (s0 && u0) { s0.classList.add('unint'); u0.classList.add('on'); }
+  // The artwork is already decoded by the time a face is swapped, so this is one canvas
+  // read of a 24x24 downscale - not something worth caching in a mock.
+  const probe = new Image();
+  probe.onload = function () {
+    paletteFrom(probe, function (pal, on, soft, edge) {
+      const host = plSlot.querySelector('.pl');
+      if (!host) return;
+      host.style.setProperty('--pal', pal);
+      host.style.setProperty('--palOn', on);
+      host.style.setProperty('--palSoft', soft);
+      host.style.setProperty('--palEdge', edge);
+    });
+  };
+  probe.src = 'filet-mock-art.jpg';
+  requestAnimationFrame(function () { measureTitles(plSlot); });
+  plNote.innerHTML = PLNOTE[v];
+  const pp = plSlot.querySelector('.js-pp'), art = plSlot.querySelector('.js-art');
+  let playing = true;
+  if (pp) pp.onclick = function () {
+    playing = !playing;
+    pp.innerHTML = SVG(playing ? I.pause : I.play, 28);
+    if (art) art.classList.toggle('paused', !playing);
+  };
+  // One switch, two readouts. The button is the control and the eyebrow is the statement,
+  // and both come off the same class on the screen so they cannot disagree.
+  const un = plSlot.querySelector('.js-un'), screen = plSlot.querySelector('.pl');
+  if (un) un.onclick = function () {
+    const on = screen.classList.toggle('unint');
+    un.classList.toggle('on', on);
+  };
+  // Tap the picture to retract the chrome and tap again to bring it back. Only D has a
+  // tap zone; the other faces have nothing to retract.
+  const tap = plSlot.querySelector('.js-tap'), host0 = plSlot.querySelector('.pl');
+  if (tap) tap.onclick = function () { host0.classList.toggle('hid'); };
+  const q = plSlot.querySelector('#qsheet');
+  const open = plSlot.querySelector('.js-q'), close = plSlot.querySelector('.js-qc');
+  if (open) open.onclick = function () { q.classList.add('up'); };
+  if (close) close.onclick = function () { q.classList.remove('up'); };
+}
+document.querySelectorAll('#pickPl button').forEach(function (b) {
+  b.onclick = function () {
+    document.querySelectorAll('#pickPl button').forEach(function (x) { x.classList.remove('on'); });
+    b.classList.add('on');
+    setPl(b.dataset.v);
+  };
+});
+setPl('A');
+
+/* A batch opens to show its files. The whole header row is the target, except the two
+   controls in it - a chevron you have to hit exactly is a disclosure nobody opens. */
+document.querySelectorAll('#tray .batch').forEach(function (b) {
+  b.addEventListener('click', function (e) {
+    if (e.target.closest('.go') || e.target.closest('.fx')) return;
+    b.classList.toggle('open');
+  });
+});
+
+/* Per-file picking.
+   The button counts what is ticked, so "Paste" and "Paste 4 of 7" are the same control at
+   two states rather than two controls. Untick everything and it goes inert rather than
+   disappearing - a control that vanishes leaves you wondering whether you broke something.
+   Ticking is non-destructive: the × still removes a file from the batch for good, which is a
+   different intention and reads differently. */
+document.querySelectorAll('#tray .batch').forEach(function (b) {
+  const rows = Array.prototype.slice.call(b.querySelectorAll('.frow:not(.gone)'));
+  const dead = b.querySelectorAll('.frow.gone').length;
+  const go = b.querySelector('.go');
+  const count = b.querySelector('.n-sel');
+  const verb = go && go.textContent.trim();
+  if (!rows.length && !dead) return;
+
+  function paint() {
+    const on = rows.filter(function (r) { return r.classList.contains('on'); }).length;
+    if (count) {
+      count.textContent = on === rows.length ? 'all picked'
+        : on === 0 ? 'none picked' : on + ' of ' + rows.length + ' picked';
+    }
+    if (go && !go.classList.contains('g')) {
+      go.textContent = on === rows.length ? verb : verb + ' ' + on;
+      go.style.opacity = on === 0 ? '.45' : '1';
+      go.style.borderColor = (on > 0 && on < rows.length) ? 'var(--accent)' : '';
+      go.style.color = (on > 0 && on < rows.length) ? 'var(--accent)' : '';
+    }
+  }
+
+  rows.forEach(function (r) {
+    r.addEventListener('click', function (e) {
+      if (e.target.closest('.fx')) return;
+      e.stopPropagation();
+      r.classList.toggle('on');
+      paint();
+    });
+  });
+  const all = b.querySelector('.js-all'), none = b.querySelector('.js-none');
+  if (all) all.addEventListener('click', function (e) {
+    e.stopPropagation();
+    rows.forEach(function (r) { r.classList.add('on'); });
+    paint();
+  });
+  if (none) none.addEventListener('click', function (e) {
+    e.stopPropagation();
+    rows.forEach(function (r) { r.classList.remove('on'); });
+    paint();
+  });
+  paint();
+});
+
+/* The uninterrupted chip, so the pick reads as a switch rather than a label. */
+document.addEventListener('click', function (e) {
+  const c = e.target.closest('.chip');
+  if (c) c.classList.toggle('on');
+});
+
+
+
+</script>
+</body>
+</html>
