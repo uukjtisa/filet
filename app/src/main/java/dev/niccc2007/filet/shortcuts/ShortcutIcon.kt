@@ -13,10 +13,10 @@ import dev.niccc2007.filet.vfs.VNode
 // apart from the sheet so every rule in it can be checked without a phone.
 
 /**
- * Whether the plainer icon is offered on the sheet. Off until the minimalist look is settled;
- * everything it needs is built, so offering it is this one value.
+ * Whether the plainer icon is offered on the sheet. Always, whatever Legacy icons is set to: the
+ * sheet is where one shortcut's icon is chosen, and the plainer one is a choice like any other.
  */
-internal const val SIMPLE_OFFERED = false
+internal const val SIMPLE_OFFERED = true
 
 /** Where a shortcut's icon comes from, as the sheet's Icon row names it. */
 enum class IconSource(val label: String) {

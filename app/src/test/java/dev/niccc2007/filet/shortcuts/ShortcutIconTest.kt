@@ -89,9 +89,18 @@ class ShortcutIconTest {
         assertEquals(want, sourcesFor(PinSubject.Action(AppAction.SEARCH), simple = false))
     }
 
-    @Test fun `Simple is offered only behind its one switch, and last`() {
-        assertFalse(IconSource.SIMPLE in sourcesFor(folder("Camera")))
-        assertEquals(IconSource.SIMPLE, sourcesFor(folder("Camera"), simple = true).last())
+    @Test fun `Simple is offered to every kind, last, and never first`() {
+        for (s in listOf(folder("Camera"), file("Notes.pdf"), file("IMG_2040.jpg", picture = true), PinSubject.Tab(TabTarget.PLAYLISTS), PinSubject.Action(AppAction.SEARCH))) {
+            val sources = sourcesFor(s)
+            assertEquals(s.toString(), IconSource.SIMPLE, sources.last())
+            assertTrue(s.toString(), sources.first() != IconSource.SIMPLE)
+        }
+        assertFalse(IconSource.SIMPLE in sourcesFor(folder("Camera"), simple = false))
+    }
+
+    @Test fun `a new sheet never starts on Simple, an edited one wearing it opens on it`() {
+        assertTrue(IconDraft.start(PinSubject.Tab(TabTarget.PLAYLISTS)).source != IconSource.SIMPLE)
+        assertEquals(ShortcutIcon.Simple, IconDraft.start(PinSubject.Tab(TabTarget.PLAYLISTS), current = ShortcutIcon.Simple).icon())
     }
 
     // ── What a sheet opens with ──
