@@ -52,11 +52,17 @@ object Shortcuts {
     }
 
     /**
-     * The launcher reports back through [PinResultReceiver] when the shortcut is placed. One
-     * turned off by [remove] is turned back on first: a disabled id cannot be pinned again.
+     * The launcher reports back through [PinResultReceiver] when the shortcut is placed.
+     *
+     * An id Android still holds - one turned off by [remove] whose grey icon is still on the home
+     * screen, or one pinned again - is turned back on and given this name, icon and intent first.
+     * A disabled id cannot be pinned again, and for an id it already holds Android shows the
+     * launcher the stored shortcut, not [info]: without the update the home screen kept the old
+     * icon while the list showed the new one. Both calls do nothing for an id Android doesn't hold.
      */
     private fun request(context: Context, sm: ShortcutManager, info: ShortcutInfo, record: ShortcutRecord): Boolean {
         runCatching { sm.enableShortcuts(listOf(info.id)) }
+        runCatching { sm.updateShortcuts(listOf(info)) }
         return runCatching { sm.requestPinShortcut(info, PinResultReceiver.callback(context, record)) }.getOrDefault(false)
     }
 
