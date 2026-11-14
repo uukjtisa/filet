@@ -1130,7 +1130,7 @@ fun SettingsPage(vm: BrowserViewModel) {
                 "Double-tap skip",
                 listOf("2s", "5s", "10s"),
                 Prefs.VIDEO_SKIP_CHOICES.indexOf(videoSkip),
-                hint = "How far a double tap on either side of a video moves it, and the buttons beside Play.",
+                hint = "How far a double tap on either side moves the video. The buttons beside Play skip 5s.",
                 key = Prefs.K_VIDEO_SKIP,
             ) { prefs.setVideoSkipSeconds(Prefs.VIDEO_SKIP_CHOICES[it]) }
         }

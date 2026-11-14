@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -182,22 +183,14 @@ fun NowPlayingStrip(vm: BrowserViewModel) {
         sensitivity = sense,
     )
     val beating = if (map == null) null else signal
-    // Remembered per colour. It was rebuilt on every recomposition, which was five a second.
-    val wash = remember(tint) {
-        Brush.horizontalGradient(
-            0f to tint.copy(alpha = 0.16f),
-            0.65f to tint.copy(alpha = 0.04f),
-            1f to Color.Transparent,
-        )
-    }
 
     Column(
         Modifier
             .fillMaxWidth()
             .background(colors.raised)
-            // A wash of the track's colour, left to right, faint. Enough that the strip
-            // belongs to what is playing; not enough to compete with the list above it.
-            .background(wash)
+            // The inner mist: the track's colour, solid behind the thumbnail, fading into a
+            // mist that holds across most of the bar and swells on the beat. See `innerMist`.
+            .innerMist(tint) { if (beating == null) 0f else beating.swing.value * depth }
             // And the same drifting lights the full player has, over that wash, so the strip
             // is the player it minimises into rather than a different widget. Weaker here:
             // this is a 56dp band under a file list, and the lights are nearly the whole
@@ -587,6 +580,58 @@ private fun StripButton(
  */
 fun playheadFraction(positionMs: Long, durationMs: Long): Float =
     if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+
+/**
+ * The strip's inner mist: the track's colour, solid under the thumbnail, fading over [INNER_INTO]
+ * into a mist that holds to [INNER_HOLD] of the width and is gone at the far edge.
+ *
+ * Inside the strip only. The light that spills up over the list is `stripRadiance`, unchanged.
+ * Only the mist beats: the solid end is where the thumbnail sits, and a ground that throbs
+ * behind a picture makes the picture look like it moves.
+ *
+ * The brushes are cached per size and colour, and the beat is read in the draw, so a beat
+ * redraws the band and recomposes nothing (see the same note on `livingGlow`).
+ */
+private fun Modifier.innerMist(tint: Color, swing: () -> Float): Modifier = drawWithCache {
+    val w = size.width.coerceAtLeast(1f)
+    val solidEnd = (INNER_SOLID.toPx() / w).coerceIn(0f, 0.4f)
+    val intoEnd = (INNER_INTO.toPx() / w).coerceIn(solidEnd + 0.01f, 0.7f)
+    val solid = Brush.horizontalGradient(
+        0f to tint.copy(alpha = INNER_SOLID_ALPHA),
+        solidEnd to tint.copy(alpha = INNER_SOLID_ALPHA),
+        intoEnd to Color.Transparent,
+    )
+    val mist = Brush.horizontalGradient(
+        0f to tint,
+        INNER_HOLD to tint,
+        1f to Color.Transparent,
+    )
+    onDrawBehind {
+        val hit = swing().coerceAtLeast(0f)
+        drawRect(mist, alpha = (INNER_MIST * (1f + hit * INNER_BEAT)).coerceAtMost(INNER_MIST_MAX))
+        drawRect(solid)
+    }
+}
+
+/** Where the solid end stops: just past the thumbnail. */
+private val INNER_SOLID = 52.dp
+
+/** Where the solid end has faded into the mist. */
+private val INNER_INTO = 130.dp
+
+private const val INNER_SOLID_ALPHA = 0.85f
+
+/** The mist at rest. The wash it replaced started at 0.16 and was nearly gone by 65%. */
+private const val INNER_MIST = 0.22f
+
+/** How far across the mist holds before it fades out at the far edge. */
+private const val INNER_HOLD = 0.85f
+
+/** How much a hard beat swells the mist, as a multiple of its rest strength. */
+private const val INNER_BEAT = 1.6f
+
+/** The most the mist reaches on a beat, so the title stays readable over it. */
+private const val INNER_MIST_MAX = 0.5f
 
 /**
  * How much brighter the hairline gets on a hard beat.

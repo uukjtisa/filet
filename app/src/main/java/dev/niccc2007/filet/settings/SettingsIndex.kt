@@ -345,8 +345,8 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
         title = "Double-tap skip",
         tab = SettingsGroup.PLAYBACK,
         section = "Video",
-        text = "Double-tap skip How far a double tap on either side of a video moves it, and " +
-            "the buttons beside Play.",
+        text = "Double-tap skip How far a double tap on either side moves the video. The " +
+            "buttons beside Play skip 5s.",
     ),
     SettingsEntry(
         key = Prefs.K_VIDEO_PIP_HOME,

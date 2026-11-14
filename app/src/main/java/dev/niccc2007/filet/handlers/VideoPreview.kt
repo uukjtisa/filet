@@ -129,7 +129,16 @@ internal fun VideoPreview(
             // under it, and a view can keep a touch from what is around it.
             Box(Modifier.matchParentSize().clickable(onClickLabel = "Play") { onPlay(playFrom, false) })
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                PlayMark()
+                // Previous and next video either side of the mark, as on the playing screen.
+                // Over the picture's tap, so pressing one does not play this one.
+                androidx.compose.foundation.layout.Row(
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(28.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RunSkip(-1, 48.dp)
+                    PlayMark()
+                    RunSkip(1, 48.dp)
+                }
                 val pill = preview.pillMs
                 if (pill != null) {
                     Spacer(Modifier.height(10.dp))

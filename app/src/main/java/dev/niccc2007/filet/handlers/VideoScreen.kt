@@ -1795,13 +1795,13 @@ private fun VideoPlayer(
                 CentreTransport(
                     visible = chromeUp && ready,
                     playing = playing,
-                    skipSeconds = skipSeconds,
+                    skipSeconds = BUTTON_SKIP_SECONDS,
                     onBack = {
-                        skipTo(doubleTapTarget(position, duration, TapZone.BACK, stepMs = skipSeconds * 1000L))
+                        skipTo(doubleTapTarget(position, duration, TapZone.BACK, stepMs = BUTTON_SKIP_SECONDS * 1000L))
                         wake()
                     },
                     onForward = {
-                        skipTo(doubleTapTarget(position, duration, TapZone.FORWARD, stepMs = skipSeconds * 1000L))
+                        skipTo(doubleTapTarget(position, duration, TapZone.FORWARD, stepMs = BUTTON_SKIP_SECONDS * 1000L))
                         wake()
                     },
                     onToggle = {
@@ -2145,7 +2145,14 @@ private const val HANDOFF_FADE_MS = 320
 private const val HANDOFF_GIVE_UP_MS = 4_000L
 
 /**
- * Back ten, play or pause, forward ten.
+ * The seconds buttons beside Play: five, back and forward, by design. The double tap keeps its
+ * own length, Settings > Skip length.
+ */
+private const val BUTTON_SKIP_SECONDS = 5
+
+/**
+ * Previous video, back five seconds, play or pause, forward five, next video. See VideoSkips.kt.
+ * The outer pair is there only in a run.
  *
  * Its own composable because it is drawn inside a Box that is inside a Column, and an
  * `AnimatedVisibility` written there resolves against the Column's scope while the Box's is
@@ -2155,7 +2162,7 @@ private const val HANDOFF_GIVE_UP_MS = 4_000L
 private fun CentreTransport(
     visible: Boolean,
     playing: Boolean,
-    /** How far Back and Forward move it: the double tap's length. */
+    /** How far Back and Forward move it. See [BUTTON_SKIP_SECONDS]. */
     skipSeconds: Int,
     onBack: () -> Unit,
     onForward: () -> Unit,
@@ -2163,10 +2170,12 @@ private fun CentreTransport(
 ) {
     AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(30.dp),
+            // Closer with the outer pair, so five fit a 360dp phone in portrait.
+            horizontalArrangement = Arrangement.spacedBy(if (LocalViewerRun.current != null) 16.dp else 30.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OverlayRound(FiletIcons.Back, "Back $skipSeconds seconds", 48.dp, onClick = onBack)
+            RunSkip(-1, 44.dp)
+            SecondsSkip(forward = false, skipSeconds, 52.dp, onBack)
             OverlayRound(
                 if (playing) FiletIcons.Pause else FiletIcons.PlaySolid,
                 if (playing) "Pause" else "Play",
@@ -2174,7 +2183,8 @@ private fun CentreTransport(
                 primary = true,
                 onClick = onToggle,
             )
-            OverlayRound(FiletIcons.Forward, "Forward $skipSeconds seconds", 48.dp, onClick = onForward)
+            SecondsSkip(forward = true, skipSeconds, 52.dp, onForward)
+            RunSkip(1, 44.dp)
         }
     }
 }
@@ -2247,11 +2257,10 @@ private fun OverlayRound(
  * 40% of the row and the icons shoulder to shoulder. The modes moved DOWN to the transport, and
  * what is neither a mode nor frequent is behind the overflow, whose rows each state passes in.
  *
- * The name is centred on the screen, and the buttons are split so that neither end outweighs
- * the other: Previous beside Back, Next beside the overflow. With all of them on the right, the
- * wider end would have left a name in a run about a quarter of the bar. In a run the arrows are
- * here as well as the swipe: a playing video's sideways drag seeks, so a swipe cannot be the
- * way to the next one there.
+ * The name is centred on the screen, between Back and the overflow. Previous and Next video
+ * are not here: they were small and hard to hit beside the name, and moved to the player's
+ * centre row (see RunSkip). They are needed there as well as the swipe, because a playing
+ * video's sideways drag seeks.
  *
  * The scrim runs to the top edge, behind the camera and the status bar. The buttons and the name
  * are kept below both: below the camera always, and below the status bar while a swipe has it
@@ -2281,18 +2290,10 @@ internal fun VideoTopBar(
                 .padding(horizontal = 4.dp, vertical = 4.dp),
             gap = 8.dp,
             start = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OverlayAction(FiletIcons.Back, "Back") { onBack() }
-                    if (runPage?.hasPrevious == true) {
-                        OverlayAction(FiletIcons.Prev, "Previous") { runPage.step(-1); onTouch() }
-                    }
-                }
+                OverlayAction(FiletIcons.Back, "Back") { onBack() }
             },
             end = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (runPage?.hasNext == true) {
-                        OverlayAction(FiletIcons.Next, "Next") { runPage.step(1); onTouch() }
-                    }
                     Box {
                         OverlayAction(FiletIcons.More, "More") { onMenu(true); onTouch() }
                         // On the app's own menu kit rather than Material's dropdown, which was the

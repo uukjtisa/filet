@@ -232,6 +232,24 @@ fun DarkGround(ground: Color, content: @Composable () -> Unit) {
     }
 }
 
+/**
+ * The theme in force where it was taken, so a part drawn under [DarkGround] can stand back on it.
+ *
+ * For the music player: its backdrop is dark in every theme, but the sheets and dialogs it opens
+ * are the app's own surfaces and keep the app's theme.
+ */
+class KeptTheme(val scheme: ColorScheme, val extras: FiletColors)
+
+@Composable
+fun rememberKeptTheme(): KeptTheme = KeptTheme(MaterialTheme.colorScheme, LocalFiletColors.current)
+
+@Composable
+fun OnKeptTheme(theme: KeptTheme, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalFiletColors provides theme.extras) {
+        MaterialTheme(colorScheme = theme.scheme, typography = FiletTypography, content = content)
+    }
+}
+
 /** Shorthand so call sites read `Filet.colors.drop` instead of a composition-local dance. */
 object Filet {
     val colors: FiletColors

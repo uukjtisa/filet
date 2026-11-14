@@ -93,8 +93,22 @@ import kotlinx.coroutines.launch
  * fourth copy of a transport row is the one that silently stops matching the other three.
  */
 
+/**
+ * The player stands on the dark side of the palette in every theme. Its backdrop, mist and glow
+ * are drawn for a dark ground: over the light theme's ground they read as a grey haze. Only the
+ * backdrop and what is drawn on it change; the queue sheet, the save dialog and the continue
+ * card are the app's own surfaces and keep the app's theme.
+ */
 @Composable
 fun AudioScreen(vm: BrowserViewModel, node: VNode) {
+    val app = dev.niccc2007.filet.ui.theme.rememberKeptTheme()
+    dev.niccc2007.filet.ui.theme.DarkGround(
+        dev.niccc2007.filet.ui.theme.LocalPaletteSpec.current.dark.scheme.background,
+    ) { AudioScreenOnDark(vm, node, app) }
+}
+
+@Composable
+private fun AudioScreenOnDark(vm: BrowserViewModel, node: VNode, app: dev.niccc2007.filet.ui.theme.KeptTheme) {
     val playback = vm.playback
     // Without the position - see `Playback.status`. This screen and every face under it used
     // to recompose five times a second off the position ticker, to move one bar and two
@@ -344,46 +358,49 @@ fun AudioScreen(vm: BrowserViewModel, node: VNode) {
         val opened by playback.opened.collectAsStateWithLifecycle()
         val openedBefore = remember { playback.opened.value }
         val trackOffer = remember(opened) { opened?.takeIf { it !== openedBefore }?.let(MediaResume::forTrack) }
-        dev.niccc2007.filet.ui.ContinueCard(
-            key = opened.takeIf { trackOffer != null },
-            title = trackOffer?.title.orEmpty(),
-            detail = null,
-            closeLabel = trackOffer?.closeLabel.orEmpty(),
-            modifier = Modifier.align(Alignment.TopEnd).belowPlayerBar(MUSIC_BAR),
-        ) { trackOffer?.let { playback.seekTo(it.atMs) } }
+        // The app's own surfaces, on the app's theme: see AudioScreen.
+        dev.niccc2007.filet.ui.theme.OnKeptTheme(app) {
+            dev.niccc2007.filet.ui.ContinueCard(
+                key = opened.takeIf { trackOffer != null },
+                title = trackOffer?.title.orEmpty(),
+                detail = null,
+                closeLabel = trackOffer?.closeLabel.orEmpty(),
+                modifier = Modifier.align(Alignment.TopEnd).belowPlayerBar(MUSIC_BAR),
+            ) { trackOffer?.let { playback.seekTo(it.atMs) } }
 
-        // One sheet for all four, drawn last so it is over everything. It covers rather than
-        // rearranging: the old panel pushed the artwork and the transport up by 190dp every
-        // time it opened, which moved the Play button out from under the thumb about to press
-        // it.
-        if (saveQueue) {
-            // Named from the folder the queue came from, which is almost always the name
-            // somebody was going to type anyway.
-            SaveQueueDialog(
-                suggested = folderLine.substringAfterLast(" / "),
-                onDismiss = { saveQueue = false },
-            ) { name -> saveQueue = false; vm.saveQueueAsPlaylist(name) }
+            // One sheet for all four, drawn last so it is over everything. It covers rather than
+            // rearranging: the old panel pushed the artwork and the transport up by 190dp every
+            // time it opened, which moved the Play button out from under the thumb about to press
+            // it.
+            if (saveQueue) {
+                // Named from the folder the queue came from, which is almost always the name
+                // somebody was going to type anyway.
+                SaveQueueDialog(
+                    suggested = folderLine.substringAfterLast(" / "),
+                    onDismiss = { saveQueue = false },
+                ) { name -> saveQueue = false; vm.saveQueueAsPlaylist(name) }
+            }
+
+            QueueSheet(
+                tracks = state.queue,
+                index = state.index,
+                tint = tint,
+                visible = showQueue && state.queue.isNotEmpty(),
+                onPick = { i -> playback.play(state.queue, i, by = dev.niccc2007.filet.playback.OpenedBy.QUEUE) },
+                onClose = { showQueue = false },
+                from = state.from.ifBlank { folderLine },
+                positionMs = queuePosition,
+                durationMs = state.durationMs,
+                shuffle = state.shuffle,
+                onShuffle = { playback.setShuffle(!state.shuffle) },
+                repeat = state.repeat,
+                onRepeat = { playback.cycleRepeat() },
+                onDrop = { i -> playback.dropFromQueue(i) },
+                // Clearing closes the sheet first: the alternative is a sheet that stays open
+                // over an empty player with nothing in it.
+                onClear = { showQueue = false; playback.stop() },
+            )
         }
-
-        QueueSheet(
-            tracks = state.queue,
-            index = state.index,
-            tint = tint,
-            visible = showQueue && state.queue.isNotEmpty(),
-            onPick = { i -> playback.play(state.queue, i, by = dev.niccc2007.filet.playback.OpenedBy.QUEUE) },
-            onClose = { showQueue = false },
-            from = state.from.ifBlank { folderLine },
-            positionMs = queuePosition,
-            durationMs = state.durationMs,
-            shuffle = state.shuffle,
-            onShuffle = { playback.setShuffle(!state.shuffle) },
-            repeat = state.repeat,
-            onRepeat = { playback.cycleRepeat() },
-            onDrop = { i -> playback.dropFromQueue(i) },
-            // Clearing closes the sheet first: the alternative is a sheet that stays open
-            // over an empty player with nothing in it.
-            onClear = { showQueue = false; playback.stop() },
-        )
     }
 }
 
