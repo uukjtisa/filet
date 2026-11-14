@@ -124,7 +124,9 @@ private fun Thumb(
 ) {
     // The plainer icons, where the place being drawn asked for them. See IconStyle.
     val plain = dev.niccc2007.filet.icons.LocalIconStyle.current == dev.niccc2007.filet.icons.IconStyle.PLAIN
-    val previewable = enabled && !node.isDir && Thumbnails.canPreview(node.extension)
+    // A sample entry (the Row details preview) has no file behind it to read a thumbnail from.
+    val previewable = enabled && !node.isDir && Thumbnails.canPreview(node.extension) &&
+        LocalSampleInside.current == null
 
     // A folder is drawn rather than lettered, and it carries what is inside it. Here rather
     // than at the call sites so every list, tile, feed row and picker gets it at once - there

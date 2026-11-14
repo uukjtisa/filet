@@ -131,6 +131,36 @@ private fun SettingsSection(title: String, subtitle: String, first: Boolean = fa
 }
 
 /**
+ * A group heading inside a section: accent, small capitals, letter-spaced.
+ *
+ * For a section that answers more than one question - Row details asks what goes on the line,
+ * what goes in the column and how a date is written - so its controls read as three short groups
+ * instead of one long stack. Accent rather than grey so it cannot be mistaken for a row's label.
+ */
+@Composable
+internal fun SettingsSubHead(title: String, hint: String? = null) {
+    val colors = Filet.colors
+    Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 16.dp, bottom = 4.dp)) {
+        Text(
+            title.uppercase(java.util.Locale.US),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.sp,
+            color = colors.accent,
+        )
+        if (hint != null) {
+            Text(
+                hint,
+                fontSize = 10.5.sp,
+                lineHeight = 14.sp,
+                color = colors.fg3,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+/**
  * Settings, in seven rooms named for what somebody is trying to change.
  *
  * ## Why the rooms are named for the reader's goal and not for the code
@@ -390,7 +420,7 @@ fun SettingsPage(vm: BrowserViewModel) {
             }
         }
 
-        // ── what a row says under its name ──
+        // ── what a row says besides its name ──
         //
         // Bug identified here: the row display was a stored preference that every listing read
         // and nothing could change. Its control had gone in an earlier rework, so the date
@@ -398,16 +428,23 @@ fun SettingsPage(vm: BrowserViewModel) {
         // code for all of it still in place. Found by the test that every preference read by the
         // app has something that writes it.
         //
-        // The preview runs through `RowDetails.render`, the same function the list uses, so
-        // what it shows is what the rows will show rather than a second guess at it.
+        // Three groups under one title, because the section answers three different questions -
+        // what goes on the line, what goes in the column, how a date is written - and as one
+        // undivided stack of eight controls it read as a wall rather than as those three.
         item {
             SettingsSection(
                 "Row details",
-                "",
+                "What a row in a file list says besides its name.",
             )
         }
         anchor(Prefs.K_E_PARTS)
-        item { RowDetailCard(entry) { prefs.setEntry(it) } }
+        item {
+            RowDetailCard(
+                entry = entry,
+                viewStep = step,
+                onViewStep = { prefs.setViewStep(it) },
+            ) { prefs.setEntry(it) }
+        }
         // ── the column beside the name ──
         //
         // One choice per side rather than the two switches this replaced ("Count what is in
@@ -417,45 +454,61 @@ fun SettingsPage(vm: BrowserViewModel) {
         //
         // Each side is offered only what can answer for it, from `SideColumn.optionsFor`, so
         // there is no chip here that would leave the column empty on every row it applies to.
+        item { SettingsSubHead("Beside the name") }
         anchor(Prefs.K_E_SIDE_FILE)
         item {
             val options = remember { dev.niccc2007.filet.browser.SideColumn.optionsFor(isDir = false) }
             SegmentRow(
-                "Beside a file",
+                "Files",
                 options.map(dev.niccc2007.filet.browser.SideColumn::labelOf),
                 options.indexOf(entry.sideFile),
-                hint = "Dates show only in wide panes.",
+                hint = "What sits on the right of a file's row, lined up down the list.",
                 key = Prefs.K_E_SIDE_FILE,
             ) { prefs.setEntry(entry.copy(sideFile = options[it])) }
         }
         anchor(Prefs.K_E_SIDE_FOLDER)
         item {
             val options = remember { dev.niccc2007.filet.browser.SideColumn.optionsFor(isDir = true) }
+            // Printed under the second of the pair whichever side chose the date, so the reason a
+            // date vanishes in a split screen can be read without holding the row.
+            val dateBeside = entry.sideFile == dev.niccc2007.filet.browser.DetailPart.DATE ||
+                entry.sideFolder == dev.niccc2007.filet.browser.DetailPart.DATE
             SegmentRow(
-                "Beside a folder",
+                "Folders",
                 options.map(dev.niccc2007.filet.browser.SideColumn::labelOf),
                 options.indexOf(entry.sideFolder),
-                hint = "Dates show only in wide panes.",
+                hint = "What sits on the right of a folder's row, lined up down the list.",
+                status = if (dateBeside) "A date needs a wide pane, so it hides when two panes share a phone screen." else null,
                 key = Prefs.K_E_SIDE_FOLDER,
             ) { prefs.setEntry(entry.copy(sideFolder = options[it])) }
         }
+        item { SettingsSubHead("Dates") }
         anchor(Prefs.K_E_REL)
         item {
+            // Bug identified here: this hint promised "Today, Yesterday and weekday names", and
+            // the list has never written a weekday - `EntryFormat.relativeDay` writes "today",
+            // "yesterday" and "3 days ago". Printed as a status now, in the words the list uses.
             ToggleRow(
                 "Relative dates",
-                "Shows Today, Yesterday and weekday names for the last week.",
+                null,
                 entry.relative,
+                status = "today, yesterday, 3 days ago: for the last week",
                 key = Prefs.K_E_REL,
             ) { prefs.setEntry(entry.copy(relative = it)) }
         }
         anchor(Prefs.K_E_STYLE)
         item {
+            // The chips are a sample date written each way, not the names of the ways: "Named
+            // month" asks the reader to imagine the result, and the result is the whole question.
+            val styles = dev.niccc2007.filet.browser.DateStyle.entries
+            val sampleAt = remember { System.currentTimeMillis() - 12L * 86_400_000L }
             SegmentRow(
-                "Date",
-                dev.niccc2007.filet.browser.DateStyle.entries.map { it.label },
+                "Written as",
+                styles.map { dev.niccc2007.filet.browser.EntryFormat.absolute(sampleAt, entry.copy(style = it)) },
                 entry.style.ordinal,
+                hint = styles.joinToString(" · ") { it.label },
                 key = Prefs.K_E_STYLE,
-            ) { prefs.setEntry(entry.copy(style = dev.niccc2007.filet.browser.DateStyle.entries[it])) }
+            ) { prefs.setEntry(entry.copy(style = styles[it])) }
         }
         anchor(Prefs.K_E_ORDER)
         item {
@@ -471,10 +524,32 @@ fun SettingsPage(vm: BrowserViewModel) {
             anchor(Prefs.K_E_SEP)
             item {
                 val seps = listOf("-", "/", ".")
-                SegmentRow("Separator", seps, seps.indexOf(entry.separator).coerceAtLeast(0), key = Prefs.K_E_SEP) {
+                SegmentRow("Separator", seps, seps.indexOf(entry.separator).coerceAtLeast(0), sub = true, key = Prefs.K_E_SEP) {
                     prefs.setEntry(entry.copy(separator = seps[it]))
                 }
             }
+        }
+        anchor(Prefs.K_E_TIME)
+        item {
+            // The two clocks are offered as what they print, for the reason "Written as" is.
+            val times = dev.niccc2007.filet.browser.TimeOfDay.entries
+            val sample = remember {
+                java.util.Calendar.getInstance().apply {
+                    set(java.util.Calendar.HOUR_OF_DAY, 14)
+                    set(java.util.Calendar.MINUTE, 32)
+                }.timeInMillis
+            }
+            SegmentRow(
+                "Time of day",
+                times.map { t ->
+                    t.pattern?.let { java.text.SimpleDateFormat(it, java.util.Locale.US).format(java.util.Date(sample)) } ?: "Off"
+                },
+                entry.time.ordinal,
+                fresh = true,
+                hint = "The time the file was last changed, after its date.",
+                status = if (entry.time == dev.niccc2007.filet.browser.TimeOfDay.OFF) null else "When the file was last changed, beside its date.",
+                key = Prefs.K_E_TIME,
+            ) { prefs.setEntry(entry.copy(time = times[it])) }
         }
         }
         if (group == SettingsGroup.BROWSING) {
@@ -1904,6 +1979,27 @@ fun BetaTag() {
     )
 }
 
+/**
+ * A setting new in this release: filled, where [BetaTag] is tinted, because it says "look here"
+ * rather than "this may change".
+ */
+@Composable
+fun NewTag() {
+    val colors = Filet.colors
+    Text(
+        "NEW",
+        fontSize = 8.5.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.6.sp,
+        color = MaterialTheme.colorScheme.onPrimary,
+        modifier = Modifier
+            .padding(start = 7.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(colors.good)
+            .padding(horizontal = 4.dp, vertical = 1.dp),
+    )
+}
+
 /** A labelled slider with the sentence that says what moving it does. */
 /**
  * How far in a dependent row sits.
@@ -2088,6 +2184,8 @@ fun SegmentRow(
     /** True for a row that only applies while the row above it is on. See [SUB_INDENT]. */
     sub: Boolean = false,
     beta: Boolean = false,
+    /** A setting that did not exist in the last release. See [NewTag]. */
+    fresh: Boolean = false,
     /** What it, or the chosen option, does - shown on hold. See [HoldHint]. */
     hint: String? = null,
     /** A live value or a warning, which stays printed under the chips. */
@@ -2101,6 +2199,7 @@ fun SegmentRow(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, fontSize = 12.sp, color = colors.fg2)
             if (beta) BetaTag()
+            if (fresh) NewTag()
             HintInfo()
         }
         Spacer(Modifier.height(5.dp))

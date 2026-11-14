@@ -68,7 +68,25 @@ data class EntryDisplay(
 
     /** "yesterday" and "3 days ago" instead of a date, for anything inside a week. */
     val relative: Boolean = true,
+
+    /** The time of day beside every date this row prints, or none. See [TimeOfDay]. */
+    val time: TimeOfDay = TimeOfDay.OFF,
 )
+
+/**
+ * Whether a date carries the time the entry was last changed, and on which clock.
+ *
+ * The time of last change and not of creation, because that is the only one Android's storage
+ * records reliably: most phones report the modification time where a creation time is asked for,
+ * so a "created" column would print the same instant under a second name.
+ *
+ * Off by default, so a phone that never opens the setting sees the rows it always saw.
+ */
+enum class TimeOfDay(val pattern: String?) {
+    OFF(null),
+    H24("HH:mm"),
+    H12("h:mm a"),
+}
 
 /** How the parts of a date are written. */
 enum class DateStyle(val label: String) {
@@ -104,9 +122,16 @@ object EntryFormat {
      */
     fun date(at: Long, d: EntryDisplay, now: Long = System.currentTimeMillis()): String {
         if (at <= 0L) return ""
-        if (d.relative) relativeDay(at, now)?.let { return it }
-        return absolute(at, d)
+        val day = (if (d.relative) relativeDay(at, now) else null) ?: absolute(at, d)
+        val pattern = d.time.pattern ?: return day
+        // The time joins with the same dot the line uses between its parts, after whichever
+        // form the day took - "today · 14:32" as much as "2 Nov 2026 · 14:32" - because a
+        // relative day is exactly where the hour is the part still worth knowing.
+        return day + TIME_JOINT + formatter(pattern).format(Date(at))
     }
+
+    /** What sits between a date and its time of day. */
+    const val TIME_JOINT = " · "
 
     /**
      * "today", "yesterday", "3 days ago" - or null when it is too old to say that way.
@@ -176,10 +201,13 @@ object EntryFormat {
         // A named month beside a numeric separator reads as an error - "27-Sep-2026" - so a named
         // month always takes spaces whatever the separator is set to.
         val join = if (d.style == DateStyle.NUMERIC) sep else " "
+        // Numbers keep the leading zero so a column of them lines up digit for digit; a named
+        // month drops it, because "02 Nov" is a form nobody writes and it reads as a typo.
+        val day = if (d.style == DateStyle.NUMERIC) "dd" else "d"
         val pattern = when (d.order) {
-            DateOrder.DMY -> "dd${join}$month${join}yyyy"
-            DateOrder.MDY -> "$month${join}dd${join}yyyy"
-            DateOrder.YMD -> "yyyy${join}$month${join}dd"
+            DateOrder.DMY -> "$day${join}$month${join}yyyy"
+            DateOrder.MDY -> "$month${join}$day${join}yyyy"
+            DateOrder.YMD -> "yyyy${join}$month${join}$day"
         }
         return formatter(pattern).format(Date(at))
     }

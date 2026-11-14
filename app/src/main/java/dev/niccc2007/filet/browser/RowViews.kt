@@ -1,5 +1,7 @@
 package dev.niccc2007.filet.browser
 
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.core.snap
@@ -45,6 +47,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -463,11 +467,59 @@ private fun FileRowBody(
                 text = text,
                 pending = side == DetailPart.TOTAL,
                 total = total,
-                widthDp = SideColumn.widthDp(side, node.isDir),
+                widthDp = sideWidthDp(side, node.isDir, display, step.metaSize),
                 size = step.metaSize,
                 colour = colors.fg3,
             )
         }
+    }
+}
+
+/**
+ * The side column's width for this row, measured once per setting rather than once per row.
+ *
+ * [SideColumn.widthDp] answers from a constant for everything except a date that can print
+ * longer than it used to - a full month name or a time of day - and only then calls the measurer.
+ * The measured answer is cached by every input that can change it, so a list of four hundred rows
+ * measures its widest date once and then reads a map: a fling must not pay for text layout in
+ * the column beside the name.
+ */
+@Composable
+private fun sideWidthDp(side: DetailPart, isDir: Boolean, display: EntryDisplay, metaSp: Int): Int {
+    val density = LocalDensity.current
+    val fonts = LocalFontFamilyResolver.current
+    return remember(side, isDir, display, metaSp, density) {
+        SideColumn.widthDp(side, isDir, display) { text -> SideWidths.measureDp(text, metaSp, density, fonts) }
+    }
+}
+
+/** Measured widths of side-column samples, by text, size and screen density. Composition-thread only. */
+private object SideWidths {
+    private val cache = HashMap<String, Float>()
+    private var measurer: TextMeasurer? = null
+    private var measurerKey: Any? = null
+
+    fun measureDp(
+        text: String,
+        sp: Int,
+        density: androidx.compose.ui.unit.Density,
+        fonts: androidx.compose.ui.text.font.FontFamily.Resolver,
+    ): Float {
+        val key = "$sp|${density.density}|${density.fontScale}|$text"
+        cache[key]?.let { return it }
+        val owner = Triple(density.density, density.fontScale, fonts)
+        if (measurer == null || measurerKey != owner) {
+            measurer = TextMeasurer(fonts, density, androidx.compose.ui.unit.LayoutDirection.Ltr, 0)
+            measurerKey = owner
+        }
+        // The same style SideCell draws with: tabular digits are wider than proportional ones,
+        // so measuring without them would undercount every date it is asked about.
+        val px = measurer!!.measure(
+            text,
+            TextStyle(fontSize = sp.sp, fontFeatureSettings = "tnum"),
+            maxLines = 1,
+        ).size.width
+        return (px / density.density).also { cache[key] = it }
     }
 }
 

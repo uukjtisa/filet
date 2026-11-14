@@ -37,38 +37,41 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
     ),
     SettingsEntry(
         key = Prefs.K_E_PARTS,
-        title = "Row details",
+        title = "Under the name",
         tab = SettingsGroup.APPEARANCE,
         section = "Row details",
-        text = "the line",
+        text = "Folder total, file size, item count, date and type, ticked on or off and put " +
+            "in order. Under the name In order, joined by dots. A part that doesn't apply " +
+            "to a row is left out of it.",
     ),
     SettingsEntry(
         key = Prefs.K_E_SIDE_FILE,
-        title = "Beside a file",
+        title = "Files",
         tab = SettingsGroup.APPEARANCE,
         section = "Row details",
-        text = "Beside a file Dates show only in wide panes.",
+        text = "Files What sits on the right of a file's row, lined up down the list.",
     ),
     SettingsEntry(
         key = Prefs.K_E_SIDE_FOLDER,
-        title = "Beside a folder",
+        title = "Folders",
         tab = SettingsGroup.APPEARANCE,
         section = "Row details",
-        text = "Beside a folder Dates show only in wide panes.",
+        text = "Folders What sits on the right of a folder's row, lined up down the list. A " +
+            "date needs a wide pane, so it hides when two panes share a phone screen.",
     ),
     SettingsEntry(
         key = Prefs.K_E_REL,
         title = "Relative dates",
         tab = SettingsGroup.APPEARANCE,
         section = "Row details",
-        text = "Relative dates Shows Today, Yesterday and weekday names for the last week.",
+        text = "Relative dates today, yesterday, 3 days ago: for the last week",
     ),
     SettingsEntry(
         key = Prefs.K_E_STYLE,
-        title = "Date",
+        title = "Written as",
         tab = SettingsGroup.APPEARANCE,
         section = "Row details",
-        text = "Date",
+        text = "Written as",
     ),
     SettingsEntry(
         key = Prefs.K_E_ORDER,
@@ -83,6 +86,14 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
         tab = SettingsGroup.APPEARANCE,
         section = "Row details",
         text = "Separator",
+    ),
+    SettingsEntry(
+        key = Prefs.K_E_TIME,
+        title = "Time of day",
+        tab = SettingsGroup.APPEARANCE,
+        section = "Row details",
+        text = "Time of day Off The time the file was last changed, after its date. When the " +
+            "file was last changed, beside its date.",
     ),
     SettingsEntry(
         key = Prefs.K_RESTORE_TABS,

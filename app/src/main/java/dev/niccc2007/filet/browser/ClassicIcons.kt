@@ -54,7 +54,8 @@ fun ClassicFolderIcon(
 ) {
     val context = LocalContext.current
     val inspecting = LocalInspectionMode.current
-    val wants = previews && size >= CLASSIC_PREVIEW_FROM && !inspecting
+    // A sample folder has nothing on a drive to peek at. See LocalSampleInside.
+    val wants = previews && size >= CLASSIC_PREVIEW_FROM && !inspecting && LocalSampleInside.current == null
     val peek = remember(context) { if (inspecting) null else runCatching { FiletApp.graphOf(context).folderPeek }.getOrNull() }
     val children = if (peek == null || !wants) {
         emptyList()

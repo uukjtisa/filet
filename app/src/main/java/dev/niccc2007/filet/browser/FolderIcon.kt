@@ -56,6 +56,20 @@ fun FolderIcon(
     /** Drawn as this instead of its own look: the Change icon sheet's preview. */
     look: FolderLook? = null,
 ) {
+    // A folder that exists only to be shown - the Row details preview's sample folders - says
+    // what it holds through [LocalSampleInside] and skips the peek, the cover and the thumbnail
+    // cache entirely: none of them can answer for a path that is not on any drive, and asking
+    // would put a failed lookup per sample row on the settings screen.
+    LocalSampleInside.current?.invoke(node)?.let { sample ->
+        val inside = when {
+            sample == Inside.Empty -> Inside.Empty
+            previews && size >= PREVIEW_FROM -> sample
+            else -> Inside.Pages
+        }
+        val drawn = look ?: FolderLook.PLAIN
+        Canvas(modifier.size(size)) { drawFolder(inside, drawn) }
+        return
+    }
     val context = LocalContext.current
     val inspecting = LocalInspectionMode.current
     val graph = remember(context) { if (inspecting) null else runCatching { FiletApp.graphOf(context) }.getOrNull() }
@@ -93,6 +107,17 @@ fun FolderIcon(
 
     Canvas(modifier.size(size)) { drawFolder(inside, shown) }
 }
+
+/**
+ * What a folder holds when it is a sample rather than a place on a drive, or null for a real one.
+ *
+ * The Row details preview draws its rows with the list's own row, so its sample folders arrive
+ * here like any other folder. Without this they would be peeked, find nothing at a path that does
+ * not exist, and draw empty - a preview of a list where every folder is empty, which is not the
+ * list anyone has. The size gate and the previews switch still apply, so a sample folder in the
+ * compact step draws pages exactly as a real one does there.
+ */
+val LocalSampleInside = androidx.compose.runtime.staticCompositionLocalOf<((VNode) -> Inside?)?> { null }
 
 /** A picture standing in a folder: not looked at yet, decoded, or with no preview to give. */
 private sealed interface Pic {

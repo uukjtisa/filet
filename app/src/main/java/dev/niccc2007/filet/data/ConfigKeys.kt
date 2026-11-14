@@ -80,6 +80,7 @@ object ConfigKeys {
         look("entry.dateOrder", ConfigType.STRING, names(dev.niccc2007.filet.browser.DateOrder.entries)),
         look("entry.dateSeparator", ConfigType.STRING),
         look("entry.relativeDates", ConfigType.BOOL),
+        look("entry.timeOfDay", ConfigType.STRING, names(dev.niccc2007.filet.browser.TimeOfDay.entries)),
         look("entry.subtitle", ConfigType.BOOL, inFile = false, legacy = true),
         look("entry.measure", ConfigType.BOOL, inFile = false, legacy = true),
         look("entry.dateColumn", ConfigType.BOOL, inFile = false, legacy = true),

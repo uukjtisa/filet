@@ -127,6 +127,7 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
             order = enumOr(sp.getString(K_E_ORDER, null), DateOrder.YMD),
             separator = sp.getString(K_E_SEP, "-") ?: "-",
             relative = sp.getBoolean(K_E_REL, true),
+            time = enumOr(sp.getString(K_E_TIME, null), dev.niccc2007.filet.browser.TimeOfDay.OFF),
         )
     }
     val entry: StateFlow<EntryDisplay> = _entry.asStateFlow()
@@ -187,6 +188,7 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
             .putString(K_E_ORDER, d.order.name)
             .putString(K_E_SEP, d.separator)
             .putBoolean(K_E_REL, d.relative)
+            .putString(K_E_TIME, d.time.name)
             .apply()
     }
 
@@ -1881,6 +1883,7 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         const val K_E_ORDER = "entry.dateOrder"
         const val K_E_SEP = "entry.dateSeparator"
         const val K_E_REL = "entry.relativeDates"
+        const val K_E_TIME = "entry.timeOfDay"
 
         const val K_UPD_VERSION = "update.silencedVersion"
         const val K_UPD_SKIPPED = "update.skippedVersion"

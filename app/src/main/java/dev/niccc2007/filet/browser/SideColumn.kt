@@ -126,14 +126,75 @@ object SideColumn {
      * its own 92dp column and its own width gate. Those are kept, now as a property of what is
      * in the slot rather than of which slot it is.
      */
-    fun widthDp(part: DetailPart?, isDir: Boolean): Int = when (part) {
+    fun widthDp(
+        part: DetailPart?,
+        isDir: Boolean,
+        display: EntryDisplay = EntryDisplay(),
+        measure: ((String) -> Float)? = null,
+    ): Int = when (part) {
         null -> 0
-        DetailPart.DATE -> 92
+        DetailPart.DATE -> dateWidthDp(display, measure)
         DetailPart.KIND -> 44
         DetailPart.COUNT -> 68
         DetailPart.TOTAL -> 68
         DetailPart.SIZE -> if (isDir) 68 else 62
     }
+
+    /** The date column's width since before the time of day existed, and its floor now. */
+    const val DATE_DP = 92
+
+    /**
+     * How wide the date column is under these settings.
+     *
+     * Fixed per SETTING, never per row: a column that sized itself to each row's own date would
+     * stop lining up the moment two rows printed different months, which is the one thing this
+     * column is for. So the width is that of the widest date these settings can print anywhere
+     * in a list, measured once.
+     *
+     * 92dp held "27 Sep 2026" and "2026-09-27" with room to spare, so it stays the answer until
+     * the settings can print something longer - a full month name, or a time after the date.
+     * Then the cheap constant is wrong and truncates exactly the part just switched on, so the
+     * widest sample is measured instead. [measure] is in dp at the row's own text size; without
+     * one (a test, or no measurer yet) the width is estimated from the character count, which
+     * errs wide.
+     */
+    fun dateWidthDp(display: EntryDisplay, measure: ((String) -> Float)? = null): Int {
+        if (display.time == TimeOfDay.OFF && display.style != DateStyle.LONG_MONTH) return DATE_DP
+        val samples = dateSamples(display)
+        val widest = if (measure != null) {
+            samples.maxOf(measure)
+        } else {
+            samples.maxOf { it.length } * ESTIMATE_DP_PER_CHAR
+        }
+        return maxOf(DATE_DP, kotlin.math.ceil(widest).toInt() + DATE_SLACK_DP)
+    }
+
+    /**
+     * The widest things a date column can print under [display], one per form a date can take.
+     *
+     * The instant is chosen to be wide in every field at once: a two-digit day, September (the
+     * longest month name), and 22:58, which is two digits of hour on a 24-hour clock and
+     * "10:58 PM" on a 12-hour one. Relative dates add their two longest words, because with the
+     * time on "6 days ago · 22:58" can outrun a short numeric date.
+     */
+    fun dateSamples(display: EntryDisplay): List<String> {
+        val wide = java.util.Calendar.getInstance().apply {
+            clear()
+            set(2026, java.util.Calendar.SEPTEMBER, 28, 22, 58)
+        }.timeInMillis
+        val absolute = EntryFormat.date(wide, display.copy(relative = false))
+        if (!display.relative) return listOf(absolute)
+        val clock = display.time.pattern?.let {
+            EntryFormat.TIME_JOINT + java.text.SimpleDateFormat(it, java.util.Locale.US).format(java.util.Date(wide))
+        } ?: ""
+        return listOf(absolute, "6 days ago$clock", "yesterday$clock")
+    }
+
+    /** Room between the widest date and the column's edge, so a measured fit is not a tight one. */
+    private const val DATE_SLACK_DP = 4
+
+    /** An 11sp digit or letter is under 6.5dp wide; estimating high keeps the fallback from clipping. */
+    private const val ESTIMATE_DP_PER_CHAR = 6.5f
 
     /**
      * Whether a pane this wide has room for it.
