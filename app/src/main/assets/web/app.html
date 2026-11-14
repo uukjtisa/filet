@@ -254,6 +254,19 @@ function download(url, name, label) {
   setTimeout(() => j.done('Handed to your browser — check its downloads'), 1400);
 }
 
+/*
+ * A locked file asks for its own lock code, on top of the access code: the phone shows it on
+ * its share card. Kept for the rest of the visit, so a second locked file does not ask again.
+ */
+let lockCode = '';
+function withLock(f, go) {
+  if (!f.locked) { go(''); return; }
+  const code = lockCode || (prompt('This file is locked. Type its lock code, shown on the phone under the access code.') || '').trim();
+  if (!code) return;
+  lockCode = code;
+  go('?lc=' + encodeURIComponent(code));
+}
+
 // ── listing ──
 async function load(dirToken) {
   const target = dirToken === undefined ? at : dirToken;
@@ -380,7 +393,8 @@ function render(keepWindow) {
     meta.className = 'meta';
     const n = document.createElement('span'); n.className = 'n'; n.textContent = f.name;
     const sub = document.createElement('span'); sub.className = 's';
-    sub.textContent = [f.dir ? 'Folder' : size(f.size), when(f.mtime), f.linked ? 'shared in place' : null]
+    sub.textContent = [f.locked ? '🔒 Locked' : null, f.paused ? 'Paused by the owner' : null,
+      f.dir ? 'Folder' : size(f.size), when(f.mtime), f.linked ? 'shared in place' : null]
       .filter(Boolean).join(' · ');
     meta.append(n, sub);
     if (f.dir) meta.addEventListener('click', () => load(f.token));
@@ -393,13 +407,13 @@ function render(keepWindow) {
       open.addEventListener('click', () => load(f.token));
       const zipIt = document.createElement('button');
       zipIt.textContent = 'Download .zip';
-      zipIt.addEventListener('click', () =>
-        download(BASE + '/zd/' + f.token, f.name + '.zip', 'Zipping on the phone…'));
+      zipIt.addEventListener('click', () => withLock(f, (q) =>
+        download(BASE + '/zd/' + f.token + q, f.name + '.zip', 'Zipping on the phone…')));
       acts.append(open, zipIt);
     } else {
       const dl = document.createElement('button');
       dl.textContent = 'Download';
-      dl.addEventListener('click', () => download(BASE + '/f/' + f.token, f.name));
+      dl.addEventListener('click', () => withLock(f, (q) => download(BASE + '/f/' + f.token + q, f.name)));
       acts.append(dl);
     }
 

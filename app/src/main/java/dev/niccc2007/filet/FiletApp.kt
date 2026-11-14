@@ -236,7 +236,7 @@ class FiletGraph(context: Context) {
     /** What Filet has put on the home screen, so it is manageable from inside the app. */
     val shortcuts = dev.niccc2007.filet.shortcuts.ShortcutStore(app, prefs)
     val nearby: dev.niccc2007.filet.nearby.NearbyManager by lazy {
-        dev.niccc2007.filet.nearby.NearbyManager(app, vfs, prefs, scope)
+        dev.niccc2007.filet.nearby.NearbyManager(app, vfs, prefs, scope, ledger)
     }
     init { dev.niccc2007.filet.data.Diag.start(app) }
 

@@ -231,6 +231,8 @@ object ConfigKeys {
         // to write; filet.json sits in a folder any app with storage access can read.
         sharing("dav.shares", ConfigType.STRING, inFile = false),
         sharing("nearby.shares", ConfigType.STRING, inFile = false),
+        // Whether another Filet's push pops up: on, off, or off until a time.
+        sharing("nearby.popups", ConfigType.STRING),
     )
 
     /**
@@ -251,6 +253,10 @@ object ConfigKeys {
         "drag.behaviour" to "retired: dragging between panes always asks",
         "dav.root" to "superseded by dav.shares, which folds it in on upgrade",
         "nearby.fixedPin" to "this phone's pairing pin",
+        "nearby.lockCode" to "this phone's lock code for locked shared files",
+        "nearby.fast" to "the keys this phone's fast shares handed out",
+        "nearby.blocked" to "phones this phone turns pushes away from, by their install id",
+        "nearby.alwaysAccept" to "paired phones this phone takes pushes from without asking",
         "signing.defaultAlias" to "names a key in this phone's keystore, which never leaves it",
         "playlists.v1" to "kept in playlists.json, a file of its own",
         "shortcuts.reports.v1" to "whether this phone's launcher reports what is on its home screen",

@@ -219,11 +219,15 @@ private fun ShareChoiceSheet(vm: BrowserViewModel, ask: BrowserViewModel.ShareAs
         DlgBody {
             for (target in ask.targets) {
                 DlgPick(
-                    icon = if (target == ShareTarget.NETWORK) FiletIcons.Wifi else FiletIcons.Share,
+                    icon = when (target) {
+                        ShareTarget.NETWORK -> FiletIcons.Wifi
+                        ShareTarget.FAST -> FiletIcons.Scan
+                        ShareTarget.APPS -> FiletIcons.Share
+                    },
                     label = target.label,
                     detail = target.detail,
-                    ours = target == ShareTarget.NETWORK,
-                    tag = if (target == ShareTarget.NETWORK) "Filet" else null,
+                    ours = target != ShareTarget.APPS,
+                    tag = if (target != ShareTarget.APPS) "Filet" else null,
                 ) { vm.shareVia(target) }
             }
         }

@@ -165,6 +165,11 @@ fun FiletDialogs(vm: BrowserViewModel) {
     vm.appIconOffer.collectAsState().value?.let { to ->
         dev.niccc2007.filet.icons.AppIconAsk(to, onUse = vm::useImportedAppIcon, onKeep = vm::keepAppIcon)
     }
+    vm.fastShareFor.collectAsState().value?.let { nodes ->
+        dev.niccc2007.filet.nearby.FastShareSheet(vm, nodes, onClose = vm::closeFastShare)
+    }
+    // Another Filet pushing or asking to pair, whatever screen Filet is on.
+    dev.niccc2007.filet.nearby.NearbyPopups(vm)
 
     // The extraction's settings are NOT a dialogue any more. They are a card over the folder
     // being changed, rendered beside the ghosts that show the result - see `ExtractCard`, and

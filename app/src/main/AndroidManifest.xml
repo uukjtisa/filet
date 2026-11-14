@@ -196,6 +196,47 @@
         </activity>
 
         <!--
+          Filet's two targets in another app's share sheet, beside Filet itself. Nearby adds the
+          file to the Share page and stays in that app; Fast share is Filet, opening its fast share
+          sheet (MainActivity tells them apart by this alias's name).
+        -->
+        <activity
+            android:name=".nearby.NearbyShareTarget"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:label="Nearby"
+            android:icon="@mipmap/ic_launcher"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+        <activity-alias
+            android:name=".FastShareTarget"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="Fast share">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity-alias>
+
+        <!--
           Filet's launcher entries: one per app icon design and colour, exactly one enabled. The
           enabled one is the icon; icons/AppIconSwitch.kt moves it. Legacy Slate is today's icon
           and what a fresh install starts on.

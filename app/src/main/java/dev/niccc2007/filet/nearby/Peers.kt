@@ -92,6 +92,12 @@ object PairedPeers {
             ?: (android.os.Build.MODEL ?: "Android").also { sp.edit().putString("selfName", it).apply() }
     }
 
+    /**
+     * The name this phone is announced by on the network, and so the id other phones know it by:
+     * its Devices row, its pairing and its pushes all go by it.
+     */
+    fun serviceName(context: Context): String = "Filet-" + selfName(context).take(20)
+
     fun setSelfName(context: Context, name: String) =
         context.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putString("selfName", name).apply()
 
@@ -153,7 +159,7 @@ class NearbyDiscovery(private val context: Context) {
         if (!LocalNetwork.allowed(context)) return
         stopAdvertising()
         val info = NsdServiceInfo().apply {
-            serviceName = "Filet-" + PairedPeers.selfName(context).take(20)
+            serviceName = PairedPeers.serviceName(context)
             serviceType = SERVICE_TYPE
             this.port = port
         }

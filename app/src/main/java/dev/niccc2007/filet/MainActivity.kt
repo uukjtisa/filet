@@ -256,12 +256,15 @@ class MainActivity : ComponentActivity() {
         FiletApp.graphOf(this).shortcuts.resumed()
         // A pinned folder that went from empty to full while Filet was away gets its icon redrawn.
         dev.niccc2007.filet.icons.FolderShortcutIcon.refresh(this)
+        // Pushes from other Filets arrive whenever Filet is open. See NearbyManager.openInbox.
+        FiletApp.graphOf(this).nearby.openInbox()
     }
 
     override fun onPause() {
         super.onPause()
         dev.niccc2007.filet.log.FrameWatch.detach(this)
         FiletApp.graphOf(this).shortcuts.paused()
+        FiletApp.graphOf(this).nearby.closeInbox()
         // The tabs as they are this moment. A scroll or a walk in the last half second is still
         // waiting on its pause, and leaving the screen is when the process may be swiped away.
         vm?.saveTabsNow()
@@ -368,16 +371,25 @@ class MainActivity : ComponentActivity() {
             Intent.ACTION_EDIT -> intent.data?.let {
                 browser.openIncoming(it, intent.type, edit = true)
             }
+            // Fast share in another app's share sheet is this activity under another name: the
+            // same files, to the fast share sheet instead of the clipboard.
             Intent.ACTION_SEND -> {
                 val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
-                if (uri != null) browser.acceptIncoming(listOf(uri))
+                if (uri != null) {
+                    if (fastShareTarget(intent)) browser.fastShareIncoming(listOf(uri)) else browser.acceptIncoming(listOf(uri))
+                }
             }
             Intent.ACTION_SEND_MULTIPLE -> {
                 val uris = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
-                if (!uris.isNullOrEmpty()) browser.acceptIncoming(uris)
+                if (!uris.isNullOrEmpty()) {
+                    if (fastShareTarget(intent)) browser.fastShareIncoming(uris) else browser.acceptIncoming(uris)
+                }
             }
         }
     }
+
+    private fun fastShareTarget(intent: Intent): Boolean =
+        intent.component?.className?.endsWith(".FastShareTarget") == true
 
     /**
      * Share the selection.

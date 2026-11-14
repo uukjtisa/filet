@@ -98,6 +98,10 @@ class NearbyHttpServer(
      * is a URL they can see and revoke from the Nearby tab.
      */
     val grants: AccessGrants = AccessGrants(dev.niccc2007.filet.data.Prefs(context)),
+    /** A download finished: for Activity and the download message. Called on a server thread. */
+    private val onServed: (Served) -> Unit = {},
+    /** The push inbox's paths, answered here while sharing is on. See [PushInbox.handle]. */
+    private val onInbox: (path: String, body: JSONObject, address: String) -> JSONObject? = { _, _, _ -> null },
 ) {
     private val pool = Executors.newFixedThreadPool(6)
     private var socket: ServerSocket? = null
@@ -274,19 +278,47 @@ class NearbyHttpServer(
             // implement only the first half, and a light that sticks on is worse than no light.
             grantToken != null && rest.startsWith("/f/") ->
                 marking(address, ClientActivity.DOWNLOADING) {
-                    serveFile(out, rest.removePrefix("/f/"), headers, address)
+                    serveFile(out, rest.removePrefix("/f/"), headers, address, lockOk = lockOk(query))
                 }
             grantToken != null && rest == "/z" ->
-                marking(address, ClientActivity.DOWNLOADING) { serveZip(out, query, address) }
+                marking(address, ClientActivity.DOWNLOADING) { serveZip(out, tokensOf(query), headers, address, lockOk(query)) }
             grantToken != null && rest.startsWith("/zd/") ->
                 marking(address, ClientActivity.DOWNLOADING) {
-                    serveFolderZip(out, rest.removePrefix("/zd/"), address)
+                    serveFolderZip(out, rest.removePrefix("/zd/"), headers, address, lockOk = lockOk(query))
                 }
             grantToken != null && rest.startsWith("/u/") && method == "POST" ->
                 marking(address, ClientActivity.UPLOADING) {
                     receiveUpload(input, out, rest.removePrefix("/u/"), headers)
                 }
             grantToken != null -> respond(out, 404, "text/plain", "not found".toByteArray())
+
+            // A fast share: a direct link with a key that opens its files and nothing else, so
+            // a camera's browser downloads at once with no page and no code. See [FastShare].
+            path == "/api/fast" -> fastManifest(out, param(query, "k"))
+            param(query, "k") != null && path.startsWith("/f/") -> {
+                val token = path.removePrefix("/f/")
+                if (!shared.keyOpens(param(query, "k"), token)) { respond(out, 404, "text/plain", "not found".toByteArray()); return }
+                marking(address, ClientActivity.DOWNLOADING) { serveFile(out, token, headers, address, keyOk = true) }
+            }
+            param(query, "k") != null && path.startsWith("/zd/") -> {
+                val token = path.removePrefix("/zd/")
+                if (!shared.keyOpens(param(query, "k"), token)) { respond(out, 404, "text/plain", "not found".toByteArray()); return }
+                marking(address, ClientActivity.DOWNLOADING) { serveFolderZip(out, token, headers, address, keyOk = true) }
+            }
+            param(query, "k") != null && path == "/z" -> {
+                val f = shared.fastByKey(param(query, "k"))
+                if (f == null) { respond(out, 404, "text/plain", "not found".toByteArray()); return }
+                marking(address, ClientActivity.DOWNLOADING) { serveZip(out, f.tokens, headers, address, keyOk = true) }
+            }
+
+            // Another Filet pushing, cancelling a push, or asking to pair. No access code: the
+            // inbox decides, and a push only ever fetches from the phone that sent it.
+            method == "POST" && (path == "/api/push" || path == "/api/push/cancel" || path == "/api/pair") -> {
+                val n = headers["content-length"]?.toIntOrNull() ?: 0
+                val body = if (n in 1..PushListener.MAX_BODY) readBody(input, n) else null
+                val answer = body?.let { runCatching { JSONObject(it) }.getOrNull() }?.let { onInbox(path, it, address) }
+                if (answer == null) respond(out, 404, "application/json", "{}".toByteArray()) else json(out, answer.toString())
+            }
 
             path == "/" && method == "GET" -> serveLock(out, address, headers)
             path == "/api/info" -> json(out, infoJson())
@@ -306,7 +338,7 @@ class NearbyHttpServer(
             }
             path == "/z" -> {
                 if (!authorised(headers, address)) { unauthorised(out); return }
-                marking(address, ClientActivity.DOWNLOADING) { serveZip(out, query, address) }
+                marking(address, ClientActivity.DOWNLOADING) { serveZip(out, tokensOf(query), headers, address, lockOk(query)) }
             }
             path.startsWith("/u/") && method == "POST" -> {
                 if (!authorised(headers, address)) { unauthorised(out); return }
@@ -461,6 +493,11 @@ class NearbyHttpServer(
                     .put("linked", r.linked)
                     .put("ext", r.node.extension)
                     .put("thumb", hasThumb(r.node.extension))
+                    .apply {
+                        val e = shared.governing(r.token)
+                        put("locked", e?.locked == true)
+                        put("paused", e?.paused == true)
+                    }
             )
         }
         val trail = JSONArray()
@@ -505,12 +542,20 @@ class NearbyHttpServer(
     }
 
     /** A whole folder, streamed as a zip, with its tree preserved inside. */
-    private fun serveFolderZip(out: OutputStream, token: String, address: String) {
+    private fun serveFolderZip(
+        out: OutputStream,
+        token: String,
+        headers: Map<String, String>,
+        address: String,
+        lockOk: Boolean = false,
+        keyOk: Boolean = false,
+    ) {
         val root = shared.resolve(token)
         if (root == null || !shared.isReachable(root)) {
             respond(out, 404, "text/plain", "unknown token".toByteArray())
             return
         }
+        if (!passes(out, token, lockOk, keyOk)) return
         val node = runCatching { runBlocking { vfs.stat(root) } }.getOrNull()
         if (node == null || !node.isDir) {
             respond(out, 404, "text/plain", "not a folder".toByteArray())
@@ -550,6 +595,9 @@ class NearbyHttpServer(
         chunked.finish()
         clients[address]?.state = "downloaded ${node.name} ($count files)"
         onEvent(state())
+        // A folder counts as one download.
+        val e = shared.served(token)
+        onServed(Served("${shared.governing(token)?.alias ?: e?.alias ?: node.name}.zip", ShareGate.who(headers["x-filet-name"], address), e?.oneTime == true))
     }
 
     /**
@@ -580,9 +628,17 @@ class NearbyHttpServer(
      * browser seek in a video without downloading it first. It is three lines of arithmetic
      * and it is the entire reason this is HTTP rather than a bespoke protocol.
      */
-    private fun serveFile(out: OutputStream, token: String, headers: Map<String, String>, address: String) {
+    private fun serveFile(
+        out: OutputStream,
+        token: String,
+        headers: Map<String, String>,
+        address: String,
+        lockOk: Boolean = false,
+        keyOk: Boolean = false,
+    ) {
         val path = shared.resolve(token)
         if (path == null) { respond(out, 404, "text/plain", "unknown token".toByteArray()); return }
+        if (!passes(out, token, lockOk, keyOk)) return
         val node = runCatching { runBlocking { vfs.stat(path) } }.getOrNull()
         if (node == null) {
             // The source went away between listing and fetch. 410 is the honest answer.
@@ -610,6 +666,7 @@ class NearbyHttpServer(
 
         writeStatus(out, if (partial) 206 else 200, guessMime(node.name), extra)
 
+        var sent = 0L
         runCatching {
             runBlocking { vfs.openRead(path) }.use { input ->
                 var skipped = 0L
@@ -626,12 +683,72 @@ class NearbyHttpServer(
                     if (n < 0) break
                     out.write(buf, 0, n)
                     remaining -= n
+                    sent += n
                 }
             }
+            out.flush()
         }
         clients[address]?.let { it.downloads++; it.state = "downloaded ${it.downloads} file(s)" }
         lastActivity.set(System.currentTimeMillis())
         onEvent(state())
+        // Counted once, for a download that went out whole from its start: a player seeking
+        // through a video asks for many ranges, and none of those is a download.
+        if (start == 0L && (total <= 0 || sent >= total)) {
+            val name = shared.governing(token)?.takeIf { it.path == path }?.alias ?: node.name
+            val e = shared.served(token)
+            onServed(Served(name, ShareGate.who(headers["x-filet-name"], address), e?.oneTime == true))
+        }
+    }
+
+    /**
+     * The shared entry's own rules for [token], on top of the access code: answers and returns
+     * false when the download may not go ahead. See [ShareGate].
+     */
+    private fun passes(out: OutputStream, token: String, lockOk: Boolean, keyOk: Boolean): Boolean =
+        when (ShareGate.of(shared.governing(token), System.currentTimeMillis(), lockOk, keyOk)) {
+            ShareGate.OPEN -> true
+            ShareGate.GONE -> { respond(out, 410, "text/plain", "no longer shared".toByteArray()); false }
+            ShareGate.PAUSED -> { respond(out, 403, "text/plain", "Paused by the owner".toByteArray()); false }
+            ShareGate.LOCKED -> { respond(out, 403, "application/json", JSONObject().put("error", "locked").toString().toByteArray()); false }
+        }
+
+    private fun param(query: String, name: String): String? = query.split('&')
+        .firstOrNull { it.startsWith("$name=") }
+        ?.let { URLDecoder.decode(it.substringAfter('='), "UTF-8") }
+        ?.takeIf { it.isNotEmpty() }
+
+    private fun readBody(input: InputStream, n: Int): String {
+        val b = ByteArray(n)
+        var read = 0
+        while (read < n) {
+            val k = input.read(b, read, n - read)
+            if (k < 0) break
+            read += k
+        }
+        return String(b, 0, read)
+    }
+
+    private fun lockOk(query: String): Boolean = param(query, "lc") == shared.lockCode
+
+    private fun tokensOf(query: String): List<String> =
+        query.substringAfter("tokens=", "").substringBefore('&').split(',')
+            .map { URLDecoder.decode(it, "UTF-8") }.filter { it.isNotEmpty() }
+
+    /**
+     * What a fast share's key opens, for Filet's own scanner and a push: the files, so Filet can
+     * fetch them one by one where a browser gets one zip.
+     */
+    private fun fastManifest(out: OutputStream, key: String?) {
+        val f = shared.fastByKey(key)
+        if (f == null) { respond(out, 404, "application/json", JSONObject().put("error", "gone").toString().toByteArray()); return }
+        val files = JSONArray()
+        for (t in f.tokens) {
+            val e = shared.byToken(t) ?: continue
+            if (ShareGate.of(e, System.currentTimeMillis(), keyOk = true) != ShareGate.OPEN) continue
+            val node = runCatching { runBlocking { vfs.stat(e.path) } }.getOrNull() ?: continue
+            files.put(JSONObject().put("token", t).put("name", e.alias).put("size", node.size).put("dir", node.isDir))
+        }
+        json(out, JSONObject().put("device", deviceName()).put("files", files).toString())
     }
 
     /**
@@ -640,9 +757,17 @@ class NearbyHttpServer(
      * Never buffered to disk: a 4 GB selection must not require 4 GB free on the phone. That
      * means no Content-Length, which is exactly what chunked transfer encoding is for.
      */
-    private fun serveZip(out: OutputStream, query: String, address: String) {
-        val tokens = query.substringAfter("tokens=", "").split(',')
-            .map { URLDecoder.decode(it, "UTF-8") }.filter { it.isNotEmpty() }
+    private fun serveZip(
+        out: OutputStream,
+        asked: List<String>,
+        headers: Map<String, String>,
+        address: String,
+        lockOk: Boolean = false,
+        keyOk: Boolean = false,
+    ) {
+        // What may not go out is left out of the zip rather than failing all of it.
+        val now = System.currentTimeMillis()
+        val tokens = asked.filter { ShareGate.of(shared.governing(it), now, lockOk, keyOk) == ShareGate.OPEN }
         if (tokens.isEmpty()) { respond(out, 400, "text/plain", "no tokens".toByteArray()); return }
 
         writeStatus(
@@ -668,6 +793,9 @@ class NearbyHttpServer(
         chunked.finish()
         clients[address]?.state = "downloaded a zip"
         onEvent(state())
+        // A zip counts as one download, on each file in it.
+        val ended = tokens.mapNotNull { shared.served(it) }.any { it.oneTime }
+        onServed(Served("${tokens.size} files as a zip", ShareGate.who(headers["x-filet-name"], address), ended))
     }
 
     /**

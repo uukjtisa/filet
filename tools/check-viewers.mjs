@@ -38,6 +38,7 @@ export function aliases(manifest) {
       mimes: [...body.matchAll(/android:mimeType\s*=\s*"([^"]+)"/g)].map((x) => x[1]),
       view: /android\.intent\.action\.VIEW/.test(body),
       launcher: /android\.intent\.category\.LAUNCHER/.test(body),
+      send: /android\.intent\.action\.SEND/.test(body),
     });
   }
   return out;
@@ -56,9 +57,16 @@ export function table(src) {
  */
 export const isLauncherEntry = (al) => /^\.AppIcon[A-Z]/.test(al.name ?? "") && al.launcher && !al.view;
 
+/**
+ * Filet's target in another app's share sheet, an alias of MainActivity that answers SEND and
+ * never VIEW: it takes files in, it does not open them, so it is no viewer. Exempt by that shape
+ * and that one name only, so one that also answers VIEW is checked as a viewer.
+ */
+export const isShareTarget = (al) => al.name === ".FastShareTarget" && al.send && !al.view;
+
 export function problems(manifest, src) {
   const found = [];
-  const a = aliases(manifest).filter((al) => !isLauncherEntry(al));
+  const a = aliases(manifest).filter((al) => !isLauncherEntry(al) && !isShareTarget(al));
   const t = table(src);
   if (t.length === 0) found.push("no viewers found in InboundViewers.kt - has the enum moved?");
   if (a.length === 0) found.push("no <activity-alias> in the manifest - no viewer is offered by name");
@@ -104,6 +112,7 @@ if (process.argv.includes("--selftest")) {
     ["an alias not exported", () => [swap(manifest, /(android:name="\.open\.ImageViewer"[\s\S]*?android:exported=")true/, "$1false"), src]],
     ["an alias pointing elsewhere", () => [swap(manifest, /(android:name="\.open\.ApkInspector"\s*\n\s*android:targetActivity=")\.MainActivity/, "$1.pick.PickActivity"), src]],
     ["an alias claiming everything", () => [swap(manifest, 'android:mimeType="video/*"', 'android:mimeType="*/*"'), src]],
+    ["a share-sheet target that answers VIEW", () => [swap(manifest, 'android:name=".FastShareTarget"', 'android:name=".FastShareTarget" tools:note="android.intent.action.VIEW"'), src]],
     ["an app icon entry that answers VIEW", () => [swap(manifest, 'android:name=".AppIconLegacySlate"', 'android:name=".AppIconLegacySlate" tools:note="android.intent.action.VIEW"'), src]],
   ];
   let bad = 0;

@@ -54,6 +54,7 @@ const SINCE_THE_MOCK = {
   "Change icon": "folder icons came after the mock; drawn in the legacy icons and folder colour mocks",
   "Copy as path": "came after the mock; drawn in the selection bar picker",
   "Invert selection": "came after the mock; drawn in the selection bar picker",
+  "Fast share": "came after the mock; drawn in the share page mock's ways in",
 };
 
 /** Things the redesign adds that the app has no action for yet. Not failures; new work. */

@@ -23,6 +23,9 @@ enum class ShareTarget(val label: String, val detail: String) {
      * other end and works to a laptop, a console browser, anything that can open a URL.
      */
     NETWORK("Share over your network", "A link any browser can open"),
+
+    /** A QR any camera downloads at once, or a push to a Filet on this network. */
+    FAST("Fast share", "A QR, or straight to a Filet nearby"),
 }
 
 /**
@@ -35,7 +38,7 @@ enum class ShareTarget(val label: String, val detail: String) {
  *   make and the button should just do it rather than opening a menu over one option.
  */
 fun shareTargets(local: Boolean): List<ShareTarget> =
-    if (local) listOf(ShareTarget.APPS, ShareTarget.NETWORK) else listOf(ShareTarget.APPS)
+    if (local) listOf(ShareTarget.APPS, ShareTarget.NETWORK, ShareTarget.FAST) else listOf(ShareTarget.APPS)
 
 /** Whether the button has a real choice to present, or should act straight away. */
 fun needsShareChoice(local: Boolean): Boolean = shareTargets(local).size > 1

@@ -111,6 +111,16 @@ fun NearbyScreen(vm: BrowserViewModel) {
     /** Null when the code editor is closed; the draft code while it is open. */
     var editingPin by remember { mutableStateOf<String?>(null) }
     val grants by nearby.grants.all.collectAsState()
+    val offers by nearby.inbox.offers.collectAsState()
+    val popups by nearby.inbox.popups.collectAsState()
+    val blocked by nearby.inbox.blocked.collectAsState()
+    val always by nearby.inbox.always.collectAsState()
+    var selecting by remember { mutableStateOf(false) }
+    var picked by remember { mutableStateOf(emptySet<String>()) }
+    var menuFor by remember { mutableStateOf<String?>(null) }
+    var renaming by remember { mutableStateOf<SharedEntry?>(null) }
+    var expiring by remember { mutableStateOf<SharedEntry?>(null) }
+    val acts = remember(vm) { sharedActions(vm) }
 
     // Asked for here, on the screen about it, and nowhere else: on Android 17 the local network
     // is a permission, and a listener started without it raised the system's device picker
@@ -123,7 +133,14 @@ fun NearbyScreen(vm: BrowserViewModel) {
     }
 
     LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("nearby")) {
-        item { TabHeader("Share over this network") }
+        item {
+            TabHeader("Share over this network") {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SmallButton("Add files") { vm.pickToShare(fast = false) }
+                    SmallButton("Fast share") { vm.pickToShare(fast = true) }
+                }
+            }
+        }
         if (!net.allowed) {
             item {
                 Column(Modifier.fillMaxWidth().padding(start = 15.dp, end = 15.dp, top = 2.dp, bottom = 8.dp)) {
@@ -148,6 +165,70 @@ fun NearbyScreen(vm: BrowserViewModel) {
             }
         }
         item { ShareCard(vm, server, shares.size) { editingPin = nearby.fixedPin() ?: "" } }
+
+        // What the page is for: the files shared one by one, each a row to act on.
+        item {
+            if (selecting) {
+                SectionRow("${picked.size} selected", "Done") { selecting = false; picked = emptySet() }
+            } else {
+                SectionRow("Shared files (${shares.size})", if (shares.isEmpty()) null else "Select") { selecting = true }
+            }
+        }
+        if (selecting && picked.isNotEmpty()) {
+            item {
+                Row(Modifier.padding(start = 15.dp, bottom = 4.dp)) {
+                    SmallButton("Stop sharing ${picked.size}") {
+                        val names = shares.filter { it.token in picked }.joinToString { it.alias }
+                        acts.stop(picked, names)
+                        vm.toast("Stopped sharing ${picked.size}")
+                        picked = emptySet()
+                        selecting = false
+                    }
+                }
+            }
+        }
+        if (shares.isEmpty()) {
+            item {
+                Text(
+                    "Nothing shared yet. Add files, or hold a file for Nearby or Fast share.",
+                    fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp,
+                    modifier = Modifier.padding(start = 15.dp, end = 15.dp, bottom = 4.dp),
+                )
+            }
+        }
+        items(shares, key = { it.token }) { e ->
+            SharedFileRow(
+                e = e,
+                selecting = selecting,
+                selected = e.token in picked,
+                onTap = {
+                    if (selecting) picked = if (e.token in picked) picked - e.token else picked + e.token
+                    else vm.fastShareShared(listOf(e))
+                },
+                onHold = { if (!selecting) menuFor = e.token },
+                onQr = { vm.fastShareShared(listOf(e)) },
+            ) {
+                SharedFileMenu(
+                    e = e,
+                    open = menuFor == e.token,
+                    onDismiss = { menuFor = null },
+                    onQr = { vm.fastShareShared(listOf(e)) },
+                    onRename = { renaming = e },
+                    onExpiry = { expiring = e },
+                    onPause = { acts.pause(e) },
+                    onOneTime = { acts.oneTime(e) },
+                    onLock = { acts.lock(e) },
+                    onStop = { acts.stop(setOf(e.token), e.alias); vm.toast("Stopped sharing ${e.alias}") },
+                )
+            }
+        }
+        item {
+            Text(
+                "Filet/Shared is offered as-is. Hold a file for more.",
+                fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp,
+                modifier = Modifier.padding(start = 15.dp, end = 15.dp, top = 4.dp, bottom = 4.dp),
+            )
+        }
 
         // "Where can I find what somebody sent me" is the first question this screen raises
         // and the last one it used to answer.
@@ -204,6 +285,32 @@ fun NearbyScreen(vm: BrowserViewModel) {
         }
 
         item { SectionRow("Devices") }
+        item {
+            Column(Modifier.padding(start = 15.dp, end = 15.dp, bottom = 6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Pop-ups", fontSize = 12.sp, color = colors.fg2, modifier = Modifier.padding(end = 4.dp))
+                    Chip("On", popups == Popups.ON) { nearby.inbox.setPopups(Popups.ON) }
+                    Chip("Off for 1 hour", popups == Popups.OFF_HOUR) { nearby.inbox.setPopups(Popups.OFF_HOUR) }
+                    Chip("Off", popups == Popups.OFF) { nearby.inbox.setPopups(Popups.OFF) }
+                }
+                Text(
+                    when (popups) {
+                        Popups.ON -> "A push from another Filet pops up while Filet is open."
+                        Popups.OFF_HOUR -> "Back on at ${backAt(nearby.inbox.popupsBackAt())}. Pushes wait here."
+                        Popups.OFF -> "Pushes wait here until you open them."
+                    },
+                    fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp,
+                )
+            }
+        }
+        items(offers, key = { it.id }) { o ->
+            NRow(
+                title = o.name,
+                sub = "sharing ${o.title} with you · tap to see it",
+                lead = NLead.Glyph(FiletIcons.Download),
+                trailing = { GoText("Open") { nearby.inbox.show(o) } },
+            )
+        }
         if (discovery.isolationSuspected) {
             // Found on mDNS but refusing TCP is AP client isolation, not a bug. Say so.
             item {
@@ -225,35 +332,31 @@ fun NearbyScreen(vm: BrowserViewModel) {
         items(discovery.peers) { peer ->
             PeerRow(
                 peer = peer,
+                blocked = peer.uuid in blocked,
+                always = peer.uuid in always,
                 onOpen = { vm.openPeer(peer) },
                 onPair = { pairing = nearby.beginPairing(peer) },
-                onForget = { nearby.forget(peer.uuid) },
-            )
-        }
-
-        item { SectionRow("Shared (${shares.size} linked)") }
-        item {
-            Text(
-                "Filet/Shared is offered as-is. Shared files stream from where they are.",
-                fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp,
-                modifier = Modifier.padding(start = 15.dp, end = 15.dp, bottom = 4.dp),
-            )
-        }
-        items(shares, key = { it.token }) { e ->
-            // A thumbnail frame per entry, picked from what the file IS rather than from one
-            // link glyph for everything. The frame is a fixed box, so a file type with no
-            // preview still occupies the same space and the list stays a column.
-            NRow(
-                title = e.alias,
-                sub = e.path.path,
-                lead = NLead.Thumb(
-                    FileKind.of(VNode(e.path, isDir = false, size = -1, mtime = 0)).icon
-                ),
-                mono = true,
-                trailing = { SmallBtn("Revoke") { nearby.shared.revoke(e.token) } },
+                onForget = { nearby.forget(peer.uuid); nearby.inbox.setAlways(peer.uuid, false) },
+                onBlock = { nearby.inbox.block(peer.uuid, peer.uuid !in blocked) },
+                onAlways = { nearby.inbox.setAlways(peer.uuid, peer.uuid !in always) },
             )
         }
         item { Spacer(Modifier.height(24.dp)) }
+    }
+
+    renaming?.let { e ->
+        RenameForOthers(e, onDone = { nearby.shared.rename(e.token, it); renaming = null }, onDismiss = { renaming = null })
+    }
+    expiring?.let { e ->
+        ExpiryPicker(
+            e,
+            onPick = { at ->
+                nearby.shared.setExpires(e.token, at)
+                expiring = null
+                vm.toast(stopsIn(at, System.currentTimeMillis())?.replaceFirstChar { it.uppercase() } ?: "Shared until you stop it")
+            },
+            onDismiss = { expiring = null },
+        )
     }
 
     pairing?.let { p ->
@@ -529,6 +632,18 @@ private fun ShareCard(
                     }
                     Spacer(Modifier.height(9.dp))
                 }
+                // The extra lock on single files, on top of the access code. Shown only while
+                // something is locked, as that is when anyone is asked for it.
+                if (vm.nearby.shared.entries.collectAsState().value.any { it.locked }) {
+                    Text("LOCK CODE", fontSize = 9.sp, color = colors.fg3, letterSpacing = 1.sp)
+                    Text(
+                        vm.nearby.lockCode,
+                        fontSize = 17.sp, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp,
+                        color = colors.warn,
+                        modifier = Modifier.clickable { vm.copyText(vm.nearby.lockCode, "Lock code copied") },
+                    )
+                    Spacer(Modifier.height(9.dp))
+                }
                 Text(
                     "Transfer is not encrypted on this network.",
                     fontSize = 10.sp, color = colors.warn, lineHeight = 13.sp,
@@ -699,7 +814,16 @@ private fun ToggleLine(label: String, checked: Boolean, onChange: (Boolean) -> U
 }
 
 @Composable
-private fun PeerRow(peer: Peer, onOpen: () -> Unit, onPair: () -> Unit, onForget: () -> Unit) {
+private fun PeerRow(
+    peer: Peer,
+    blocked: Boolean,
+    always: Boolean,
+    onOpen: () -> Unit,
+    onPair: () -> Unit,
+    onForget: () -> Unit,
+    onBlock: () -> Unit,
+    onAlways: () -> Unit,
+) {
     val colors = Filet.colors
     Row(
         Modifier.fillMaxWidth().clickable(onClick = if (peer.paired) onOpen else onPair)
@@ -731,10 +855,23 @@ private fun PeerRow(peer: Peer, onOpen: () -> Unit, onPair: () -> Unit, onForget
                     )
                     append(" · ")
                     append(ago(peer.lastSeen))
+                    if (blocked) append(" · blocked") else if (always) append(" · sends without asking")
                 },
-                fontSize = 10.sp, color = colors.fg3,
+                fontSize = 10.sp, color = if (blocked) colors.bad else colors.fg3,
             )
         }
+        if (peer.paired && !blocked) {
+            Text(
+                if (always) "Ask" else "Always accept",
+                fontSize = 11.sp, color = colors.fg2,
+                modifier = Modifier.clickable(onClick = onAlways).padding(horizontal = 6.dp, vertical = 4.dp),
+            )
+        }
+        Text(
+            if (blocked) "Unblock" else "Block",
+            fontSize = 11.sp, color = if (blocked) colors.accent else colors.bad,
+            modifier = Modifier.clickable(onClick = onBlock).padding(horizontal = 6.dp, vertical = 4.dp),
+        )
         Text(
             if (peer.paired) "Open" else "Pair",
             fontSize = 11.sp, color = colors.accent,
@@ -792,3 +929,6 @@ private fun PairingDialog(pairing: Pairing, onConfirm: () -> Unit, onDismiss: ()
     }
 }
 
+/** The time an hour's Off ends, as the phone writes times. */
+private fun backAt(at: Long): String =
+    java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(at))

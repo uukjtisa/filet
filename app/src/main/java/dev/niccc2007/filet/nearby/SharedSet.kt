@@ -26,7 +26,35 @@ data class SharedEntry(
     val addedAt: Long,
     val linked: Boolean,
     val expires: Long = 0,
-)
+    /** Stays listed and keeps its link; a download gets "Paused by the owner" and is not counted. */
+    val paused: Boolean = false,
+    /** The first finished download stops sharing it. */
+    val oneTime: Boolean = false,
+    /** An extra lock on top of the access code: opening it asks for the share's lock code. */
+    val locked: Boolean = false,
+    /** Finished downloads, and when the last one was. */
+    val downloads: Int = 0,
+    val lastDownload: Long = 0,
+) {
+    fun isExpired(now: Long): Boolean = expires in 1..now
+}
+
+/**
+ * A fast share: files handed out under one key, by a QR or a push.
+ *
+ * The key opens these files and nothing else, never the access code, and works until the fast
+ * share is stopped or [expires], so several people can scan the same QR.
+ */
+data class FastShare(
+    val key: String,
+    val tokens: List<String>,
+    val at: Long,
+    val expires: Long = 0,
+    /** One folder, which a browser gets as a zip of its own. */
+    val oneFolder: Boolean = false,
+) {
+    fun isExpired(now: Long): Boolean = expires in 1..now
+}
 
 /**
  * What this device is offering.
@@ -66,6 +94,16 @@ class SharedSet(
     private val _entries = MutableStateFlow(load())
     val entries: StateFlow<List<SharedEntry>> = _entries.asStateFlow()
 
+    private val _fast = MutableStateFlow(loadFast())
+    val fast: StateFlow<List<FastShare>> = _fast.asStateFlow()
+
+    /**
+     * The lock code: what a locked file asks for, on top of the access code. One per phone,
+     * shown on the share card under the access code. Made the first time it is asked for.
+     */
+    val lockCode: String
+        get() = prefs.getString(KEY_LOCK) ?: (1000 + random.nextInt(9000)).toString().also { prefs.putString(KEY_LOCK, it) }
+
     suspend fun ensureFolders() {
         for (p in listOf(folder, quarantine)) {
             runCatching { if (vfs.stat(p) == null) vfs.create(p, isDir = true) }
@@ -73,22 +111,88 @@ class SharedSet(
     }
 
     /** Add a proxy entry: shared in place, never copied. */
-    fun share(node: VNode, alias: String = node.name): SharedEntry {
+    fun share(node: VNode, alias: String = node.name, expires: Long = 0): SharedEntry {
         _entries.value.firstOrNull { it.path == node.path }?.let { return it }
-        val entry = SharedEntry(newToken(), node.path, alias, System.currentTimeMillis(), linked = true)
+        val entry = SharedEntry(newToken(), node.path, alias, System.currentTimeMillis(), linked = true, expires = expires)
         _entries.value = _entries.value + entry
         save()
         return entry
     }
 
-    fun revoke(token: String) {
-        _entries.value = _entries.value.filterNot { it.token == token }
+    fun revoke(token: String) = revokeMany(setOf(token))
+
+    /** Stop sharing every one of [tokens], and close the fast shares left with nothing in them. */
+    fun revokeMany(tokens: Set<String>) {
+        _entries.value = _entries.value.filterNot { it.token in tokens }
         save()
+        val left = _fast.value.mapNotNull { f -> f.copy(tokens = f.tokens - tokens).takeIf { it.tokens.isNotEmpty() } }
+        if (left != _fast.value) { _fast.value = left; saveFast() }
     }
 
     fun revokeAll() {
         _entries.value = emptyList()
         save()
+        _fast.value = emptyList()
+        saveFast()
+    }
+
+    private fun change(token: String, f: (SharedEntry) -> SharedEntry) {
+        val next = _entries.value.map { if (it.token == token) f(it) else it }
+        if (next != _entries.value) { _entries.value = next; save() }
+    }
+
+    /** The name others see. Blank goes back to the file's own. */
+    fun rename(token: String, alias: String) = change(token) { it.copy(alias = alias.trim().ifEmpty { it.path.name }) }
+    fun setExpires(token: String, at: Long) = change(token) { it.copy(expires = at) }
+    fun setPaused(token: String, on: Boolean) = change(token) { it.copy(paused = on) }
+    fun setOneTime(token: String, on: Boolean) = change(token) { it.copy(oneTime = on) }
+    fun setLocked(token: String, on: Boolean) = change(token) { it.copy(locked = on) }
+
+    /**
+     * A download of what [token] opens finished. Counted on the shared entry it is in, and a
+     * one-time entry stops being shared. Returns that entry as it was, or null for a file of
+     * Filet/Shared, which has no entry to count on.
+     */
+    fun served(token: String, now: Long = System.currentTimeMillis()): SharedEntry? {
+        val entry = governing(token) ?: return null
+        if (entry.oneTime) revoke(entry.token) else change(entry.token) { it.copy(downloads = it.downloads + 1, lastDownload = now) }
+        return entry
+    }
+
+    /** The shared entry [token] is, or is inside: what its pause, lock and expiry come from. */
+    fun governing(token: String): SharedEntry? {
+        byToken(token)?.let { return it }
+        val path = resolve(token) ?: return null
+        return _entries.value.filter { it.path == path || it.path.contains(path) }.maxByOrNull { it.path.toString().length }
+    }
+
+    /**
+     * Hand [nodes] out under one new key. Each is shared as well, kept until [expires] when it
+     * was not shared already; one that was keeps its own expiry.
+     */
+    fun fastShare(nodes: List<VNode>, expires: Long): FastShare {
+        val tokens = nodes.map { n -> share(n, expires = expires).token }
+        val f = FastShare(newToken().take(12), tokens, System.currentTimeMillis(), expires, oneFolder = nodes.size == 1 && nodes[0].isDir)
+        _fast.value = _fast.value.filterNot { it.isExpired(f.at) } + f
+        saveFast()
+        return f
+    }
+
+    /** The fast share [key] opens, while it lasts. */
+    fun fastByKey(key: String?, now: Long = System.currentTimeMillis()): FastShare? =
+        key?.takeIf { it.isNotEmpty() }?.let { k -> _fast.value.firstOrNull { it.key == k && !it.isExpired(now) } }
+
+    /** Whether [key] opens [token]: one of its files, or something inside one of its folders. */
+    fun keyOpens(key: String?, token: String): Boolean {
+        val f = fastByKey(key) ?: return false
+        if (token in f.tokens) return true
+        val path = resolve(token) ?: return false
+        return f.tokens.mapNotNull { byToken(it)?.path }.any { root -> root.contains(path) }
+    }
+
+    fun stopFast(key: String) {
+        _fast.value = _fast.value.filterNot { it.key == key }
+        saveFast()
     }
 
     fun isShared(path: VPath) = _entries.value.any { it.path == path }
@@ -109,7 +213,7 @@ class SharedSet(
             out += SharedView(tokenForRealFile(node.path), node, linked = false)
         }
         for (e in _entries.value) {
-            if (e.expires in 1..System.currentTimeMillis()) continue
+            if (e.isExpired(System.currentTimeMillis())) continue
             val node = runCatching { vfs.stat(e.path) }.getOrNull()
             // An unavailable source fails cleanly: the row simply is not offered, and a fetch
             // of its token answers 410 Gone rather than hanging.
@@ -217,6 +321,11 @@ class SharedSet(
                     addedAt = o.optLong("at"),
                     linked = o.optBoolean("linked", true),
                     expires = o.optLong("expires"),
+                    paused = o.optBoolean("paused"),
+                    oneTime = o.optBoolean("oneTime"),
+                    locked = o.optBoolean("locked"),
+                    downloads = o.optInt("downloads"),
+                    lastDownload = o.optLong("lastDownload"),
                 )
             }
         }.getOrElse { emptyList() }
@@ -230,12 +339,35 @@ class SharedSet(
                     .put("token", e.token).put("path", e.path.toString())
                     .put("alias", e.alias).put("at", e.addedAt)
                     .put("linked", e.linked).put("expires", e.expires)
+                    .put("paused", e.paused).put("oneTime", e.oneTime).put("locked", e.locked)
+                    .put("downloads", e.downloads).put("lastDownload", e.lastDownload)
             )
         }
         prefs.putString(KEY, arr.toString())
     }
 
-    private companion object { const val KEY = "nearby.shares" }
+    private fun loadFast(): List<FastShare> = runCatching {
+        val arr = JSONArray(prefs.getString(KEY_FAST) ?: return emptyList())
+        (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            val t = o.getJSONArray("tokens")
+            FastShare(o.getString("key"), (0 until t.length()).map { t.getString(it) }, o.optLong("at"), o.optLong("expires"), o.optBoolean("folder"))
+        }
+    }.getOrElse { emptyList() }
+
+    private fun saveFast() {
+        val arr = JSONArray()
+        for (f in _fast.value) {
+            arr.put(JSONObject().put("key", f.key).put("tokens", JSONArray(f.tokens)).put("at", f.at).put("expires", f.expires).put("folder", f.oneFolder))
+        }
+        prefs.putString(KEY_FAST, if (_fast.value.isEmpty()) null else arr.toString())
+    }
+
+    private companion object {
+        const val KEY = "nearby.shares"
+        const val KEY_FAST = "nearby.fast"
+        const val KEY_LOCK = "nearby.lockCode"
+    }
 }
 
 /** A row as the server and the peer see it. */

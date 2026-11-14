@@ -3668,6 +3668,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         when (target) {
             dev.niccc2007.filet.handlers.ShareTarget.APPS -> shareToApps(ask.items)
             dev.niccc2007.filet.handlers.ShareTarget.NETWORK -> ask.items.forEach { shareOneNearby(it) }
+            dev.niccc2007.filet.handlers.ShareTarget.FAST -> openFastShare(ask.items)
         }
     }
 
@@ -4545,6 +4546,14 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             if (nodes.isEmpty()) { toast("Nothing usable was shared."); return@launch }
             loadClipboard(nodes, PendingOp.COPY)
             toast("${nodes.size} ready \u2014 open a folder and paste")
+        }
+    }
+
+    /** Fast share, picked in another app's share sheet: the sheet, over Filet. */
+    fun fastShareIncoming(uris: List<android.net.Uri>) {
+        viewModelScope.launch {
+            val nodes = uris.mapNotNull { incomingNode(it) }
+            if (nodes.isEmpty()) toast("Nothing usable was shared.") else openFastShare(nodes)
         }
     }
 
@@ -5613,6 +5622,56 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         val c = graph.connections.byId(id) ?: return null
         if (c.protocol.scheme != scheme) return null
         return c.label.ifBlank { c.host }
+    }
+
+    private val _fastShare = MutableStateFlow<List<VNode>?>(null)
+
+    /** What the Fast share sheet is open for. See `nearby/FastShareSheet.kt`. */
+    val fastShareFor: StateFlow<List<VNode>?> = _fastShare.asStateFlow()
+
+    /** Fast share [nodes]: the QR on top, the Filets nearby under it. */
+    fun openFastShare(nodes: List<VNode>) {
+        if (nodes.isEmpty()) { toast("Select something first."); return }
+        _fastShare.value = nodes
+    }
+
+    fun closeFastShare() { _fastShare.value = null }
+
+    /** Fast share the selection, from the selection bar or the hold menu. */
+    fun fastShareSelection() {
+        val items = focusedPane()?.selectedNodes().orEmpty()
+        focusedPane()?.clearSelection()
+        openFastShare(items)
+    }
+
+    /** The Share page's QR button and Show QR and link: fast share files already shared. */
+    fun fastShareShared(entries: List<dev.niccc2007.filet.nearby.SharedEntry>) {
+        viewModelScope.launch {
+            val nodes = entries.mapNotNull { e -> runCatching { graph.vfs.stat(e.path) }.getOrNull() }
+            if (nodes.isEmpty()) toast("That file is no longer there.") else openFastShare(nodes)
+        }
+    }
+
+    /** The Share page's Add files and Fast share: files picked in Filet's own browser. */
+    fun pickToShare(fast: Boolean) {
+        val spec = dev.niccc2007.filet.pick.PickSpec(
+            title = if (fast) "Choose files to fast share" else "Choose files to share on this network",
+            want = dev.niccc2007.filet.pick.PickSpec.Want.FILES,
+            subject = if (fast) "a fast share" else "the Share page",
+        )
+        pick(spec) { result ->
+            val paths = (result as? dev.niccc2007.filet.pick.PickResult.Picked)?.paths ?: return@pick
+            viewModelScope.launch {
+                val nodes = paths.mapNotNull { p -> runCatching { graph.vfs.stat(p) }.getOrNull() }
+                if (fast) {
+                    openFastShare(nodes)
+                } else {
+                    nodes.forEach { graph.nearby.shared.share(it) }
+                    if (!graph.nearby.isRunning()) graph.nearby.start()
+                    toast(if (nodes.size == 1) "Shared ${nodes.first().name}" else "${nodes.size} shared")
+                }
+            }
+        }
     }
 
     /** Offer the selection to peers and browsers, in place - nothing is copied. */
@@ -7106,6 +7165,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     val scanFound: StateFlow<dev.niccc2007.filet.qr.ScanHit?> = _scanFound.asStateFlow()
 
     fun scanned(hit: dev.niccc2007.filet.qr.ScanHit?) {
+        // A fast share's QR: no browser and no code. Filet fetches it into Filet/Received as an
+        // Activity job, whose card shows it coming in and opens it when it has.
+        val fast = hit?.let { dev.niccc2007.filet.nearby.FastLink.parse(it.text) }
+        if (fast != null) {
+            graph.nearby.inbox.fetch(fast.base, fast.key, fast.host)
+            toast("Downloading to Filet/Received")
+            _scanFound.value = null
+            return
+        }
         _scanFound.value = hit
     }
 

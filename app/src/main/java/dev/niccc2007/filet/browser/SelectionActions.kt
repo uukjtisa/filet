@@ -306,6 +306,16 @@ fun selectionActions(
                 group = SelectionAction.Group.PLACE, run = on.nearby,
             ),
         )
+        // Beside Nearby: the same share, as a QR or a push to a Filet nearby, at once. Only where
+        // the surface has wired it, so it is never a button that does nothing.
+        on.fastShare?.let { fast ->
+            add(
+                SelectionAction(
+                    "fastshare", "Fast share", icons.fast ?: icons.share,
+                    group = SelectionAction.Group.PLACE, run = fast,
+                ),
+            )
+        }
         // A home-screen shortcut points at one thing.
         if (single) {
             add(
@@ -348,6 +358,7 @@ data class SelectionIcons(
     val rows: ImageVector,
     val folder: ImageVector = open,
     val invert: ImageVector = rows,
+    val fast: ImageVector? = null,
 )
 
 /** What each action does. Separate from the list so the list can be built in a test. */
@@ -363,6 +374,8 @@ data class SelectionCallbacks(
     val bookmark: () -> Unit,
     val nearby: () -> Unit,
     val shortcut: () -> Unit,
+    /** Fast share: null where the surface does not offer it. */
+    val fastShare: (() -> Unit)? = null,
     val extractHere: () -> Unit = {},
     val extractToOtherPane: () -> Unit = {},
     val install: () -> Unit = {},

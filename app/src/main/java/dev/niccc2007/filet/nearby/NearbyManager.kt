@@ -25,6 +25,8 @@ class NearbyManager(
     private val vfs: Vfs,
     private val prefs: Prefs,
     private val scope: CoroutineScope,
+    /** Where everything the share does is logged, as other jobs are. Null in tests. */
+    private val ledger: dev.niccc2007.filet.jobs.JobLedger? = null,
 ) {
     val shared = SharedSet(context, vfs, prefs)
     val discovery = NearbyDiscovery(context)
@@ -47,7 +49,146 @@ class NearbyManager(
         shared = shared,
         deviceName = { PairedPeers.selfName(context) },
         onEvent = { _state.value = it },
+        onServed = { s -> logServed(s) },
+        onInbox = { p, b, a -> inbox.handle(p, b, a) },
     )
+
+    /** Pushes from other Filets. See [PushInbox]. */
+    val inbox: PushInbox by lazy {
+        PushInbox(context, vfs, prefs, scope, shared.quarantine, ledger) { PairedPeers.selfName(context) }
+    }
+
+    private val listener = PushListener(
+        handle = { p, b, a -> inbox.handle(p, b, a) },
+        info = { org.json.JSONObject().put("name", PairedPeers.selfName(context)).put("app", "Filet").put("inbox", true) },
+    )
+
+    /** Filet is on screen: the inbox is open. Set by [openInbox] and [closeInbox]. */
+    @Volatile private var inFront = false
+
+    /**
+     * Filet came on screen: pushes from other Filets can arrive. While sharing is on, its own
+     * server answers them; otherwise the inbox opens its own door and announces it, so Filets
+     * nearby list this phone. Not without the local network permission, which an announcement
+     * without it would make Android ask for in the middle of something else.
+     */
+    fun openInbox() {
+        inFront = true
+        if (server.isRunning() || !LocalNetwork.allowed(context)) return
+        scope.launch(Dispatchers.IO) {
+            val port = listener.open()
+            if (port > 0 && !server.isRunning()) runCatching { discovery.advertise(port) }
+        }
+    }
+
+    /** Filet left the screen: the inbox's own door shuts. A running share keeps answering. */
+    fun closeInbox() {
+        inFront = false
+        scope.launch(Dispatchers.IO) {
+            if (!listener.isOpen) return@launch
+            listener.close()
+            if (!server.isRunning()) runCatching { discovery.stopAdvertising() }
+        }
+    }
+
+    /**
+     * Offer [f] to [peer], AirDrop-like: it asks there, or arrives without asking from a phone
+     * that set this one to Always accept. Sharing must be on, because the other phone fetches
+     * from this one. Answers "asked", "accepted", "held" or "blocked", or null for no answer.
+     */
+    suspend fun push(peer: Peer, f: FastShare): String? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val s = _state.value
+        if (!s.running) return@withContext null
+        val files = org.json.JSONArray()
+        for (t in f.tokens) {
+            val e = shared.byToken(t) ?: continue
+            val node = runCatching { vfs.stat(e.path) }.getOrNull() ?: continue
+            files.put(org.json.JSONObject().put("name", e.alias).put("size", node.size).put("dir", node.isDir))
+        }
+        val body = org.json.JSONObject()
+            .put("from", PairedPeers.serviceName(context))
+            .put("name", PairedPeers.selfName(context))
+            .put("port", s.port)
+            .put("key", f.key)
+            .put("files", files)
+        PairedPeers.tokenFor(context, peer.uuid)?.let { body.put("proof", PushRules.proof(it, f.key)) }
+        val answer = PushInbox.post("${peer.base}/api/push", body)?.optString("answer")
+        if (answer != null) {
+            pushedTo.getOrPut(f.key) { mutableSetOf() } += peer.base
+            log("Pushed ${files.length().let { if (it == 1) files.getJSONObject(0).optString("name") else "$it files" }} to ${peer.label}", answer)
+        }
+        answer
+    }
+
+    private val pushedTo = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
+
+    /** Stop a fast share: its key stops working, and phones it was pushed to drop the push. */
+    fun stopFast(key: String) {
+        shared.stopFast(key)
+        val to = pushedTo.remove(key) ?: return
+        scope.launch(Dispatchers.IO) {
+            val body = org.json.JSONObject().put("from", PairedPeers.serviceName(context)).put("key", key)
+            for (base in to) PushInbox.post("$base/api/push/cancel", body)
+        }
+    }
+
+    /**
+     * A download by someone else, on the Activity page as a finished job of its own. Its end
+     * is the small message the Activity settings switch, so the share itself never pops up
+     * anything else.
+     */
+    private fun logServed(s: Served) {
+        val l = ledger ?: return
+        val id = l.start(
+            title = "${s.name} downloaded",
+            subtitle = s.who,
+            source = "Nearby",
+            kind = dev.niccc2007.filet.jobs.JobKind.SERVED,
+        )
+        l.finish(id, if (s.ended) "${s.who} · one-time link, now stopped" else s.who)
+    }
+
+    /** A step of the share itself (started, stopped, paused), logged with no message. */
+    fun log(title: String, detail: String = "") {
+        val l = ledger ?: return
+        val id = l.start(title = title, subtitle = detail, source = "Nearby", kind = dev.niccc2007.filet.jobs.JobKind.OTHER)
+        l.finish(id, detail)
+    }
+
+    /** The lock code, shown on the card under the access code. See [SharedSet.lockCode]. */
+    val lockCode: String get() = shared.lockCode
+
+    /**
+     * The direct link for [f] on this phone's own address, for its QR and Copy link: one file
+     * downloads as itself, one folder as a zip, several files as one zip. Works on a Wi-Fi with
+     * no internet; empty while sharing is off.
+     */
+    fun fastLink(f: FastShare): String {
+        val s = _state.value
+        if (!s.running || s.address.isEmpty()) return ""
+        val base = "http://${s.address}:${s.port}"
+        val one = f.tokens.singleOrNull()?.let { shared.byToken(it) }
+        return when {
+            one == null -> "$base/z?k=${f.key}"
+            f.oneFolder -> "$base/zd/${one.token}?k=${f.key}"
+            else -> "$base/f/${one.token}?k=${f.key}"
+        }
+    }
+
+    /**
+     * Fast-share [nodes]: shared for a day unless already shared, under one new key. Starts
+     * sharing when it is off, as opening the fast share sheet does.
+     */
+    fun fastShare(nodes: List<dev.niccc2007.filet.vfs.VNode>): FastShare {
+        if (!_state.value.running && !_starting.value) start()
+        val f = shared.fastShare(nodes, expires = System.currentTimeMillis() + FAST_DAY_MS)
+        log(
+            if (nodes.size == 1) "Fast share: ${nodes.first().name}" else "Fast share: ${nodes.size} files",
+            "for a day",
+        )
+        return f
+    }
+
 
     val selfName: String get() = PairedPeers.selfName(context)
     fun setSelfName(name: String) = PairedPeers.setSelfName(context, name)
@@ -209,7 +350,9 @@ class NearbyManager(
                     }
                     failures = ServerStartPolicy.countAfter(failures, succeeded = true)
                     _state.value = it
+                    listener.close()
                     runCatching { discovery.advertise(it.port) }
+                    log("Sharing started", it.url)
                     // Guarded: on Android 12+ starting a foreground service from the background
                     // throws, and the throw happens here, after the server is already up. The
                     // server itself is fine and stopping it is the honest response - a running
@@ -330,8 +473,11 @@ class NearbyManager(
         ShareTrace.line { "stop($origin): serverRunning=${server.isRunning()}" }
         try {
             discovery.stopAdvertising()
+            val was = server.isRunning()
             server.stop()
             _state.value = server.state()
+            if (was) log("Sharing stopped")
+            if (inFront) openInbox()
             // A stop clears the cooldown too: the app has just been told plainly what to do,
             // and enforcing a backoff earned by earlier failures is the app arguing with that.
             failures = 0
@@ -372,9 +518,20 @@ class NearbyManager(
      * Both sides show a four-digit code derived from both UUIDs and the shared token. The
      * user compares them by eye; if they differ, something is between the two devices.
      */
+    /**
+     * Pair with [peer]. The other phone is asked as well and shows the same four digits, so each
+     * person checks the two screens match; each phone keeps the pairing once its own person
+     * confirms. Only a paired phone can be set to Always accept.
+     */
     fun beginPairing(peer: Peer): Pairing {
         val token = PairedPeers.newToken()
-        val self = PairedPeers.selfUuid(context)
+        val self = PairedPeers.serviceName(context)
+        scope.launch(Dispatchers.IO) {
+            PushInbox.post(
+                "${peer.base}/api/pair",
+                org.json.JSONObject().put("from", self).put("name", PairedPeers.selfName(context)).put("token", token),
+            )
+        }
         return Pairing(peer, token, PairedPeers.shortCode(self, peer.uuid, token))
     }
 
@@ -401,6 +558,8 @@ class NearbyManager(
         const val KEY_IDLE = "nearby.idle"
         /** Empty string means "random each session", which is the default. */
         const val KEY_FIXED_PIN = "nearby.fixedPin"
+        /** How long a fast share lasts unless changed: a day. */
+        const val FAST_DAY_MS = 24L * 60 * 60 * 1000
     }
 }
 

@@ -2051,6 +2051,7 @@ private fun PaneContextMenu(
             apk = FiletIcons.Apk, cog = FiletIcons.Cog,
             audio = FiletIcons.Audio, rows = FiletIcons.Rows,
             folder = FiletIcons.FolderOpen, invert = FiletIcons.Check,
+            fast = FiletIcons.Scan,
         ),
         on = SelectionCallbacks(
             copy = { vm.copySelection() },
@@ -2063,6 +2064,7 @@ private fun PaneContextMenu(
             details = { vm.detailsForSelection() },
             bookmark = { vm.bookmarkSelection() },
             nearby = { vm.shareSelectionNearby() },
+            fastShare = { vm.fastShareSelection() },
             shortcut = { vm.shortcutSelection() },
             install = { vm.installSelection() },
             metadata = { vm.metadataForSelection() },
