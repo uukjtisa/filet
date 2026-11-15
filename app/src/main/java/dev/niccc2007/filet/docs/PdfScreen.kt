@@ -217,8 +217,7 @@ private fun problemText(problem: PdfDoc.Opened?, node: VNode): String = when (pr
             "PDF reader does not understand."
     is PdfDoc.Opened.Locked ->
         if (problem.canAsk) "This PDF is password-protected."
-        else "This PDF is password-protected, and the PDF reader built into this version of " +
-            "Android cannot be given a password. Android 15 and later can open it."
+        else problem.why ?: "This PDF is locked in a way Filet cannot open."
     is PdfDoc.Opened.Ready, null -> "This PDF could not be opened."
 }
 

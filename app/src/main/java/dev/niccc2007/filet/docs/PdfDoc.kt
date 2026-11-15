@@ -161,9 +161,9 @@ class PdfDoc private constructor(
 
         /**
          * Password-protected. [wrong] when a password was given and refused. [canAsk] is false
-         * below Android 15, where `PdfRenderer` has no way to be given a password at all.
+         * only for a PDF a password cannot open, locked to a certificate say; [why] says which.
          */
-        class Locked(val wrong: Boolean, val canAsk: Boolean) : Opened
+        class Locked(val wrong: Boolean, val canAsk: Boolean, val why: String? = null) : Opened
 
         /** There is no local copy to open: too large, or somewhere that cannot be copied from. */
         data object NoCopy : Opened
@@ -191,7 +191,11 @@ class PdfDoc private constructor(
         const val MAX_WIDTH = 4_000
         const val MAX_HEIGHT = 8_000
 
-        /** Whether this Android can be handed a password for a locked PDF. */
+        /**
+         * Whether this Android's own reader takes a password. Below Android 15 it does not, and
+         * [PdfUnlock] opens the file into a plain copy instead, so a password is asked for on
+         * every Android either way.
+         */
         val canAskPassword: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM
 
         /**
@@ -221,6 +225,7 @@ class PdfDoc private constructor(
          * `SecurityException` - and the screen needs that to offer the one thing that helps.
          */
         fun open(file: File, password: String? = null): Opened {
+            if (password != null && !canAskPassword) return unlocked(file, password)
             val fd = runCatching {
                 ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             }.getOrNull() ?: return Opened.Unreadable
@@ -233,10 +238,46 @@ class PdfDoc private constructor(
                 Opened.Ready(PdfDoc(fd, renderer))
             } catch (e: SecurityException) {
                 runCatching { fd.close() }
-                Opened.Locked(wrong = password != null, canAsk = canAskPassword)
+                Opened.Locked(wrong = password != null, canAsk = true)
             } catch (e: Exception) {
                 runCatching { fd.close() }
                 Opened.Unreadable
+            }
+        }
+
+        /**
+         * Below Android 15: open [file] with [password] into a plain copy and show that.
+         *
+         * The copy is in the app's own cache, where no other app can read it, and it is deleted
+         * the moment the reader has it open: the open descriptor keeps the bytes readable until
+         * the screen closes it, and nothing decrypted is left on the phone after that.
+         */
+        private fun unlocked(file: File, password: String): Opened {
+            val plain = runCatching { File.createTempFile("unlocked", ".pdf") }.getOrNull() ?: return Opened.Unreadable
+            try {
+                val result = runCatching {
+                    java.io.RandomAccessFile(file, "r").use { raf ->
+                        plain.outputStream().buffered().use { out -> PdfUnlock.unlock(FileSource(raf), password, out) }
+                    }
+                }.getOrElse { return Opened.Unreadable }
+                return when (result) {
+                    PdfUnlock.Result.Unlocked -> open(plain, null)
+                    PdfUnlock.Result.WrongPassword -> Opened.Locked(wrong = true, canAsk = true)
+                    // The reader refused it for something other than a password.
+                    PdfUnlock.Result.NotLocked -> Opened.Unreadable
+                    is PdfUnlock.Result.Unsupported -> Opened.Locked(wrong = false, canAsk = false, why = result.why)
+                }
+            } finally {
+                plain.delete()
+            }
+        }
+
+        private class FileSource(private val raf: java.io.RandomAccessFile) : PdfSource {
+            override val size: Long = raf.length()
+            override fun read(at: Long, into: ByteArray, off: Int, len: Int): Int {
+                if (at >= size) return 0
+                raf.seek(at)
+                return raf.read(into, off, len).coerceAtLeast(0)
             }
         }
     }
