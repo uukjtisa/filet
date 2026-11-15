@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -53,7 +54,6 @@ import dev.niccc2007.filet.ui.dialogs.DlgFooter
 import dev.niccc2007.filet.ui.dialogs.DlgHeader
 import dev.niccc2007.filet.ui.dialogs.DlgPick
 import dev.niccc2007.filet.ui.dialogs.DlgSpacer
-import dev.niccc2007.filet.ui.dialogs.DlgTick
 import dev.niccc2007.filet.ui.tabs.EmptyTab
 import dev.niccc2007.filet.ui.tabs.NLead
 import dev.niccc2007.filet.ui.tabs.NRow
@@ -101,8 +101,16 @@ fun RemotesScreen(vm: BrowserViewModel) {
     val tests by vm.remoteTests.collectAsState()
     val testing by vm.remoteTesting.collectAsState()
     var editing by remember { mutableStateOf<NetConnection?>(null) }
-    var menuFor by remember { mutableStateOf<NetConnection?>(null) }
-    var forgetting by remember { mutableStateOf<NetConnection?>(null) }
+    // The held row, by id, so the menu's index switch shows the saved value after it changes.
+    var menuFor by remember { mutableStateOf<String?>(null) }
+    var forgetting by remember { mutableStateOf<List<NetConnection>>(emptyList()) }
+    // Picked shares, by id. Pruned against the list, so a forgotten share cannot stay picked.
+    var pickedIds by remember { mutableStateOf(emptySet<String>()) }
+    val picked = remember(saved, pickedIds) { saved.filter { it.id in pickedIds } }
+    fun toggle(c: NetConnection) {
+        pickedIds = if (c.id in pickedIds) pickedIds - c.id else pickedIds + c.id
+    }
+    dev.niccc2007.filet.browser.InnerBack(vm, enabled = picked.isNotEmpty()) { pickedIds = emptySet() }
 
     // The network is this screen's subject, so it is where the permission for it is asked - and,
     // on Android 17, nothing below listens until it is given. Without it, every listener raised
@@ -146,61 +154,21 @@ fun RemotesScreen(vm: BrowserViewModel) {
     val linkable = remember(revision) { list.filter { it.protocol == NetProtocol.WEBDAV } }
     var linking by remember { mutableStateOf<DavHost?>(null) }
 
-    // ── what a long press offers ──────────────────────────────────────────────────
-    //
-    // Open, Test, Edit, Duplicate, Forget. Duplicate is the one that earns its place: a second
-    // share on the same PC is otherwise the whole form typed again, credentials included.
-    // Forget was previously not offered anywhere at all - a saved remote could be created and
-    // edited for ever but never removed.
-    menuFor?.let { c ->
-        Dlg(onDismiss = { menuFor = null }) {
-            DlgHeader(
-                icon = iconFor(c.protocol),
-                title = c.label.ifEmpty { c.host },
-                sub = c.protocol.scheme + "://" + c.host,
-                onClose = { menuFor = null },
-            )
-            DlgBody {
-                DlgPick(FiletIcons.Open, "Open", "Browse it now") { menuFor = null; vm.openConnection(c) }
-                DlgPick(FiletIcons.Wifi, "Test", "Dial it and say what happened") {
-                    menuFor = null
-                    vm.testConnection(c)
-                }
-                DlgPick(FiletIcons.Code, "Edit", "Address, sign-in and name") { menuFor = null; editing = c }
-                DlgPick(FiletIcons.Copy, "Duplicate", "A copy to point somewhere near by") {
-                    menuFor = null
-                    editing = vm.duplicateConnection(c)
-                }
-                DlgPick(FiletIcons.Delete, "Forget", "Remove it and its saved password") {
-                    menuFor = null
-                    forgetting = c
-                }
-                // Off for every share unless turned on here - SEARCH.md §13.6. The sub-line says
-                // what it buys and what it costs, and does not promise the share is watched: it
-                // is not, and an index as fresh as its last pass is the honest description.
-                DlgTick(
-                    on = c.indexed,
-                    label = "Keep an index of this share",
-                    sub = "Faster search here. Costs a full walk of it, kept until the next pass.",
-                ) {
-                    val next = c.copy(indexed = !c.indexed)
-                    vm.saveConnection(next)
-                    menuFor = next
-                }
-            }
-            DlgFooter { DlgBtn("Close", BtnKind.PLAIN) { menuFor = null } }
-        }
-    }
-
     // Confirmed, because it takes a password with it and there is no undo. Everything else in
     // that menu is reversible by doing it again.
-    forgetting?.let { c ->
-        Dlg(onDismiss = { forgetting = null }) {
+    if (forgetting.isNotEmpty()) {
+        val gone = forgetting
+        val first = gone.first()
+        Dlg(onDismiss = { forgetting = emptyList() }) {
             DlgHeader(
-                icon = iconFor(c.protocol),
-                title = "Forget " + c.label.ifEmpty { c.host } + "?",
-                sub = "The saved password goes with it",
-                onClose = { forgetting = null },
+                icon = iconFor(first.protocol),
+                title = if (gone.size == 1) {
+                    "Forget " + first.label.ifEmpty { first.host } + "?"
+                } else {
+                    "Forget " + gone.size + " shares?"
+                },
+                sub = if (gone.size == 1) "The saved password goes with it" else "Their saved passwords go with them",
+                onClose = { forgetting = emptyList() },
             )
             DlgBody {
                 DlgCaption(
@@ -209,15 +177,17 @@ fun RemotesScreen(vm: BrowserViewModel) {
                 )
             }
             DlgFooter {
-                DlgBtn("Keep it", BtnKind.PLAIN) { forgetting = null }
+                DlgBtn(if (gone.size == 1) "Keep it" else "Keep them", BtnKind.PLAIN) { forgetting = emptyList() }
                 DlgBtn("Forget", BtnKind.DANGER) {
-                    vm.forgetConnection(c)
-                    forgetting = null
+                    gone.forEach { vm.forgetConnection(it) }
+                    pickedIds = pickedIds - gone.map { it.id }.toSet()
+                    forgetting = emptyList()
                 }
             }
         }
     }
 
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(Modifier.fillMaxSize(), state = dev.niccc2007.filet.browser.rememberKeptListState("remotes")) {
         item { TabHeader("Network and root") }
 
@@ -351,57 +321,32 @@ fun RemotesScreen(vm: BrowserViewModel) {
                 )
             }
         }
-        items(list.size) { i ->
+        items(list.size, key = { list[it].id }) { i ->
             val c = list[i]
-            val verdict = tests[c.id]
-            val busy = c.id in testing
-            Column {
-                NRow(
-                    title = c.label.ifEmpty { c.host },
-                    sub = "${c.protocol.scheme}://${c.host}${if (c.share.isNotEmpty()) "/" + c.share else ""}" +
-                        lastUsedLine(c.lastUsedAt),
-                    lead = NLead.Glyph(iconFor(c.protocol)),
-                    mono = true,
-                    trailing = {
-                        // The pill says what is KNOWN, which is now more than it was.
-                        //
-                        // It used to be the protocol name and a plain-text warning, because
-                        // nothing polled the share - so "connected" would have been a guess
-                        // dressed as a fact. There is a probe now (see `RemoteProbe`), so a
-                        // tested remote says what the dial actually returned, and an untested
-                        // one still says only what is certain.
-                        when {
-                            busy -> Pill("dialling", PillTone.Running)
-                            verdict != null && verdict.ok -> Pill("reachable", PillTone.Good)
-                            verdict != null -> Pill(verdict.label, PillTone.Bad)
-                            !c.useTls && (c.protocol == NetProtocol.FTP || c.protocol == NetProtocol.WEBDAV) ->
-                                Pill(
-                                    if (c.protocol == NetProtocol.FTP) "plain FTP" else "plain HTTP",
-                                    PillTone.Running,
-                                )
-                            else -> Pill(c.protocol.name, PillTone.Plain)
-                        }
-                        SmallBtn("Test") { vm.testConnection(c) }
-                    },
-                    // The row itself opens it. This is what was missing entirely: the only
-                    // control was Edit, so a saved place could be created and never reached.
-                    onClick = { vm.openConnection(c) },
-                    onLongClick = { menuFor = c },
-                )
-                // The sentence, under the row, and only when there is one. A verdict's whole
-                // value is naming what to change, and that does not fit in a pill - but a
-                // pill nobody can act on is the state this screen was already in.
-                if (verdict != null && verdict.detail.isNotEmpty()) {
-                    Text(
-                        verdict.detail,
-                        fontSize = 10.5.sp,
-                        lineHeight = 14.sp,
-                        color = colors.fg3,
-                        modifier = Modifier.padding(
-                            start = 48.dp,
-                            end = 15.dp,
-                            bottom = 7.dp,
-                        ),
+            val selecting = picked.isNotEmpty()
+            RemoteRow(
+                c = c,
+                verdict = tests[c.id],
+                busy = c.id in testing,
+                selected = c.id in pickedIds,
+                held = menuFor == c.id,
+                // While a selection is live a tap picks, as it does in a file list.
+                onClick = { if (selecting) toggle(c) else vm.openConnection(c) },
+                onLongClick = { menuFor = c.id },
+                onIconClick = { toggle(c) },
+            ) {
+                if (menuFor == c.id) {
+                    RemoteMenu(
+                        c = c,
+                        onDismiss = { menuFor = null },
+                        onOpen = { menuFor = null; vm.openConnection(c) },
+                        onTest = { menuFor = null; vm.testConnection(c) },
+                        onEdit = { menuFor = null; editing = c },
+                        onDuplicate = { menuFor = null; editing = vm.duplicateConnection(c) },
+                        onSelect = { menuFor = null; pickedIds = pickedIds + c.id },
+                        // Stays open, so the switch is seen to move.
+                        onIndex = { vm.saveConnection(c.copy(indexed = !c.indexed)) },
+                        onForget = { menuFor = null; forgetting = listOf(c) },
                     )
                 }
             }
@@ -453,7 +398,24 @@ fun RemotesScreen(vm: BrowserViewModel) {
                 ) { vm.enableRoot() }
             }
         }
-        item { Spacer(Modifier.height(24.dp)) }
+        item { Spacer(Modifier.height(if (picked.isEmpty()) 24.dp else PILL_ROOM)) }
+    }
+    if (picked.isNotEmpty()) {
+        val one = picked.singleOrNull()
+        RemotesPill(
+            count = picked.size,
+            total = list.size,
+            onClear = { pickedIds = emptySet() },
+            onAll = { pickedIds = pickedIds + list.map { it.id } },
+            onOpen = { one?.let { pickedIds = emptySet(); vm.openConnection(it) } },
+            onTest = { picked.forEach { vm.testConnection(it) } },
+            onEdit = { one?.let { pickedIds = emptySet(); editing = it } },
+            onDuplicate = { one?.let { pickedIds = emptySet(); editing = vm.duplicateConnection(it) } },
+            onForget = { forgetting = picked },
+            onBlocked = vm::toast,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(dev.niccc2007.filet.browser.PILL_GAP),
+        )
+    }
     }
 
     editing?.let { c ->
@@ -520,7 +482,7 @@ private fun LinkHostDialog(
     }
 }
 
-private fun iconFor(p: NetProtocol) = when (p) {
+internal fun iconFor(p: NetProtocol) = when (p) {
     NetProtocol.SMB -> FiletIcons.Device
     NetProtocol.SFTP -> FiletIcons.Terminal
     NetProtocol.FTP -> FiletIcons.Link
@@ -562,17 +524,17 @@ private fun Field(
 }
 
 /**
- * " · opened yesterday", or nothing at all.
+ * "yesterday", "3h ago", or nothing at all.
  *
  * Nothing, and not "never opened": a remote that has not been used yet is the ordinary state
  * of one just added, and labelling it is a reproach rather than information. Pure, so the
  * wording can be tested without a screen.
  */
-fun lastUsedLine(at: Long, now: Long = System.currentTimeMillis()): String {
+fun agoWords(at: Long, now: Long = System.currentTimeMillis()): String {
     if (at <= 0L) return ""
     val minutes = (now - at) / 60_000L
-    val words = when {
-        minutes < 0L -> return ""
+    return when {
+        minutes < 0L -> ""
         minutes < 2L -> "just now"
         minutes < 60L -> "${minutes}m ago"
         minutes < 60L * 24 -> "${minutes / 60}h ago"
@@ -580,5 +542,7 @@ fun lastUsedLine(at: Long, now: Long = System.currentTimeMillis()): String {
         minutes < 60L * 24 * 30 -> "${minutes / (60 * 24)}d ago"
         else -> "a while ago"
     }
-    return "  ·  " + words
 }
+
+/** Under the last row while the pill is up: its height and the gaps round it. */
+private val PILL_ROOM = 88.dp

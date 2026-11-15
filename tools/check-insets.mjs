@@ -100,6 +100,8 @@ export const KNOWN = {
     { n: 1, kind: "host", why: "the Undo bar, inside the Carry on pane: the browser's strip is under it" },
   ],
   "qr/ScanScreen.kt": [{ n: 1, kind: "host", why: "the camera buttons, inside the scan pane: the browser's strip is under them" }],
+  "remotes/RemoteRows.kt": [{ n: 1, kind: "inner", why: "the select mark on a saved share's tile" }],
+  "remotes/RemotesScreen.kt": [{ n: 1, kind: "host", why: "the selection pill, floating over the foot of the Remotes pane: the browser's strip is under it" }],
   "report/ReportActivity.kt": [{ n: 1, kind: "inner", why: "the size label on an attached picture's thumbnail" }],
   "signet/OnboardingScreen.kt": [{ n: 1, kind: "inner", why: "a glow drawn off the bottom corner, behind everything" }],
 };

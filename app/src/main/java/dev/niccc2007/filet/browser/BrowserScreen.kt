@@ -1752,10 +1752,10 @@ internal val PILL_CORNER = 18.dp
 internal val PillShape = RoundedCornerShape(PILL_CORNER)
 
 /** Between the pill and the edges around it, and between it and the last row above it. */
-private val PILL_GAP = 8.dp
+internal val PILL_GAP = 8.dp
 
 /** Wide enough for a tablet's row of actions, not so wide it reads as a band again. */
-private val PILL_MAX_WIDTH = 640.dp
+internal val PILL_MAX_WIDTH = 640.dp
 
 /**
  * The room the selection pill takes over the foot of the lists, for their bottom padding: its
@@ -1766,7 +1766,7 @@ val LocalSelectionInset = androidx.compose.runtime.compositionLocalOf { 0.dp }
 
 /** A glyph button at either end of the selection bar: Clear at the start, More at the edge. */
 @Composable
-private fun BarGlyph(
+internal fun BarGlyph(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit,
@@ -1784,7 +1784,7 @@ private fun BarGlyph(
 }
 
 @Composable
-private fun FootDivider() {
+internal fun FootDivider() {
     Box(
         Modifier
             .padding(horizontal = 5.dp)
@@ -1817,7 +1817,7 @@ private fun BoxScope.EdgeFade(ground: Color, side: Alignment) {
  * this is here to remove.
  */
 @Composable
-private fun FootButton(
+internal fun FootButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     tint: Color = Filet.colors.fg2,

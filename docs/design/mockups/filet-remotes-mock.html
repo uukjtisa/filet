@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet - Remotes restyle</title>
+<style>
+  /* Palette.kt, dark */
+  :root {
+    --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+    --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+    --accent:#7FA8B8; --accentDim:#31434B; --good:#8FB894; --warn:#C9A36A; --bad:#C97F7F; --sel:#243036;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0d0d0c; color:var(--fg); font:13px/1.4 system-ui, sans-serif; padding:24px; }
+  h1 { font-size:16px; font-weight:600; margin:0 0 4px; }
+  .lead { color:var(--fg2); margin:0 0 18px; max-width:760px; }
+  .cols { display:flex; gap:32px; flex-wrap:wrap; align-items:flex-start; }
+  .col h2 { font-size:12px; letter-spacing:1.3px; text-transform:uppercase; color:var(--fg3); margin:0 0 8px; }
+  .states { display:flex; gap:6px; margin-bottom:10px; }
+  .states button { background:var(--raised); color:var(--fg2); border:1px solid var(--line); border-radius:14px; padding:4px 11px; font:inherit; font-size:12px; cursor:pointer; }
+  .states button.on { color:var(--accent); border-color:var(--accentDim); }
+  .phone { width:360px; height:640px; background:var(--bg); border:1px solid var(--line); border-radius:22px; overflow:hidden; position:relative; }
+  .sec { font-size:10px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:var(--fg3); padding:13px 15px 4px; }
+  .ico { width:1em; height:1em; display:inline-block; }
+  svg { display:block; }
+
+  /* today: NRow */
+  .nrow { display:flex; align-items:center; gap:10px; padding:7px 14px; }
+  .nrow .t { font-size:12.5px; }
+  .nrow .s { font:9.5px ui-monospace, monospace; color:var(--fg3); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pill { font-size:9.5px; padding:2px 7px; border-radius:9px; background:var(--high); color:var(--fg2); white-space:nowrap; }
+  .pill.good { color:var(--good); } .pill.run { color:var(--warn); }
+  .sbtn { font-size:11px; padding:4px 9px; border-radius:8px; background:var(--raised); border:1px solid var(--line); color:var(--fg2); }
+  .scrim { position:absolute; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; }
+  .dlg { width:300px; background:var(--surface); border:1px solid var(--line); border-radius:18px; padding:16px 0 10px; }
+  .dlg .h { font-size:15px; font-weight:600; padding:0 18px 10px; }
+  .pick { display:flex; gap:12px; padding:9px 18px; align-items:center; }
+  .pick .l { font-size:13px; } .pick .d { font-size:11px; color:var(--fg3); }
+  .dlg .foot { text-align:right; padding:8px 14px 0; color:var(--accent); font-size:12px; }
+
+  /* proposal: file-list rows, Comfortable step (icon 34, name 14, meta 11, height 60) */
+  .frow { display:flex; align-items:center; min-height:60px; padding:6px 10px; cursor:pointer; position:relative; }
+  .frow.sel { background:var(--sel); }
+  .tile { width:34px; height:34px; border-radius:9px; background:var(--accentDim); display:flex; align-items:center; justify-content:center; color:var(--accent); position:relative; flex:none; }
+  .mark { position:absolute; right:-3px; bottom:-3px; width:17px; height:17px; border-radius:50%; background:var(--accent); border:1.5px solid var(--raised); display:none; align-items:center; justify-content:center; }
+  .frow.sel .mark { display:flex; }
+  .txt { margin-left:10px; min-width:0; flex:1; }
+  .name { font-size:14px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .meta { font-size:11px; color:var(--fg3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px; }
+  .meta .ok { color:var(--good); } .meta .bad { color:var(--bad); } .meta .run { color:var(--warn); }
+  .why { font-size:10.5px; color:var(--fg3); padding:0 15px 7px 54px; margin-top:-4px; }
+
+  /* PanelPopover: 238 wide, radius 22, raised, lineSoft border, shadow 22 */
+  .panel { position:absolute; right:10px; width:238px; background:var(--raised); border:1px solid var(--lineSoft); border-radius:22px; padding:14px 0; box-shadow:0 14px 34px rgba(0,0,0,.55); z-index:3; }
+  .ph { font-size:9px; font-weight:700; letter-spacing:1.3px; text-transform:uppercase; color:var(--fg3); padding:0 17px 11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pr { display:flex; align-items:center; padding:5px 17px; font-size:12.5px; color:var(--fg2); gap:11px; }
+  .pr .ico { color:var(--fg3); width:16px; height:16px; }
+  .pr.bad, .pr.bad .ico { color:var(--bad); }
+  .pr .l { flex:1; }
+  .rule { height:1px; background:var(--lineSoft); margin:10px 17px; }
+  .sw { width:34px; height:19px; border-radius:10px; background:rgba(127,168,184,.3); position:relative; }
+  .sw::after { content:""; position:absolute; top:2px; left:17px; width:15px; height:15px; border-radius:50%; background:var(--accent); }
+  .sw.off { background:var(--sunken); } .sw.off::after { left:2px; background:var(--fg3); }
+
+  /* the file list's selection pill */
+  .pillbar { position:absolute; left:10px; right:10px; bottom:12px; background:var(--raised); border:1px solid var(--lineSoft); border-radius:18px; box-shadow:0 6px 14px rgba(0,0,0,.5); display:flex; align-items:center; padding:5px 6px; gap:2px; }
+  .count { color:var(--accent); font-weight:600; font-size:14px; padding:0 4px 0 8px; }
+  .bg { width:36px; height:36px; padding:9px; color:var(--fg2); }
+  .div { width:1px; height:26px; background:var(--lineSoft); margin:0 5px; }
+  .fb { display:flex; flex-direction:column; align-items:center; min-width:52px; padding:5px 9px 4px; border-radius:12px; background:var(--high); color:var(--fg2); }
+  .fb .ico { width:19px; height:19px; }
+  .fb span { font-size:9.5px; color:var(--fg3); margin-top:2px; }
+  .fb.blocked { background:transparent; color:rgba(107,104,96,.38); } .fb.blocked span { color:rgba(107,104,96,.38); }
+  .all { font-size:12px; color:var(--accent); padding:0 6px; }
+  .btns { display:flex; gap:4px; overflow:hidden; }
+
+  .notes { margin-top:26px; max-width:760px; color:var(--fg2); }
+  .notes h3 { font-size:12px; letter-spacing:1.2px; text-transform:uppercase; color:var(--fg3); margin:18px 0 6px; }
+  .notes li { margin:3px 0; }
+</style>
+</head>
+<body>
+<h1>Remotes: rows, hold menu, selection</h1>
+<p class="lead">Left is the screen today. Right is the proposal: saved shares drawn as file-list rows, the hold menu as the glow-card panel opened at the held row, and the file list's selection pill. Press the state buttons to switch.</p>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="smb" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="sftp" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 9l3 3-3 3M12 15h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="ftp" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.6 0l3-3a4 4 0 0 0-5.6-5.6l-1 1M14 10a4 4 0 0 0-5.6 0l-3 3a4 4 0 0 0 5.6 5.6l1-1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="dav" viewBox="0 0 24 24"><path d="M3 9a13 13 0 0 1 18 0M6 12.5a8 8 0 0 1 12 0M9 16a3.5 3.5 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="19" r="1.3" fill="currentColor"/></symbol>
+    <symbol id="open" viewBox="0 0 24 24"><path d="M4 7h6l2 2h8v9H4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="test" viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="dup" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="sel" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 12l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="del" viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="chk" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </defs>
+</svg>
+
+<div class="cols">
+  <div class="col">
+    <h2>Today</h2>
+    <div class="states" id="todayStates">
+      <button data-s="rest" class="on">At rest</button>
+      <button data-s="hold">Held</button>
+    </div>
+    <div class="phone" id="today"></div>
+  </div>
+  <div class="col">
+    <h2>Proposal</h2>
+    <div class="states" id="propStates">
+      <button data-s="rest" class="on">At rest</button>
+      <button data-s="hold">Held</button>
+      <button data-s="select">Selecting 2</button>
+    </div>
+    <div class="phone" id="prop"></div>
+  </div>
+</div>
+
+<div class="notes">
+  <h3>What changes</h3>
+  <ul>
+    <li><b>Rows.</b> Each saved share is drawn like a folder in a file list at the Comfortable step: a 34dp tile, the name at 14sp Medium, and one 11sp meta line. The meta line reads <i>kind · unencrypted (FTP or WebDAV without TLS) · last-known state · address</i>. The state is this session's test (green reachable, red failed, amber dialling), else when it was last opened; a share never opened shows no state at all. A failed test keeps its one-sentence reason under the row.</li>
+    <li><b>Hold menu.</b> The same panel as the mini player's Background glow and the viewers' More. It opens at the held row, below it, or above when there is no room. It holds Open, Test, Edit, Duplicate, Select, the index switch, and Forget in red.</li>
+    <li><b>Selection.</b> Tapping a row's tile, or choosing Select in the hold menu, starts a selection. While selecting, a tap toggles a row. The pill is the file list's own: the count, Clear, a divider, then captioned buttons (Open, Test, Edit, Duplicate, Forget) and All. Open, Edit and Duplicate work on one share; with two picked they grey out and say why when pressed. Back clears the selection.</li>
+    <li><b>Unchanged.</b> Found on this network, Add a place, Hosting and the Root card.</li>
+  </ul>
+</div>
+
+<script>
+const shares = [
+  { name:"Living room PC", kind:"SMB", g:"smb", state:["reachable","ok"], addr:"192.168.1.20/media" },
+  { name:"Backup box", kind:"SFTP", g:"sftp", state:["opened 3h ago",""], addr:"192.168.1.31/home/backup" },
+  { name:"Old router", kind:"FTP", g:"ftp", plain:true, state:null, addr:"192.168.1.1/usb" },
+  { name:"Nextcloud", kind:"WebDAV", g:"dav", tls:true, state:["refused","bad"], addr:"cloud.example.org/remote.php/dav", why:"The server turned the sign-in down. Check the user name and password in Edit." },
+];
+const use = (id, size=17) => `<svg class="ico" style="width:${size}px;height:${size}px"><use href="#${id}"/></svg>`;
+
+function today(state) {
+  let h = `<div class="sec">Saved shares</div>`;
+  for (const s of shares) {
+    const pill = !s.state ? `<span class="pill run">plain FTP</span>` : s.state[1]==="ok" ? `<span class="pill good">reachable</span>` : s.state[1]==="bad" ? `<span class="pill" style="color:var(--bad)">${s.state[0]}</span>` : s.state[1]==="run" ? `<span class="pill run">plain FTP</span>` : `<span class="pill">${s.kind.toUpperCase()}</span>`;
+    const ago = s.state && s.state[0].startsWith("reached") ? "  ·  3h ago" : "";
+    h += `<div class="nrow"><span style="color:var(--accent)">${use(s.g)}</span><div style="flex:1;min-width:0"><div class="t">${s.name}</div><div class="s">${s.kind.toLowerCase()}://${s.addr}${ago}</div></div>${pill}<span class="sbtn">Test</span></div>`;
+    if (s.why) h += `<div class="why" style="padding-left:48px">${s.why}</div>`;
+  }
+  if (state==="hold") {
+    h += `<div class="scrim"><div class="dlg"><div class="h">Living room PC</div>
+      ${[["open","Open","Browse it now"],["test","Test","Dial it and say what answers"],["edit","Edit","Address, sign-in and name"],["dup","Duplicate","A copy to change"],["del","Forget","Remove it from this list"]].map(([i,l,d])=>`<div class="pick"><span style="color:var(--fg2)">${use(i,18)}</span><div><div class="l">${l}</div><div class="d">${d}</div></div></div>`).join("")}
+      <div class="pick"><span style="color:var(--accent)">${use("sel",18)}</span><div class="l">Keep an index of this share</div></div>
+      <div class="foot">Close</div></div></div>`;
+  }
+  document.getElementById("today").innerHTML = h;
+}
+
+function prop(state) {
+  const picked = state==="select" ? [0,1] : [];
+  let h = `<div class="sec">Saved shares</div>`;
+  shares.forEach((s,i) => {
+    const st = (s.plain ? `<span class="run">unencrypted</span>  ·  ` : "") + (s.state ? `<span class="${s.state[1]}">${s.state[0]}</span>  ·  ` : "");
+    h += `<div class="frow${picked.includes(i)?" sel":""}" id="r${i}"><div class="tile">${use(s.g,18)}<span class="mark"><svg width="10" height="10"><use href="#chk"/></svg></span></div>
+      <div class="txt"><div class="name">${s.name}</div><div class="meta">${s.kind}  ·  ${st}${s.addr}</div></div></div>`;
+    if (s.why) h += `<div class="why">${s.why}</div>`;
+    if (state==="hold" && i===0) {
+      h += `<div class="panel" style="top:${13+28+60+4}px">
+        <div class="ph">Living room PC</div>
+        <div class="pr">${use("open",16)}<span class="l">Open</span></div>
+        <div class="pr">${use("test",16)}<span class="l">Test</span></div>
+        <div class="pr">${use("edit",16)}<span class="l">Edit</span></div>
+        <div class="pr">${use("dup",16)}<span class="l">Duplicate</span></div>
+        <div class="pr">${use("sel",16)}<span class="l">Select</span></div>
+        <div class="rule"></div>
+        <div class="pr"><span class="l" style="color:var(--accent)">Keep a search index</span><span class="sw"></span></div>
+        <div class="rule"></div>
+        <div class="pr bad">${use("del",16)}<span class="l">Forget</span></div>
+      </div>`;
+    }
+  });
+  if (state==="select") {
+    const b = (i,l,blocked) => `<div class="fb${blocked?" blocked":""}">${use(i,19)}<span>${l}</span></div>`;
+    h += `<div class="pillbar"><span class="count">2</span><span class="bg">${use("x",18)}</span><span class="div"></span>
+      <div class="btns">${b("open","Open",1)}${b("test","Test")}${b("edit","Edit",1)}${b("dup","Duplicate",1)}${b("del","Forget")}</div><span class="all">All</span></div>`;
+  }
+  if (state==="hold") h = h.replace(`id="r0"`, `id="r0" style="background:var(--high)"`);
+  document.getElementById("prop").innerHTML = h;
+}
+
+function wire(groupId, render) {
+  const g = document.getElementById(groupId);
+  g.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    g.querySelectorAll("button").forEach(x => x.classList.toggle("on", x===b));
+    render(b.dataset.s);
+  });
+  render("rest");
+}
+wire("todayStates", today);
+wire("propStates", prop);
+</script>
+</body>
+</html>
