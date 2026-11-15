@@ -75,6 +75,9 @@ object ShortcutArt {
 
     private val resendScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** How long after the first resend the second goes: past a launcher's placing animation. */
+    private const val RESEND_AGAIN_MS = 2_500L
+
     /**
      * Send a placed shortcut's icon to the launcher once more, drawn from its record, as an edit
      * does. Every placing ends with it: the launcher's confirmation, or the list finding the icon
@@ -98,6 +101,11 @@ object ShortcutArt {
             } finally {
                 after()
             }
+            // Once more, a moment later. The confirmation can arrive while the launcher is still
+            // placing the icon, and an update that lands before the icon exists changes nothing;
+            // an edit from the Shortcuts tab, which comes later, always took.
+            kotlinx.coroutines.delay(RESEND_AGAIN_MS)
+            runCatching { resendNow(app, record) }
         }
     }
 
@@ -116,7 +124,24 @@ object ShortcutArt {
     /** The launcher's icon for what [draw] made. */
     fun launcherIcon(context: Context, drawn: Drawn): Icon = when (drawn) {
         is Drawn.Res -> Icon.createWithResource(context, drawn.launcher)
-        is Drawn.Bits -> Icon.createWithAdaptiveBitmap(drawn.bitmap)
+        is Drawn.Bits -> bitmapIcon(drawn.bitmap)
+    }
+
+    /**
+     * A drawing on the 108-unit square, as the home screen should get it.
+     *
+     * One with see-through parts goes as a plain bitmap, cut to the middle 72 units a launcher
+     * shows of an adaptive icon, so it keeps its size. Sent as an adaptive bitmap, it is stored
+     * with its transparency, but the launcher gets it back as an `AdaptiveIconDrawable` with no
+     * background layer, and that class paints black under its layers before drawing them: every
+     * clear pixel came out black. A tab's icon is a resource with a transparent background
+     * layer, which a launcher composes itself, and that is why tabs stood on the wallpaper and
+     * folders did not. An opaque picture keeps the adaptive form, cut to the launcher's shape.
+     */
+    fun bitmapIcon(bitmap: Bitmap): Icon {
+        val edge = bitmap.width / 6
+        val middle = Bitmap.createBitmap(bitmap, edge, edge, bitmap.width - 2 * edge, bitmap.height - 2 * edge)
+        return if (seeThrough(middle)) Icon.createWithBitmap(middle) else Icon.createWithAdaptiveBitmap(bitmap)
     }
 
     private fun filet() = Drawn.Res(R.mipmap.ic_launcher, R.drawable.ic_launcher_foreground)

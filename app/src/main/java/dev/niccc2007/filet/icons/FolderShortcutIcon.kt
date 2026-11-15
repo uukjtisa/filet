@@ -70,7 +70,7 @@ object FolderShortcutIcon {
      * Anything not known yet comes in with the next [refresh].
      */
     fun now(context: Context, node: VNode, own: FolderLook? = null): Icon =
-        Icon.createWithAdaptiveBitmap(bitmapNow(context, node, own))
+        dev.niccc2007.filet.shortcuts.ShortcutArt.bitmapIcon(bitmapNow(context, node, own))
 
     /** [now]'s drawing as a bitmap, for a preview of the icon before it is placed. */
     fun bitmapNow(context: Context, node: VNode, own: FolderLook? = null): Bitmap {
@@ -121,7 +121,7 @@ object FolderShortcutIcon {
             // Pictures by name: a decoded bitmap is a new object each time and would never match.
             val drawnFrom = "$look|${peek.empty}|" + peek.items.joinToString { "${it.node.name}:${it.kind}:${it.full}" }
             if (sent[record.id] == drawnFrom) continue
-            val icon = Icon.createWithAdaptiveBitmap(draw(context, inside, look))
+            val icon = dev.niccc2007.filet.shortcuts.ShortcutArt.bitmapIcon(draw(context, inside, look))
             updates += ShortcutInfo.Builder(context, record.id).setIcon(icon).build()
             sent[record.id] = drawnFrom
         }
