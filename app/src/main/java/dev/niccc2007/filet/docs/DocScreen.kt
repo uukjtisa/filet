@@ -282,7 +282,14 @@ fun DocReader(
                 // The zoom is a density, so every dp and sp inside a block scales together:
                 // type, picture sizes, table column widths, row heights and padding.
                 val scaled = Density(base.density * zoom.floatValue, base.fontScale)
-                CompositionLocalProvider(LocalDensity provides scaled, LocalDocEnv provides env) {
+                // The block's settings come from the page, not from the block: the list throws a
+                // block's own state away whenever it scrolls off. See [BlockMemory].
+                CompositionLocalProvider(
+                    LocalDensity provides scaled,
+                    LocalDocEnv provides env,
+                    LocalDocMemory provides state.memory,
+                    LocalBlockMemory provides state.memory.block(i),
+                ) {
                     val wide = block is Block.Table || block is Block.Code || frame != DocLayout.Frame.NONE
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                         Box(
@@ -340,7 +347,18 @@ class DocPageState internal constructor() {
     private var visible: List<Int> = emptyList()
     private var lead = 0
 
+    /** What the blocks were left as, for this document. See [BlockMemory]. */
+    internal var memory = DocMemory()
+        private set
+    private var memoryOf: Doc? = null
+
     internal fun attach(doc: Doc, visible: List<Int>, lead: Int) {
+        // By identity: a document read again after an edit is a new one, and its block numbers
+        // may name other blocks. Equality would compare every block on every frame of a pinch.
+        if (doc !== memoryOf) {
+            memory = DocMemory()
+            memoryOf = doc
+        }
         val o = doc.outline.ifEmpty {
             // A reader that keeps no outline still marks its headings; the sheet lists those.
             doc.blocks.withIndex().mapNotNull { (i, b) ->
@@ -702,12 +720,18 @@ private fun BlockView(block: Block, nest: Nest, ground: Color, env: DocEnv, open
 @Composable
 private fun PictureView(block: Block.Image) {
     val colors = Filet.colors
+    val memory = rememberBlockMemory(block)
     var bitmap by remember(block) { mutableStateOf<ImageBitmap?>(null) }
-    var failed by remember(block) { mutableStateOf(DocLayout.undrawable(block.format)) }
+    val failed = memory.broken || DocLayout.undrawable(block.format)
     LaunchedEffect(block) {
         if (failed) return@LaunchedEffect
         val decoded = withContext(Dispatchers.Default) { decodePicture(block.data) }
-        if (decoded == null) failed = true else bitmap = decoded
+        if (decoded == null) {
+            memory.broken = true
+        } else {
+            memory.aspect = decoded.width.toFloat() / decoded.height.coerceAtLeast(1)
+            bitmap = decoded
+        }
     }
     val widthDp = DocLayout.pictureWidthDp(block.emuWidth)
     val sized = if (widthDp > 0f) Modifier.widthIn(max = widthDp.dp) else Modifier
@@ -735,11 +759,12 @@ private fun PictureView(block: Block.Image) {
                 .clip(RoundedCornerShape(6.dp)),
         )
 
-        // Held at its placed shape while it decodes, so the text below does not jump.
+        // Held at its placed shape while it decodes, so the text below does not jump - and at
+        // the shape it decoded to before, when it is decoding again after being scrolled back to.
         else -> Box(
             sized
                 .fillMaxWidth()
-                .aspectRatio(block.aspect.takeIf { it > 0f } ?: (4f / 3f))
+                .aspectRatio(memory.aspect.takeIf { it > 0f } ?: block.aspect.takeIf { it > 0f } ?: (4f / 3f))
                 .clip(RoundedCornerShape(6.dp))
                 .background(colors.sunken),
         )
@@ -775,13 +800,14 @@ private const val PICTURE_MAX_PX = 1440
 @Composable
 private fun NotesView(block: Block.SlideNotes) {
     val colors = Filet.colors
-    var open by remember(block) { mutableStateOf(false) }
+    val memory = rememberBlockMemory(block)
+    val open = memory.notesOpen
     Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(colors.sunken)
-            .clickable { open = !open }
+            .clickable { memory.notesOpen = !open }
             .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
         Text(

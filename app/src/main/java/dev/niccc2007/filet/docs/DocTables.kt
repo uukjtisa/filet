@@ -14,15 +14,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -169,7 +165,7 @@ private fun lookOf(mode: TableMode) = when (mode) {
     TableMode.FIT, TableMode.COMFORTABLE -> TableLook(12.sp, 17.sp, 10.dp, 4.dp)
 }
 
-/** How tall a table may be before it scrolls inside itself, unless it has been sized by hand. */
+/** How tall a collapsed table is; past it, it scrolls inside itself. See [BlockFold]. */
 private val TABLE_MAX = 460.dp
 
 /** More rows than this and a table earns a Resize chip even when it fits. */
@@ -187,8 +183,8 @@ private const val CELL_PICTURE_DP = 22f
 @Composable
 internal fun TableView(block: Block.Table, env: DocEnv) {
     val colors = Filet.colors
-    var override by remember(block) { mutableStateOf<TableMode?>(null) }
-    val mode = override ?: env.reading.tables
+    val memory = rememberBlockMemory(block)
+    val mode = memory.table ?: env.reading.tables
     val look = lookOf(mode)
     val measurer = rememberTextMeasurer(cacheSize = 0)
     val columns = remember(block) { TableLayout.columnsOf(block.rows, block.colSpans) }
@@ -212,10 +208,14 @@ internal fun TableView(block: Block.Table, env: DocEnv) {
         }
         TableLayout.bounds(cells, block.colSpans, columns)
     }
-    val size = remember(block) { BlockSize() }
-    val scroll = rememberScrollState()
+    val size = memory.size
+    val scroll = memory.down
     val density = LocalDensity.current.density
-    size.overflow = { scroll.maxValue / density }
+    // Whole unless collapsed or sized by hand. A whole table does not scroll inside at all: a
+    // scroller given no height limit cannot measure inside the page's list, and has nothing to
+    // scroll anyway.
+    val cap = BlockFold.cap(size.height, memory.collapsed, TABLE_MAX.value)
+    size.overflow = { if (cap == null) 0f else scroll.maxValue / density }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val page = maxWidth.value
         // A table sized by hand lays its columns out to its own width, so narrowing it wraps
@@ -234,13 +234,16 @@ internal fun TableView(block: Block.Table, env: DocEnv) {
                     .clip(shape)
                     .background(MaterialTheme.colorScheme.background)
                     .border(1.dp, colors.lineSoft, shape)
-                    .heightIn(max = size.height?.dp ?: TABLE_MAX)
-                    .onSizeChanged { size.shownH = it.height / density }
-                    .verticalScroll(scroll),
+                    .then(if (cap != null) Modifier.heightIn(max = cap.dp) else Modifier)
+                    .onSizeChanged {
+                        size.shownH = it.height / density
+                        if (cap == null) memory.fullH = it.height / density
+                    }
+                    .then(if (cap != null) Modifier.verticalScroll(scroll) else Modifier),
             ) {
                 // One scroller for the WHOLE table, so the columns stay lined up. A scroller per
                 // row is what a Column of scrollable Rows gives and it comes apart when touched.
-                dev.niccc2007.filet.ui.HScroll(ground = MaterialTheme.colorScheme.background, contentPadding = 0.dp) {
+                dev.niccc2007.filet.ui.HScroll(ground = MaterialTheme.colorScheme.background, state = memory.across, contentPadding = 0.dp) {
                     Column {
                         for ((r, row) in block.rows.withIndex()) {
                             val head = block.header && r == 0
@@ -283,13 +286,15 @@ internal fun TableView(block: Block.Table, env: DocEnv) {
             // on one line has nothing to unwrap, and a short narrow one has nothing to resize.
             val wraps = bounds.second.sum() > room
             val sizable = wraps || block.rows.size > RESIZE_ROWS || size.resized
-            if (wraps || sizable) Row(Modifier.fillMaxWidth().height(30.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            val foldable = BlockFold.offered(memory.fullH, TABLE_MAX.value, memory.collapsed, size.height)
+            if (wraps || sizable || foldable) Row(Modifier.fillMaxWidth().height(30.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 if (wraps) {
                     val wrapping = mode != TableMode.COMFORTABLE
                     Chip(if (wrapping) "↵ Wrap ✓" else "↵ Wrap", on = wrapping) {
-                        override = if (wrapping) TableMode.COMFORTABLE else env.reading.tables.takeIf { it != TableMode.COMFORTABLE } ?: TableMode.FIT
+                        memory.table = if (wrapping) TableMode.COMFORTABLE else env.reading.tables.takeIf { it != TableMode.COMFORTABLE } ?: TableMode.FIT
                     }
                 }
+                if (foldable) FoldChip(memory)
                 if (sizable) ResizeChip(size, page)
             }
         }

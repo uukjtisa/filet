@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -117,7 +116,7 @@ internal object CodeLanguage {
     }
 }
 
-/** How tall a code block may be before it scrolls inside itself. */
+/** How tall a collapsed code block is; past it, it scrolls inside itself. See [BlockFold]. */
 private val CODE_MAX = 460.dp
 
 /** The pad at the foot of a code block that its chips sit on, so they never cover a line. */
@@ -141,8 +140,9 @@ private val CHIP_PAD = 34.dp
 internal fun CodeView(block: Block.Code, dark: Boolean) {
     val colors = Filet.colors
     val context = LocalContext.current
-    var wrap by remember(block) { mutableStateOf(false) }
-    var hidden by remember(block) { mutableStateOf(false) }
+    val memory = rememberBlockMemory(block)
+    val wrap = memory.wrap
+    val hidden = memory.hidden
     var copied by remember(block) { mutableStateOf(false) }
     val language = remember(block) { CodeLanguage.of(block.language) }
     val highlighted by produceState(AnnotatedString(block.text), block, dark) {
@@ -154,10 +154,12 @@ internal fun CodeView(block: Block.Code, dark: Boolean) {
             copied = false
         }
     }
-    val size = remember(block) { BlockSize() }
-    val scroll = rememberScrollState()
+    val size = memory.size
+    val scroll = memory.down
     val density = LocalDensity.current.density
-    size.overflow = { scroll.maxValue / density }
+    // Whole unless collapsed or sized by hand, as a table is. See [BlockFold].
+    val cap = BlockFold.cap(size.height, memory.collapsed, CODE_MAX.value)
+    size.overflow = { if (cap == null) 0f else scroll.maxValue / density }
     val style = @Composable { mod: Modifier ->
         Text(
             highlighted,
@@ -183,9 +185,12 @@ internal fun CodeView(block: Block.Code, dark: Boolean) {
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .heightIn(max = size.height?.dp ?: CODE_MAX)
-                        .onSizeChanged { size.shownH = it.height / density }
-                        .verticalScroll(scroll),
+                        .then(if (cap != null) Modifier.heightIn(max = cap.dp) else Modifier)
+                        .onSizeChanged {
+                            size.shownH = it.height / density
+                            if (cap == null) memory.fullH = it.height / density
+                        }
+                        .then(if (cap != null) Modifier.verticalScroll(scroll) else Modifier),
                 ) {
                     if (wrap) {
                         style(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 10.dp))
@@ -193,7 +198,7 @@ internal fun CodeView(block: Block.Code, dark: Boolean) {
                         // Through `HScroll` rather than a bare `horizontalScroll`, so the edge says
                         // there is more - on a block with no visible right-hand edge, that is the
                         // difference between a long line and a truncated one.
-                        dev.niccc2007.filet.ui.HScroll(ground = colors.sunken, contentPadding = 10.dp) {
+                        dev.niccc2007.filet.ui.HScroll(ground = colors.sunken, state = memory.across, contentPadding = 10.dp) {
                             style(Modifier)
                         }
                     }
@@ -220,14 +225,15 @@ internal fun CodeView(block: Block.Code, dark: Boolean) {
             Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (!hidden) {
-                    Chip(if (wrap) "↵ Wrap ✓" else "↵ Wrap", on = wrap) { wrap = !wrap }
+                    Chip(if (wrap) "↵ Wrap ✓" else "↵ Wrap", on = wrap) { memory.wrap = !wrap }
                     Chip(if (copied) "Copied ✓" else "Copy", tint = if (copied) colors.good else null) {
                         context.getSystemService(ClipboardManager::class.java)
                             ?.setPrimaryClip(ClipData.newPlainText("code", block.text))
                         copied = true
                     }
                 }
-                Chip(if (hidden) "Show" else "Hide") { hidden = !hidden }
+                Chip(if (hidden) "Show" else "Hide") { memory.hidden = !hidden }
+                if (!hidden && BlockFold.offered(memory.fullH, CODE_MAX.value, memory.collapsed, size.height)) FoldChip(memory)
                 if (!hidden) ResizeChip(size, room)
             }
         }

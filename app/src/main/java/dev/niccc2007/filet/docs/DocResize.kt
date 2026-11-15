@@ -87,6 +87,16 @@ internal class BlockSize {
 }
 
 /**
+ * Collapse and Expand on a table's or a code block's pad. A whole block folds to its short
+ * window; a folded one, or one sized shorter by hand, opens whole. See [BlockFold].
+ */
+@Composable
+internal fun FoldChip(memory: BlockMemory) {
+    val folded = BlockFold.folded(memory.collapsed, memory.size.height)
+    Chip(if (folded) "▾ Expand" else "▴ Collapse", on = folded) { memory.fold() }
+}
+
+/**
  * The grip: a chip that is dragged rather than tapped. A tap puts the block back to its own size.
  *
  * @param maxW the room the page gives the block, in dp.

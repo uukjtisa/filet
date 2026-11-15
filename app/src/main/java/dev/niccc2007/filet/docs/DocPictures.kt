@@ -404,11 +404,13 @@ private class Capped(inner: InputStream, private val max: Long) : FilterInputStr
     }
 }
 
-/** One picture's state in a run of text: what loaded, at what size, or why not. */
+/**
+ * One picture's state in a run of text: the size it loaded at, or that it failed. The decoded
+ * picture is not kept here - see [DocMemory.slot] - only what holds its place and what was asked.
+ */
 @Stable
 internal class PictureSlot {
     var size by mutableStateOf<DpSize?>(null)
-    var image by mutableStateOf<ImageBitmap?>(null)
     var failed by mutableStateOf(false)
 
     /** A web picture the reader tapped Load on, with web pictures off. */
@@ -424,8 +426,10 @@ internal fun InlinePicture(p: Picture, slot: PictureSlot, env: DocEnv) {
     val context = LocalContext.current
     val ref = androidx.compose.runtime.remember(p.src, env.place?.file) { DocRefs.picture(p.src, env.place?.file) }
     val allowed = ref !is Ref.Web || env.reading.webPictures || slot.allowed
+    var image by androidx.compose.runtime.remember(p) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(ref, allowed) {
-        if (!allowed || slot.image != null) return@LaunchedEffect
+        // A picture that failed once is not fetched again each time it scrolls back into view.
+        if (!allowed || image != null || slot.failed) return@LaunchedEffect
         val data: Any = when (ref) {
             is Ref.Web -> ref.url
             is Ref.Local -> VfsPicture(ref.path, ref.fromRoot, env.place?.file)
@@ -435,15 +439,15 @@ internal fun InlinePicture(p: Picture, slot: PictureSlot, env: DocEnv) {
         if (loaded == null) {
             slot.failed = true
         } else {
-            slot.image = loaded.first
+            image = loaded.first
             slot.size = loaded.second
         }
     }
     val tap = if (p.href.isNotEmpty()) Modifier.clickable { env.onLink(p.href) } else Modifier
-    val image = slot.image
+    val shown = image
     when {
-        image != null -> Image(
-            image,
+        shown != null -> Image(
+            shown,
             contentDescription = p.alt.ifBlank { null },
             contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(3.dp)).then(tap),

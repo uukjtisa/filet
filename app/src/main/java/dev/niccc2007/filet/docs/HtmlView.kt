@@ -409,7 +409,12 @@ fun HtmlScreen(vm: BrowserViewModel, node: VNode) {
                             CircularProgressIndicator(strokeWidth = 2.dp)
                         }
 
-                        else -> DocReader(Doc(listOf(Block.Code(html, "html"))))
+                        // Remembered: the page keeps its blocks' settings per document, and a
+                        // document built afresh on every recomposition would lose them each time.
+                        else -> {
+                            val source = html.orEmpty()
+                            DocReader(remember(source) { Doc(listOf(Block.Code(source, "html"))) })
+                        }
                     }
                 }
             }

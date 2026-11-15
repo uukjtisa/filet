@@ -138,7 +138,10 @@ internal fun RichText(
         )
         return
     }
-    val slots = remember(pictures) { pictures.map { PictureSlot() } }
+    // From the page, so Load tapped on a web picture and the size it loaded at outlive the block
+    // being scrolled away; see [DocMemory.slot].
+    val memory = LocalDocMemory.current
+    val slots = remember(pictures, memory) { pictures.map { memory?.slot(it) ?: PictureSlot() } }
     val measurer = rememberTextMeasurer()
     BoxWithConstraints(modifier) {
         val room = maxWidth
