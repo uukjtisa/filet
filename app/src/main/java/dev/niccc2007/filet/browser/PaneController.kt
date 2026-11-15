@@ -39,6 +39,9 @@ enum class PaneKind {
     HOME, FOLDER, ABOUT, BOOKMARKS, RECENT, SETTINGS, ACTIVITY, SCRIPTS, NEARBY, REMOTES,
     SHORTCUTS, HISTORY,
 
+    /** Filet Portal: sending files over the internet, and every send's link. */
+    PORTAL,
+
     /** Kept queues, and the Favourites the heart writes into. */
     PLAYLISTS,
 

@@ -468,6 +468,11 @@ object Thumbnails {
         cache.evictAll()
         SystemThumbs.clear()
     }
+
+    /** Drops every Locker picture held in memory. Called at each lock; none is ever on disk. */
+    fun forgetPrivate() {
+        cache.snapshot().keys.filter(dev.niccc2007.filet.locker.LockerPaths::isPrivate).forEach { cache.remove(it) }
+    }
 }
 
 /** Blocking read, for the two-pass decode above. Kept here rather than widening the Vfs API. */

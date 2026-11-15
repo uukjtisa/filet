@@ -31,6 +31,9 @@ enum class JobKind {
 
     /** A file pushed from another Filet arrived on this phone. */
     RECEIVED,
+
+    /** Files sent over the internet with Filet Portal. */
+    UPLOAD,
     OTHER;
 
     companion object {
@@ -371,6 +374,13 @@ class JobLedger(
     /** Publish a job Filet did not run - a bridge message from Trawl, for example. */
     fun publishExternal(job: Job) = update(save = !job.running) { listOf(job) + it.filterNot { j -> j.id == job.id } }
 
+    /**
+     * Takes every finished job that touched the Locker off the list. Called at each lock: the
+     * row was there while the Locker was open, which is when it means something, and none of them
+     * is ever written to the saved history - see [persist].
+     */
+    fun forgetPrivate() = update { list -> list.filterNot { !it.running && JobLedger.private(it) } }
+
     fun clearFinished() {
         again.keys.retainAll(_jobs.value.filter { it.running }.map { it.id }.toSet())
         update(save = true) { list -> list.filter { it.running } }
@@ -402,7 +412,10 @@ class JobLedger(
     private fun persist(list: List<Job>) {
         val s = store ?: return
         runCatching {
-            s.save(JobCodec.encode(JobHistory.prune(list.filter { it.source == "Filet" || !it.running }, now(), keepDays())))
+            // Never a job that touched the Locker: its title names the files and its ends name
+            // the folders, and the history is a plain file.
+            val kept = list.filter { (it.source == "Filet" || !it.running) && !private(it) }
+            s.save(JobCodec.encode(JobHistory.prune(kept, now(), keepDays())))
         }
     }
 
@@ -411,5 +424,11 @@ class JobLedger(
         return JobHistory.prune(JobHistory.afterRestart(JobCodec.decode(text)), now(), keepDays())
     }
 
-    private companion object { const val CAP = JobHistory.CAP }
+    companion object {
+        private const val CAP = JobHistory.CAP
+
+        /** Whether [job] moved, copied or opened anything in the Locker. */
+        fun private(job: Job): Boolean =
+            listOf(job.from, job.to, job.opened).any(dev.niccc2007.filet.locker.LockerPaths::isPrivate)
+    }
 }

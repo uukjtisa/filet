@@ -45,6 +45,7 @@ enum class BarItem(val id: String, val label: String, val tab: TabTarget? = null
     /** Saved network locations - shares, servers, cloud accounts. The `Remotes` pane. */
     REMOTES(TabTarget.REMOTES),
     SHARING(TabTarget.SHARE),
+    PORTAL(TabTarget.PORTAL),
     APPS(TabTarget.APPS),
     SHORTCUTS(TabTarget.SHORTCUTS),
     SCRIPTS(TabTarget.SCRIPTS),

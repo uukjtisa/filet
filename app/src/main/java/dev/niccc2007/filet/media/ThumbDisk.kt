@@ -63,6 +63,7 @@ internal object ThumbDisk {
 
     /** The picture kept for [path] under [rest], or null. Marks it read, for the trim. */
     fun read(context: Context, path: String, rest: String): Bitmap? {
+        if (dev.niccc2007.filet.locker.LockerPaths.isPrivate(path)) return null
         val f = fileFor(context, path, rest)
         if (!f.isFile) return null
         val bitmap = runCatching { BitmapFactory.decodeFile(f.path) }.getOrNull()
@@ -83,6 +84,9 @@ internal object ThumbDisk {
      * it on black.
      */
     fun write(context: Context, path: String, rest: String, bitmap: Bitmap) {
+        // A Locker picture is kept in memory only. On disk it would be a readable copy of the
+        // picture, outliving every lock - which is the one thing the Locker exists to prevent.
+        if (dev.niccc2007.filet.locker.LockerPaths.isPrivate(path)) return
         val app = context.applicationContext
         writer.execute {
             val f = fileFor(app, path, rest)

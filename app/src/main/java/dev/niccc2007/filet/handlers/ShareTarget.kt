@@ -26,6 +26,9 @@ enum class ShareTarget(val label: String, val detail: String) {
 
     /** A QR any camera downloads at once, or a push to a Filet on this network. */
     FAST("Fast share", "A QR, or straight to a Filet nearby"),
+
+    /** Sealed and sent over the internet: a link that works anywhere, for a while. */
+    PORTAL("Filet Portal", "A link that works over the internet"),
 }
 
 /**
@@ -38,7 +41,8 @@ enum class ShareTarget(val label: String, val detail: String) {
  *   make and the button should just do it rather than opening a menu over one option.
  */
 fun shareTargets(local: Boolean): List<ShareTarget> =
-    if (local) listOf(ShareTarget.APPS, ShareTarget.NETWORK, ShareTarget.FAST) else listOf(ShareTarget.APPS)
+    if (local) listOf(ShareTarget.APPS, ShareTarget.NETWORK, ShareTarget.FAST, ShareTarget.PORTAL)
+    else listOf(ShareTarget.APPS, ShareTarget.PORTAL)
 
 /** Whether the button has a real choice to present, or should act straight away. */
 fun needsShareChoice(local: Boolean): Boolean = shareTargets(local).size > 1

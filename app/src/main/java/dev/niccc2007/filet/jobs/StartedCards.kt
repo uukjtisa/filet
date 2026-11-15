@@ -91,7 +91,7 @@ object StartedCards {
             JobKind.DELETE -> folderOf(job.from)?.let { "in $it" }
             JobKind.COMPRESS -> job.subtitle.ifBlank { null }?.let { "into $it" }
             JobKind.SAVE, JobKind.INDEX, JobKind.MEASURE, JobKind.BEAT, JobKind.SCRIPT,
-            JobKind.APK, JobKind.FETCH, JobKind.DOWNLOAD, JobKind.SERVED, JobKind.RECEIVED, JobKind.OTHER,
+            JobKind.APK, JobKind.FETCH, JobKind.DOWNLOAD, JobKind.SERVED, JobKind.RECEIVED, JobKind.UPLOAD, JobKind.OTHER,
             -> job.subtitle.ifBlank { null } ?: job.source.takeIf { it != "Filet" }
         } ?: job.subtitle.ifBlank { null }
         return title to where

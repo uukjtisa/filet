@@ -553,6 +553,22 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
             "/data and /system off Home.",
     ),
     SettingsEntry(
+        key = Prefs.K_LOCKER_LOCK_ON_LEAVE,
+        title = "Lock when you leave the Locker",
+        tab = SettingsGroup.STORAGE,
+        section = "Locker",
+        text = "Lock when you leave the Locker Going to another tab or folder locks it, and " +
+            "coming back asks for the password again.",
+    ),
+    SettingsEntry(
+        key = Prefs.K_LOCKER_LOCK_IN_BACKGROUND,
+        title = "Lock when Filet is put away",
+        tab = SettingsGroup.STORAGE,
+        section = "Locker",
+        text = "Lock when Filet is put away Going Home, to another app, or the screen " +
+            "turning off locks it.",
+    ),
+    SettingsEntry(
         key = Prefs.K_JOBS_KEEP_DAYS,
         title = "Keep finished jobs",
         tab = SettingsGroup.ACTIVITY,

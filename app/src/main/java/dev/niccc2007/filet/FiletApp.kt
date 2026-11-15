@@ -135,6 +135,18 @@ class FiletGraph(context: Context) {
         dev.niccc2007.filet.data.FiletStore.dir(app, dev.niccc2007.filet.data.FiletStore.Area.REMOTE)
     }
 
+    /**
+     * The Locker: its sealed files and whether it is open. Before the providers, which read it.
+     * A lock also clears what was shown from it - pictures held in memory and the finished rows
+     * of copies into or out of it - so nothing of it is left on screen behind the lock.
+     */
+    val locker: dev.niccc2007.filet.locker.LockerVault = dev.niccc2007.filet.locker.LockerVault.at(app).also { v ->
+        v.onLocked = {
+            dev.niccc2007.filet.media.Thumbnails.forgetPrivate()
+            ledger.forgetPrivate()
+        }
+    }
+
     private val providers: MutableList<FileSystemProvider> = mutableListOf(
         AndroidStorage.localProvider(app),
         SafProvider(app),
@@ -146,6 +158,7 @@ class FiletGraph(context: Context) {
         FtpProvider(connections),
         WebDavProvider(connections),
         PeerProvider { nearby.endpoints() },
+        dev.niccc2007.filet.locker.LockerProvider(locker),
     )
 
     val vfs = Vfs(providers.toList())
@@ -235,6 +248,13 @@ class FiletGraph(context: Context) {
     val bridge = dev.niccc2007.filet.bridge.TrawlBridge(app, ledger)
     /** What Filet has put on the home screen, so it is manageable from inside the app. */
     val shortcuts = dev.niccc2007.filet.shortcuts.ShortcutStore(app, prefs)
+    /** Filet Portal: sending over the internet. Lazy, as nothing of it runs until a send. */
+    val portal: dev.niccc2007.filet.portal.Portal by lazy {
+        dev.niccc2007.filet.portal.Portal(app, vfs, prefs, scope, nearby.shared.quarantine, ledger, files) {
+            dev.niccc2007.filet.nearby.PairedPeers.selfName(app)
+        }
+    }
+
     val nearby: dev.niccc2007.filet.nearby.NearbyManager by lazy {
         dev.niccc2007.filet.nearby.NearbyManager(app, vfs, prefs, scope, ledger)
     }
@@ -830,6 +850,15 @@ class FiletApp : Application() {
         // able to loop by reporting its own failure to report.
         if (!isCrashProcess()) dev.niccc2007.filet.crash.CrashReport.install(this)
         if (!isCrashProcess()) registerSplitInstallReceiver()
+        // The Locker locks when Filet leaves the screen, if that is on. Asked of the graph only
+        // once it exists: a Locker that was never built was never opened.
+        if (!isCrashProcess()) {
+            registerActivityLifecycleCallbacks(
+                dev.niccc2007.filet.locker.LockerOnLeave {
+                    if (graphBuilt && graph.prefs.lockerLockInBackground.value) graph.locker.lock()
+                },
+            )
+        }
         if (!isCrashProcess()) watchInstalledApps()
         if (!isCrashProcess()) moveIntoTheStore()
         // Leave a note in the folder saying what it is.

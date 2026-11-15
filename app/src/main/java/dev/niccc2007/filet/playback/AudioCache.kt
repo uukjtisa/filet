@@ -96,6 +96,8 @@ object AudioCache {
      * not come back as whatever used to be there.
      */
     fun keyFor(context: Context, uri: android.net.Uri): String? = runCatching {
+        // Nothing read out of the Locker is measured into the shared cache - see FiletStore.dirFor.
+        if (uri.scheme == "file" && uri.path?.startsWith(FiletStore.privateRoot(context).path) == true) return null
         var size = -1L
         var mtime = -1L
         context.contentResolver.openFileDescriptor(uri, "r")?.use { size = it.statSize }

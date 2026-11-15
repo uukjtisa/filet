@@ -52,6 +52,11 @@ object Indexable {
         // name, and would do it on the battery that this whole round is about.
         root.scheme == "root" -> false
 
+        // NEVER, and not as a budget: the index is a plain database, and a name crawled out of
+        // the Locker would sit in it after every lock. The Locker publishes no roots in any case;
+        // this says so here as well, where the next reader looks.
+        root.scheme == "locker" -> false
+
         // A share, and only when somebody turned it on for that share. The default is off
         // forever: walking 222 GB over Wi-Fi to answer a search that may never be typed is the
         // same defect as the unbounded local crawl with a worse constant.

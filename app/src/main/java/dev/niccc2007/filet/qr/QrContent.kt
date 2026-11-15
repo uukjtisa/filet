@@ -119,6 +119,9 @@ sealed interface QrContent {
 
     /** A Filet network drive, from Filet's own link. See `FiletLink`. */
     data class Drive(override val raw: String, val drive: dev.niccc2007.filet.link.DriveLink) : QrContent
+
+    /** Files sent with Filet Portal, from Filet's own link. */
+    data class Portal(override val raw: String, val portal: dev.niccc2007.filet.link.PortalLink) : QrContent
 }
 
 object QrParse {
@@ -130,6 +133,11 @@ object QrParse {
             when (link.kind) {
                 dev.niccc2007.filet.link.LinkKind.DRIVE ->
                     dev.niccc2007.filet.link.DriveLink.of(link)?.let { return QrContent.Drive(t, it) }
+                // Only a manifest on a Portal host: a scanned code must not send Filet anywhere else.
+                dev.niccc2007.filet.link.LinkKind.PORTAL ->
+                    dev.niccc2007.filet.link.PortalLink.of(link)
+                        ?.takeIf { dev.niccc2007.filet.portal.PortalHost.anyOwns(it.manifest) }
+                        ?.let { return QrContent.Portal(t, it) }
             }
         }
         val upper = t.uppercase()

@@ -170,6 +170,7 @@ fun FiletDialogs(vm: BrowserViewModel) {
     }
     // Another Filet pushing or asking to pair, whatever screen Filet is on.
     dev.niccc2007.filet.nearby.NearbyPopups(vm)
+    dev.niccc2007.filet.portal.PortalPopups(vm)
 
     // The extraction's settings are NOT a dialogue any more. They are a card over the folder
     // being changed, rendered beside the ghosts that show the result - see `ExtractCard`, and

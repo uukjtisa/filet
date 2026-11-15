@@ -461,7 +461,8 @@ object FiletLog {
     internal fun line(level: String, tag: String, message: String, t: Throwable?, site: String? = null) {
         try {
             val now = System.currentTimeMillis()
-            val entry = Entry(level, tag, message, t, site, now, now - startedAt, Thread.currentThread().name)
+            // A Locker path never reaches the log, which is a plain file under Filet/. See LockerPaths.
+            val entry = Entry(level, tag, dev.niccc2007.filet.locker.LockerPaths.redact(message), t, site, now, now - startedAt, Thread.currentThread().name)
             val h = post
             if (h == null) {
                 // No session (a test, the crash process, or open failed): logcat only.

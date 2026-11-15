@@ -354,6 +354,184 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         setDiskMap(pane, true)
     }
 
+    // ── Locker ──
+    //
+    // The Locker is a drive - see LockerProvider. What lives here is getting into it, getting out
+    // of it, and when it locks.
+
+    val locker: dev.niccc2007.filet.locker.LockerVault get() = graph.locker
+
+    /** The Locker in the focused pane, at its top. From its card on Home. */
+    fun openLocker() {
+        focusedPane()?.jumpTo(dev.niccc2007.filet.locker.LockerPaths.ROOT)
+    }
+
+    /**
+     * Sets the Locker up with [password] and opens it. Slow on purpose - the password is stretched
+     * so a guess costs the same - so off the main thread; [done] hears an error, or null.
+     */
+    fun makeLocker(password: CharArray, done: (String?) -> Unit) {
+        viewModelScope.launch {
+            val error = withContext(Dispatchers.Default) { runCatching { graph.locker.create(password) }.exceptionOrNull() }
+            password.fill(' ')
+            done(error?.let { "The Locker could not be set up: " + (it.message ?: "unknown") })
+            if (error == null) afterUnlock()
+        }
+    }
+
+    /** Opens the Locker with [password]; [done] hears whether it was right. */
+    fun unlockLocker(password: CharArray, done: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.Default) { runCatching { graph.locker.unlock(password) }.getOrDefault(false) }
+            password.fill(' ')
+            if (ok) {
+                withContext(Dispatchers.IO) { runCatching { graph.locker.sweep() } }
+                afterUnlock()
+            }
+            done(ok)
+        }
+    }
+
+    /** Opens the Locker with the file key a fingerprint handed back. */
+    fun unlockLockerWith(key: ByteArray) {
+        viewModelScope.launch {
+            // Opening the index is a read and a decrypt, so off the main thread the prompt
+            // called back on.
+            val ok = withContext(Dispatchers.IO) {
+                runCatching { graph.locker.unlockWith(key) }.getOrDefault(false).also { if (it) runCatching { graph.locker.sweep() } }
+            }
+            key.fill(0)
+            if (ok) afterUnlock() else toast("The fingerprint key no longer opens this Locker. Use the password.")
+        }
+    }
+
+    fun lockLocker() = graph.locker.lock()
+
+    /** What was waiting on the Locker opening: a move into it, asked for while it was locked. */
+    private var lockerThen: (() -> Unit)? = null
+
+    private val _lockerAsk = MutableStateFlow(false)
+
+    /** True while the unlock card is wanted over the screen, for a move into a locked Locker. */
+    val lockerAsk: StateFlow<Boolean> = _lockerAsk.asStateFlow()
+
+    fun dismissLockerAsk() {
+        _lockerAsk.value = false
+        lockerThen = null
+    }
+
+    private fun afterUnlock() {
+        _lockerAsk.value = false
+        for (p in _tabs.value) if (p.state.value.cwd?.let(dev.niccc2007.filet.locker.LockerPaths::isPrivate) == true) p.relist()
+        lockerThen?.also { lockerThen = null }?.invoke()
+    }
+
+    /** Whether a visible pane is showing the Locker. */
+    private fun lockerShown(): Boolean = graph.watchedFolders.value.any(dev.niccc2007.filet.locker.LockerPaths::isPrivate)
+
+    fun moveToLockerSelection() = withSelection { items ->
+        focusedPane()?.clearSelection()
+        moveToLocker(items)
+    }
+
+    /**
+     * [items] into the top of the Locker, each with where it came from noted so Release can put
+     * it back. Asks for the password first when the Locker is locked, and locks it again after
+     * when it was opened only for this and the Locker is not on screen.
+     */
+    fun moveToLocker(items: List<VNode>) {
+        if (items.isEmpty()) return
+        if (items.any { dev.niccc2007.filet.locker.LockerPaths.isPrivate(it.path) }) {
+            toast("That is already in the Locker.")
+            return
+        }
+        if (!graph.locker.open.value) {
+            lockerThen = { moveToLocker(items) }
+            _lockerAsk.value = true
+            return
+        }
+        viewModelScope.launch {
+            val taken = runCatching { graph.locker.read { i -> i.children("/").map { it.name }.toMutableSet() } }.getOrNull()
+                ?: return@launch
+            val noted = ArrayList<String>()
+            for (n in items) {
+                // The name the move will give it, worked out the same way, so the origin is
+                // waiting at the place the file actually lands.
+                val name = if (n.name !in taken) n.name else DuplicateName.of(n.name, taken)
+                taken += name
+                val at = "/" + name
+                graph.locker.expectOrigin(at, n.path.toString())
+                noted += at
+            }
+            val r = graph.ops.move(items.map { it.path }, dev.niccc2007.filet.locker.LockerPaths.ROOT)
+            noted.forEach { graph.locker.takeOrigin(it) }
+            reportAndRefresh(r.succeeded, r.failed, "moved to the Locker", r.denial, dev.niccc2007.filet.jobs.JobKind.MOVE)
+            if (!lockerShown() && prefs.lockerLockOnLeave.value) graph.locker.lock()
+        }
+    }
+
+    fun releaseSelection() = withSelection { items ->
+        focusedPane()?.clearSelection()
+        release(items)
+    }
+
+    /**
+     * [items] out of the Locker, each back to the folder it came from - made again if it has
+     * gone - under the name it has now. Something made in the Locker has nowhere to go back to
+     * and goes to Download.
+     */
+    fun release(items: List<VNode>) {
+        viewModelScope.launch {
+            val download = VPath.of("local", "/storage/emulated/0/Download")
+            val groups = items.groupBy { n ->
+                runCatching { graph.locker.read { it.originOf(n.path.path) } }.getOrNull()
+                    ?.let { runCatching { VPath.parse(it).parent }.getOrNull() }
+                    ?: download
+            }
+            var ok = 0
+            val failed = ArrayList<Pair<VPath, String>>()
+            var denial: dev.niccc2007.filet.vfs.Denial? = null
+            for ((dest, group) in groups) {
+                runCatching { withContext(Dispatchers.IO) { ensureFolder(dest) } }
+                val r = graph.ops.move(group.map { it.path }, dest)
+                ok += r.succeeded
+                failed += r.failed
+                denial = denial ?: r.denial
+                val bad = r.failed.map { it.first }.toSet()
+                val out = group.filter { it.path !in bad }
+                if (out.isNotEmpty()) {
+                    runCatching {
+                        graph.locker.change { i ->
+                            val now = System.currentTimeMillis()
+                            for (n in out) {
+                                val place = dev.niccc2007.filet.locker.LockerProvider.placeOf(dest.child(n.name).toString())
+                                i.note(dev.niccc2007.filet.locker.LockerIndex.Event(n.name, place, now, released = true))
+                            }
+                        }
+                    }
+                }
+            }
+            reportAndRefresh(ok, failed, "released", denial, dev.niccc2007.filet.jobs.JobKind.MOVE)
+        }
+    }
+
+    /**
+     * Locks the Locker when the last visible pane showing it moves elsewhere, if that is on. A
+     * switch of tab is leaving it, by design: the Locker asks again on the way back in.
+     */
+    private fun lockOnLeave() {
+        viewModelScope.launch {
+            var shown = false
+            graph.watchedFolders
+                .map { set -> set.any(dev.niccc2007.filet.locker.LockerPaths::isPrivate) }
+                .distinctUntilChanged()
+                .collect { now ->
+                    if (shown && !now && prefs.lockerLockOnLeave.value) graph.locker.lock()
+                    shown = now
+                }
+        }
+    }
+
     private var nextId = 1
     private var started = false
 
@@ -851,6 +1029,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             RefreshTarget.NEARBY_SCAN -> graph.nearby.startScan()
             RefreshTarget.SHORTCUTS -> graph.shortcuts.reload()
             RefreshTarget.SCRIPTS -> graph.scripts.reload()
+            RefreshTarget.PORTAL -> graph.portal.reload()
             // Nothing cached to drop: the screen re-reads PackageManager when the
             // target fires, which is the only source there is.
             RefreshTarget.INSTALLED_APPS -> Unit
@@ -3255,6 +3434,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * One item is selected and it lives somewhere other than the folder on screen: a search hit
      * from below it, a category, New files. Where Open location is a step somewhere.
      */
+    /** Whether the selection is inside the Locker, which keeps only some rows - see IN_LOCKER. */
+    fun selectionInLocker(): Boolean =
+        focusedPane()?.selectedNodes().orEmpty().any { dev.niccc2007.filet.locker.LockerPaths.isPrivate(it.path) }
+
     fun selectionIsElsewhere(): Boolean {
         val pane = focusedPane() ?: return false
         val items = pane.selectedNodes()
@@ -3669,6 +3852,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             dev.niccc2007.filet.handlers.ShareTarget.APPS -> shareToApps(ask.items)
             dev.niccc2007.filet.handlers.ShareTarget.NETWORK -> ask.items.forEach { shareOneNearby(it) }
             dev.niccc2007.filet.handlers.ShareTarget.FAST -> openFastShare(ask.items)
+            dev.niccc2007.filet.handlers.ShareTarget.PORTAL -> portalSend(ask.items)
         }
     }
 
@@ -5050,6 +5234,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     init {
         keepClipboard()
         followVisibleFolders()
+        lockOnLeave()
     }
 
     /**
@@ -5636,6 +5821,85 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     fun closeFastShare() { _fastShare.value = null }
+
+    // ── Filet Portal ──
+
+    val portal get() = graph.portal
+
+    private val _portalShown = MutableStateFlow<Long?>(null)
+
+    /** The Portal send whose sheet is open. See `portal/PortalScreen.kt`. */
+    val portalShown: StateFlow<Long?> = _portalShown.asStateFlow()
+
+    fun openPortalSend(id: Long) { _portalShown.value = id }
+
+    fun closePortalSend() { _portalShown.value = null }
+
+    private val _portalReceiving = MutableStateFlow<dev.niccc2007.filet.link.PortalLink?>(null)
+
+    /** The Portal link whose files are on offer. */
+    val portalReceiving: StateFlow<dev.niccc2007.filet.link.PortalLink?> = _portalReceiving.asStateFlow()
+
+    private val _portalInto = MutableStateFlow<dev.niccc2007.filet.vfs.VPath?>(null)
+
+    /** Where a Portal download lands; null for Filet/Received. */
+    val portalInto: StateFlow<dev.niccc2007.filet.vfs.VPath?> = _portalInto.asStateFlow()
+
+    fun openPortalReceive(link: dev.niccc2007.filet.link.PortalLink) {
+        _portalInto.value = null
+        _portalReceiving.value = link
+    }
+
+    fun closePortalReceive() { _portalReceiving.value = null }
+
+    fun setPortalInto(path: dev.niccc2007.filet.vfs.VPath?) { _portalInto.value = path }
+
+    /**
+     * Pick the folder a Portal download lands in. The sheet steps aside for the picker, which
+     * draws under any dialog, and comes back with the folder chosen.
+     */
+    fun pickPortalFolder() {
+        val link = _portalReceiving.value ?: return
+        _portalReceiving.value = null
+        val spec = dev.niccc2007.filet.pick.PickSpec(
+            title = "Choose where the files land",
+            want = dev.niccc2007.filet.pick.PickSpec.Want.FOLDER,
+            subject = "Filet Portal",
+        )
+        pick(spec) { result ->
+            (result as? dev.niccc2007.filet.pick.PickResult.Picked)?.paths?.firstOrNull()?.let { _portalInto.value = it }
+            _portalReceiving.value = link
+        }
+    }
+
+    /** Send [nodes] with Filet Portal and open the send's sheet, which shows it going. */
+    fun portalSend(nodes: List<VNode>) {
+        if (nodes.isEmpty()) { toast("Select something first."); return }
+        // A Locker file never leaves the phone, and its name is not kept in Portal's list either.
+        if (nodes.any { dev.niccc2007.filet.locker.LockerPaths.isPrivate(it.path) }) {
+            toast("Locker files stay on this phone. Move them out of the Locker to send them.")
+            return
+        }
+        if (graph.portal.usable().isEmpty()) {
+            toast("No Portal host keeps files that long. Change it on the Portal page.")
+            return
+        }
+        _portalShown.value = graph.portal.send(nodes)
+    }
+
+    fun pickToPortal() {
+        val spec = dev.niccc2007.filet.pick.PickSpec(
+            title = "Choose files to send with Portal",
+            want = dev.niccc2007.filet.pick.PickSpec.Want.FILES,
+            subject = "Filet Portal",
+        )
+        pick(spec) { result ->
+            val paths = (result as? dev.niccc2007.filet.pick.PickResult.Picked)?.paths ?: return@pick
+            viewModelScope.launch {
+                portalSend(paths.mapNotNull { p -> runCatching { graph.vfs.stat(p) }.getOrNull() })
+            }
+        }
+    }
 
     /** Fast share the selection, from the selection bar or the hold menu. */
     fun fastShareSelection() {
@@ -6564,7 +6828,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             TabTarget.PHOTOS, TabTarget.VIDEOS, TabTarget.AUDIO, TabTarget.PACKAGES,
             TabTarget.DOCUMENTS, TabTarget.ARCHIVES -> target.category?.let { pane?.openCategory(it) }
             TabTarget.BOOKMARKS, TabTarget.OPENED, TabTarget.PLAYLISTS, TabTarget.CARRY_ON,
-            TabTarget.REMOTES, TabTarget.SHARE, TabTarget.APPS, TabTarget.SHORTCUTS,
+            TabTarget.REMOTES, TabTarget.SHARE, TabTarget.PORTAL, TabTarget.APPS, TabTarget.SHORTCUTS,
             TabTarget.SCRIPTS, TabTarget.SCAN, TabTarget.SETTINGS -> pane?.openSpecial(target.kind, target.label)
         }
     }
@@ -7540,7 +7804,8 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         // A picker never writes the session. See [ownTabs].
         if (ownTabs) return
         val arr = JSONArray()
-        for (t in _tabs.value) arr.put(TabCodec.encode(recordOf(t)))
+        // Scrubbed of the Locker on the way out - see LockerScrub.
+        for (t in _tabs.value) arr.put(TabCodec.encode(dev.niccc2007.filet.locker.LockerScrub.tab(recordOf(t))))
         tabSession.save(
             JSONObject().put("tabs", arr)
                 .put("a", _state.value.activeA)

@@ -670,6 +670,14 @@ const ICONS = [
       `<rect x="50.5" y="74.3" width="7" height="2" rx="1" fill="#2C4550" fill-opacity=".6"/>` +
       `<circle cx="54" cy="59" r="7.5" fill="none" stroke="{a1}" stroke-opacity=".35" stroke-width="1.4"/>` +
       `<circle cx="54" cy="59" r="3.6" fill="url(#A)"/>` },
+  { id: 'portal', label: 'Portal', group: 'Tools', acc: 'violet', mono: ['M15 3a4 9 0 1 0 0 18a4 9 0 1 0 0-18z', 'M3 12h8', 'M8 9l3 3-3 3'],
+    art: ground(54, 81, 15, 2.8) +
+      `<ellipse cx="60" cy="54" rx="13" ry="23" fill="url(#gDeep)"/>` +
+      `<ellipse cx="60" cy="54" rx="8" ry="16" fill="{a1}" fill-opacity=".22"/>` +
+      `<path d="M30,43 h12 l6,6 v18 a2.5,2.5 0 0 1 -2.5,2.5 h-15.5 a2.5,2.5 0 0 1 -2.5,-2.5 v-21.5 a2.5,2.5 0 0 1 2.5,-2.5z" fill="url(#gSteel)"/>` +
+      `<path d="M42,43 v6 h6" fill="none" stroke="#2C4550" stroke-opacity=".45" stroke-width="1.2" stroke-linejoin="round"/>` +
+      `<path d="M33,58 h10 M39.5,54.5 l3.5,3.5 l-3.5,3.5" fill="none" stroke="url(#A)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>` +
+      `<ellipse cx="60" cy="54" rx="13" ry="23" fill="none" stroke="url(#A)" stroke-width="4.6"/>` },
   { id: 'apps', label: 'Apps', group: 'Tools', acc: 'orange', mono: ['M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'],
     art: ground(54, 80, 21, 3) +
       `<rect x="31" y="31" width="20" height="20" rx="6" fill="url(#gSteel)"/>` +
@@ -755,7 +763,7 @@ const ICONS = [
 const HOME_NAME = {
   home: 'Filet Home', bookmarks: 'Filet Bookmarks', playlists: 'Filet Playlists',
   photos: 'Filet Photos', videos: 'Filet Videos', audio: 'Filet Audio', documents: 'Filet Documents',
-  share: 'Filet Share', apps: 'Filet Apps', shortcuts: 'Filet Shortcuts', qr: 'Filet QR', activity: 'Filet Activity',
+  share: 'Filet Share', portal: 'Filet Portal', apps: 'Filet Apps', shortcuts: 'Filet Shortcuts', qr: 'Filet QR', activity: 'Filet Activity',
   settings: 'Filet Settings', search: 'Filet Search',
 };
 const homeName = (icon) => HOME_NAME[icon.id] || icon.label;

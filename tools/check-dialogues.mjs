@@ -55,6 +55,8 @@ const SINCE_THE_MOCK = {
   "Copy as path": "came after the mock; drawn in the selection bar picker",
   "Invert selection": "came after the mock; drawn in the selection bar picker",
   "Fast share": "came after the mock; drawn in the share page mock's ways in",
+  "Move to Locker": "the Locker came after the mock; drawn in the Locker mock",
+  Release: "the Locker came after the mock; drawn in the Locker mock",
 };
 
 /** Things the redesign adds that the app has no action for yet. Not failures; new work. */

@@ -135,6 +135,10 @@ object ConfigKeys {
         act("files.rootVolumes", ConfigType.BOOL),
         act("view.tree", ConfigType.BOOL),
         act("view.tree.backFolds", ConfigType.BOOL),
+        // When the Locker locks itself. The password and the files are in the Locker's own
+        // folder, never here.
+        act("locker.lockOnLeave", ConfigType.BOOL),
+        act("locker.lockInBackground", ConfigType.BOOL),
         // What taps do, per view: what a finger does, so it travels with the config.
         act("view.tap.lists", ConfigType.STRING),
         act("view.tap.gallery", ConfigType.STRING),
@@ -233,6 +237,9 @@ object ConfigKeys {
         sharing("nearby.shares", ConfigType.STRING, inFile = false),
         // Whether another Filet's push pops up: on, off, or off until a time.
         sharing("nearby.popups", ConfigType.STRING),
+        sharing("portal.hosts", ConfigType.STRING),
+        sharing("portal.keep", ConfigType.STRING),
+        sharing("portal.scatter", ConfigType.STRING),
     )
 
     /**
@@ -257,6 +264,7 @@ object ConfigKeys {
         "nearby.fast" to "the keys this phone's fast shares handed out",
         "nearby.blocked" to "phones this phone turns pushes away from, by their install id",
         "nearby.alwaysAccept" to "paired phones this phone takes pushes from without asking",
+        "portal.sends.v1" to "every Portal link sent, keys included, which must not leave the phone",
         "signing.defaultAlias" to "names a key in this phone's keystore, which never leaves it",
         "playlists.v1" to "kept in playlists.json, a file of its own",
         "shortcuts.reports.v1" to "whether this phone's launcher reports what is on its home screen",

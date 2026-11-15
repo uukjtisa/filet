@@ -36,6 +36,9 @@ enum class RefreshTarget {
     /** The script list and their approvals. */
     SCRIPTS,
 
+    /** Portal's sends, read again, so one that ran out says so. */
+    PORTAL,
+
     /** Bookmarks, which another pane or a widget may have changed. */
     BOOKMARKS,
 
@@ -137,6 +140,7 @@ fun refreshPlan(kind: PaneKind): RefreshPlan = when (kind) {
     PaneKind.RESUME -> RefreshPlan(setOf(RefreshTarget.RESUME_POINTS), "Carry on")
     PaneKind.CATEGORY -> RefreshPlan(setOf(RefreshTarget.CATEGORY), "Category")
     PaneKind.SCAN -> RefreshPlan(setOf(RefreshTarget.CAMERA), "Scanner")
+    PaneKind.PORTAL -> RefreshPlan(setOf(RefreshTarget.PORTAL), "Portal")
     PaneKind.RECENT -> RefreshPlan(setOf(RefreshTarget.RECENTS), "Opened")
 
     // The expanded new-files history is the same feed the home card shows, so refreshing it

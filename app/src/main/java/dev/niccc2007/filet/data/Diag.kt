@@ -59,7 +59,7 @@ object Diag {
         FiletLog.d("diag:$tag", line)
         val f = file ?: return
         FiletLog.onLogThread {
-            f.appendText("${System.currentTimeMillis() % 1_000_000} $tag $line\n")
+            f.appendText("${System.currentTimeMillis() % 1_000_000} $tag ${dev.niccc2007.filet.locker.LockerPaths.redact(line)}\n")
             if (f.length() > CAP) f.writeText("(trimmed)\n")
         }
     }

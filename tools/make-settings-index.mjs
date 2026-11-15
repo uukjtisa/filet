@@ -17,7 +17,10 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 
 export const PAGE = "app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt";
-export const HELPERS = ["app/src/main/java/dev/niccc2007/filet/settings/RowDetailCard.kt"];
+export const HELPERS = [
+  "app/src/main/java/dev/niccc2007/filet/settings/RowDetailCard.kt",
+  "app/src/main/java/dev/niccc2007/filet/locker/LockerViews.kt",
+];
 export const OUT = "app/src/main/java/dev/niccc2007/filet/settings/SettingsIndex.kt";
 
 const ROWS = ["ToggleRow", "SliderRow", "SegmentRow", "BarRow", "HoldHint"];

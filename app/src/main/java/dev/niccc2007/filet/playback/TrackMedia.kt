@@ -46,13 +46,17 @@ object TrackMedia {
      */
     suspend fun uriFor(vfs: Vfs, files: AppFiles, node: VNode, stream: Boolean = true): Uri? {
         vfs.osPath(node.path)?.let { return files.localUri(files.fileAt(it)) }
-        if (stream && vfs.isRemote(node.path) && runCatching { vfs.supportsRanges(node.path) }.getOrDefault(false)) {
+        // A Locker file streams too, so it is read a range at a time and never copied out: a
+        // copy would be the song in the clear on disk, and the beat measuring that keys on a
+        // file would keep its decoded samples under Filet/ for good.
+        val private = dev.niccc2007.filet.locker.LockerPaths.isPrivate(node.path)
+        if (stream && (vfs.isRemote(node.path) || private) && runCatching { vfs.supportsRanges(node.path) }.getOrDefault(false)) {
             // Off the main thread: the first link binds the server's socket.
             return withContext(Dispatchers.IO) { dev.niccc2007.filet.stream.StreamServer.of(vfs).linkFor(node) }
         }
         if (node.size > CACHE_COPY_LIMIT) return null
         return withContext(Dispatchers.IO) {
-            val out = files.playCache(node.name)
+            val out = files.playCache(node.name, node.path)
             // Reused when it is already there at the right size. A re-open of the same track
             // must not re-copy it off a share, and size is the cheap check that catches a copy
             // that was interrupted half way.

@@ -408,6 +408,10 @@ private fun BrowserBody(vm: BrowserViewModel) {
             }
         }
 
+        // The Locker's password, asked over whatever is on screen when something is moved into
+        // it while it is locked.
+        dev.niccc2007.filet.locker.LockerAskDialog(vm)
+
         // Work that has just started: one card per job, the moment it is in Activity, in the
         // corner Settings > Activity chose. A full-size box that takes no touches itself, so only
         // the cards can be tapped. At the bottom it sits above the finished message's lane, so a
@@ -796,6 +800,7 @@ private fun tabIcon(s: PaneState) = when (s.kind) {
     PaneKind.SCRIPTS -> FiletIcons.Script
     PaneKind.APPS -> FiletIcons.Apk
     PaneKind.NEARBY -> FiletIcons.Wifi
+    PaneKind.PORTAL -> FiletIcons.Link
     PaneKind.REMOTES -> FiletIcons.Device
     PaneKind.SCAN -> FiletIcons.Scan
     PaneKind.FOLDER -> if (s.cwd?.scheme == "zip") FiletIcons.Zip else FiletIcons.Folder
@@ -1561,7 +1566,7 @@ private fun SelectionBar(
             wifi = FiletIcons.Wifi, home = FiletIcons.Home, fast = FiletIcons.Scan,
             apk = FiletIcons.Apk, cog = FiletIcons.Cog,
             audio = FiletIcons.Audio, rows = FiletIcons.Rows,
-            folder = FiletIcons.FolderOpen, invert = FiletIcons.Check,
+            folder = FiletIcons.FolderOpen, invert = FiletIcons.Check, lock = FiletIcons.Lock,
         ),
         on = SelectionCallbacks(
             copy = { vm.copySelection() },
@@ -1575,6 +1580,8 @@ private fun SelectionBar(
             bookmark = { vm.bookmarkSelection() },
             nearby = { vm.shareSelectionNearby() },
             fastShare = { vm.fastShareSelection() },
+            toLocker = { vm.moveToLockerSelection() },
+            release = { vm.releaseSelection() },
             shortcut = { vm.shortcutSelection() },
             install = { vm.installSelection() },
             metadata = { vm.metadataForSelection() },
@@ -1602,6 +1609,7 @@ private fun SelectionBar(
         shape = SelectionShape.of(vm.focusedPane()?.selectedNodes().orEmpty()),
         announceable = vm.selectionIsOnThisDevice(),
         elsewhere = vm.selectionIsElsewhere(),
+        locker = vm.selectionInLocker(),
     )
 
     // A pill as wide as its actions, not a band across the screen: it floats, so it can be.

@@ -71,6 +71,7 @@ object SpecialPanes {
         // the last row of a fold of mounts they read as one more mount and were not found.
         Destination(PaneKind.REMOTES, "Remotes", FiletIcons.Device, Fold.TOOLS),
         Destination(PaneKind.NEARBY, "Nearby", FiletIcons.Wifi, Fold.TOOLS),
+        Destination(PaneKind.PORTAL, "Portal", FiletIcons.Link, Fold.TOOLS),
         Destination(PaneKind.APPS, "Apps", FiletIcons.Apk, Fold.TOOLS),
         Destination(PaneKind.SHORTCUTS, "Shortcuts", FiletIcons.Pin, Fold.TOOLS),
         Destination(PaneKind.SCRIPTS, "Scripts", FiletIcons.Script, Fold.TOOLS),

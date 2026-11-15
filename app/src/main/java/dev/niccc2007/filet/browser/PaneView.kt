@@ -256,6 +256,11 @@ fun PaneView(
                     onClose = { vm.setDiskMap(pane, false) },
                 )
             }
+            // The Locker: the gate in place of the listing while it is locked, so nothing of
+            // the folder is drawn, and the strip above it while it is open.
+            val inLocker = s.kind == PaneKind.FOLDER && s.cwd?.let(dev.niccc2007.filet.locker.LockerPaths::isPrivate) == true
+            val lockerOpen by vm.locker.open.collectAsState()
+            if (inLocker && lockerOpen && !s.search.active) dev.niccc2007.filet.locker.LockerStrip(vm)
 
             Box(Modifier.weight(1f)) {
                 // Measured once here and read by both the listing underneath and the dock
@@ -285,6 +290,7 @@ fun PaneView(
                     LocalBackToTop provides backToTop,
                 ) {
                 when {
+                    inLocker && !lockerOpen -> dev.niccc2007.filet.locker.LockerGate(vm)
                     s.loading && s.entries.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                         CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp)
                     }
@@ -323,7 +329,8 @@ fun PaneView(
                 // Lifted clear of the pick card when one is up, so the two floating things do
                 // not land on top of each other. New folder stays reachable while choosing a
                 // destination, which is exactly when somebody wants it.
-                Dock(pane, vm, s, app, liftBy = floating)
+                // Not over the Locker's gate: New folder and Paste there would only meet the lock.
+                if (!(inLocker && !lockerOpen)) Dock(pane, vm, s, app, liftBy = floating)
                 // The pick, as a floating card in the listing it is asking about rather than a
                 // band of chrome above it. It reports its own height so the dock clears it
                 // exactly. See `PickDock`.
@@ -1747,6 +1754,7 @@ private fun SpecialBodyContent(pane: PaneController, vm: BrowserViewModel, s: Pa
         PaneKind.SCRIPTS -> dev.niccc2007.filet.script.ScriptsScreen(vm)
         PaneKind.APPS -> dev.niccc2007.filet.apk.AppsScreen(vm, pane)
         PaneKind.NEARBY -> dev.niccc2007.filet.nearby.NearbyScreen(vm)
+        PaneKind.PORTAL -> dev.niccc2007.filet.portal.PortalScreen(vm)
         PaneKind.REMOTES -> dev.niccc2007.filet.remotes.RemotesScreen(vm)
         PaneKind.SHORTCUTS -> dev.niccc2007.filet.shortcuts.ShortcutsScreen(vm)
         PaneKind.SCAN -> dev.niccc2007.filet.qr.ScanScreen(vm, pane)
@@ -2051,7 +2059,7 @@ private fun PaneContextMenu(
             apk = FiletIcons.Apk, cog = FiletIcons.Cog,
             audio = FiletIcons.Audio, rows = FiletIcons.Rows,
             folder = FiletIcons.FolderOpen, invert = FiletIcons.Check,
-            fast = FiletIcons.Scan,
+            fast = FiletIcons.Scan, lock = FiletIcons.Lock,
         ),
         on = SelectionCallbacks(
             copy = { vm.copySelection() },
@@ -2065,6 +2073,8 @@ private fun PaneContextMenu(
             bookmark = { vm.bookmarkSelection() },
             nearby = { vm.shareSelectionNearby() },
             fastShare = { vm.fastShareSelection() },
+            toLocker = { vm.moveToLockerSelection() },
+            release = { vm.releaseSelection() },
             shortcut = { vm.shortcutSelection() },
             install = { vm.installSelection() },
             metadata = { vm.metadataForSelection() },
@@ -2092,6 +2102,7 @@ private fun PaneContextMenu(
         announceable = vm.selectionIsOnThisDevice(),
         shape = SelectionShape.of(pane.selectedNodes()),
         elsewhere = vm.selectionIsElsewhere(),
+        locker = vm.selectionInLocker(),
     )
 
     // "Select" is gone, and it had to go for two reasons rather than one. It was asked to be

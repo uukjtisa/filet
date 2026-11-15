@@ -65,6 +65,7 @@ fun QrContent.kindLabel(): String = when (this) {
     is QrContent.Crypto -> "Crypto payment"
     is QrContent.Text -> "Text"
     is QrContent.Drive -> dev.niccc2007.filet.link.LinkKind.DRIVE.label
+    is QrContent.Portal -> dev.niccc2007.filet.link.LinkKind.PORTAL.label
 }
 
 private fun QrContent.icon(): ImageVector = when (this) {
@@ -83,6 +84,7 @@ private fun QrContent.icon(): ImageVector = when (this) {
     is QrContent.Crypto -> FiletIcons.Hex
     is QrContent.Text -> FiletIcons.Doc
     is QrContent.Drive -> FiletIcons.Storage
+    is QrContent.Portal -> FiletIcons.Download
 }
 
 /**
@@ -215,6 +217,10 @@ fun QrDialog(content: QrContent, vm: BrowserViewModel, fromPicture: Boolean, onC
                 }
                 is QrContent.WifiDevice -> WifiDeviceActions(content, vm, onClose)
                 is QrContent.Drive -> DriveActions(content, vm, onClose)
+                is QrContent.Portal -> DlgPick(FiletIcons.Download, "See the files", detail = "Sent with Filet Portal") {
+                    onClose()
+                    vm.openPortalReceive(content.portal)
+                }
                 is QrContent.Esim -> EsimActions(content, vm, onClose)
                 is QrContent.Crypto -> {
                     DlgCaption(
@@ -317,6 +323,7 @@ private fun Facts(content: QrContent, onCopy: (label: String, value: String) -> 
                 line("Address", content.drive.hosts.joinToString(", ") + " : " + content.drive.port, copy = false)
                 hidden("Access code", content.drive.share.substringAfterLast('/'))
             }
+            is QrContent.Portal -> line("Held on", host(content.portal.manifest), copy = false)
             is QrContent.Phone -> line("Number", content.number)
             is QrContent.Sms -> { line("To", content.number); line("Message", content.body) }
             is QrContent.Email -> { line("To", content.to); line("Subject", content.subject); line("Message", content.body) }
@@ -613,6 +620,7 @@ private fun summary(c: QrContent): String = when (c) {
     is QrContent.Crypto -> c.coin
     is QrContent.Text -> c.raw.take(60)
     is QrContent.Drive -> c.drive.name
+    is QrContent.Portal -> "Files sent over the internet"
 }
 
 private fun host(url: String): String = runCatching { Uri.parse(url).host }.getOrNull()?.ifEmpty { null } ?: url.take(60)

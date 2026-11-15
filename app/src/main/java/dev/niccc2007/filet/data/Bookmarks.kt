@@ -146,6 +146,8 @@ class Recents(private val prefs: Prefs) {
     val items: StateFlow<List<RecentEntry>> = _items.asStateFlow()
 
     fun record(path: VPath, isDir: Boolean, label: String = path.name) {
+        // Nothing in the Locker is remembered as recent: the list is saved in plain settings.
+        if (dev.niccc2007.filet.locker.LockerPaths.isPrivate(path)) return
         val now = System.currentTimeMillis()
         // The count carries over from the entry being replaced. Dropping it would reset the
         // total every time the folder was opened, which is the one value it can never have.

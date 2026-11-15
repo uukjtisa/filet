@@ -14,6 +14,9 @@ import java.net.URLEncoder
  */
 enum class LinkKind(val path: String, val label: String) {
     DRIVE("drive", "Network drive"),
+
+    /** Files sent over the internet with Filet Portal: where the sealed manifest is, and its key. */
+    PORTAL("portal", "Filet Portal"),
 }
 
 /**
@@ -131,5 +134,31 @@ data class DriveLink(
         private val HOST = Regex("""^[A-Za-z0-9.\-]{1,253}$|^\[?[0-9A-Fa-f:.]{2,45}]?$""")
         private val SHARE = Regex("""^[A-Za-z0-9_\-]+(/[A-Za-z0-9_\-]+)*$""")
         private val ID = Regex("""^[A-Za-z0-9_\-]{1,64}$""")
+    }
+}
+
+/**
+ * A Filet Portal send as its link carries it: the address of the sealed manifest on a file host,
+ * and the key that opens it. The key travels only after the `#`, so the site the link points at
+ * never receives it, and the host holding the manifest never sees it.
+ */
+data class PortalLink(val manifest: String, val key: String) {
+    fun link(): FiletLink = FiletLink(LinkKind.PORTAL, mapOf("m" to manifest, "k" to key))
+
+    companion object {
+        /**
+         * The send in [link], or null. Only an https address and a key of the right shape pass;
+         * which hosts are allowed is the app's call, made where the host list lives.
+         */
+        fun of(link: FiletLink): PortalLink? {
+            if (link.kind != LinkKind.PORTAL) return null
+            val m = link.fields["m"].orEmpty().trim()
+            val k = link.fields["k"].orEmpty().trim()
+            if (!m.startsWith("https://") || m.length > 512 || m.any { it.isWhitespace() }) return null
+            if (!KEY.matches(k)) return null
+            return PortalLink(m, k)
+        }
+
+        private val KEY = Regex("""^[A-Za-z0-9_\-]{43}$""")
     }
 }

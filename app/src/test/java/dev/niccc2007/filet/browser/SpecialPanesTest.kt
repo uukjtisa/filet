@@ -102,7 +102,7 @@ class SpecialPanesTest {
     fun `finding, adding and hosting a share are tools, not one more drive`() {
         val tools = SpecialPanes.inFold(SpecialPanes.Fold.TOOLS).map { it.kind }
         assertEquals(
-            listOf(PaneKind.REMOTES, PaneKind.NEARBY, PaneKind.APPS, PaneKind.SHORTCUTS, PaneKind.SCRIPTS, PaneKind.SCAN),
+            listOf(PaneKind.REMOTES, PaneKind.NEARBY, PaneKind.PORTAL, PaneKind.APPS, PaneKind.SHORTCUTS, PaneKind.SCRIPTS, PaneKind.SCAN),
             tools,
         )
         assertTrue(SpecialPanes.inFold(SpecialPanes.Fold.DRIVES).isEmpty())

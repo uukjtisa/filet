@@ -60,6 +60,8 @@ object JobActions {
         JobKind.INDEX, JobKind.SCRIPT -> Result.NONE
         // A download by someone else: the file was already here, so there is nothing new to go to.
         JobKind.SERVED -> Result.NONE
+        // Files sent away: they were already here, and what came of it is a link, on the Portal page.
+        JobKind.UPLOAD -> Result.NONE
     }
 
     /** Everything [job] offers now, in the order the buttons stand. */

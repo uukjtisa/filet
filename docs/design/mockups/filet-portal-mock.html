@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet · Portal · design record</title>
+<style>
+:root {
+  --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --onAccent:#0E1417; --sel:#243036; --warn:#D9A65B; --bad:#D9776B; --ok:#8DBF8B;
+}
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.45 Roboto, "Segoe UI", system-ui, sans-serif; color:#D9D6CF; background:#0D0D0C; }
+.page { max-width:1180px; margin:0 auto; padding:26px 22px 60px; }
+h1 { font-size:20px; margin:0 0 4px; color:#EDEAE3; font-weight:600; }
+h2 { font-size:15px; margin:30px 0 4px; color:#EDEAE3; font-weight:600; }
+.sub { color:#9A968D; max-width:940px; margin:0 0 14px; font-size:13px; }
+.row { display:flex; flex-wrap:wrap; gap:26px; align-items:flex-start; }
+.phone { width:340px; background:var(--bg); border:1px solid var(--line); border-radius:22px; padding:14px 0 18px; color:var(--fg); }
+.hd { display:flex; align-items:center; padding:0 15px 8px; font-size:17px; font-weight:600; }
+.hd .sp { flex:1; }
+.btn { font-size:12px; padding:5px 10px; border:1px solid var(--line); border-radius:8px; color:var(--fg2); background:var(--raised); }
+.btn.p { background:var(--accent); color:var(--onAccent); border-color:var(--accent); }
+.sec { font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:var(--fg3); padding:12px 15px 4px; }
+.r { display:flex; align-items:center; gap:10px; padding:8px 15px; }
+.r .ic { width:30px; height:30px; border-radius:8px; background:var(--high); display:grid; place-items:center; font-size:14px; color:var(--accent); }
+.r .t { flex:1; min-width:0; }
+.r .t b { display:block; font-weight:500; font-size:13.5px; }
+.r .t i { display:block; font-style:normal; font-size:11px; color:var(--fg3); }
+.sw { width:30px; height:17px; border-radius:9px; background:var(--accent); position:relative; }
+.sw::after { content:""; position:absolute; right:2px; top:2px; width:13px; height:13px; border-radius:50%; background:var(--onAccent); }
+.sw.off { background:var(--high); } .sw.off::after { left:2px; right:auto; background:var(--fg3); }
+.chips { display:flex; gap:6px; padding:2px 15px 6px; flex-wrap:wrap; }
+.chip { font-size:11.5px; padding:4px 9px; border-radius:14px; border:1px solid var(--line); color:var(--fg2); }
+.chip.on { background:var(--sel); color:var(--accent); border-color:var(--accent); }
+.cap { font-size:10.5px; color:var(--fg3); padding:2px 15px 4px; line-height:1.4; }
+.sheet { width:340px; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:14px 15px; color:var(--fg); }
+.sheet h3 { margin:0 0 2px; font-size:15px; } .sheet .s { font-size:11.5px; color:var(--fg3); margin-bottom:10px; }
+.qrl { display:flex; gap:10px; align-items:center; }
+.qr { width:120px; height:120px; border-radius:8px; background:
+  repeating-linear-gradient(90deg,#E8E6E1 0 6px,#161614 6px 12px), #E8E6E1; opacity:.9; flex:none; }
+.link { font:10.5px/1.4 ui-monospace,monospace; color:var(--fg2); word-break:break-all; }
+.f { display:flex; justify-content:space-between; font-size:12px; padding:5px 0; border-top:1px solid var(--line); }
+.f span:last-child { color:var(--fg3); } .f.bad span:last-child { color:var(--bad); } .f.ok span:last-child { color:var(--ok); }
+.foot { display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
+.dec { margin-top:30px; font-size:12.5px; color:#B7B3AA; max-width:940px; }
+.dec li { margin:4px 0; }
+</style>
+</head>
+<body>
+<div class="page">
+<h1>Filet Portal</h1>
+<p class="sub">Sharing over the internet. Files are encrypted on the phone, spread over free file hosts, and listed in an encrypted manifest. The QR carries the manifest's address and the key, after the #, so no host and no website ever sees the key. Nearby stays the name for the local network.</p>
+
+<div class="row">
+<div class="phone">
+  <div class="hd">Filet Portal<span class="sp"></span><span class="btn p">Send files</span></div>
+  <div class="sec">Keep files for</div>
+  <div class="chips"><span class="chip">1 hour</span><span class="chip on">12 hours</span><span class="chip">1 day</span><span class="chip">3 days</span></div>
+  <div class="cap">Only hosts that keep files this long are used.</div>
+  <div class="sec">Hosts</div>
+  <div class="r"><div class="ic">⇪</div><div class="t"><b>Litterbox</b><i>up to 1 GB · 1 hour to 3 days</i></div><div class="sw"></div></div>
+  <div class="r"><div class="ic">⇪</div><div class="t"><b>0x0.st</b><i>up to 512 MB · up to 30 days</i></div><div class="sw"></div></div>
+  <div class="r"><div class="ic">⇪</div><div class="t"><b>Uguu</b><i>up to 128 MB · 3 hours</i></div><div class="sw"></div></div>
+  <div class="r"><div class="ic">⇪</div><div class="t"><b>tmpfiles</b><i>up to 100 MB · 1 hour</i></div><div class="sw off"></div></div>
+  <div class="r"><div class="ic" style="color:var(--warn)">⁂</div><div class="t"><b>Scatter</b><i>split every file across all hosts on</i></div><div class="sw off"></div></div>
+  <div class="sec">Sent</div>
+  <div class="r"><div class="ic">▣</div><div class="t"><b>3 files · 41 MB</b><i>until 21:40 · tap for the QR</i></div></div>
+  <div class="r"><div class="ic" style="color:var(--bad)">▣</div><div class="t"><b>Holiday.mp4</b><i>1 of 2 parts failed · Send again</i></div></div>
+</div>
+
+<div class="sheet">
+  <h3>Filet Portal</h3><div class="s">3 files · 41 MB · until 21:40</div>
+  <div class="qrl"><div class="qr"></div><div class="link">https://uukjtisa.github.io/filet/l#portal?v=1&amp;m=…&amp;k=…</div></div>
+  <div class="f ok"><span>Report.pdf</span><span>Litterbox · until 21:40</span></div>
+  <div class="f ok"><span>Photos.zip</span><span>0x0.st · until 21:40</span></div>
+  <div class="f bad"><span>Notes.txt</span><span>failed · Send again</span></div>
+  <div class="cap" style="padding:8px 0 0">Anyone with this QR or link can download these. A phone with Filet opens it in Filet; a browser gets the page that offers Filet.</div>
+  <div class="foot"><span class="btn">Copy link</span><span class="btn p">Done</span></div>
+</div>
+
+<div class="sheet">
+  <h3>Files from Pixel 8</h3><div class="s">via Filet Portal · until 21:40</div>
+  <div class="f"><span>Report.pdf</span><span>2.1 MB</span></div>
+  <div class="f"><span>Photos.zip</span><span>38 MB</span></div>
+  <div class="f"><span>Notes.txt</span><span>4 KB</span></div>
+  <div class="cap" style="padding:8px 0 4px">Save to</div>
+  <div class="chips" style="padding:0"><span class="chip on">Filet/Received</span><span class="chip">Choose folder</span></div>
+  <div class="foot"><span class="btn">Not now</span><span class="btn p">Download</span></div>
+</div>
+</div>
+
+<ul class="dec">
+<li>Encryption, not obfuscation: AES-256-GCM in 64 KB sealed segments, a fresh key per send, because Filet's code is public and anything obfuscated can be undone by reading it.</li>
+<li>The manifest (names, sizes, which host holds which part) is encrypted too, so a host sees only random names and ciphertext.</li>
+<li>Network drives stream straight from the drive into the upload, with no copy in the phone's cache; a folder goes as a zip made in the cache first, because a host needs the size before the upload starts.</li>
+<li>A host that refuses an upload hands that part to the next host on; a part no host takes is marked failed with Send again.</li>
+</ul>
+</div>
+</body>
+</html>

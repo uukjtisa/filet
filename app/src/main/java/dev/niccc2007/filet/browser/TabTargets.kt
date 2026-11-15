@@ -68,6 +68,7 @@ enum class TabTarget(
 
     REMOTES("remotes", "Remotes", TabGroup.TOOLS, PaneKind.REMOTES),
     SHARE("sharing", "Share", TabGroup.TOOLS, PaneKind.NEARBY, home = "Filet Share"),
+    PORTAL("portal", "Portal", TabGroup.TOOLS, PaneKind.PORTAL, home = "Filet Portal"),
     APPS("apps", "Apps", TabGroup.TOOLS, PaneKind.APPS, home = "Filet Apps"),
     SHORTCUTS("shortcuts", "Shortcuts", TabGroup.TOOLS, PaneKind.SHORTCUTS, home = "Filet Shortcuts"),
     SCRIPTS("scripts", "Scripts", TabGroup.TOOLS, PaneKind.SCRIPTS),
@@ -97,6 +98,7 @@ enum class TabTarget(
             ARCHIVES -> "archives"
             REMOTES -> "remotes"
             SHARE -> "share"
+            PORTAL -> "portal"
             APPS -> "apps"
             SHORTCUTS -> "shortcuts"
             SCRIPTS -> "scripts"
@@ -126,6 +128,7 @@ fun tabGlyph(target: TabTarget): androidx.compose.ui.graphics.vector.ImageVector
     TabTarget.DOCUMENTS, TabTarget.ARCHIVES -> target.category!!.icon
     TabTarget.REMOTES -> FiletIcons.Device
     TabTarget.SHARE -> FiletIcons.Wifi
+    TabTarget.PORTAL -> FiletIcons.Link
     TabTarget.APPS -> FiletIcons.Apk
     TabTarget.SHORTCUTS -> FiletIcons.Pin
     TabTarget.SCRIPTS -> FiletIcons.Script

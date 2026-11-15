@@ -41,6 +41,15 @@ class AppFiles(private val context: Context) {
     /** A cached copy of a file that a seeking API refuses to read as a stream. */
     fun playCache(name: String): File = File(FiletStore.dir(context, FiletStore.Area.PLAYBACK), name)
 
+    /** The same, for a copy of [source]: private when [source] is in the Locker. See FiletStore.dirFor. */
+    fun playCache(name: String, source: VPath): File = File(FiletStore.dirFor(context, FiletStore.Area.PLAYBACK, source), name)
+
+    /**
+     * A folder zipped to be sent with Filet Portal: a copy made to go somewhere else, so it sits
+     * with the other copies, and the send deletes it when it ends.
+     */
+    fun portalStage(name: String): VPath = vpath(File(FiletStore.dir(context, FiletStore.Area.COPIES), "portal-$name"))
+
     /** Where a file shared INTO Filet lands before the user files it. */
     fun inboxCache(name: String): File = File(FiletStore.dir(context, FiletStore.Area.RECEIVED), name)
 

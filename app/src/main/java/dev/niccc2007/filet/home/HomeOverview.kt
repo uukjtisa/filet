@@ -217,7 +217,9 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
         dev.niccc2007.filet.integrations.Termux.isTermuxTree(android.net.Uri.parse(it.node.path.path)) ||
             it.systemLabel.startsWith("Termux")
     }
-    val natural = live.map { it.node.path.toString() } + if (termuxOffered) listOf(TERMUX_CARD) else emptyList()
+    // The Locker's card goes last, under the drives, and is hidden the way any card is.
+    val natural = live.map { it.node.path.toString() } +
+        (if (termuxOffered) listOf(TERMUX_CARD) else emptyList()) + LOCKER_CARD
     val hiddenCount = natural.count { it in hiddenCards }
 
     val storageTiles: @Composable (Boolean) -> Unit = { edit ->
@@ -269,7 +271,15 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                     onHide = { t.ids.forEach(vm.prefs::hideCard) },
                     onPick = { path -> appOpen = null; pane.jumpTo(path) },
                 )
-                is HomeArrange.Drive -> if (t.id == TERMUX_CARD) {
+                is HomeArrange.Drive -> if (t.id == LOCKER_CARD) {
+                    dev.niccc2007.filet.locker.LockerTile(
+                        vm = vm,
+                        editing = e,
+                        dimmed = slot.hidden,
+                        bar = bars,
+                        onHide = { vm.prefs.hideCard(LOCKER_CARD) },
+                    )
+                } else if (t.id == TERMUX_CARD) {
                     StorageTile(
                         icon = FiletIcons.Terminal,
                         kind = "Termux",
@@ -1227,6 +1237,7 @@ private fun CategoryChip(
  * cards" like everything else there.
  */
 private const val TERMUX_CARD = HomeArrange.TERMUX_OFFER
+private val LOCKER_CARD = dev.niccc2007.filet.locker.LockerPaths.ROOT.toString()
 
 /** The last row of the New files and Recently opened cards: opens the whole list. */
 private const val FULL_LIST_LABEL = "See all"

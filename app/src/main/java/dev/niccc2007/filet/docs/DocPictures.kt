@@ -204,10 +204,15 @@ internal object DocPictures {
      * density so a badge is sharp; see [SvgAtOwnSize].
      */
     suspend fun load(context: Context, data: Any): Pair<ImageBitmap, DpSize>? {
+        // A picture in a Locker document stays in memory: the disk cache is under Filet/, and a
+        // copy there would outlive the lock.
+        val private = data is VfsPicture && (dev.niccc2007.filet.locker.LockerPaths.isPrivate(data.path) ||
+            data.file?.let(dev.niccc2007.filet.locker.LockerPaths::isPrivate) == true)
         val request = ImageRequest.Builder(context)
             .data(data)
             .size(MAX_PX, MAX_PX)
             .precision(Precision.INEXACT)
+            .apply { if (private) diskCachePolicy(coil3.request.CachePolicy.DISABLED) }
             .build()
         val result = loader(context).execute(request) as? SuccessResult ?: return null
         val image = result.image

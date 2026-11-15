@@ -331,6 +331,25 @@ object FiletStore {
         return File(parent, area.folder).apply { runCatching { mkdirs() } }
     }
 
+    /**
+     * [area]'s folder for something made from [source]: the usual one, or a private one when
+     * [source] is in the Locker.
+     *
+     * Everything here is under shared storage on purpose - see the top of this file - and that is
+     * exactly where nothing read out of the Locker may land: a decoded song, a copy made so a PDF
+     * can be opened, a staged file. Anything derived from a Locker file goes to [privateRoot]
+     * instead, which is Filet's own cache, unreadable to other apps and emptied at every lock.
+     */
+    fun dirFor(context: Context, area: Area, source: dev.niccc2007.filet.vfs.VPath): File =
+        if (dev.niccc2007.filet.locker.LockerPaths.isPrivate(source)) {
+            File(privateRoot(context), area.folder).apply { runCatching { mkdirs() } }
+        } else {
+            dir(context, area)
+        }
+
+    /** Where things read out of the Locker go while it is open. See [dirFor] and `LockerVault.scratch`. */
+    fun privateRoot(context: Context): File = File(context.cacheDir, "locker-open")
+
     // ── size and clearing ─────────────────────────────────────────────────────────────────
 
     /**

@@ -55,6 +55,10 @@ const ALLOWED = [
   // MANAGER is something its user can actually open and delete. Paths stop here: callers ask
   // for an Area and get a folder.
   "app/src/main/java/dev/niccc2007/filet/data/FiletStore.kt",
+  // The Locker's own folder in app-private storage: its sealed key, its sealed index and its
+  // sealed files under random names. Never a path somebody browsed to, and no handle leaves the
+  // file - the provider above it hands out streams of plain bytes and nothing else.
+  "app/src/main/java/dev/niccc2007/filet/locker/LockerVault.kt",
   // Filet's configuration, kept where an uninstall cannot reach it. It copies SharedPreferences
   // files - Android's own XML, whole, so no store and no key type can be missed - between the
   // app's private directory and one folder under Filet/. Both ends are decided here; it never

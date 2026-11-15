@@ -1825,6 +1825,11 @@ fun SettingsPage(vm: BrowserViewModel) {
                 }
             }
         }
+        // The Locker: when it locks, the fingerprint, the password. Its files are reached from
+        // Home's card and never from here.
+        item { SettingsSection("Locker", "") }
+        anchor(Prefs.K_LOCKER_LOCK_ON_LEAVE, Prefs.K_LOCKER_LOCK_IN_BACKGROUND)
+        item { dev.niccc2007.filet.locker.LockerSettings(vm) }
         }
         if (group == SettingsGroup.DEVELOPER) {
             item {

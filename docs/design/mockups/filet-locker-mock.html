@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet - Locker: files sealed with a password (mock)</title>
+<style>
+/* Palette: Palette.kt SLATE, as the drives mock. */
+:root { --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --accentDim:#31434B; --warn:#C9A36A; --bad:#C97F7F; --good:#8FB58A; --sel:#243036; }
+* { box-sizing:border-box; }
+body { margin:0; font:13px/1.35 "Segoe UI", Roboto, system-ui, sans-serif; background:#0b0b0a; color:#ddd;
+  display:flex; gap:28px; padding:24px; align-items:flex-start; }
+.panel { width:330px; flex:none; }
+.panel h1 { font-size:16px; margin:0 0 4px; color:#fff; }
+.panel h2 { font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#8a8; margin:16px 0 6px; }
+.btns { display:flex; flex-wrap:wrap; gap:6px; }
+.btns button { background:#222; color:#ddd; border:1px solid #333; border-radius:8px; padding:7px 10px; font:12px "Segoe UI"; cursor:pointer; }
+.btns button.on { background:#7FA8B8; color:#0E1417; border-color:#7FA8B8; font-weight:600; }
+.caption { margin-top:18px; border-top:1px solid #333; padding-top:12px; color:#aaa; font-size:12px; }
+.caption p { margin:0 0 8px; } .caption b { color:#ddd; }
+.phone { width:412px; height:880px; flex:none; border-radius:30px; border:8px solid #000; position:relative; overflow:hidden;
+  background:var(--bg); color:var(--fg); }
+.status { height:26px; padding:0 16px; display:flex; align-items:center; justify-content:space-between; font-size:11px; color:var(--fg2); background:var(--sunken); }
+.path { height:44px; display:flex; align-items:center; padding:0 12px; gap:6px; font-size:13px; border-bottom:1px solid var(--lineSoft); }
+.path .here { color:var(--fg); font-weight:600; }
+.view { display:none; } .view.on { display:block; }
+/* The gate: in the pane, in place of the listing. LockerGate. */
+.gate { padding:28px 20px; }
+.gate .ic { font-size:30px; color:var(--accent); }
+.gate h3 { font-size:19px; margin:10px 0 6px; font-weight:600; }
+.gate .sub { color:var(--fg2); font-size:13px; margin-bottom:16px; }
+.field { border:1px solid var(--line); background:var(--sunken); border-radius:10px; padding:11px 12px; margin-bottom:13px; color:var(--fg3); }
+.field .lbl { font-size:11px; color:var(--fg2); display:block; margin-bottom:2px; }
+.warn { border-radius:10px; padding:9px 11px; font-size:12px; margin-bottom:12px; background:#2b2519; color:var(--warn); }
+.warn.bad { background:#2b1d1d; color:var(--bad); }
+.row2 { display:flex; gap:8px; }
+.b { flex:1; text-align:center; border-radius:10px; padding:10px; background:var(--raised); }
+.b.p { background:var(--accent); color:#0E1417; font-weight:600; }
+/* The strip: above the listing while open. LockerStrip. */
+.strip { display:flex; align-items:center; gap:8px; padding:6px 8px 6px 14px; background:var(--surface); border-bottom:1px solid var(--line); font-size:12px; color:var(--fg2); }
+.strip .t { flex:1; } .strip a { color:var(--accent); padding:5px 9px; }
+.file { display:flex; align-items:center; gap:12px; padding:10px 14px; }
+.file .i { width:36px; height:36px; border-radius:8px; background:var(--high); }
+.file .n { flex:1; } .file .m { font-size:11px; color:var(--fg3); }
+/* Home's card, under the drives. LockerTile over StorageTile. */
+.tiles { padding:12px; display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.tile { border:1px solid var(--line); border-radius:13px; padding:12px; background:var(--surface); }
+.tile .k { font-size:11px; color:var(--fg2); } .tile .v { font-size:20px; font-weight:600; margin:4px 0; } .tile .c { font-size:11px; color:var(--fg3); }
+.tile.lock .k::before { content:"\1F512  "; }
+/* History. LockerHistoryDialog. */
+.dlg { margin:40px 16px; background:var(--raised); border-radius:16px; padding:16px; }
+.dlg h4 { margin:0 0 2px; font-size:15px; } .dlg .s { font-size:12px; color:var(--fg2); margin-bottom:10px; }
+.ev { display:flex; gap:10px; padding:6px 0; } .ev .w { width:66px; font-size:11px; } .ev .w.a { color:var(--accent); } .ev .w.r { color:var(--good); }
+.ev .p { font-size:11px; color:var(--fg3); }
+</style>
+</head>
+<body>
+<div class="panel">
+  <h1>Locker</h1>
+  <div>A drive inside Filet's own storage. Files moved in are sealed with a password and leave only by Release.</div>
+  <h2>Screen</h2>
+  <div class="btns" id="pick">
+    <button data-v="home" class="on">Home card</button>
+    <button data-v="setup">First visit</button>
+    <button data-v="locked">Locked</button>
+    <button data-v="open">Open</button>
+    <button data-v="history">History</button>
+  </div>
+  <div class="caption">
+    <p><b>Round 1.</b> The gate is drawn in the pane, not over it, so a locked tab shows nothing of the folder behind it. The strip carries the count, History and Lock. Selection inside the Locker keeps only rows that stay inside Filet, plus Release.</p>
+  </div>
+</div>
+<div class="phone">
+  <div class="status"><span>12:30</span><span>100%</span></div>
+  <div class="path"><span class="here" id="where">Home</span></div>
+
+  <div class="view on" id="v-home">
+    <div class="tiles">
+      <div class="tile"><div class="k">Phone</div><div class="v">41.2 GB</div><div class="c">free of 128 GB</div></div>
+      <div class="tile"><div class="k">SD card</div><div class="v">12.0 GB</div><div class="c">free of 64 GB</div></div>
+      <div class="tile lock"><div class="k">Locker</div><div class="v">Locked</div><div class="c">Files sealed with your password</div></div>
+    </div>
+  </div>
+
+  <div class="view" id="v-setup"><div class="gate">
+    <div class="ic">&#x1F512;</div><h3>Set up the Locker</h3>
+    <div class="sub">Files moved here are sealed with your password, and leave only when you release them.</div>
+    <div class="field" style="color:var(--fg2)">This phone is rooted &#x25BE;</div>
+    <div class="field"><span class="lbl">Password</span>••••••••</div>
+    <div class="field"><span class="lbl">Password again</span>••••••••</div>
+    <div class="warn bad">Forget the password and the files in the Locker cannot be got back. Filet keeps no copy of it.</div>
+    <div class="row2"><div class="b p">Set up</div></div>
+  </div></div>
+
+  <div class="view" id="v-locked"><div class="gate">
+    <div class="ic">&#x1F512;</div><h3>The Locker is locked</h3>
+    <div class="sub">Its files are sealed with your password.</div>
+    <div class="field"><span class="lbl">Password</span>&nbsp;</div>
+    <div class="row2"><div class="b">Fingerprint</div><div class="b p">Unlock</div></div>
+  </div></div>
+
+  <div class="view" id="v-open">
+    <div class="strip"><span>&#x1F512;</span><span class="t">Locker · 3 files · 48.6 MB</span><a>History</a><a>Lock</a></div>
+    <div class="file"><div class="i"></div><div class="n">Scans<div class="m">Folder · 2 items</div></div></div>
+    <div class="file"><div class="i"></div><div class="n">passport.jpg<div class="m">3.1 MB · 14 Nov</div></div></div>
+    <div class="file"><div class="i"></div><div class="n">clip.mp4<div class="m">45.5 MB · 12 Nov</div></div></div>
+  </div>
+
+  <div class="view" id="v-history">
+    <div class="dlg">
+      <h4>Locker history</h4><div class="s">Added and released, newest first.</div>
+      <div class="ev"><div class="w r">Released</div><div><div>notes.pdf</div><div class="p">to Documents · 15 Nov · 09:12</div></div></div>
+      <div class="ev"><div class="w a">Added</div><div><div>passport.jpg</div><div class="p">from Pictures · 14 Nov · 21:40</div></div></div>
+      <div class="ev"><div class="w a">Added</div><div><div>clip.mp4</div><div class="p">from Camera · 12 Nov · 18:03</div></div></div>
+    </div>
+  </div>
+</div>
+<script>
+const where = { home:"Home", setup:"Locker", locked:"Locker", open:"Locker", history:"Locker" };
+document.querySelectorAll("#pick button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#pick button").forEach(x => x.classList.toggle("on", x === b));
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + b.dataset.v));
+  document.getElementById("where").textContent = where[b.dataset.v];
+});
+</script>
+</body>
+</html>

@@ -12,6 +12,9 @@
          launch, and optional: a device without a camera still installs and scans pictures. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!-- Fingerprint unlock for the Locker, offered only once it is switched on in Settings. A
+         normal permission: nothing is asked for, and the password always works without it. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <!-- Nearby (M9): a LAN server and mDNS discovery. No INTERNET-only feature uses these. -->
     <uses-permission android:name="android.permission.INTERNET" />

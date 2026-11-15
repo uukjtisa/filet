@@ -1113,6 +1113,28 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
     }
 
     /**
+     * Whether the Locker locks once no tab is showing it. On by default: a Locker left open
+     * behind another tab is open to whoever picks the phone up next, and the cost of the default
+     * is one password per visit.
+     */
+    private val _lockerLockOnLeave = stored { sp.getBoolean(K_LOCKER_LOCK_ON_LEAVE, true) }
+    val lockerLockOnLeave: StateFlow<Boolean> = _lockerLockOnLeave.asStateFlow()
+
+    fun setLockerLockOnLeave(on: Boolean) {
+        _lockerLockOnLeave.value = on
+        sp.edit().putBoolean(K_LOCKER_LOCK_ON_LEAVE, on).apply()
+    }
+
+    /** Whether the Locker locks when Filet leaves the screen. On by default, for the same reason. */
+    private val _lockerLockInBackground = stored { sp.getBoolean(K_LOCKER_LOCK_IN_BACKGROUND, true) }
+    val lockerLockInBackground: StateFlow<Boolean> = _lockerLockInBackground.asStateFlow()
+
+    fun setLockerLockInBackground(on: Boolean) {
+        _lockerLockInBackground.value = on
+        sp.edit().putBoolean(K_LOCKER_LOCK_IN_BACKGROUND, on).apply()
+    }
+
+    /**
      * What taps do, one stored set per view (#34). Kept as text and read through `TapPlan.decode`,
      * which falls back row by row, so nothing stored can make a tap do something its view does
      * not offer. Null is the Filet preset.
@@ -1989,6 +2011,8 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         const val K_HOME_FOLDS = "home.folds"
         const val K_TREE_VIEW = "view.tree"
         const val K_TREE_BACK_FOLDS = "view.tree.backFolds"
+        const val K_LOCKER_LOCK_ON_LEAVE = "locker.lockOnLeave"
+        const val K_LOCKER_LOCK_IN_BACKGROUND = "locker.lockInBackground"
         const val K_TAP_LISTS = "view.tap.lists"
         const val K_TAP_GALLERY = "view.tap.gallery"
         const val K_TAP_TREE = "view.tap.tree"

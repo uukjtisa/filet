@@ -60,4 +60,19 @@ class FiletLinkTest {
         // A zone names the SENDER's interface, which means nothing on the phone that scans it.
         assertNull(d("fe80::1%wlan0", "80", "a/x"))
     }
+
+    @Test
+    fun `a Portal link reads back, key and all, and nothing else passes`() {
+        val key = "A".repeat(43)
+        val p = PortalLink("https://litter.catbox.moe/x.bin", key)
+        val web = p.link().web()
+        // The key rides after the #, which no browser sends to the site.
+        assertTrue(web.substringBefore('#').none { it == '?' } && "k=" in web.substringAfter('#'))
+        assertEquals(p, PortalLink.of(FiletLink.parse(web)!!))
+        fun l(m: String, k: String) = PortalLink.of(FiletLink(LinkKind.PORTAL, mapOf("m" to m, "k" to k)))
+        assertNull(l("http://litter.catbox.moe/x.bin", key))
+        assertNull(l("https://a b", key))
+        assertNull(l("https://litter.catbox.moe/x.bin", "short"))
+        assertNull(l("https://litter.catbox.moe/x.bin", "A".repeat(42) + "="))
+    }
 }

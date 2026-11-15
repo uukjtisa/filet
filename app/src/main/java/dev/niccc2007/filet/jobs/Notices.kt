@@ -78,7 +78,8 @@ fun JobKind.label(): Pair<String, String?> = when (this) {
     JobKind.FETCH -> "Fetch from a remote" to "before it opens"
     JobKind.DOWNLOAD -> "Downloads from other apps" to null
     JobKind.SERVED -> "Downloads by others" to "from your Nearby share"
-    JobKind.RECEIVED -> "Files received" to "pushed from another Filet"
+    JobKind.RECEIVED -> "Files received" to "from another Filet, nearby or by Portal"
+    JobKind.UPLOAD -> "Portal sends" to "over the internet"
     JobKind.OTHER -> "Everything else" to null
 }
 
@@ -99,6 +100,8 @@ fun JobKind.notice(): Notice = when (this) {
     // the two network events worth hearing about while doing something else. The message is
     // small and leaves on its own, so it cannot get in the way.
     JobKind.SERVED, JobKind.RECEIVED -> Notice(NoticeGroup.NETWORK, ends = true)
+    // A send ends with its link ready to hand over, which is worth hearing about elsewhere.
+    JobKind.UPLOAD -> Notice(NoticeGroup.NETWORK, ends = true)
     JobKind.SAVE -> Notice(NoticeGroup.SAVING, ends = true)
     JobKind.INDEX, JobKind.MEASURE, JobKind.BEAT -> Notice(NoticeGroup.BACKGROUND, ends = false)
     JobKind.SCRIPT, JobKind.APK -> Notice(NoticeGroup.TOOLS, ends = true)

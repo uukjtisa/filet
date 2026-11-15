@@ -44,16 +44,17 @@ class LocalCopy(
     suspend fun of(node: VNode): File? = withContext(Dispatchers.IO) {
         // Asked of the provider rather than matched against the scheme string, so a provider
         // added later is not silently excluded from the fast path.
-        if (!vfs.isRemote(node.path)) {
-            val direct = File(node.path.path)
-            if (direct.isFile) return@withContext direct
-        }
+        // The provider's own answer, never the path string read as one: a Locker path looks
+        // like a filesystem path and is not, and `/Trips/a.jpg` read as a real file could open
+        // something else entirely.
+        vfs.osPath(node.path)?.let { File(it) }?.takeIf { it.isFile }?.let { return@withContext it }
         runCatching { staging.stage(node.path, node.size, node.mtime) }
             .getOrNull()
             ?.let { return@withContext it }
         if (node.size > MAX_BYTES) return@withContext null
         runCatching {
-            val folder = FiletStore.dir(context, FiletStore.Area.COPIES)
+            // A Locker file's copy goes to Filet's private cache, which every lock empties.
+            val folder = FiletStore.dirFor(context, FiletStore.Area.COPIES, node.path)
             // Keyed on size and time as well as the name, so a file edited elsewhere is not
             // read back from a stale copy - the same rule `RemoteStaging` uses.
             val target = File(folder, node.size.toString() + "_" + node.mtime + "_" + safe(node.name))

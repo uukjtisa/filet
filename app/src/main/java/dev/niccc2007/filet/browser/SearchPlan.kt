@@ -46,6 +46,8 @@ fun searchPlan(kind: PaneKind): SearchMode = when (kind) {
     PaneKind.ACTIVITY -> SearchMode.FILTER
     // Nothing listed here is worth narrowing: the devices in reach are a handful at most.
     PaneKind.NEARBY -> SearchMode.NONE
+    // A handful of hosts and sends: nothing worth narrowing.
+    PaneKind.PORTAL -> SearchMode.NONE
     PaneKind.APPS -> SearchMode.FILTER
     PaneKind.RESUME -> SearchMode.FILTER
     PaneKind.CATEGORY -> SearchMode.FILTER

@@ -115,6 +115,11 @@ data class SelectionShape(
  * @param elsewhere the one selected item lives somewhere other than the folder on screen - a
  *   search hit, a category, New files - so Open location is a step somewhere rather than a
  *   step to where it already is.
+ * @param locker the selection is inside the Locker. Only the rows in [IN_LOCKER] are kept, and
+ *   Release is added: every other row either hands the file to something outside Filet (Send,
+ *   Open with, Nearby, Fast share, Add to gallery) or writes its path into something Filet keeps
+ *   in plain settings (Bookmark, Shortcut, playlists, the queue, folder icons, beat maps) - and
+ *   either one undoes what the Locker is for.
  */
 fun selectionActions(
     count: Int,
@@ -129,6 +134,7 @@ fun selectionActions(
     announceable: Boolean = false,
     shape: SelectionShape = SelectionShape.files(count),
     elsewhere: Boolean = false,
+    locker: Boolean = false,
 ): List<SelectionAction> {
     val single = shape.count == 1
     val oneFile = single && shape.files == 1
@@ -316,6 +322,24 @@ fun selectionActions(
                 ),
             )
         }
+        // Into the Locker, from anywhere outside it. Blocked where the files cannot be taken
+        // away, since a move that cannot delete is a copy left in the open.
+        if (!picking && !locker) {
+            on.toLocker?.let { run ->
+                add(
+                    SelectionAction(
+                        "tolocker", "Move to Locker", icons.lock ?: icons.folder,
+                        blocked = readOnly, group = SelectionAction.Group.PLACE, run = run,
+                    ),
+                )
+            }
+        }
+        // Out of the Locker, back to where each came from.
+        if (locker) {
+            on.release?.let { run ->
+                add(SelectionAction("release", "Release", icons.lock ?: icons.folder, group = SelectionAction.Group.PLACE, run = run))
+            }
+        }
         // A home-screen shortcut points at one thing.
         if (single) {
             add(
@@ -336,8 +360,11 @@ fun selectionActions(
                 ),
             )
         }
-    }
+    }.let { all -> if (locker) all.filter { it.id in IN_LOCKER } else all }
 }
+
+/** The rows a selection inside the Locker keeps. See the `locker` parameter of [selectionActions]. */
+val IN_LOCKER = setOf("reveal", "copy", "move", "rename", "details", "copypath", "invert", "release", "delete")
 
 /** The icons, passed in so this file stays free of the icon set and testable on the JVM. */
 data class SelectionIcons(
@@ -359,6 +386,7 @@ data class SelectionIcons(
     val folder: ImageVector = open,
     val invert: ImageVector = rows,
     val fast: ImageVector? = null,
+    val lock: ImageVector? = null,
 )
 
 /** What each action does. Separate from the list so the list can be built in a test. */
@@ -390,4 +418,8 @@ data class SelectionCallbacks(
     val invert: (() -> Unit)? = null,
     val reveal: (() -> Unit)? = null,
     val folderIcon: (() -> Unit)? = null,
+    /** Move to Locker, from outside it; null where a surface does not offer it. */
+    val toLocker: (() -> Unit)? = null,
+    /** Release, from inside the Locker. */
+    val release: (() -> Unit)? = null,
 )

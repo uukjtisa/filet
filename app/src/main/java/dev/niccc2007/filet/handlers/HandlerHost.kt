@@ -222,6 +222,7 @@ private fun ShareChoiceSheet(vm: BrowserViewModel, ask: BrowserViewModel.ShareAs
                     icon = when (target) {
                         ShareTarget.NETWORK -> FiletIcons.Wifi
                         ShareTarget.FAST -> FiletIcons.Scan
+                        ShareTarget.PORTAL -> FiletIcons.Link
                         ShareTarget.APPS -> FiletIcons.Share
                     },
                     label = target.label,

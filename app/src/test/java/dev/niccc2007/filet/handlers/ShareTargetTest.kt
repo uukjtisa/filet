@@ -1,7 +1,6 @@
 package dev.niccc2007.filet.handlers
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -26,16 +25,22 @@ class ShareTargetTest {
     }
 
     @Test
-    fun `a file with no path on this device offers only apps`() {
+    fun `a file with no path on this device offers apps and Portal, never serving`() {
         // Inside an archive, or on a remote. There is nothing to serve, so offering to serve
-        // it would be a control that cannot act.
-        assertEquals(listOf(ShareTarget.APPS), shareTargets(local = false))
+        // it would be a control that cannot act; Portal reads it through Filet and uploads it.
+        assertEquals(listOf(ShareTarget.APPS, ShareTarget.PORTAL), shareTargets(local = false))
+    }
+
+    @Test
+    fun `Portal is offered wherever the file is`() {
+        assertTrue(shareTargets(local = true).contains(ShareTarget.PORTAL))
+        assertTrue(shareTargets(local = false).contains(ShareTarget.PORTAL))
     }
 
     @Test
     fun `a single option is acted on rather than presented`() {
-        // A menu over one item is a tap nobody asked for.
-        assertFalse(needsShareChoice(local = false))
+        // A menu over one item is a tap nobody asked for; both lists now hold more than one.
+        assertTrue(needsShareChoice(local = false))
         assertTrue(needsShareChoice(local = true))
     }
 
