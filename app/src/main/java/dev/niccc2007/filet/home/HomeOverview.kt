@@ -215,9 +215,13 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     // was that the tile disappears once its tree is granted. That was wrong: somebody who has
     // Termux installed and does not want it connected to Filet has no way to grant the tree, so the
     // tile became permanent. A card nobody can dismiss is bloat on the one screen that opens first.
-    val termuxOffered = vm.termuxInstalled && app.volumes.none {
-        dev.niccc2007.filet.integrations.Termux.isTermuxTree(android.net.Uri.parse(it.node.path.path)) ||
-            it.systemLabel.startsWith("Termux")
+    //
+    // Recognised by the provider the folder comes from, never by its name - see FolderApps for
+    // the parse that made this always false.
+    val termuxOffered = vm.termuxInstalled && app.volumes.none { v ->
+        dev.niccc2007.filet.integrations.Termux.isTermuxAuthority(
+            v.app?.authority ?: HomeArrange.authorityOf(v.node.path.toString()),
+        )
     }
     // The Locker's card goes last, under the drives, and is hidden the way any card is.
     // A drive plugged in that the phone cannot read has no folder, so no volume - it still gets a
@@ -321,8 +325,16 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                     )
                 } else {
                     val v = volumeOf.getValue(t.id)
+                    val items by androidx.compose.runtime.produceState<Int?>(null, v.node.path, v.app) {
+                        if (v.app != null) {
+                            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                runCatching { vm.vfs.list(v.node.path).size }.getOrNull()
+                            }
+                        }
+                    }
                     VolumeTile(
                         v = v,
+                        items = items,
                         editing = e,
                         dimmed = slot.hidden,
                         bar = bars,
@@ -725,7 +737,37 @@ private fun VolumeTile(
     onArrived: () -> Unit = {},
     onEject: (() -> Unit)? = null,
     onAllowWriting: () -> Unit = {},
+    /** What a folder lent by an app holds, for its caption; null until counted. */
+    items: Int? = null,
 ) {
+    // A folder lent by an app: the app's own icon and name in the heading, the folder as the big
+    // line, what is in it and whether Filet may write there underneath, and a dotted line where
+    // a capacity would be - it has none. The drives mock's "Folders from apps".
+    val app = v.app
+    if (app != null) {
+        val context = LocalContext.current
+        val px = with(androidx.compose.ui.platform.LocalDensity.current) { 34.dp.roundToPx() }
+        val art by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, app.packageName) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                dev.niccc2007.filet.integrations.FolderApps.icon(context, app.packageName, px)
+            }
+        }
+        StorageTile(
+            icon = FiletIcons.Folder,
+            art = art,
+            kind = app.label,
+            value = dev.niccc2007.filet.integrations.AppFolderNames.cardValue(app.label, v.node.name, v.label, v.systemLabel),
+            caption = dev.niccc2007.filet.integrations.AppFolderNames.caption(items, v.node.writable),
+            dotted = true,
+            onHide = onHide,
+            onLongClick = onLongClick,
+            editing = editing,
+            dimmed = dimmed,
+            bar = bar,
+            onClick = onClick,
+        )
+        return
+    }
     val used = if (v.free != null && v.total != null && v.total > 0) (v.total - v.free).coerceAtLeast(0) else null
     val net = v.remote
     val reachable = v.free != null && v.total != null
@@ -800,22 +842,30 @@ private fun AppFolderTile(
     onPick: (dev.niccc2007.filet.vfs.VPath) -> Unit,
 ) {
     val context = LocalContext.current
-    // The app's own name, from the system: whoever answers for the folders' authority.
-    val app = remember(card.authority) {
-        runCatching {
-            val pm = context.packageManager
-            pm.resolveContentProvider(card.authority, 0)?.applicationInfo?.loadLabel(pm)?.toString()
-        }.getOrNull() ?: card.authority
+    // The app's own name and icon, from the system: whoever answers for the folders' authority.
+    val found = remember(card.authority) { dev.niccc2007.filet.integrations.FolderApps.of(context, card.authority) }
+    val app = found?.label ?: card.authority
+    val px = with(androidx.compose.ui.platform.LocalDensity.current) { 34.dp.roundToPx() }
+    val art by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, found?.packageName) {
+        val pkg = found?.packageName ?: return@produceState
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            dev.niccc2007.filet.integrations.FolderApps.icon(context, pkg, px)
+        }
     }
     val members = card.ids.mapNotNull { volumes[it] }
     val density = androidx.compose.ui.platform.LocalDensity.current
     var tall by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     Box(Modifier.onSizeChanged { tall = it.height }) {
         StorageTile(
-            icon = FiletIcons.Storage,
+            icon = FiletIcons.Folder,
+            art = art,
+            dotted = true,
             kind = app,
             value = "${members.size} folders",
-            caption = members.joinToString(", ") { it.label },
+            // The folders by their own names: the app's is already the heading.
+            caption = members.joinToString(", ") { m ->
+                dev.niccc2007.filet.integrations.AppFolderNames.cardValue(app, m.node.name, m.label, m.systemLabel)
+            },
             onHide = onHide,
             editing = editing,
             dimmed = dimmed,

@@ -1012,6 +1012,17 @@ fun StorageTile(
      */
     arriving: Boolean = false,
     onArrived: () -> Unit = {},
+    /**
+     * A picture in the icon's place: the app a folder comes from, as its own launcher icon, read
+     * from the installed app. See [dev.niccc2007.filet.integrations.FolderApps.icon].
+     */
+    art: androidx.compose.ui.graphics.ImageBitmap? = null,
+    /**
+     * The bar's slot as a dotted hairline rather than a track: a place with no capacity to show,
+     * such as a folder lent by an app. An empty track reads as "empty"; a dotted line reads as
+     * "not this kind of thing", and keeps the card as tall as the ones beside it.
+     */
+    dotted: Boolean = false,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
@@ -1076,10 +1087,10 @@ fun StorageTile(
                 // The grip and the drive's own icon as one lead-in, not two spaced glyphs.
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(dev.niccc2007.filet.browser.FiletIcons.Grip, null, tint = colors.fg3, modifier = Modifier.size(13.dp))
-                    Icon(icon, null, tint = colors.accent, modifier = Modifier.size(13.dp))
+                    TileGlyph(icon, art)
                 }
             } else {
-                Icon(icon, null, tint = colors.accent, modifier = Modifier.size(13.dp))
+                TileGlyph(icon, art)
             }
             if (live != null || busy) {
                 // Breathing while it is reachable, still when it is not. A blink says "being
@@ -1184,6 +1195,21 @@ fun StorageTile(
         // tile ends at its caption and the row stays even that way.
         if (!bar) return@Column
         Spacer(Modifier.height(8.dp))
+        if (dotted) {
+            Box(
+                Modifier.fillMaxWidth().height(5.dp).drawBehind {
+                    val y = size.height / 2
+                    drawLine(
+                        outline,
+                        androidx.compose.ui.geometry.Offset(0f, y),
+                        androidx.compose.ui.geometry.Offset(size.width, y),
+                        strokeWidth = 1.dp.toPx(),
+                        pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx())),
+                    )
+                },
+            )
+            return@Column
+        }
         Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(colors.sunken)) {
             if (fraction != null) {
                 val f = fraction.coerceIn(0f, 1f)
@@ -1198,6 +1224,20 @@ fun StorageTile(
                 )
             }
         }
+    }
+}
+
+/**
+ * A storage card's glyph: its kind's icon, or the app's own launcher icon where it has one. The
+ * app's is drawn a little larger and rounded like a launcher's, because an app icon shrunk to a
+ * line glyph's size is a coloured dot.
+ */
+@Composable
+private fun TileGlyph(icon: ImageVector, art: androidx.compose.ui.graphics.ImageBitmap?) {
+    if (art != null) {
+        androidx.compose.foundation.Image(art, null, Modifier.size(17.dp).clip(RoundedCornerShape(4.dp)))
+    } else {
+        Icon(icon, null, tint = Filet.colors.accent, modifier = Modifier.size(13.dp))
     }
 }
 

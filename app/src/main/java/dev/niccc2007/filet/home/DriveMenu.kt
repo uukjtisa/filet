@@ -51,6 +51,13 @@ internal fun DriveMenu(
         )
         DlgBody {
             DlgPick(FiletIcons.Rename, "Rename") { onPick(DriveDialog.RENAME) }
+            // A folder lent by an app: the app itself, one tap away. The drives mock's hold menu.
+            v.app?.let { app ->
+                DlgPick(FiletIcons.Link, "Open in ${app.label}", detail = "The app this folder comes from.") {
+                    close()
+                    vm.openFolderApp(v)
+                }
+            }
             if (r?.needsGrant == true) {
                 DlgPick(FiletIcons.Key, "Allow writing", detail = "The system picker opens on this card. Once.") {
                     close()
@@ -90,6 +97,14 @@ internal fun DriveMenu(
             DlgPick(FiletIcons.DiskMap, "Disk map") {
                 close()
                 vm.openDiskMap(v.node.path)
+            }
+            // Last, apart from the rest: it is the one that cannot be taken back from here - the
+            // folder has to be picked again in the system picker to return.
+            v.app?.let { app ->
+                DlgPick(FiletIcons.Lock, "Remove access", detail = "Hands the permission back. ${app.label} keeps its files.") {
+                    close()
+                    vm.removeFolderAccess(v)
+                }
             }
         }
     }
@@ -184,6 +199,11 @@ internal object DriveDetails {
         if (total == null && free == null) add("Size" to if (v.remote) "Not answering" else "Unknown")
         fileSystem(v.node.path.scheme)?.let { add("File system" to it) }
         mountPoint(v)?.let { add(MOUNT_POINT to it) }
+        // A folder lent by an app: which app, and what Filet may do there.
+        v.app?.let { app ->
+            add("App" to app.label)
+            add("Access" to if (v.node.writable) "Read and write" else "Read only")
+        }
         // What the drive is remembered by: the same ID after it is pulled out and plugged back.
         v.removable?.let { r ->
             add("Volume ID" to r.uuid)

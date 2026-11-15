@@ -1048,6 +1048,9 @@ class FiletApp : Application() {
         val receiver = object : android.content.BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 dev.niccc2007.filet.handlers.OpenerCatalog.invalidate()
+                // Which app lends a folder, and its icon: an app installed, updated or removed
+                // since is asked again rather than drawn from before.
+                dev.niccc2007.filet.integrations.FolderApps.forget()
                 // The other thing a package change invalidates: whether the companion app is
                 // installed, which is cached for the life of the process precisely because it
                 // cannot change without one of these arriving.

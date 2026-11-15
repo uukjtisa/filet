@@ -159,6 +159,11 @@ data class VolumeInfo(
     val systemLabel: String = label,
     /** The SD card or USB drive behind this card, or null for any other volume. */
     val removable: RemovableDrive? = null,
+    /**
+     * The app a folder added through the system picker comes from - Termux, Google Drive - or
+     * null for anything else. See [dev.niccc2007.filet.integrations.FolderApps].
+     */
+    val app: dev.niccc2007.filet.integrations.FolderApps.App? = null,
 )
 
 /**
@@ -794,9 +799,16 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                     granted = if (byPath) null else grants[d.uuid],
                 )
             }
+            // A folder lent by an app is named by the app first: its own name is usually "home".
+            val app = if (node.path.scheme == dev.niccc2007.filet.vfs.provider.SafProvider.SCHEME) {
+                dev.niccc2007.filet.home.HomeArrange.authorityOf(node.path.toString())
+                    ?.let { dev.niccc2007.filet.integrations.FolderApps.of(graph.app, it) }
+            } else {
+                null
+            }
             val system = drive?.let {
                 dev.niccc2007.filet.data.DriveRegistry.displayName(dev.niccc2007.filet.storage.Drives.kindOf(it.kind), it.description)
-            } ?: volumeLabel(node)
+            } ?: app?.let { dev.niccc2007.filet.integrations.AppFolderNames.system(it.label, node.name) } ?: volumeLabel(node)
             VolumeInfo(
                 node = node,
                 label = dev.niccc2007.filet.data.DriveNames.resolve(
@@ -807,6 +819,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 remote = graph.vfs.isRemote(node.path),
                 systemLabel = system,
                 removable = removable,
+                app = app,
             )
         }
     }
@@ -3641,11 +3654,38 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun connectTermux(home: Boolean = true) {
         if (!termuxInstalled) { toast("Termux is not installed."); return }
         requestFolderGrant(dev.niccc2007.filet.integrations.Termux.pickerHint(home))
-        // Says WHERE, because that is the part he could not find: the picker opens on internal
+        // Says WHERE, because that is the part that is hard to find: the picker opens on internal
         // storage and Termux is behind the hamburger menu, not on the first screen. The
         // EXTRA_INITIAL_URI hint is sent and this phone's picker ignores it, so the
         // instruction is the thing that actually works.
         toast("Open the menu in the picker and choose Termux, then Use this folder.")
+    }
+
+    /** The app a folder card comes from, on its own screen: the card's Open in Termux. */
+    fun openFolderApp(v: VolumeInfo) {
+        val app = v.app ?: return
+        val intent = dev.niccc2007.filet.integrations.FolderApps.launch(graph.app, app)
+        if (intent == null) toast("${app.label} has no screen to open.")
+        else onIntent?.invoke(intent)
+    }
+
+    /**
+     * Hands back the access a folder card was granted, and takes the card off. The app keeps
+     * every file; Filet simply stops being allowed in, as if the folder had never been added.
+     */
+    fun removeFolderAccess(v: VolumeInfo) {
+        viewModelScope.launch {
+            val released = withContext(Dispatchers.IO) {
+                dev.niccc2007.filet.vfs.provider.SafProvider.release(graph.app, v.node.path)
+            }
+            if (!released) {
+                toast("Filet had no access there to hand back.")
+                return@launch
+            }
+            prefs.showCard(v.node.path.toString())
+            loadVolumes()
+            toast("Access to ${v.label} removed.")
+        }
     }
 
     /** Open Termux itself. */
@@ -3659,13 +3699,21 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun onFolderGranted(uri: android.net.Uri) {
         viewModelScope.launch {
             val roots = runCatching { graph.vfs.roots() }.getOrElse { emptyList() }
-            _state.update { st -> st.copy(volumes = volumeInfos(roots)) }
+            val volumes = volumeInfos(roots)
+            _state.update { st -> st.copy(volumes = volumes) }
             _tabs.value.forEach(::equip)
-            val added = roots.lastOrNull { it.path.scheme == "saf" }
+            // The folder just picked, found by its own tree address and named as its card is.
+            // Bug identified here: this took the LAST granted folder, which is the newest only by
+            // accident of the order the system lists grants in, and announced it by the folder's
+            // bare name - so picking Termux's home from Settings › Storage said "Added home".
+            val added = volumes.firstOrNull { v ->
+                v.node.path.scheme == dev.niccc2007.filet.vfs.provider.SafProvider.SCHEME &&
+                    runCatching { dev.niccc2007.filet.vfs.provider.SafProvider.parse(v.node.path).first }.getOrNull() == uri
+            } ?: volumes.lastOrNull { it.node.path.scheme == dev.niccc2007.filet.vfs.provider.SafProvider.SCHEME }
             if (added != null) {
                 // walking: a folder created here a moment ago; the pane is already its parent.
-                focusedPane()?.navigateTo(added.path)
-                toast("Added ${added.name}")
+                focusedPane()?.navigateTo(added.node.path)
+                toast("Added ${added.label}")
             }
         }
     }

@@ -454,5 +454,20 @@ class SafProvider(private val context: Context) : FileSystemProvider {
             if (segs.size < 2) throw VfsException.Unsupported("not a SAF path: $path")
             return Uri.parse(Uri.decode(segs[0])) to Uri.decode(segs[1])
         }
+
+        /**
+         * Hands back the access granted to the tree [path] lies in, so it is no longer a volume.
+         * Exactly the read and write that were granted: asking to release one that was not held
+         * is refused by the system. False when there was nothing to hand back.
+         */
+        fun release(context: Context, path: VPath): Boolean {
+            val tree = runCatching { parse(path).first }.getOrNull() ?: return false
+            val resolver = context.contentResolver
+            val held = resolver.persistedUriPermissions.firstOrNull { it.uri == tree } ?: return false
+            var flags = 0
+            if (held.isReadPermission) flags = flags or android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            if (held.isWritePermission) flags = flags or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            return runCatching { resolver.releasePersistableUriPermission(tree, flags) }.isSuccess
+        }
     }
 }

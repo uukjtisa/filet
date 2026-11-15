@@ -84,7 +84,10 @@ object Termux {
      * Matched on the authority, not on the path: the path inside a tree URI is percent-encoded
      * and differs between "home" and "files", but the authority is the app.
      */
-    fun isTermuxTree(uri: Uri): Boolean = uri.authority == AUTHORITY
+    fun isTermuxTree(uri: Uri): Boolean = isTermuxAuthority(uri.authority)
+
+    /** Whether a document provider's authority is Termux's own. */
+    fun isTermuxAuthority(authority: String?): Boolean = authority == AUTHORITY
 
     /**
      * A readable name for a granted Termux tree.
