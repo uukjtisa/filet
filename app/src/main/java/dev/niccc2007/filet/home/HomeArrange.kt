@@ -74,6 +74,16 @@ internal object HomeArrange {
     /** The Termux offer's id, in `hiddenCards` and in the drive order alike. */
     const val TERMUX_OFFER = "offer:termux"
 
+    /**
+     * The card of a drive plugged in that the phone cannot read. It has no folder, so no path to
+     * be its id; the volume ID stands in, after a prefix no VFS scheme can produce.
+     */
+    fun unreadableCard(uuid: String): String = UNREADABLE + uuid
+
+    fun isUnreadableCard(id: String): Boolean = id.startsWith(UNREADABLE)
+
+    private const val UNREADABLE = "drive:"
+
     /** The id of one app's folders drawn as one card. */
     fun appCardId(authority: String): String = "app:$authority"
 
@@ -88,6 +98,7 @@ internal object HomeArrange {
     fun kindOf(id: String, remote: Boolean): DriveKind {
         if (remote) return DriveKind.NETWORK
         if (id == TERMUX_OFFER || id.startsWith("app:")) return DriveKind.APPS
+        if (isUnreadableCard(id)) return DriveKind.PLUGGED
         val scheme = id.substringBefore("://", "")
         val path = id.substringAfter("://", "")
         return when {

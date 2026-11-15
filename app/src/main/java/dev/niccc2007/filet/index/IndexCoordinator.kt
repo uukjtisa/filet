@@ -84,7 +84,10 @@ class IndexCoordinator(
     var seedFromMedia: suspend (List<VPath>) -> Unit = {}
 
     /** [roots] reduced to what a crawl may walk. The single place every entry point narrows. */
-    private fun crawlable(roots: List<VPath>): List<VPath> = Indexable.volumes(roots, indexedShares())
+    private fun crawlable(roots: List<VPath>): List<VPath> = Indexable.volumes(roots, indexedShares(), unindexedUsb())
+
+    /** USB drives nobody asked to index. See `DriveRegistry.unindexedUsb`. */
+    private fun unindexedUsb(): Set<String> = dev.niccc2007.filet.data.DriveRegistry.unindexedUsb(prefs.knownDrives.value)
 
     /**
      * What an UNASKED pass may walk: the phone's own drives, never a share.
@@ -94,7 +97,7 @@ class IndexCoordinator(
      * crawled opted-in shares too, in the same queue as internal storage - a NAS read over
      * mobile data, on battery, on every launch.
      */
-    private fun unaskedLocal(roots: List<VPath>): List<VPath> = Indexable.volumes(roots)
+    private fun unaskedLocal(roots: List<VPath>): List<VPath> = Indexable.volumes(roots, unindexedLocal = unindexedUsb())
 
     /**
      * Called at startup. Cheap: it schedules, it does not crawl.
@@ -262,7 +265,7 @@ class IndexCoordinator(
      * in [IndexRun.endedBecause] rather than left as a mystery.
      */
     /** @param runAgain what Run again on the activity row does: Index now, from the person who asked. */
-    fun crawlFully(rootsIn: List<VPath>, runAgain: (() -> Unit)? = null) {
+    fun crawlFully(rootsIn: List<VPath>, runAgain: (() -> Unit)? = null, whole: Boolean = true) {
         if (running?.isActive == true) return
         // Narrowed here as well as by the caller. Index now is the one crawl the person asked
         // for, and "everything" still means local drives and opted-in shares - not `/data`.
@@ -324,7 +327,9 @@ class IndexCoordinator(
                         index.crawl(pass, budgetMs = 0) { seen, at ->
                             ledger.holdIfPaused(jobId)
                             _run.value = _run.value.copy(seen = seenBefore + seen, reading = at?.path ?: "")
-                            ledger.progress(jobId, crawlFraction(seenBefore + seen, known), IndexRun.readingLine(seenBefore + seen, at?.path))
+                            // Measured against what the index held only when this pass walks all
+                            // of it: one drive's files against every drive's would sit near 0%.
+                            ledger.progress(jobId, crawlFraction(seenBefore + seen, if (whole) known else 0), IndexRun.readingLine(seenBefore + seen, at?.path))
                         }.also { seenBefore += it.seenFiles }
                     }.reduceOrNull(::combine)
                 }

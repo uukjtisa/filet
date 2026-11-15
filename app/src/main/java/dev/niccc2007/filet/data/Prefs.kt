@@ -815,6 +815,19 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
     private val _driveNames = stored { DriveNames.parse(sp.getString(K_DRIVE_NAMES, null)) }
     val driveNames: StateFlow<Map<String, String>> = _driveNames.asStateFlow()
 
+    /**
+     * Every SD card and USB drive this phone has seen. See [DriveRegistry]. This phone's own
+     * record, never exported: another phone has seen other drives.
+     */
+    private val _knownDrives = stored { DriveRegistry.decode(sp.getString(K_KNOWN_DRIVES, null)) }
+    val knownDrives: StateFlow<List<DriveRegistry.Known>> = _knownDrives.asStateFlow()
+
+    fun setKnownDrives(v: List<DriveRegistry.Known>) {
+        if (v == _knownDrives.value) return
+        _knownDrives.value = v
+        sp.edit().putString(K_KNOWN_DRIVES, DriveRegistry.encode(v)).apply()
+    }
+
     /** Rename the drive [id]. A blank [name] gives it back its system name. */
     fun setDriveName(id: String, name: String) {
         val next = DriveNames.renamed(_driveNames.value, id, name)
@@ -2031,6 +2044,7 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         /** Superseded by [K_FEED_RULES]; read once, for a list stored before the markers. */
         const val K_FEED_PREFIXES = "home.feedPrefixes"
         const val K_FEED_RULES = "home.feedRules"
+        const val K_KNOWN_DRIVES = "drives.known"
         const val K_ALLMUSIC_DIRS = "play.allMusicFolders"
         const val K_ALLMUSIC_MIN = "play.allMusicMinMs"
         const val K_ALLMUSIC_MAX = "play.allMusicMaxMs"

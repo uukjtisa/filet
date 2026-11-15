@@ -29,6 +29,8 @@ class HomeArrangeTest {
         assertEquals(DriveKind.PHONE, HomeArrange.kindOf(internal, remote = false))
         assertEquals(DriveKind.PHONE, HomeArrange.kindOf(rootData, remote = false))
         assertEquals(DriveKind.PLUGGED, HomeArrange.kindOf(sd, remote = false))
+        // A drive the phone cannot read is still something plugged in, not part of the phone.
+        assertEquals(DriveKind.PLUGGED, HomeArrange.kindOf(HomeArrange.unreadableCard("9F00-0001"), remote = false))
         assertEquals(DriveKind.APPS, HomeArrange.kindOf(termuxHome, remote = false))
         assertEquals(DriveKind.APPS, HomeArrange.kindOf(HomeArrange.TERMUX_OFFER, remote = false))
         assertEquals(DriveKind.APPS, HomeArrange.kindOf(HomeArrange.appCardId("x"), remote = false))

@@ -8,6 +8,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.clickable
 import dev.niccc2007.filet.ui.highlightPulse
 import androidx.compose.ui.semantics.onLongClick
@@ -954,6 +955,17 @@ fun shortVolumeLabel(label: String): String {
     return trimmed
 }
 
+/** The colour a storage tile's caption is drawn in. */
+enum class TileTone {
+    PLAIN,
+
+    /** Amber: something is happening that the reader should not interrupt. */
+    WARN,
+
+    /** The accent, semibold: the caption is a thing to tap. */
+    ACT,
+}
+
 /** A storage tile: a heading, a big number, a caption and an optional capacity bar. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -984,14 +996,54 @@ fun StorageTile(
     dimmed: Boolean = false,
     /** The capacity bar's line. Off, the tile ends at its caption. */
     bar: Boolean = true,
+    /** An eject mark beside the label, for a drive that can be pulled out. Null draws none. */
+    onEject: (() -> Unit)? = null,
+    /** The dot amber and breathing: something is being written to it right now. */
+    busy: Boolean = false,
+    captionTone: TileTone = TileTone.PLAIN,
+    /** A tap on the caption, for a caption that is an action - "Allow writing". */
+    onCaption: (() -> Unit)? = null,
+    /** The big line in the quieter colour: a word, such as "Can't read", rather than a figure. */
+    valueSoft: Boolean = false,
+    /**
+     * Plays the arrival once: a drive just plugged in. 180ms ease-out from 92% and transparent,
+     * and a 2dp accent ring that fades over 1.2s after 0.6s - the drives mock's `arrive`. Under
+     * reduced motion the tile simply appears. [onArrived] says it has played.
+     */
+    arriving: Boolean = false,
+    onArrived: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
     val shape = RoundedCornerShape(13.dp)
     val outline = MaterialTheme.colorScheme.outline
+    val still = dev.niccc2007.filet.ui.reduceMotion()
+    val grow = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (arriving && !still) 0.92f else 1f) }
+    val show = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (arriving && !still) 0f else 1f) }
+    val ring = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(if (arriving && !still) 1f else 0f) }
+    androidx.compose.runtime.LaunchedEffect(arriving) {
+        if (!arriving) return@LaunchedEffect
+        if (!still) {
+            // CSS ease-out, which is what the mock's `.18s ease-out` is.
+            val easeOut = androidx.compose.animation.core.CubicBezierEasing(0f, 0f, 0.58f, 1f)
+            launch { grow.animateTo(1f, tween(180, easing = easeOut)) }
+            launch { show.animateTo(1f, tween(180, easing = easeOut)) }
+            kotlinx.coroutines.delay(600)
+            ring.animateTo(0f, tween(1200, easing = easeOut))
+        }
+        onArrived()
+    }
     Column(
         Modifier
             .fillMaxWidth()
+            .then(
+                if (grow.value != 1f || show.value != 1f) {
+                    Modifier.graphicsLayer { scaleX = grow.value; scaleY = grow.value; alpha = show.value }
+                } else {
+                    Modifier
+                },
+            )
+            .then(if (ring.value > 0f) Modifier.border(2.dp, colors.accent.copy(alpha = ring.value), shape) else Modifier)
             .then(if (dimmed) Modifier.alpha(0.38f) else Modifier)
             .clip(shape)
             .then(
@@ -1029,9 +1081,10 @@ fun StorageTile(
             } else {
                 Icon(icon, null, tint = colors.accent, modifier = Modifier.size(13.dp))
             }
-            if (live != null) {
+            if (live != null || busy) {
                 // Breathing while it is reachable, still when it is not. A blink says "being
-                // checked"; a steady dot on an unreachable drive says nothing at all.
+                // checked"; a steady dot on an unreachable drive says nothing at all. Amber while
+                // something is being written to it, so the dot is where "don't unplug" starts.
                 val pulse = rememberInfiniteTransition(label = "live")
                 val alpha by pulse.animateFloat(
                     initialValue = 1f,
@@ -1047,7 +1100,8 @@ fun StorageTile(
                         .size(6.dp)
                         .clip(CircleShape)
                         .background(
-                            if (live) colors.good.copy(alpha = alpha)
+                            if (busy) colors.warn.copy(alpha = alpha)
+                            else if (live == true) colors.good.copy(alpha = alpha)
                             // Neutral, not red. Nothing has failed - it is simply not answering,
                             // and red would read as a fault somebody has to go and fix.
                             else colors.fg3.copy(alpha = 0.55f),
@@ -1071,6 +1125,19 @@ fun StorageTile(
             // Hiding has to stay reachable from the tile. The card this replaced carried it,
             // and a card you can hide from one place and only restore from another is the
             // one-way door the restore link at the section heading exists to undo.
+            // The eject mark: only the system can unmount a drive, so this opens its settings.
+            if (onEject != null && !editing) {
+                Icon(
+                    dev.niccc2007.filet.browser.FiletIcons.Eject,
+                    "Safely remove",
+                    tint = colors.fg3,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(onClick = onEject)
+                        .padding(3.dp)
+                        .size(12.dp),
+                )
+            }
             if (onHide != null && !editing) {
                 Icon(
                     dev.niccc2007.filet.browser.FiletIcons.Close,
@@ -1090,11 +1157,24 @@ fun StorageTile(
             fontSize = 19.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = (-0.38).sp,
+            color = if (valueSoft) colors.fg2 else androidx.compose.ui.graphics.Color.Unspecified,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(3.dp))
-        Text(caption, fontSize = 10.5.sp, color = colors.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            caption,
+            fontSize = 10.5.sp,
+            color = when (captionTone) {
+                TileTone.PLAIN -> colors.fg3
+                TileTone.WARN -> colors.warn
+                TileTone.ACT -> colors.accent
+            },
+            fontWeight = if (captionTone == TileTone.ACT) FontWeight.SemiBold else null,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = if (onCaption != null && !editing) Modifier.clickable(onClick = onCaption) else Modifier,
+        )
         // The bar's space is ALWAYS taken, drawn or not.
         //
         // A tile with no figure used to omit it entirely and end up visibly shorter than the one

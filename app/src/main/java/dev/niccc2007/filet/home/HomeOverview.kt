@@ -218,11 +218,17 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
             it.systemLabel.startsWith("Termux")
     }
     // The Locker's card goes last, under the drives, and is hidden the way any card is.
-    val natural = live.map { it.node.path.toString() } +
+    // A drive plugged in that the phone cannot read has no folder, so no volume - it still gets a
+    // card saying so, rather than looking exactly like nothing being plugged in.
+    val pluggedDrives by vm.drives.plugged.collectAsState()
+    val unreadable = pluggedDrives.filter { it.path == null }
+    val arriving by vm.drives.arrived.collectAsState()
+    val jobs by vm.ledger.jobs.collectAsState()
+    val natural = live.map { it.node.path.toString() } + unreadable.map { HomeArrange.unreadableCard(it.uuid) } +
         (if (termuxOffered) listOf(TERMUX_CARD) else emptyList()) + LOCKER_CARD
     val hiddenCount = natural.count { it in hiddenCards }
 
-    val storageTiles: @Composable (Boolean) -> Unit = { edit ->
+    val storageTiles: @Composable (Boolean) -> Unit = { edit -> Column(Modifier.fillMaxWidth()) {
         // Every drive while editing, the hidden ones faint, so a hidden drive can be put back
         // from where it was taken off.
         val arranged = HomeArrange.ordered(natural, driveOrder)
@@ -271,7 +277,27 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                     onHide = { t.ids.forEach(vm.prefs::hideCard) },
                     onPick = { path -> appOpen = null; pane.jumpTo(path) },
                 )
-                is HomeArrange.Drive -> if (t.id == LOCKER_CARD) {
+                is HomeArrange.Drive -> if (HomeArrange.isUnreadableCard(t.id)) {
+                    val d = unreadable.firstOrNull { HomeArrange.unreadableCard(it.uuid) == t.id }
+                    val kind = if (d?.kind == dev.niccc2007.filet.vfs.provider.Removables.Kind.USB) {
+                        dev.niccc2007.filet.data.DriveRegistry.Kind.USB
+                    } else {
+                        dev.niccc2007.filet.data.DriveRegistry.Kind.SD
+                    }
+                    StorageTile(
+                        icon = if (kind == dev.niccc2007.filet.data.DriveRegistry.Kind.USB) FiletIcons.Usb else FiletIcons.Sd,
+                        kind = dev.niccc2007.filet.data.DriveRegistry.displayName(kind, d?.description.orEmpty()),
+                        value = "Can't read",
+                        valueSoft = true,
+                        caption = "Its format isn't one this phone reads",
+                        onHide = { vm.prefs.hideCard(t.id) },
+                        editing = e,
+                        dimmed = slot.hidden,
+                        bar = bars,
+                        onEject = vm::safelyRemove,
+                        onClick = { vm.toast("This phone can't read that drive's format. A computer can copy its files off.") },
+                    )
+                } else if (t.id == LOCKER_CARD) {
                     dev.niccc2007.filet.locker.LockerTile(
                         vm = vm,
                         editing = e,
@@ -300,12 +326,20 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                         bar = bars,
                         onHide = { vm.prefs.hideCard(v.node.path.toString()) },
                         onLongClick = { driveFor = v.node.path to DriveDialog.MENU },
-                        onClick = { pane.jumpTo(v.node.path) },
+                        onClick = { vm.openDrive(v) },
+                        writing = DriveLineText.writingTo(jobs, v),
+                        arriving = v.removable?.uuid?.let { it in arriving } == true,
+                        onArrived = { v.removable?.uuid?.let { vm.drives.shown(setOf(it)) } },
+                        onEject = if (v.removable != null) vm::safelyRemove else null,
+                        onAllowWriting = { vm.allowWriting(v) },
                     )
                 }
             }
         }
-    }
+        // What is not plugged in, and a USB device the phone is not reading. Not while editing,
+        // where only the cards are being arranged.
+        if (!edit) DriveLines(vm)
+    } }
 
     // ── the cards, each drawn the same in both states ────────────────────────────────────────
 
@@ -652,18 +686,47 @@ private fun VolumeTile(
     onHide: () -> Unit,
     onLongClick: () -> Unit,
     onClick: () -> Unit,
+    /** Jobs writing to this drive right now. Any at all makes the dot amber. */
+    writing: List<dev.niccc2007.filet.jobs.Job> = emptyList(),
+    arriving: Boolean = false,
+    onArrived: () -> Unit = {},
+    onEject: (() -> Unit)? = null,
+    onAllowWriting: () -> Unit = {},
 ) {
     val used = if (v.free != null && v.total != null && v.total > 0) (v.total - v.free).coerceAtLeast(0) else null
     val net = v.remote
     val reachable = v.free != null && v.total != null
+    val r = v.removable
+    val busy = writing.isNotEmpty()
+    val asksWriting = !busy && r?.needsGrant == true
     StorageTile(
-        icon = if (net) FiletIcons.Wifi else FiletIcons.Storage,
+        icon = when {
+            net -> FiletIcons.Wifi
+            r?.kind == dev.niccc2007.filet.data.DriveRegistry.Kind.USB -> FiletIcons.Usb
+            r != null -> FiletIcons.Sd
+            else -> FiletIcons.Storage
+        },
         live = if (net) reachable else null,
+        busy = busy,
+        onEject = onEject,
+        arriving = arriving,
+        onArrived = onArrived,
+        captionTone = when {
+            busy -> dev.niccc2007.filet.ui.tabs.TileTone.WARN
+            asksWriting -> dev.niccc2007.filet.ui.tabs.TileTone.ACT
+            else -> dev.niccc2007.filet.ui.tabs.TileTone.PLAIN
+        },
+        onCaption = if (asksWriting) onAllowWriting else null,
         kind = v.label,
         // Free is the number being looked for, with the denominator underneath. "12 GB free"
         // alone says nothing about whether that is an empty card or a full phone.
         value = v.free?.let { humanSize(it) } ?: if (net) "Offline" else "—",
         caption = when {
+            // While something is being written to it, the one thing worth saying about a drive
+            // that can be pulled out.
+            busy -> DriveLineText.writingCaption(writing)
+            // Android 8 to 10: readable by path, writable only through a granted tree.
+            asksWriting -> "Read only · Allow writing"
             used != null && v.total != null -> "free of ${humanSize(v.total)} · ${humanSize(used)} used"
             v.free != null -> "free"
             // A network drive that does not answer is not a drive with an unreadable size - it is

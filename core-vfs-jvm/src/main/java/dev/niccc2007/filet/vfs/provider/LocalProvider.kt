@@ -43,6 +43,12 @@ class LocalProvider(
      * a default that pins the file to that platform.
      */
     private val stats: Stats = Stats.NONE,
+    /**
+     * Roots that can come and go while the process lives - an SD card or a USB drive plugged in
+     * after launch. Asked on every [roots] call, so a drive plugged in later is a drive without a
+     * restart. [rootDirs] stays the fixed list a desktop and a test hand over.
+     */
+    private val liveRoots: () -> List<File> = { emptyList() },
 ) : FileSystemProvider {
 
     override val capabilities: Set<Capability> = setOf(
@@ -54,7 +60,7 @@ class LocalProvider(
         if (path.scheme == scheme) path.path else null
 
     override suspend fun roots(): List<VNode> = withContext(Dispatchers.IO) {
-        rootDirs.filter { it.exists() }.map { it.toNode() }
+        (rootDirs + liveRoots()).distinctBy { it.absolutePath }.filter { it.exists() }.map { it.toNode() }
     }
 
     /**

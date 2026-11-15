@@ -31,6 +31,9 @@ object AndroidStorage {
         // the emulator this list also contains an app-private path under /data - and walking
         // four levels up from that lands on "/data", which is not a volume and shows up as a
         // junk drive on the Home screen.
+        // Removable volumes by what the system says is mounted, which covers a USB drive: the
+        // per-volume app folders below are only made for volumes the system offers apps.
+        Removables.plugged(context).mapNotNull { it.path }.forEach { out += File(it) }
         context.getExternalFilesDirs(null).filterNotNull().forEach { appDir ->
             var v: File? = appDir
             repeat(4) { v = v?.parentFile }
@@ -52,7 +55,13 @@ object AndroidStorage {
         return path.trim('/').split('/').size in 2..3
     }
 
-    fun localProvider(context: Context) = LocalProvider(roots(context), stats = OsStats)
+    /**
+     * The phone's local provider. Its roots are asked again on every listing of drives, so an SD
+     * card or USB drive plugged in after launch appears without a restart, and one pulled out
+     * goes. See [Removables].
+     */
+    fun localProvider(context: Context) =
+        LocalProvider(emptyList(), stats = OsStats, liveRoots = { roots(context) })
 
     /**
      * The content URI that signals "shared storage changed".

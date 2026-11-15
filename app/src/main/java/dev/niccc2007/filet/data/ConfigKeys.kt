@@ -251,6 +251,7 @@ object ConfigKeys {
      */
     val EXCLUDED: Map<String, String> = SettingsTransfer.NEVER + mapOf(
         "folderVisits" to "which folders were worked in on this phone",
+        "drives.known" to "the SD cards and USB drives this phone has seen; another phone has seen others",
         "home.hint.shown" to "first-run help this phone has already seen",
         "store_migrated" to "a one-time move of this install's folders",
         "settings.hintsSeen" to "first-run help this phone has already seen",

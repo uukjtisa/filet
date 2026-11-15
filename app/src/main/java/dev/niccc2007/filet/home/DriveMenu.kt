@@ -41,15 +41,42 @@ internal fun DriveMenu(
     onPick: (DriveDialog?) -> Unit,
 ) {
     val close = { onPick(null) }
+    val r = v.removable
     Dlg(onDismiss = close) {
         DlgHeader(
-            icon = if (v.remote) FiletIcons.Wifi else FiletIcons.Storage,
+            icon = driveIcon(v),
             title = v.label,
             sub = DriveDetails.subtitle(v),
             onClose = close,
         )
         DlgBody {
             DlgPick(FiletIcons.Rename, "Rename") { onPick(DriveDialog.RENAME) }
+            if (r?.needsGrant == true) {
+                DlgPick(FiletIcons.Key, "Allow writing", detail = "The system picker opens on this card. Once.") {
+                    close()
+                    vm.allowWriting(v)
+                }
+            }
+            if (r != null) {
+                DlgPick(FiletIcons.Eject, "Safely remove", detail = "Android's storage settings, where it can be ejected.") {
+                    close()
+                    vm.safelyRemove()
+                }
+            }
+            // A USB drive is indexed only when asked; an SD card always is. See Indexable.
+            if (r?.kind == dev.niccc2007.filet.data.DriveRegistry.Kind.USB) {
+                if (vm.driveIndexed(v)) {
+                    DlgPick(FiletIcons.Search, "Stop indexing this drive", detail = "Its files leave search. Nothing on the drive changes.") {
+                        close()
+                        vm.setDriveIndexed(v, false)
+                    }
+                } else {
+                    DlgPick(FiletIcons.Search, "Index this drive", detail = "So search finds its files, plugged in or not.") {
+                        close()
+                        vm.setDriveIndexed(v, true)
+                    }
+                }
+            }
             DlgPick(FiletIcons.EyeOff, "Hide") {
                 close()
                 vm.prefs.hideCard(v.node.path.toString())
@@ -99,7 +126,7 @@ internal fun RenameDriveDialog(vm: BrowserViewModel, v: VolumeInfo, onClose: () 
 internal fun DriveDetailsDialog(v: VolumeInfo, onClose: () -> Unit) {
     Dlg(onDismiss = onClose) {
         DlgHeader(
-            icon = if (v.remote) FiletIcons.Wifi else FiletIcons.Storage,
+            icon = driveIcon(v),
             title = v.label,
             onClose = onClose,
         )
@@ -113,6 +140,14 @@ internal fun DriveDetailsDialog(v: VolumeInfo, onClose: () -> Unit) {
             DlgBtn("Close", onClick = onClose)
         }
     }
+}
+
+/** The glyph a drive's card and its dialogues share. */
+internal fun driveIcon(v: VolumeInfo) = when {
+    v.remote -> FiletIcons.Wifi
+    v.removable?.kind == dev.niccc2007.filet.data.DriveRegistry.Kind.USB -> FiletIcons.Usb
+    v.removable != null -> FiletIcons.Sd
+    else -> FiletIcons.Storage
 }
 
 /** Long enough for any real name; short enough that a tile heading is still a heading. */
@@ -149,6 +184,11 @@ internal object DriveDetails {
         if (total == null && free == null) add("Size" to if (v.remote) "Not answering" else "Unknown")
         fileSystem(v.node.path.scheme)?.let { add("File system" to it) }
         mountPoint(v)?.let { add(MOUNT_POINT to it) }
+        // What the drive is remembered by: the same ID after it is pulled out and plugged back.
+        v.removable?.let { r ->
+            add("Volume ID" to r.uuid)
+            if (r.needsGrant) add("Writing" to "Not allowed yet")
+        }
     }
 
     /** The protocol, for a share. Null for anything whose file system is not in its address. */

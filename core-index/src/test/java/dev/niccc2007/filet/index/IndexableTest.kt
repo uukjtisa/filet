@@ -101,4 +101,14 @@ class IndexableTest {
         )
         assertEquals(3, Indexable.volumes(everything).size)
     }
+
+    @Test
+    fun `a USB drive is left alone until asked, and an SD card beside it is not`() {
+        val usb = VPath.of("local", "/storage/9F00-0001")
+        val sd = VPath.of("local", "/storage/1A2B-3C4D")
+        val skipped = setOf("/storage/9F00-0001")
+        assertEquals(listOf(sd), Indexable.volumes(listOf(sd, usb), unindexedLocal = skipped))
+        // Asked for, it is crawled like any local volume.
+        assertEquals(listOf(sd, usb), Indexable.volumes(listOf(sd, usb), unindexedLocal = emptySet()))
+    }
 }

@@ -157,6 +157,23 @@ data class VolumeInfo(
      * still Termux.
      */
     val systemLabel: String = label,
+    /** The SD card or USB drive behind this card, or null for any other volume. */
+    val removable: RemovableDrive? = null,
+)
+
+/**
+ * What a storage card knows about the SD card or USB drive behind it.
+ *
+ * @param needsGrant Android 8 to 10, with no folder granted for it yet: it can be read, and Allow
+ *   writing is offered, because before Android 11 an app cannot write to it by its path.
+ * @param granted on those phones, the granted tree the card opens instead once there is one, so
+ *   copy, move and delete work there - and no second card is drawn for the same drive.
+ */
+data class RemovableDrive(
+    val uuid: String,
+    val kind: dev.niccc2007.filet.data.DriveRegistry.Kind,
+    val needsGrant: Boolean = false,
+    val granted: dev.niccc2007.filet.vfs.VPath? = null,
 )
 
 /** The APK toolchain's actions, for the one function that says whether each can run. */
@@ -746,12 +763,33 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * figure in place; only `roots()` no longer listing a volume takes it off the screen, which
      * is the one signal that actually means it is gone.
      */
-    private suspend fun volumeInfos(roots: List<VNode>): List<VolumeInfo> {
+    private suspend fun volumeInfos(rootsIn: List<VNode>): List<VolumeInfo> {
         val known = _state.value.volumes.associateBy { it.node.path }
         val names = prefs.driveNames.value
+        // A tree granted for the whole of an SD card is that card's write access on Android 8 to
+        // 10, not a drive of its own: it is folded into the card rather than drawn beside it.
+        val plugged = graph.drives.plugged.value
+        val grants = rootsIn.mapNotNull { r ->
+            dev.niccc2007.filet.vfs.provider.Removables.grantedVolumeOf(r.path)?.let { it to r.path }
+        }.toMap()
+        val roots = rootsIn.filterNot { r ->
+            dev.niccc2007.filet.vfs.provider.Removables.grantedVolumeOf(r.path)?.let { id -> plugged.any { it.uuid == id } } == true
+        }
         return roots.map { node ->
             val before = known[node.path]
-            val system = volumeLabel(node)
+            val drive = if (node.path.scheme == "local") graph.drives.at(node.path.path) else null
+            val removable = drive?.let { d ->
+                val byPath = dev.niccc2007.filet.vfs.provider.Removables.writesByPath
+                RemovableDrive(
+                    uuid = d.uuid,
+                    kind = dev.niccc2007.filet.storage.Drives.kindOf(d.kind),
+                    needsGrant = !byPath && grants[d.uuid] == null,
+                    granted = if (byPath) null else grants[d.uuid],
+                )
+            }
+            val system = drive?.let {
+                dev.niccc2007.filet.data.DriveRegistry.displayName(dev.niccc2007.filet.storage.Drives.kindOf(it.kind), it.description)
+            } ?: volumeLabel(node)
             VolumeInfo(
                 node = node,
                 label = dev.niccc2007.filet.data.DriveNames.resolve(
@@ -761,7 +799,78 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 total = before?.total,
                 remote = graph.vfs.isRemote(node.path),
                 systemLabel = system,
+                removable = removable,
             )
+        }
+    }
+
+    // ── SD cards and USB drives ──
+    //
+    // Detection, the registry and the mount broadcast live on the graph - see storage/Drives.kt.
+    // What lives here is what the cards and their menus ask for.
+
+    val drives: dev.niccc2007.filet.storage.Drives get() = graph.drives
+
+    /** Redraw the cards whenever a drive is plugged in, pulled out or changes state. */
+    private fun watchDrives() {
+        viewModelScope.launch { graph.drives.changed.collect { loadVolumes() } }
+    }
+
+    /** Where a drive's card goes: its granted tree on an older phone that has one, else the drive. */
+    fun openDrive(v: VolumeInfo) {
+        focusedPane()?.jumpTo(v.removable?.granted ?: v.node.path)
+    }
+
+    /** Android 8 to 10: the system picker, opened on this card, to grant writing once. */
+    fun allowWriting(v: VolumeInfo) {
+        val r = v.removable ?: return
+        requestFolderGrant(dev.niccc2007.filet.vfs.provider.Removables.pickerStart(r.uuid))
+    }
+
+    /** Android's storage settings, where a drive is ejected. Only the system can unmount one. */
+    fun safelyRemove() {
+        onIntent?.invoke(dev.niccc2007.filet.vfs.provider.Removables.ejectIntent())
+    }
+
+    /** Index a USB drive's files, or stop - an SD card is always indexed. */
+    fun setDriveIndexed(v: VolumeInfo, on: Boolean) {
+        val r = v.removable ?: return
+        graph.drives.setIndexed(r.uuid, on)
+        if (on) {
+            // Through Index now, the one door the unbounded crawl has (tools/check-crawl.mjs):
+            // this is a person asking, for one drive.
+            reindexNow(only = listOf(v.node.path), label = v.label)
+        } else {
+            viewModelScope.launch {
+                withContext(Dispatchers.IO) { runCatching { graph.index.forget(v.node.path) } }
+                toast("${v.label} is no longer indexed.")
+            }
+        }
+    }
+
+    /** Whether a USB drive's files are indexed. Always true for an SD card. */
+    fun driveIndexed(v: VolumeInfo): Boolean {
+        val r = v.removable ?: return true
+        if (r.kind == dev.niccc2007.filet.data.DriveRegistry.Kind.SD) return true
+        return prefs.knownDrives.value.any { it.uuid == r.uuid && it.indexed }
+    }
+
+    /** How many of a drive's files the index holds, for the not-plugged-in sheet. */
+    suspend fun filesIndexed(path: String): Int = withContext(Dispatchers.IO) {
+        var n = 0
+        runCatching {
+            graph.index.subtree(VPath.of("local", path)) { _, _, isDir, _, _, _ -> if (!isDir) n++ }
+        }
+        n
+    }
+
+    /** A drive that is not plugged in, gone for good: the registry entry and its index. */
+    fun forgetDrive(k: dev.niccc2007.filet.data.DriveRegistry.Known) {
+        graph.drives.forget(k.uuid)
+        prefs.setDriveName(dev.niccc2007.filet.data.DriveNames.idOf(VPath.of("local", k.path)), "")
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { runCatching { graph.index.forget(VPath.of("local", k.path)) } }
+            toast("Forgot ${dev.niccc2007.filet.data.DriveRegistry.displayName(k.kind, k.name)}.")
         }
     }
 
@@ -5235,6 +5344,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         keepClipboard()
         followVisibleFolders()
         lockOnLeave()
+        watchDrives()
     }
 
     /**
@@ -5301,19 +5411,28 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * crawl restarts at the roots - so on a full phone it re-indexed the same first slice on
      * every press and the rest was never reached.
      */
-    fun reindexNow() {
+    /**
+     * @param only one drive's worth, from its hold menu, rather than every volume. Its row then
+     *   shows no fraction, because the files the index held before belong to the other drives.
+     * @param label that drive's name, for the line saying it has started.
+     */
+    fun reindexNow(only: List<VPath>? = null, label: String? = null) {
         // Narrowed BEFORE the empty check, so a phone holding only shares and root mounts is told
         // there is nothing to index rather than shown a run that silently does nothing.
         val roots = dev.niccc2007.filet.index.Indexable.volumes(
-            _state.value.volumes.map { it.node.path },
+            only ?: _state.value.volumes.map { it.node.path },
             graph.indexCoordinator.indexedShares(),
+            dev.niccc2007.filet.data.DriveRegistry.unindexedUsb(prefs.knownDrives.value),
         )
         if (roots.isEmpty()) { toast("No volume to index."); return }
-        if (graph.indexCoordinator.isCrawling()) { toast("Already indexing."); return }
+        if (graph.indexCoordinator.isCrawling()) {
+            toast(if (label != null) "Already indexing. $label joins the next pass." else "Already indexing.")
+            return
+        }
         // Run again on the activity row is this function again: a person asking, which is the
         // only way the unbounded crawl may start (tools/check-crawl.mjs).
-        graph.indexCoordinator.crawlFully(roots, runAgain = { reindexNow() })
-        openActivity()
+        graph.indexCoordinator.crawlFully(roots, runAgain = { reindexNow(only, label) }, whole = only == null)
+        if (label != null) toast("Indexing $label.") else openActivity()
     }
 
     fun stopIndexing() {

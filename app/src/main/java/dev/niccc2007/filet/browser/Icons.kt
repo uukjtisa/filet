@@ -140,6 +140,16 @@ object FiletIcons {
     val SplitV = stroke("panesv", "M3 5h18v14H3z", "M3 12h18")
     val Storage = stroke("storage", "M3 4h18v7H3z", "M3 13h18v7H3z", "M7 7.5h.01M7 16.5h.01")
     val Sd = stroke("sd", "M6 3h9l4 4v14H6z", "M10 3v4M13 3v4M16 4v3")
+
+    /** A USB drive: the plug's trident. From the drives mock's icon table. */
+    val Usb = stroke(
+        "usb",
+        "M12 3v14", "M9.5 5.5 12 3l2.5 2.5", "M10 19a2 2 0 1 0 4 0a2 2 0 1 0 -4 0",
+        "M12 12 8 10V8", "M12 14l4-2V9", "M7 7h2v1H7z", "M15 8h2v1h-2z",
+    )
+
+    /** Safely remove. From the drives mock's icon table. */
+    val Eject = stroke("eject", "M12 5 5 13h14z", "M5 18h14")
     val Clock = stroke("clock", "M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0", "M12 7.5V12l3 2")
     val Star = stroke("star", "m12 4 2.4 5 5.6.8-4 3.9 1 5.5-5-2.7-5 2.7 1-5.5-4-3.9 5.6-.8z")
     val StarFilled = filled("starfilled", "m12 4 2.4 5 5.6.8-4 3.9 1 5.5-5-2.7-5 2.7 1-5.5-4-3.9 5.6-.8z")

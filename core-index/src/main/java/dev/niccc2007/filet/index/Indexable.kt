@@ -33,15 +33,26 @@ object Indexable {
      * @param indexedShares the `volume.uuid` of each share that has been opted in by hand -
      *   `smb:///n1a2b3c`. Empty by default, which is the state every share is in until somebody
      *   turns it on, and the reason a network drive costs nothing unless it was asked for.
+     * @param unindexedLocal mount paths of local volumes to leave alone: a USB drive nobody asked
+     *   to index. An SD card is never in it.
      */
-    fun volumes(roots: List<VPath>, indexedShares: Set<String> = emptySet()): List<VPath> =
-        roots.filter { allowed(it, indexedShares) }
+    fun volumes(
+        roots: List<VPath>,
+        indexedShares: Set<String> = emptySet(),
+        unindexedLocal: Set<String> = emptySet(),
+    ): List<VPath> = roots.filter { allowed(it, indexedShares, unindexedLocal) }
 
     /** Whether one volume may be crawled, and the whole decision in one `when`. */
-    fun allowed(root: VPath, indexedShares: Set<String> = emptySet()): Boolean = when {
+    fun allowed(
+        root: VPath,
+        indexedShares: Set<String> = emptySet(),
+        unindexedLocal: Set<String> = emptySet(),
+    ): Boolean = when {
         // The ordinary case, and the only one that is free: a local filesystem with inotify on
-        // its hot directories and a `stat` that costs microseconds.
-        root.scheme == "local" -> true
+        // its hot directories and a `stat` that costs microseconds - unless it is a USB drive,
+        // which is indexed only when asked. A drive plugged in for one copy and pulled out again
+        // would otherwise leave its whole tree in the index.
+        root.scheme == "local" -> root.path.trimEnd('/') !in unindexedLocal
 
         // A granted tree is on a local volume too. It has no inotify (SEARCH.md §4.6), which
         // costs it freshness rather than battery.

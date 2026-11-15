@@ -58,4 +58,16 @@ class DriveDetailsTest {
         assertEquals(listOf("Name", "Size", "File system"), rows.map { it.first })
         assertEquals("Not answering", rows.toMap()["Size"])
     }
+
+    @Test
+    fun `an SD card or USB drive shows the ID it is remembered by`() {
+        val card = vol(VPath("local", "/storage/1A2B-3C4D")).copy(
+            removable = dev.niccc2007.filet.browser.RemovableDrive("1A2B-3C4D", dev.niccc2007.filet.data.DriveRegistry.Kind.SD),
+        )
+        assertEquals("1A2B-3C4D", DriveDetails.rows(card, bytes).toMap()["Volume ID"])
+        assertNull(DriveDetails.rows(card, bytes).toMap()["Writing"])
+        val old = card.copy(removable = card.removable!!.copy(needsGrant = true))
+        assertEquals("Not allowed yet", DriveDetails.rows(old, bytes).toMap()["Writing"])
+        assertNull(DriveDetails.rows(vol(VPath("local", "/storage/emulated/0")), bytes).toMap()["Volume ID"])
+    }
 }

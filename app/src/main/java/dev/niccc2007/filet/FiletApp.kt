@@ -162,6 +162,10 @@ class FiletGraph(context: Context) {
     )
 
     val vfs = Vfs(providers.toList())
+
+    /** SD cards and USB drives: plugged in now, remembered, and watched. See [dev.niccc2007.filet.storage.Drives]. */
+    val drives = dev.niccc2007.filet.storage.Drives(app, prefs, scope)
+
     val ops = FileOperations(vfs, ledger, relaunch = { block -> scope.launch { block() } }) { touched ->
         // Everything Filet writes or removes is announced to the media index. Without it a
         // file is on the disk and invisible to every gallery on the phone.
