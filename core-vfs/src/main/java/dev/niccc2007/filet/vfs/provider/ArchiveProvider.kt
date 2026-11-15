@@ -85,30 +85,10 @@ class ArchiveProvider(
 
     override suspend fun list(path: VPath): List<VNode> = withContext(Dispatchers.IO) {
         val (archive, inner) = split(path)
-        val members = membersOf(archive, path)
+        val tree = treeOf(archive, path)
         val writable = Capability.WRITE in capabilitiesFor(path)
-        val prefix = if (inner.isEmpty()) "" else inner.trimEnd('/') + "/"
-        val direct = LinkedHashMap<String, VNode>()
-        for (m in members) {
-            if (!m.name.startsWith(prefix) || m.name == prefix.trimEnd('/')) continue
-            val rest = m.name.substring(prefix.length).trimEnd('/')
-            if (rest.isEmpty()) continue
-            val cut = rest.indexOf('/')
-            if (cut < 0) {
-                if (m.isDir) {
-                    direct.getOrPut(rest) { VNode(path.child(rest), true, -1L, m.mtime, writable = writable) }
-                } else {
-                    direct[rest] = VNode(path.child(rest), false, m.size, m.mtime, writable = writable)
-                }
-            } else {
-                // An implicit directory. Most zips omit explicit folder entries and most tars
-                // include them, so a listing built only from real entries loses whole subtrees
-                // on one format and duplicates them on the other.
-                val dir = rest.substring(0, cut)
-                direct.getOrPut(dir) { VNode(path.child(dir), true, -1L, m.mtime, writable = writable) }
-            }
-        }
-        direct.values.toList()
+        // Implicit folders, and which entry wins a name, are [ArchiveTree]'s rules.
+        tree.children(inner).map { c -> VNode(path.child(c.name), c.isDir, c.size, c.mtime, writable = writable) }
     }
 
     override suspend fun stat(path: VPath): VNode? = withContext(Dispatchers.IO) {
@@ -118,13 +98,12 @@ class ArchiveProvider(
             if (!f.isFile) recover(f)
             return@withContext if (f.isFile) VNode(path, true, -1L, f.lastModified()) else null
         }
-        val members = membersOf(archive, path)
+        val tree = treeOf(archive, path)
         val writable = Capability.WRITE in capabilitiesFor(path)
-        members.firstOrNull { it.name == inner }?.let {
+        tree.member(inner)?.let {
             return@withContext VNode(path, it.isDir, it.size, it.mtime, writable = writable)
         }
-        val prefix = "$inner/"
-        if (members.any { it.name.startsWith(prefix) }) {
+        if (tree.isFolder(inner)) {
             VNode(path, isDir = true, size = -1L, mtime = 0L, writable = writable)
         } else null
     }
@@ -269,6 +248,7 @@ class ArchiveProvider(
             throw VfsException.Io(path, e)
         } finally {
             Refusals.forget(host)
+            listings.forget(host)
         }
     }
 
@@ -324,6 +304,7 @@ class ArchiveProvider(
     private fun recover(host: File) {
         val dir = host.absoluteFile.parentFile ?: return
         runCatching { ArchiveSwap.recover(ArchiveSwap.filesIn(dir), host.name) }
+        listings.forget(host)
     }
 
     /**
@@ -371,12 +352,20 @@ class ArchiveProvider(
     }
 
     /** What is in the archive, as this coroutine's batch will leave it when there is one. */
-    private suspend fun membersOf(archive: String, path: VPath): List<Member> {
-        pending(archive)?.let { return it.members() }
-        return runCatching { readerOf(archive, path).members() }.getOrElse {
+    private suspend fun membersOf(archive: String, path: VPath): List<Member> = treeOf(archive, path).members
+
+    /**
+     * The archive as a tree: as this coroutine's batch will leave it when there is one, or else
+     * as read - once per version of the file, see [ArchiveListings].
+     */
+    private suspend fun treeOf(archive: String, path: VPath): ArchiveTree {
+        pending(archive)?.let { return ArchiveTree(it.members()) }
+        return runCatching { listings.of(File(archive)) { readerOf(archive, path).members() } }.getOrElse {
             if (it is VfsException) throw it else throw VfsException.Io(path, it)
         }
     }
+
+    private val listings = ArchiveListings()
 
     /**
      * The refusals that need a look inside the archive or beside it - encrypted, split into
