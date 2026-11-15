@@ -4507,6 +4507,34 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     /**
+     * Write [text] to [target]: a new file, or over the one there through the same written-beside
+     * path a picture takes. [onSaved] is given the file as it now stands, for the editor to go on
+     * with.
+     */
+    fun saveTextAs(target: VPath, text: String, onSaved: (VNode) -> Unit) {
+        viewModelScope.launch {
+            val id = ledger.start("Saving", target.name, kind = dev.niccc2007.filet.jobs.JobKind.SAVE)
+            runCatching {
+                val bytes = text.toByteArray(Charsets.UTF_8)
+                writePicture(target, bytes) { back ->
+                    require(back.size == bytes.size) { "The saved copy is " + back.size + " bytes, not " + bytes.size + "." }
+                }
+                kotlinx.coroutines.withContext(Dispatchers.IO) { graph.vfs.stat(target) }
+                    ?: error("The new file could not be found after writing it.")
+            }.onSuccess { made ->
+                ledger.finish(id)
+                ended(dev.niccc2007.filet.jobs.JobKind.SAVE, false, "Saved as " + target.name)
+                refreshPanes()
+                onSaved(made)
+            }.onFailure {
+                val why = dev.niccc2007.filet.ops.FileOperations.readable(it)
+                ledger.fail(id, why)
+                toast("Could not save: $why")
+            }
+        }
+    }
+
+    /**
      * Ask where to save a new picture made from [node], and under what name.
      *
      * The picker's save mode (`PickSpec.Want.SAVE`): it opens in [node]'s folder offering the

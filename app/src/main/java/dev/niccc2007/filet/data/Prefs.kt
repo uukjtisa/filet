@@ -1585,6 +1585,12 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
 
     fun setViewerGrey(v: Boolean) { _viewerGrey.value = v; sp.edit().putBoolean(K_VIEWER_GREY, v).apply() }
 
+    /** Whether the text editor wraps long lines. One for every file: each opens as the last was left. */
+    private val _editorWrap = stored { sp.getBoolean(K_EDITOR_WRAP, false) }
+    val editorWrap: StateFlow<Boolean> = _editorWrap.asStateFlow()
+
+    fun setEditorWrap(v: Boolean) { _editorWrap.value = v; sp.edit().putBoolean(K_EDITOR_WRAP, v).apply() }
+
     // ── reading: how every document is read. See `ReadingSettings`. ──
     private val _reading = stored {
         dev.niccc2007.filet.docs.ReadingSettings(
@@ -2074,6 +2080,7 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         const val K_DRAWER_WIDTH = "drawer.width"
         const val K_RAIL_WIDTH = "rail.width"
         const val K_VIEWER_GREY = "viewer.grey"
+        const val K_EDITOR_WRAP = "editor.wrap"
         const val K_READ_SIZE = "read.size"
         const val K_READ_COLUMN = "read.column"
         const val K_READ_TABLES = "read.tables"

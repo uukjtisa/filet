@@ -106,6 +106,7 @@ object ConfigKeys {
         look("drawer.width", ConfigType.INT),
         look("rail.width", ConfigType.INT),
         look("viewer.grey", ConfigType.BOOL),
+        look("editor.wrap", ConfigType.BOOL),
         // How documents read: the same for every document, so they travel with the look.
         look("read.size", ConfigType.INT),
         look("read.column", ConfigType.BOOL),

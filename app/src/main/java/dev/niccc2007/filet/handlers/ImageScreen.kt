@@ -1624,48 +1624,6 @@ private fun PictureActions(
     }
 }
 
-/**
- * Save, as a choice: over the original, or as a new file chosen in the picker.
- *
- * Two choices rather than one button, because they are different promises. Replacing is the
- * common wish - the photo was simply the wrong way up, or it is the crop that was wanted - and a
- * new file keeps the original exactly as it was. The editor used to have only "Save a copy",
- * beside the original under a name it chose, so a photo could neither be corrected in place nor
- * saved anywhere else.
- *
- * One menu for the turn and the edit, so the two saves cannot drift into two shapes.
- *
- * @param replaceDetail what replacing would do, or null where it is not offered: a folder that
- *   cannot be written to, or a format Android cannot write back. A new file can still be saved
- *   anywhere else, so the menu always opens.
- */
-@Composable
-private fun SaveChoice(
-    label: String,
-    enabled: Boolean,
-    replaceDetail: String?,
-    newDetail: String,
-    onReplace: () -> Unit,
-    onNew: () -> Unit,
-) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        ViewerAction(FiletIcons.Save, label, enabled = enabled) { open = true }
-        dev.niccc2007.filet.ui.dialogs.PopMenu(expanded = open, onDismiss = { open = false }, below = 44.dp) {
-            if (replaceDetail != null) {
-                dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Save, "Replace original", detail = replaceDetail) {
-                    open = false
-                    onReplace()
-                }
-            }
-            dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Copy, "Save as new", detail = newDetail) {
-                open = false
-                onNew()
-            }
-        }
-    }
-}
-
 /** The "Save as new" line: where it goes, and what it will be when that is not what it was. */
 private fun newFileNote(extension: String, makes: String): String {
     val ext = extension.lowercase()

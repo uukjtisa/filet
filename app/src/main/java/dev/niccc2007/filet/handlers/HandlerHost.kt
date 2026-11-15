@@ -321,6 +321,8 @@ fun ViewerAction(
      * switch, it is a guess.
      */
     active: Boolean = false,
+    /** Drawn dim like a disabled one, and still pressed: a button with nothing to do yet that still opens. */
+    quiet: Boolean = false,
     onClick: () -> Unit,
 ) {
     val colors = Filet.colors
@@ -328,7 +330,7 @@ fun ViewerAction(
         icon, label,
         // Brighter than the old fg2: these sit over a photograph now, not over a panel.
         tint = when {
-            !enabled -> colors.fg3.copy(alpha = 0.4f)
+            !enabled || quiet -> colors.fg3.copy(alpha = 0.4f)
             active -> colors.accent
             else -> MaterialTheme.colorScheme.onSurface
         },

@@ -17,6 +17,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,6 +57,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Above this, a text editor is the wrong tool and the hex viewer is the right one. */
+/** Up to this many characters, a text the same length as the file is compared to it outright. */
+private const val SAME_TEXT_CHARS = 1_000_000
+
 internal const val MAX_EDIT_BYTES = 12L * 1024 * 1024
 
 /**
@@ -95,10 +99,18 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
     var error by remember(node.path) { mutableStateOf<String?>(null) }
     var text by remember(node.path) { mutableStateOf("") }
     var dirty by remember(node.path) { mutableStateOf(false) }
-    var wrap by remember { mutableStateOf(false) }
+    // Remembered across files and restarts: a setting of how text is read, not of this file.
+    val wrap by vm.prefs.editorWrap.collectAsState()
     var findOpen by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var editor by remember(node.path) { mutableStateOf<CodeEditor?>(null) }
+    // The editor's own history, not sora's: the buttons, Save and the question about leaving
+    // all read this one model, so they cannot disagree. See EditHistory.
+    val history = remember(node.path) { EditHistory(TextEdit::merge) }
+    var canUndo by remember(node.path) { mutableStateOf(false) }
+    var canRedo by remember(node.path) { mutableStateOf(false) }
+    // Set while an undo or redo writes into the editor, so its own change is not recorded.
+    val applying = remember(node.path) { booleanArrayOf(false) }
 
     val markdown = remember(node.path) {
         dev.niccc2007.filet.docs.DocFormat.of(node.extension) == dev.niccc2007.filet.docs.DocFormat.MARKDOWN
@@ -167,11 +179,72 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
         rendering = true
     }
 
+    /**
+     * Unsaved means the text differs from the file. Standing on the saved step answers that;
+     * off it, a small file of the same length is compared outright, so typing a letter and
+     * deleting it leaves Save dim as well.
+     */
+    fun sync() {
+        canUndo = history.canUndo
+        canRedo = history.canRedo
+        val now = editor?.text
+        dirty = !history.isClean && !(now != null && now.length == text.length && text.length <= SAME_TEXT_CHARS && now.toString() == text)
+    }
+
+    /** Put [e] into the editor and leave the caret after it. */
+    fun put(ed: CodeEditor, e: TextEdit) {
+        val t = ed.text
+        val from = t.indexer.getCharPosition(e.start)
+        val to = t.indexer.getCharPosition(e.start + e.removed.length)
+        applying[0] = true
+        try {
+            t.replace(from.line, from.column, to.line, to.column, e.inserted)
+        } finally {
+            applying[0] = false
+        }
+        val end = t.indexer.getCharPosition(e.start + e.inserted.length)
+        ed.setSelection(end.line, end.column)
+    }
+
+    fun step(back: Boolean) {
+        val ed = editor ?: return
+        val e = (if (back) history.undo() else history.redo()) ?: return
+        put(ed, if (back) e.inverse() else e)
+        sync()
+    }
+
+    /** Over the file; the history marks where the file now stands. */
+    fun saveOver(after: () -> Unit = {}) {
+        val ed = editor ?: return
+        val body = ed.text.toString()
+        vm.saveText(node, body) {
+            text = body
+            history.markClean()
+            sync()
+            after()
+        }
+    }
+
+    /** Into a new file chosen with Filet's picker, which then becomes the file being edited. */
+    fun saveAsNew() {
+        val ed = editor ?: return
+        val body = ed.text.toString()
+        val page = rendering
+        vm.chooseSaveAs(node, node.extension) { target ->
+            vm.saveTextAs(target, body) { made ->
+                vm.switchViewer(made, if (page) ViewModes.handlerFor(ViewMode.PAGE, made.extension) else HandlerId.TEXT)
+            }
+        }
+    }
+
+    // Replace is offered only where the file can be written; Save as new always is.
+    val blocked = remember(node.path) { node.path.parent?.let { vm.writeBlockReason(it) } }
+
     val guard = rememberLeaveGuardTo(
         dirty = dirty,
         name = node.name,
         leave = vm::closeHandler,
-        save = { after -> editor?.let { ed -> vm.saveText(node, ed.text.toString()) { dirty = false; after() } } },
+        save = { after -> saveOver(after) },
     )
     val leave = remember(guard) { { guard(null) } }
     // Page and Code are this screen; Hex is the hex viewer, which reads the file as saved, so
@@ -230,12 +303,20 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
                 // Find, Undo, Redo and Save are the bar; Wrap is a setting of the view and lives
                 // with the modes under the three-dot menu, so it is not here a second time.
                 ViewerAction(FiletIcons.Search, "Find", enabled = !loading) { findOpen = !findOpen }
-                ViewerAction(FiletIcons.Back, "Undo", enabled = editor?.canUndo() == true) { editor?.undo() }
-                ViewerAction(FiletIcons.Refresh, "Redo", enabled = editor?.canRedo() == true) { editor?.redo() }
+                ViewerAction(FiletIcons.Undo, "Undo", enabled = canUndo) { step(back = true) }
+                ViewerAction(FiletIcons.Redo, "Redo", enabled = canRedo) { step(back = false) }
             }
-            ViewerAction(FiletIcons.Check, "Save", enabled = dirty && !loading) {
-                editor?.let { ed -> vm.saveText(node, ed.text.toString()) { dirty = false } }
-            }
+            // Lit only while the text differs from the file, and still pressed when it does not:
+            // Save as new is there for a clean file too.
+            SaveChoice(
+                label = "Save",
+                enabled = !loading && error == null,
+                quiet = !dirty,
+                replaceDetail = if (dirty && blocked == null) "Over " + node.name else null,
+                newDetail = "Choose a folder and a name; this file stays as it is",
+                onReplace = { saveOver() },
+                onNew = { saveAsNew() },
+            )
             // The file's modes, then wrapping as a switch that says which way it is. A switch
             // leaves the panel open: its own state is the answer. A file that could not be read
             // as text keeps only the way to its bytes.
@@ -252,8 +333,8 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
                         if (!rendering && error == null) {
                             dev.niccc2007.filet.ui.dialogs.PanelRule()
                             dev.niccc2007.filet.ui.dialogs.PanelRow("Wrap lines", Filet.colors.accent, on = wrap) {
-                                wrap = !wrap
-                                editor?.setWordwrap(wrap)
+                                vm.prefs.setEditorWrap(!wrap)
+                                editor?.setWordwrap(!wrap)
                             }
                         }
                     }
@@ -346,8 +427,19 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
                             setText(text)
                             // The dirty flag drives the save button, so it must come from the
                             // editor's own content events, not from a guess about focus.
-                            subscribeAlways(io.github.rosemoe.sora.event.ContentChangeEvent::class.java) {
-                                dirty = true
+                            // Filet's history in place of sora's, so there is one of each answer.
+                            isUndoEnabled = false
+                            subscribeAlways(io.github.rosemoe.sora.event.ContentChangeEvent::class.java) { e ->
+                                if (applying[0]) return@subscribeAlways
+                                val change = when (e.action) {
+                                    io.github.rosemoe.sora.event.ContentChangeEvent.ACTION_INSERT ->
+                                        TextEdit(e.changeStart.index, "", e.changedText.toString())
+                                    io.github.rosemoe.sora.event.ContentChangeEvent.ACTION_DELETE ->
+                                        TextEdit(e.changeStart.index, e.changedText.toString(), "")
+                                    else -> null
+                                }
+                                if (change != null) history.push(change, android.os.SystemClock.uptimeMillis())
+                                sync()
                             }
                             // Kept as it moves, so the spot can be saved after the editor is gone.
                             // From where the scroll ENDS: a fling announces itself once, at its

@@ -401,6 +401,8 @@ object FiletIcons {
     val Stretch = stroke("stretch", "M4 9V4h5", "M20 15v5h-5", "m4 4 6 6", "m20 20-6-6")
     val Save = stroke("save", "M5 4h11l3 3v13H5z", "M8.5 4v5h6.5V4", "M8.5 13h7v7h-7z")
     val Undo = stroke("undo", "M4.5 10h10a5 5 0 0 1 0 10H8.5", "m4.5 10 4-4M4.5 10l4 4")
+    /** [Undo] turned round, so the two read as a pair. */
+    val Redo = stroke("redo", "M19.5 10h-10a5 5 0 0 0 0 10h6", "m19.5 10-4-4M19.5 10l-4 4")
 
     /** "This opens": the mark after a heading that leads somewhere. */
     val Chevron = stroke("chevron", "m9.5 5.5 6.5 6.5-6.5 6.5", width = 1.9f)

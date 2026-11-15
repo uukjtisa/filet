@@ -58,10 +58,14 @@ internal fun ViewerMore(
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
-        ViewerBarButton(FiletIcons.More, "More") {
+        // A top bar's buttons are bare icons, so the three dots are one of them, the same size
+        // and on the same line. Only a bottom bar, where every button carries its caption,
+        // gives it one.
+        val show = {
             open = true
             onOpen(true)
         }
+        if (side == PanelSide.ABOVE) ViewerBarButton(FiletIcons.More, "More", onClick = show) else ViewerAction(FiletIcons.More, "More", active = open, onClick = show)
         if (open) {
             val close = {
                 open = false
