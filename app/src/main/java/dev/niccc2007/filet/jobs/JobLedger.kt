@@ -211,6 +211,9 @@ class JobLedger(
     /** Where a finished job leads, filled in once the work knows. */
     fun leadsTo(id: Long, path: String) = patch(id, save = true) { it.copy(opened = path) }
 
+    /** Rename a row: "Sending Photo.jpg" while it goes, "Photo.jpg downloaded" once it has. */
+    fun retitle(id: Long, title: String) = patch(id) { it.copy(title = title) }
+
     /** How to do the work again, given once the work knows what it would be. */
     fun runAgainWith(id: Long, block: () -> Unit) {
         again[id] = block

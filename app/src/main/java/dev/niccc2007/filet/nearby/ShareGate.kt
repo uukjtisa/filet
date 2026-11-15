@@ -48,4 +48,14 @@ enum class ShareGate {
  *   zip's.
  * @param ended the one-time entry this download stopped sharing, if it was one.
  */
-data class Served(val name: String, val who: String, val ended: Boolean)
+data class Served(val name: String, val who: String, val ended: Boolean, val row: Sending? = null)
+
+/**
+ * A whole download as it goes, for its Activity row: [moved] as bytes leave, [dropped] when the
+ * other side stops part way (a player that only wanted the start), [done] when it is all there.
+ */
+interface Sending {
+    fun moved(sent: Long)
+    fun dropped()
+    fun done(title: String, detail: String)
+}

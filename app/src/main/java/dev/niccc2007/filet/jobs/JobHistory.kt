@@ -154,14 +154,22 @@ object JobText {
 
     fun rate(bytesPerSec: Double): String = bytes(bytesPerSec.toLong()) + "/s"
 
+    /**
+     * Time left in real numbers: "12 s left", "3 min 20 s left", "1 h 5 min left". A part that is
+     * zero is left out ("3 min left"), seconds stop counting once it is hours, and it never says
+     * 0 s: a job still running has at least a second to go.
+     */
     fun eta(ms: Long): String {
-        val s = ms / 1000
-        return when {
-            s < 10 -> "a few seconds left"
-            s < 60 -> "about ${((s + 4) / 5) * 5} s left"
-            s < 3600 -> "about ${(s + 30) / 60} min left"
-            else -> "about ${s / 3600} h ${(s % 3600) / 60} min left"
+        val s = ((ms.coerceAtLeast(0) + 999) / 1000).coerceAtLeast(1)
+        val h = s / 3600
+        val m = (s % 3600) / 60
+        val sec = s % 60
+        val parts = when {
+            h > 0 -> listOf("$h h", if (m > 0) "$m min" else null)
+            m > 0 -> listOf("$m min", if (sec > 0) "$sec s" else null)
+            else -> listOf("$sec s")
         }
+        return parts.filterNotNull().joinToString(" ") + " left"
     }
 
     /** "12 of 40 files", or null when the count is not known. */
@@ -180,7 +188,7 @@ object JobText {
 
     /**
      * What a running job's bar says under it: how far, how much, how long. "42% · 1.2 GB of
-     * 3.4 GB · about 2 min left", each part only when it is known - so a job that cannot measure
+     * 3.4 GB · 2 min 10 s left", each part only when it is known - so a job that cannot measure
      * itself says what it can (a count, an amount so far) and never a made-up percentage. Null
      * when there is nothing at all to say, and for a job that is not running.
      */

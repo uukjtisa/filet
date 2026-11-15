@@ -133,6 +133,11 @@ class ExtractOperations(
         // entries written so far and reports them rather than rolling back - a half-extracted
         // folder somebody can see and delete beats a silent undo of work they watched happen.
         val total = plan.items.count { !it.isDir }
+        // Bytes to write, when the archive lists every size: progress then follows the bytes,
+        // so one large file in a list of small ones no longer jumps the bar at its end.
+        val writes = plan.items.filter { !it.isDir && it.collides != CollisionChoice.SKIP }
+        val totalBytes = if (writes.isNotEmpty() && writes.all { it.size >= 0 }) writes.sumOf { it.size } else -1L
+        var bytes = 0L
         val id = ledger.start(
             "Extracting", label,
             cancel = currentCoroutineContext()[kotlinx.coroutines.Job],
@@ -169,7 +174,17 @@ class ExtractOperations(
                 // why there is no second decision here.
                 if (item.collides == CollisionChoice.SKIP) continue
 
-                ledger.progress(id, if (total > 0) done.toFloat() / total else null, item.path, doneItems = done + failed.size)
+                fun show() = ledger.progress(
+                    id,
+                    if (totalBytes > 0) (bytes.toFloat() / totalBytes).coerceAtMost(1f)
+                    else if (total > 0) done.toFloat() / total else null,
+                    item.path,
+                    doneItems = done + failed.size,
+                    doneBytes = bytes,
+                    totalBytes = totalBytes.takeIf { it > 0 },
+                )
+                show()
+                val startBytes = bytes
                 runCatching {
                     // The parent may be implicit: plenty of archives store no folder records.
                     dest.parent?.let { if (vfs.stat(it) == null) vfs.create(it, isDir = true) }
@@ -177,10 +192,21 @@ class ExtractOperations(
                     // Off the caller's thread - see the note in `Vfs.copyNode`.
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         vfs.openRead(from).use { input ->
-                            vfs.openWrite(dest).use { output -> input.copyTo(output, 64 * 1024) }
+                            vfs.openWrite(dest).use { output ->
+                                val buf = ByteArray(64 * 1024)
+                                var shown = bytes
+                                while (true) {
+                                    val n = input.read(buf)
+                                    if (n < 0) break
+                                    output.write(buf, 0, n)
+                                    bytes += n
+                                    if (bytes - shown >= SHOW_EVERY) { shown = bytes; show() }
+                                }
+                            }
                         }
                     }
                 }.onSuccess { done++; written += dest }
+                    .onFailure { bytes = startBytes + item.size.coerceAtLeast(0) }
                     .onFailure {
                         failed += dest to FileOperations.readable(it)
                         ActionGate.fromFailure(FileAction.CREATE_FILE, into, it, vfs.isRemote(into))
@@ -217,5 +243,8 @@ class ExtractOperations(
     private companion object {
         const val SCAN_CAP = 20_000
         const val SCAN_DEPTH = 12
+
+        /** How many bytes between two progress reports inside one file. */
+        const val SHOW_EVERY = 512L * 1024
     }
 }

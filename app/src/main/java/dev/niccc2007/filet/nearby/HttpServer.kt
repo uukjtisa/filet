@@ -100,6 +100,8 @@ class NearbyHttpServer(
     val grants: AccessGrants = AccessGrants(dev.niccc2007.filet.data.Prefs(context)),
     /** A download finished: for Activity and the download message. Called on a server thread. */
     private val onServed: (Served) -> Unit = {},
+    /** A large whole download starting: its row, followed as it goes. Null for no row. */
+    private val onSending: (name: String, who: String, total: Long) -> Sending? = { _, _, _ -> null },
     /** The push inbox's paths, answered here while sharing is on. See [PushInbox.handle]. */
     private val onInbox: (path: String, body: JSONObject, address: String) -> JSONObject? = { _, _, _ -> null },
 ) {
@@ -666,6 +668,11 @@ class NearbyHttpServer(
 
         writeStatus(out, if (partial) 206 else 200, guessMime(node.name), extra)
 
+        val who = ShareGate.who(headers["x-filet-name"], address)
+        val shown = shared.governing(token)?.takeIf { it.path == path }?.alias ?: node.name
+        // A large download from the start gets its row as it begins, with how far it has got;
+        // a small one, and a player asking for a stretch in the middle, only when it ends.
+        val row = if (start == 0L && total >= TRACK_FROM) onSending(shown, who, total) else null
         var sent = 0L
         runCatching {
             runBlocking { vfs.openRead(path) }.use { input ->
@@ -684,6 +691,7 @@ class NearbyHttpServer(
                     out.write(buf, 0, n)
                     remaining -= n
                     sent += n
+                    row?.moved(sent)
                 }
             }
             out.flush()
@@ -694,9 +702,10 @@ class NearbyHttpServer(
         // Counted once, for a download that went out whole from its start: a player seeking
         // through a video asks for many ranges, and none of those is a download.
         if (start == 0L && (total <= 0 || sent >= total)) {
-            val name = shared.governing(token)?.takeIf { it.path == path }?.alias ?: node.name
             val e = shared.served(token)
-            onServed(Served(name, ShareGate.who(headers["x-filet-name"], address), e?.oneTime == true))
+            onServed(Served(shown, who, e?.oneTime == true, row))
+        } else {
+            row?.dropped()
         }
     }
 
@@ -954,6 +963,9 @@ class NearbyHttpServer(
 
     companion object {
         const val DEFAULT_PORT = 8321
+
+        /** From this size a download from the start gets its Activity row as it begins. */
+        const val TRACK_FROM = 4L * 1024 * 1024
         private const val COOKIE = "filet_session"
         private const val MAX_ATTEMPTS = 5
 

@@ -166,14 +166,27 @@ class FileOperations(
         runCatching { vfs.list(parent).forEach { taken += it.name } }
 
         var done = 0
+        // Bytes of the copies already finished; each copy counts from zero.
+        var before = 0L
         for (src in items) {
             ledger.checkpoint(id)
-            ledger.progress(id, done / items.size.toFloat(), src.name, doneItems = done + failed.size)
+            ledger.progress(id, (done + failed.size) / items.size.toFloat(), src.name, doneItems = done + failed.size, doneBytes = before)
             val name = dev.niccc2007.filet.browser.DuplicateName.of(src.name, taken)
+            var moved = 0L
             runCatching {
-                withContext(Dispatchers.IO) { vfs.copy(src, parent, name) }
+                withContext(Dispatchers.IO) {
+                    vfs.copy(src, parent, name) { p ->
+                        moved = p.done
+                        val within = if (p.total > 0) p.done.toFloat() / p.total else 0f
+                        ledger.progress(
+                            id, (done + failed.size + within) / items.size, p.currentName,
+                            doneItems = done + failed.size, doneBytes = before + p.done,
+                        )
+                    }
+                }
             }.onSuccess {
                 done++
+                before += moved
                 taken += name
                 made += parent.child(name)
             }.onFailure {

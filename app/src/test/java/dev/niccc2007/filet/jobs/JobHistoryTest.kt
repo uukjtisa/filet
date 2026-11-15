@@ -74,11 +74,23 @@ class JobHistoryTest {
     }
 
     @Test
+    fun `time left never says 0 s, and rounds a part second up`() {
+        assertEquals("1 s left", JobText.eta(0))
+        assertEquals("1 s left", JobText.eta(-50))
+        assertEquals("1 s left", JobText.eta(300))
+        assertEquals("1 min left", JobText.eta(59_500))
+        assertEquals("1 min 1 s left", JobText.eta(60_001))
+    }
+
+    @Test
     fun `the words`() {
-        assertEquals("a few seconds left", JobText.eta(4_000))
-        assertEquals("about 25 s left", JobText.eta(22_000))
-        assertEquals("about 3 min left", JobText.eta(170_000))
-        assertEquals("about 1 h 5 min left", JobText.eta(3_900_000))
+        assertEquals("4 s left", JobText.eta(4_000))
+        assertEquals("12 s left", JobText.eta(12_000))
+        assertEquals("3 min 20 s left", JobText.eta(200_000))
+        assertEquals("3 min left", JobText.eta(180_000))
+        assertEquals("1 h 5 min left", JobText.eta(3_900_000))
+        assertEquals("1 h 5 min left", JobText.eta(3_930_000))
+        assertEquals("2 h left", JobText.eta(7_200_000))
         assertEquals("1.5 MB", JobText.bytes(1_572_864))
         assertEquals("512 B", JobText.bytes(512))
         val j = Job(1, "Copying", doneItems = 12, totalItems = 40, doneBytes = 1_073_741_824, totalBytes = 3_221_225_472)

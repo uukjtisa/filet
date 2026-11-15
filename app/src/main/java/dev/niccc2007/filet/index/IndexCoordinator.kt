@@ -228,11 +228,12 @@ class IndexCoordinator(
                 // The path as well as the count: a number moving in thousands looks exactly
                 // like a number that has stopped, and that is what made a long crawl read as
                 // a hung app.
+                val known = index.status.value.files
                 index.crawl(roots, budgetMs) { seen, at ->
                     // Reported between folders and outside any transaction, so a pause held here
                     // holds no lock anything else is waiting on.
                     ledger.holdIfPaused(jobId)
-                    ledger.progress(jobId, null, IndexRun.readingLine(seen, at?.path))
+                    ledger.progress(jobId, crawlFraction(seen, known), IndexRun.readingLine(seen, at?.path))
                 }
             }
             result.onSuccess { r ->
@@ -323,7 +324,7 @@ class IndexCoordinator(
                         index.crawl(pass, budgetMs = 0) { seen, at ->
                             ledger.holdIfPaused(jobId)
                             _run.value = _run.value.copy(seen = seenBefore + seen, reading = at?.path ?: "")
-                            ledger.progress(jobId, null, IndexRun.readingLine(seenBefore + seen, at?.path))
+                            ledger.progress(jobId, crawlFraction(seenBefore + seen, known), IndexRun.readingLine(seenBefore + seen, at?.path))
                         }.also { seenBefore += it.seenFiles }
                     }.reduceOrNull(::combine)
                 }
@@ -631,3 +632,12 @@ class MediaChangeJobService : JobService() {
         return false
     }
 }
+
+/**
+ * How far a crawl is, for its Activity row: the files seen against the files the index held
+ * before it began. A first build has nothing to measure against and says no fraction, rather
+ * than a made-up one. Held under 99% because a phone can have gained files since: the row says
+ * done when the crawl is, not when the count is reached.
+ */
+internal fun crawlFraction(seen: Long, known: Long): Float? =
+    if (known <= 0) null else (seen.toFloat() / known).coerceIn(0f, 0.99f)

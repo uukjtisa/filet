@@ -50,6 +50,7 @@ class NearbyManager(
         deviceName = { PairedPeers.selfName(context) },
         onEvent = { _state.value = it },
         onServed = { s -> logServed(s) },
+        onSending = { name, who, total -> sending(name, who, total) },
         onInbox = { p, b, a -> inbox.handle(p, b, a) },
     )
 
@@ -138,6 +139,8 @@ class NearbyManager(
      * anything else.
      */
     private fun logServed(s: Served) {
+        val detail = if (s.ended) "${s.who} · one-time link, now stopped" else s.who
+        s.row?.let { it.done("${s.name} downloaded", detail); return }
         val l = ledger ?: return
         val id = l.start(
             title = "${s.name} downloaded",
@@ -145,7 +148,31 @@ class NearbyManager(
             source = "Nearby",
             kind = dev.niccc2007.filet.jobs.JobKind.SERVED,
         )
-        l.finish(id, if (s.ended) "${s.who} · one-time link, now stopped" else s.who)
+        l.finish(id, detail)
+    }
+
+    /** A large download's row while it goes; it becomes the finished row, or leaves if dropped. */
+    private fun sending(name: String, who: String, total: Long): Sending? {
+        val l = ledger ?: return null
+        val id = l.start(
+            title = "Sending $name",
+            subtitle = who,
+            source = "Nearby",
+            kind = dev.niccc2007.filet.jobs.JobKind.SERVED,
+        )
+        return object : Sending {
+            private var shown = 0L
+            override fun moved(sent: Long) {
+                if (sent - shown < SHOW_EVERY && sent < total) return
+                shown = sent
+                l.progress(id, (sent.toFloat() / total).coerceIn(0f, 1f), who, doneBytes = sent, totalBytes = total)
+            }
+            override fun dropped() = l.remove(id)
+            override fun done(title: String, detail: String) {
+                l.retitle(id, title)
+                l.finish(id, detail)
+            }
+        }
     }
 
     /** A step of the share itself (started, stopped, paused), logged with no message. */
@@ -553,6 +580,8 @@ class NearbyManager(
     }
 
     private companion object {
+        /** Bytes between two progress reports on a download's row. */
+        const val SHOW_EVERY = 512L * 1024
         const val KEY_PIN = "nearby.pin"
         const val KEY_UPLOADS = "nearby.uploads"
         const val KEY_IDLE = "nearby.idle"
