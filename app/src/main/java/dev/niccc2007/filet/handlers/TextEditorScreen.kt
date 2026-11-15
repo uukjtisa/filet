@@ -227,11 +227,9 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
             if (rendering) {
                 if (markdown) MarkdownPageActions(page)
             } else {
+                // Find, Undo, Redo and Save are the bar; Wrap is a setting of the view and lives
+                // with the modes under the three-dot menu, so it is not here a second time.
                 ViewerAction(FiletIcons.Search, "Find", enabled = !loading) { findOpen = !findOpen }
-                ViewerAction(FiletIcons.Rows, if (wrap) "No wrap" else "Wrap", enabled = !loading) {
-                    wrap = !wrap
-                    editor?.setWordwrap(wrap)
-                }
                 ViewerAction(FiletIcons.Back, "Undo", enabled = editor?.canUndo() == true) { editor?.undo() }
                 ViewerAction(FiletIcons.Refresh, "Redo", enabled = editor?.canRedo() == true) { editor?.redo() }
             }
