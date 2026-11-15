@@ -1,19 +1,24 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   What Android 12 and later may copy off the phone.
+
+   The Locker is kept out of the cloud backup. Its files are sealed, so a copy would not be
+   readable, but they would still leave the phone, which the Locker promises they do not - and a
+   backup is limited to 25 MB per app, so a Locker past that size would stop Android backing up
+   Filet at all, settings included. See locker/LockerVault.kt.
+
+   A phone-to-phone transfer carries it across: the copy goes straight to the new phone, the files
+   stay sealed, and the same password opens them there - the key is derived from the password and
+   a salt kept beside it, nothing tied to this phone. The one exception is the fingerprint's sealed
+   copy of the key: the keystore key that opens it never leaves this phone, so on the new one it
+   would offer a fingerprint that cannot work. It stays behind, and fingerprint unlock is turned on
+   again there.
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="file" path="locker/" />
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="file" path="locker/bio" />
     </device-transfer>
-    -->
 </data-extraction-rules>

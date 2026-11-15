@@ -1,13 +1,14 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   What Android 11 and earlier may back up. Android 12 and later read data_extraction_rules.xml
+   instead, which sends the Locker across in a phone-to-phone transfer and keeps it out of the
+   cloud backup.
+
+   This older format cannot make that split: one list governs both, and the only way to admit a
+   folder to a transfer alone is an include list, which would then have to name everything else
+   Filet keeps. So here the Locker stays out of both - its files would otherwise leave the phone
+   and, past 25 MB, stop Filet being backed up at all.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="file" path="locker/" />
 </full-backup-content>
