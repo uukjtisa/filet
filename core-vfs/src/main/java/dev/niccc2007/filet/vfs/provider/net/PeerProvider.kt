@@ -32,12 +32,19 @@ data class PeerEndpoint(
  * rows, same drag and drop. Sending a file is then just *moving* it, and the whole feature
  * falls out of the VFS that already exists (NEARBY.md, opening thesis).
  *
- * Addressing: `peer:///<peerUuid>/<token>`. The second segment is a **token**, never a path -
- * the remote server has no path-shaped endpoint at all, so nothing outside the other device's
- * shared set is expressible from here.
+ * Addressing: `peer:///<peerUuid>/<name>/<name>...` - the names the other phone lists, so a row,
+ * a viewer's title, a file's kind and the name a copy lands under are all the real name. The
+ * other phone serves by **token** and has no path-shaped endpoint at all, so each name is turned
+ * back into the token it was listed with ([tokens]) before anything is fetched; nothing outside
+ * the other device's shared set is expressible from here.
  *
- * The shared set is flat, which is why this provider lists only one level. That is the remote
- * side's design, not a limitation here: a shared set is a set, not a tree.
+ * Bug identified here: rows used to be addressed by token, `peer:///<uuid>/5fb6e7b70d...`, with
+ * the name kept in a side table for the row renderer to look up. Nothing looked it up once the
+ * rows were redrawn, so another phone's files listed, opened and copied under their tokens - and
+ * with no extension, a file's kind was guessed from its bytes or not at all.
+ *
+ * A shared folder opens like any folder: its listing is asked for with the folder's own token,
+ * which the other phone minted when it listed the folder.
  */
 class PeerProvider(
     private val endpoints: () -> List<PeerEndpoint>,
@@ -48,6 +55,9 @@ class PeerProvider(
 
     override val capabilities: Set<Capability> = setOf(Capability.READ, Capability.WRITE)
 
+    /** The token each listed row path was listed with, by the path's string. */
+    private val tokens = HashMap<String, String>()
+
     override suspend fun roots(): List<VNode> = withContext(Dispatchers.IO) {
         endpoints().map { e ->
             VNode(VPath.of(SCHEME, "/${e.uuid}"), isDir = true, size = -1L, mtime = 0L, writable = false)
@@ -57,21 +67,30 @@ class PeerProvider(
     override suspend fun list(path: VPath): List<VNode> = withContext(Dispatchers.IO) {
         val segs = path.segments
         if (segs.isEmpty()) return@withContext roots()
-        // Only the peer root is a directory: the shared set is flat by design.
-        if (segs.size > 1) throw VfsException.NotADirectory(path)
         val e = endpointFor(segs[0], path)
-        val json = get(e, "/api/list", path)
-        val obj = runCatching { JSONObject(json) }.getOrElse { throw VfsException.Io(path, it) }
+        val dir = if (segs.size > 1) tokenOf(path) else null
+        val target = if (dir == null) "/api/list" else "/api/list?d=${URLEncoder.encode(dir, "UTF-8")}"
+        val obj = runCatching { JSONObject(get(e, target, path)) }.getOrElse { throw VfsException.Io(path, it) }
+        if (obj.has("error")) throw VfsException.NotFound(path)
+        // A Filet from before shared folders could be opened answers any listing with its share's
+        // top level, and gives itself away by not naming the folder it was asked for.
+        if (dir != null && obj.optString("at") != dir) {
+            throw VfsException.Unsupported("Update Filet on ${e.label} to open its folders")
+        }
         val files = obj.optJSONArray("files") ?: return@withContext emptyList()
-        (0 until files.length()).map { i ->
-            val f = files.getJSONObject(i)
+        val rows = (0 until files.length()).map { files.getJSONObject(it) }
+        val names = PeerNames.unique(rows.map { PeerNames.clean(it.optString("name"), it.getString("token")) })
+        synchronized(tokens) {
+            rows.forEachIndexed { i, f -> tokens[path.child(names[i]).toString()] = f.getString("token") }
+        }
+        rows.mapIndexed { i, f ->
             VNode(
-                path = path.child(f.getString("token")),
+                path = path.child(names[i]),
                 isDir = f.optBoolean("dir"),
                 size = f.optLong("size", -1L),
                 mtime = f.optLong("mtime"),
                 writable = false,
-            ).withDisplayName(f.optString("name"))
+            )
         }
     }
 
@@ -84,29 +103,8 @@ class PeerProvider(
         runCatching { list(path.parent!!).firstOrNull { it.path == path } }.getOrNull()
     }
 
-    override suspend fun openRead(path: VPath): InputStream = withContext(Dispatchers.IO) {
-        val segs = path.segments
-        if (segs.size < 2) throw VfsException.IsADirectory(path)
-        val e = endpointFor(segs[0], path)
-        val http = connect(e, "/f/${URLEncoder.encode(segs[1], "UTF-8")}", "GET", path)
-        val code = http.responseCode
-        if (code == 410) { http.disconnect(); throw VfsException.NotFound(path) }
-        if (code !in 200..299) { http.disconnect(); throw VfsException.Io(path, IllegalStateException("HTTP $code")) }
-        object : InputStream() {
-            private val src = http.inputStream
-            override fun read() = src.read()
-            override fun read(b: ByteArray, off: Int, len: Int) = src.read(b, off, len)
-            override fun available() = src.available()
-            override fun close() { src.close(); http.disconnect() }
-        }
-    }
+    override suspend fun openRead(path: VPath): InputStream = openReadAt(path, 0L)
 
-    /**
-     * Writing to a peer means uploading into its quarantine folder, and only if it allows it.
-     *
-     * The name has to be known up front, so the VPath's own name carries it - which is why a
-     * copy *to* a peer targets `peer:///<uuid>/<filename>` rather than a token.
-     */
     /** Filet's own server answers ranges (see `nearby/HttpServer`). */
     override suspend fun supportsRanges(path: VPath): Boolean = true
 
@@ -117,14 +115,20 @@ class PeerProvider(
 
     /** The file from [offset]; as for WebDAV, a whole-file answer is skipped into rather than trusted. */
     override suspend fun openReadAt(path: VPath, offset: Long): InputStream = withContext(Dispatchers.IO) {
-        if (offset == 0L) return@withContext openRead(path)
         val segs = path.segments
         if (segs.size < 2) throw VfsException.IsADirectory(path)
         val e = endpointFor(segs[0], path)
-        val http = connect(e, "/f/${URLEncoder.encode(segs[1], "UTF-8")}", "GET", path)
-        http.setRequestProperty("Range", "bytes=$offset-")
-        val code = http.responseCode
-        if (code == 410) { http.disconnect(); throw VfsException.NotFound(path) }
+        var http = fetch(e, path, offset)
+        var code = http.responseCode
+        if (code == 404) {
+            // The other phone's share restarted since this folder was listed, and the tokens it
+            // handed out went with it. Listed again, the name finds its new token.
+            http.disconnect()
+            forget(path)
+            http = fetch(e, path, offset)
+            code = http.responseCode
+        }
+        if (code == 404 || code == 410) { http.disconnect(); throw VfsException.NotFound(path) }
         if (code !in 200..299) { http.disconnect(); throw VfsException.Io(path, IllegalStateException("HTTP $code")) }
         val stream = object : InputStream() {
             private val src = http.inputStream
@@ -133,16 +137,29 @@ class PeerProvider(
             override fun available() = src.available()
             override fun close() { src.close(); http.disconnect() }
         }
-        if (code != 206) RangedInput.skipFully(stream, offset)
+        if (offset > 0 && code != 206) RangedInput.skipFully(stream, offset)
         stream
     }
 
+    private suspend fun fetch(e: PeerEndpoint, path: VPath, offset: Long): HttpURLConnection {
+        val http = connect(e, "/f/${URLEncoder.encode(tokenOf(path), "UTF-8")}", "GET", path)
+        if (offset > 0) http.setRequestProperty("Range", "bytes=$offset-")
+        return http
+    }
+
+    /**
+     * Writing to a peer means uploading into its quarantine folder, and only if it allows it.
+     *
+     * The name has to be known up front, so the VPath's own name carries it - which is why a
+     * copy *to* a peer targets `peer:///<uuid>/<filename>`. Only the top level takes one: an
+     * upload always lands in the other phone's quarantine, whichever folder was showing.
+     */
     override suspend fun openWrite(path: VPath, append: Boolean): OutputStream = withContext(Dispatchers.IO) {
         if (append) throw VfsException.Unsupported("a peer cannot append")
         val segs = path.segments
-        if (segs.size < 2) throw VfsException.Unsupported("nothing to write to")
+        if (segs.size != 2) throw VfsException.Unsupported("a file is sent to another phone's top level")
         val e = endpointFor(segs[0], path)
-        val name = URLEncoder.encode(segs[1], "UTF-8")
+        val name = URLEncoder.encode(path.name, "UTF-8")
         object : java.io.ByteArrayOutputStream() {
             override fun close() {
                 super.close()
@@ -160,13 +177,25 @@ class PeerProvider(
     }
 
     override suspend fun create(path: VPath, isDir: Boolean): VNode =
-        throw VfsException.Unsupported("a peer's shared set is flat and is not created remotely")
+        throw VfsException.Unsupported("a peer's shared set is not created remotely")
 
     override suspend fun delete(path: VPath, recursive: Boolean): Unit =
         throw VfsException.Unsupported("only the owner can remove something from their shared set")
 
     override suspend fun rename(path: VPath, newName: String): VNode =
         throw VfsException.Unsupported("only the owner can rename their shared files")
+
+    /** The token [path] was listed with, listing its folder first when it has not been yet. */
+    private suspend fun tokenOf(path: VPath): String {
+        synchronized(tokens) { tokens[path.toString()] }?.let { return it }
+        val parent = path.parent ?: throw VfsException.NotFound(path)
+        list(parent)
+        return synchronized(tokens) { tokens[path.toString()] } ?: throw VfsException.NotFound(path)
+    }
+
+    private fun forget(path: VPath) {
+        synchronized(tokens) { tokens.remove(path.toString()) }
+    }
 
     private fun endpointFor(uuid: String, path: VPath): PeerEndpoint =
         endpoints().firstOrNull { it.uuid == uuid } ?: throw VfsException.NotFound(path)
@@ -203,18 +232,37 @@ class PeerProvider(
 }
 
 /**
- * A peer's rows are addressed by token but must *read* as filenames.
- *
- * The display name is carried in the path's own last segment for everything else in the VFS;
- * here the last segment is a token, so the name is attached separately and the browser's row
- * renderer reads it from here.
+ * The names another phone lists, made fit to be path segments. Pure, because it decides what a
+ * row is called and which file it fetches.
  */
-private val displayNames = HashMap<String, String>()
+object PeerNames {
+    /**
+     * [name] as one path segment: a slash would split it and `.` or `..` would walk out of the
+     * folder, so the first is swapped for a look-alike and the others, like an empty name, fall
+     * back to [token].
+     */
+    fun clean(name: String, token: String): String {
+        val n = name.replace('/', '∕').replace('\u0000', ' ').trim()
+        return if (n.isEmpty() || n == "." || n == "..") token else n
+    }
 
-internal fun VNode.withDisplayName(name: String): VNode {
-    if (name.isNotEmpty()) synchronized(displayNames) { displayNames[path.toString()] = name }
-    return this
+    /**
+     * [names] made unique within one listing, in order: a second `a.pdf` becomes `a (2).pdf`.
+     * A shared set can hold two things under one name - a file in the share folder and another
+     * shared from elsewhere - and two rows at one path would open the same file.
+     */
+    fun unique(names: List<String>): List<String> {
+        val taken = HashSet<String>()
+        return names.map { n ->
+            if (taken.add(n)) return@map n
+            val dot = n.lastIndexOf('.').takeIf { it > 0 } ?: n.length
+            var i = 2
+            var next: String
+            do {
+                next = n.substring(0, dot) + " ($i)" + n.substring(dot)
+                i++
+            } while (!taken.add(next))
+            next
+        }
+    }
 }
-
-/** The filename a peer reported for this row, or null when it is an ordinary path. */
-fun displayNameOf(path: VPath): String? = synchronized(displayNames) { displayNames[path.toString()] }

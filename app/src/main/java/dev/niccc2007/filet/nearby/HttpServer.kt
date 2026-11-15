@@ -330,7 +330,9 @@ class NearbyHttpServer(
             // speak it. A browser now takes the grant route instead.
             path == "/api/list" -> {
                 if (!authorised(headers, address)) { unauthorised(out); return }
-                json(out, listJson())
+                // Inside a shared folder when `d` names one, as the browser's own route does: a
+                // paired phone opens folders too, and answers "at" so it can tell it was heard.
+                json(out, listJson(dirTokenOf(query)))
             }
             path.startsWith("/f/") -> {
                 if (!authorised(headers, address)) { unauthorised(out); return }
