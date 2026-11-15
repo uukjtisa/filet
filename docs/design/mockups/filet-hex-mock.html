@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet - hex editor</title>
+<style>
+  /* Palette.kt, dark */
+  :root {
+    --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+    --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+    --accent:#7FA8B8; --accentDim:#31434B; --good:#8FB894; --warn:#C9A36A; --bad:#C97F7F; --sel:#243036;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0d0d0c; color:var(--fg); font:13px/1.4 system-ui, sans-serif; padding:24px; }
+  h1 { font-size:16px; font-weight:600; margin:0 0 4px; }
+  .lead { color:var(--fg2); margin:0 0 18px; max-width:780px; }
+  .cols { display:flex; gap:32px; flex-wrap:wrap; align-items:flex-start; }
+  h2 { font-size:12px; letter-spacing:1.3px; text-transform:uppercase; color:var(--fg3); margin:0 0 8px; }
+  .phone { width:360px; height:600px; background:var(--bg); border:1px solid var(--line); border-radius:22px; overflow:hidden; display:flex; flex-direction:column; }
+  .bar { display:flex; align-items:center; gap:2px; padding:10px 8px 8px 12px; border-bottom:1px solid var(--lineSoft); }
+  .bar .t { flex:1; min-width:0; }
+  .bar .n { font-size:14px; font-weight:600; }
+  .bar .s { font-size:10.5px; color:var(--fg3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ib { width:34px; height:34px; padding:7px; border-radius:10px; color:var(--fg); flex:none; }
+  .ib.off { color:rgba(107,104,96,.4); }
+  .ib svg { width:20px; height:20px; display:block; }
+  .lbl { display:flex; flex-direction:column; align-items:center; padding:6px 12px; color:var(--fg); }
+  .lbl svg { width:22px; height:22px; } .lbl span { font-size:10px; color:var(--fg2); }
+  .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size:10px; }
+
+  /* today: per-byte cells squeezed into the width */
+  .today .rows { flex:1; overflow-y:auto; padding:2px 0; }
+  .today .r { display:flex; padding:1px 8px; white-space:nowrap; }
+  .today .off { color:var(--fg3); margin-right:10px; }
+  .today .cells { flex:1; display:flex; overflow:hidden; }
+  .today .cells span { padding:0 1px; margin-right:2px; }
+  .today .asc { color:var(--fg2); }
+
+  /* proposal: one line per row, full width, the view scrolls sideways */
+  .prop .scroller { flex:1; overflow:auto; position:relative; }
+  .prop .grid { width:max-content; padding:4px 0 10px; }
+  .prop .r { height:18px; line-height:18px; display:flex; white-space:pre; padding:0 10px; }
+  .prop .off { color:var(--fg3); width:9ch; }
+  .prop .hex { margin-left:1ch; }
+  .prop .asc { margin-left:2ch; color:var(--fg2); }
+  .b { cursor:pointer; border-radius:2px; }
+  .b.sel { background:var(--sel); }
+  .b.caret { background:var(--accentDim); color:var(--fg); box-shadow:inset 0 -2px 0 var(--accent); }
+  .b.edited { color:var(--warn); }
+  .hdr { position:sticky; top:0; background:var(--bg); color:var(--fg3); border-bottom:1px solid var(--lineSoft); z-index:1; }
+  .status { display:flex; gap:12px; padding:7px 12px; border-top:1px solid var(--lineSoft); color:var(--fg2); font-size:11px; }
+  .status b { color:var(--fg); font-weight:500; }
+  .hint { color:var(--fg3); }
+
+  .notes { margin-top:26px; max-width:780px; color:var(--fg2); }
+  .notes h3 { font-size:12px; letter-spacing:1.2px; text-transform:uppercase; color:var(--fg3); margin:18px 0 6px; }
+  .notes li { margin:3px 0; }
+</style>
+</head>
+<body>
+<h1>Hex editor: fast rows, a caret lit in both columns, full-width rows that scroll sideways</h1>
+<p class="lead">Left is today: sixteen separate cells per row squeezed into the screen, a dialogue per byte, no caret. Right is the proposal. Tap a byte to put the caret there, and it lights in the hex column and the text column together. Shift-click, or drag on the phone, to select a run; the selection is mirrored too. Scroll the right panel sideways. Press E to edit the byte at the caret, then use Undo and Redo.</p>
+
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="undo" viewBox="0 0 24 24"><path d="M4.5 10h10a5 5 0 0 1 0 10H8.5M4.5 10l4-4M4.5 10l4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="redo" viewBox="0 0 24 24"><path d="M19.5 10h-10a5 5 0 0 0 0 10h6M19.5 10l-4-4M19.5 10l-4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="save" viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5zM8.5 4v5h6.5V4M8.5 13h7v7h-7z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+  <symbol id="more" viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="18.5" r="1.6" fill="currentColor"/></symbol>
+  <symbol id="code" viewBox="0 0 24 24"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 11v5M12 8h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</defs></svg>
+
+<div class="cols">
+  <div>
+    <h2>Today</h2>
+    <div class="phone today">
+      <div class="bar">
+        <span class="ib"><svg><use href="#back"/></svg></span>
+        <div class="t"><div class="n">photo.png</div><div class="s">48.2 KB · 3,087 rows</div></div>
+        <span class="ib off"><svg><use href="#back"/></svg></span>
+        <span class="ib off"><svg><use href="#check"/></svg></span>
+        <span class="ib"><svg><use href="#code"/></svg></span>
+        <span class="ib"><svg><use href="#info"/></svg></span>
+        <span class="lbl"><svg><use href="#more"/></svg><span>More</span></span>
+      </div>
+      <div class="rows mono" id="today"></div>
+    </div>
+  </div>
+  <div>
+    <h2>Proposal</h2>
+    <div class="phone prop">
+      <div class="bar">
+        <span class="ib"><svg><use href="#back"/></svg></span>
+        <div class="t"><div class="n">photo.png</div><div class="s" id="sub">48.2 KB · 3,087 rows</div></div>
+        <span class="ib off" id="u"><svg><use href="#undo"/></svg></span>
+        <span class="ib off" id="re"><svg><use href="#redo"/></svg></span>
+        <span class="ib off" id="sv"><svg><use href="#save"/></svg></span>
+        <span class="ib"><svg><use href="#more"/></svg></span>
+      </div>
+      <div class="scroller mono" id="scroller"><div class="grid" id="grid"></div></div>
+      <div class="status mono"><span>Offset <b id="st-off">00000000</b></span><span>Byte <b id="st-b">89</b></span><span id="st-sel" class="hint">tap a byte</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h3>What changes</h3>
+  <ul>
+    <li><b>Speed.</b> Each row is one line of text with a fixed height, formatted once and cached. Today every row is sixteen separate cells, each with its own tap target, and every visible row is redrawn whenever one byte changes.</li>
+    <li><b>Live highlighting.</b> The byte at the caret is lit in both columns, and a selection lights the same run in both. A status line under the rows gives the caret's offset and value, or the selection's length.</li>
+    <li><b>Full width.</b> Rows keep their whole width (offset, 16 bytes, text) and the view scrolls sideways. Nothing is squeezed to fit.</li>
+    <li><b>Editing.</b> Tapping the byte already at the caret opens the byte dialogue as today, which keeps each change a deliberate decision. Undo and Redo walk the changes, using the same history as the text editor. Save is the editors' shared Save: Replace original, or Save as new.</li>
+    <li><b>Bar.</b> Undo, Redo, Save, ⋮. Open as text and Properties live in ⋮ (Code mode and Details).</li>
+  </ul>
+</div>
+
+<script>
+// A PNG's opening bytes, then noise, so the text column has something to read.
+const N = 16 * 64;
+const data = new Uint8Array(N);
+const head = [0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A,0,0,0,0x0D,0x49,0x48,0x44,0x52,0,0,4,0,0,0,3,0,8,6,0,0,0,0x41,0x2F,0x1C,0x9A];
+head.forEach((b,i)=>data[i]=b);
+let seed = 7; for (let i=head.length;i<N;i++){ seed=(seed*1103515245+12345)&0x7fffffff; data[i]=(i%40<12)? 0x61+(seed%26) : seed&0xff; }
+const hx = b => b.toString(16).toUpperCase().padStart(2,"0");
+const asc = b => (b>=32&&b<=126)? String.fromCharCode(b).replace("&","&amp;").replace("<","&lt;") : ".";
+
+// today
+let t = "";
+for (let r=0;r<64;r++){
+  let cells=""; let a="";
+  for (let i=0;i<16;i++){ const b=data[r*16+i]; cells+=`<span>${hx(b)}</span>`; a+=asc(b); }
+  t += `<div class="r"><span class="off">${(r*16).toString(16).toUpperCase().padStart(8,"0")}</span><span class="cells">${cells}</span><span class="asc">${a}</span></div>`;
+}
+document.getElementById("today").innerHTML = t;
+
+// proposal
+const edits = new Map(); const done = []; const undone = [];
+let caret = 0, anchor = null, clean = 0;
+function lit(i){ const lo = anchor==null? caret : Math.min(anchor,caret), hi = anchor==null? caret : Math.max(anchor,caret);
+  return i===caret ? "caret" : (anchor!=null && i>=lo && i<=hi ? "sel" : ""); }
+function val(i){ return edits.has(i)? edits.get(i) : data[i]; }
+function render(){
+  let h = `<div class="r hdr"><span class="off">Offset</span><span class="hex">${[...Array(16).keys()].map(i=>hx(i)).join(" ")}</span><span class="asc">Text</span></div>`;
+  for (let r=0;r<64;r++){
+    let hexs="", as="";
+    for (let i=0;i<16;i++){ const k=r*16+i, b=val(k), c=lit(k)+(edits.has(k)?" edited":"");
+      hexs += `<span class="b ${c}" data-i="${k}">${hx(b)}</span>` + (i<15?" ":"");
+      as += `<span class="b ${c}" data-i="${k}">${asc(b)}</span>`; }
+    h += `<div class="r"><span class="off">${(r*16).toString(16).toUpperCase().padStart(8,"0")}</span><span class="hex">${hexs}</span><span class="asc">${as}</span></div>`;
+  }
+  document.getElementById("grid").innerHTML = h;
+  document.getElementById("st-off").textContent = caret.toString(16).toUpperCase().padStart(8,"0");
+  document.getElementById("st-b").textContent = hx(val(caret));
+  document.getElementById("st-sel").textContent = anchor==null? "tap a byte · E edits" : (Math.abs(caret-anchor)+1)+" bytes selected";
+  document.getElementById("u").classList.toggle("off", done.length===0);
+  document.getElementById("re").classList.toggle("off", undone.length===0);
+  document.getElementById("sv").classList.toggle("off", done.length===clean);
+  document.getElementById("sub").textContent = "48.2 KB · 3,087 rows" + (edits.size? ` · ${edits.size} edited` : "");
+}
+document.getElementById("grid").addEventListener("click", e => {
+  const s = e.target.closest(".b"); if (!s) return;
+  const i = +s.dataset.i;
+  if (e.shiftKey) { if (anchor==null) anchor = caret; caret = i; }
+  else { anchor = null; caret = i; }
+  render();
+});
+function setByte(i, v){ const before = edits.has(i)? edits.get(i) : null; done.push({i, before, after:v}); undone.length=0;
+  if (v===data[i]) edits.delete(i); else edits.set(i, v); render(); }
+document.addEventListener("keydown", e => {
+  if (e.key==="e"||e.key==="E") { const v = prompt("Byte at "+caret.toString(16).toUpperCase()+" (two hex digits)", hx(val(caret))); if (v && /^[0-9a-f]{2}$/i.test(v)) setByte(caret, parseInt(v,16)); }
+});
+document.getElementById("u").addEventListener("click", () => { const s = done.pop(); if (!s) return; undone.push(s);
+  if (s.before==null) edits.delete(s.i); else edits.set(s.i, s.before); caret = s.i; anchor=null; render(); });
+document.getElementById("re").addEventListener("click", () => { const s = undone.pop(); if (!s) return; done.push(s);
+  if (s.after===data[s.i]) edits.delete(s.i); else edits.set(s.i, s.after); caret = s.i; anchor=null; render(); });
+render();
+</script>
+</body>
+</html>
