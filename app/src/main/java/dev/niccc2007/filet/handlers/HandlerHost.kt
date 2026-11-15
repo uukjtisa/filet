@@ -130,7 +130,13 @@ fun HandlerHost(vm: BrowserViewModel, content: @Composable () -> Unit) {
                         HandlerId.MANIFEST -> dev.niccc2007.filet.apk.ManifestEditorScreen(vm, r.node)
                         HandlerId.PDF -> dev.niccc2007.filet.docs.PdfScreen(vm, r.node)
                         HandlerId.DOC -> dev.niccc2007.filet.docs.DocumentScreen(vm, r.node)
-                        HandlerId.WEB -> dev.niccc2007.filet.docs.HtmlScreen(vm, r.node)
+                        // One screen for a page and its source, as Markdown already is. A page
+                        // too large to hold as text keeps the page-only viewer, which streams it.
+                        HandlerId.WEB -> if (r.node.size <= MAX_EDIT_BYTES) {
+                            TextEditorScreen(vm, r.node, startRendered = true)
+                        } else {
+                            dev.niccc2007.filet.docs.HtmlScreen(vm, r.node)
+                        }
                         else -> Unit
                     }
                 }

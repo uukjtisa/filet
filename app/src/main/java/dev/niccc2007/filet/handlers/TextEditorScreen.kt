@@ -56,7 +56,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Above this, a text editor is the wrong tool and the hex viewer is the right one. */
-private const val MAX_EDIT_BYTES = 12L * 1024 * 1024
+internal const val MAX_EDIT_BYTES = 12L * 1024 * 1024
 
 /**
  * The code editor, on sora-editor (LGPL-2.1, linked as an unmodified binary dependency).
@@ -167,12 +167,23 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
         rendering = true
     }
 
-    val leave = rememberLeaveGuard(
+    val guard = rememberLeaveGuardTo(
         dirty = dirty,
         name = node.name,
         leave = vm::closeHandler,
         save = { after -> editor?.let { ed -> vm.saveText(node, ed.text.toString()) { dirty = false; after() } } },
     )
+    val leave = remember(guard) { { guard(null) } }
+    // Page and Code are this screen; Hex is the hex viewer, which reads the file as saved, so
+    // going there asks about unsaved edits first.
+    val modes = remember(node.path) { ViewModes.of(node.extension) }
+    val mode = if (rendering) ViewMode.PAGE else ViewMode.CODE
+    fun pick(m: ViewMode) {
+        when (m) {
+            ViewMode.PAGE, ViewMode.CODE -> if (m != mode) flip()
+            ViewMode.HEX -> guard { vm.switchViewer(node, HandlerId.HEX) }
+        }
+    }
     // Back from the page goes to the editor behind it, as it was - the editor stays composed under
     // the page, so its cursor and scroll are still there. Declared after the guard, so a page
     // reached from the editor answers back before the question about leaving does.
@@ -210,15 +221,6 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
             },
             onClose = { if (rendering && cameFromEdit) flip() else leave() },
         ) {
-            // The one switch, named for where it goes. Only for Markdown and HTML: nothing else
-            // in the editor has a page to show.
-            if (renders) {
-                ViewerAction(
-                    if (rendering) FiletIcons.Rename else FiletIcons.Eye,
-                    if (rendering) "Edit" else "Render",
-                    enabled = !loading && error == null,
-                ) { flip() }
-            }
             // The tools that act on the text hide while the page is up: they would act on an
             // editor nobody can see, and the page's own controls take their place. Save stays -
             // an edit made a moment ago is still unsaved.
@@ -236,19 +238,25 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
             ViewerAction(FiletIcons.Check, "Save", enabled = dirty && !loading) {
                 editor?.let { ed -> vm.saveText(node, ed.text.toString()) { dirty = false } }
             }
-            // The file's actions, and wrapping again as a switch that says which way it is.
-            // A switch leaves the panel open: its own state is the answer.
+            // The file's modes, then wrapping as a switch that says which way it is. A switch
+            // leaves the panel open: its own state is the answer. A file that could not be read
+            // as text keeps only the way to its bytes.
             ViewerMore(
                 vm,
                 node,
                 unsaved = dirty,
-                view = if (rendering || loading) {
+                view = if (loading) {
                     null
                 } else {
-                    { _ ->
-                        dev.niccc2007.filet.ui.dialogs.PanelRow("Wrap lines", Filet.colors.accent, on = wrap) {
-                            wrap = !wrap
-                            editor?.setWordwrap(wrap)
+                    { close ->
+                        val shown = if (error != null) modes.filter { it == ViewMode.HEX || it == mode } else modes
+                        ModeRows(shown, mode, close, ::pick)
+                        if (!rendering && error == null) {
+                            dev.niccc2007.filet.ui.dialogs.PanelRule()
+                            dev.niccc2007.filet.ui.dialogs.PanelRow("Wrap lines", Filet.colors.accent, on = wrap) {
+                                wrap = !wrap
+                                editor?.setWordwrap(wrap)
+                            }
                         }
                     }
                 },

@@ -108,7 +108,7 @@ fun HexViewerScreen(vm: BrowserViewModel, node: VNode) {
     var editing by remember(node.path) { mutableStateOf<Pair<Long, Byte>?>(null) }
     val tooBig = node.size > HexEdits.MAX_PATCH_BYTES
 
-    val leave = rememberLeaveGuard(
+    val guard = rememberLeaveGuardTo(
         dirty = !edits.isEmpty,
         name = node.name,
         leave = vm::closeHandler,
@@ -120,6 +120,7 @@ fun HexViewerScreen(vm: BrowserViewModel, node: VNode) {
             }
         },
     )
+    val leave = remember(guard) { { guard(null) } }
     Column(Modifier.fillMaxSize()) {
         ViewerBar(
             title = node.name,
@@ -141,9 +142,14 @@ fun HexViewerScreen(vm: BrowserViewModel, node: VNode) {
                     cache.forget()
                 }
             }
-            ViewerAction(FiletIcons.Code, "Open as text") { vm.openWith(node, HandlerId.TEXT, remember = false) }
             ViewerAction(FiletIcons.Info, "Properties") { vm.showProperties(node) }
-            ViewerMore(vm, node, unsaved = !edits.isEmpty)
+            // Page and Code are the other screen, which reads the file as saved: an unsaved
+            // byte asks first, as leaving does.
+            ViewerMore(vm, node, unsaved = !edits.isEmpty) { close ->
+                ModeRows(ViewModes.of(node.extension), ViewMode.HEX, close) { m ->
+                    guard { vm.switchViewer(node, ViewModes.handlerFor(m, node.extension)) }
+                }
+            }
         }
         LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             items(rows.toInt()) { row ->

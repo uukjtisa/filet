@@ -3737,6 +3737,20 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun leaveHandlers() { _openRequest.value = null }
 
     /**
+     * Show the open file in another mode - its page, its source, its bytes - in place. The
+     * request keeps the one beneath it, so Back still returns to the file a link came from
+     * rather than to the mode this one was in.
+     */
+    fun switchViewer(node: VNode, handler: HandlerId) {
+        val now = _openRequest.value
+        _openRequest.value = if (now != null && now.node.path == node.path) {
+            now.copy(handler = handler, returning = false)
+        } else {
+            OpenRequest(node, handler)
+        }
+    }
+
+    /**
      * A link inside the file on screen, followed. A file opens on top of the one showing, so Back
      * comes back to it, at the place it was left; a folder leaves the viewers for the browser,
      * since a folder is not a page.

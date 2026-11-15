@@ -47,14 +47,35 @@ fun rememberLeaveGuard(
     save: ((after: () -> Unit) -> Unit)?,
     saveLabel: String = "Save",
 ): () -> Unit {
+    val to = rememberLeaveGuardTo(dirty, name, leave, save, saveLabel)
+    return remember(to) { { to(null) } }
+}
+
+/**
+ * [rememberLeaveGuard] for more than one way out. The function it returns takes where to go once
+ * the question is answered, or null for [leave]: switching a file to another mode drops unsaved
+ * edits as surely as closing does, so it asks the same question and then goes where it was going.
+ */
+@Composable
+fun rememberLeaveGuardTo(
+    dirty: Boolean,
+    name: String,
+    leave: () -> Unit,
+    save: ((after: () -> Unit) -> Unit)?,
+    saveLabel: String = "Save",
+): ((then: (() -> Unit)?) -> Unit) {
     var asking by remember { mutableStateOf(false) }
     var sure by remember { mutableStateOf(false) }
+    // Where this question leads, or null for leaving. Cleared whenever the question goes away
+    // unanswered, so Keep editing never leaves a switch waiting for the next back press.
+    var then by remember { mutableStateOf<(() -> Unit)?>(null) }
     val nowDirty by rememberUpdatedState(dirty)
     val nowLeave by rememberUpdatedState(leave)
     // Declared inside the editor, so after the viewer host's own handler, and so asked first.
-    BackHandler(enabled = dirty) { asking = true }
+    BackHandler(enabled = dirty) { then = null; asking = true }
     if (asking) {
-        val close = { asking = false; sure = false }
+        val out = then ?: nowLeave
+        val close = { asking = false; sure = false; then = null }
         Dlg(onDismiss = close) {
             DlgHeader(
                 icon = FiletIcons.Save,
@@ -68,7 +89,7 @@ fun rememberLeaveGuard(
                     DlgBtn("Back") { sure = false }
                     DlgBtn(saveLabel, kind = BtnKind.PRIMARY) {
                         close()
-                        save?.invoke { nowLeave() }
+                        save?.invoke { out() }
                     }
                 }
             } else {
@@ -76,12 +97,21 @@ fun rememberLeaveGuard(
                     if (save != null) DlgPick(FiletIcons.Check, saveLabel, detail = "Into $name, then leave.") { sure = true }
                     DlgPick(FiletIcons.Close, "Discard", detail = "Leave without them. The file stays as it was.") {
                         close()
-                        nowLeave()
+                        out()
                     }
                     DlgPick(FiletIcons.Back, "Keep editing") { close() }
                 }
             }
         }
     }
-    return remember { { if (nowDirty) asking = true else nowLeave() } }
+    return remember {
+        { to ->
+            if (nowDirty) {
+                then = to
+                asking = true
+            } else {
+                (to ?: nowLeave)()
+            }
+        }
+    }
 }
