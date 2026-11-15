@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src https://litter.catbox.moe https://0x0.st https://uguu.se https://*.uguu.se https://tmpfiles.org">
 <meta name="robots" content="noindex">
 <title>Open in Filet</title>
 <!--
@@ -12,26 +12,59 @@
   phone without Filet, or a phone where Android has not confirmed the link belongs to Filet yet.
 
   Everything a link carries is after the #, in the fragment, which a browser never sends to a
-  server - so a share's access code reaches neither GitHub nor anything else. This page reads it
-  in the browser, shows only the drive's name, and loads nothing from anywhere. The source is
-  site/l/index.html in the Filet repository; the format is FiletLink.kt's.
+  server - so a share's access code, or a Portal send's key, reaches neither GitHub nor anything
+  else. The source is site/l/index.html in the Filet repository; the format is FiletLink.kt's.
+
+  A network drive shows only its name, and the page loads nothing from anywhere.
+
+  A Filet Portal send is read here as Filet reads it: the sealed list of files is fetched from the
+  file host its link names, opened in this browser with the key from the fragment, and shown -
+  names, sizes, who sent it, until when. Each file can then be downloaded and opened here the same
+  way, part by part, AES-256-GCM in 64 KB segments exactly as PortalCrypto.kt seals them. The key
+  never leaves the page, and only the hosts Portal uses may be contacted (the policy above).
 -->
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #161614; color: #E8E6E1;
     font: 15px/1.45 system-ui, "Segoe UI", Roboto, sans-serif; padding: 24px; }
-  main { width: 100%; max-width: 380px; }
+  main { width: 100%; max-width: 420px; }
   .mark { width: 44px; height: 44px; border-radius: 12px; background: #7FA8B8; color: #0E1417; display: grid; place-items: center;
     font-weight: 800; font-size: 22px; margin-bottom: 18px; }
   .kind { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: #6B6860; }
   h1 { font-size: 22px; margin: 4px 0 6px; font-weight: 650; word-break: break-word; }
   p { color: #9A968D; margin: 0 0 18px; }
-  a.btn { display: block; text-align: center; text-decoration: none; border-radius: 12px; padding: 13px 16px; font-weight: 600; margin-bottom: 10px; }
-  a.go { background: #7FA8B8; color: #0E1417; }
-  a.get { background: #2A2A26; color: #E8E6E1; }
+  .btn { display: block; width: 100%; text-align: center; text-decoration: none; border: 0; border-radius: 12px; padding: 13px 16px;
+    font: inherit; font-weight: 600; margin-bottom: 10px; cursor: pointer; }
+  .go { background: #7FA8B8; color: #0E1417; }
+  .get { background: #2A2A26; color: #E8E6E1; }
+  .btn[disabled] { opacity: .5; cursor: default; }
   .small { font-size: 12.5px; color: #6B6860; margin-top: 16px; }
   .hide { display: none; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+  .stat { font-size: 12px; padding: 4px 9px; border-radius: 8px; background: #232320; color: #9A968D; }
+  .stat b { color: #E8E6E1; font-weight: 600; }
+  .stat.warn b, .stat.warn { color: #C9A36A; }
+  .files { list-style: none; margin: 0 0 16px; padding: 0; border: 1px solid #2E2E2A; border-radius: 12px; overflow: hidden;
+    max-height: 46vh; overflow-y: auto; }
+  .files li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid #232320; }
+  .files li:first-child { border-top: 0; }
+  .ico { width: 30px; height: 30px; flex: none; border-radius: 8px; background: #2A2A26; color: #9A968D; display: grid; place-items: center;
+    font-size: 9px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; overflow: hidden; }
+  .nm { flex: 1; min-width: 0; }
+  .nm .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nm .m { font-size: 12px; color: #6B6860; }
+  .nm .m.bad { color: #C97F7F; }
+  .nm .m.ok { color: #8FB58A; }
+  .bar { height: 3px; border-radius: 2px; background: #2A2A26; margin-top: 5px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: #7FA8B8; }
+  .one { flex: none; border: 0; border-radius: 9px; background: #31434B; color: #7FA8B8; font: inherit; font-size: 12.5px; font-weight: 600;
+    padding: 7px 11px; cursor: pointer; }
+  .one[disabled] { opacity: .45; cursor: default; }
+  .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #31434B; border-top-color: #7FA8B8; display: inline-block;
+    vertical-align: -3px; margin-right: 8px; animation: s .8s linear infinite; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 </style>
 </head>
 <body>
@@ -40,14 +73,17 @@
   <div class="kind" id="kind">Filet link</div>
   <h1 id="title">Open this in Filet</h1>
   <p id="line">This link is for Filet, a file manager for Android.</p>
+  <div class="stats hide" id="stats"></div>
+  <ul class="files hide" id="files"></ul>
   <a class="btn go hide" id="open" href="#">Open in Filet</a>
+  <button class="btn get hide" id="all" type="button">Download</button>
   <a class="btn get" id="get" href="https://github.com/uukjtisa/filet/releases/latest">Get Filet</a>
   <div class="small" id="note"></div>
 </main>
 <script>
 (function () {
   var RELEASES = "https://github.com/uukjtisa/filet/releases/latest";
-  var KINDS = { drive: "Network drive" };
+  var KINDS = { drive: "Network drive", portal: "Filet Portal" };
   var VERSION = 1;
   var body = location.hash.replace(/^#/, "");
   var kind = body.split("?")[0];
@@ -61,30 +97,308 @@
   var android = /Android/i.test(navigator.userAgent);
   var $ = function (id) { return document.getElementById(id); };
 
+  function offerFilet() {
+    var open = $("open");
+    // Chrome, Samsung Internet, Edge and Firefox on Android all take an intent: link, and fall back
+    // to the download when no app answers. The plain filet:// form is the same request for the rest.
+    open.href = "intent://" + body + "#Intent;scheme=filet;S.browser_fallback_url=" + encodeURIComponent(RELEASES) + ";end";
+    open.classList.remove("hide");
+    $("get").textContent = "Don't have Filet? Get it";
+  }
+
   if (!KINDS[kind]) {
     $("note").textContent = body ? "This link is not one this page knows. It may be from a newer Filet." : "";
     return;
   }
   $("kind").textContent = KINDS[kind];
-  // Only the name. The addresses and the access code stay in the link, never on the page.
-  $("title").textContent = (fields.n || "A shared drive").slice(0, 80);
   if (Number(fields.v) > VERSION) {
+    $("title").textContent = KINDS[kind];
     $("line").textContent = "This link is from a newer Filet. Update Filet, then open it again.";
     $("get").textContent = "Update Filet";
     return;
   }
+  if (kind === "portal") return portal();
+
+  // Only the name. The addresses and the access code stay in the link, never on the page.
+  $("title").textContent = (fields.n || "A shared drive").slice(0, 80);
   if (!android) {
     $("line").textContent = "Open this link on the Android phone that has Filet, and it adds the drive.";
     return;
   }
   $("line").textContent = "Filet adds it to Remotes. Nothing is added until you say so there.";
-  var open = $("open");
-  // Chrome, Samsung Internet, Edge and Firefox on Android all take an intent: link, and fall back to
-  // the download when no app answers. The plain filet:// form is the same request for the rest.
-  open.href = "intent://" + body + "#Intent;scheme=filet;S.browser_fallback_url=" + encodeURIComponent(RELEASES) + ";end";
-  open.classList.remove("hide");
-  $("get").textContent = "Don't have Filet? Get it";
+  offerFilet();
   $("note").textContent = "If Open in Filet does nothing, update Filet to its newest version.";
+
+  // ── Filet Portal ──────────────────────────────────────────────────────────────────────────
+
+  function portal() {
+    // The same hosts PortalHost.kt allows, and the same rule: https, on one of their domains.
+    var DOMAINS = ["litter.catbox.moe", "0x0.st", "uguu.se", "tmpfiles.org"];
+    var SEG = 65536, TAG = 16, HEADER = 12;
+    var MAX_MANIFEST = 4 * 1024 * 1024;
+
+    function owned(url) {
+      if (typeof url !== "string" || url.indexOf("https://") !== 0) return false;
+      var host = url.slice(8).split("/")[0].split("?")[0].split("#")[0].toLowerCase();
+      if (host.indexOf("@") >= 0 || host.indexOf(":") >= 0) return false;
+      return DOMAINS.some(function (d) { return host === d || host.slice(-(d.length + 1)) === "." + d; });
+    }
+    function size(n) {
+      if (!(n >= 0)) return "";
+      var u = ["B", "KB", "MB", "GB", "TB"], i = 0;
+      while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+      return (i === 0 ? n : n.toFixed(n < 10 ? 1 : 0)) + " " + u[i];
+    }
+    function when(ms) {
+      try { return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }); } catch (e) { return new Date(ms).toString(); }
+    }
+    function b64u(s) {
+      s = s.replace(/-/g, "+").replace(/_/g, "/");
+      while (s.length % 4) s += "=";
+      var bin = atob(s), out = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+    function segments(plain) { return plain <= 0 ? 1 : Math.ceil(plain / SEG); }
+    function iv(prefix, i) {
+      var v = new Uint8Array(12);
+      v.set(prefix, 0);
+      new DataView(v.buffer).setUint32(8, i);
+      return v;
+    }
+    function decrypt(key, prefix, i, last, bytes) {
+      return crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: iv(prefix, i), additionalData: new Uint8Array([last ? 1 : 0]), tagLength: 128 },
+        key, bytes
+      ).then(function (b) { return new Uint8Array(b); }, function () {
+        throw new Error("the file was changed or cut on the host");
+      });
+    }
+    function head(u) {
+      if (u.length < HEADER || u[0] !== 0x46 || u[1] !== 0x50 || u[2] !== 0x54 || u[3] !== 0x31) throw new Error("not a Filet Portal file");
+      return u.slice(4, HEADER);
+    }
+    function get(url) {
+      return fetch(url, { mode: "cors", credentials: "omit", referrerPolicy: "no-referrer", cache: "no-store" }).then(function (r) {
+        if (r.status === 404 || r.status === 410) throw new Error("the host no longer has it");
+        if (!r.ok) throw new Error("the host answered " + r.status);
+        return r;
+      }, function () {
+        // A refused cross-site read and a dropped connection look the same from a page.
+        throw new Error("this browser cannot reach where it is kept");
+      });
+    }
+
+    /** A whole sealed blob held in memory: the list of files, which is small. */
+    function openAll(key, buf) {
+      var u = new Uint8Array(buf);
+      var prefix = head(u);
+      var count = Math.max(1, Math.ceil((u.length - HEADER) / (SEG + TAG)));
+      var parts = [], chain = Promise.resolve();
+      for (var i = 0; i < count; i++) (function (i) {
+        var s = HEADER + i * (SEG + TAG), e = Math.min(s + SEG + TAG, u.length);
+        chain = chain.then(function () { return decrypt(key, prefix, i, i === count - 1, u.subarray(s, e)); })
+          .then(function (p) { parts.push(p); });
+      })(i);
+      return chain.then(function () { return new Blob(parts).text(); });
+    }
+
+    /**
+     * One part of a file, streamed: each 64 KB segment is opened as soon as it has arrived and
+     * handed to [put]. Which segment is the last is known from the part's plain length, as the
+     * sealed size is.
+     */
+    function openPart(key, url, plainLen, put, moved) {
+      var count = segments(plainLen);
+      return get(url).then(function (r) {
+        var reader = r.body.getReader();
+        var pending = new Uint8Array(0), prefix = null, i = 0, wrote = 0;
+        function take(n) { var a = pending.subarray(0, n); pending = pending.slice(n); return a; }
+        function drain(final) {
+          var chain = Promise.resolve();
+          if (!prefix && pending.length >= HEADER) prefix = head(take(HEADER));
+          while (prefix && i < count) {
+            var last = i === count - 1;
+            if (!last && pending.length < SEG + TAG) break;
+            if (last && !final) break;
+            var bytes = take(last ? pending.length : SEG + TAG);
+            (function (idx, isLast, b) {
+              chain = chain.then(function () { return decrypt(key, prefix, idx, isLast, b); })
+                .then(function (p) { wrote += p.length; moved(p.length); return put(p); });
+            })(i, last, bytes);
+            i++;
+          }
+          return chain;
+        }
+        function pump() {
+          return reader.read().then(function (x) {
+            if (x.done) {
+              return drain(true).then(function () {
+                if (i < count || pending.length) throw new Error("the file was cut short");
+                if (wrote !== plainLen) throw new Error("a part is the wrong size");
+              });
+            }
+            var joined = new Uint8Array(pending.length + x.value.length);
+            joined.set(pending, 0);
+            joined.set(x.value, pending.length);
+            pending = joined;
+            return drain(false).then(pump);
+          });
+        }
+        return pump();
+      });
+    }
+
+    var m = (fields.m || "").trim(), k = (fields.k || "").trim();
+    $("title").textContent = "Files sent with Filet Portal";
+    if (!owned(m) || !/^[A-Za-z0-9_\-]{43}$/.test(k)) {
+      $("line").textContent = "This Portal link is damaged: part of it is missing. Ask for the link again.";
+      return;
+    }
+    if (!window.crypto || !crypto.subtle) {
+      $("line").textContent = "This browser cannot open sealed files. Open the link in a current Chrome, Edge, Firefox or Safari, or in Filet.";
+      if (android) offerFilet();
+      return;
+    }
+    $("line").innerHTML = '<span class="spin"></span>Opening the list of files…';
+    if (android) offerFilet();
+
+    var key;
+    crypto.subtle.importKey("raw", b64u(k), "AES-GCM", false, ["decrypt"]).then(function (kk) {
+      key = kk;
+      return get(m);
+    }).then(function (r) {
+      var len = Number(r.headers.get("Content-Length"));
+      if (len > MAX_MANIFEST) throw new Error("the list is larger than any Portal list");
+      return r.arrayBuffer();
+    }).then(function (buf) {
+      return openAll(key, buf);
+    }).then(function (text) {
+      var o = JSON.parse(text);
+      if (o.v !== 1 || !Array.isArray(o.files) || !o.files.length) throw new Error("the list is from a newer Filet");
+      var files = o.files.map(function (f) {
+        var parts = (f.p || []).map(function (p) { return { u: String(p.u), l: Number(p.l) }; });
+        var total = parts.reduce(function (a, p) { return a + p.l; }, 0);
+        if (!parts.length || parts.some(function (p) { return !owned(p.u) || !(p.l >= 0); }) || total !== Number(f.s)) {
+          throw new Error("the list points somewhere Portal does not use");
+        }
+        return { name: String(f.n || "file").slice(0, 240), size: Number(f.s), parts: parts };
+      });
+      show(o, files);
+    }).catch(function (e) {
+      $("title").textContent = "Could not open these files";
+      $("line").textContent = "The list of files could not be read: " + (e && e.message ? e.message : "it failed") +
+        ". They may have expired. " + (android ? "Open in Filet to try there." : "Try again later, or open the link on a phone with Filet.");
+    });
+
+    function show(o, files) {
+      var total = files.reduce(function (a, f) { return a + f.size; }, 0);
+      var from = String(o.from || "").slice(0, 80);
+      $("title").textContent = files.length === 1 ? files[0].name : files.length + " files";
+      $("line").textContent = (from ? from + " sent " : "Sent ") + (files.length === 1 ? "this file" : "these files") + " with Filet Portal. They are sealed: only this link opens them.";
+      var stats = $("stats");
+      function stat(label, value, warn) {
+        var s = document.createElement("span");
+        s.className = "stat" + (warn ? " warn" : "");
+        var b = document.createElement("b");
+        b.textContent = value;
+        s.appendChild(b);
+        s.appendChild(document.createTextNode(" " + label));
+        stats.appendChild(s);
+      }
+      stat(files.length === 1 ? "file" : "files", String(files.length));
+      stat("in all", size(total));
+      if (o.at > 0) stat("", "Sent " + when(o.at));
+      if (o.exp > 0) {
+        if (Date.now() > o.exp) stat("", "Expired " + when(o.exp), true);
+        else stat("", "Until " + when(o.exp));
+      }
+      stats.classList.remove("hide");
+
+      var list = $("files");
+      files.forEach(function (f) {
+        var li = document.createElement("li");
+        var ext = (f.name.lastIndexOf(".") > 0 ? f.name.slice(f.name.lastIndexOf(".") + 1) : "").slice(0, 4);
+        var ico = document.createElement("div"); ico.className = "ico"; ico.textContent = ext || "file";
+        var nm = document.createElement("div"); nm.className = "nm";
+        var n = document.createElement("div"); n.className = "n"; n.textContent = f.name; n.title = f.name;
+        var mline = document.createElement("div"); mline.className = "m"; mline.textContent = size(f.size);
+        var bar = document.createElement("div"); bar.className = "bar hide"; var fill = document.createElement("i"); bar.appendChild(fill);
+        nm.appendChild(n); nm.appendChild(mline); nm.appendChild(bar);
+        var btn = document.createElement("button"); btn.type = "button"; btn.className = "one"; btn.textContent = "Download";
+        li.appendChild(ico); li.appendChild(nm); li.appendChild(btn);
+        list.appendChild(li);
+        f.ui = { btn: btn, line: mline, bar: bar, fill: fill };
+        btn.onclick = function () { download(f); };
+      });
+      list.classList.remove("hide");
+
+      var all = $("all");
+      all.textContent = files.length === 1 ? "Download" : "Download all";
+      all.classList.remove("hide");
+      // With no Filet to open it in, downloading here is the thing to do, so it leads.
+      if (!android) { all.className = "btn go"; }
+      all.onclick = function () {
+        all.disabled = true;
+        files.reduce(function (p, f) { return p.then(function () { return f.done ? null : download(f); }); }, Promise.resolve())
+          .then(function () { all.disabled = false; });
+      };
+      $("note").textContent = android
+        ? "Open in Filet saves them to Filet/Received. Downloading here keeps them in this browser's downloads."
+        : "Files are opened in this browser as they download; nothing is sent anywhere.";
+    }
+
+    function download(f) {
+      var ui = f.ui;
+      if (f.busy) return Promise.resolve();
+      f.busy = true;
+      ui.btn.disabled = true;
+      ui.line.className = "m";
+      ui.line.textContent = "Downloading…";
+      ui.bar.classList.remove("hide");
+      var done = 0;
+      function moved(n) {
+        done += n;
+        ui.fill.style.width = (f.size > 0 ? Math.min(100, done * 100 / f.size) : 100) + "%";
+        ui.line.textContent = size(done) + " of " + size(f.size);
+      }
+      var sink = null, chunks = [];
+      // Straight to disk where the browser offers it (desktop Chrome and Edge), so a large file
+      // never sits whole in memory; elsewhere it is gathered and handed over at the end.
+      var start = window.showSaveFilePicker && f.size > 64 * 1024 * 1024
+        ? window.showSaveFilePicker({ suggestedName: f.name }).then(function (h) { return h.createWritable(); })
+            .then(function (w) { sink = w; }, function () { sink = null; })
+        : Promise.resolve();
+      return start.then(function () {
+        var put = sink ? function (p) { return sink.write(p); } : function (p) { chunks.push(p); };
+        return f.parts.reduce(function (p, part) {
+          return p.then(function () { return openPart(key, part.u, part.l, put, moved); });
+        }, Promise.resolve());
+      }).then(function () {
+        if (sink) return sink.close();
+        var url = URL.createObjectURL(new Blob(chunks));
+        var a = document.createElement("a");
+        a.href = url; a.download = f.name;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+      }).then(function () {
+        f.done = true;
+        ui.line.className = "m ok";
+        ui.line.textContent = size(f.size) + " · downloaded";
+        ui.btn.textContent = "Again";
+      }, function (e) {
+        if (sink) { try { sink.abort(); } catch (x) {} }
+        ui.line.className = "m bad";
+        ui.line.textContent = "Did not download: " + (e && e.message ? e.message : "it failed") + (android ? ". Open in Filet to try there." : ".");
+        ui.btn.textContent = "Try again";
+      }).then(function () {
+        chunks = [];
+        f.busy = false;
+        ui.btn.disabled = false;
+        ui.bar.classList.add("hide");
+      });
+    }
+  }
 })();
 </script>
 </body>
