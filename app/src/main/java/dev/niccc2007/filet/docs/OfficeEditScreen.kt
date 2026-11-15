@@ -35,6 +35,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.niccc2007.filet.handlers.rememberLeaveGuard
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.handlers.ViewerAction
@@ -63,7 +64,6 @@ fun OfficeEditScreen(vm: BrowserViewModel, node: VNode, presentation: Boolean, o
     var loadError by remember(node.path) { mutableStateOf<String?>(null) }
     var saveError by remember(node.path) { mutableStateOf<String?>(null) }
     var saving by remember(node.path) { mutableStateOf(false) }
-    var askDiscard by remember(node.path) { mutableStateOf(false) }
     // Section entry + paragraph index to the new text. Only paragraphs that differ are held.
     val edits = remember(node.path) { mutableStateMapOf<Pair<String, Int>, String>() }
     val dirty = edits.isNotEmpty()
@@ -79,7 +79,7 @@ fun OfficeEditScreen(vm: BrowserViewModel, node: VNode, presentation: Boolean, o
             .onFailure { loadError = it.message ?: "This file could not be opened for editing." }
     }
 
-    fun save() {
+    fun save(then: () -> Unit = {}) {
         val current = session ?: return
         val grouped = edits.entries.groupBy({ it.key.first }, { it.key.second to it.value })
             .mapValues { (_, v) -> v.toMap() }
@@ -100,6 +100,7 @@ fun OfficeEditScreen(vm: BrowserViewModel, node: VNode, presentation: Boolean, o
                 session = it
                 edits.clear()
                 vm.toast("Saved")
+                then()
             }.onFailure {
                 val why = it.message ?: it::class.java.simpleName
                 // SafeReplace says where the original is in the one case it is not in place.
@@ -108,13 +109,18 @@ fun OfficeEditScreen(vm: BrowserViewModel, node: VNode, presentation: Boolean, o
         }
     }
 
-    BackHandler(enabled = dirty) { askDiscard = true }
+    val leave = rememberLeaveGuard(
+        dirty = dirty,
+        name = node.name,
+        leave = onClose,
+        save = if (session != null) { after -> save(after) } else null,
+    )
 
     Column(Modifier.fillMaxSize()) {
         ViewerBar(
             title = node.name,
             subtitle = if (dirty) "Text editing  ·  unsaved" else "Text editing",
-            onClose = { if (dirty) askDiscard = true else onClose() },
+            onClose = leave,
         ) {
             ViewerAction(FiletIcons.Check, "Save", enabled = dirty && !saving && session != null) { save() }
         }
@@ -129,21 +135,6 @@ fun OfficeEditScreen(vm: BrowserViewModel, node: VNode, presentation: Boolean, o
                 .background(colors.sunken)
                 .padding(horizontal = 10.dp, vertical = 7.dp),
         )
-        if (askDiscard) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Discard unsaved changes?", fontSize = 12.sp, color = colors.warn, modifier = Modifier.weight(1f))
-                Chip("Discard") {
-                    edits.clear()
-                    askDiscard = false
-                    onClose()
-                }
-                Spacer(Modifier.width(8.dp))
-                Chip("Keep editing") { askDiscard = false }
-            }
-        }
         saveError?.let { msg ->
             Text(
                 msg,

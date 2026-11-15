@@ -157,7 +157,6 @@ private fun ImageViewerContent(
     var tool by remember(node.path) { mutableStateOf(Tool.NONE) }
     var busy by remember(node.path) { mutableStateOf(false) }
     var dirty by remember(node.path) { mutableStateOf(false) }
-    var exitArmed by remember(node.path) { mutableStateOf(false) }
     var menu by remember(node.path) { mutableStateOf<PicMenu?>(null) }
 
     // The controls retract while the picture is being looked at, and a tap brings them back - the
@@ -202,7 +201,6 @@ private fun ImageViewerContent(
         history.add(previous)
         while (history.size > UNDO_DEPTH) history.removeAt(0).recycle()
         dirty = true
-        exitArmed = false
     }
 
     /** Run a pixel operation off the main thread and swap the result in. */
@@ -366,6 +364,61 @@ private fun ImageViewerContent(
     // edit in progress or not yet saved, or a zoomed view whose drags are panning it.
     HoldRunSwipe(editing || tool != Tool.NONE || busy || dirty || view.scale > ZOOMED)
 
+    // ── saving, from the bar and from the question on leaving ──
+
+    val blocked = remember(node.path) { vm.writeBlockReason(node.path.parent) }
+
+    /** Encode what is on screen and hand it to the save, [to] null meaning over the original. */
+    fun saveEdit(to: dev.niccc2007.filet.vfs.VPath?, after: () -> Unit = {}) {
+        val bmp = shown ?: return
+        scope.launch {
+            busy = true
+            val encoded = withContext(Dispatchers.Default) {
+                runCatching { encode(bmp, node.extension) }.getOrNull()
+            }
+            busy = false
+            if (encoded == null) { vm.toast("Could not encode the edited image."); return@launch }
+            vm.saveEditedImage(node, encoded.bytes, encoded.extension, to) {
+                dirty = false
+                after()
+            }
+        }
+    }
+
+    /** Save the way up the picture is shown, [to] null meaning over the original. */
+    fun saveTurn(to: dev.niccc2007.filet.vfs.VPath?, after: () -> Unit = {}) {
+        val q = quarters
+        busy = true
+        vm.saveTurnedPicture(node, Math.floorMod(q, 4), to) { ok ->
+            busy = false
+            if (ok) {
+                savedQuarters = q
+                if (to == null) revision++
+                after()
+            }
+        }
+    }
+
+    // Over the original is what Save means from the question; where that cannot be done - the
+    // folder is read-only, or the edit makes a format the file is not - the question offers
+    // Discard and Keep editing, and the bar's Save still offers a new file.
+    val replaceEdit = shown != null && blocked == null &&
+        encodedExtension(shown, node.extension) in dev.niccc2007.filet.pick.PickName.sameKind(node.extension)
+    val replaceTurn = blocked == null && PictureTurn.replaceFor(node.extension) != PictureTurn.Replace.NONE
+    val leave = rememberLeaveGuard(
+        dirty = dirty || turnPending,
+        name = node.name,
+        leave = vm::closeHandler,
+        save = when {
+            dirty -> if (replaceEdit) { after -> saveEdit(null, after) } else null
+            turnPending -> if (replaceTurn) { after -> saveTurn(null, after) } else null
+            else -> null
+        },
+    )
+    // The phone's back, the same as the bar's: out of the open tool first. Declared after the
+    // host's handler, so it is asked first; off when no tool is open, so the host's runs.
+    androidx.activity.compose.BackHandler(enabled = tool != Tool.NONE) { tool = Tool.NONE }
+
     // The picture gets the whole screen, system bars included.
     ImmersiveViewer()
 
@@ -468,43 +521,28 @@ private fun ImageViewerContent(
                     },
                 ).joinToString("  ·  "),
                 onClose = {
-                    // Walking away from unsaved edits is a real loss, so the first back arms it and
-                    // says so. One warning, not a dialog: a modal here would be in the way of the
-                    // common case, which is leaving a picture you only looked at.
-                    when {
-                        !dirty -> vm.closeHandler()
-                        exitArmed -> vm.closeHandler()
-                        else -> {
-                            exitArmed = true
-                            vm.toast("Edits are not saved. Tap back again to discard them.")
-                        }
-                    }
+                    // A tool open is a step inside the editor: back leaves the tool, not the
+                    // picture, and the tool's own Cancel is what it does. Past that, unsaved edits
+                    // or an unsaved turn ask before they are lost; a picture only looked at leaves
+                    // at once. The old way out was a toast and a second back, which the phone's own
+                    // back never went through at all.
+                    if (tool != Tool.NONE) tool = Tool.NONE else leave()
                 },
             ) {
-                if (editing) {
+                if (editing && tool != Tool.NONE) {
+                    // Bug identified here: Save stayed in the bar while a crop frame was up, one
+                    // reach from the tool's own Crop. Pressing it saved the picture as it was before
+                    // the crop - the frame was never applied - and nothing said so. While a tool is
+                    // open its footer is the only way on: apply it or cancel it. Undo and Done
+                    // editing go with Save, since each would act on a picture the tool is mid-way
+                    // through changing.
+                } else if (editing) {
                     ViewerAction(FiletIcons.Undo, "Undo", enabled = history.isNotEmpty() && !busy) {
                         val previous = history.removeLastOrNull() ?: return@ViewerAction
                         image?.recycle()
                         image = previous
                         dirty = history.isNotEmpty()
                         resetView()
-                    }
-                    val blocked = remember(node.path) { vm.writeBlockReason(node.path.parent) }
-                    /** Encode what is on screen and hand it to the save, [to] null meaning over the original. */
-                    fun saveEdit(to: dev.niccc2007.filet.vfs.VPath?) {
-                        val bmp = shown ?: return
-                        scope.launch {
-                            busy = true
-                            val encoded = withContext(Dispatchers.Default) {
-                                runCatching { encode(bmp, node.extension) }.getOrNull()
-                            }
-                            busy = false
-                            if (encoded == null) { vm.toast("Could not encode the edited image."); return@launch }
-                            vm.saveEditedImage(node, encoded.bytes, encoded.extension, to) {
-                                dirty = false
-                                exitArmed = false
-                            }
-                        }
                     }
                     val bmp = shown
                     val makes = if (bmp == null) node.extension else encodedExtension(bmp, node.extension)
@@ -527,20 +565,7 @@ private fun ImageViewerContent(
                     // A turn is saved from up here, where the editor's Save is: the one action
                     // that only exists while there is something to save.
                     if (turnPending) {
-                        val blocked = remember(node.path) { vm.writeBlockReason(node.path.parent) }
                         val makes = PictureTurn.newFormatFor(node.extension)
-                        /** [to] null saves over the original. */
-                        fun saveTurn(to: dev.niccc2007.filet.vfs.VPath?) {
-                            val q = quarters
-                            busy = true
-                            vm.saveTurnedPicture(node, Math.floorMod(q, 4), to) { ok ->
-                                busy = false
-                                if (ok) {
-                                    savedQuarters = q
-                                    if (to == null) revision++
-                                }
-                            }
-                        }
                         SaveChoice(
                             label = "Save the turn",
                             enabled = shown != null && !busy,

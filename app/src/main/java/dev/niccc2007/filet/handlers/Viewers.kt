@@ -108,6 +108,18 @@ fun HexViewerScreen(vm: BrowserViewModel, node: VNode) {
     var editing by remember(node.path) { mutableStateOf<Pair<Long, Byte>?>(null) }
     val tooBig = node.size > HexEdits.MAX_PATCH_BYTES
 
+    val leave = rememberLeaveGuard(
+        dirty = !edits.isEmpty,
+        name = node.name,
+        leave = vm::closeHandler,
+        save = { after ->
+            vm.saveBytes(node, edits) {
+                edits = HexEdits()
+                cache.forget()
+                after()
+            }
+        },
+    )
     Column(Modifier.fillMaxSize()) {
         ViewerBar(
             title = node.name,
@@ -118,7 +130,7 @@ fun HexViewerScreen(vm: BrowserViewModel, node: VNode) {
                 append(" rows")
                 if (!edits.isEmpty) append("  ·  ${edits.count} edited")
             },
-            onClose = { vm.closeHandler() },
+            onClose = leave,
         ) {
             ViewerAction(FiletIcons.Back, "Discard edits", enabled = !edits.isEmpty) {
                 edits = HexEdits()

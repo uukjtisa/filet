@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.asImageBitmap
+import dev.niccc2007.filet.handlers.rememberLeaveGuard
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.browser.humanSize
@@ -103,7 +104,6 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
     // A picture replaced or removed, held until Save like the fields: null for no change, a
     // change of null for a removal. Shown in place of the file's own until then.
     var coverEdit by remember(node.path) { mutableStateOf<CoverEdit?>(null) }
-    var askLeave by remember(node.path) { mutableStateOf(false) }
 
     LaunchedEffect(node.path, coverPass) {
         cover = runCatching { vm.readCover(node) }.getOrNull()
@@ -145,39 +145,23 @@ fun MetadataScreen(vm: BrowserViewModel, node: VNode) {
     }
 
     // Leaving with edits not written asks, by the top bar's close and by Back alike.
-    BackHandler(enabled = dirty && !busy) { askLeave = true }
+    val leave = rememberLeaveGuard(
+        dirty = dirty && !busy,
+        name = node.name,
+        leave = vm::closeHandler,
+        save = if (format != null) { after -> save(after) } else null,
+        saveLabel = "Apply",
+    )
 
     Column(Modifier.fillMaxSize()) {
         ViewerBar(
             title = node.name,
             subtitle = (format ?: readable)?.name?.let { "$it container" } ?: "unknown format",
-            onClose = { if (dirty) askLeave = true else vm.closeHandler() },
+            onClose = leave,
         ) {
             ViewerAction(FiletIcons.Check, "Save", enabled = dirty && !busy && format != null) { save() }
         }
 
-        if (askLeave) {
-            Dlg(onDismiss = { askLeave = false }) {
-                DlgHeader(
-                    icon = FiletIcons.Save,
-                    title = "Apply your changes?",
-                    sub = "They are not written to the file yet.",
-                    onClose = { askLeave = false },
-                )
-                DlgBody {
-                    if (format != null) {
-                        DlgPick(FiletIcons.Check, "Apply") {
-                            askLeave = false
-                            save { vm.closeHandler() }
-                        }
-                    }
-                    DlgPick(FiletIcons.Close, "Discard") {
-                        askLeave = false
-                        vm.closeHandler()
-                    }
-                }
-            }
-        }
 
         if (loading) {
             Box(Modifier.fillMaxSize(), Alignment.Center) {

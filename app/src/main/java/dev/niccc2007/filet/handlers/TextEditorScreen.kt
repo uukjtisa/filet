@@ -107,6 +107,9 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
     // The kinds with a page to show.
     val renders = markdown || webPage
     var rendering by remember(node.path) { mutableStateOf(startRendered && renders) }
+    // Whether the page on screen was reached from the editor, so back returns to it. A file that
+    // opened on its page has no editor behind it to return to, and back leaves.
+    var cameFromEdit by remember(node.path) { mutableStateOf(false) }
     // The text the page is drawn from: the buffer as it was at the flip.
     var renderSource by remember(node.path) { mutableStateOf<String?>(null) }
     val context = LocalContext.current
@@ -149,8 +152,10 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
     fun flip() {
         if (rendering) {
             rendering = false
+            cameFromEdit = false
             return
         }
+        cameFromEdit = true
         val ed = editor
         renderSource = ed?.text?.toString() ?: text
         if (ed != null) {
@@ -161,6 +166,17 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
         findOpen = false
         rendering = true
     }
+
+    val leave = rememberLeaveGuard(
+        dirty = dirty,
+        name = node.name,
+        leave = vm::closeHandler,
+        save = { after -> editor?.let { ed -> vm.saveText(node, ed.text.toString()) { dirty = false; after() } } },
+    )
+    // Back from the page goes to the editor behind it, as it was - the editor stays composed under
+    // the page, so its cursor and scroll are still there. Declared after the guard, so a page
+    // reached from the editor answers back before the question about leaving does.
+    androidx.activity.compose.BackHandler(enabled = rendering && cameFromEdit) { flip() }
 
     LaunchedEffect(node.path) {
         loading = true
@@ -192,7 +208,7 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
                 // The one fact that explains a page that looks incomplete - see `HtmlScreen`.
                 if (rendering && webPage) append("  ·  offline")
             },
-            onClose = { vm.closeHandler() },
+            onClose = { if (rendering && cameFromEdit) flip() else leave() },
         ) {
             // The one switch, named for where it goes. Only for Markdown and HTML: nothing else
             // in the editor has a page to show.

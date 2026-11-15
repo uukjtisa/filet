@@ -59,12 +59,19 @@ fun ManifestEditorScreen(vm: BrowserViewModel, node: VNode) {
     var dirty by remember(node.path) { mutableStateOf(false) }
 
     LaunchedEffect(node.path) { vm.loadManifest(node) }
+    val leave = dev.niccc2007.filet.handlers.rememberLeaveGuard(
+        dirty = dirty,
+        name = "AndroidManifest.xml",
+        leave = vm::closeHandler,
+        save = { after -> vm.applyManifest(node); dirty = false; after() },
+        saveLabel = "Apply",
+    )
 
     Column(Modifier.fillMaxSize()) {
         ViewerBar(
             title = "AndroidManifest.xml",
             subtitle = node.name + if (dirty) "  ·  unsaved" else "",
-            onClose = { vm.closeHandler() },
+            onClose = leave,
         ) {
             dev.niccc2007.filet.handlers.ViewerAction(FiletIcons.Check, "Apply", enabled = dirty) {
                 vm.applyManifest(node)
