@@ -385,7 +385,7 @@ class ApkTools(
      * Dexes are read one at a time. Loading all of them at once is exactly what makes the
      * popular on-device tools fall over on a large app.
      */
-    suspend fun decompile(apk: VPath, workDir: File, onProgress: (String) -> Unit = {}): File =
+    suspend fun decompile(apk: VPath, workDir: File, onProgress: (String, Float?) -> Unit = { _, _ -> }): File =
         withContext(Dispatchers.IO) {
             val os = vfs.osPath(apk) ?: throw IllegalArgumentException("Decompile APKs from local storage.")
             val file = File(os)
@@ -393,23 +393,31 @@ class ApkTools(
             workDir.mkdirs()
 
             ZipFile(file).use { zip ->
-                for (e in zip.entries()) {
+                fun isDex(name: String) = name.endsWith(".dex") && !name.contains('/')
+                val files = zip.entries().asSequence().filter { !it.isDirectory }.toList()
+                val dexEntries = files.filter { isDex(it.name) }
+                // The zip says how big every entry is before a byte is read, and a dex says how
+                // many classes it holds once loaded: enough for a bar that means something.
+                val copyBytes = files.filter { !isDex(it.name) }.sumOf { it.size.coerceAtLeast(0) }
+                val bar = ApkProgress.decompile(dexEntries.map { it.size })
+                val report = ApkReporter(onProgress)
+                var copied = 0L
+                for (e in files) {
                     currentCoroutineContext().ensureActive()
-                    if (e.isDirectory) continue
                     val name = e.name
-                    if (name.endsWith(".dex") && !name.contains('/')) continue   // handled below
+                    if (isDex(name)) continue   // handled below
                     val out = File(workDir, "original/$name")
                     out.parentFile?.mkdirs()
                     zip.getInputStream(e).use { input -> out.outputStream().use { input.copyTo(it) } }
+                    copied += e.size.coerceAtLeast(0)
+                    report.report("resources", bar.at(0, if (copyBytes > 0) copied.toDouble() / copyBytes else 1.0))
                 }
 
-                val dexNames = zip.entries().asSequence()
-                    .map { it.name }.filter { it.endsWith(".dex") && !it.contains('/') }.toList()
-
-                for (dexName in dexNames) {
+                for ((i, entry) in dexEntries.withIndex()) {
                     currentCoroutineContext().ensureActive()
-                    onProgress(dexName)
-                    val bytes = zip.getInputStream(zip.getEntry(dexName)).use { it.readBytes() }
+                    val dexName = entry.name
+                    report.report(dexName, bar.at(i + 1, 0.0))
+                    val bytes = zip.getInputStream(entry).use { it.readBytes() }
                     val dex = DexBackedDexFile(Opcodes.forApi(READ_API_LEVEL), bytes)
                     val root = File(workDir, smaliDirFor(dexName))
                     root.mkdirs()
@@ -420,8 +428,11 @@ class ApkTools(
                         sequentialLabels = true
                         debugInfo = true
                     }
-                    for (classDef in dex.classes) {
+                    val classes = dex.classes
+                    var done = 0
+                    for (classDef in classes) {
                         currentCoroutineContext().ensureActive()
+                        report.report(dexName, bar.at(i + 1, done++.toDouble() / classes.size.coerceAtLeast(1)))
                         val type = classDef.type
                         if (!type.startsWith("L") || !type.endsWith(";")) continue
                         val rel = type.substring(1, type.length - 1) + ".smali"
@@ -462,7 +473,7 @@ class ApkTools(
          * minimum keeps the output loadable everywhere the original was.
          */
         minSdk: Int,
-        onProgress: (String) -> Unit = {},
+        onProgress: (String, Float?) -> Unit = { _, _ -> },
     ): File = withContext(Dispatchers.IO) {
         val os = vfs.osPath(originalApk) ?: throw IllegalArgumentException("Rebuild from local storage.")
         val original = File(os)
@@ -470,10 +481,12 @@ class ApkTools(
             ?.sortedBy { it.name } ?: emptyList()
         require(smaliDirs.isNotEmpty()) { "No smali folders in the working copy." }
 
+        val bar = ApkProgress.rebuild(smaliDirs.map { d -> d.walk().count { it.isFile && it.name.endsWith(".smali") } })
+        val report = ApkReporter(onProgress)
         val dexOut = LinkedHashMap<String, File>()
-        for (dir in smaliDirs) {
+        for ((i, dir) in smaliDirs.withIndex()) {
             currentCoroutineContext().ensureActive()
-            onProgress("assembling ${dir.name}")
+            report.report("assembling ${dir.name}", bar.at(i, 0.0))
             val dexName = dexNameFor(dir.name)
             val target = File(workDir, "build/$dexName")
             target.parentFile?.mkdirs()
@@ -487,12 +500,16 @@ class ApkTools(
             dexOut[dexName] = target
         }
 
-        onProgress("repacking")
+        val repack = smaliDirs.size
+        report.report("repacking", bar.at(repack, 0.0))
         outUnsigned.parentFile?.mkdirs()
         ZipOutputStream(outUnsigned.outputStream().buffered()).use { zos ->
             ZipFile(original).use { zip ->
+                val entries = zip.size().coerceAtLeast(1)
+                var seen = 0
                 for (e in zip.entries()) {
                     currentCoroutineContext().ensureActive()
+                    report.report("repacking", bar.at(repack, seen++.toDouble() / entries))
                     if (e.isDirectory) continue
                     val name = e.name
                     // The signature of the ORIGINAL is worthless once a dex changes, and
@@ -549,12 +566,12 @@ class ApkTools(
          * and a caller has no reason to know it better than the manifest does.
          */
         minSdk: Int? = null,
-        onProgress: (String) -> Unit = {},
+        onProgress: (String, Float?) -> Unit = { _, _ -> },
     ): VPath = withContext(Dispatchers.IO) {
         val sdk = minSdk ?: runCatching { inspect(original).minSdk }.getOrDefault(MIN_WRITE_API_LEVEL)
         val unsigned = File(workDir, "build/unsigned.apk")
         rebuild(workDir, original, unsigned, sdk, onProgress)
-        onProgress("signing")
+        onProgress("signing", (1 - ApkProgress.SIGN_SHARE).toFloat())
         val parent = original.parent ?: error("nowhere to put the result")
         val out = File(parent.path, original.name.removeSuffix(".apk") + "-filet.apk")
         keys.sign(key, unsigned, out, sdk)

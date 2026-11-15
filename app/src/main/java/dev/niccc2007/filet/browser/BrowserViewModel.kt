@@ -5603,9 +5603,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             )
             _apkWork.value = "decompiling…"
             runCatching {
-                graph.apkTools.decompile(node.path, workDirFor(node)) { step ->
+                graph.apkTools.decompile(node.path, workDirFor(node)) { step, fraction ->
                     _apkWork.value = "decompiling $step"
-                    ledger.progress(jobId, null, step)
+                    ledger.progress(jobId, fraction, step)
                 }
             }.onSuccess { dir ->
                 val where = graph.files.vpath(dir)
@@ -5644,9 +5644,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                     // minSdk is read from the APK being rebuilt. A guess here decides the
                     // dex format and the signature schemes, and gets it wrong for every app
                     // that is not the one it was guessed for.
-                ) { step ->
+                ) { step, fraction ->
                     _apkWork.value = step
-                    ledger.progress(jobId, null, step)
+                    ledger.progress(jobId, fraction, step)
                 }
             }.onSuccess { out ->
                 ledger.finish(jobId, out.name)
