@@ -29,7 +29,7 @@ h2 { font-size:15px; margin:30px 0 4px; color:#EDEAE3; font-weight:600; }
 .seg span { font-size:11px; padding:5px 10px; border-radius:99px; color:var(--fg2); cursor:pointer; }
 .seg span.on { background:var(--accentDim); color:var(--accent); font-weight:600; }
 .body { padding:16px; font-size:12.5px; }
-.pagev h3 { margin:4px 0 6px; font-size:17px; color:var(--fg); }
+.pagev h3, .pagev h1 { margin:4px 0 6px; font-size:17px; color:var(--fg); }
 .pagev p { color:var(--fg2); margin:0 0 8px; }
 .code { font:11.5px/1.6 "JetBrains Mono", Consolas, monospace; color:#C9C5BC; white-space:pre; }
 .code .t { color:#7FA8B8; } .code .a { color:#C9A36A; } .code .s { color:#8FB894; }
@@ -80,7 +80,7 @@ on foot.<span class="t">&lt;/p&gt;</span></div>
 
 <h2>Proposal: one screen, the file decides its modes</h2>
 <p class="sub">Opening a file asks what it can be shown as: an HTML or Markdown file has Page and Code, a text file has Code only, anything at all has Hex. The screen opens in the first one and offers the rest. Two ways to offer them; pick one with the switch below, then try both modes and the menu.</p>
-<div class="opts"><span class="opt on" data-way="seg">A. Page | Code switch in the bar</span><span class="opt" data-way="menu">B. Modes in the three-dot menu</span></div>
+<div class="opts"><span class="opt" data-way="seg">A. Page | Code switch in the bar</span><span class="opt on" data-way="menu">B. Modes in the three-dot menu (built)</span></div>
 <div class="row">
   <div>
     <div class="phone" id="one">
@@ -127,9 +127,10 @@ on foot.<span class="t">&lt;/p&gt;</span></div>
   </div>
 </div>
 
-<h2>To decide</h2>
+<h2>Decided (approved 2026-11-15)</h2>
 <ul class="log">
-  <li><b>A or B.</b> A is one tap between modes and costs bar width; B keeps the bar to name, Save and More, and puts every mode a file has (Page, Code, Hex) in one list.</li>
+  <li><b>B, built.</b> The bar keeps name, Save and More; More opens on "Show as" with every mode the file has (Page, Code, Hex). A stays here for comparison.</li>
+  <li><b>The page is live.</b> Type in Code and the page is drawn from what is typed; Save writes it, and going back to Page shows the saved text. Try it above: Code, type, the check mark, then Page.</li>
   <li><b>Which files get a Page mode.</b> HTML and Markdown today. CSV as a table and JSON as a tree are the next obvious ones; each is a mode, not a new screen.</li>
   <li><b>What opens first.</b> Page for HTML and Markdown (reading is the common case), Code for everything else.</li>
   <li><b>Open with keeps the separate entries.</b> "HTML viewer" and "Code editor" stay listed so a default can still be set to either; both open this one screen, in that mode.</li>
@@ -137,7 +138,7 @@ on foot.<span class="t">&lt;/p&gt;</span></div>
 </ul>
 </div>
 <script>
-let way = 'seg', mode = 'page';
+let way = 'menu', mode = 'page';
 const $ = (id) => document.getElementById(id);
 function paint() {
   $('seg').style.display = way === 'seg' ? 'flex' : 'none';
@@ -163,7 +164,11 @@ document.querySelectorAll('[data-m]').forEach((e) => e.onclick = () => {
 });
 $('more').onclick = (ev) => { ev.stopPropagation(); $('panel').classList.toggle('open'); };
 $('one').onclick = (ev) => { if (!$('panel').contains(ev.target) && ev.target !== $('more')) $('panel').classList.remove('open'); };
-$('codeview').oninput = () => { $('save').style.display = 'flex'; $('sub').textContent = 'Download  ·  unsaved'; };
+// Live: the page is drawn from what the code holds, saved or not, as the app's Page mode is.
+function render() { $('pageview').innerHTML = $('codeview').innerText; }
+$('codeview').oninput = () => { $('save').style.display = 'flex'; $('sub').textContent = 'Download  ·  unsaved'; render(); };
+// Save: the edit is the file now. The check mark goes, the unsaved mark goes, and Page shows it.
+$('save').onclick = (ev) => { ev.stopPropagation(); render(); $('save').style.display = 'none'; $('sub').textContent = 'Download  ·  saved'; };
 paint();
 </script>
 </body>
