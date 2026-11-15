@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet: submenus beside their menu, and one Share</title>
+<style>
+  :root {
+    --bg:#161614; --surface:#1C1C1A; --raised:#232320; --high:#2A2A26; --sunken:#121210;
+    --line:#2E2E2A; --lineSoft:#34342F; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+    --accent:#7FA8B8; --accentDim:#31434B; --bad:#C97F7F; --sel:#243036;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0d0d0c; color:var(--fg); font:13px/1.4 system-ui, sans-serif; padding:24px; }
+  h1 { font-size:16px; font-weight:600; margin:0 0 4px; }
+  .lead { color:var(--fg2); margin:0 0 14px; max-width:860px; }
+  .cols { display:flex; gap:28px; flex-wrap:wrap; align-items:flex-start; }
+  h2 { font-size:12px; letter-spacing:1.3px; text-transform:uppercase; color:var(--fg3); margin:0 0 8px; }
+  .phone { position:relative; width:360px; height:640px; background:var(--bg); border:1px solid var(--line); border-radius:22px; overflow:hidden; }
+  .list { position:absolute; inset:0; padding:56px 0 0; }
+  .file { display:flex; gap:12px; align-items:center; padding:9px 16px; color:var(--fg2); }
+  .file i { width:30px; height:30px; border-radius:8px; background:var(--raised); flex:none; }
+  .file.held { background:var(--sel); color:var(--fg); }
+  .top { position:absolute; left:0; right:0; top:0; height:48px; display:flex; align-items:center; padding:0 16px; color:var(--fg2); border-bottom:1px solid var(--line); background:var(--surface); }
+  .scrim { position:absolute; inset:0; }
+  /* ContextMenu.kt: widthIn 248..330, radius 14, colors.high, 1dp lineSoft, bottom 6 */
+  .menu { position:absolute; width:262px; background:var(--high); border:1px solid var(--lineSoft); border-radius:14px; padding-bottom:6px; box-shadow:0 8px 24px #0008; }
+  .head { display:flex; gap:10px; padding:12px 14px 8px; align-items:center; }
+  .head i { width:34px; height:34px; border-radius:8px; background:#3a4a52; flex:none; }
+  .head b { display:block; font-weight:600; font-size:13.5px; }
+  .head small { color:var(--fg3); font-size:11px; }
+  .quick { display:flex; justify-content:space-around; padding:4px 6px 8px; border-bottom:1px solid var(--lineSoft); margin-bottom:4px; }
+  .quick span { width:36px; height:32px; border-radius:9px; display:grid; place-items:center; color:var(--fg2); }
+  .row { display:flex; gap:12px; align-items:center; padding:9px 14px; color:var(--fg2); cursor:pointer; border-radius:0; }
+  .row:hover { background:#ffffff08; }
+  .row svg { width:16px; height:16px; flex:none; }
+  .row .l { flex:1; font-size:13px; }
+  .row .l small { display:block; font-size:10.5px; color:var(--fg3); line-height:1.25; }
+  .row .chev { width:14px; height:14px; color:var(--fg3); }
+  .row.open { background:var(--accentDim); color:var(--fg); }
+  .row.open .chev { color:var(--accent); }
+  .rule { height:1px; background:var(--lineSoft); margin:4px 0; }
+  .sub { position:absolute; width:236px; background:var(--high); border:1px solid var(--lineSoft); border-radius:14px; padding:4px 0 6px; box-shadow:0 10px 28px #000a; }
+  .sub .back { display:flex; align-items:center; gap:8px; padding:8px 10px 6px; color:var(--fg); font-weight:600; font-size:13px; border-bottom:1px solid var(--lineSoft); margin-bottom:2px; cursor:pointer; }
+  .sub .back svg { width:16px; height:16px; color:var(--accent); }
+  .sec { font-size:10px; letter-spacing:1px; font-weight:600; color:var(--fg3); padding:8px 14px 3px; text-transform:uppercase; }
+  .ctl { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 10px; }
+  .ctl button { background:var(--raised); color:var(--fg2); border:1px solid var(--line); border-radius:8px; padding:5px 10px; font:inherit; cursor:pointer; }
+  .ctl button.on { color:var(--fg); border-color:var(--accent); }
+  /* Selection pill and the standard dialogue */
+  .pill { position:absolute; left:8px; right:8px; bottom:14px; height:52px; background:var(--raised); border:1px solid var(--lineSoft); border-radius:18px; display:flex; align-items:center; padding:0 8px; gap:4px; color:var(--fg2); }
+  .pill b { color:var(--accent); padding:0 6px; }
+  .pill .fb { display:flex; flex-direction:column; align-items:center; font-size:9.5px; padding:2px 7px; border-radius:9px; cursor:pointer; }
+  .pill .fb svg { width:18px; height:18px; }
+  .pill .fb.on { background:var(--accentDim); color:var(--fg); }
+  .dscrim { position:absolute; inset:0; background:#0009; display:none; align-items:center; justify-content:center; }
+  .dlg { width:300px; background:var(--high); border:1px solid var(--lineSoft); border-radius:16px; overflow:hidden; }
+  .dlg .dh { display:flex; gap:10px; align-items:center; padding:14px 16px 10px; }
+  .dlg .dh svg { width:20px; height:20px; color:var(--accent); }
+  .dlg .dh b { font-size:14px; } .dlg .dh small { display:block; color:var(--fg3); font-size:11px; }
+  .dlg .df { display:flex; justify-content:flex-end; padding:8px 12px 12px; }
+  .dlg .df span { padding:6px 12px; color:var(--fg2); border-radius:8px; }
+  .notes { margin-top:24px; max-width:860px; color:var(--fg2); }
+  .notes h3 { font-size:12px; letter-spacing:1.2px; text-transform:uppercase; color:var(--fg3); margin:18px 0 6px; }
+  .notes li { margin:4px 0; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.4M8.2 13.2l7.6 4.4"/></symbol>
+    <symbol id="wifi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 8.5a15 15 0 0 1 20 0M5 12a10.5 10.5 0 0 1 14 0M8.5 15.5a5.5 5.5 0 0 1 7 0"/><circle cx="12" cy="19" r="1"/></symbol>
+    <symbol id="scan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M4 12h16"/></symbol>
+    <symbol id="globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></symbol>
+    <symbol id="open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="zip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M12 3v2M12 7v2M12 11v2"/></symbol>
+    <symbol id="info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+    <symbol id="star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></symbol>
+    <symbol id="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 6-6 6 6 6"/></symbol>
+    <symbol id="copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></symbol>
+    <symbol id="cut" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8 16 19 4M16 16 5 4"/></symbol>
+    <symbol id="del" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+    <symbol id="ren" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></symbol>
+    <symbol id="more" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></symbol>
+  </defs>
+</svg>
+
+<h1>Submenus beside their menu, and one Share</h1>
+<p class="lead">Left is today: Nearby and Fast share are two rows of the hold menu, and Filet Portal is not there at all. Middle is the proposal: one <b>Share</b> row, which opens a submenu beside the menu, attached to it, the way a context submenu does on Windows. Pick where the file was held to see the edge rules, and turn on the demo level to see a submenu inside a submenu. Right is the selection bar's new Share button, which opens Filet's standard dialogue.</p>
+
+<div class="cols">
+  <div>
+    <h2>Today</h2>
+    <div class="phone" id="today"></div>
+  </div>
+  <div>
+    <h2>Proposal</h2>
+    <div class="ctl" id="where">
+      <button data-w="tl" class="on">Held top left</button>
+      <button data-w="tr">Right edge</button>
+      <button data-w="br">Bottom right</button>
+      <button data-w="bl">Bottom left</button>
+    </div>
+    <div class="ctl">
+      <button id="nest">Demo: a third level</button>
+    </div>
+    <div class="phone" id="prop"></div>
+  </div>
+  <div>
+    <h2>Selection bar: Share</h2>
+    <div class="ctl"><button id="openDlg">Tap Share</button></div>
+    <div class="phone" id="bar"></div>
+  </div>
+</div>
+
+<div class="notes">
+  <h3>How a submenu behaves</h3>
+  <ul>
+    <li><b>Where it opens.</b> Beside the menu, its top level with the row that opened it, overlapping the menu's edge by 4 dp so the two read as one. Right of the menu when there is room, left of it when there is not.</li>
+    <li><b>Never off the screen.</b> With no room on either side it is pushed in from the screen edge and covers part of the menu it came from. It moves up rather than run off the bottom. Taller than the screen, it scrolls.</li>
+    <li><b>Closing.</b> Its own back row closes it. Back closes the newest submenu first, then the menu. Tapping the row that opened it closes it again. Tapping outside closes everything.</li>
+    <li><b>Nesting.</b> A row inside a submenu can open another, by the same rules against the submenu it came from. Only one submenu is open per level: opening another row's submenu closes the first.</li>
+    <li><b>The open row is lit</b> in the menu below it, so it is clear what the submenu belongs to while it covers part of the menu.</li>
+  </ul>
+  <h3>One Share</h3>
+  <ul>
+    <li>The hold menu and the selection bar's More card get one <b>Share</b> row in place of Nearby and Fast share. Its submenu has two sections: <b>Over the internet</b> (Filet Portal) and <b>Nearby</b> (Fast share, Add to nearby share).</li>
+    <li><b>Send</b>, which hands files to another app, stays where it is: it is in the hold menu's top row and is not one of Filet's own ways.</li>
+    <li>The selection bar can carry <b>Share</b> as a button. It opens the same two sections as Filet's standard dialogue, since a bar at the bottom of the screen has no menu to sit beside.</li>
+    <li>A bar that was set up with Nearby or Fast share on it shows Share in that place instead.</li>
+  </ul>
+</div>
+
+<script>
+const ic = id => `<svg><use href="#${id}"/></svg>`;
+const FILES = ["IMG_2041.jpg","Report final.pdf","Recording 12.m4a","notes.txt","Backup","holiday.mp4","build.apk","Scans","song.flac","invoice.xlsx","Camera","letters.zip","draft.docx"];
+function list(held){ return `<div class="top">Download</div><div class="list">${FILES.map((f,i)=>`<div class="file${i===held?" held":""}"><i></i>${f}</div>`).join("")}</div>`; }
+function head(){ return `<div class="head"><i></i><div><b>Report final.pdf</b><small>/storage/emulated/0/Download · 2.4 MB</small></div></div>
+  <div class="quick"><span>${ic("copy")}</span><span>${ic("cut")}</span><span>${ic("ren")}</span><span>${ic("share")}</span><span style="color:var(--bad)">${ic("del")}</span></div>`; }
+function row(icon,label,opts={}){ return `<div class="row${opts.open?" open":""}" ${opts.id?`data-id="${opts.id}"`:""}>${ic(icon)}<div class="l">${label}${opts.small?`<small>${opts.small}</small>`:""}</div>${opts.sub?`<svg class="chev"><use href="#chev"/></svg>`:""}</div>`; }
+
+// Today: ContextMenu.kt with the hold menu's rows as selectionActions() builds them for one PDF.
+document.getElementById("today").innerHTML = list(1) + `<div class="menu" style="left:40px;top:120px">${head()}
+  ${row("open","Open with")}${row("zip","Compress")}<div class="rule"></div>
+  ${row("info","Details")}<div class="rule"></div>
+  ${row("star","Bookmark")}${row("wifi","Nearby")}${row("scan","Fast share")}${row("lock","Move to Locker")}${row("home","Shortcut")}</div>`;
+
+// Proposal
+const W = 360, H = 640, M = 8, OVER = 4;
+const SPOTS = { tl:{x:40,y:96,held:1}, tr:{x:98,y:96,held:1}, br:{x:98,y:196,held:9}, bl:{x:12,y:196,held:9} };
+let where = "tl", nest = false, open = [];   // open = ids of open submenus, one per level
+
+const LEVELS = {
+  share: { title:"Share", rows: [
+    {sec:"Over the internet"},
+    {icon:"globe", label:"Filet Portal", small:"A link that works anywhere, for a while"},
+    {sec:"Nearby"},
+    {icon:"scan", label:"Fast share", small:"A QR, or straight to a Filet nearby"},
+    {icon:"wifi", label:"Add to nearby share", small:"On the Share page for phones nearby", id:"near", sub:true, demo:true},
+  ]},
+  near: { title:"Add to nearby share", rows: [
+    {sec:"Demo level"},
+    {icon:"wifi", label:"Share now", small:"Shows the mechanism; not a real row"},
+    {icon:"star", label:"Share and keep"},
+  ]},
+};
+
+function place(anchor, w, h){
+  // anchor: {left,right,top} of the row that opens it, in phone coordinates.
+  let x = anchor.right - OVER;
+  if (x + w > W - M) x = anchor.left - w + OVER;          // flip to the left
+  if (x < M) x = W - M - w;                               // no room either side: in from the edge, over the menu
+  let y = anchor.top - 4;
+  let maxH = H - 2*M;
+  if (y + Math.min(h, maxH) > H - M) y = H - M - Math.min(h, maxH);
+  return {x, y: Math.max(M, y), maxH};
+}
+
+function renderProp(){
+  const s = SPOTS[where], el = document.getElementById("prop");
+  el.innerHTML = list(s.held) + `<div class="scrim" id="scrim"></div>` +
+    `<div class="menu" id="m0" style="left:${s.x}px;top:${s.y}px">${head()}
+      ${row("open","Open with")}${row("zip","Compress")}<div class="rule"></div>
+      ${row("info","Details")}<div class="rule"></div>
+      ${row("star","Bookmark")}${row("share","Share",{sub:true,id:"share",open:open[0]==="share"})}${row("lock","Move to Locker")}${row("home","Shortcut")}</div>`;
+  let parent = el.querySelector("#m0");
+  open.forEach((id, level) => {
+    const def = LEVELS[id];
+    const r = parent.querySelector(`[data-id="${id}"]`).getBoundingClientRect(), p = el.getBoundingClientRect();
+    const anchor = {left:r.left-p.left-1, right:r.right-p.left+1, top:r.top-p.top};
+    const sub = document.createElement("div");
+    sub.className = "sub";
+    sub.innerHTML = `<div class="back" data-back="${level}">${ic("back")}${def.title}</div>` +
+      def.rows.filter(x => nest || !x.demo || !x.sub || true).map(x => x.sec ? `<div class="sec">${x.sec}</div>` :
+        row(x.icon, x.label, {small:x.small, sub: x.sub && nest, id: x.sub && nest ? x.id : null, open: open[level+1]===x.id})).join("");
+    el.appendChild(sub);
+    const pos = place(anchor, sub.offsetWidth, sub.offsetHeight);
+    sub.style.left = pos.x + "px"; sub.style.top = pos.y + "px"; sub.style.maxHeight = pos.maxH + "px"; sub.style.overflow = "auto";
+    parent = sub;
+  });
+  el.querySelectorAll(".row[data-id]").forEach(r => r.onclick = e => {
+    e.stopPropagation();
+    const id = r.dataset.id, level = id === "share" ? 0 : open.indexOf(id) >= 0 ? open.indexOf(id) : open.length;
+    if (open[level] === id) open = open.slice(0, level);   // the parent row closes it
+    else open = open.slice(0, level).concat(id);
+    renderProp();
+  });
+  el.querySelectorAll("[data-back]").forEach(b => b.onclick = e => { e.stopPropagation(); open = open.slice(0, +b.dataset.back); renderProp(); });
+  el.querySelector("#scrim").onclick = () => { open = []; renderProp(); };
+}
+document.querySelectorAll("#where button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#where button").forEach(x => x.classList.toggle("on", x === b));
+  where = b.dataset.w; renderProp();
+});
+document.getElementById("nest").onclick = e => { nest = !nest; e.target.classList.toggle("on", nest); open = open.slice(0,1); renderProp(); };
+document.addEventListener("keydown", e => { if (e.key === "Escape" || e.key === "Backspace") { open = open.slice(0, -1); renderProp(); } });
+open = ["share"];
+renderProp();
+
+// Selection bar
+function renderBar(dlg){
+  document.getElementById("bar").innerHTML = list(-1).replace(/class="file"/g, (m, i) => m) + `
+  <div class="pill"><b>3</b><span style="padding:0 4px">✕</span>
+    <span class="fb">${ic("copy")}Copy</span><span class="fb">${ic("cut")}Move</span>
+    <span class="fb${dlg?" on":""}" id="shareBtn">${ic("share")}Share</span><span class="fb" style="color:var(--bad)">${ic("del")}Delete</span>
+    <span style="flex:1"></span><span class="fb">${ic("more")}</span></div>
+  <div class="dscrim" id="dscrim" style="display:${dlg?"flex":"none"}"><div class="dlg">
+    <div class="dh">${ic("share")}<div><b>Share 3 items</b><small>Filet's own ways. Send hands them to another app.</small></div></div>
+    <div class="sec">Over the internet</div>${row("globe","Filet Portal",{small:"A link that works anywhere, for a while"})}
+    <div class="sec">Nearby</div>${row("scan","Fast share",{small:"A QR, or straight to a Filet nearby"})}${row("wifi","Add to nearby share",{small:"On the Share page for phones nearby"})}
+    <div class="df"><span>Cancel</span></div></div></div>`;
+  document.getElementById("shareBtn").onclick = () => renderBar(true);
+  document.getElementById("dscrim").onclick = () => renderBar(false);
+}
+document.getElementById("openDlg").onclick = () => renderBar(true);
+renderBar(false);
+</script>
+</body>
+</html>
