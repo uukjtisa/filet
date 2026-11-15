@@ -3,13 +3,16 @@ package dev.niccc2007.filet.media
 import java.util.Collections
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -167,6 +170,48 @@ class LoadQueueTest {
         h.drain()
         runBlocking { withTimeout(5_000) { waiting.join() } }
         assertTrue(waiting.isCompleted)
+    }
+
+    @Test fun `a dropped request says so, and a finished one says it ran`() {
+        val h = Harness(urgentCap = 1)
+        val hold = CompletableDeferred<Unit>()
+        h.submit("blocker") { runBlocking { hold.await() } }
+        while (h.queue.depth().third == 0) Thread.sleep(1)
+
+        // The negative control first: with the bug, both of these were indistinguishable Units,
+        // and the row behind `first` drew no picture until it was scrolled away and back.
+        val first = h.scope.async(start = CoroutineStart.UNDISPATCHED) { h.queue.join("first") {} }
+        val second = h.scope.async(start = CoroutineStart.UNDISPATCHED) { h.queue.join("second") {} }
+
+        hold.complete(Unit)
+        h.drain()
+        runBlocking {
+            withTimeout(5_000) {
+                assertFalse("dropped, so its caller knows to ask again", first.await())
+                assertTrue("ran", second.await())
+            }
+        }
+    }
+
+    @Test fun `asked again after a drop, a request runs as the newest`() {
+        val h = Harness(urgentCap = 1)
+        val hold = CompletableDeferred<Unit>()
+        h.submit("blocker") { runBlocking { hold.await() } }
+        while (h.queue.depth().third == 0) Thread.sleep(1)
+
+        // What Thumbnails.load does for a row still on screen: ask until it has run.
+        val ran = AtomicInteger()
+        val retrying = h.scope.async(start = CoroutineStart.UNDISPATCHED) {
+            var tries = 0
+            while (!h.queue.join("seen") { ran.incrementAndGet() }) tries++
+            tries
+        }
+        h.submit("newer")
+
+        hold.complete(Unit)
+        h.drain()
+        runBlocking { withTimeout(5_000) { assertEquals(1, retrying.await()) } }
+        assertEquals(1, ran.get())
     }
 
     @Test fun `never more than the given number of workers run at once`() {

@@ -10,6 +10,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -175,18 +176,20 @@ private fun Thumb(
     val inspecting = LocalInspectionMode.current
     val px = thumbPx(size.value)
 
+    // Refresh asks every preview on screen again; one already held answers from the cache.
+    val again by Thumbnails.again.collectAsState()
     // An answer we already hold is used on the spot: no coroutine, no delay, no work staged.
-    val known = remember(node.path, node.mtime, node.size, px) {
+    val known = remember(node.path, node.mtime, node.size, px, again) {
         Thumbnails.peek(node.path, node.size, node.mtime, px)
     }
-    var bitmap by remember(node.path, node.mtime, node.size, px) {
+    var bitmap by remember(node.path, node.mtime, node.size, px, again) {
         mutableStateOf(known?.bitmap)
     }
 
     // Only when nobody has looked yet. A remembered failure stays a failure and must not be
     // retried once per row per scroll.
     if (known == null) {
-        LaunchedEffect(node.path, node.mtime, node.size, px) {
+        LaunchedEffect(node.path, node.mtime, node.size, px, again) {
             if (inspecting) return@LaunchedEffect
 
             // A preview already written down is read at once, mid-fling included: it costs a few

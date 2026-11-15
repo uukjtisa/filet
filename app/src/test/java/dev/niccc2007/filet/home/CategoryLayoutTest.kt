@@ -96,4 +96,17 @@ class CategoryLayoutTest {
         assertTrue(folded[0] is GalleryCell.Day)
         assertFalse(folded[2] is GalleryCell.Day)
     }
+
+    @Test
+    fun `the side slider names the day of the cell under the finger`() {
+        val groups = listOf(
+            DayGroup("2026-10-26", "Today", listOf(entry("/a.jpg"), entry("/b.jpg"))),
+            DayGroup("2026-09-22", "22 Sep 2026", listOf(entry("/c.jpg"))),
+        )
+        val cells = GalleryCells.of(groups, emptySet())
+        assertEquals(listOf("Today", "Today", "Today", "22 Sep 2026", "22 Sep 2026"), GalleryCells.dayLabels(cells))
+        // A folded day is one header, and the next day's tiles name their own day, not the folded one.
+        val folded = GalleryCells.of(groups, setOf("2026-10-26"))
+        assertEquals(listOf("Today", "22 Sep 2026", "22 Sep 2026"), GalleryCells.dayLabels(folded))
+    }
 }

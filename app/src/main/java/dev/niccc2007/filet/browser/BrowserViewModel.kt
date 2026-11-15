@@ -7526,6 +7526,9 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun bumpCategory() {
         _categoryRevision.value = _categoryRevision.value + 1
+        // A tile left without its picture is asked again, so Refresh restarts loading that had
+        // stopped rather than only re-reading the list.
+        dev.niccc2007.filet.media.Thumbnails.retryMissing()
     }
 
     /** Bumped to start the scanner's camera again. See [RefreshTarget.CAMERA]. */

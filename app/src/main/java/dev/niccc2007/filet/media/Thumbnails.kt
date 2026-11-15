@@ -198,8 +198,33 @@ object Thumbnails {
             videoHolds.first { it == 0 }
         }
         val body = { get(context, vfs, path, size, mtime, px, shape); Unit }
-        if (ahead) queue.ahead(key, body) else queue.join(key, body)
+        if (ahead) {
+            queue.ahead(key, body)
+        } else {
+            // A row on screen whose request was dropped from a full queue asks again, as the
+            // newest - it is still being looked at, or this coroutine would have been cancelled.
+            // See LoadQueue: an empty cache after a drop is not "no preview".
+            while (!queue.join(key, body) && cache.get(key) == null) Unit
+        }
         return cache.get(key)?.bitmap
+    }
+
+    private val _again = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+    /**
+     * Bumped by [retryMissing]. Every on-screen preview is keyed on it, so a bump re-asks the ones
+     * showing no picture and costs the ones that have one nothing more than a cache hit.
+     */
+    val again: kotlinx.coroutines.flow.StateFlow<Int> = _again
+
+    /**
+     * Refresh's half of it: forget the remembered failures and ask every preview on screen again.
+     * A preview that failed for a passing reason - a file still being written, a card that was
+     * busy - is otherwise remembered as failed for as long as the process lives.
+     */
+    fun retryMissing() {
+        cache.snapshot().filterValues { it.bitmap == null }.keys.forEach { cache.remove(it) }
+        _again.value = _again.value + 1
     }
 
     /**

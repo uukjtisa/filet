@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +46,52 @@ import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.ui.theme.Filet
 import kotlin.math.roundToInt
+
+/**
+ * The four things the scroller asks of what it scrolls: where it is, how much of it shows,
+ * whether it is moving, and a jump. A list and a grid answer them alike, and nothing else of
+ * either is read - so one scroller serves All Music's list and the gallery's grid.
+ */
+interface ScrollTrack {
+    val first: Int
+    val shown: Int
+    val moving: Boolean
+    suspend fun jumpTo(index: Int)
+}
+
+private class ListTrack(private val s: LazyListState) : ScrollTrack {
+    override val first get() = s.firstVisibleItemIndex
+    override val shown get() = s.layoutInfo.visibleItemsInfo.size
+    override val moving get() = s.isScrollInProgress
+    override suspend fun jumpTo(index: Int) = s.scrollToItem(index)
+}
+
+private class GridTrack(private val s: LazyGridState) : ScrollTrack {
+    override val first get() = s.firstVisibleItemIndex
+    override val shown get() = s.layoutInfo.visibleItemsInfo.size
+    override val moving get() = s.isScrollInProgress
+    override suspend fun jumpTo(index: Int) = s.scrollToItem(index)
+}
+
+/** For a list. What it does, and why, is on the [ScrollTrack] overload below. */
+@Composable
+fun BoxScope.FastScroller(
+    state: LazyListState,
+    itemCount: Int,
+    labelAt: (Int) -> String?,
+    indexOffset: Int = 0,
+    modifier: Modifier = Modifier,
+) = FastScroller(remember(state) { ListTrack(state) }, itemCount, labelAt, indexOffset, modifier)
+
+/** For a grid: the gallery, where the bubble names the day. */
+@Composable
+fun BoxScope.FastScroller(
+    state: LazyGridState,
+    itemCount: Int,
+    labelAt: (Int) -> String?,
+    indexOffset: Int = 0,
+    modifier: Modifier = Modifier,
+) = FastScroller(remember(state) { GridTrack(state) }, itemCount, labelAt, indexOffset, modifier)
 
 /**
  * A fast scroller for a long list, with a bubble that says where you are going.
@@ -78,7 +125,7 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun BoxScope.FastScroller(
-    state: LazyListState,
+    state: ScrollTrack,
     itemCount: Int,
     /** The bubble's text for a row index, or null to show no bubble for it. */
     labelAt: (Int) -> String?,
@@ -108,8 +155,8 @@ fun BoxScope.FastScroller(
     // first visible item changes rather than on every pixel of a fling.
     val listFraction by remember(itemCount, indexOffset) {
         derivedStateOf {
-            val span = (itemCount - state.layoutInfo.visibleItemsInfo.size).coerceAtLeast(1)
-            val row = (state.firstVisibleItemIndex - indexOffset).coerceAtLeast(0)
+            val span = (itemCount - state.shown).coerceAtLeast(1)
+            val row = (state.first - indexOffset).coerceAtLeast(0)
             (row.toFloat() / span).coerceIn(0f, 1f)
         }
     }
@@ -132,7 +179,7 @@ fun BoxScope.FastScroller(
     LaunchedEffect(dragging, itemCount, indexOffset) {
         if (!dragging) return@LaunchedEffect
         snapshotFlow { (held * (itemCount - 1)).roundToInt().coerceIn(0, itemCount - 1) }
-            .collect { runCatching { state.scrollToItem(it + indexOffset) } }
+            .collect { runCatching { state.jumpTo(it + indexOffset) } }
     }
 
     val thumbPx = with(density) { THUMB.toPx() }
@@ -148,7 +195,7 @@ fun BoxScope.FastScroller(
     // moving is the platform's own answer: at rest the edge belongs to the rows again.
     var awake by remember { mutableStateOf(false) }
     LaunchedEffect(state) {
-        snapshotFlow { state.isScrollInProgress }.collectLatest { moving ->
+        snapshotFlow { state.moving }.collectLatest { moving ->
             if (moving) {
                 awake = true
             } else {

@@ -65,6 +65,7 @@ import dev.niccc2007.filet.browser.TapDo
 import dev.niccc2007.filet.browser.TapPlan
 import dev.niccc2007.filet.browser.TapView
 import dev.niccc2007.filet.media.Thumbnails
+import dev.niccc2007.filet.playback.FastScroller
 import dev.niccc2007.filet.ui.WarmAhead
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
@@ -322,6 +323,17 @@ internal fun CategoryGallery(
             }
             item(key = "end", span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(28.dp + dev.niccc2007.filet.browser.LocalPickInset.current)) }
         }
+
+        // A slider on the right edge while the grid moves, naming the day under the finger while
+        // it is held: three thousand photos are otherwise forty flicks from the first to the last.
+        // The same control All Music has. The header is the one item above the cells.
+        val days = remember(cells) { GalleryCells.dayLabels(cells) }
+        FastScroller(
+            state = state,
+            itemCount = cells.size,
+            indexOffset = 1,
+            labelAt = { i -> days.getOrNull(i) },
+        )
     }
 }
 
@@ -543,6 +555,18 @@ internal sealed interface GalleryCell {
 
 /** The gallery's layout decisions, pure, so the arithmetic is a test rather than a hope. */
 internal object GalleryCells {
+    /**
+     * The day each cell belongs to, for the slider's bubble: a day's header names itself, and a
+     * tile the header above it. A tile above every header - none, today - names nothing.
+     */
+    fun dayLabels(cells: List<GalleryCell>): List<String?> {
+        var day: String? = null
+        return cells.map { c ->
+            if (c is GalleryCell.Day) day = c.group.label
+            day
+        }
+    }
+
     /** Space at the left and right of the grid. */
     val EDGE = 8.dp
 

@@ -135,7 +135,13 @@ class TrackCards(private val context: Context, private val vfs: Vfs) {
             if (!held.hasArt || art.get(key) != null) return held.copy(art = art.get(key))
         }
         val body = { store(key, read(path)) }
-        if (urgent) queue.join(key, body) else queue.ahead(key, body)
+        // A card on screen whose read was dropped from a full queue asks again - the same fault
+        // LoadQueue describes for pictures, which left a row without its tags until scrolled.
+        if (urgent) {
+            while (!queue.join(key, body) && tags[key] == null) Unit
+        } else {
+            queue.ahead(key, body)
+        }
         return cached(path)
     }
 

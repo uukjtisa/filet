@@ -39,8 +39,14 @@ import kotlinx.coroutines.launch
  *
  * A fling can ask for thousands. The cap drops from the OLDEST end, which under LIFO is the
  * furthest from the viewport and the least likely to be wanted. A dropped task completes rather
- * than hanging, so anybody still waiting on it simply sees no answer and asks again if the row
- * is still there.
+ * than hanging, and says it was dropped: [join] and [ahead] return false.
+ *
+ * Bug identified here: a dropped task used to complete exactly as a finished one did, and the
+ * comment above promised the caller would "ask again if the row is still there". Nothing did. A
+ * row read the empty cache as "no preview", drew its file-type icon and stopped - and stayed that
+ * way until it was scrolled off and back. A gallery's screen holds more tiles than the urgent cap,
+ * so on a dense grid this was the photos stopping partway down and resuming after a scroll. The
+ * return value is what lets a caller still waiting tell "dropped" from "done".
  */
 class LoadQueue(
     private val workers: Int = 2,
@@ -50,7 +56,8 @@ class LoadQueue(
 ) {
 
     private class Task(val key: String, val body: () -> Unit) {
-        val done = CompletableDeferred<Unit>()
+        /** True once it ran; false if it was dropped from a full queue without running. */
+        val done = CompletableDeferred<Boolean>()
     }
 
     private val gate = Any()
@@ -71,15 +78,18 @@ class LoadQueue(
      * running, and suspend until it is done.
      *
      * Cancelling the caller stops the waiting. It does **not** stop the work - that is the point.
+     *
+     * @return false when the task was dropped from a full queue without running. A caller still
+     *   waiting for the answer asks again, and arrives as the newest request.
      */
-    suspend fun join(key: String, body: () -> Unit) = submit(key, body, urgentTier = true)
+    suspend fun join(key: String, body: () -> Unit): Boolean = submit(key, body, urgentTier = true)
 
     /**
      * The same, for a row that is not on screen yet. Yields to everything urgent.
      */
-    suspend fun ahead(key: String, body: () -> Unit) = submit(key, body, urgentTier = false)
+    suspend fun ahead(key: String, body: () -> Unit): Boolean = submit(key, body, urgentTier = false)
 
-    private suspend fun submit(key: String, body: () -> Unit, urgentTier: Boolean) {
+    private suspend fun submit(key: String, body: () -> Unit, urgentTier: Boolean): Boolean {
         val task = synchronized(gate) {
             val held = known[key]
             if (held != null) {
@@ -105,7 +115,7 @@ class LoadQueue(
         // reading it outside the lock is a race. There is nothing to gain by guarding this
         // anyway - `pump` takes the lock and returns at once when there is no worker free.
         pump()
-        task.done.await()
+        return task.done.await()
     }
 
     /** Drops from the oldest end - furthest from the viewport under LIFO. */
@@ -114,8 +124,8 @@ class LoadQueue(
             val dropped = queue.removeAt(0)
             known.remove(dropped.key)
             // Completed, not abandoned: a caller awaiting a task that will never run would wait
-            // for the life of the screen.
-            dropped.done.complete(Unit)
+            // for the life of the screen. False, so it knows to ask again.
+            dropped.done.complete(false)
         }
     }
 
@@ -144,7 +154,7 @@ class LoadQueue(
                         known.remove(next.key)
                         running--
                     }
-                    next.done.complete(Unit)
+                    next.done.complete(true)
                     pump()
                 }
             }
