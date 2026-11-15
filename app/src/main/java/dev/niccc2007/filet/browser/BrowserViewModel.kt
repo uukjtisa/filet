@@ -326,7 +326,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun setDiskMap(pane: PaneController, on: Boolean) {
         diskLinks.remove(pane.id)?.cancel()
         if (!on) {
-            pane.diskSizes = null
+            pane.followDisk(null)
             pane.setDiskMap(false)
             return
         }
@@ -345,8 +345,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 .collectLatest { root ->
                     if (root == null) return@collectLatest
                     val map = diskMaps.of(root)
-                    pane.diskSizes = map::sizeOf
-                    map.revision.collect { pane.redraw() }
+                    pane.followDisk(map::sizes)
+                    // Each tick's figures are read off the main thread, under one hold of the
+                    // walk's lock; the main thread only orders the rows by the copy. Ticks that
+                    // arrive while one is being read are merged into the next, never queued.
+                    map.revision.collect {
+                        val (cwd, rows) = pane.diskRows() ?: return@collect
+                        val sizes = withContext(Dispatchers.Default) { map.sizes(cwd, rows) }
+                        pane.showDisk(sizes, rows)
+                    }
                 }
         }
     }

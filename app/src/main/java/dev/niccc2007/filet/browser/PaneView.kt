@@ -88,8 +88,8 @@ import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.storage.DiskKinds
 import dev.niccc2007.filet.storage.DiskLargest
-import dev.niccc2007.filet.storage.DiskMap
-import dev.niccc2007.filet.storage.DiskOrder
+import dev.niccc2007.filet.storage.DiskSizes
+import dev.niccc2007.filet.storage.DiskTotals
 import dev.niccc2007.filet.storage.DiskShareBar
 import dev.niccc2007.filet.storage.DiskStrip
 import dev.niccc2007.filet.storage.DiskView
@@ -250,6 +250,7 @@ fun PaneView(
                 DiskStrip(
                     map = diskMap,
                     folder = diskHere,
+                    sizes = pane.disk,
                     volume = app.volumes.firstOrNull { it.node.path == diskRoot },
                     view = diskView,
                     onView = { diskView = it },
@@ -308,13 +309,13 @@ fun PaneView(
                         DiskKinds(diskMap, diskHere)
                     s.kind == PaneKind.FOLDER || SearchReach.showsResults(s.kind, s.search.active) ->
                         if (diskMap != null && !s.search.active) {
-                            // The walk's totals in place of the index's, a new reader per tick so
-                            // every row on screen asks again: a folder's figure grows while the
-                            // walk is under it and loses its + the moment the walk leaves it.
-                            val rev by diskMap.revision.collectAsState()
-                            val totals = remember(diskMap, rev) { diskMap.folderBytes() }
+                            // The walk's totals in place of the index's: one reader for as long as
+                            // the map is on, which each row follows for its own figure, so a folder's
+                            // figure grows while the walk is under it and loses its + the moment the
+                            // walk leaves it, and nothing else on screen redraws for it. See DiskTotals.
+                            val totals = remember(pane) { DiskTotals(pane.disk) }
                             CompositionLocalProvider(LocalFolderBytes provides totals) {
-                                FolderBody(pane, vm, s, app, metrics, side, registry, onGhost, reach, diskMap)
+                                FolderBody(pane, vm, s, app, metrics, side, registry, onGhost, reach, pane.disk)
                             }
                         } else {
                             FolderBody(pane, vm, s, app, metrics, side, registry, onGhost, reach)
@@ -873,7 +874,8 @@ private fun FolderBody(
     registry: DropRegistry,
     onGhost: (Offset?) -> Unit,
     reach: Boolean = false,
-    diskMap: DiskMap? = null,
+    /** Disk map's figures while it is on. Read only inside each row's share bar - see DiskShareBar. */
+    disk: kotlinx.coroutines.flow.StateFlow<DiskSizes?>? = null,
 ) {
     // The real selection, as a State that is only ever READ inside a row. Read here, it would
     // put FolderBody back in the path of every tap.
@@ -1017,7 +1019,7 @@ private fun FolderBody(
     val treeOn by vm.prefs.treeView.collectAsState()
     // Off in Disk map, whose list is in size order: a tree's rows are in folder order, and a
     // branch opened under a 2 GB folder would sit above the 20 GB one beside it.
-    val tree = treeOn && !s.search.active && diskMap == null
+    val tree = treeOn && !s.search.active && disk == null
     val treeRows = remember(rows, s.open, s.branches, tree) {
         if (tree) TreeRows.flatten(rows, s.open, s.branches) else emptyList()
     }
@@ -1264,15 +1266,14 @@ private fun FolderBody(
     // Disk map puts the size beside every row - a folder's total, a file's own size - whatever
     // the row details say, since the size is the whole point of the mode. Nothing is saved: the
     // list is as it was when the mode is turned off.
-    val display = remember(listDisplay, diskMap != null) {
-        if (diskMap == null) listDisplay else listDisplay.copy(sideFile = DetailPart.SIZE, sideFolder = DetailPart.TOTAL)
+    val display = remember(listDisplay, disk != null) {
+        if (disk == null) listDisplay else listDisplay.copy(sideFile = DetailPart.SIZE, sideFolder = DetailPart.TOTAL)
     }
-    // Read on every tick of the walk, so the bars move while it runs even when the order
-    // does not, which is the one case the pane's own state would not redraw for.
-    val diskRev = diskMap?.revision?.collectAsState()?.value
-    val diskTotal = remember(diskMap, diskRev, s.cwd) {
-        diskMap?.let { m -> s.cwd?.let { c -> m.read { it.bytes(c.toString()) } } }
-    }
+    // Held as a State and never read here. Bug identified here: this body used to read the
+    // walk's revision itself, so the whole list - every row on screen - was recomposed four
+    // times a second while the walk ran, to move bars that only need a redraw. Only each row's
+    // share bar reads the figures now, in its draw pass.
+    val diskSizes = disk?.collectAsState()
 
     val grid = metrics.step.isGrid
     val pull = Modifier.edgePullRefresh(
@@ -1634,11 +1635,10 @@ private fun FolderBody(
                         onTaps = { n, at -> tapRow(node, n, at) },
                         listensFor = tapSet.listensFor(node.isDir),
                     )
-                    if (diskMap != null) {
-                        val bytes = diskMap.sizeOf(node)
+                    if (diskSizes != null) {
                         DiskShareBar(
-                            share = DiskOrder.share(bytes, diskTotal),
-                            percent = DiskOrder.percent(bytes, diskTotal),
+                            sizes = diskSizes,
+                            node = node,
                             folder = node.isDir,
                             inset = (steps.startDp + metrics.icon + 10).dp,
                         )

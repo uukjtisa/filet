@@ -400,6 +400,12 @@ private fun FileRowBody(
                 value = FolderTotal.Unknown
                 return@produceState
             }
+            // A source that says when the figure moves is followed rather than polled: Disk map's
+            // walk changes many figures a second, and none of the three stops above fit it.
+            bytes.watch(node.path)?.let { live ->
+                live.collect { value = it }
+                return@produceState
+            }
             var tries = 0
             while (tries < SETTLE_TRIES) {
                 val next = runCatching { bytes.of(node.path) }.getOrDefault(FolderTotal.Unknown)

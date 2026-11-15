@@ -1,6 +1,5 @@
 package dev.niccc2007.filet.storage
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,11 +23,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,7 +45,11 @@ import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.browser.VolumeInfo
 import dev.niccc2007.filet.browser.humanSize
 import dev.niccc2007.filet.ui.theme.Filet
+import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 
 /** What Disk map shows under its strip. All three come from the one walk. */
 enum class DiskView(val label: String) {
@@ -59,20 +69,25 @@ enum class DiskView(val label: String) {
 fun DiskStrip(
     map: DiskMap,
     folder: VPath,
+    /** The pane's figures, read off the main thread on each tick - see DiskSizes. */
+    sizes: StateFlow<DiskSizes?>,
     volume: VolumeInfo?,
     view: DiskView,
     onView: (DiskView) -> Unit,
     onClose: () -> Unit,
 ) {
     val colors = Filet.colors
-    val rev by map.revision.collectAsState()
     val walking by map.walking.collectAsState()
-    val here = folder.toString()
-    val (bytes, settled, files) = rememberRead(rev, here) { map.read { Triple(it.bytes(here), it.settled(here), it.filesRead) } }
-    val filesHere = rememberRead(rev, here) { map.read { it.files(here) } }
+    // Figures read for another folder are the moment before this one's arrive: shown as not yet
+    // known rather than as this folder's.
+    val snap = sizes.collectAsState().value?.takeIf { it.folder == folder }
+    val bytes = snap?.total
+    val settled = snap?.settledHere == true
+    val files = snap?.filesRead ?: 0
+    val filesHere = snap?.filesHere ?: 0
     val total = volume?.total
     val used = total?.let { t -> volume.free?.let { t - it } }
-    val isRoot = here == map.root.toString()
+    val isRoot = folder == map.root
 
     Column(
         Modifier
@@ -177,23 +192,30 @@ fun DiskStrip(
 /**
  * The share bar under a row: how much of the folder it is in this row takes. Starts where the
  * row's name starts, so it reads as part of the row rather than a rule between rows.
+ *
+ * [sizes] is read in the draw pass for the bar and through a derived state for the percent, so
+ * a tick of the walk repaints the bar and recomposes nothing unless the whole percent moved. It
+ * used to be handed the share as a figure and eased to it, which made every bar on screen part
+ * of every tick's recomposition. The bar now steps with the walk instead of gliding; four steps
+ * a second reads as moving.
  */
 @Composable
-fun DiskShareBar(share: Float, percent: String, folder: Boolean, inset: Dp) {
+fun DiskShareBar(sizes: State<DiskSizes?>, node: VNode, folder: Boolean, inset: Dp) {
     val colors = Filet.colors
-    val shown by animateFloatAsState(share, label = "share")
+    val percent by remember(sizes, node) { derivedStateOf { sizes.value?.percent(node).orEmpty() } }
+    val fill = if (folder) colors.accent else colors.fg3
     Row(
         Modifier.fillMaxWidth().padding(start = inset, end = 14.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.weight(1f).height(3.dp).clip(RoundedCornerShape(2.dp)).background(colors.high)) {
-            if (shown > 0f) {
-                Box(
-                    Modifier.fillMaxWidth(shown).fillMaxHeight().clip(RoundedCornerShape(2.dp))
-                        .background(if (folder) colors.accent else colors.fg3),
-                )
-            }
-        }
+        Box(
+            Modifier.weight(1f).height(3.dp).clip(RoundedCornerShape(2.dp)).background(colors.high).drawBehind {
+                val share = sizes.value?.share(node) ?: 0f
+                if (share > 0f) {
+                    drawRoundRect(fill, size = Size(size.width * share, size.height), cornerRadius = CornerRadius(2.dp.toPx()))
+                }
+            },
+        )
         Text(percent, fontSize = 9.5.sp, color = colors.fg3, modifier = Modifier.width(34.dp).padding(start = 6.dp))
     }
 }
@@ -207,7 +229,8 @@ fun DiskLargest(map: DiskMap, folder: VPath, onGo: (VPath) -> Unit) {
     val colors = Filet.colors
     val rev by map.revision.collectAsState()
     val here = folder.toString()
-    val (big, total) = rememberRead(rev, here) { map.read { it.largestUnder(here, 200) to it.bytes(here) } }
+    val read = rememberRead(map, rev, here) { it.largestUnder(here, 200) to it.bytes(here) } ?: return
+    val (big, total) = read
     if (big.isEmpty()) {
         Empty(if (map.walking.value) "Reading…" else "No files here.")
         return
@@ -242,7 +265,8 @@ fun DiskKinds(map: DiskMap, folder: VPath) {
     val colors = Filet.colors
     val rev by map.revision.collectAsState()
     val here = folder.toString()
-    val (kinds, total) = rememberRead(rev, here) { map.read { it.kinds(here) to it.bytes(here) } }
+    val read = rememberRead(map, rev, here) { it.kinds(here) to it.bytes(here) } ?: return
+    val (kinds, total) = read
     if (kinds.isEmpty()) {
         Empty(if (map.walking.value) "Reading…" else "No files here.")
         return
@@ -291,6 +315,15 @@ private fun Empty(text: String) {
     }
 }
 
-/** A read of the map, again whenever the map's revision or the folder moves. */
+/**
+ * A read of the map, again whenever the map's revision or the folder moves - off the main thread,
+ * since it takes the lock the walk holds while it adds a folder. Null until the first read for
+ * [folder] lands; a tick after that keeps showing the last read until the next one does.
+ */
 @Composable
-private fun <T> rememberRead(rev: Int, folder: String, read: () -> T): T = androidx.compose.runtime.remember(rev, folder) { read() }
+private fun <T : Any> rememberRead(map: DiskMap, rev: Int, folder: String, read: (SizeMap) -> T): T? {
+    val got by produceState<Pair<String, T>?>(null, map, rev, folder) {
+        value = folder to withContext(Dispatchers.Default) { map.read(read) }
+    }
+    return got?.takeIf { it.first == folder }?.second
+}

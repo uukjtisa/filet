@@ -1,7 +1,5 @@
 package dev.niccc2007.filet.storage
 
-import dev.niccc2007.filet.browser.FolderBytes
-import dev.niccc2007.filet.browser.FolderTotal
 import dev.niccc2007.filet.vfs.VNode
 import dev.niccc2007.filet.vfs.VPath
 import dev.niccc2007.filet.vfs.Vfs
@@ -90,12 +88,21 @@ class DiskMap internal constructor(val root: VPath, private val vfs: Vfs, privat
         job?.cancel()
     }
 
-    /** Reads the map under its lock. Short reads only: the walk waits while this runs. */
+    /**
+     * Reads the map under its lock. Short reads only: the walk waits while this runs, and so does
+     * any other reader - keep it off the main thread.
+     */
     fun <T> read(block: (SizeMap) -> T): T = synchronized(map) { block(map) }
 
-    /** The walked size of [node]: a folder's total, or a file's own size. Null when not reached. */
-    fun sizeOf(node: VNode): Long? =
-        if (node.isDir) read { it.bytes(node.path.toString()) } else node.size.takeIf { it >= 0 }
+    /**
+     * The figures [folder] is drawn by, for the [rows] it lists, in one hold of the lock. The
+     * paths are printed before the lock is taken, since that is most of the cost.
+     */
+    fun sizes(folder: VPath, rows: List<VNode>): DiskSizes {
+        val dirs = rows.mapNotNull { r -> if (r.isDir) r.path to r.path.toString() else null }
+        val here = folder.toString()
+        return read { DiskSizes.read(it, folder, here, dirs, _walking.value) }
+    }
 
     internal fun removed(gone: Collection<VNode>) {
         var changed = false
@@ -108,25 +115,5 @@ class DiskMap internal constructor(val root: VPath, private val vfs: Vfs, privat
             }
         }
         if (changed) _revision.update { it + 1 }
-    }
-
-    /**
-     * The map as the file list's folder totals, so a folder row in Disk map shows what the walk
-     * found, with the `+` of a floor until the walk has finished it. Never asks for a walk of its
-     * own: the drive's walk is already reading everything.
-     */
-    fun folderBytes(): FolderBytes = object : FolderBytes {
-        override suspend fun of(path: VPath): FolderTotal = read { m ->
-            val bytes = m.bytes(path.toString())
-            when {
-                bytes == null -> FolderTotal.Unknown
-                // A folder finished before a Stop is as final as any: only the rest are floors.
-                m.settled(path.toString()) -> FolderTotal.Settled(bytes)
-                _walking.value -> FolderTotal.Confirming(bytes)
-                else -> FolderTotal.AtLeast(bytes)
-            }
-        }
-
-        override fun measure(path: VPath) = Unit
     }
 }

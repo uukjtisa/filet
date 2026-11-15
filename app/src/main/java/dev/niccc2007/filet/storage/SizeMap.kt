@@ -78,6 +78,66 @@ class SizeMap(val root: String, private val keepLargest: Int = LARGEST) {
     }
 
     /**
+     * One folder's files at once: the same map as [addFile] for each in turn, with one climb up
+     * the folders above for the whole listing rather than one per file.
+     *
+     * Bug identified here: the walk added a folder's files one at a time under the lock every
+     * reader takes, and each one climbed every folder above it - a string cut and a hash lookup per
+     * level, per file. A camera folder of 8,000 photos ten levels down was 80,000 of each with the
+     * lock held, and a frame that asked the map for anything in that time waited for all of it.
+     *
+     * Files are expected to share one folder, as a listing's do. One that does not is added on its
+     * own, so the result never depends on that holding.
+     */
+    fun addFiles(files: List<Big>) {
+        if (files.isEmpty()) return
+        val first = norm(files[0].path)
+        val cut = first.lastIndexOf('/')
+        var bytes = 0L
+        var count = 0
+        val kinds = LongArray(SizeKind.entries.size)
+        for (f in files) {
+            val p = norm(f.path)
+            if (p.lastIndexOf('/') != cut || !p.regionMatches(0, first, 0, cut)) {
+                addFile(f.path, f.bytes, f.kind)
+                continue
+            }
+            val size = f.bytes.coerceAtLeast(0)
+            filesRead++
+            bytes += size
+            count++
+            kinds[f.kind.ordinal] += size
+            keep(if (size == f.bytes) f else f.copy(bytes = size))
+        }
+        if (count == 0) return
+        for (folder in ancestors(first)) {
+            val t = tallies.getOrPut(folder) { Tally() }
+            t.bytes += bytes
+            t.files += count
+            for (i in kinds.indices) t.kinds[i] += kinds[i]
+        }
+    }
+
+    /** One folder's subfolders at once: the same map as [addFolder] for each. See [addFiles]. */
+    fun addFolders(paths: List<String>) {
+        if (paths.isEmpty()) return
+        val first = norm(paths[0])
+        val cut = first.lastIndexOf('/')
+        var count = 0
+        for (path in paths) {
+            val p = norm(path)
+            if (p.lastIndexOf('/') != cut || !p.regionMatches(0, first, 0, cut)) {
+                addFolder(path)
+                continue
+            }
+            tallies.getOrPut(p) { Tally() }
+            count++
+        }
+        if (count == 0) return
+        for (folder in ancestors(first)) tallies.getOrPut(folder) { Tally() }.folders += count
+    }
+
+    /**
      * Everything beneath [path] has been read, so its total is an answer rather than a floor.
      * The walk calls it on the way back up, once a folder and every folder in it are done.
      */

@@ -2,6 +2,7 @@ package dev.niccc2007.filet.browser
 
 import androidx.compose.runtime.staticCompositionLocalOf
 import dev.niccc2007.filet.vfs.VPath
+import kotlinx.coroutines.flow.Flow
 
 /**
  * What a row knows about everything inside a folder, and how firm it is.
@@ -137,6 +138,12 @@ interface FolderBytes {
 
     /** Ask for [path] to be walked for real, behind the one-at-a-time queue. */
     fun measure(path: VPath)
+
+    /**
+     * [path]'s total as it moves, for a source that knows when it has - Disk map's walk. Null
+     * means there is no such stream and the row polls [of] instead.
+     */
+    fun watch(path: VPath): Flow<FolderTotal>? = null
 }
 
 val LocalFolderBytes = staticCompositionLocalOf<FolderBytes?> { null }

@@ -1431,9 +1431,9 @@ class PaneController(
         val spec: SortSpec = prefs.sort.value
         val filtered = if (showHidden) raw else raw.filterNot { it.hidden || it.name.startsWith(".") }
         // Disk map orders by what each row takes, whatever the list's sort - see DiskOrder.
-        val sizes = diskSizes
-        val sorted = if (s.diskMap && sizes != null) {
-            dev.niccc2007.filet.storage.DiskOrder.sorted(filtered, sizes)
+        val sizes = if (s.diskMap) diskSizesFor(s) else null
+        val sorted = if (sizes != null) {
+            dev.niccc2007.filet.storage.DiskOrder.sorted(filtered, sizes::sizeOf)
         } else {
             filtered.sortedBy(spec)
         }
@@ -1442,11 +1442,60 @@ class PaneController(
         return s.copy(entries = freshTail.applyTo(sorted), total = raw.size)
     }
 
+    private val _disk = MutableStateFlow<dev.niccc2007.filet.storage.DiskSizes?>(null)
+
     /**
-     * The size of a row in Disk map, from the drive's walk: a folder's total, a file's own size,
-     * null where the walk has not reached. Set by whoever turns Disk map on; null otherwise.
+     * Disk map's figures for the folder showing, copied out of the drive's walk - see
+     * `storage/DiskSizes.kt`. Null while Disk map is off. Kept out of [PaneState] on purpose: they
+     * move four times a second while the walk runs, and only the share bars and the totals that
+     * read them should redraw for that, not everything drawn from the pane's state.
      */
-    @Volatile var diskSizes: ((VNode) -> Long?)? = null
+    val disk: StateFlow<dev.niccc2007.filet.storage.DiskSizes?> = _disk
+
+    /** Reads a folder's figures from the drive's walk. Set by whoever turns Disk map on. */
+    @Volatile private var diskReader: ((VPath, List<VNode>) -> dev.niccc2007.filet.storage.DiskSizes)? = null
+
+    /** The listing [disk] was read for; a listing that is not it is read for again before it is ordered. */
+    @Volatile private var diskRaw: List<VNode>? = null
+
+    /** Follows a drive's walk with [reader], or stops following one with null. */
+    fun followDisk(reader: ((VPath, List<VNode>) -> dev.niccc2007.filet.storage.DiskSizes)?) {
+        diskReader = reader
+        diskRaw = null
+        if (reader == null) _disk.value = null
+        redraw()
+    }
+
+    /** The folder showing and the listing it holds, for a tick of the walk to read figures for. */
+    fun diskRows(): Pair<VPath, List<VNode>>? = _state.value.cwd?.let { it to raw }
+
+    /**
+     * A tick's figures, read off the main thread for [rows]. Kept, and the rows ordered again by
+     * them, unless the folder has been listed again since - that listing read its own.
+     */
+    fun showDisk(sizes: dev.niccc2007.filet.storage.DiskSizes, rows: List<VNode>) {
+        if (diskReader == null || rows !== raw || sizes.folder != _state.value.cwd) return
+        _disk.value = sizes
+        diskRaw = rows
+        redraw()
+    }
+
+    /**
+     * The figures to order [s] by. A listing they were not read for - a folder just entered, or
+     * one listed again - is read for here and now, once, so its rows arrive in their order
+     * instead of jumping into it on the walk's next tick, or never when the walk has finished.
+     */
+    private fun diskSizesFor(s: PaneState): dev.niccc2007.filet.storage.DiskSizes? {
+        val read = diskReader ?: return null
+        val cwd = s.cwd ?: return null
+        val have = _disk.value
+        if (have != null && have.folder == cwd && diskRaw === raw) return have
+        val rows = raw
+        return read(cwd, rows).also {
+            _disk.value = it
+            diskRaw = rows
+        }
+    }
 
     /** Disk map on or off for this pane. See [PaneState.diskMap]. */
     fun setDiskMap(on: Boolean) = _state.update { render(it.copy(diskMap = on)) }

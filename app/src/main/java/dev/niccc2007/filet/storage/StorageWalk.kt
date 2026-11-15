@@ -76,26 +76,34 @@ class StorageWalk(
             } catch (_: Exception) {
                 null
             }
+            // Everything a row costs that is not the map - its path printed, its kind looked up -
+            // is done before the lock, and the folder goes in as one batch under it. Readers wait
+            // on this lock; see SizeMap.addFiles.
+            val files = ArrayList<SizeMap.Big>()
+            val subs = ArrayList<VPath>()
+            val subKeys = ArrayList<String>()
+            for (c in children.orEmpty()) {
+                if (c.isDir) {
+                    if (!guard.enter(c.inode, depth + 1)) continue
+                    subs += c.path
+                    subKeys += c.path.toString()
+                } else {
+                    files += SizeMap.Big(c.path.toString(), c.size, SizeKind.of(FileTypes.kindOf(c.extension)))
+                }
+            }
             synchronized(lock) {
                 if (children == null) {
                     unreadable++
                     finish(key)
                     return@synchronized
                 }
-                var subs = 0
-                for (c in children) {
-                    if (c.isDir) {
-                        if (!guard.enter(c.inode, depth + 1)) continue
-                        val child = c.path.toString()
-                        map.addFolder(child)
-                        parentOf[child] = key
-                        subs++
-                        stack.addLast(c.path to depth + 1)
-                    } else {
-                        map.addFile(c.path.toString(), c.size, SizeKind.of(FileTypes.kindOf(c.extension)))
-                    }
-                }
-                if (subs == 0) finish(key) else open[key] = subs
+                map.addFolders(subKeys)
+                map.addFiles(files)
+                if (subs.isEmpty()) finish(key) else open[key] = subs.size
+            }
+            for (i in subs.indices) {
+                parentOf[subKeys[i]] = key
+                stack.addLast(subs[i] to depth + 1)
             }
             val now = clock()
             if (now - lastTick >= tickMs) {
