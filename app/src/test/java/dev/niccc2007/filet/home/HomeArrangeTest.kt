@@ -173,4 +173,12 @@ class HomeArrangeTest {
         // A group not drawn cannot be moved.
         assertEquals(all, HomeArrange.movedGroup(all, shown, DriveKind.PLUGGED, 1))
     }
+
+    @Test fun `the hidden cards offered back are the ones Home would draw, in its order`() {
+        val natural = listOf("/storage/emulated/0", "drive:abcd", "/storage/1234-5678", "locker")
+        val hidden = setOf("locker", "/storage/emulated/0", "/storage/gone-sd")
+        // A hidden drive that is not plugged in is not offered: showing it would show nothing.
+        assertEquals(listOf("/storage/emulated/0", "locker"), HomeArrange.hiddenOf(natural, hidden))
+        assertEquals(emptyList<String>(), HomeArrange.hiddenOf(natural, emptySet()))
+    }
 }

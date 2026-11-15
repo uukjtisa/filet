@@ -157,6 +157,8 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
     var driveFor by remember { mutableStateOf<Pair<dev.niccc2007.filet.vfs.VPath, DriveDialog>?>(null) }
     /** The one-per-app card whose folders are listed, by its tile id. */
     var appOpen by remember { mutableStateOf<String?>(null) }
+    /** The hidden cards' picker is open. */
+    var pickHidden by remember { mutableStateOf(false) }
     val listState = dev.niccc2007.filet.browser.rememberKeptListState("home")
     val viewport = remember { arrayOfNulls<androidx.compose.ui.geometry.Rect>(1) }
     /**
@@ -553,7 +555,13 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                                     color = colors.accent,
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
-                                        .clickable { vm.prefs.showAllCards() }
+                                        // One hidden card comes straight back; several open
+                                        // the picker, so bringing back one drive does not bring
+                                        // back every card that was put away with it.
+                                        .clickable {
+                                            val back = HomeArrange.hiddenOf(natural, hiddenCards)
+                                            if (back.size == 1) vm.prefs.showCard(back.single()) else pickHidden = true
+                                        }
                                         .padding(horizontal = 8.dp, vertical = 4.dp),
                                 )
                             }
@@ -614,6 +622,31 @@ fun HomeOverview(vm: BrowserViewModel, pane: PaneController) {
                     "Grant all-files access, or pick a folder",
                 )
             }
+        }
+    }
+
+    if (pickHidden) {
+        val back = HomeArrange.hiddenOf(natural, hiddenCards)
+        if (back.isEmpty()) {
+            // Everything it offered was shown some other way meanwhile.
+            androidx.compose.runtime.LaunchedEffect(Unit) { pickHidden = false }
+        } else {
+            HiddenCardsPicker(
+                cards = back.map { id ->
+                    id to when {
+                        id == LOCKER_CARD -> "Locker"
+                        id == TERMUX_CARD -> "Termux"
+                        HomeArrange.isUnreadableCard(id) -> unreadable.firstOrNull { HomeArrange.unreadableCard(it.uuid) == id }
+                            ?.description?.ifBlank { null }?.let { "$it (can't be read)" } ?: "A drive that can't be read"
+                        else -> volumeOf[id]?.label ?: id.substringAfterLast('/')
+                    }
+                },
+                onShow = { ids ->
+                    ids.forEach(vm.prefs::showCard)
+                    pickHidden = false
+                },
+                onDismiss = { pickHidden = false },
+            )
         }
     }
 
@@ -1304,3 +1337,31 @@ private val LOCKER_CARD = dev.niccc2007.filet.locker.LockerPaths.ROOT.toString()
 
 /** The last row of the New files and Recently opened cards: opens the whole list. */
 private const val FULL_LIST_LABEL = "See all"
+
+/**
+ * The hidden drive cards, to bring back one, some or all. Bringing them back used to be all or
+ * nothing - one tap showed every card that had been put away, including the ones put away on
+ * purpose - which made hiding a second card cost the first.
+ */
+@Composable
+private fun HiddenCardsPicker(cards: List<Pair<String, String>>, onShow: (Collection<String>) -> Unit, onDismiss: () -> Unit) {
+    var picked by remember { mutableStateOf(emptySet<String>()) }
+    Dlg(onDismiss) {
+        dev.niccc2007.filet.ui.dialogs.DlgHeader(FiletIcons.Eye, "Hidden cards", sub = "Pick the ones to show again", onClose = onDismiss)
+        DlgBody {
+            for ((id, label) in cards) {
+                dev.niccc2007.filet.ui.dialogs.DlgTick(on = id in picked, label = label) {
+                    picked = if (id in picked) picked - id else picked + id
+                }
+            }
+        }
+        DlgFooter {
+            DlgBtn("Show all") { onShow(cards.map { it.first }) }
+            DlgBtn(
+                if (picked.isEmpty()) "Show" else "Show ${picked.size}",
+                dev.niccc2007.filet.ui.dialogs.BtnKind.PRIMARY,
+                enabled = picked.isNotEmpty(),
+            ) { onShow(picked) }
+        }
+    }
+}

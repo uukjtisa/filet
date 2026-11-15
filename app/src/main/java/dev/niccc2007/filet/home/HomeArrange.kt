@@ -80,6 +80,13 @@ internal object HomeArrange {
      */
     fun unreadableCard(uuid: String): String = UNREADABLE + uuid
 
+    /**
+     * The hidden cards that could be brought back now: those among [natural] - the cards Home
+     * would draw - that are in [hidden], in Home's order. A hidden drive that is not plugged in
+     * is not offered, since bringing it back would show nothing until it is.
+     */
+    fun hiddenOf(natural: List<String>, hidden: Set<String>): List<String> = natural.filter { it in hidden }
+
     fun isUnreadableCard(id: String): Boolean = id.startsWith(UNREADABLE)
 
     private const val UNREADABLE = "drive:"
