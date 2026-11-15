@@ -322,6 +322,12 @@ fun PlayerOverflow(
     onExternal: () -> Unit,
     onShare: () -> Unit,
     onProperties: () -> Unit,
+    /**
+     * The file's own rows, the ones its hold menu has, for the track playing now. Given, they
+     * take a page of their own in place of the three written out at the foot of the main one,
+     * which were a few of them.
+     */
+    file: (@Composable ColumnScope.(close: () -> Unit) -> Unit)? = null,
     onAddToPlaylist: (() -> Unit)? = null,
     onSaveQueue: (() -> Unit)? = null,
     /** Whether anything may pause the music, with its switch. See [PlayerTopBar]. */
@@ -558,15 +564,24 @@ fun PlayerOverflow(
                                 ) { page = PanelPage.DISC }
                             }
                             PanelRule()
-                            PanelAction("Open in another app", FiletIcons.Open) {
-                                open = false
-                                onExternal()
+                            if (file != null) {
+                                PanelAction("This file", FiletIcons.Folder, trailing = "") { page = PanelPage.FILE }
+                            } else {
+                                PanelAction("Open in another app", FiletIcons.Open) {
+                                    open = false
+                                    onExternal()
+                                }
+                                PanelAction("Share", FiletIcons.Share) { open = false; onShare() }
+                                PanelAction("Properties", FiletIcons.Info) {
+                                    open = false
+                                    onProperties()
+                                }
                             }
-                            PanelAction("Share", FiletIcons.Share) { open = false; onShare() }
-                            PanelAction("Properties", FiletIcons.Info) {
-                                open = false
-                                onProperties()
-                            }
+                        }
+
+                        PanelPage.FILE -> {
+                            PanelBack("THIS FILE") { page = PanelPage.MAIN }
+                            if (file != null) file(this) { open = false }
                         }
                     }
                 }
@@ -583,7 +598,7 @@ fun PlayerOverflow(
  * the queue, sat above that wall and got lost in it. It already knew how to be two pages for
  * the look picker; this is the same mechanism with two more.
  */
-private enum class PanelPage { MAIN, FACES, GLOW, DISC }
+private enum class PanelPage { MAIN, FACES, GLOW, DISC, FILE }
 
 /**
  * A page's heading, with the way back out of it.

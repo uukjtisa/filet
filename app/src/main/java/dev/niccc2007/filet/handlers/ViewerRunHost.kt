@@ -214,6 +214,21 @@ internal fun RunKindsRow(vm: BrowserViewModel, node: VNode, close: () -> Unit) {
     }
 }
 
+/** [RunKindsRow] as a switch in a viewer's More panel, which stays open while it is turned. */
+@Composable
+internal fun RunKindsSwitch(vm: BrowserViewModel, node: VNode) {
+    val page = LocalViewerRun.current ?: return
+    if (!page.mixed) return
+    val only by vm.prefs.viewerOnlyKind.collectAsState()
+    val these = if (runKind(node) == FileKind.VIDEO) "videos" else "photos"
+    dev.niccc2007.filet.ui.dialogs.PanelRow(
+        "Swipe through $these only",
+        dev.niccc2007.filet.ui.theme.Filet.colors.accent,
+        on = only,
+        icon = FiletIcons.Grid,
+    ) { vm.prefs.setViewerOnlyKind(!only) }
+}
+
 /**
  * A file of the run as its thumbnail, fitted, with a play mark if it is a video.
  *

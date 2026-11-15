@@ -536,6 +536,8 @@ private fun FaceTopBar(c: PlayerCtx, overDark: Boolean = false) {
             onExternal = { c.vm.openTrackExternally(c.state.current, c.node) },
             onShare = { c.vm.shareTrack(c.state.current, c.node) },
             onProperties = { c.vm.propertiesOfTrack(c.state.current, c.node) },
+            // The track playing now, which is the opened one only until the queue moves on.
+            file = { close -> ViewerFileRows(c.vm, c.vm.nodeOfTrack(c.state.current) ?: c.node, close) },
             onAddToPlaylist = { c.vm.askAddToPlaylistPath(c.livePath) },
             onSaveQueue = c.onSaveQueue.takeIf { c.state.canStep },
             uninterrupted = c.uninterrupted,
@@ -666,6 +668,7 @@ private fun ClassicFace(c: PlayerCtx) {
                 onExternal = { c.vm.openTrackExternally(c.state.current, c.node) },
                 onShare = { c.vm.shareTrack(c.state.current, c.node) },
                 onProperties = { c.vm.propertiesOfTrack(c.state.current, c.node) },
+                file = { close -> ViewerFileRows(c.vm, c.vm.nodeOfTrack(c.state.current) ?: c.node, close) },
                 onAddToPlaylist = { c.vm.askAddToPlaylistPath(c.livePath) },
                 onSaveQueue = c.onSaveQueue.takeIf { c.state.canStep },
                 uninterrupted = c.uninterrupted,

@@ -621,7 +621,7 @@ private fun ImageViewerContent(
                     bakeTurn()
                 },
                 onOpenWith = { vm.openExternally(node, force = true) },
-                runKinds = { RunKindsRow(vm, node) { menu = null } },
+                runKinds = { RunKindsSwitch(vm, node) },
                 onDelete = {
                     vm.confirmDeleteOf(listOf(node)) {
                         if (runPage != null) runPage.drop() else vm.closeHandler()
@@ -630,11 +630,9 @@ private fun ImageViewerContent(
                 onFit = { resetView() },
                 grey = grey,
                 onGround = { vm.prefs.setViewerGrey(!grey) },
-                onReveal = {
-                    // Out of every viewer, not back one: the folder is where this is going.
-                    vm.leaveHandlers()
-                    vm.revealInFolder(node)
-                },
+                vm = vm,
+                node = node,
+                onGone = { if (runPage != null) runPage.drop() else vm.closeHandler() },
             )
         }
 
@@ -1567,8 +1565,11 @@ private fun PictureActions(
     onFit: () -> Unit,
     grey: Boolean,
     onGround: () -> Unit,
-    onReveal: () -> Unit,
-    /** The run's "only photos / only videos" row, drawn by the run itself; see `RunKindsRow`. */
+    vm: BrowserViewModel,
+    node: VNode,
+    /** After a delete from More: the next in the run, or out. */
+    onGone: () -> Unit,
+    /** The run's "only photos / only videos" switch, drawn by the run itself; see `RunKindsSwitch`. */
     runKinds: @Composable () -> Unit = {},
 ) {
     ViewerActionBar {
@@ -1597,24 +1598,26 @@ private fun PictureActions(
             }
         }
         if (canDelete) ViewerBarButton(FiletIcons.Delete, "Delete", onClick = onDelete)
-        Box {
-            ViewerBarButton(FiletIcons.More, "More") { onMenu(PicMenu.MORE) }
-            dev.niccc2007.filet.ui.dialogs.PopMenu(
-                expanded = menu == PicMenu.MORE,
-                onDismiss = { onMenu(null) },
-                below = 52.dp,
-                above = true,
-            ) {
-                ShowInFolderRow { onMenu(null); onReveal() }
-                runKinds()
-                ViewerGroundRow(grey) { onMenu(null); onGround() }
-                // Only while there is a zoom to undo. A double tap does the same; this is the
-                // way to it that can be read.
-                if (zoomed) {
-                    dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Stretch, "Fit to screen") {
-                        onMenu(null)
-                        onFit()
-                    }
+        // The file's actions, with how the picture is shown above them. Open location is one
+        // of the file's rows, so it is not drawn here a second time.
+        ViewerMore(
+            vm,
+            node,
+            side = dev.niccc2007.filet.ui.dialogs.PanelSide.ABOVE,
+            onGone = onGone,
+            onOpen = { onMenu(if (it) PicMenu.MORE else null) },
+        ) { close ->
+            val tint = dev.niccc2007.filet.ui.theme.Filet.colors.accent
+            runKinds()
+            dev.niccc2007.filet.ui.dialogs.PanelRow("Grey background", tint, on = grey, icon = FiletIcons.Brightness) {
+                onGround()
+            }
+            // Only while there is a zoom to undo. A double tap does the same; this is the
+            // way to it that can be read.
+            if (zoomed) {
+                dev.niccc2007.filet.ui.dialogs.PanelRow("Fit to screen", tint, on = null, icon = FiletIcons.Stretch) {
+                    close()
+                    onFit()
                 }
             }
         }

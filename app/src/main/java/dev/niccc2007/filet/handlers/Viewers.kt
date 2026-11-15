@@ -143,6 +143,7 @@ fun HexViewerScreen(vm: BrowserViewModel, node: VNode) {
             }
             ViewerAction(FiletIcons.Code, "Open as text") { vm.openWith(node, HandlerId.TEXT, remember = false) }
             ViewerAction(FiletIcons.Info, "Properties") { vm.showProperties(node) }
+            ViewerMore(vm, node, unsaved = !edits.isEmpty)
         }
         LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             items(rows.toInt()) { row ->

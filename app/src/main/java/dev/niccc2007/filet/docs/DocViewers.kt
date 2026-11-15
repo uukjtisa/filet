@@ -113,6 +113,7 @@ fun DocumentScreen(vm: BrowserViewModel, node: VNode) {
                 DocFormat.SHEET -> Unit
             }
             if (doc != null) DocPageActions(page)
+            dev.niccc2007.filet.handlers.ViewerMore(vm, node)
         }
         val current = doc
         when {

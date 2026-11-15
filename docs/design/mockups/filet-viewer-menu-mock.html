@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet · one screen per file · design record</title>
+<style>
+:root {
+  --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --accentDim:#31434B; --onAccent:#0E1417; --bad:#C97F7F;
+}
+* { box-sizing:border-box; }
+body { margin:0; font:14px/1.45 Roboto, "Segoe UI", system-ui, sans-serif; color:#D9D6CF; background:#0D0D0C; }
+.page { max-width:1180px; margin:0 auto; padding:26px 22px 60px; }
+h1 { font-size:20px; margin:0 0 4px; color:#EDEAE3; font-weight:600; }
+h2 { font-size:15px; margin:30px 0 4px; color:#EDEAE3; font-weight:600; }
+.sub { color:#9A968D; max-width:940px; margin:0 0 14px; font-size:13px; }
+.row { display:flex; flex-wrap:wrap; gap:26px; align-items:flex-start; }
+.cap { font-size:12px; color:var(--fg2); margin:8px 4px 0; max-width:340px; }
+.phone { width:340px; height:560px; background:var(--bg); border:1px solid var(--line); border-radius:22px; overflow:hidden; position:relative; color:var(--fg); }
+.bar { display:flex; align-items:center; gap:4px; padding:10px 8px 8px 6px; border-bottom:1px solid var(--lineSoft); }
+.ic { width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--fg2); font-size:15px; flex:none; cursor:pointer; }
+.ic.on { color:var(--accent); background:var(--accentDim); }
+.ttl { flex:1; min-width:0; }
+.ttl b { display:block; font-size:13.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ttl i { display:block; font-style:normal; font-size:10px; color:var(--fg3); }
+.chip { font-size:9.5px; color:var(--fg3); background:var(--sunken); border-radius:99px; padding:4px 8px; }
+.seg { display:flex; background:var(--sunken); border-radius:99px; padding:3px; gap:2px; }
+.seg span { font-size:11px; padding:5px 10px; border-radius:99px; color:var(--fg2); cursor:pointer; }
+.seg span.on { background:var(--accentDim); color:var(--accent); font-weight:600; }
+.body { padding:16px; font-size:12.5px; }
+.pagev h3 { margin:4px 0 6px; font-size:17px; color:var(--fg); }
+.pagev p { color:var(--fg2); margin:0 0 8px; }
+.code { font:11.5px/1.6 "JetBrains Mono", Consolas, monospace; color:#C9C5BC; white-space:pre; }
+.code .t { color:#7FA8B8; } .code .a { color:#C9A36A; } .code .s { color:#8FB894; }
+.panel { position:absolute; right:8px; top:52px; width:238px; background:var(--raised); border:1px solid var(--lineSoft); border-radius:22px; padding:14px 0; box-shadow:0 14px 40px rgba(0,0,0,.55); display:none; }
+.panel.open { display:block; }
+.ph { font-size:9px; font-weight:700; letter-spacing:1.3px; color:var(--fg3); padding:0 17px 11px; text-transform:uppercase; }
+.ph.later { padding-top:4px; }
+.pr { display:flex; align-items:center; gap:11px; padding:5px 17px; font-size:12.5px; color:var(--fg2); cursor:pointer; }
+.pr .g { width:16px; color:var(--fg3); text-align:center; }
+.pr.on { color:var(--accent); } .pr.on .g { color:var(--accent); }
+.pr.bad { color:var(--bad); } .pr.bad .g { color:var(--bad); }
+.rule { height:1px; background:var(--lineSoft); margin:10px 17px; }
+.dot { width:6px; height:6px; border-radius:50%; background:var(--accent); margin-left:auto; }
+.opts { display:flex; gap:8px; margin:6px 0 14px; }
+.opt { font-size:12px; padding:6px 12px; border:1px solid var(--line); border-radius:99px; color:var(--fg2); cursor:pointer; background:#151513; }
+.opt.on { border-color:var(--accent); color:var(--accent); }
+ul.log { font-size:12.5px; color:#9A968D; max-width:940px; }
+ul.log b { color:#D9D6CF; font-weight:500; }
+</style>
+</head>
+<body>
+<div class="page">
+<h1>One screen per file</h1>
+<p class="sub">Hub entry "Viewers and editors: a three-dot menu with the file's actions, Go to location, and view and edit in one screen", part B. Part A, the three-dot menu in every viewer, is built. This is the part still to decide: an HTML or Markdown file opening into ONE screen that has a page view and a code view, instead of a viewer and an editor reached from each other through Open with.</p>
+
+<h2>Today: two screens</h2>
+<p class="sub">The HTML viewer shows the page and can show the source, read-only. Editing means Open with &gt; Code editor, a second screen with its own bar. The code editor can render Markdown and HTML, but an HTML file opened in it starts in code.</p>
+<div class="row">
+  <div>
+    <div class="phone">
+      <div class="bar"><span class="ic">&#8592;</span><div class="ttl"><b>index.html</b><i>Download</i></div><span class="chip">offline</span><span class="ic">&lt;/&gt;</span><span class="ic">&#8942;</span></div>
+      <div class="body pagev"><h3>Trip notes</h3><p>Day one: the coast road, then the ferry at four.</p><p>Day two: the old town, on foot.</p></div>
+    </div>
+    <p class="cap">HTML viewer. The &lt;/&gt; button shows the source, read-only. No way to edit from here.</p>
+  </div>
+  <div>
+    <div class="phone">
+      <div class="bar"><span class="ic">&#8592;</span><div class="ttl"><b>index.html</b><i>Download</i></div><span class="ic">&#128065;</span><span class="ic">&#9906;</span><span class="ic">&#8617;</span><span class="ic">&#10003;</span><span class="ic">&#8942;</span></div>
+      <div class="body code"><span class="t">&lt;h1&gt;</span>Trip notes<span class="t">&lt;/h1&gt;</span>
+<span class="t">&lt;p&gt;</span>Day one: the coast road,
+then the ferry at four.<span class="t">&lt;/p&gt;</span>
+<span class="t">&lt;p</span> <span class="a">class</span>=<span class="s">"b"</span><span class="t">&gt;</span>Day two: the old town,
+on foot.<span class="t">&lt;/p&gt;</span></div>
+    </div>
+    <p class="cap">Code editor, reached by Open with. Render (eye) flips to the page and back. Two screens, two bars, one file.</p>
+  </div>
+</div>
+
+<h2>Proposal: one screen, the file decides its modes</h2>
+<p class="sub">Opening a file asks what it can be shown as: an HTML or Markdown file has Page and Code, a text file has Code only, anything at all has Hex. The screen opens in the first one and offers the rest. Two ways to offer them; pick one with the switch below, then try both modes and the menu.</p>
+<div class="opts"><span class="opt on" data-way="seg">A. Page | Code switch in the bar</span><span class="opt" data-way="menu">B. Modes in the three-dot menu</span></div>
+<div class="row">
+  <div>
+    <div class="phone" id="one">
+      <div class="bar">
+        <span class="ic">&#8592;</span>
+        <div class="ttl"><b>index.html</b><i id="sub">Download</i></div>
+        <div class="seg" id="seg"><span data-m="page" class="on">Page</span><span data-m="code">Code</span></div>
+        <span class="ic" id="save" style="display:none">&#10003;</span>
+        <span class="ic" id="more">&#8942;</span>
+      </div>
+      <div class="body pagev" id="pageview"><h3>Trip notes</h3><p>Day one: the coast road, then the ferry at four.</p><p>Day two: the old town, on foot.</p></div>
+      <div class="body code" id="codeview" style="display:none" contenteditable="true" spellcheck="false"><span class="t">&lt;h1&gt;</span>Trip notes<span class="t">&lt;/h1&gt;</span>
+<span class="t">&lt;p&gt;</span>Day one: the coast road,
+then the ferry at four.<span class="t">&lt;/p&gt;</span>
+<span class="t">&lt;p</span> <span class="a">class</span>=<span class="s">"b"</span><span class="t">&gt;</span>Day two: the old town,
+on foot.<span class="t">&lt;/p&gt;</span></div>
+      <div class="panel" id="panel">
+        <div id="modes">
+          <div class="ph">Show as</div>
+          <div class="pr on" data-m="page"><span class="g">&#9673;</span>Page<span class="dot"></span></div>
+          <div class="pr" data-m="code"><span class="g">&lt;/&gt;</span>Code</div>
+          <div class="pr" data-m="hex"><span class="g">#</span>Hex</div>
+          <div class="rule"></div>
+        </div>
+        <div id="viewrows" style="display:none">
+          <div class="ph">View</div>
+          <div class="pr"><span class="g">&#8644;</span>Wrap lines</div>
+          <div class="rule"></div>
+        </div>
+        <div class="ph later">File</div>
+        <div class="pr"><span class="g">&#128193;</span>Open location</div>
+        <div class="pr"><span class="g">&#10697;</span>Copy</div>
+        <div class="pr"><span class="g">&#9986;</span>Move</div>
+        <div class="pr"><span class="g">&#8599;</span>Send</div>
+        <div class="pr"><span class="g">&#9998;</span>Rename</div>
+        <div class="pr"><span class="g">&#8505;</span>Details</div>
+        <div class="rule"></div>
+        <div class="pr"><span class="g">&#9733;</span>Bookmark</div>
+        <div class="pr"><span class="g">&#9883;</span>Fast share</div>
+        <div class="pr bad"><span class="g">&#128465;</span>Delete</div>
+      </div>
+    </div>
+    <p class="cap" id="cap">A: the two modes sit in the bar, always one tap apart. Typing in Code marks the file unsaved and brings Save into the bar; the page re-renders from what is typed.</p>
+  </div>
+</div>
+
+<h2>To decide</h2>
+<ul class="log">
+  <li><b>A or B.</b> A is one tap between modes and costs bar width; B keeps the bar to name, Save and More, and puts every mode a file has (Page, Code, Hex) in one list.</li>
+  <li><b>Which files get a Page mode.</b> HTML and Markdown today. CSV as a table and JSON as a tree are the next obvious ones; each is a mode, not a new screen.</li>
+  <li><b>What opens first.</b> Page for HTML and Markdown (reading is the common case), Code for everything else.</li>
+  <li><b>Open with keeps the separate entries.</b> "HTML viewer" and "Code editor" stay listed so a default can still be set to either; both open this one screen, in that mode.</li>
+  <li><b>Unsaved edits across modes.</b> Switching to Page renders the unsaved text; leaving still asks Save / Discard / Keep editing through the shared leave guard.</li>
+</ul>
+</div>
+<script>
+let way = 'seg', mode = 'page';
+const $ = (id) => document.getElementById(id);
+function paint() {
+  $('seg').style.display = way === 'seg' ? 'flex' : 'none';
+  $('modes').style.display = way === 'menu' ? 'block' : 'none';
+  $('pageview').style.display = mode === 'page' ? 'block' : 'none';
+  $('codeview').style.display = mode === 'page' ? 'none' : 'block';
+  $('viewrows').style.display = mode === 'code' ? 'block' : 'none';
+  document.querySelectorAll('[data-m]').forEach((e) => {
+    e.classList.toggle('on', e.dataset.m === mode);
+    const d = e.querySelector('.dot'); if (d) d.remove();
+    if (e.classList.contains('pr') && e.dataset.m === mode) e.insertAdjacentHTML('beforeend', '<span class="dot"></span>');
+  });
+  $('cap').textContent = way === 'seg'
+    ? 'A: the two modes sit in the bar, always one tap apart. Typing in Code marks the file unsaved and brings Save into the bar; the page re-renders from what is typed.'
+    : 'B: the bar is the name, Save when needed, and More. More opens on "Show as" with every mode this file has, then the view rows, then the file.';
+}
+document.querySelectorAll('.opt').forEach((o) => o.onclick = () => {
+  document.querySelectorAll('.opt').forEach((x) => x.classList.remove('on'));
+  o.classList.add('on'); way = o.dataset.way; paint();
+});
+document.querySelectorAll('[data-m]').forEach((e) => e.onclick = () => {
+  mode = e.dataset.m === 'hex' ? 'code' : e.dataset.m; $('panel').classList.remove('open'); paint();
+});
+$('more').onclick = (ev) => { ev.stopPropagation(); $('panel').classList.toggle('open'); };
+$('one').onclick = (ev) => { if (!$('panel').contains(ev.target) && ev.target !== $('more')) $('panel').classList.remove('open'); };
+$('codeview').oninput = () => { $('save').style.display = 'flex'; $('sub').textContent = 'Download  ·  unsaved'; };
+paint();
+</script>
+</body>
+</html>

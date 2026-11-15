@@ -236,6 +236,23 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
             ViewerAction(FiletIcons.Check, "Save", enabled = dirty && !loading) {
                 editor?.let { ed -> vm.saveText(node, ed.text.toString()) { dirty = false } }
             }
+            // The file's actions, and wrapping again as a switch that says which way it is.
+            // A switch leaves the panel open: its own state is the answer.
+            ViewerMore(
+                vm,
+                node,
+                unsaved = dirty,
+                view = if (rendering || loading) {
+                    null
+                } else {
+                    { _ ->
+                        dev.niccc2007.filet.ui.dialogs.PanelRow("Wrap lines", Filet.colors.accent, on = wrap) {
+                            wrap = !wrap
+                            editor?.setWordwrap(wrap)
+                        }
+                    }
+                },
+            )
         }
 
         if (findOpen && !loading && !rendering) {

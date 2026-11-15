@@ -1601,15 +1601,16 @@ private fun VideoPlayer(
                         NextVideoRow(vm) { overflow = false }
                         dev.niccc2007.filet.ui.dialogs.PopSeparator()
                     }
-                    dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Link, "Open in another app") {
-                        overflow = false
-                        vm.openExternally(node, force = true)
-                    }
-                    dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Share, "Share") { overflow = false; vm.share(node) }
-                    dev.niccc2007.filet.ui.dialogs.PopRow(FiletIcons.Info, "Properties") {
-                        overflow = false
-                        vm.showProperties(node)
-                    }
+                    // The file's actions: the rows of its hold menu, bound to this video. They
+                    // replace the three that were written out here, which were a subset of them.
+                    dev.niccc2007.filet.ui.dialogs.PopGroup("File")
+                    val run = LocalViewerRun.current
+                    ViewerFilePopRows(
+                        vm,
+                        node,
+                        close = { overflow = false },
+                        onGone = { if (run != null) run.drop() else vm.closeHandler() },
+                    )
                 }
             }
 

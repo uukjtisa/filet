@@ -54,10 +54,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.handlers.ViewerBar
-import dev.niccc2007.filet.handlers.ViewerBarButton
+import dev.niccc2007.filet.handlers.ViewerMore
 import dev.niccc2007.filet.browser.FiletIcons
-import dev.niccc2007.filet.ui.dialogs.PopMenu
-import dev.niccc2007.filet.ui.dialogs.PopRow
+import dev.niccc2007.filet.ui.dialogs.PanelRow
 import dev.niccc2007.filet.ops.LocalCopy
 import dev.niccc2007.filet.ui.detectSteadyTaps
 import dev.niccc2007.filet.ui.dialogs.BtnKind
@@ -119,7 +118,6 @@ fun PdfScreen(vm: BrowserViewModel, node: VNode) {
     var asking by remember(node.path) { mutableStateOf(false) }
     // The file as this screen last rewrote it, opened in place of a copy that may predate it.
     var rewritten by remember(node.path) { mutableStateOf<ByteArray?>(null) }
-    var more by remember(node.path) { mutableStateOf(false) }
     var change by remember(node.path) { mutableStateOf<PasswordChange?>(null) }
     var working by remember(node.path) { mutableStateOf(false) }
     var failed by remember(node.path) { mutableStateOf<String?>(null) }
@@ -169,20 +167,36 @@ fun PdfScreen(vm: BrowserViewModel, node: VNode) {
     // the status bar now that viewers draw behind the system bars.
     Column(Modifier.fillMaxSize()) {
         ViewerBar(title = node.name, subtitle = node.path.parent?.path.orEmpty(), onClose = { vm.closeHandler() }) {
-            // Only once the file is open: whether it has a password, and which, is known then.
-            if (current != null) {
-                Box {
-                    ViewerBarButton(FiletIcons.More, "More") { more = true }
-                    PopMenu(expanded = more, onDismiss = { more = false }, below = 52.dp, above = true) {
+            // The password rows only once the file is open: whether it has one, and which, is
+            // known then. The file's own rows are there either way - a PDF that will not open
+            // can still be sent, moved or deleted.
+            val tint = Filet.colors.accent
+            ViewerMore(
+                vm,
+                node,
+                viewHeading = "PDF",
+                view = if (current == null) {
+                    null
+                } else {
+                    { close ->
                         if (password == null) {
-                            PopRow(FiletIcons.Lock, "Lock with a password") { more = false; change = PasswordChange.LOCK }
+                            PanelRow("Lock with a password", tint, on = null, icon = FiletIcons.Lock) {
+                                close()
+                                change = PasswordChange.LOCK
+                            }
                         } else {
-                            PopRow(FiletIcons.Key, "Change password") { more = false; change = PasswordChange.CHANGE }
-                            PopRow(FiletIcons.Lock, "Remove password") { more = false; change = PasswordChange.REMOVE }
+                            PanelRow("Change password", tint, on = null, icon = FiletIcons.Key) {
+                                close()
+                                change = PasswordChange.CHANGE
+                            }
+                            PanelRow("Remove password", tint, on = null, icon = FiletIcons.Lock) {
+                                close()
+                                change = PasswordChange.REMOVE
+                            }
                         }
                     }
-                }
-            }
+                },
+            )
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {

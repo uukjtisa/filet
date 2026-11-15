@@ -389,6 +389,7 @@ fun HtmlScreen(vm: BrowserViewModel, node: VNode) {
                 if (showSource) "Show the page" else "Show the source",
                 active = showSource,
             ) { showSource = !showSource }
+            dev.niccc2007.filet.handlers.ViewerMore(vm, node)
         }
         val html = source
         // The page stays alive under the source rather than being torn down for it. Bug

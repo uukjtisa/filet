@@ -126,7 +126,9 @@ fun SheetScreen(vm: BrowserViewModel, node: VNode) {
     // before it draws its own, so this was the one document with no name, no Close and its tabs
     // under the clock - the bar is also what keeps a viewer clear of the status bar.
     Column(Modifier.fillMaxSize()) {
-        ViewerBar(title = node.name, subtitle = node.path.parent?.path.orEmpty(), onClose = { vm.closeHandler() })
+        ViewerBar(title = node.name, subtitle = node.path.parent?.path.orEmpty(), onClose = { vm.closeHandler() }) {
+            dev.niccc2007.filet.handlers.ViewerMore(vm, node)
+        }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (val o = opened) {
                 null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

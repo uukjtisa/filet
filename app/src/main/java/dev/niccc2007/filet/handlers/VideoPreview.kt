@@ -174,11 +174,14 @@ internal fun VideoPreview(
                         RunKindsRow(vm, node) { menu = false }
                         PopSeparator()
                     }
-                    PopRow(FiletIcons.Link, "Open in another app") {
-                        menu = false
-                        vm.openExternally(node, force = true)
-                    }
-                    PopRow(FiletIcons.Info, "Properties") { menu = false; vm.showProperties(node) }
+                    // The file's actions: the rows of its hold menu, bound to this video.
+                    dev.niccc2007.filet.ui.dialogs.PopGroup("File")
+                    ViewerFilePopRows(
+                        vm,
+                        node,
+                        close = { menu = false },
+                        onGone = { if (runPage != null) runPage.drop() else vm.closeHandler() },
+                    )
                 }
             }
             // The picture viewer's bottom bar, from the same pieces: what is done TO the file,
@@ -203,12 +206,7 @@ internal fun VideoPreview(
                         Box {
                             ViewerBarButton(FiletIcons.More, "More") { more = true }
                             PopMenu(expanded = more, onDismiss = { more = false }, below = 52.dp, above = true) {
-                                ShowInFolderRow {
-                                    more = false
-                                    // Out of every viewer, not back one: the folder is where this is going.
-                                    vm.leaveHandlers()
-                                    vm.revealInFolder(node)
-                                }
+                                // Open location is with the file's rows in the top menu now.
                                 ViewerGroundRow(grey) {
                                     more = false
                                     vm.prefs.setViewerGrey(!grey)

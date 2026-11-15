@@ -1468,6 +1468,11 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun cutSelection() = withSelection { items -> loadClipboard(items, PendingOp.MOVE) }
 
+    /** Copy or move [items] that are not a selection: the file a viewer has open. */
+    fun copyNodes(items: List<VNode>) = loadClipboard(items, PendingOp.COPY)
+
+    fun cutNodes(items: List<VNode>) = loadClipboard(items, PendingOp.MOVE)
+
     /**
      * Put a batch on the clipboard.
      *
@@ -3576,8 +3581,13 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * it on its own.
      */
     fun announceSelectionToMedia() = withSelection { selection ->
+        if (announceToMedia(selection)) focusedPane()?.clearSelection()
+    }
+
+    /** Hand the pictures, video and audio among [nodes] to the media index; false when none could go. */
+    fun announceToMedia(nodes: List<VNode>): Boolean {
         // Pictures, video and audio only - what the row counted when it said "3 of 5".
-        val items = selection.filter {
+        val items = nodes.filter {
             val kind = FileKind.of(it)
             kind == FileKind.IMAGE || kind == FileKind.VIDEO || kind == FileKind.AUDIO
         }
@@ -3585,14 +3595,14 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
         val real = dev.niccc2007.filet.media.MediaAnnounce.filesystemPaths(paths)
         if (real.isEmpty()) {
             toast("Nothing here is on this phone's own storage.")
-            return@withSelection
+            return false
         }
         dev.niccc2007.filet.media.MediaAnnounce.announce(graph.app, paths)
         // "Sent to" rather than "added": the scanner is asked, and what it decides to index is
         // its business. Claiming the gallery now has them would be a promise we cannot keep
         // for a file it refuses to recognise.
         toast(if (real.size == 1) "Sent to the media index" else "${real.size} sent to the media index")
-        focusedPane()?.clearSelection()
+        return true
     }
 
     fun requestAllFiles() {
@@ -3966,7 +3976,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     /** Straight to Android's sheet, no question asked. For buttons that say that is what they do. */
-    private fun shareToApps(items: List<VNode>) {
+    fun shareToApps(items: List<VNode>) {
         onShare?.invoke(items) ?: toast("Sharing is unavailable right now.")
     }
 
@@ -6061,9 +6071,14 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun shareSelectionNearby() {
         val items = focusedPane()?.selectedNodes().orEmpty()
         if (items.isEmpty()) { toast("Select something first."); return }
+        focusedPane()?.clearSelection()
+        shareNearby(items)
+    }
+
+    fun shareNearby(items: List<VNode>) {
+        if (items.isEmpty()) return
         items.forEach { graph.nearby.shared.share(it) }
         if (!graph.nearby.isRunning()) graph.nearby.start()
-        focusedPane()?.clearSelection()
         toast("${items.size} shared \u2014 open Nearby for the link")
     }
 
@@ -6075,7 +6090,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
      * the VFS spelling, which at least round-trips inside Filet rather than being a lie that
      * looks like a path.
      */
-    fun copyPathsOfSelection() = withSelection { items ->
+    fun copyPathsOfSelection() = withSelection { items -> copyPathsOf(items) }
+
+    fun copyPathsOf(items: List<VNode>) {
+        if (items.isEmpty()) return
         val text = items.joinToString("\n") { graph.vfs.osPath(it.path) ?: it.path.toString() }
         copyText(text, if (items.size == 1) "Path copied" else "${items.size} paths copied")
     }
@@ -6696,8 +6714,13 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     fun bookmarkSelection() {
         val items = focusedPane()?.selectedNodes().orEmpty()
         if (items.isEmpty()) return
-        items.forEach { graph.bookmarks.add(it.path, it.name, isDir = it.isDir) }
         focusedPane()?.clearSelection()
+        bookmarkNodes(items)
+    }
+
+    fun bookmarkNodes(items: List<VNode>) {
+        if (items.isEmpty()) return
+        items.forEach { graph.bookmarks.add(it.path, it.name, isDir = it.isDir) }
         toast(if (items.size == 1) "Bookmarked" else "Bookmarked ${items.size}")
     }
 
@@ -7293,9 +7316,15 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     fun makeBeatMapsForSelection() {
         val items = focusedPane()?.selectedNodes().orEmpty()
-            .filter { FileKind.of(it) == FileKind.AUDIO }
-        if (items.isEmpty()) return
+        if (items.none { FileKind.of(it) == FileKind.AUDIO }) return
         focusedPane()?.clearSelection()
+        makeBeatMaps(items)
+    }
+
+    /** Measure the beat of the tracks among [nodes]; anything else is left out. */
+    fun makeBeatMaps(nodes: List<VNode>) {
+        val items = nodes.filter { FileKind.of(it) == FileKind.AUDIO }
+        if (items.isEmpty()) return
         viewModelScope.launch {
             val tracks = items.mapNotNull { node ->
                 val uri = runCatching {
@@ -7712,17 +7741,23 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
 
     /** Add a whole folder's worth, or a selection, to what is already playing. */
     fun enqueueSelection(next: Boolean = false) {
-        val items = focusedPane()?.selectedNodes().orEmpty().filter {
+        val items = focusedPane()?.selectedNodes().orEmpty()
+        if (enqueue(items, next)) focusedPane()?.clearSelection()
+    }
+
+    /** Queue the tracks among [nodes]; false, having said why, when there are none. */
+    fun enqueue(nodes: List<VNode>, next: Boolean = false): Boolean {
+        val items = nodes.filter {
             val kind = FileKind.of(it)
             kind == FileKind.AUDIO || kind == FileKind.VIDEO
         }
         if (items.isEmpty()) {
             toast("Nothing here is a track Filet can play.")
-            return
+            return false
         }
-        focusedPane()?.clearSelection()
         graph.playback.enqueue(dev.niccc2007.filet.playback.tracksOf(items), next = next)
         toast(if (next) "Playing next" else "Added to the queue")
+        return true
     }
 
     /** What is playing, kept. The player's overflow. */

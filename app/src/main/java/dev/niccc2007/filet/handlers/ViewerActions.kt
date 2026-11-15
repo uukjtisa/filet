@@ -1,6 +1,5 @@
 package dev.niccc2007.filet.handlers
 
-import dev.niccc2007.filet.ui.Labels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -127,12 +126,6 @@ internal val VIDEO_BAR = 40.dp
 
 /** The music player's top bar, for [belowPlayerBar]: 12 dp above a 36 dp button, 2 dp below. */
 internal val MUSIC_BAR = 50.dp
-
-/** More's way to the file's folder. Out of every viewer, not back one: see the callers. */
-@Composable
-internal fun ShowInFolderRow(onClick: () -> Unit) {
-    PopRow(FiletIcons.Folder, Labels.OPEN_LOCATION, onClick = onClick)
-}
 
 /**
  * More's switch between a black and a grey ground behind the picture, one setting for every

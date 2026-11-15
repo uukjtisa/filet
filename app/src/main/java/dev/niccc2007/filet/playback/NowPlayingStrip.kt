@@ -48,22 +48,18 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupPositionProvider
-import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.browser.FiletIcons
+import dev.niccc2007.filet.ui.dialogs.PanelPopover
+import dev.niccc2007.filet.ui.dialogs.PanelRow
+import dev.niccc2007.filet.ui.dialogs.PanelRule
+import dev.niccc2007.filet.ui.dialogs.PanelSide
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
@@ -447,8 +443,6 @@ private fun GlowMenu(
     tint: Color,
 ) {
     var open by remember { mutableStateOf(false) }
-    val colors = Filet.colors
-    val gap = with(LocalDensity.current) { 10.dp.roundToPx() }
     Box {
         StripButton(
             FiletIcons.Brightness,
@@ -461,67 +455,31 @@ private fun GlowMenu(
         ) { open = true }
 
         if (open) {
-            Popup(
-                popupPositionProvider = AbovePositionProvider(gap),
-                onDismissRequest = { open = false },
-                properties = PopupProperties(focusable = true),
-            ) {
-                Column(
-                    Modifier
-                        .width(238.dp)
-                        .shadow(22.dp, RoundedCornerShape(22.dp))
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(colors.raised)
-                        .border(1.dp, colors.lineSoft, RoundedCornerShape(22.dp))
-                        .padding(vertical = 14.dp),
-                ) {
-                    Text(
-                        "BACKGROUND GLOW",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.3.sp,
-                        color = colors.fg3,
-                        modifier = Modifier.padding(start = 17.dp, bottom = 11.dp),
-                    )
-                    // Animated and Solid are one choice of three: turning one on turns the
-                    // other off, and both off is the mist held still. The strength belongs to
-                    // the mist, so it shows under Animated; the still mist keeps the last one.
-                    PanelRow("Animated", tint, on = look == StripLook.ANIMATED) {
-                        vm.prefs.setStripLook((if (look == StripLook.ANIMATED) StripLook.STILL else StripLook.ANIMATED).id)
+            // Above the button, so the strip it is changing stays in view.
+            PanelPopover(side = PanelSide.ABOVE, onDismiss = { open = false }, heading = "Background glow") {
+                // Animated and Solid are one choice of three: turning one on turns the
+                // other off, and both off is the mist held still. The strength belongs to
+                // the mist, so it shows under Animated; the still mist keeps the last one.
+                PanelRow("Animated", tint, on = look == StripLook.ANIMATED) {
+                    vm.prefs.setStripLook((if (look == StripLook.ANIMATED) StripLook.STILL else StripLook.ANIMATED).id)
+                }
+                if (look == StripLook.ANIMATED) {
+                    LevelPill(level, tint, Modifier.padding(start = 16.dp, top = 4.dp, bottom = 6.dp)) {
+                        vm.prefs.setGlowLevel(it.id)
                     }
-                    if (look == StripLook.ANIMATED) {
-                        LevelPill(level, tint, Modifier.padding(start = 16.dp, top = 4.dp, bottom = 6.dp)) {
-                            vm.prefs.setGlowLevel(it.id)
-                        }
-                    }
-                    PanelRow("Solid", tint, on = look == StripLook.SOLID) {
-                        vm.prefs.setStripLook((if (look == StripLook.SOLID) StripLook.STILL else StripLook.SOLID).id)
-                    }
-                    // The spill is the beat's light leaving the strip, so it goes with Beat pulse.
-                    if (pulseOn) {
-                        PanelRule()
-                        PanelRow("Spill past the strip", tint, on = spill) {
-                            vm.prefs.setGlowSpill(!spill)
-                        }
+                }
+                PanelRow("Solid", tint, on = look == StripLook.SOLID) {
+                    vm.prefs.setStripLook((if (look == StripLook.SOLID) StripLook.STILL else StripLook.SOLID).id)
+                }
+                // The spill is the beat's light leaving the strip, so it goes with Beat pulse.
+                if (pulseOn) {
+                    PanelRule()
+                    PanelRow("Spill past the strip", tint, on = spill) {
+                        vm.prefs.setGlowSpill(!spill)
                     }
                 }
             }
         }
-    }
-}
-
-/** Above the button and right-aligned to it, so the strip underneath stays visible. */
-private class AbovePositionProvider(private val gap: Int) : PopupPositionProvider {
-    override fun calculatePosition(
-        anchorBounds: IntRect,
-        windowSize: IntSize,
-        layoutDirection: LayoutDirection,
-        popupContentSize: IntSize,
-    ): IntOffset {
-        val room = (windowSize.width - popupContentSize.width).coerceAtLeast(0)
-        val x = (anchorBounds.right - popupContentSize.width).coerceIn(0, room)
-        val y = (anchorBounds.top - popupContentSize.height - gap).coerceAtLeast(0)
-        return IntOffset(x, y)
     }
 }
 
@@ -557,61 +515,6 @@ private fun LevelPill(level: GlowLevel, tint: Color, modifier: Modifier = Modifi
                 )
             }
         }
-    }
-}
-
-/** A hairline that stops short of the panel's edge, so the corners stay round. */
-@Composable
-private fun PanelRule() {
-    Box(
-        Modifier
-            .padding(horizontal = 17.dp, vertical = 10.dp)
-            .fillMaxWidth()
-            .height(1.dp)
-            .background(Filet.colors.lineSoft),
-    )
-}
-
-/** One row. [on] null makes it an action rather than a switch. */
-@Composable
-private fun PanelRow(label: String, tint: Color, on: Boolean?, onClick: () -> Unit) {
-    val colors = Filet.colors
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 17.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label,
-            fontSize = 12.5.sp,
-            color = if (on == true) tint else colors.fg2,
-            modifier = Modifier.weight(1f),
-        )
-        if (on != null) MiniSwitch(on, tint)
-    }
-}
-
-/** The smallest honest switch: a track, and a knob at one end of it. */
-@Composable
-private fun MiniSwitch(on: Boolean, tint: Color) {
-    val colors = Filet.colors
-    val slide by animateDpAsState(if (on) 17.dp else 2.dp, label = "knob")
-    Box(
-        Modifier
-            .size(width = 34.dp, height = 19.dp)
-            .clip(RoundedCornerShape(50))
-            .background(if (on) tint.copy(alpha = 0.3f) else colors.sunken),
-    ) {
-        Box(
-            Modifier
-                .padding(start = slide)
-                .align(Alignment.CenterStart)
-                .size(15.dp)
-                .clip(CircleShape)
-                .background(if (on) tint else colors.fg3),
-        )
     }
 }
 
