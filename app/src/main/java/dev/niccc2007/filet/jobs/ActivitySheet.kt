@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -296,11 +297,15 @@ private fun JobRow(
                     startSp = 12.5f,
                     lines = 2,
                 )
+                // One line while it runs, opened or not: it carries the file being worked on,
+                // which changes several times a second, and the opened card shows that name in
+                // its own Detail row. See [JobText.isLive].
                 Text(
                     subline(job),
                     fontSize = 10.sp,
                     color = if (job.state == JobState.FAILED) colors.bad else colors.fg3,
-                    maxLines = if (expanded) 4 else 1,
+                    maxLines = if (expanded && !job.running) 4 else 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Spacer(Modifier.width(8.dp))
@@ -354,14 +359,18 @@ private fun JobRow(
 private fun JobFigures(job: Job, now: Long, onAction: (JobAction) -> Unit) {
     val colors = Filet.colors
     Column(Modifier.fillMaxWidth().padding(start = 28.dp, top = 6.dp)) {
-        for (row in JobText.rows(job, now)) {
+        for (row in JobText.rows(job, now, steady = true)) {
             if (row.value.isEmpty()) continue
+            val live = JobText.isLive(job, row)
             Row(Modifier.padding(vertical = 1.dp)) {
                 Text(row.label, fontSize = 10.5.sp, color = colors.fg3, modifier = Modifier.width(58.dp))
                 Text(
                     if (row.path) readablePath(row.value) else row.value,
                     fontSize = 10.5.sp,
                     color = if (row.label == "Error") colors.bad else MaterialTheme.colorScheme.onSurface,
+                    // Cut in the middle, so a long file name keeps its extension.
+                    maxLines = if (live) 1 else Int.MAX_VALUE,
+                    overflow = if (live) TextOverflow.MiddleEllipsis else TextOverflow.Clip,
                 )
             }
         }

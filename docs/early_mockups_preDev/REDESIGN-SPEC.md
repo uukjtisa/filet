@@ -22,7 +22,7 @@ that surface which is easiest to lose on the way across.
 | **Recent tab** | `app/src/main/java/dev/niccc2007/filet/browser/Places.kt:154` | `TABS3.recent` | N59 | Grouped by day. Long press removes one entry - it used to do nothing. |
 | **Shortcuts tab** | `app/src/main/java/dev/niccc2007/filet/shortcuts/ShortcutsScreen.kt:52` | `TABS3.shortcuts` | N59 | Shows shortcuts the system has dropped, which is the only place they can be cleaned up. |
 | **Remotes tab** | `app/src/main/java/dev/niccc2007/filet/remotes/RemotesScreen.kt:81` | `TABS3.remotes` | N59 | An unreachable remote is shown as unreachable and never waited for. |
-| **Activity tab** | `app/src/main/java/dev/niccc2007/filet/jobs/ActivitySheet.kt:112` | `TABS3.activity` | N59 | Running above finished. The index job names the folder it is reading. |
+| **Activity tab** | `app/src/main/java/dev/niccc2007/filet/jobs/ActivitySheet.kt:113` | `TABS3.activity` | N59 | Running above finished. The index job names the folder it is reading. |
 | **About tab** | `app/src/main/java/dev/niccc2007/filet/about/AboutPage.kt:106` | `aboutHTML` | N58 | Four words from the repo, in one line. Watermark is the app mark, not the author seal. |
 | **Settings tab** | `app/src/main/java/dev/niccc2007/filet/settings/SettingsPage.kt:235` | `setHTML` | N56 | Sub-tabs. The List pane carries a live view rendered by the same code as the real list. |
 | **File row** | `app/src/main/java/dev/niccc2007/filet/browser/ClipTraySheet.kt:596` | `rowsHTML3` | N55 | No date column. Files show bytes, folders show item count. Tabular figures, not a code font. |

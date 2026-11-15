@@ -218,17 +218,22 @@ object JobText {
      * so a job with no From or To opened onto nothing but its buttons, while the text it copied
      * had the times, the source and the result. One list, so they cannot differ again.
      */
-    fun rows(job: Job, now: Long): List<Row> = buildList {
+    fun rows(job: Job, now: Long, steady: Boolean = false): List<Row> = buildList {
         add(Row("State", job.state.name.lowercase() + if (job.paused) " (paused)" else ""))
         if (job.from.isNotEmpty()) add(Row("From", job.from, path = true))
         if (job.to.isNotEmpty()) add(Row("To", job.to, path = true))
         items(job)?.let { add(Row("Items", it)) }
         amount(job)?.let { add(Row("Data", it)) }
+        // [steady]: the rows a running job keeps coming and going, held in place with a dash.
+        // See [isLive].
+        val held = steady && job.running
         if (job.running) {
-            job.bytesPerSec?.takeIf { it > 1.0 }?.let { add(Row("Speed", rate(it))) }
-            (if (job.paused) "paused" else JobRate.etaMs(job, now)?.let(::eta))?.let { add(Row("Left", it)) }
+            val speed = job.bytesPerSec?.takeIf { it > 1.0 }?.let(::rate)
+            if (speed != null || held) add(Row("Speed", speed ?: STILL))
+            val left = if (job.paused) "paused" else JobRate.etaMs(job, now)?.let(::eta)
+            if (left != null || held) add(Row("Left", left ?: STILL))
         }
-        if (job.detail.isNotEmpty()) add(Row("Detail", job.detail))
+        if (job.detail.isNotEmpty() || held) add(Row("Detail", job.detail.ifEmpty { STILL }))
         job.error?.let { add(Row("Error", it)) }
         if (job.startedAt > 0) add(Row("Started", STAMP.format(Instant.ofEpochMilli(job.startedAt))))
         if (job.endedAt > 0) add(Row("Ended", STAMP.format(Instant.ofEpochMilli(job.endedAt))))
@@ -236,6 +241,25 @@ object JobText {
         if (job.opened.isNotEmpty()) add(Row("Result", job.opened, path = true))
         add(Row("Source", job.source))
     }
+
+    /** What a held row says while it has nothing to say yet. */
+    const val STILL = "—"
+
+    /**
+     * A row whose value changes while the job runs - the file being worked on, the speed, the
+     * time left, the counts - which the opened card draws on one line, cut to fit.
+     *
+     * Bug identified here: the opened card of a running job wrapped every value, so the line
+     * naming the file being packed was one line for a short name and three for a long one, and
+     * Speed and Left appeared and vanished as the rate dipped and recovered. Names change several
+     * times a second while compressing, so the card grew and shrank with each one - with its
+     * size animated, it shook. A live row is one line now, and the rows that come and go are
+     * held in place with a dash ([rows] with `steady`), so a running card keeps one height.
+     * A row that does not change (From, To, an error) still wraps, to be read in full.
+     */
+    fun isLive(job: Job, row: Row): Boolean = job.running && row.label in LIVE
+
+    private val LIVE = setOf("State", "Items", "Data", "Speed", "Left", "Detail", "Duration")
 
     /** Everything about a job as plain text, for Copy details: its title, then [rows]. */
     fun details(job: Job, now: Long): String = buildString {
