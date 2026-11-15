@@ -1043,27 +1043,33 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
     }
 
     /**
-     * Name prefixes New files leaves out, with everything under a folder that matches one.
+     * The lines of the list New files leaves out by name, with everything under a folder that
+     * matches one. Each line is a whole name, a start, an end or a piece - see `FeedExclusions`.
      *
      * The companion to [blockedFolders] and the more useful half of the pair: the things that
-     * flood this list are named by machines, and machines name in prefixes - `.thumbnails`,
-     * `.trashed-1699`, `log_2026-10-26`. Blocking those one folder at a time is a losing game,
-     * because the next one has a different number on the end.
+     * flood this list are named by machines - `.thumbnails`, `.trashed-1699`, `log_2026-10-26` -
+     * and blocking those one folder at a time is a losing game, because the next one has a
+     * different number on the end.
      *
-     * Starts as `FeedExclusions.DEFAULT_PREFIXES` until anything is stored, which says why
-     * those and only those. Absent and empty are different answers: a list cleared by hand is
-     * stored empty and stays empty, and only a key never written gets the default.
+     * Starts as `FeedExclusions.DEFAULT_RULES` until anything is stored, which says why those and
+     * only those. Absent and empty are different answers: a list cleared by hand is stored empty
+     * and stays empty, and only a key never written gets the default.
+     *
+     * A list stored under [K_FEED_PREFIXES], when every line was a start, is read through
+     * `FeedExclusions.fromPrefixes` until the list is next changed, so an update hides exactly
+     * what it hid before.
      */
-    private val _feedPrefixes =
+    private val _feedRules =
         stored {
-            sp.getStringSet(K_FEED_PREFIXES, null)?.toSet()
-                ?: dev.niccc2007.filet.home.FeedExclusions.DEFAULT_PREFIXES
+            sp.getStringSet(K_FEED_RULES, null)?.toSet()
+                ?: sp.getStringSet(K_FEED_PREFIXES, null)?.let { dev.niccc2007.filet.home.FeedExclusions.fromPrefixes(it) }
+                ?: dev.niccc2007.filet.home.FeedExclusions.DEFAULT_RULES
         }
-    val feedPrefixes: StateFlow<Set<String>> = _feedPrefixes.asStateFlow()
+    val feedRules: StateFlow<Set<String>> = _feedRules.asStateFlow()
 
-    fun setFeedPrefixes(v: Set<String>) {
-        _feedPrefixes.value = v
-        sp.edit().putStringSet(K_FEED_PREFIXES, v).apply()
+    fun setFeedRules(v: Set<String>) {
+        _feedRules.value = v
+        sp.edit().putStringSet(K_FEED_RULES, v).remove(K_FEED_PREFIXES).apply()
     }
 
     private val _splitFit =
@@ -2022,7 +2028,9 @@ class Prefs(context: Context) : dev.niccc2007.filet.playback.GeneralSound {
         const val K_REACH_MODE = "view.reachMode"
         const val K_SPLIT_FIT = "view.splitFit"
         const val K_BLOCKED_FOLDERS = "home.blockedFolders"
+        /** Superseded by [K_FEED_RULES]; read once, for a list stored before the markers. */
         const val K_FEED_PREFIXES = "home.feedPrefixes"
+        const val K_FEED_RULES = "home.feedRules"
         const val K_ALLMUSIC_DIRS = "play.allMusicFolders"
         const val K_ALLMUSIC_MIN = "play.allMusicMinMs"
         const val K_ALLMUSIC_MAX = "play.allMusicMaxMs"

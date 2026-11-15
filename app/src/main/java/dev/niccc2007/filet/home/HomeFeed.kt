@@ -97,13 +97,14 @@ class HomeFeed(private val context: Context, private val scope: CoroutineScope) 
     var blockedFolders: () -> Set<String> = { emptySet() }
 
     /**
-     * Name prefixes to leave out, with everything under a folder that matches one.
+     * The lines of the exclusion list, with everything under a folder that matches one. See
+     * `FeedExclusions.rule`.
      *
      * A lambda like [blockedFolders] beside it, for the same reason: this is read at the
      * moment a page is fetched, so changing the rule takes effect on the next page rather
      * than needing the feed to be rebuilt.
      */
-    var feedPrefixes: () -> Set<String> = { emptySet() }
+    var feedRules: () -> Set<String> = { emptySet() }
 
     /**
      * Filet's own folders and root files, always excluded and not a preference. See
@@ -300,7 +301,7 @@ class HomeFeed(private val context: Context, private val scope: CoroutineScope) 
             // ones, so clearing that list cannot start reporting the app's cache writes as
             // new files on the phone.
             blockedFolders() + ownPaths(),
-            feedPrefixes(),
+            feedRules(),
             loadedBy,
         )
 

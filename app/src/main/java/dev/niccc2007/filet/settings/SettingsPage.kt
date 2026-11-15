@@ -629,8 +629,8 @@ fun SettingsPage(vm: BrowserViewModel) {
             }
         }
         item { SettingsSection("New files", "") }
-        anchor(Prefs.K_FEED_PREFIXES)
-        item { FeedPrefixCard(vm) }
+        anchor(Prefs.K_FEED_RULES)
+        item { FeedRulesCard(vm) }
         // Hidden by pointing, not by typing. A row in New files can be held to hide its folder,
         // and the two buttons here open the picker for a folder or for files - so the box above
         // is for patterns that have not appeared yet, and an exact place is never typed, where
@@ -2433,19 +2433,19 @@ private fun IndexStatusCard(vm: BrowserViewModel) {
  * launch would be impossible to tell apart from a feed that was not working.
  */
 @Composable
-private fun FeedPrefixCard(vm: BrowserViewModel) {
+private fun FeedRulesCard(vm: BrowserViewModel) {
     val colors = Filet.colors
-    val saved by vm.prefs.feedPrefixes.collectAsState()
+    val saved by vm.prefs.feedRules.collectAsState()
     // The text is the field's own state while it is being typed; the SET is the authority.
     // Rebuilt whenever the stored value changes from elsewhere - a chip, another screen - so
     // the box can never show a rule that is not in force.
     // Exactly what is in force, never a placeholder standing in for it. The defaults live in
-    // the preference - see `FeedExclusions.DEFAULT_PREFIXES` for what went wrong when they
+    // the preference - see `FeedExclusions.DEFAULT_RULES` for what went wrong when they
     // lived here.
     var text by remember(saved) { mutableStateOf(FeedExclusions.format(saved)) }
 
     Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
-        HoldHint("This is for the [New files] list. You may put prefixes for files/folders (ex: ., tmp_, etc...), or the complete file name, or folder name in here.", key = Prefs.K_FEED_PREFIXES) {
+        HoldHint("Hides files and folders from New files by name. A hidden folder hides everything in it.", key = Prefs.K_FEED_RULES) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "Content exclusion list",
@@ -2463,7 +2463,7 @@ private fun FeedPrefixCard(vm: BrowserViewModel) {
                 // Applied as it is typed rather than behind a Save. There is nothing to
                 // commit - the feed re-reads the rule on its next page - and a Save button
                 // is one more thing to forget to press.
-                vm.prefs.setFeedPrefixes(FeedExclusions.parse(it))
+                vm.prefs.setFeedRules(FeedExclusions.parse(it))
             },
             textStyle = LocalTextStyle.current.copy(fontSize = 12.sp),
             placeholder = { Text("Nothing hidden", fontSize = 12.sp, color = colors.fg3) },
@@ -2475,8 +2475,39 @@ private fun FeedPrefixCard(vm: BrowserViewModel) {
                 val on = p in saved
                 SmallButton(if (on) "✓ $p" else p) {
                     val next = if (on) saved - p else saved + p
-                    vm.prefs.setFeedPrefixes(next)
+                    vm.prefs.setFeedRules(next)
                 }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        // One line per kind of rule, the example first. Printed rather than behind a hold,
+        // because the star is the whole syntax and somebody typing a rule needs it in view.
+        FeedRuleLegend()
+    }
+}
+
+/** What each kind of line does, with an example of each. See `FeedExclusions.rule`. */
+@Composable
+private fun FeedRuleLegend() {
+    val colors = Filet.colors
+    val lines = listOf(
+        ".thumbnails" to "that exact name",
+        "log_*" to "names starting with log_",
+        "*.ft_lnk" to "names ending in .ft_lnk",
+        "*cache*" to "names with cache anywhere in them",
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text("One rule per line:", fontSize = 11.sp, color = colors.fg2)
+        for ((example, meaning) in lines) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    example,
+                    fontSize = 11.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.width(96.dp),
+                )
+                Text(meaning, fontSize = 11.sp, color = colors.fg3)
             }
         }
     }

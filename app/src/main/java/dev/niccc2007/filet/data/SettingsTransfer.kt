@@ -182,6 +182,8 @@ object SettingsTransfer {
         "sound.volume" to listOf("sound.music.volume", "sound.video.volume"),
         "sound.space" to listOf("sound.music.space", "sound.video.space"),
         "sound.filter" to listOf("sound.music.filter", "sound.video.filter"),
+        // Every line was a start; the list now marks each. See `Prefs.feedRules`.
+        "home.feedPrefixes" to listOf("home.feedRules"),
     )
 
     /**

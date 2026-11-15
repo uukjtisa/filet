@@ -137,6 +137,8 @@ class ConfigKeysTest {
                 "entry.subtitle", "entry.measure", "entry.dateColumn",
                 // The one sound both players shared before the split: read from older files only.
                 "sound.eqOn", "sound.bands", "sound.bass", "sound.volume", "sound.space", "sound.filter",
+                // The exclusion list from when every line was a start: read from older files only.
+                "home.feedPrefixes",
                 "bookmarks", "dav.shares", "nearby.shares",
                 // The app icon: Android holds it, so a file could only drift from it.
                 "look.appIcon",

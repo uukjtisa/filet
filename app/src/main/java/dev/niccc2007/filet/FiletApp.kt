@@ -664,7 +664,7 @@ class FiletGraph(context: Context) {
             // Read live, so blocking a folder takes effect on the next page rather than on the
             // next launch.
             home.blockedFolders = { prefs.blockedFolders.value }
-            home.feedPrefixes = { prefs.feedPrefixes.value }
+            home.feedRules = { prefs.feedRules.value }
             // Filet's own folders and files, always. Not a stored preference, because it is not
             // a judgement anybody made - a file manager listing its own cache writes under
             // "what is new on your phone" is the app talking about itself. See

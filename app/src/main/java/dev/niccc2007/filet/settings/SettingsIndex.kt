@@ -125,13 +125,12 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
         text = "Folders first Lists folders above files in every sort order.",
     ),
     SettingsEntry(
-        key = Prefs.K_FEED_PREFIXES,
+        key = Prefs.K_FEED_RULES,
         title = "Content exclusion list",
         tab = SettingsGroup.BROWSING,
         section = "New files",
-        text = "This is for the [New files] list. You may put prefixes for files/folders " +
-            "(ex: ., tmp_, etc...), or the complete file name, or folder name in here. " +
-            "Content exclusion list",
+        text = "Hides files and folders from New files by name. A hidden folder hides " +
+            "everything in it. Content exclusion list",
     ),
     SettingsEntry(
         key = Prefs.K_STOP_CONFIRM,

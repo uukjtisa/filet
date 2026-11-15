@@ -375,17 +375,16 @@ object CategoryQuery {
             args += under
             args += exact
         }
-        // Name prefixes, in the DATABASE for exactly the same reason as the folders above: a
-        // filter applied to the rows afterwards returns short pages and corrupts the offset.
+        // The list's name rules, in the DATABASE for exactly the same reason as the folders
+        // above: a filter applied to the rows afterwards returns short pages and corrupts the
+        // offset.
         //
-        // One pattern per prefix covers both halves of the rule - the entry's own name and any
-        // folder it sits under - because every segment of a path is preceded by a separator,
-        // so `%/log_%` matches a file called `log_1.txt` and anything inside a folder called
-        // `log_old`. That is the subtree rule the feature is actually about: hiding
-        // `.thumbnails` while keeping the ten thousand images in it is the worst outcome
-        // available. See `FeedExclusions`, which owns the same rule for callers that have a
-        // path rather than a query.
-        for (pattern in prefixPatterns(prefixes)) {
+        // Each rule covers both halves - the entry's own name and any folder it sits under -
+        // which is the subtree rule the feature is actually about: hiding `.thumbnails` while
+        // keeping the ten thousand images in it is the worst outcome available. See
+        // `FeedExclusions`, which owns the same rule for callers that have a path rather than a
+        // query, and [rulePatterns] for how each kind becomes patterns.
+        for (pattern in rulePatterns(prefixes)) {
             sql += " AND (" + MediaStore.MediaColumns.DATA + " IS NULL OR " +
                 MediaStore.MediaColumns.DATA + " NOT LIKE ? ESCAPE '\\')"
             args += pattern
@@ -394,22 +393,35 @@ object CategoryQuery {
     }
 
     /**
-     * The LIKE patterns for a set of name prefixes.
+     * The LIKE patterns for the exclusion list's lines, every one of which a row must miss.
      *
-     * `%/p%` rather than `p%`: anchored to a separator so it matches the start of ANY segment
-     * and never the middle of one. Without the separator, excluding `log_` would also exclude
-     * `catalog_2026.txt`, and somebody filtering their logs would silently lose their
-     * catalogue.
+     * Per kind, with `t` the rule's text:
+     * - a whole name is `%/t` (the entry itself) and `%/t/%` (anything inside it);
+     * - a start is `%/t%`, which covers both, since whatever follows may hold a separator;
+     * - an end is `%t` and `%t/%`, the second for a folder whose name ends that way;
+     * - a piece is `%t%`, the text holding no separator.
      *
-     * Escaped, because a prefix is typed by a person and `%` and `_` are wildcards - `log_` has
-     * one in it already, which is why this is not a theoretical concern. A blank entry is
-     * dropped rather than turned into `%/%`, which would hide every file on the device.
+     * A start and a whole name are anchored to a separator, so they match from the start of a
+     * segment and never from the middle of one. Without it, excluding `log_*` would also exclude
+     * `catalog_2026.txt`, and somebody filtering their logs would silently lose their catalogue.
+     *
+     * Escaped, because a rule is typed by a person and `%` and `_` are wildcards - `log_` has one
+     * in it already, which is why this is not a theoretical concern. A line that names nothing is
+     * dropped by `FeedExclusions.rule` rather than turned into `%`, which would hide every file
+     * on the device.
      */
-    internal fun prefixPatterns(prefixes: Set<String>): List<String> =
-        prefixes.asSequence()
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .map { "%/" + escapeLike(it) + "%" }
+    internal fun rulePatterns(lines: Set<String>): List<String> =
+        lines.asSequence()
+            .mapNotNull(FeedExclusions::rule)
+            .flatMap { r ->
+                val t = escapeLike(r.text)
+                when (r.match) {
+                    FeedExclusions.Match.NAME -> sequenceOf("%/$t", "%/$t/%")
+                    FeedExclusions.Match.START -> sequenceOf("%/$t%")
+                    FeedExclusions.Match.END -> sequenceOf("%$t", "%$t/%")
+                    FeedExclusions.Match.PIECE -> sequenceOf("%$t%")
+                }
+            }
             .distinct()
             .toList()
 

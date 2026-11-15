@@ -1,15 +1,21 @@
 package dev.niccc2007.filet.home
 
 /**
- * What New files leaves out: whole folders, and anything whose name starts with a given prefix.
+ * What New files leaves out: whole folders, and anything whose name matches a line of the list.
  *
- * ## Why a prefix and not a pattern
+ * ## One star at an end, and not a pattern
  *
- * The things that flood this list are named by machines, and machines name in prefixes:
- * `.thumbnails`, `.trashed-1699`, `log_2026-10-26`, `tmp_`. A glob or a regular expression
- * would cover all of that and several hundred ways to write a rule that silently matches
- * nothing - and a rule that matches nothing looks exactly like a rule that is working, because
- * the feed it is filtering is full either way.
+ * A line is a whole name (`.thumbnails`), a start (`log_*`), an end (`*.ft_lnk`) or a piece
+ * (`*cache*`). The star says which end is open, and that is the whole syntax. A glob or a
+ * regular expression would cover more and add several hundred ways to write a rule that
+ * silently matches nothing - and a rule that matches nothing looks exactly like a rule that is
+ * working, because the feed it is filtering is full either way.
+ *
+ * Decision: an unmarked line is a WHOLE name, and a start needs its star. The first shape of
+ * this list matched only starts, with no marker, so `logs` also hid `logs2024` and an end such
+ * as `.ft_lnk` could not be named at all. A list stored in that shape is read through
+ * [fromPrefixes], which adds the star each line was implicitly carrying, so nothing that was
+ * hidden comes back.
  *
  * ## The rule that makes it worth having
  *
@@ -27,11 +33,11 @@ object FeedExclusions {
     /**
      * Prefixes somebody might reasonably want, offered as chips rather than applied.
      *
-     * The ones not in [DEFAULT_PREFIXES] stay offers: `log_` or `tmp_` can be a real file
+     * The ones not in [DEFAULT_RULES] stay offers: `log_` or `tmp_` can be a real file
      * somebody made, and a list that quietly hid those from the first launch would be
      * impossible to tell apart from a list that was not working.
      */
-    val SUGGESTED = listOf(".", "log_", "tmp_", "cache_", "logs")
+    val SUGGESTED = listOf(".*", "log_*", "tmp_*", "cache_*", "logs")
 
     /**
      * What New files leaves out on a fresh install, before anything has been typed.
@@ -54,7 +60,58 @@ object FeedExclusions {
      * set, applied none of them, so a fresh install listed every dot-file while Settings claimed
      * they were hidden. The default belongs to the preference, where the feed reads it.
      */
-    val DEFAULT_PREFIXES: Set<String> = linkedSetOf(".")
+    val DEFAULT_RULES: Set<String> = linkedSetOf(".*", FILET_LINKS)
+
+    /**
+     * Filet's shortcut files, a pointer at a folder or file rather than something that arrived.
+     * A rule in the list rather than one of [ownPaths]: they sit in the person's own folders,
+     * wherever they were made, and a rule in the box can be taken out by somebody who wants them.
+     */
+    const val FILET_LINKS = "*.ft_lnk"
+
+    /**
+     * A list stored when every line was a start, in the shape it has now.
+     *
+     * Each line gets the star it was implicitly carrying, so nothing hidden before is shown now,
+     * and the shortcut-file rule is added once, since the list predates it.
+     */
+    fun fromPrefixes(prefixes: Set<String>): Set<String> =
+        prefixes.asSequence().map { it.trim() }.filter { it.isNotEmpty() }
+            .map { if (it.endsWith('*')) it else "$it*" }
+            .plus(FILET_LINKS)
+            .toCollection(LinkedHashSet())
+
+    /** How a line of the list compares with a name. */
+    enum class Match { NAME, START, END, PIECE }
+
+    /** One line of the list, read. */
+    data class Rule(val text: String, val match: Match) {
+        fun hits(name: String): Boolean = when (match) {
+            Match.NAME -> name == text
+            Match.START -> name.startsWith(text)
+            Match.END -> name.endsWith(text)
+            Match.PIECE -> name.contains(text)
+        }
+    }
+
+    /**
+     * [line] as a rule, or null for a line that names nothing - blank, or only stars. Null rather
+     * than a rule that matches everything: `*` alone would empty the whole feed.
+     */
+    fun rule(line: String): Rule? {
+        val t = line.trim()
+        val open = t.startsWith('*')
+        val close = t.endsWith('*')
+        val text = t.trim('*')
+        if (text.isEmpty()) return null
+        val match = when {
+            open && close -> Match.PIECE
+            close -> Match.START
+            open -> Match.END
+            else -> Match.NAME
+        }
+        return Rule(text, match)
+    }
 
     /**
      * Filet's own folders and the files at the root of its folder, left out of New files and the
@@ -93,16 +150,18 @@ object FeedExclusions {
      *
      * @param path an absolute path, with `/` separators.
      * @param folders absolute paths of folders to exclude, with everything under them.
-     * @param prefixes name prefixes; a segment starting with one excludes that entry and,
-     *   when the segment is a folder in the path, everything inside it.
+     * @param lines the list's lines, read by [rule]; a segment one of them hits excludes that
+     *   entry and, when the segment is a folder in the path, everything inside it.
      */
-    fun allows(path: String, folders: Set<String>, prefixes: Set<String>): Boolean {
+    fun allows(path: String, folders: Set<String>, lines: Set<String>): Boolean {
         val clean = path.replace('\\', '/').trimEnd('/')
         if (clean.isEmpty()) return true
         for (folder in folders) {
             if (under(clean, folder.replace('\\', '/').trimEnd('/'))) return false
         }
-        if (prefixes.isEmpty()) return true
+        if (lines.isEmpty()) return true
+        val rules = lines.mapNotNull(::rule)
+        if (rules.isEmpty()) return true
         // EVERY segment, not just the last.
         //
         // This is the subtree rule, and doing it per segment is what gets it for free: a file
@@ -111,9 +170,7 @@ object FeedExclusions {
         // name would hide the folder and keep the ten thousand images in it.
         for (segment in clean.split('/')) {
             if (segment.isEmpty()) continue
-            for (p in prefixes) {
-                if (p.isNotEmpty() && segment.startsWith(p)) return false
-            }
+            if (rules.any { it.hits(segment) }) return false
         }
         return true
     }
@@ -133,7 +190,7 @@ object FeedExclusions {
     }
 
     /**
-     * Read a prefix list as somebody typed it.
+     * Read the list as somebody typed it.
      *
      * Commas or newlines, trimmed, blanks dropped, duplicates removed. Case is KEPT: these are
      * compared against real filenames, and on this filesystem `Log_` and `log_` are different
@@ -147,5 +204,5 @@ object FeedExclusions {
             .toCollection(LinkedHashSet())
 
     /** Back to the one-per-line form the settings box shows. */
-    fun format(prefixes: Set<String>): String = prefixes.joinToString("\n")
+    fun format(lines: Set<String>): String = lines.joinToString("\n")
 }

@@ -33,7 +33,7 @@ class FeedExclusionsTest {
     @Test fun `a prefix on a folder excludes its whole subtree`() {
         // Checked per SEGMENT, which is what gets the subtree rule for free: a file deep
         // inside `.thumbnails` carries `.thumbnails` as one of its segments.
-        val prefixes = setOf(".")
+        val prefixes = setOf(".*")
         assertFalse(FeedExclusions.allows("/storage/emulated/0/DCIM/.thumbnails", none, prefixes))
         assertFalse(
             FeedExclusions.allows("/storage/emulated/0/DCIM/.thumbnails/deep/1.jpg", none, prefixes),
@@ -42,7 +42,7 @@ class FeedExclusionsTest {
     }
 
     @Test fun `a prefix matches a file by its own name too`() {
-        val prefixes = setOf("log_")
+        val prefixes = setOf("log_*")
         assertFalse(FeedExclusions.allows("/storage/emulated/0/log_2026.txt", none, prefixes))
         assertTrue(FeedExclusions.allows("/storage/emulated/0/catalog_2026.txt", none, prefixes))
     }
@@ -50,16 +50,16 @@ class FeedExclusionsTest {
     @Test fun `a prefix is matched at the start of a segment and nowhere else`() {
         // `catalog_` contains `log_`. Matching anywhere in the name would exclude it, and
         // somebody filtering their logs would silently lose their catalogue.
-        assertTrue(FeedExclusions.allows("/a/catalog_1.txt", none, setOf("log_")))
-        assertTrue(FeedExclusions.allows("/a/my.notes/x.txt", none, setOf("notes")))
-        assertFalse(FeedExclusions.allows("/a/notes.txt", none, setOf("notes")))
+        assertTrue(FeedExclusions.allows("/a/catalog_1.txt", none, setOf("log_*")))
+        assertTrue(FeedExclusions.allows("/a/my.notes/x.txt", none, setOf("notes*")))
+        assertFalse(FeedExclusions.allows("/a/notes.txt", none, setOf("notes*")))
     }
 
     @Test fun `case is kept because the filesystem keeps it`() {
         // Folding would exclude more than was asked for, which is the failure this file exists
         // to avoid - and on this filesystem Log_ and log_ really are different folders.
-        assertFalse(FeedExclusions.allows("/a/log_1.txt", none, setOf("log_")))
-        assertTrue(FeedExclusions.allows("/a/Log_1.txt", none, setOf("log_")))
+        assertFalse(FeedExclusions.allows("/a/log_1.txt", none, setOf("log_*")))
+        assertTrue(FeedExclusions.allows("/a/Log_1.txt", none, setOf("log_*")))
     }
 
     @Test fun `nothing configured excludes nothing`() {
@@ -100,7 +100,7 @@ class FeedExclusionsTest {
     }
 
     @Test fun `a fresh install hides dot-files and the files Filet writes into its own folder`() {
-        val d = FeedExclusions.DEFAULT_PREFIXES
+        val d = FeedExclusions.DEFAULT_RULES
         val root = "/storage/emulated/0/Filet"
         val own = FeedExclusions.ownPaths(root)
         assertFalse(FeedExclusions.allows("/storage/emulated/0/DCIM/.thumbnails/1.jpg", own, d))
@@ -146,5 +146,66 @@ class FeedExclusionsTest {
         assertTrue(FeedExclusions.allows("$root/filet.json.bak", own, none))
         // And nothing outside Filet is touched by them.
         assertTrue(FeedExclusions.allows("/storage/emulated/0/DCIM/photo.jpg", own, none))
+    }
+
+    // ── the four kinds of line ──
+
+    @Test fun `an unmarked line is the whole name and nothing longer`() {
+        val r = setOf(".thumbnails")
+        assertFalse(FeedExclusions.allows("/storage/emulated/0/DCIM/.thumbnails", none, r))
+        assertFalse(FeedExclusions.allows("/storage/emulated/0/DCIM/.thumbnails/1.jpg", none, r))
+        assertTrue(FeedExclusions.allows("/storage/emulated/0/DCIM/.thumbnails2/1.jpg", none, r))
+        assertTrue(FeedExclusions.allows("/storage/emulated/0/DCIM/my.thumbnails", none, r))
+    }
+
+    @Test fun `a leading star matches the end of a name, file or folder`() {
+        val r = setOf("*.ft_lnk")
+        assertFalse(FeedExclusions.allows("/storage/emulated/0/Received.ft_lnk", none, r))
+        assertFalse(FeedExclusions.allows("/storage/emulated/0/odd.ft_lnk/inside.txt", none, r))
+        assertTrue(FeedExclusions.allows("/storage/emulated/0/notes.ft_lnk.txt", none, r))
+        assertTrue(FeedExclusions.allows("/storage/emulated/0/ft_lnk", none, r))
+    }
+
+    @Test fun `stars at both ends match a piece of a name`() {
+        val r = setOf("*cache*")
+        assertFalse(FeedExclusions.allows("/storage/emulated/0/my_cache_dir/a.jpg", none, r))
+        assertFalse(FeedExclusions.allows("/storage/emulated/0/cache", none, r))
+        assertTrue(FeedExclusions.allows("/storage/emulated/0/cash/a.jpg", none, r))
+    }
+
+    @Test fun `a line of stars names nothing rather than everything`() {
+        // `*` read as a piece of nothing would match every name and empty the whole feed.
+        assertTrue(FeedExclusions.allows("/a/b.txt", none, setOf("*")))
+        assertTrue(FeedExclusions.allows("/a/b.txt", none, setOf("**", " * ")))
+        assertEquals(null, FeedExclusions.rule("***"))
+    }
+
+    @Test fun `each line is read as the kind its stars say`() {
+        assertEquals(FeedExclusions.Rule("logs", FeedExclusions.Match.NAME), FeedExclusions.rule(" logs "))
+        assertEquals(FeedExclusions.Rule("log_", FeedExclusions.Match.START), FeedExclusions.rule("log_*"))
+        assertEquals(FeedExclusions.Rule(".ft_lnk", FeedExclusions.Match.END), FeedExclusions.rule("*.ft_lnk"))
+        assertEquals(FeedExclusions.Rule("cache", FeedExclusions.Match.PIECE), FeedExclusions.rule("*cache*"))
+    }
+
+    // ── a list stored before the markers ──
+
+    @Test fun `a list of starts reads as the same starts, plus shortcut files`() {
+        val old = linkedSetOf(".", "log_", "logs")
+        val now = FeedExclusions.fromPrefixes(old)
+        assertEquals(linkedSetOf(".*", "log_*", "logs*", FeedExclusions.FILET_LINKS), now)
+        // Hides exactly what it hid before: `logs` was a start, so `logs2024` stays hidden.
+        for (path in listOf("/a/.hidden", "/a/log_1.txt", "/a/logs2024/x.txt")) {
+            assertFalse(path, FeedExclusions.allows(path, none, old.map { "$it*" }.toSet()))
+            assertFalse(path, FeedExclusions.allows(path, none, now))
+        }
+        assertTrue(FeedExclusions.allows("/a/catalog_1.txt", none, now))
+    }
+
+    @Test fun `a fresh install hides shortcut files`() {
+        assertFalse(FeedExclusions.allows("/storage/emulated/0/Received.ft_lnk", none, FeedExclusions.DEFAULT_RULES))
+    }
+
+    @Test fun `every suggestion is a line that names something`() {
+        for (s in FeedExclusions.SUGGESTED) assertTrue(s, FeedExclusions.rule(s) != null)
     }
 }

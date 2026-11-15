@@ -76,7 +76,7 @@ internal val WORDS: Map<String, String> = mapOf(
     PrefKeys.CACHE_LOCATION to "cache storage space data folder",
     Prefs.K_CACHE_REMIND to "cache space size reminder",
     dev.niccc2007.filet.log.FiletLog.PREF_VERBOSE to "debug logs verbose",
-    Prefs.K_FEED_PREFIXES to "hide exclude new files",
+    Prefs.K_FEED_RULES to "hide exclude new files prefix suffix ending",
     Prefs.K_BOTTOM_BAR to "toolbar buttons bottom",
     Prefs.K_SELECTION_BAR to "selection actions toolbar",
 )
