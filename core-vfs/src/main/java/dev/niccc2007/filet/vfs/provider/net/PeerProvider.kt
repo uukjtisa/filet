@@ -202,7 +202,9 @@ class PeerProvider(
 
     private fun connect(e: PeerEndpoint, target: String, method: String, path: VPath): HttpURLConnection =
         runCatching {
-            val http = URL("http://${e.host}:${e.port}$target").openConnection() as HttpURLConnection
+            // An IPv6 address is bracketed in a link, and its interface suffix cannot go in one.
+            val host = e.host.substringBefore('%').let { if (':' in it) "[$it]" else it }
+            val http = URL("http://$host:${e.port}$target").openConnection() as HttpURLConnection
             http.requestMethod = method
             http.connectTimeout = 8_000
             http.readTimeout = 30_000

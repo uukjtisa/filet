@@ -78,7 +78,11 @@ fun FastShareSheet(vm: BrowserViewModel, nodes: List<VNode>, onClose: () -> Unit
     val link = remember(fast, server.running, server.address, server.port) { nearby.fastLink(fast) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
-    val answers = remember(fast) { mutableStateMapOf<String, String>() }
+    // Each reply is kept with the address it came from: a phone looked up again at a new address
+    // starts over at "Tap to send" rather than wearing the old address's failure.
+    val answers = remember(fast) { mutableStateMapOf<String, Pair<String, String>>() }
+    val seenAll by nearby.fastSeen.collectAsState()
+    val seen = seenAll[fast.key].orEmpty()
     DisposableEffect(Unit) {
         if (LocalNetwork.allowed(context)) nearby.startScan()
         onDispose { nearby.stopScan() }
@@ -122,24 +126,18 @@ fun FastShareSheet(vm: BrowserViewModel, nodes: List<VNode>, onClose: () -> Unit
                 )
             }
             for (p in peers) {
-                val said = answers[p.uuid]
+                val said = answers[p.uuid]?.takeIf { it.first == p.base }?.second
+                val heard = seen[NetHost.plain(p.host)]
                 DlgPick(
                     FiletIcons.Device,
                     p.label,
-                    detail = when (said) {
-                        null -> if (p.paired) "Paired" else "Tap to send"
-                        "sending" -> "Sending…"
-                        "asked" -> "Asked: waiting for them to accept"
-                        "held" -> "Waiting: their pop-ups are off"
-                        "accepted" -> "Sent: it arrives without asking"
-                        "blocked" -> "They are not taking pushes from this phone"
-                        else -> "No answer. Is Filet open on it?"
-                    },
-                    selected = said == "accepted" || said == "asked",
+                    detail = PushRow.detail(said, heard, p.paired),
+                    selected = PushRow.answered(said, heard),
                 ) {
-                    if (link.isEmpty() || said == "sending") return@DlgPick
-                    answers[p.uuid] = "sending"
-                    scope.launch { answers[p.uuid] = nearby.push(p, fast) ?: "none" }
+                    if (link.isEmpty() || said == PushReply.SENDING) return@DlgPick
+                    val base = p.base
+                    answers[p.uuid] = base to PushReply.SENDING
+                    scope.launch { answers[p.uuid] = base to (nearby.push(p, fast) ?: "none") }
                 }
             }
         }

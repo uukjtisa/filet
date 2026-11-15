@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -52,7 +53,24 @@ class NearbyManager(
         onServed = { s -> logServed(s) },
         onSending = { name, who, total -> sending(name, who, total) },
         onInbox = { p, b, a -> inbox.handle(p, b, a) },
+        onFastHit = { k, a, fetching -> fastHit(k, a, fetching) },
     )
+
+    private val _fastSeen = MutableStateFlow<Map<String, Map<String, FastSeen>>>(emptyMap())
+
+    /**
+     * What this phone's server has seen of each fast share: by the share's key, then by the
+     * address that asked. The fast share sheet reads it beside each push's own reply.
+     */
+    val fastSeen: StateFlow<Map<String, Map<String, FastSeen>>> = _fastSeen.asStateFlow()
+
+    private fun fastHit(key: String, address: String, fetching: Boolean) {
+        val host = NetHost.plain(address)
+        _fastSeen.update { all ->
+            val seen = all[key].orEmpty()
+            all + (key to (seen + (host to PushRow.seen(seen[host], fetching))))
+        }
+    }
 
     /** Pushes from other Filets. See [PushInbox]. */
     val inbox: PushInbox by lazy {
@@ -95,7 +113,9 @@ class NearbyManager(
     /**
      * Offer [f] to [peer], AirDrop-like: it asks there, or arrives without asking from a phone
      * that set this one to Always accept. Sharing must be on, because the other phone fetches
-     * from this one. Answers "asked", "accepted", "held" or "blocked", or null for no answer.
+     * from this one. Answers "asked", "accepted", "held" or "blocked" as the other phone said,
+     * [PushReply.UNREACHED] or [PushReply.UNANSWERED] when it said nothing, or null when this
+     * phone is not sharing.
      */
     suspend fun push(peer: Peer, f: FastShare): String? = kotlinx.coroutines.withContext(Dispatchers.IO) {
         val s = _state.value
@@ -113,12 +133,28 @@ class NearbyManager(
             .put("key", f.key)
             .put("files", files)
         PairedPeers.tokenFor(context, peer.uuid)?.let { body.put("proof", PushRules.proof(it, f.key)) }
-        val answer = PushInbox.post("${peer.base}/api/push", body)?.optString("answer")
-        if (answer != null) {
-            pushedTo.getOrPut(f.key) { mutableSetOf() } += peer.base
-            log("Pushed ${files.length().let { if (it == 1) files.getJSONObject(0).optString("name") else "$it files" }} to ${peer.label}", answer)
+        val started = android.os.SystemClock.elapsedRealtime()
+        val posted = PushInbox.postFor("${peer.base}/api/push", body)
+        dev.niccc2007.filet.log.FiletLog.i("nearby") {
+            "push to ${peer.base}: ${posted::class.simpleName} in ${android.os.SystemClock.elapsedRealtime() - started} ms"
         }
-        answer
+        when (posted) {
+            is PushInbox.Companion.Posted.Reply -> {
+                val answer = posted.json.optString("answer").ifEmpty { null } ?: return@withContext PushReply.UNANSWERED
+                pushedTo.getOrPut(f.key) { mutableSetOf() } += peer.base
+                log("Pushed ${files.length().let { if (it == 1) files.getJSONObject(0).optString("name") else "$it files" }} to ${peer.label}", answer)
+                answer
+            }
+            PushInbox.Companion.Posted.Unanswered -> {
+                // It may have landed: Stop must still reach it to take the push back.
+                pushedTo.getOrPut(f.key) { mutableSetOf() } += peer.base
+                PushReply.UNANSWERED
+            }
+            PushInbox.Companion.Posted.Unreached -> {
+                discovery.refresh(peer)
+                PushReply.UNREACHED
+            }
+        }
     }
 
     private val pushedTo = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
@@ -126,6 +162,7 @@ class NearbyManager(
     /** Stop a fast share: its key stops working, and phones it was pushed to drop the push. */
     fun stopFast(key: String) {
         shared.stopFast(key)
+        _fastSeen.update { it - key }
         val to = pushedTo.remove(key) ?: return
         scope.launch(Dispatchers.IO) {
             val body = org.json.JSONObject().put("from", PairedPeers.serviceName(context)).put("key", key)

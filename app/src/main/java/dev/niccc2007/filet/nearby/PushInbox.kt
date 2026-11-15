@@ -224,7 +224,7 @@ class PushInbox(
         // can only send this phone to fetch from the phone that sent it.
         val token = PairedPeers.tokenFor(context, from)
         val paired = token != null && o.optString("proof") == PushRules.proof(token, key)
-        val offer = PushOffer(from, o.optString("name").ifEmpty { from.removePrefix("Filet-") }.take(40), "http://$address:$port", key, list, System.currentTimeMillis(), paired)
+        val offer = PushOffer(from, o.optString("name").ifEmpty { from.removePrefix("Filet-") }.take(40), "http://" + NetHost.authority(address, port), key, list, System.currentTimeMillis(), paired)
         val answer = PushRules.answer(from in _blocked.value, from in _always.value, paired, popupsOn())
         when (answer) {
             PushAnswer.BLOCKED -> log("Turned away a push from ${offer.name}", "blocked on the Share page")
@@ -445,6 +445,40 @@ class PushInbox(
         }
 
         /** A POST of [body] as JSON; the answer's JSON, or null when the phone did not answer. */
+        /** How a POST went: its reply, or which half of it failed. */
+        sealed interface Posted {
+            data class Reply(val json: JSONObject) : Posted
+            /** The connection itself failed: nothing at that address took it. */
+            data object Unreached : Posted
+            /** Connected and sent; no reply that could be read came back. */
+            data object Unanswered : Posted
+        }
+
+        /**
+         * [post], telling a phone that was never reached from one that took the request and did
+         * not reply in time - the second may well have acted on it.
+         */
+        fun postFor(url: String, body: JSONObject): Posted {
+            val conn = runCatching {
+                (URL(url).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 5_000
+                    readTimeout = 8_000
+                    requestMethod = "POST"
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                }
+            }.getOrElse { return Posted.Unreached }
+            try {
+                runCatching { conn.connect() }.onFailure { return Posted.Unreached }
+                return runCatching {
+                    conn.outputStream.use { it.write(body.toString().toByteArray()) }
+                    Posted.Reply(JSONObject(conn.inputStream.bufferedReader().use { it.readText() }))
+                }.getOrElse { Posted.Unanswered }
+            } finally {
+                conn.disconnect()
+            }
+        }
+
         fun post(url: String, body: JSONObject): JSONObject? = runCatching {
             val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 5_000

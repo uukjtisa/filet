@@ -28,7 +28,7 @@ data class Peer(
     val reachable: Boolean = true,
 ) {
     val label: String get() = name.ifEmpty { host }
-    val base: String get() = "http://$host:$port"
+    val base: String get() = "http://" + NetHost.authority(host, port)
 }
 
 /**
@@ -252,7 +252,15 @@ class NearbyDiscovery(private val context: Context) {
         manager.resolveService(info, object : NsdManager.ResolveListener {
             override fun onResolveFailed(info: NsdServiceInfo, code: Int) = Unit
             override fun onServiceResolved(resolved: NsdServiceInfo) {
-                val host = resolved.host?.hostAddress ?: return
+                // Every address the lookup offered, and the shared rule picks: an IPv4 address on
+                // this network first. Taking `host` as given took whichever came first, which
+                // since Android 14 can be an IPv6 one - see NetHost.authority.
+                val candidates = mutableListOf<java.net.InetAddress>()
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    runCatching { candidates.addAll(resolved.hostAddresses) }
+                }
+                runCatching { resolved.host?.let { candidates.add(it) } }
+                val host = dev.niccc2007.filet.webdav.DavDiscovery.pickAddress(candidates) ?: return
                 val uuid = resolved.serviceName
                 val peer = Peer(
                     uuid = uuid,
@@ -270,6 +278,21 @@ class NearbyDiscovery(private val context: Context) {
                 )
             }
         })
+    }
+
+    /**
+     * Look [peer] up again, for a push that found nothing at its address: a phone that rejoined
+     * the Wi-Fi has a new one, and the record heard before still names the old. The fresh answer
+     * replaces the row, keyed by the same name.
+     */
+    fun refresh(peer: Peer) {
+        val manager = nsd ?: return
+        if (peer.foundBy == FoundBy.MANUAL || !LocalNetwork.allowed(context)) return
+        val info = NsdServiceInfo().apply {
+            serviceName = peer.uuid
+            serviceType = SERVICE_TYPE
+        }
+        runCatching { resolve(manager, info) }
     }
 
     /** Record a peer typed in by hand, for the case where discovery cannot work at all. */

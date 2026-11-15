@@ -104,6 +104,11 @@ class NearbyHttpServer(
     private val onSending: (name: String, who: String, total: Long) -> Sending? = { _, _, _ -> null },
     /** The push inbox's paths, answered here while sharing is on. See [PushInbox.handle]. */
     private val onInbox: (path: String, body: JSONObject, address: String) -> JSONObject? = { _, _, _ -> null },
+    /**
+     * A fast share's key used from [address]: asked about, or with [fetching], its files taken.
+     * What tells the sending phone a push landed when the push's own reply did not come back.
+     */
+    private val onFastHit: (key: String, address: String, fetching: Boolean) -> Unit = { _, _, _ -> },
 ) {
     private val pool = Executors.newFixedThreadPool(6)
     private var socket: ServerSocket? = null
@@ -296,20 +301,27 @@ class NearbyHttpServer(
 
             // A fast share: a direct link with a key that opens its files and nothing else, so
             // a camera's browser downloads at once with no page and no code. See [FastShare].
-            path == "/api/fast" -> fastManifest(out, param(query, "k"))
+            path == "/api/fast" -> {
+                val k = param(query, "k")
+                if (k != null && shared.fastByKey(k) != null) onFastHit(k, address, false)
+                fastManifest(out, k)
+            }
             param(query, "k") != null && path.startsWith("/f/") -> {
                 val token = path.removePrefix("/f/")
                 if (!shared.keyOpens(param(query, "k"), token)) { respond(out, 404, "text/plain", "not found".toByteArray()); return }
+                onFastHit(param(query, "k")!!, address, true)
                 marking(address, ClientActivity.DOWNLOADING) { serveFile(out, token, headers, address, keyOk = true) }
             }
             param(query, "k") != null && path.startsWith("/zd/") -> {
                 val token = path.removePrefix("/zd/")
                 if (!shared.keyOpens(param(query, "k"), token)) { respond(out, 404, "text/plain", "not found".toByteArray()); return }
+                onFastHit(param(query, "k")!!, address, true)
                 marking(address, ClientActivity.DOWNLOADING) { serveFolderZip(out, token, headers, address, keyOk = true) }
             }
             param(query, "k") != null && path == "/z" -> {
                 val f = shared.fastByKey(param(query, "k"))
                 if (f == null) { respond(out, 404, "text/plain", "not found".toByteArray()); return }
+                onFastHit(param(query, "k")!!, address, true)
                 marking(address, ClientActivity.DOWNLOADING) { serveZip(out, f.tokens, headers, address, keyOk = true) }
             }
 
