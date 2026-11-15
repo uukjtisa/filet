@@ -7551,15 +7551,14 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     val scanFound: StateFlow<dev.niccc2007.filet.qr.ScanHit?> = _scanFound.asStateFlow()
 
     fun scanned(hit: dev.niccc2007.filet.qr.ScanHit?) {
-        // A fast share's QR: no browser and no code. Filet fetches it into Filet/Received as an
-        // Activity job, whose card shows it coming in and opens it when it has.
-        val fast = hit?.let { dev.niccc2007.filet.nearby.FastLink.parse(it.text) }
-        if (fast != null) {
-            graph.nearby.inbox.fetch(fast.base, fast.key, fast.host)
-            toast("Downloading to Filet/Received")
-            _scanFound.value = null
-            return
-        }
+        // A fast share's QR is held here like any other code, and the scanner asks before
+        // fetching it. See ScannedShareAsk.
+        //
+        // Bug identified here: a fast share used to be fetched on the spot and the code cleared in
+        // the same call. Cleared, nothing was showing, so ScanGate had no answer open to hold the
+        // frames behind and no close to remember - and the camera reads a code in view ten times a
+        // second. Every frame started another download of the same share, without a word asked,
+        // until the phone was pointed away.
         _scanFound.value = hit
     }
 

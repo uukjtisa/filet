@@ -11,6 +11,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -40,7 +41,9 @@ import dev.niccc2007.filet.ui.dialogs.DlgTone
 import dev.niccc2007.filet.ui.dialogs.DlgWarn
 import dev.niccc2007.filet.ui.theme.Filet
 import dev.niccc2007.filet.vfs.VNode
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Fast share: one sheet with both ways. The QR on top, a direct link on this phone's own address
@@ -168,17 +171,7 @@ fun PushAsk(vm: BrowserViewModel, offer: PushOffer) {
             onClose = { inbox.later() },
         )
         DlgBody {
-            for (f in offer.files.take(6)) {
-                DlgPick(
-                    if (f.dir) FiletIcons.Folder else dev.niccc2007.filet.browser.FileKind.of(
-                        VNode(dev.niccc2007.filet.vfs.VPath.of("local", "/" + f.name), isDir = false, size = f.size, mtime = 0),
-                    ).icon,
-                    f.name + if (f.dir) ".zip" else "",
-                    detail = if (f.size >= 0 && !f.dir) dev.niccc2007.filet.browser.humanSize(f.size) else null,
-                ) {}
-            }
-            if (offer.files.size > 6) DlgCaption("and ${offer.files.size - 6} more")
-            DlgCaption(if (offer.files.size == 1) "It goes to Filet/Received." else "They go to Filet/Received.")
+            OfferedFiles(offer.files)
             DlgTick(
                 on = always && offer.paired,
                 label = "Always accept from this phone",
@@ -190,6 +183,76 @@ fun PushAsk(vm: BrowserViewModel, offer: PushOffer) {
         DlgFooter {
             DlgBtn("Decline") { inbox.decline(offer) }
             DlgBtn("Accept", BtnKind.PRIMARY) { inbox.accept(offer, always) }
+        }
+    }
+}
+
+/** The files a push or a scanned share offers: the first six, and where they will land. */
+@Composable
+private fun OfferedFiles(files: List<PushFile>) {
+    for (f in files.take(6)) {
+        DlgPick(
+            if (f.dir) FiletIcons.Folder else dev.niccc2007.filet.browser.FileKind.of(
+                VNode(dev.niccc2007.filet.vfs.VPath.of("local", "/" + f.name), isDir = false, size = f.size, mtime = 0),
+            ).icon,
+            f.name + if (f.dir) ".zip" else "",
+            detail = if (f.size >= 0 && !f.dir) dev.niccc2007.filet.browser.humanSize(f.size) else null,
+        ) {}
+    }
+    if (files.size > 6) DlgCaption("and ${files.size - 6} more")
+    DlgCaption(if (files.size == 1) "It goes to Filet/Received." else "They go to Filet/Received.")
+}
+
+/**
+ * A fast share's QR, read by Filet's scanner: what it holds, and Download or Cancel. Nothing is
+ * fetched until Download - a code read by pointing a camera is not a decision to take its files,
+ * any more than a push is, and a push asks.
+ */
+@Composable
+fun ScannedShareAsk(vm: BrowserViewModel, link: FastLink.Parsed, onClose: () -> Unit) {
+    val inbox = vm.nearby.inbox
+    // Unknown until the sharing phone answers; then what it holds, or null when it did not answer.
+    var asked by remember(link) { mutableStateOf(false) }
+    var peek by remember(link) { mutableStateOf<FastPeek?>(null) }
+    LaunchedEffect(link) {
+        peek = withContext(Dispatchers.IO) { inbox.peek(link.base, link.key) }
+        asked = true
+    }
+    val p = peek
+    val who = p?.device?.ifEmpty { null } ?: link.host
+    Dlg(onClose) {
+        DlgHeader(
+            FiletIcons.Download,
+            when {
+                p != null -> "$who is sharing " + if (p.files.size == 1) "a file" else "${p.files.size} files"
+                asked -> "This share has stopped"
+                else -> "A fast share"
+            },
+            sub = "A Filet on this network",
+            onClose = onClose,
+        )
+        DlgBody {
+            when {
+                p != null -> OfferedFiles(p.files)
+                asked -> DlgCaption("$who is not sharing it any more, or this phone is on a different Wi-Fi.")
+                else -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                }
+            }
+        }
+        DlgFooter {
+            if (p == null) {
+                DlgBtn(if (asked) "Close" else "Cancel", onClick = onClose)
+            } else {
+                DlgBtn("Cancel", onClick = onClose)
+                DlgBtn("Download", BtnKind.PRIMARY) {
+                    vm.toast(
+                        if (inbox.fetch(link.base, link.key, who)) "Downloading to Filet/Received"
+                        else "Already downloading this one",
+                    )
+                    onClose()
+                }
+            }
         }
     }
 }

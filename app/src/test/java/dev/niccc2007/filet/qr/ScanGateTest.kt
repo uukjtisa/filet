@@ -16,6 +16,17 @@ class ScanGateTest {
     }
 
     @Test
+    fun `a code acted on with no answer showing and no close is let through on every frame`() {
+        // The gate holds repeats back only through an answer showing or a close remembered. A
+        // code acted on without either - how a fast share's QR used to be fetched - comes through
+        // again on the very next frame, which was one download per frame. Hence every code,
+        // a fast share's included, now opens an answer.
+        val g = ScanGate(goneMs = 1500)
+        val admitted = (0L..1_000L step 100).count { g.admit("A", it, showing = false) }
+        assertTrue("expected every frame through, got $admitted", admitted == 11)
+    }
+
+    @Test
     fun `closing with the code still in view does not reopen it`() {
         val g = ScanGate(goneMs = 1500)
         g.admit("A", now = 0, showing = false)

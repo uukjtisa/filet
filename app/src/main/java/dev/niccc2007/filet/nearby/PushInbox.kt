@@ -25,6 +25,24 @@ import java.security.MessageDigest
 /** A file another Filet offers. */
 data class PushFile(val name: String, val size: Long, val dir: Boolean)
 
+/** What a fast share holds, read before fetching it: the sharing phone's name and its files. */
+data class FastPeek(val device: String, val files: List<PushFile>)
+
+/**
+ * Keys with work running, so the same work is never started twice at once. Thread-safe: a fetch
+ * ends on the IO pool and the next one is asked for on the main thread.
+ */
+internal class InFlight<K> {
+    private val running = HashSet<K>()
+
+    /** True, and [key] is now running; false when it already was, and nothing should start. */
+    @Synchronized fun begin(key: K): Boolean = running.add(key)
+
+    @Synchronized fun end(key: K) {
+        running.remove(key)
+    }
+}
+
 /**
  * Another Filet on this network offering files: a fast share of its own, which this phone fetches
  * with [key] from [base] once it is accepted.
@@ -285,12 +303,19 @@ class PushInbox(
 
     // ── fetching ──
 
+    private val fetching = InFlight<String>()
+
     /**
      * Fetch what a fast share at [base] with [key] offers into Filet/Received, as one Activity job:
      * from an accepted push, or from Filet's own scanner reading a fast share's QR. A folder
      * arrives as its zip.
+     *
+     * @return false, having started nothing, when this share is already being fetched. A second
+     *   copy of the same files is never what was meant - it was a repeated tap or a repeated scan.
      */
-    fun fetch(base: String, key: String, fromName: String) {
+    fun fetch(base: String, key: String, fromName: String): Boolean {
+        val once = "$base|$key"
+        if (!fetching.begin(once)) return false
         val l = ledger
         lateinit var job: Job
         job = scope.launch(Dispatchers.IO, start = kotlinx.coroutines.CoroutineStart.LAZY) {
@@ -360,8 +385,28 @@ class PushInbox(
                 if (id >= 0) l?.fail(id, e.message ?: "could not be fetched") else log("Could not fetch from $fromName", e.message ?: "")
             }
         }
+        // On completion rather than in a finally: a job cancelled before it starts never runs its
+        // body, and the share would then count as fetching for as long as Filet lives.
+        job.invokeOnCompletion { fetching.end(once) }
         job.start()
+        return true
     }
+
+    /**
+     * What the fast share at [base] holds, asked of the sharing phone. Blocking; null when it has
+     * stopped sharing, holds nothing, or cannot be reached.
+     */
+    fun peek(base: String, key: String): FastPeek? = runCatching {
+        val (code, text) = get("$base/api/fast?k=${enc(key)}")
+        if (code != 200) return null
+        val m = JSONObject(text)
+        val arr = m.optJSONArray("files") ?: JSONArray()
+        val files = (0 until minOf(arr.length(), 500)).map { i ->
+            val f = arr.getJSONObject(i)
+            PushFile(f.optString("name").take(200), f.optLong("size"), f.optBoolean("dir"))
+        }
+        FastPeek(m.optString("device").take(40), files).takeIf { files.isNotEmpty() }
+    }.getOrNull()
 
     private fun log(title: String, detail: String = "") {
         val l = ledger ?: return

@@ -215,9 +215,18 @@ fun ScanScreen(vm: BrowserViewModel, pane: PaneController) {
     }
 
     hit?.let { h ->
-        QrDialog(QrParse.parse(h.text), vm, fromPicture = h.fromPicture) {
+        val close = {
             if (!h.fromPicture) gate.closed(h.text, SystemClock.uptimeMillis())
             vm.scanned(null)
+        }
+        // Another Filet's fast share asks before anything is fetched; every other code gets the
+        // ordinary answer. Both stay open as the answer showing, which is what holds the camera's
+        // repeated reads of the same code behind it.
+        val fast = remember(h.text) { dev.niccc2007.filet.nearby.FastLink.parse(h.text) }
+        if (fast != null) {
+            dev.niccc2007.filet.nearby.ScannedShareAsk(vm, fast, onClose = close)
+        } else {
+            QrDialog(QrParse.parse(h.text), vm, fromPicture = h.fromPicture, onClose = close)
         }
     }
 }
