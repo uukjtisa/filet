@@ -306,6 +306,14 @@ class NearbyHttpServer(
                 if (k != null && shared.fastByKey(k) != null) onFastHit(k, address, false)
                 fastManifest(out, k)
             }
+            // A fast share's thumbnail, for the phone it was pushed to: its card shows the
+            // pictures before anything is accepted. A look rather than a download, so it is not
+            // counted as one - the push's row would otherwise read as taken.
+            param(query, "k") != null && path.startsWith("/t/") -> {
+                val token = path.removePrefix("/t/")
+                if (!shared.keyOpens(param(query, "k"), token)) { respond(out, 404, "text/plain", "not found".toByteArray()); return }
+                serveThumb(out, token)
+            }
             param(query, "k") != null && path.startsWith("/f/") -> {
                 val token = path.removePrefix("/f/")
                 if (!shared.keyOpens(param(query, "k"), token)) { respond(out, 404, "text/plain", "not found".toByteArray()); return }

@@ -43,6 +43,19 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <!--
+      Ready for incoming files with Filet closed (Share > Incoming files). connectedDevice: it
+      waits for other phones on this network, and has no daily limit the way dataSync does. Its
+      prerequisite on Android 14 is met by CHANGE_WIFI_MULTICAST_STATE above.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
+    <!--
+      The incoming card drawn over the app in use. Granted by the person in Android's settings,
+      never assumed: without it a send asks with a notification instead.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!--
       Package visibility (API 30+).
 
       The narrow <queries> below came first and is kept: it is what makes "Open with" honest and
@@ -956,6 +969,17 @@
         <service
             android:name=".nearby.NearbyService"
             android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- Ready for incoming files with Filet closed. See InboxService. -->
+        <service
+            android:name=".nearby.InboxService"
+            android:foregroundServiceType="connectedDevice"
+            android:exported="false" />
+
+        <!-- The incoming notification's Accept and Decline. Only Filet's own notification reaches it. -->
+        <receiver
+            android:name=".nearby.IncomingAnswer"
             android:exported="false" />
 
         <!--

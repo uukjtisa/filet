@@ -10,6 +10,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -85,6 +89,66 @@ class NearbyManager(
     /** Filet is on screen: the inbox is open. Set by [openInbox] and [closeInbox]. */
     @Volatile private var inFront = false
 
+    /** The same, for the incoming card: a send asks inside Filet while it is on screen. */
+    private val front = MutableStateFlow(false)
+
+    /**
+     * [InboxService] is keeping the inbox open with Filet in the background. See [holdInboxOpen].
+     */
+    @Volatile private var held = false
+
+    /** Share › Incoming files. See [IncomingStore]. */
+    val incoming = IncomingStore(prefs)
+
+    /** The card over other apps. Lazy: nothing of it exists until a send asks with Filet away. */
+    private val overlay by lazy { IncomingOverlay(context, prefs) }
+
+    /** The offer the notification is up for, so a repeat emission does not sound it twice. */
+    private var noticed: String? = null
+
+    init {
+        // One place decides where a send asks: inside Filet, over other apps, or in the shade.
+        scope.launch(Dispatchers.Main.immediate) {
+            combine(inbox.asking, front, incoming.settings) { a, f, s -> Triple(a, f, s) }
+                .collect { (offer, inFront, settings) -> present(offer, inFront, settings) }
+        }
+        // Ready while Filet is closed, however it was changed: the switch, the settings file or
+        // an import. Turning it on starts the service only from the screen - Android refuses a
+        // start from the background - and the next time Filet is opened starts it otherwise.
+        scope.launch(Dispatchers.Main.immediate) {
+            incoming.settings.map { it.ready }.distinctUntilChanged().drop(1).collect { on ->
+                if (on) InboxService.start(context) else InboxService.stop(context)
+            }
+        }
+    }
+
+    private fun present(offer: PushOffer?, inFront: Boolean, settings: IncomingSettings) {
+        if (offer == null) {
+            overlay.hide()
+            IncomingNotice.cancel(context)
+            noticed = null
+            return
+        }
+        when (val surface = IncomingRules.surface(inFront, overlay.canDraw(), settings, offer.files.size)) {
+            // Filet's own dialogue asks; see NearbyPopups.
+            AskSurface.IN_APP -> {
+                overlay.hide()
+                IncomingNotice.cancel(context)
+                noticed = null
+            }
+            AskSurface.NOTIFICATION -> {
+                overlay.hide()
+                if (noticed != offer.id) IncomingNotice.show(context, offer)
+                noticed = offer.id
+            }
+            AskSurface.SIDE_CARD, AskSurface.MINI_CARD -> {
+                IncomingNotice.cancel(context)
+                noticed = null
+                overlay.show(offer, surface, inbox)
+            }
+        }
+    }
+
     /**
      * Filet came on screen: pushes from other Filets can arrive. While sharing is on, its own
      * server answers them; otherwise the inbox opens its own door and announces it, so Filets
@@ -93,6 +157,33 @@ class NearbyManager(
      */
     fun openInbox() {
         inFront = true
+        front.value = true
+        openDoor()
+        // Started from the screen, which is the one place Android allows it. Already running is
+        // a no-op for the system.
+        if (incoming.settings.value.ready) InboxService.start(context)
+    }
+
+    /** Filet left the screen: the inbox's own door shuts, unless it is being held open. A running share keeps answering. */
+    fun closeInbox() {
+        inFront = false
+        front.value = false
+        if (!held) shutDoor()
+    }
+
+    /** [InboxService] started: the door stays open with Filet in the background. */
+    fun holdInboxOpen() {
+        held = true
+        openDoor()
+    }
+
+    /** [InboxService] stopped: the door goes the way Filet being on screen or not says. */
+    fun releaseInbox() {
+        held = false
+        if (!inFront) shutDoor()
+    }
+
+    private fun openDoor() {
         if (server.isRunning() || !LocalNetwork.allowed(context)) return
         scope.launch(Dispatchers.IO) {
             val port = listener.open()
@@ -100,9 +191,7 @@ class NearbyManager(
         }
     }
 
-    /** Filet left the screen: the inbox's own door shuts. A running share keeps answering. */
-    fun closeInbox() {
-        inFront = false
+    private fun shutDoor() {
         scope.launch(Dispatchers.IO) {
             if (!listener.isOpen) return@launch
             listener.close()
@@ -562,7 +651,7 @@ class NearbyManager(
             server.stop()
             _state.value = server.state()
             if (was) log("Sharing stopped")
-            if (inFront) openInbox()
+            if (inFront || held) openDoor()
             // A stop clears the cooldown too: the app has just been told plainly what to do,
             // and enforcing a backoff earned by earlier failures is the app arguing with that.
             failures = 0

@@ -307,6 +307,8 @@ fun NearbyScreen(vm: BrowserViewModel) {
                 )
             }
         }
+        // How a send asks while Filet is closed: the card over other apps, or the shade.
+        item { IncomingRow(nearby.incoming) }
         items(offers, key = { it.id }) { o ->
             NRow(
                 title = o.name,

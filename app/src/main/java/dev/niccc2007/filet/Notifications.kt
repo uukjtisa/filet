@@ -48,11 +48,19 @@ object Notifications {
      */
     const val PLAYBACK = 4501
 
+    /** Another Filet asking to send files, when the card cannot be drawn over other apps. */
+    const val INCOMING = 4601
+
+    /** Ready for incoming files with Filet closed. A foreground service at the lowest importance. */
+    const val INBOX = 4701
+
     /** Every id above, for the checker and for a test to assert they are distinct. */
     val ALL: List<Pair<String, Int>> = listOf(
         "NEARBY" to NEARBY,
         "INDEX" to INDEX,
         "UPDATE" to UPDATE,
         "PLAYBACK" to PLAYBACK,
+        "INCOMING" to INCOMING,
+        "INBOX" to INBOX,
     )
 }

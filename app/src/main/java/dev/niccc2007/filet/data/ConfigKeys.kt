@@ -239,6 +239,10 @@ object ConfigKeys {
         sharing("nearby.shares", ConfigType.STRING, inFile = false),
         // Whether another Filet's push pops up: on, off, or off until a time.
         sharing("nearby.popups", ConfigType.STRING),
+        // Share › Incoming files: ready with Filet closed, and how a send asks.
+        sharing("nearby.incoming.ready", ConfigType.BOOL),
+        sharing("nearby.incoming.ask", ConfigType.STRING),
+        sharing("nearby.incoming.oneFile", ConfigType.STRING),
         sharing("portal.hosts", ConfigType.STRING),
         sharing("portal.keep", ConfigType.STRING),
         sharing("portal.scatter", ConfigType.STRING),
