@@ -4898,9 +4898,10 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     private suspend fun cacheIncoming(uri: android.net.Uri): VPath? =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             runCatching {
-                val name = uri.lastPathSegment?.substringAfterLast('/') ?: "shared"
-                val out = graph.files.inboxCache(name)
-                val target = graph.files.vpath(out)
+                // The sending app's own name for the file, never its link's last piece - a
+                // gallery's is the picture's row number. See IncomingName.
+                val name = dev.niccc2007.filet.data.incomingNameOf(graph.app.contentResolver, uri)
+                val target = graph.files.vpath(graph.files.newInboxFile(name))
                 graph.app.contentResolver.openInputStream(uri)!!.use { input ->
                     graph.vfs.openWrite(target).use { o -> input.copyTo(o) }
                 }
@@ -7190,7 +7191,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 withContext(Dispatchers.IO) { graph.vfs.stat(path) }
             }.getOrNull()
             if (node == null) {
-                toast("That track is not there any more.")
+                toast("That file is not there any more.")
                 return@launch
             }
             revealInFolder(node)

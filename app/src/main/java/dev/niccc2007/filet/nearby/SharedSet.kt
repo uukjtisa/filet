@@ -52,8 +52,22 @@ data class FastShare(
     val expires: Long = 0,
     /** One folder, which a browser gets as a zip of its own. */
     val oneFolder: Boolean = false,
+    /** The [tokens] this fast share put on the Share page itself, which leave it when it stops. */
+    val added: List<String> = emptyList(),
 ) {
     fun isExpired(now: Long): Boolean = expires in 1..now
+
+    companion object {
+        /**
+         * What stopping [stopped] takes off the Share page: what it put there itself, unless a
+         * fast share still running hands it out too. A file that was shared before the fast share
+         * stays shared - stopping a fast share is not unsharing what was there already.
+         */
+        fun toRevoke(stopped: FastShare, running: List<FastShare>): Set<String> {
+            val still = running.filter { it.key != stopped.key }.flatMap { it.tokens }.toSet()
+            return stopped.added.filterNot { it in still }.toSet()
+        }
+    }
 }
 
 /**
@@ -171,8 +185,10 @@ class SharedSet(
      * was not shared already; one that was keeps its own expiry.
      */
     fun fastShare(nodes: List<VNode>, expires: Long): FastShare {
+        val before = nodes.map { isShared(it.path) }
         val tokens = nodes.map { n -> share(n, expires = expires).token }
-        val f = FastShare(newToken().take(12), tokens, System.currentTimeMillis(), expires, oneFolder = nodes.size == 1 && nodes[0].isDir)
+        val added = tokens.filterIndexed { i, _ -> !before[i] }
+        val f = FastShare(newToken().take(12), tokens, System.currentTimeMillis(), expires, oneFolder = nodes.size == 1 && nodes[0].isDir, added = added)
         _fast.value = _fast.value.filterNot { it.isExpired(f.at) } + f
         saveFast()
         return f
@@ -190,9 +206,18 @@ class SharedSet(
         return f.tokens.mapNotNull { byToken(it)?.path }.any { root -> root.contains(path) }
     }
 
+    /**
+     * Bug identified here: stopping a fast share only forgot its key. The files it had put on the
+     * Share page stayed there, shared on the network to every paired phone for the rest of the
+     * day, so the phone went on sharing after Stop. They come off with it now - see
+     * [FastShare.toRevoke].
+     */
     fun stopFast(key: String) {
+        val f = _fast.value.firstOrNull { it.key == key } ?: return
+        val drop = FastShare.toRevoke(f, _fast.value)
         _fast.value = _fast.value.filterNot { it.key == key }
         saveFast()
+        if (drop.isNotEmpty()) revokeMany(drop)
     }
 
     fun isShared(path: VPath) = _entries.value.any { it.path == path }
@@ -351,14 +376,18 @@ class SharedSet(
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             val t = o.getJSONArray("tokens")
-            FastShare(o.getString("key"), (0 until t.length()).map { t.getString(it) }, o.optLong("at"), o.optLong("expires"), o.optBoolean("folder"))
+            val a = o.optJSONArray("added")
+            FastShare(
+                o.getString("key"), (0 until t.length()).map { t.getString(it) }, o.optLong("at"), o.optLong("expires"), o.optBoolean("folder"),
+                added = if (a == null) emptyList() else (0 until a.length()).map { a.getString(it) },
+            )
         }
     }.getOrElse { emptyList() }
 
     private fun saveFast() {
         val arr = JSONArray()
         for (f in _fast.value) {
-            arr.put(JSONObject().put("key", f.key).put("tokens", JSONArray(f.tokens)).put("at", f.at).put("expires", f.expires).put("folder", f.oneFolder))
+            arr.put(JSONObject().put("key", f.key).put("tokens", JSONArray(f.tokens)).put("at", f.at).put("expires", f.expires).put("folder", f.oneFolder).put("added", JSONArray(f.added)))
         }
         prefs.putString(KEY_FAST, if (_fast.value.isEmpty()) null else arr.toString())
     }

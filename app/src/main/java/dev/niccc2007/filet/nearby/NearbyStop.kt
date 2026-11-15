@@ -19,6 +19,16 @@ package dev.niccc2007.filet.nearby
  * stop that came from the screen also has a service left to stop - the other two origins *are*
  * the service, and it stops itself directly rather than asking to be stopped.
  */
+/** What ending a fast share ends with it. Pure. */
+object FastEnd {
+    /**
+     * Whether ending a fast share also stops sharing over this network: only when sharing was
+     * switched on for a fast share ([startedForFast]) and no fast share is left running
+     * ([running] counts the ones left).
+     */
+    fun stopsSharing(startedForFast: Boolean, running: Int): Boolean = startedForFast && running == 0
+}
+
 enum class StopOrigin {
     /** The Stop sharing button in the app. The service is still up and has to be told. */
     SCREEN,

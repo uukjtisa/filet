@@ -160,8 +160,25 @@ class NearbyManager(
     private val pushedTo = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
 
     /** Stop a fast share: its key stops working, and phones it was pushed to drop the push. */
+    /**
+     * Whether the share running now was started by a fast share rather than by Share over this
+     * network. Any stop clears it, so a share turned on by hand afterwards is never taken down by a
+     * fast share ending.
+     */
+    @Volatile private var startedForFast = false
+
+    /**
+     * Ends the fast share [key]: its key, the files it put on the Share page, and - when it was
+     * the last fast share and sharing was on only for it - the share over this network.
+     *
+     * Bug identified here: this stopped the key alone. Sharing that the fast share had switched
+     * on stayed on after Stop and after the dialog closed, so the phone went on announcing itself
+     * and answering on the network with nothing left to hand out.
+     */
     fun stopFast(key: String) {
         shared.stopFast(key)
+        val now = System.currentTimeMillis()
+        if (FastEnd.stopsSharing(startedForFast, shared.fast.value.count { !it.isExpired(now) })) stop()
         _fastSeen.update { it - key }
         val to = pushedTo.remove(key) ?: return
         scope.launch(Dispatchers.IO) {
@@ -244,7 +261,10 @@ class NearbyManager(
      * sharing when it is off, as opening the fast share sheet does.
      */
     fun fastShare(nodes: List<dev.niccc2007.filet.vfs.VNode>): FastShare {
-        if (!_state.value.running && !_starting.value) start()
+        if (!_state.value.running && !_starting.value) {
+            start()
+            startedForFast = true
+        }
         val f = shared.fastShare(nodes, expires = System.currentTimeMillis() + FAST_DAY_MS)
         log(
             if (nodes.size == 1) "Fast share: ${nodes.first().name}" else "Fast share: ${nodes.size} files",
@@ -516,6 +536,7 @@ class NearbyManager(
      *   end - which is what made sharing impossible to restart.
      */
     fun stop(origin: StopOrigin = StopOrigin.SCREEN) {
+        startedForFast = false
         // Synchronous on purpose, and the only thing that is: a start still finishing reads
         // this token to find out it has been contradicted. Posting it would open the window
         // where a stop is pressed and the start that follows it does not know.

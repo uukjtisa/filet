@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -38,6 +36,10 @@ import dev.niccc2007.filet.browser.FiletIcons
 import dev.niccc2007.filet.browser.ago
 import dev.niccc2007.filet.browser.humanSize
 import dev.niccc2007.filet.ui.dialogs.BtnKind
+import dev.niccc2007.filet.ui.dialogs.PanelPopover
+import dev.niccc2007.filet.ui.dialogs.PanelRow
+import dev.niccc2007.filet.ui.dialogs.PanelRule
+import dev.niccc2007.filet.ui.dialogs.PanelSide
 import dev.niccc2007.filet.ui.dialogs.Dlg
 import dev.niccc2007.filet.ui.dialogs.DlgBody
 import dev.niccc2007.filet.ui.dialogs.DlgBtn
@@ -149,12 +151,21 @@ internal fun SharedFileRow(
     }
 }
 
-/** A shared file's hold menu: the mock's seven, in its order. */
+/**
+ * A shared file's hold menu, opened at the held row in the same glow card as the Remotes and the
+ * viewers' menus: where the file is, the ways to hand it out, then its three settings as switches
+ * that say which way they are, and Stop sharing last, in the warning colour.
+ *
+ * It was Material's plain drop-down, the one menu on the page that looked like another app, and
+ * it had no way to the file itself: Open location is first now, because "which file is this" is
+ * the question a list of names others see raises first.
+ */
 @Composable
 internal fun SharedFileMenu(
     e: SharedEntry,
     open: Boolean,
     onDismiss: () -> Unit,
+    onLocation: () -> Unit,
     onQr: () -> Unit,
     onRename: () -> Unit,
     onExpiry: () -> Unit,
@@ -163,21 +174,20 @@ internal fun SharedFileMenu(
     onLock: () -> Unit,
     onStop: () -> Unit,
 ) {
+    if (!open) return
     val colors = Filet.colors
-    DropdownMenu(expanded = open, onDismissRequest = onDismiss) {
-        @Composable
-        fun item(icon: ImageVector, label: String, bad: Boolean = false, go: () -> Unit) = DropdownMenuItem(
-            text = { Text(label, fontSize = 13.sp, color = if (bad) colors.bad else androidx.compose.material3.MaterialTheme.colorScheme.onSurface) },
-            leadingIcon = { Icon(icon, null, tint = if (bad) colors.bad else colors.fg2, modifier = Modifier.size(17.dp)) },
-            onClick = { onDismiss(); go() },
-        )
-        item(FiletIcons.Scan, "Show QR and link", go = onQr)
-        item(FiletIcons.Rename, "Rename for others", go = onRename)
-        item(FiletIcons.Clock, "Expiry", go = onExpiry)
-        item(FiletIcons.Pause, if (e.paused) "Resume" else "Pause", go = onPause)
-        item(FiletIcons.Download, if (e.oneTime) "One-time link: on" else "One-time link", go = onOneTime)
-        item(FiletIcons.Lock, if (e.locked) "Unlock" else "Lock", go = onLock)
-        item(FiletIcons.Close, "Stop sharing", bad = true, go = onStop)
+    fun go(f: () -> Unit): () -> Unit = { onDismiss(); f() }
+    PanelPopover(side = PanelSide.BELOW, onDismiss = onDismiss, heading = e.alias, gap = 4.dp) {
+        PanelRow("Open location", colors.accent, null, FiletIcons.Folder, onClick = go(onLocation))
+        PanelRow("Show QR and link", colors.accent, null, FiletIcons.Scan, onClick = go(onQr))
+        PanelRow("Rename for others", colors.accent, null, FiletIcons.Rename, onClick = go(onRename))
+        PanelRow("Expiry", colors.accent, null, FiletIcons.Clock, onClick = go(onExpiry))
+        PanelRule()
+        PanelRow("Paused", colors.accent, e.paused, onClick = go(onPause))
+        PanelRow("One-time link", colors.accent, e.oneTime, onClick = go(onOneTime))
+        PanelRow("Locked", colors.accent, e.locked, onClick = go(onLock))
+        PanelRule()
+        PanelRow("Stop sharing", colors.bad, null, FiletIcons.Close, ink = colors.bad, onClick = go(onStop))
     }
 }
 

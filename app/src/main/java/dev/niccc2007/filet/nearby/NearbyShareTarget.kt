@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.provider.OpenableColumns
 import android.widget.Toast
 import dev.niccc2007.filet.FiletApp
 import dev.niccc2007.filet.vfs.VNode
@@ -53,7 +52,7 @@ class NearbyShareTarget : Activity() {
         val path = when (uri.scheme) {
             "file" -> uri.path?.let { VPath.of("local", it) }
             "content" -> dev.niccc2007.filet.vfs.provider.SafProvider.pathOfDocumentUri(uri) ?: runCatching {
-                val file = graph.files.inboxCache(nameOf(uri))
+                val file = graph.files.newInboxFile(dev.niccc2007.filet.data.incomingNameOf(contentResolver, uri))
                 contentResolver.openInputStream(uri)!!.use { input -> file.outputStream().use { input.copyTo(it) } }
                 graph.files.vpath(file)
             }.getOrNull()
@@ -61,12 +60,6 @@ class NearbyShareTarget : Activity() {
         } ?: return null
         return runCatching { graph.vfs.stat(path) }.getOrNull()
     }
-
-    private fun nameOf(uri: Uri): String = runCatching {
-        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-            if (c.moveToFirst()) c.getString(0) else null
-        }
-    }.getOrNull()?.takeIf { it.isNotBlank() } ?: (uri.lastPathSegment?.substringAfterLast('/') ?: "shared")
 
     private companion object {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)

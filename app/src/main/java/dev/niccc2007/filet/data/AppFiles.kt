@@ -53,6 +53,9 @@ class AppFiles(private val context: Context) {
     /** Where a file shared INTO Filet lands before the user files it. */
     fun inboxCache(name: String): File = File(FiletStore.dir(context, FiletStore.Area.RECEIVED), name)
 
+    /** [inboxCache] under [name], or `name (2)` and on when [name] is already there. See IncomingName.free. */
+    fun newInboxFile(name: String): File = inboxCache(IncomingName.free(name) { inboxCache(it).exists() })
+
     fun scriptFile(id: String): File = File(scriptsDir, "$id.lua")
 
     /** The VPath for an app-private file, so the rest of the app can address it normally. */

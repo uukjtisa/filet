@@ -90,8 +90,18 @@ fun FastShareSheet(vm: BrowserViewModel, nodes: List<VNode>, onClose: () -> Unit
     val colors = Filet.colors
     val title = nodes.singleOrNull()?.name ?: "${nodes.size} files"
 
-    Dlg(onClose) {
-        DlgHeader(FiletIcons.Share, "Fast share", sub = title, onClose = onClose)
+    // Every way out ends the share: the X and Back alike. Bug identified here: closing left the
+    // fast share running for a day, and the share over this network it had switched on with it,
+    // so the phone went on sharing with nothing on screen to say so - and the separate Stop
+    // button did not switch sharing off either. A fast share now lasts as long as its dialog, as
+    // a share sheet does elsewhere. The scrim does not close it, so a stray tap beside the dialog
+    // cannot end a share half-way through someone's download.
+    val end = {
+        nearby.stopFast(fast.key)
+        onClose()
+    }
+    Dlg(end, dismissOnScrim = false) {
+        DlgHeader(FiletIcons.Share, "Fast share", sub = title, onClose = end)
         DlgBody {
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 if (link.isEmpty()) {
@@ -115,7 +125,7 @@ fun FastShareSheet(vm: BrowserViewModel, nodes: List<VNode>, onClose: () -> Unit
             DlgCaption(
                 (if (nodes.size > 1) "A browser gets one zip; Filet gets the separate files. " else "") +
                     "Same Wi-Fi only. Any camera downloads it at once, with no page and no code; " +
-                    "Filet's own scanner saves it to Filet/Received. ${stopsIn(fast.expires, System.currentTimeMillis())?.replaceFirstChar { it.uppercase() } ?: ""}.",
+                    "Filet's own scanner saves it to Filet/Received. Closing this stops the share.",
             )
             DlgSection("Filets on this network")
             val peers = discovery.peers
@@ -142,13 +152,7 @@ fun FastShareSheet(vm: BrowserViewModel, nodes: List<VNode>, onClose: () -> Unit
             }
         }
         DlgFooter {
-            DlgBtn("Stop fast share", fill = false) {
-                nearby.stopFast(fast.key)
-                vm.toast("Fast share stopped: its QR and link no longer open anything")
-                onClose()
-            }
-            DlgBtn("Copy link", enabled = link.isNotEmpty()) { vm.copyText(link, "Link copied") }
-            DlgBtn("Done", BtnKind.PRIMARY, onClick = onClose)
+            DlgBtn("Copy link", BtnKind.PRIMARY, enabled = link.isNotEmpty()) { vm.copyText(link, "Link copied") }
         }
     }
 }

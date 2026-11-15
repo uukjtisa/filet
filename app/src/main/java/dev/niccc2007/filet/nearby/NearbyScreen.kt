@@ -212,6 +212,7 @@ fun NearbyScreen(vm: BrowserViewModel) {
                     e = e,
                     open = menuFor == e.token,
                     onDismiss = { menuFor = null },
+                    onLocation = { vm.revealPathInFolder(e.path) },
                     onQr = { vm.fastShareShared(listOf(e)) },
                     onRename = { renaming = e },
                     onExpiry = { expiring = e },
@@ -243,6 +244,9 @@ fun NearbyScreen(vm: BrowserViewModel) {
                 lead = NLead.Glyph(FiletIcons.Download),
                 mono = true,
                 trailing = { GoText("\u203a") { vm.openReceivedFolder() } },
+                // The whole row opens it. Bug identified here: only the \u203a at its end took the tap,
+                // a target a few pixels wide on a row that looks like one button.
+                onClick = { vm.openReceivedFolder() },
             )
         }
 
