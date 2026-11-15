@@ -56,6 +56,9 @@ import kotlin.math.roundToInt
  * `PdfRenderer` renders; it cannot write. Editing a PDF means a layout engine, a font
  * subsetter and an incremental-update writer - a product, not a feature - and the honest thing
  * is to not offer a save button rather than to offer one that flattens the document.
+ *
+ * The one write there is, the password, changes no page: every object goes back out as it
+ * came in, encrypted or not. See [rewrite] and [PdfLock].
  */
 class PdfDoc private constructor(
     private val descriptor: ParcelFileDescriptor,
@@ -172,6 +175,16 @@ class PdfDoc private constructor(
         data object Unreadable : Opened
     }
 
+    /** What putting a password on a PDF, changing it or taking it off came to. */
+    sealed interface Rewrote {
+        /** Saved over the original; [bytes] is the file as it now is. */
+        class Done(val bytes: ByteArray) : Rewrote
+
+        data object WrongPassword : Rewrote
+
+        class Failed(val why: String) : Rewrote
+    }
+
     companion object {
 
         /** A4 at portrait, which is what an unrendered page is assumed to be. */
@@ -269,6 +282,74 @@ class PdfDoc private constructor(
                 }
             } finally {
                 plain.delete()
+            }
+        }
+
+        /**
+         * Open a PDF held in memory: one this screen has just rewritten. A copy staged from a
+         * share before the rewrite is keyed on the old size and time, so reopening through
+         * [LocalCopy] could show the file as it was. The bytes go to a file in the app's own
+         * cache only for as long as the reader takes to open it.
+         */
+        fun open(bytes: ByteArray, password: String?): Opened {
+            val file = runCatching { File.createTempFile("rewritten", ".pdf") }.getOrNull() ?: return Opened.Unreadable
+            return try {
+                runCatching { file.writeBytes(bytes) }.getOrElse { return Opened.Unreadable }
+                open(file, password)
+            } finally {
+                file.delete()
+            }
+        }
+
+        /**
+         * The largest PDF whose password is changed. The new file is built in memory, read back
+         * and checked before it replaces the original, so this is about the heap, not the disk.
+         */
+        const val MAX_REWRITE = 64L * 1024 * 1024
+
+        /**
+         * Lock [node] with [password], or take its lock off when [password] is null; [current]
+         * opens the lock it has now. The new file is built in memory, checked by
+         * [PdfLock.verify], and handed to [replace] - which swaps it in only once it reads back
+         * as written, so a failure anywhere leaves the original as it was.
+         */
+        suspend fun rewrite(
+            copy: dev.niccc2007.filet.ops.LocalCopy,
+            node: dev.niccc2007.filet.vfs.VNode,
+            current: String?,
+            password: String?,
+            replace: suspend (ByteArray, (ByteArray) -> Unit) -> Unit,
+        ): Rewrote {
+            if (node.size > MAX_REWRITE) return Rewrote.Failed("This PDF is too large to change its password on this phone.")
+            val file = copy.of(node) ?: return Rewrote.Failed("This PDF could not be copied out of where it is.")
+            val out = java.io.ByteArrayOutputStream()
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    java.io.RandomAccessFile(file, "r").use { raf ->
+                        if (password != null) PdfLock.lock(FileSource(raf), password, out, current)
+                        else PdfLock.remove(FileSource(raf), current.orEmpty(), out)
+                    }
+                }.getOrElse { PdfLock.Result.Unsupported("This PDF could not be read.") }
+            }
+            when (result) {
+                PdfLock.Result.WrongPassword -> return Rewrote.WrongPassword
+                is PdfLock.Result.Unsupported -> return Rewrote.Failed(result.why)
+                PdfLock.Result.Written -> {}
+            }
+            val bytes = out.toByteArray()
+            return try {
+                // Not cancelled by leaving the screen: stopped between setting the original aside
+                // and renaming the new file in, the original would be left under its hidden name.
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    replace(bytes) { back ->
+                        check(PdfLock.verify(ByteArrayPdf(back), password)) { "The new copy did not open as it should, so the original was kept." }
+                    }
+                }
+                Rewrote.Done(bytes)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                Rewrote.Failed(e.message ?: "The PDF could not be saved.")
             }
         }
 

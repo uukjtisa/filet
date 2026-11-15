@@ -283,7 +283,7 @@ internal class Parser(val b: Bytes, var pos: Long = 0) {
 
 // ── the work ──
 
-private class Unlocker(val b: Bytes) {
+internal class Unlocker(val b: Bytes) {
     val xref = HashMap<Int, XEntry>()
     var trailer: PDict? = null
 
@@ -306,6 +306,25 @@ private class Unlocker(val b: Bytes) {
         if (!sec.open(password)) return PdfUnlock.Result.WrongPassword
         write(sec, (trailer!!["Encrypt"] as? PRef)?.num, out)
         return PdfUnlock.Result.Unlocked
+    }
+
+    /** Open whatever lock it has with [current], then write it out locked by [lock] instead. */
+    fun relock(current: String, lock: (PArr?) -> Lock, out: OutputStream): PdfLock.Result {
+        val enc = encryptDict()
+        val sec = if (enc == null) {
+            Security.NONE
+        } else {
+            if (enc.name("Filter") != "Standard") {
+                return PdfLock.Result.Unsupported("This PDF is locked to a certificate, not a password.")
+            }
+            val s = Security.of(enc, trailer!!)
+                ?: return PdfLock.Result.Unsupported("This PDF is locked in a way Filet cannot open.")
+            if (!s.open(current)) return PdfLock.Result.WrongPassword
+            s
+        }
+        val id = (trailer!!["ID"] as? PArr)?.takeIf { a -> a.items.size == 2 && a.items.all { it is PStr } }
+        write(sec, (trailer!!["Encrypt"] as? PRef)?.num, out, lock(id))
+        return PdfLock.Result.Written
     }
 
     // ── cross-reference ──
@@ -541,7 +560,11 @@ private class Unlocker(val b: Bytes) {
         fun text(s: String) = write(s.toByteArray(Charsets.ISO_8859_1))
     }
 
-    fun write(sec: Security, encryptNum: Int?, sink: OutputStream) {
+    /**
+     * Write every object out again, decrypted by [sec], and encrypted afresh by [lock] when there
+     * is one. The index is always rebuilt as one cross-reference stream at the end.
+     */
+    fun write(sec: Security, encryptNum: Int?, sink: OutputStream, lock: Lock? = null) {
         val out = Counting(sink)
         out.write("%PDF-1.7\n%".toByteArray(Charsets.ISO_8859_1))
         out.write(byteArrayOf(0xE2.toByte(), 0xE3.toByte(), 0xCF.toByte(), 0xD3.toByte(), 10))
@@ -555,11 +578,13 @@ private class Unlocker(val b: Bytes) {
             // Our own index replaces the old one, and a rewritten file is no longer linearized.
             if (dict?.name("Type") == "XRef" || dict?.get("Linearized") != null) continue
             sec.strings(o.value, num, o.gen)
+            lock?.strings(o.value)
             written[num] = out.count to o.gen
             out.text("$num ${o.gen} obj\n")
             if (o.dataAt >= 0 && dict != null) {
                 var data = b.slice(o.dataAt, o.dataLen.toInt())
                 if (!sec.leaves(dict)) data = sec.stream(data, num, o.gen)
+                if (lock != null && !Lock.leaves(dict)) data = lock.seal(data)
                 dict.map["Length"] = PNum(data.size.toString())
                 out.text(serial(dict))
                 out.text("\nstream\n")
@@ -572,7 +597,15 @@ private class Unlocker(val b: Bytes) {
         }
         val t = trailer!!
         val maxNum = maxOf(xref.keys.maxOrNull() ?: 0, ((t.num("Size") ?: 1) - 1).toInt())
-        val self = maxNum + 1
+        // The lock's own entry is never encrypted: it is what a reader opens the rest with.
+        val encNum = if (lock != null) maxNum + 1 else null
+        if (lock != null && encNum != null) {
+            written[encNum] = out.count to 0
+            out.text("$encNum 0 obj\n")
+            out.text(serial(lock.dict))
+            out.text("\nendobj\n")
+        }
+        val self = (encNum ?: maxNum) + 1
         val size = self + 1
         val at = out.count
         if (at > 0xFFFFFFFFL) throw PdfUnlock.Unreadable("This PDF is too large to unlock.")
@@ -601,7 +634,12 @@ private class Unlocker(val b: Bytes) {
         d["W"] = PArr(mutableListOf(PNum("1"), PNum("4"), PNum("2")))
         t["Root"]?.let { d["Root"] = it }
         t["Info"]?.let { if (it is PRef) d["Info"] = it }
-        t["ID"]?.let { d["ID"] = it }
+        if (lock != null && encNum != null) {
+            d["Encrypt"] = PRef(encNum, 0)
+            d["ID"] = lock.id
+        } else {
+            t["ID"]?.let { d["ID"] = it }
+        }
         d["Length"] = PNum(data.size.toString())
         out.text("$self 0 obj\n")
         out.text(serial(PDict(d)))
@@ -664,7 +702,7 @@ internal class Security private constructor(
     /** Whether [password] opens it, as the user's password or the owner's. Keeps the key. */
     fun open(password: String): Boolean {
         if (r >= 5) {
-            val pw = Normalizer.normalize(password, Normalizer.Form.NFKC).toByteArray(Charsets.UTF_8).let { if (it.size > 127) it.copyOf(127) else it }
+            val pw = utf8Password(password)
             val udata = u.copyOf(48)
             return when {
                 hash(pw, u.copyOfRange(32, 40), ByteArray(0), r).contentEquals(u.copyOf(32)) -> {
@@ -749,6 +787,13 @@ internal class Security private constructor(
             0x2E, 0x2E, 0x00, 0xB6.toByte(), 0xD0.toByte(), 0x68, 0x3E, 0x80.toByte(), 0x2F, 0x0C, 0xA9.toByte(), 0xFE.toByte(), 0x64, 0x53, 0x69, 0x7A,
         )
 
+        /** A file with no lock: nothing to decrypt and every stream left as it is. */
+        val NONE = Security(2, 5, ByteArray(32), ByteArray(32), ByteArray(0), ByteArray(0), 0, ByteArray(0), true, Method.NONE, Method.NONE)
+
+        /** A password as AES-256 locks take it: normalised, in UTF-8, at most 127 bytes. */
+        fun utf8Password(password: String): ByteArray =
+            Normalizer.normalize(password, Normalizer.Form.NFKC).toByteArray(Charsets.UTF_8).let { if (it.size > 127) it.copyOf(127) else it }
+
         fun of(enc: PDict, trailer: PDict): Security? {
             val v = enc.num("V")?.toInt() ?: 0
             val r = enc.num("R")?.toInt() ?: return null
@@ -827,7 +872,7 @@ internal class Security private constructor(
         private fun sha(alg: String, b: ByteArray) = MessageDigest.getInstance(alg).digest(b)
 
         /** The password hash of revision 5, and the hardened one of revision 6. */
-        private fun hash(pw: ByteArray, salt: ByteArray, udata: ByteArray, r: Int): ByteArray {
+        fun hash(pw: ByteArray, salt: ByteArray, udata: ByteArray, r: Int): ByteArray {
             var k = sha("SHA-256", pw + salt + udata)
             if (r == 5) return k
             var i = 0

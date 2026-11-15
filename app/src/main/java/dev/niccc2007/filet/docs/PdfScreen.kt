@@ -54,13 +54,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.niccc2007.filet.browser.BrowserViewModel
 import dev.niccc2007.filet.handlers.ViewerBar
+import dev.niccc2007.filet.handlers.ViewerBarButton
 import dev.niccc2007.filet.browser.FiletIcons
+import dev.niccc2007.filet.ui.dialogs.PopMenu
+import dev.niccc2007.filet.ui.dialogs.PopRow
 import dev.niccc2007.filet.ops.LocalCopy
 import dev.niccc2007.filet.ui.detectSteadyTaps
 import dev.niccc2007.filet.ui.dialogs.BtnKind
 import dev.niccc2007.filet.ui.dialogs.Dlg
 import dev.niccc2007.filet.ui.dialogs.DlgBody
 import dev.niccc2007.filet.ui.dialogs.DlgBtn
+import dev.niccc2007.filet.ui.dialogs.DlgCaption
 import dev.niccc2007.filet.ui.dialogs.DlgField
 import dev.niccc2007.filet.ui.dialogs.DlgFooter
 import dev.niccc2007.filet.ui.dialogs.DlgHeader
@@ -113,10 +117,17 @@ fun PdfScreen(vm: BrowserViewModel, node: VNode) {
     // The password the current attempt is made with. Changing it reopens the file.
     var password by remember(node.path) { mutableStateOf<String?>(null) }
     var asking by remember(node.path) { mutableStateOf(false) }
+    // The file as this screen last rewrote it, opened in place of a copy that may predate it.
+    var rewritten by remember(node.path) { mutableStateOf<ByteArray?>(null) }
+    var more by remember(node.path) { mutableStateOf(false) }
+    var change by remember(node.path) { mutableStateOf<PasswordChange?>(null) }
+    var working by remember(node.path) { mutableStateOf(false) }
+    var failed by remember(node.path) { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     // PdfRenderer needs a seekable descriptor, so an entry in an archive or a file on a share
     // has to be a real local file first. See `LocalCopy`.
-    LaunchedEffect(node.path, password) {
+    LaunchedEffect(node.path, password, rewritten) {
         loading = true
         // Bug identified here: the screen could be left while the file was still opening. The
         // open finished on the IO dispatcher, the effect was cancelled on its way back, and the
@@ -124,8 +135,9 @@ fun PdfScreen(vm: BrowserViewModel, node: VNode) {
         // left to close it. The holder is how the cancellation path finds it.
         val held = AtomicReference<PdfDoc?>(null)
         try {
+            val bytes = rewritten
             val opened = withContext(Dispatchers.IO) {
-                PdfDoc.open(vm.localCopy, node, password).also {
+                (if (bytes != null) PdfDoc.open(bytes, password) else PdfDoc.open(vm.localCopy, node, password)).also {
                     if (it is PdfDoc.Opened.Ready) held.set(it.doc)
                 }
             }
@@ -156,7 +168,22 @@ fun PdfScreen(vm: BrowserViewModel, node: VNode) {
     // its first page sat under the clock, because the bar is also what keeps a viewer clear of
     // the status bar now that viewers draw behind the system bars.
     Column(Modifier.fillMaxSize()) {
-        ViewerBar(title = node.name, subtitle = node.path.parent?.path.orEmpty(), onClose = { vm.closeHandler() })
+        ViewerBar(title = node.name, subtitle = node.path.parent?.path.orEmpty(), onClose = { vm.closeHandler() }) {
+            // Only once the file is open: whether it has a password, and which, is known then.
+            if (current != null) {
+                Box {
+                    ViewerBarButton(FiletIcons.More, "More") { more = true }
+                    PopMenu(expanded = more, onDismiss = { more = false }, below = 52.dp, above = true) {
+                        if (password == null) {
+                            PopRow(FiletIcons.Lock, "Lock with a password") { more = false; change = PasswordChange.LOCK }
+                        } else {
+                            PopRow(FiletIcons.Key, "Change password") { more = false; change = PasswordChange.CHANGE }
+                            PopRow(FiletIcons.Lock, "Remove password") { more = false; change = PasswordChange.REMOVE }
+                        }
+                    }
+                }
+            }
+        }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
                 loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -204,6 +231,97 @@ fun PdfScreen(vm: BrowserViewModel, node: VNode) {
             },
             onDismiss = { asking = false },
         )
+    }
+
+    val what = change
+    if (what != null) {
+        PasswordChangeDialog(
+            what = what,
+            name = node.name,
+            working = working,
+            failed = failed,
+            onGo = { next ->
+                working = true
+                failed = null
+                scope.launch {
+                    val r = PdfDoc.rewrite(vm.localCopy, node, password, next) { bytes, verify ->
+                        vm.replaceVerified(node, bytes, verify)
+                    }
+                    working = false
+                    when (r) {
+                        is PdfDoc.Rewrote.Done -> {
+                            change = null
+                            doc?.close()
+                            doc = null
+                            rewritten = r.bytes
+                            password = next
+                            vm.toast(what.done)
+                        }
+                        PdfDoc.Rewrote.WrongPassword -> failed = "The password this PDF was opened with no longer opens it."
+                        is PdfDoc.Rewrote.Failed -> failed = r.why
+                    }
+                }
+            },
+            onDismiss = {
+                if (!working) {
+                    change = null
+                    failed = null
+                }
+            },
+        )
+    }
+}
+
+private enum class PasswordChange(val title: String, val action: String, val done: String) {
+    LOCK("Lock with a password", "Lock", "Locked with a password"),
+    CHANGE("Change password", "Change", "Password changed"),
+    REMOVE("Remove password", "Remove", "Password removed"),
+}
+
+/**
+ * A new password twice, or a removal confirmed. The file is saved over while this is open, so
+ * it cannot be dismissed until that is done, and a failure is shown in it rather than lost.
+ */
+@Composable
+private fun PasswordChangeDialog(
+    what: PasswordChange,
+    name: String,
+    working: Boolean,
+    failed: String?,
+    onGo: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var first by remember { mutableStateOf("") }
+    var again by remember { mutableStateOf("") }
+    val differs = again.isNotEmpty() && again != first
+    val ready = what == PasswordChange.REMOVE || (first.isNotEmpty() && again == first)
+    Dlg(onDismiss = onDismiss, dismissOnScrim = false) {
+        DlgHeader(if (what == PasswordChange.CHANGE) FiletIcons.Key else FiletIcons.Lock, what.title, sub = name, onClose = onDismiss)
+        DlgBody {
+            // One banner: what went wrong when something did, else what this change costs.
+            DlgWarn(
+                when {
+                    failed != null -> failed
+                    what == PasswordChange.REMOVE -> "Anyone who has the file will be able to open it."
+                    else -> "Without it the file will not open, and there is no way to get it back if it is forgotten."
+                },
+                bad = failed != null,
+            )
+            if (what != PasswordChange.REMOVE) {
+                DlgField("New password", first, { first = it }, password = true, enabled = !working)
+                DlgField("Type it again", again, { again = it }, password = true, enabled = !working)
+                if (differs) DlgCaption("The two do not match.")
+            }
+        }
+        DlgFooter {
+            DlgSpacer()
+            DlgBtn("Cancel", enabled = !working, onClick = onDismiss)
+            DlgBtn(
+                if (working) "Saving" else what.action,
+                kind = if (what == PasswordChange.REMOVE) BtnKind.DANGER else BtnKind.PRIMARY,
+                enabled = ready && !working,
+            ) { onGo(if (what == PasswordChange.REMOVE) null else first) }
+        }
     }
 }
 
