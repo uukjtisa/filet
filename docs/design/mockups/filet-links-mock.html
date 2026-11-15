@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet - link files (.ft_lnk) (mock)</title>
+<style>
+/* Palette: Palette.kt SLATE, as the drives and Locker mocks. */
+:root { --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+  --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+  --accent:#7FA8B8; --accentDim:#31434B; --warn:#C9A36A; --bad:#C97F7F; --good:#8FB58A; }
+* { box-sizing:border-box; }
+body { margin:0; font:13px/1.35 "Segoe UI", Roboto, system-ui, sans-serif; background:#0b0b0a; color:#ddd;
+  display:flex; gap:28px; padding:24px; align-items:flex-start; }
+.panel { width:330px; flex:none; }
+.panel h1 { font-size:16px; margin:0 0 4px; color:#fff; }
+.panel h2 { font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#8a8; margin:16px 0 6px; }
+.btns { display:flex; flex-wrap:wrap; gap:6px; }
+.btns button { background:#222; color:#ddd; border:1px solid #333; border-radius:8px; padding:7px 10px; font:12px "Segoe UI"; cursor:pointer; }
+.btns button.on { background:#7FA8B8; color:#0E1417; border-color:#7FA8B8; font-weight:600; }
+.caption { margin-top:18px; border-top:1px solid #333; padding-top:12px; color:#aaa; font-size:12px; }
+.caption p { margin:0 0 8px; } .caption b { color:#ddd; }
+.phone { width:412px; height:880px; flex:none; border-radius:30px; border:8px solid #000; position:relative; overflow:hidden;
+  background:var(--bg); color:var(--fg); }
+.status { height:26px; padding:0 16px; display:flex; align-items:center; justify-content:space-between; font-size:11px; color:var(--fg2); background:var(--sunken); }
+.path { height:44px; display:flex; align-items:center; padding:0 12px; gap:6px; font-size:13px; border-bottom:1px solid var(--lineSoft); }
+.path .here { color:var(--fg); font-weight:600; }
+.view { display:none; } .view.on { display:block; }
+/* A row in the list. RowViews: the link draws as what it points at, with a tag. */
+.file { display:flex; align-items:center; gap:12px; padding:10px 14px; }
+.file .i { width:36px; height:36px; border-radius:8px; background:var(--high); position:relative; }
+.file .i.dir { background:#3A4A52; }
+.file .i .arrow { position:absolute; right:-3px; bottom:-3px; width:15px; height:15px; border-radius:50%;
+  background:var(--accent); color:#0E1417; font-size:10px; text-align:center; line-height:15px; font-weight:700; }
+.file .n { flex:1; } .file .m { font-size:11px; color:var(--fg3); }
+.tag { display:inline-block; font-size:9.5px; padding:1px 6px; border-radius:6px; margin-left:6px; vertical-align:1px;
+  background:var(--accentDim); color:var(--accent); font-weight:600; }
+.tag.miss { background:#3a2626; color:var(--bad); }
+.file.broken { opacity:.55; }
+/* Sheets and menus. The Dlg kit. */
+.scrim { position:absolute; inset:26px 0 0 0; background:rgba(0,0,0,.45); }
+.sheet { position:absolute; left:0; right:0; bottom:0; background:var(--raised); border-radius:18px 18px 0 0; padding:14px 0 18px; }
+.sheet h3 { margin:0 16px 2px; font-size:16px; font-weight:600; }
+.sheet .s { margin:0 16px 12px; font-size:11.5px; color:var(--fg3); }
+.lbl { margin:10px 16px 6px; font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--fg3); font-weight:700; }
+.chips { display:flex; flex-wrap:wrap; gap:6px; margin:0 16px; }
+.chip { padding:6px 10px; border-radius:9px; background:var(--sunken); color:var(--fg2); font-size:12px; }
+.chip.on { background:var(--accentDim); color:var(--accent); font-weight:600; }
+.opt { display:flex; gap:10px; padding:9px 16px; }
+.opt .dot { width:16px; height:16px; border-radius:50%; border:2px solid var(--fg3); margin-top:2px; flex:none; }
+.opt.on .dot { border-color:var(--accent); background:radial-gradient(var(--accent) 45%, transparent 50%); }
+.opt .d { font-size:11.5px; color:var(--fg3); }
+.note { margin:4px 16px 0; font-size:11.5px; color:var(--warn); }
+.field { margin:0 16px; border:1px solid var(--line); background:var(--sunken); border-radius:10px; padding:9px 12px; }
+.foot { display:flex; justify-content:flex-end; gap:8px; padding:14px 16px 0; }
+.btn { padding:9px 14px; border-radius:10px; background:var(--high); }
+.btn.p { background:var(--accent); color:#0E1417; font-weight:600; }
+.mi { display:flex; gap:12px; padding:11px 16px; } .mi .dd { font-size:11px; color:var(--fg3); }
+.mi.danger { color:var(--bad); }
+.kv { display:flex; padding:5px 16px; font-size:12.5px; } .kv .k { width:110px; color:var(--fg2); }
+.sec { margin:12px 16px 4px; font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--fg3); font-weight:700; }
+</style>
+</head>
+<body>
+<div class="panel">
+  <h1>Link files</h1>
+  <div>A small file, <b>.ft_lnk</b>, that opens a folder, a file, a saved search or a place on a network drive inside Filet.</div>
+  <h2>Screen</h2>
+  <div class="btns" id="pick">
+    <button data-v="list" class="on">In a folder</button>
+    <button data-v="make">Make one</button>
+    <button data-v="blank">A new, blank one</button>
+    <button data-v="broken">Broken</button>
+    <button data-v="details">Details</button>
+  </div>
+  <div class="caption">
+    <p><b>Round 1.</b> A link draws as what it points at - the folder's look, its item count and date - with a small arrow on the icon and a <i>link</i> tag. Tap opens the target in place; back returns to the folder the link is in.</p>
+    <p><b>Made</b> from the hold menu (Link file, beside Shortcut) and from New file. It is put in one of the target's own folders, top of storage first, so by default it points only inside the folder it sits in and keeps working when that folder is moved, network drives included. <b>Anywhere</b> is the other choice, with a line saying it can break.</p>
+    <p><b>Broken:</b> faded, a <i>missing</i> tag, and a menu with Find it, Point elsewhere and Delete. Find it looks the name up in the index and rewrites the link when it is found.</p>
+  </div>
+</div>
+<div class="phone">
+  <div class="status"><span>12:30</span><span>100%</span></div>
+  <div class="path"><span class="here" id="where">Internal storage</span></div>
+
+  <div class="view on" id="v-list">
+    <div class="file"><div class="i dir"></div><div class="n">DCIM<div class="m">Folder · 4 items · 12 Nov</div></div></div>
+    <div class="file"><div class="i dir"><span class="arrow">&#x2197;</span></div><div class="n">Received<span class="tag">link</span><div class="m">Folder · 37 items · 14 Nov</div></div></div>
+    <div class="file"><div class="i"><span class="arrow">&#x2197;</span></div><div class="n">tax 2026.pdf<span class="tag">link</span><div class="m">2.4 MB · 3 Nov</div></div></div>
+    <div class="file"><div class="i"></div><div class="n">notes.txt<div class="m">2 KB · 1 Nov</div></div></div>
+  </div>
+
+  <div class="view" id="v-make">
+    <div class="file"><div class="i dir"></div><div class="n">Received<div class="m">Folder · 37 items</div></div></div>
+    <div class="scrim"></div>
+    <div class="sheet">
+      <h3>Link file</h3>
+      <div class="s">A file that opens Filet/Received, in Filet.</div>
+      <div class="lbl">Name</div>
+      <div class="field">Received.ft_lnk</div>
+      <div class="lbl">Put it in</div>
+      <div class="chips"><span class="chip on">Internal storage</span><span class="chip">Filet</span><span class="chip">Other folder&#x2026;</span></div>
+      <div class="lbl">Reach</div>
+      <div class="opt on"><div class="dot"></div><div>Only inside its folder<div class="d">Keeps working when the folder is moved, a network drive included.</div></div></div>
+      <div class="opt"><div class="dot"></div><div>Anywhere<div class="d">Any place, on any drive.</div></div></div>
+      <div class="foot"><span class="btn">Cancel</span><span class="btn p">Make</span></div>
+    </div>
+  </div>
+
+  <div class="view" id="v-blank">
+    <div class="file"><div class="i"><span class="arrow">&#x2197;</span></div><div class="n">New link.ft_lnk<span class="tag">link</span><div class="m">Not pointed anywhere yet</div></div></div>
+    <div class="scrim"></div>
+    <div class="sheet">
+      <h3>Where does this link point?</h3>
+      <div class="s">Pick a folder or a file. The link opens it from then on.</div>
+      <div class="opt on"><div class="dot"></div><div>Only inside its folder<div class="d">Keeps working when the folder is moved.</div></div></div>
+      <div class="opt"><div class="dot"></div><div>Anywhere<div class="d">Any place, on any drive.</div></div></div>
+      <div class="note">Anywhere can break if the target or the link is moved.</div>
+      <div class="foot"><span class="btn">Cancel</span><span class="btn p">Choose&#x2026;</span></div>
+    </div>
+  </div>
+
+  <div class="view" id="v-broken">
+    <div class="file broken"><div class="i dir"><span class="arrow">&#x2197;</span></div><div class="n">Old scans<span class="tag miss">missing</span><div class="m">Pointed at Documents/Scans</div></div></div>
+    <div class="scrim"></div>
+    <div class="sheet">
+      <h3>Old scans</h3>
+      <div class="s">Documents/Scans is not there any more.</div>
+      <div class="mi"><span>&#x1F50D;</span><div>Find it<div class="dd">Look its name up and point the link at it.</div></div></div>
+      <div class="mi"><span>&#x2197;</span><div>Point elsewhere<div class="dd">Pick the folder or file it should open.</div></div></div>
+      <div class="mi danger"><span>&#x2715;</span><div>Delete the link</div></div>
+    </div>
+  </div>
+
+  <div class="view" id="v-details">
+    <div class="scrim"></div>
+    <div class="sheet">
+      <h3>Received</h3>
+      <div class="sec">What it opens</div>
+      <div class="kv"><span class="k">Folder</span><span>Filet/Received</span></div>
+      <div class="kv"><span class="k">Items</span><span>37</span></div>
+      <div class="kv"><span class="k">Modified</span><span>14 Nov 2026 · 09:12</span></div>
+      <div class="kv"><span class="k">Reach</span><span>Only inside its folder</span></div>
+      <div class="sec">The link file</div>
+      <div class="kv"><span class="k">Name</span><span>Received.ft_lnk</span></div>
+      <div class="kv"><span class="k">In</span><span>Internal storage</span></div>
+      <div class="kv"><span class="k">Size</span><span>184 bytes</span></div>
+      <div class="kv"><span class="k">Made</span><span>15 Nov 2026 · 13:40</span></div>
+    </div>
+  </div>
+</div>
+<script>
+document.querySelectorAll("#pick button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#pick button").forEach(x => x.classList.toggle("on", x === b));
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + b.dataset.v));
+});
+</script>
+</body>
+</html>

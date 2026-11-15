@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Filet - incoming files over any app (mock)</title>
+<style>
+  :root {
+    --bg:#161614; --surface:#1C1C1A; --raised:#232320; --sunken:#121210; --high:#2A2A26;
+    --line:#2E2E2A; --lineSoft:#232320; --fg:#E8E6E1; --fg2:#9A968D; --fg3:#6B6860;
+    --accent:#7FA8B8; --accentDim:#31434B; --good:#8FB894; --warn:#C9A36A; --bad:#C97F7F; --sel:#243036;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0E0E0D; color:var(--fg); font:13px/1.4 system-ui, sans-serif; }
+  header { padding:18px 24px 6px; }
+  header h1 { font-size:17px; margin:0 0 4px; }
+  header p { margin:0; color:var(--fg2); max-width:900px; }
+  .bar { display:flex; gap:6px; flex-wrap:wrap; padding:10px 24px; position:sticky; top:0; background:#0E0E0Dee; z-index:9; }
+  .bar button { background:var(--raised); color:var(--fg2); border:1px solid var(--line); border-radius:14px; padding:5px 11px; cursor:pointer; font:inherit; }
+  .bar button.on { background:var(--accentDim); color:var(--fg); border-color:var(--accent); }
+  .row { display:flex; gap:28px; padding:12px 24px 28px; flex-wrap:wrap; align-items:flex-start; }
+  .col h2 { font-size:12px; color:var(--fg2); text-transform:uppercase; letter-spacing:.06em; margin:0 0 8px; }
+  .phone { width:300px; height:640px; border-radius:30px; border:6px solid #000; position:relative; overflow:hidden; background:var(--bg); }
+
+  /* Another app underneath: a chat, so "over any app" is visible. */
+  .other { position:absolute; inset:0; background:#0F1A17; }
+  .other .top { height:56px; background:#13251F; display:flex; align-items:center; padding:0 14px; gap:10px; color:#CFE3DA; font-weight:600; }
+  .other .bub { margin:10px 14px; padding:8px 11px; border-radius:12px; background:#1B3029; color:#CFE3DA; max-width:70%; font-size:12px; }
+  .other .bub.me { margin-left:auto; background:#24443A; }
+
+  /* Today: Filet's own dialog, only while Filet is open. */
+  .scrim { position:absolute; inset:0; background:#000a; display:flex; align-items:center; justify-content:center; }
+  .dlg { width:272px; background:var(--surface); border:1px solid var(--line); border-radius:18px; overflow:hidden; }
+  .dlg .hd { display:flex; gap:10px; padding:14px 14px 8px; align-items:flex-start; }
+  .dlg .hd .ic { width:30px; height:30px; border-radius:9px; background:var(--accentDim); display:grid; place-items:center; color:var(--accent); flex:none; }
+  .dlg .hd b { font-size:14px; display:block; }
+  .dlg .hd small { color:var(--fg3); }
+  .dlg .pick { display:flex; gap:10px; padding:7px 14px; align-items:center; }
+  .dlg .pick .ic { width:22px; height:22px; border-radius:6px; background:var(--raised); flex:none; }
+  .dlg .pick small { color:var(--fg3); display:block; }
+  .dlg .cap { color:var(--fg3); font-size:11px; padding:4px 14px; }
+  .dlg .ft { display:flex; gap:8px; justify-content:flex-end; padding:10px 14px 14px; }
+  .btn { padding:7px 14px; border-radius:10px; background:var(--raised); color:var(--fg); border:0; font:inherit; cursor:pointer; }
+  .btn.pri { background:var(--accent); color:#0E1418; font-weight:600; }
+  .btn.ghost { background:transparent; color:var(--fg2); }
+
+  /* Proposal: the side card, drawn over the app, sliding in from the right edge. */
+  .card { position:absolute; right:8px; top:64px; width:256px; background:linear-gradient(180deg,#22262A,#1C1F21); border:1px solid #39444A;
+          border-radius:20px; box-shadow:0 14px 40px #000c, 0 0 0 1px #0006; padding:12px; animation:slide .32s cubic-bezier(.2,.9,.25,1) both; }
+  @keyframes slide { from { transform:translateX(120%); opacity:0; } to { transform:none; opacity:1; } }
+  .card .who { display:flex; gap:10px; align-items:center; }
+  .card .av { width:38px; height:38px; border-radius:50%; background:radial-gradient(circle at 30% 30%,#9CC3D2,#4E7787); display:grid; place-items:center; color:#0E1418; font-weight:700; flex:none; }
+  .card .who b { display:block; font-size:13.5px; }
+  .card .who small { color:var(--fg2); font-size:11px; }
+  .card .x { margin-left:auto; color:var(--fg3); cursor:pointer; align-self:flex-start; }
+  .thumbs { display:flex; gap:6px; margin:10px 0 8px; }
+  .th { flex:1; aspect-ratio:1; border-radius:10px; position:relative; overflow:hidden; cursor:pointer; }
+  .th .play { position:absolute; inset:0; display:grid; place-items:center; color:#fff; font-size:18px; text-shadow:0 1px 4px #000; }
+  .th .more { position:absolute; inset:0; background:#000a; display:grid; place-items:center; font-weight:700; }
+  .th .eye { position:absolute; right:4px; bottom:4px; font-size:9px; background:#000a; padding:1px 5px; border-radius:6px; }
+  .meta { color:var(--fg2); font-size:11px; margin-bottom:10px; }
+  .meta b { color:var(--fg); font-weight:600; }
+  .acts { display:flex; gap:8px; }
+  .acts .btn { flex:1; text-align:center; }
+  .always { display:flex; align-items:center; gap:7px; margin-top:9px; color:var(--fg2); font-size:11px; }
+  .chk { width:14px; height:14px; border-radius:4px; border:1.5px solid var(--fg3); }
+  .grow { margin-top:8px; text-align:center; color:var(--fg3); font-size:10.5px; cursor:pointer; }
+
+  /* The mini fast share card: one line, same family. */
+  .mini { position:absolute; right:8px; top:64px; width:256px; background:linear-gradient(180deg,#22262A,#1C1F21); border:1px solid #39444A; border-radius:16px;
+          box-shadow:0 10px 30px #000c; padding:9px 10px; display:flex; gap:9px; align-items:center; animation:slide .3s cubic-bezier(.2,.9,.25,1) both; }
+  .mini .th { flex:none; width:40px; height:40px; }
+  .mini .t { flex:1; min-width:0; }
+  .mini .t b { display:block; font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .mini .t small { color:var(--fg2); font-size:10.5px; }
+  .mini .go { background:var(--accent); color:#0E1418; border-radius:10px; padding:6px 10px; font-weight:600; font-size:12px; }
+  .mini .no { color:var(--fg3); padding:4px; }
+
+  /* The full dialog: centre of the screen, the preview playable before anything is saved. */
+  .full { position:absolute; inset:0; background:#000b; display:flex; align-items:center; justify-content:center; animation:fade .2s both; }
+  @keyframes fade { from { opacity:0; } }
+  .fd { width:280px; background:var(--surface); border:1px solid var(--line); border-radius:22px; overflow:hidden; }
+  .fd .stage { height:200px; position:relative; background:#000; }
+  .fd .stage .ctl { position:absolute; left:0; right:0; bottom:0; padding:8px 10px; display:flex; gap:8px; align-items:center; background:linear-gradient(transparent,#000c); font-size:12px; }
+  .fd .stage .ctl .track { flex:1; height:3px; background:#ffffff40; border-radius:2px; position:relative; }
+  .fd .stage .ctl .track i { position:absolute; left:0; top:0; bottom:0; width:34%; background:var(--accent); border-radius:2px; }
+  .fd .stage .mute { position:absolute; right:8px; top:8px; background:#000a; padding:3px 8px; border-radius:10px; font-size:11px; }
+  .fd .stage .pager { position:absolute; left:8px; top:8px; background:#000a; padding:3px 8px; border-radius:10px; font-size:11px; }
+  .fd .stage pre { margin:0; padding:12px; color:#D9D6CF; font-size:11px; white-space:pre-wrap; height:100%; overflow:hidden; background:#121210; }
+  .fd .strip { display:flex; gap:6px; padding:8px 12px; overflow:hidden; }
+  .fd .strip .th { flex:none; width:46px; height:46px; }
+  .fd .strip .th.on { outline:2px solid var(--accent); outline-offset:1px; }
+  .fd .body { padding:4px 14px 2px; }
+  .fd .body b { font-size:14px; }
+  .fd .body small { color:var(--fg2); display:block; margin-top:2px; }
+  .fd .ft { display:flex; gap:8px; padding:12px 14px 14px; }
+  .fd .ft .btn { flex:1; text-align:center; }
+
+  /* View: full screen over the app, or a floating window. */
+  .viewer { position:absolute; inset:0; background:#000; animation:fade .2s both; }
+  .viewer .pic { position:absolute; inset:60px 0 90px; }
+  .viewer .top, .viewer .bot { position:absolute; left:0; right:0; padding:12px 14px; display:flex; gap:10px; align-items:center; }
+  .viewer .top { top:0; background:linear-gradient(#000c,transparent); }
+  .viewer .bot { bottom:0; justify-content:space-around; background:linear-gradient(transparent,#000c); font-size:12px; color:var(--fg2); }
+  .viewer .bot span { text-align:center; }
+  .float { position:absolute; left:70px; top:250px; width:200px; height:150px; border-radius:16px; overflow:hidden; box-shadow:0 16px 40px #000d; border:1px solid #ffffff22; animation:fade .2s both; }
+  .float .bar2 { position:absolute; left:0; right:0; top:0; padding:5px 8px; display:flex; justify-content:space-between; background:linear-gradient(#000b,transparent); font-size:11px; }
+  .float .grip { position:absolute; right:3px; bottom:3px; width:12px; height:12px; border-right:2px solid #fff8; border-bottom:2px solid #fff8; border-radius:0 0 4px 0; }
+
+  /* Settings: the card's options together, in one group. */
+  .set { width:300px; background:var(--surface); border:1px solid var(--line); border-radius:18px; padding:6px 0; }
+  .set h3 { margin:6px 14px 4px; font-size:11px; color:var(--accent); text-transform:uppercase; letter-spacing:.06em; }
+  .set .it { padding:8px 14px; display:flex; gap:10px; align-items:center; }
+  .set .it div { flex:1; }
+  .set .it small { display:block; color:var(--fg3); font-size:11px; }
+  .seg { display:flex; gap:4px; margin-top:6px; }
+  .seg span { padding:4px 9px; border-radius:10px; border:1px solid var(--line); color:var(--fg2); font-size:11px; }
+  .seg span.on { background:var(--accentDim); color:var(--fg); border-color:var(--accent); }
+  .sw { width:34px; height:20px; border-radius:10px; background:var(--accent); position:relative; flex:none; }
+  .sw::after { content:""; position:absolute; right:3px; top:3px; width:14px; height:14px; border-radius:50%; background:#0E1418; }
+  .sw.off { background:var(--high); } .sw.off::after { left:3px; right:auto; background:var(--fg3); }
+
+  .notes { padding:0 24px 30px; color:var(--fg2); max-width:980px; }
+  .notes li { margin:3px 0; }
+  .g1 { background:linear-gradient(135deg,#C7865B,#5B3A7A); }
+  .g2 { background:linear-gradient(135deg,#3E7A6A,#B7D46A); }
+  .g3 { background:linear-gradient(135deg,#2D4E8A,#9AD0E6); }
+  .g4 { background:linear-gradient(135deg,#7A3D3D,#E0A27A); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Incoming files, over any app</h1>
+  <p>Another phone sends files - a Nearby push or a fast share - while Filet is in the background. Today the ask only exists inside Filet. The proposal draws it over whatever app is open, with thumbnails, a way to see a file before saving it, and nothing of Filet's full screen in the way.</p>
+</header>
+
+<div class="bar" id="bar">
+  <button data-s="card" class="on">Side card (default)</button>
+  <button data-s="mini">Fast share, mini card</button>
+  <button data-s="full">Full dialog: video</button>
+  <button data-s="fullAudio">Full dialog: audio</button>
+  <button data-s="fullText">Full dialog: Markdown</button>
+  <button data-s="fullOther">Full dialog: other file</button>
+  <button data-s="viewFull">View: full screen</button>
+  <button data-s="viewFloat">View: floating window</button>
+</div>
+
+<div class="row">
+  <div class="col">
+    <h2>Today - only while Filet is open</h2>
+    <div class="phone">
+      <div class="scrim">
+        <div class="dlg">
+          <div class="hd"><div class="ic">&#8595;</div><div><b>Nova 10 wants to send you 3 files</b><small>A Filet on this network</small></div></div>
+          <div class="pick"><div class="ic"></div><div>IMG_20251115_101010.jpg<small>3.2 MB</small></div></div>
+          <div class="pick"><div class="ic"></div><div>VID_20251115_101533.mp4<small>48 MB</small></div></div>
+          <div class="pick"><div class="ic"></div><div>notes.md<small>4 KB</small></div></div>
+          <div class="cap">They go to Filet/Received.</div>
+          <div class="cap">&#9744; Always accept from this phone</div>
+          <div class="ft"><button class="btn">Decline</button><button class="btn pri">Accept</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <h2>Proposal - over the app in use</h2>
+    <div class="phone" id="stage"></div>
+  </div>
+
+  <div class="col">
+    <h2>Settings &rsaquo; Nearby &rsaquo; Incoming files</h2>
+    <div class="set">
+      <h3>Incoming files</h3>
+      <div class="it"><div>Ready while Filet is closed<small>Hears a send with Filet in the background. Android shows a minimised notification for it, which can be swiped away.</small></div><span class="sw"></span></div>
+      <div class="it"><div>How a send asks<div class="seg"><span class="on">Side card</span><span>Full dialog</span><span>Notification</span></div></div></div>
+      <div class="it"><div>Fast share asks with<div class="seg"><span class="on">Mini card</span><span>Same as above</span></div></div></div>
+      <div class="it"><div>Play media muted at first<small>In the full dialog, before accepting</small></div><span class="sw"></span></div>
+      <div class="it"><div>View opens<div class="seg"><span class="on">Full screen</span><span>Floating window</span></div></div></div>
+      <div class="it"><div>Show over other apps<small>Granted once in Android's settings. Without it, a send asks with a notification.</small></div><span class="sw"></span></div>
+    </div>
+  </div>
+</div>
+
+<ul class="notes">
+  <li><b>Side card</b> slides in from the right edge under the status bar, over the app in use. The rest of the screen stays usable. Tapping a thumbnail views that file; "Open in full" turns the card into the full dialog.</li>
+  <li><b>Mini card</b> is fast share's: one line, one thumbnail, Download or dismiss.</li>
+  <li><b>Full dialog</b> (optional, the "How a send asks" setting) sits in the centre with the preview: pictures shown, video and audio playable (muted at first when that is on), text and Markdown readable. Any other file shows its type icon. Swipe the stage or tap the strip to move between files.</li>
+  <li>Viewing before accepting streams from the sender and saves nothing. Accept saves to Filet/Received, and after that View opens the saved copy.</li>
+  <li><b>View</b> opens full screen over the app (Back returns to it) or in a floating window that can be dragged and resized, with a video still playing while the app underneath is used.</li>
+</ul>
+
+<script>
+const S = document.getElementById("stage");
+const other = `<div class="other"><div class="top">&#9679; Group chat</div>
+  <div class="bub">did it come through?</div><div class="bub me">sending now</div><div class="bub">ok</div></div>`;
+const thumbs = `<div class="thumbs">
+  <div class="th g1"><span class="eye">View</span></div>
+  <div class="th g3"><div class="play">&#9654;</div><span class="eye">View</span></div>
+  <div class="th g2"><div class="more">+1</div></div></div>`;
+const views = {
+  card: other + `<div class="card"><div class="who"><div class="av">N</div><div><b>Nova 10</b><small>wants to send you 3 files</small></div><span class="x">&#10005;</span></div>
+    ${thumbs}<div class="meta"><b>IMG_20251115_101010.jpg</b>, a video and notes.md &middot; 51 MB</div>
+    <div class="acts"><button class="btn">Decline</button><button class="btn pri">Accept</button></div>
+    <div class="always"><span class="chk"></span>Always accept from this phone</div>
+    <div class="grow">Open in full &#8964;</div></div>`,
+  mini: other + `<div class="mini"><div class="th g1"></div><div class="t"><b>IMG_20251115_101010.jpg</b><small>Honor X7d &middot; fast share &middot; 3.2 MB</small></div><span class="go">Get</span><span class="no">&#10005;</span></div>`,
+  full: other + `<div class="full"><div class="fd"><div class="stage g3"><span class="pager">2 of 3</span><span class="mute">&#128263; Muted</span>
+    <div class="ctl">&#10074;&#10074;<div class="track"><i></i></div>0:07 / 0:21</div></div>
+    <div class="strip"><div class="th g1"></div><div class="th g3 on"></div><div class="th g2"></div></div>
+    <div class="body"><b>VID_20251115_101533.mp4</b><small>Nova 10 &middot; 48 MB &middot; 0:21 &middot; 1080p</small></div>
+    <div class="ft"><button class="btn">Decline</button><button class="btn pri">Accept all</button></div></div></div>`,
+  fullAudio: other + `<div class="full"><div class="fd"><div class="stage" style="background:linear-gradient(135deg,#2B2A3A,#151520)"><span class="pager">1 of 1</span><span class="mute">&#128266; Sound on</span>
+    <div style="position:absolute;inset:40px 0 50px;display:grid;place-items:center;font-size:44px;color:var(--accent)">&#9835;</div>
+    <div class="ctl">&#9654;<div class="track"><i></i></div>1:12 / 3:40</div></div>
+    <div class="body" style="padding-top:10px"><b>voice note.m4a</b><small>Honor X7d &middot; 3.1 MB &middot; 3:40</small></div>
+    <div class="ft"><button class="btn">Decline</button><button class="btn pri">Accept</button></div></div></div>`,
+  fullText: other + `<div class="full"><div class="fd"><div class="stage"><span class="pager" style="z-index:2">3 of 3</span>
+    <pre><b style="font-size:14px">Trip plan</b>
+
+&bull; Leave Saturday, 7:00
+&bull; Bring the charger
+&bull; Tickets are in the shared folder
+
+<i>Read only - nothing is saved until Accept.</i></pre></div>
+    <div class="strip"><div class="th g1"></div><div class="th g3"></div><div class="th" style="background:var(--raised);display:grid;place-items:center;color:var(--fg2)">MD</div></div>
+    <div class="body"><b>notes.md</b><small>Nova 10 &middot; 4 KB &middot; Markdown</small></div>
+    <div class="ft"><button class="btn">Decline</button><button class="btn pri">Accept all</button></div></div></div>`,
+  fullOther: other + `<div class="full"><div class="fd"><div class="stage" style="background:var(--sunken);display:grid;place-items:center">
+    <div style="text-align:center;color:var(--fg2)"><div style="width:64px;height:64px;border-radius:16px;background:var(--raised);display:grid;place-items:center;margin:0 auto 8px;font-size:12px">APK</div>No preview for this kind of file</div></div>
+    <div class="body" style="padding-top:10px"><b>tool-1.4.apk</b><small>Honor X7d &middot; 22 MB &middot; Android package</small></div>
+    <div class="ft"><button class="btn">Decline</button><button class="btn pri">Accept</button></div></div></div>`,
+  viewFull: other + `<div class="viewer"><div class="pic g1"></div><div class="top"><span>&#8592;</span><span style="flex:1">IMG_20251115_101010.jpg<br><small style="color:var(--fg2)">From Nova 10 &middot; not saved yet</small></span><span>1 / 3</span></div>
+    <div class="bot"><span>&#8595;<br>Save</span><span>&#8599;<br>Share</span><span>&#9707;<br>Open in Filet</span><span>&#10005;<br>Decline</span></div></div>`,
+  viewFloat: other + `<div class="float g3"><div class="bar2"><span>&#10005;</span><span>VID_20251115&hellip;</span><span>&#9744;</span></div><div class="play" style="position:absolute;inset:0;display:grid;place-items:center;font-size:26px">&#10074;&#10074;</div><div class="grip"></div></div>`,
+};
+function show(k) {
+  S.innerHTML = views[k];
+  document.querySelectorAll("#bar button").forEach(b => b.classList.toggle("on", b.dataset.s === k));
+}
+document.getElementById("bar").addEventListener("click", e => { if (e.target.dataset.s) show(e.target.dataset.s); });
+show("card");
+</script>
+</body>
+</html>
