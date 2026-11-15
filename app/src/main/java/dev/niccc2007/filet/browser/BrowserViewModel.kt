@@ -4555,6 +4555,45 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
     }
 
     /**
+     * The file with [edits] applied, written to [target]: a new file, or over the one there through
+     * the same written-beside path a picture takes. The file the bytes came from is not touched.
+     * [onSaved] is given the new file, for the hex editor to go on with.
+     */
+    fun saveBytesAs(
+        node: VNode,
+        edits: dev.niccc2007.filet.handlers.HexEdits,
+        target: VPath,
+        onSaved: (VNode) -> Unit,
+    ) {
+        if (node.size > dev.niccc2007.filet.handlers.HexEdits.MAX_PATCH_BYTES) {
+            toast("Too large to save as new: this one is " + humanSize(node.size) + ".")
+            return
+        }
+        viewModelScope.launch {
+            val id = ledger.start("Saving", target.name, kind = dev.niccc2007.filet.jobs.JobKind.SAVE)
+            runCatching {
+                val bytes = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    edits.applyTo(graph.vfs.openRead(node.path).use { it.readBytes() }, bufferStart = 0L)
+                }
+                writePicture(target, bytes) { back ->
+                    require(back.size == bytes.size) { "The saved copy is " + back.size + " bytes, not " + bytes.size + "." }
+                }
+                kotlinx.coroutines.withContext(Dispatchers.IO) { graph.vfs.stat(target) }
+                    ?: error("The new file could not be found after writing it.")
+            }.onSuccess { made ->
+                ledger.finish(id)
+                ended(dev.niccc2007.filet.jobs.JobKind.SAVE, false, "Saved as " + target.name)
+                refreshPanes()
+                onSaved(made)
+            }.onFailure {
+                val why = dev.niccc2007.filet.ops.FileOperations.readable(it)
+                ledger.fail(id, why)
+                toast("Could not save: $why")
+            }
+        }
+    }
+
+    /**
      * Write [text] to [target]: a new file, or over the one there through the same written-beside
      * path a picture takes. [onSaved] is given the file as it now stands, for the editor to go on
      * with.
