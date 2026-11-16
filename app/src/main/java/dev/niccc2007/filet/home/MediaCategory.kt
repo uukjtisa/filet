@@ -801,6 +801,7 @@ object CategoryQuery {
         size: Long,
         seconds: Long,
         primaryRoot: String,
+        onDisk: (String) -> Long = { java.io.File(it).length() },
     ): VNode? {
         val path = data?.takeIf { it.isNotBlank() }
             ?: rebuild(relativePath, volume, name, primaryRoot)
@@ -808,12 +809,26 @@ object CategoryQuery {
         return VNode(
             path = VPath.of("local", path),
             isDir = false,
-            size = size,
+            size = rowSize(size) { onDisk(path) },
             // DATE_MODIFIED is in SECONDS. Treating it as milliseconds dates every file to 1970
             // and puts the whole list in the wrong order, the most common mistake against this
             // table.
             mtime = seconds * 1000L,
         )
+    }
+
+    /**
+     * The size a row shows: the index's, unless the index says nothing or 0.
+     *
+     * Bug identified here: the storage layer makes an index row the moment a file is created,
+     * with size 0, and fills it in only when the file is scanned. A file still being written, or
+     * written by an app that never asked for a scan, sat in New files as "0 B" for good. One
+     * stat answers it, and only for these rows: a row the index has measured costs nothing.
+     */
+    internal fun rowSize(indexed: Long, onDisk: () -> Long): Long {
+        if (indexed > 0) return indexed
+        val real = runCatching { onDisk() }.getOrDefault(0L)
+        return if (real > 0) real else indexed
     }
 
     /** `external_primary` and `external`, by value so the pure path runs off the device. */

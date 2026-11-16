@@ -53,7 +53,9 @@ const BELOW = 15;
 /** The surfaces at an edge of the screen, and what keeps them clear. Paths are under SRC. */
 export const EDGES = [
   { file: "browser/BrowserScreen.kt", must: /windowInsetsBottomHeight\(\s*WindowInsets\.navigationBars\s*\)/, why: "the one strip under the browser's last bar" },
-  { file: "browser/BrowserScreen.kt", must: /WindowInsets\.safeDrawing\.only\(\s*WindowInsetsSides\.Horizontal\s*\)/, why: "the browser clear of a side navigation bar and the cutout, sideways" },
+  { file: "browser/BrowserScreen.kt", must: /WindowInsets\.systemBars\.only\(\s*WindowInsetsSides\.Horizontal\s*\)/, why: "the browser clear of a side navigation bar, sideways" },
+  { file: "browser/BrowserScreen.kt", must: /Modifier\.clearOfHoles\(\)\)\s*\{\s*TabStrip/, why: "the camera hole cleared per surface, where it sits beside one (ui/Holes.kt), not by a strip down the whole side" },
+  { file: "browser/BrowserScreen.kt", mustNot: /safeDrawing\.only\(\s*WindowInsetsSides\.Horizontal/, why: "a horizontal safeDrawing inset reserves the camera hole's depth down the whole side in landscape" },
   { file: "browser/BrowserScreen.kt", fn: "BottomNav", mustNot: INSET, why: "in the stack: the strip after the last bar clears it, an inset of its own pads twice" },
   { file: "browser/BrowserScreen.kt", fn: "SelectionBar", mustNot: INSET, why: "a pill floating over the body, which ends above the strip: an inset of its own lifts it twice" },
   { file: "playback/NowPlayingStrip.kt", fn: "NowPlayingStrip", mustNot: INSET, why: "in the browser's stack: the strip after the last bar clears it" },

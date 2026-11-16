@@ -44,7 +44,7 @@ class MediaCategoryTest {
 
     @Test
     fun `a row with DATA keeps its exact path and converts seconds`() {
-        val n = CategoryQuery.nodeFor("/storage/emulated/0/DCIM/Camera/a.mp4", "DCIM/Camera/", "external_primary", "a.mp4", 10L, 1_700_000_000L, primary)!!
+        val n = CategoryQuery.nodeFor("/storage/emulated/0/DCIM/Camera/a.mp4", "DCIM/Camera/", "external_primary", "a.mp4", 10L, 1_700_000_000L, primary) { error("a measured row is never statted") }!!
         assertEquals("/storage/emulated/0/DCIM/Camera/a.mp4", n.path.path)
         assertEquals(1_700_000_000_000L, n.mtime)
     }
@@ -83,6 +83,25 @@ class MediaCategoryTest {
         assertTrue(CategoryQuery.outcome(emptyList(), 12, permitted = true) is CategoryResult.Failed)
         // Own files are still files: rows found without permission are shown, not refused.
         assertTrue(CategoryQuery.outcome(listOf(node), 0, permitted = false) is CategoryResult.Found)
+    }
+
+    // ── a row the index has not measured ──
+
+    @Test
+    fun `a row the index has measured keeps its size and is never statted`() {
+        assertEquals(10L, CategoryQuery.rowSize(10L) { error("statted") })
+    }
+
+    @Test
+    fun `a row the index holds at 0 bytes shows the file's real size`() {
+        assertEquals(4_096L, CategoryQuery.rowSize(0L) { 4_096L })
+        assertEquals(4_096L, CategoryQuery.rowSize(-1L) { 4_096L })
+    }
+
+    @Test
+    fun `a file that is gone or empty keeps what the index said, and a failed stat changes nothing`() {
+        assertEquals(0L, CategoryQuery.rowSize(0L) { 0L })
+        assertEquals(-1L, CategoryQuery.rowSize(-1L) { throw java.io.IOException("gone") })
     }
 
     // ── music ordering ──

@@ -12,6 +12,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -83,6 +87,11 @@ fun PopMenu(
     val edge = with(density) { PopPlace.EDGE.roundToPx() }
     val shown = remember { Animatable(0f) }
     LaunchedEffect(Unit) { shown.animateTo(1f, tween(140)) }
+    // Bug identified here: the card was as tall as its rows, and PopPlace keeps a card too tall
+    // for the window with its top on screen - so the rows past the bottom edge were simply cut
+    // off, with nothing to scroll. The video player's menu, with the file's rows under the
+    // player's, lost its last six on a phone. Held to the window less the edges, and scrolled.
+    val tallest = LocalConfiguration.current.screenHeightDp.dp - PopPlace.EDGE * 2
     Popup(
         popupPositionProvider = remember(gap, above, centred, side, edge) {
             object : PopupPositionProvider {
@@ -105,6 +114,7 @@ fun PopMenu(
             Modifier
                 .padding(end = if (centred) 0.dp else 4.dp)
                 .widthIn(min = 200.dp, max = 280.dp)
+                .heightIn(max = tallest)
                 .graphicsLayer {
                     alpha = shown.value
                     val s = 0.94f + 0.06f * shown.value
@@ -120,6 +130,7 @@ fun PopMenu(
                 .clip(RoundedCornerShape(14.dp))
                 .background(colors.raised)
                 .border(1.dp, colors.lineSoft, RoundedCornerShape(14.dp))
+                .verticalScroll(rememberScrollState())
                 .padding(6.dp),
             content = content,
         )

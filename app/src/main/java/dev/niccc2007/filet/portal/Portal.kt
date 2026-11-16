@@ -320,6 +320,10 @@ class Portal(
                         runCatching { vfs.delete(target) }
                         missed += f.name
                         done = start + f.size
+                    } else {
+                        // Told to the media index once whole, or a picture that arrived by Portal
+                        // is in no gallery and no category. See the same line in PushInbox.fetch.
+                        dev.niccc2007.filet.media.MediaAnnounce.announce(context, listOf(target))
                     }
                 }
                 val place = if (into == received) "Filet/Received" else into.name

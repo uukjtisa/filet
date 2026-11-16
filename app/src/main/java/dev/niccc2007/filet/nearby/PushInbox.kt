@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import dev.niccc2007.filet.media.MediaAnnounce
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -379,6 +380,12 @@ class PushInbox(
                     } finally {
                         conn.disconnect()
                     }
+                    // Bug identified here: a file written here reached the media index only as
+                    // the row the storage layer makes when a file is created - no type, size 0 -
+                    // so it showed in New files as 0 bytes and in no category, however often the
+                    // category was refreshed. The upload route announced what it wrote; this one
+                    // did not. Told once it is whole, as every other write Filet makes is.
+                    MediaAnnounce.announce(context, listOf(target))
                 }
                 if (id >= 0) l?.finish(id, "Filet/Received")
             } catch (e: Throwable) {

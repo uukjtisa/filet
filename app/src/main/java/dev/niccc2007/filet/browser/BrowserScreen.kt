@@ -35,7 +35,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.systemBars
+import dev.niccc2007.filet.ui.clearOfHoles
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.draw.drawBehind
@@ -263,13 +264,15 @@ private fun BrowserBody(vm: BrowserViewModel) {
             // See `ThumbReach` in RowViews.kt for why the rows move by a gap rather than by
             // reversing the list.
             val reach by vm.prefs.reachMode.collectAsState()
-            // Clear of the sides: sideways, three-key navigation is a strip along one long edge
-            // and the camera cutout is on the other, and both were over the rows' ends. The
-            // bottom is the strip at the end of this column, not padding here - see there.
-            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
+            // Clear of the sides: sideways, three-key navigation is a strip along one long edge,
+            // and the whole column stays clear of it. The camera hole is NOT cleared here: each
+            // surface below steps aside only where the hole sits beside it (`clearOfHoles`), so
+            // landscape uses the whole screen. The bottom is the strip at the end of this column,
+            // not padding here - see there.
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))) {
                 if (!reach) {
-                    TabStrip(vm, tabs, app, showMenu = !wide)
-                    TopBar(vm, app, active, wide) { backPress(false) }
+                    Box(Modifier.clearOfHoles()) { TabStrip(vm, tabs, app, showMenu = !wide) }
+                    Box(Modifier.clearOfHoles()) { TopBar(vm, app, active, wide) { backPress(false) } }
                     HorizontalDivider(color = colors.lineSoft)
                 }
 
@@ -305,7 +308,7 @@ private fun BrowserBody(vm: BrowserViewModel) {
 
                 Row(Modifier.weight(1f).fillMaxWidth()) {
                     if (wide) {
-                        Rail(vm, app, railDp)
+                        Box(Modifier.clearOfHoles()) { Rail(vm, app, railDp) }
                         SideEdge(
                             widthDp = railDp,
                             bounds = { SideWidth.clamp(it, SideWidth.Surface.RAIL, windowDp) },
@@ -321,7 +324,7 @@ private fun BrowserBody(vm: BrowserViewModel) {
                     // the same moment made it a second jump. Now the body never changes size: the
                     // lists gain the pill's height as bottom room, through the same inset the pick
                     // card uses (see `LocalSelectionInset`), and the nav bar stays where it is.
-                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                    Box(Modifier.weight(1f).fillMaxHeight().clearOfHoles()) {
                         androidx.compose.runtime.CompositionLocalProvider(LocalSelectionInset provides pillInset) {
                             Body(vm, app, paneA, paneB, registry) { ghost = it }
                         }
@@ -342,8 +345,8 @@ private fun BrowserBody(vm: BrowserViewModel) {
 
                 if (reach) {
                     HorizontalDivider(color = colors.lineSoft)
-                    TopBar(vm, app, active, wide) { backPress(false) }
-                    TabStrip(vm, tabs, app, showMenu = !wide)
+                    Box(Modifier.clearOfHoles()) { TopBar(vm, app, active, wide) { backPress(false) } }
+                    Box(Modifier.clearOfHoles()) { TabStrip(vm, tabs, app, showMenu = !wide) }
                 }
 
                 // Above the bottom bar and below everything else, so it is present on every
@@ -354,13 +357,13 @@ private fun BrowserBody(vm: BrowserViewModel) {
                 // Outside the `wide` branch below on purpose: a tablet has no bottom bar, and
                 // hanging the strip off it would make the player uncontrollable on exactly the
                 // screens with room for it.
-                dev.niccc2007.filet.playback.NowPlayingStrip(vm)
+                Box(Modifier.clearOfHoles()) { dev.niccc2007.filet.playback.NowPlayingStrip(vm) }
 
                 // The nav bar stays while a selection runs. It used to step aside for the
                 // selection bar, and the two swapping places was the jump the pill was made to
                 // end; the pill floats above it instead.
                 val navUp = !wide
-                if (navUp) BottomNav(vm, app, active)
+                if (navUp) Box(Modifier.clearOfHoles()) { BottomNav(vm, app, active) }
 
                 // The navigation bar's own strip, ONE for the whole stack, in the colour of the
                 // bar above it.

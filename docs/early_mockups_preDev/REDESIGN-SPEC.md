@@ -13,7 +13,7 @@ that surface which is easiest to lose on the way across.
 
 | Surface | In the app today | In the mock | Gate | The thing not to lose |
 |---|---|---|---|---|
-| **Tab strip** | `app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt:447` | `[data-r=3] .tab` | N54 | A raised capsule on a recessed track, one accent hairline that moves. Not a border per tab. |
+| **Tab strip** | `app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt:450` | `[data-r=3] .tab` | N54 | A raised capsule on a recessed track, one accent hairline that moves. Not a border per tab. |
 | **Home tab** | `app/src/main/java/dev/niccc2007/filet/home/HomeOverview.kt:108` | `TABS3.home` | N59 | Storage tiles first, then arrivals, then recents, then places. The long heading stays here. |
 | **New files tab** | `app/src/main/java/dev/niccc2007/filet/home/FileHistoryScreen.kt:90` | `TABS3.tracked` | N53 | Tab label and path read New files; the heading on Home reads the long name. |
 | **Nearby tab** | `app/src/main/java/dev/niccc2007/filet/nearby/NearbyScreen.kt:104` | `TABS3.nearby` | N59 | The QR, the URL and the code are one card. Running state is a dot, not a word. |
@@ -28,7 +28,7 @@ that surface which is easiest to lose on the way across.
 | **File row** | `app/src/main/java/dev/niccc2007/filet/browser/ClipTraySheet.kt:596` | `rowsHTML3` | N55 | No date column. Files show bytes, folders show item count. Tabular figures, not a code font. |
 | **Search result row** | `app/src/main/java/dev/niccc2007/filet/browser/RowViews.kt:914` | `SearchResultRow` | N79 | Carries Available or Confirming while a pass runs, and nothing between passes. |
 | **Scope chips** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:722` | `.scopes` | N71 | Native search is dimmed and unpressable where the index never answers the scope anyway. |
-| **Bottom bar** | `app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt:1543` | `.foot` | N46 | One bar plus a More button. The setting that chose between bar and menu is deleted. |
+| **Bottom bar** | `app/src/main/java/dev/niccc2007/filet/browser/BrowserScreen.kt:1546` | `.foot` | N46 | One bar plus a More button. The setting that chose between bar and menu is deleted. |
 | **Context menu** | `app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt:63` | `DIALOGS.context` | N67 | Keeps the icon button row across the top. The app already splits these - see splitForContextMenu - and the first redesign dropped the row, then put back the wrong five. Delete lives in the row, so it is NOT repeated as a list entry. |
 | **Context menu quick row** | `app/src/main/java/dev/niccc2007/filet/browser/ContextMenu.kt:158` | `.ctxbar` | N67 | Which actions get an icon button and which go in the list. Already a pure function - QUICK_IDS is copy, move, rename, send, delete. RELABEL ONLY: move is shown as Cut with scissors. The id stays move; do not add a second action. |
 | **Actions popup** | `app/src/main/java/dev/niccc2007/filet/browser/PaneView.kt:2068` | `actionsHTML` | N54 | Same icon row, then grouped entries, destructive last and separated. |
