@@ -57,6 +57,9 @@ object ActivityKeys {
     const val LIFE = "jobs.notices.life"
     const val PLACE = "jobs.notices.place"
     const val STACK = "jobs.notices.stack"
+
+    /** The "Show over other apps" row: Android's permission, not a preference of Filet's. */
+    const val OVERLAY = "nearby.incoming.overlay"
 }
 
 /** The column heads over the switches: what the rows are, then Starts and Ends. */

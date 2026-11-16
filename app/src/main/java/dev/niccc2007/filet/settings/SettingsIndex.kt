@@ -605,6 +605,63 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
         text = "Stacks up to Cards on screen at once. One more pushes the oldest out early.",
     ),
     SettingsEntry(
+        key = dev.niccc2007.filet.nearby.PushInbox.KEY_POPUPS,
+        title = "Pop-ups",
+        tab = SettingsGroup.ACTIVITY,
+        section = "Nearby",
+        text = "Pop-ups On Off for an hour Off Whether another Filet's send asks at all. " +
+            "While off, sends wait on the Share page. Back on at",
+    ),
+    SettingsEntry(
+        key = dev.niccc2007.filet.nearby.IncomingStore.KEY_READY,
+        title = "Ready while Filet is closed",
+        tab = SettingsGroup.ACTIVITY,
+        section = "Nearby",
+        text = "Ready while Filet is closed Hears a send with Filet in the background. Its " +
+            "notification sits folded and swipes away.",
+    ),
+    SettingsEntry(
+        key = dev.niccc2007.filet.nearby.IncomingStore.KEY_ASK,
+        title = "How a send asks",
+        tab = SettingsGroup.ACTIVITY,
+        section = "Nearby",
+        text = "How a send asks Side card: in the corner, the screen stays usable. Full " +
+            "dialog: in the middle, each file previewed. Notification: never drawn over " +
+            "other apps.",
+    ),
+    SettingsEntry(
+        key = dev.niccc2007.filet.nearby.IncomingStore.KEY_ONE_FILE,
+        title = "One file asks with",
+        tab = SettingsGroup.ACTIVITY,
+        section = "Nearby",
+        text = "One file asks with A send of a single file: the one-line mini card, or the " +
+            "look chosen above.",
+    ),
+    SettingsEntry(
+        key = dev.niccc2007.filet.nearby.IncomingStore.KEY_MUTED,
+        title = "Play media muted at first",
+        tab = SettingsGroup.ACTIVITY,
+        section = "Nearby",
+        text = "Play media muted at first Video and sound viewed before accepting start " +
+            "without sound. A tap turns it on.",
+    ),
+    SettingsEntry(
+        key = dev.niccc2007.filet.nearby.IncomingStore.KEY_VIEW,
+        title = "View opens",
+        tab = SettingsGroup.ACTIVITY,
+        section = "Nearby",
+        text = "View opens A file viewed before accepting: over the whole screen, or in a " +
+            "window that can be dragged and sized while the app beneath stays in use.",
+    ),
+    SettingsEntry(
+        key = ActivityKeys.OVERLAY,
+        title = "Show over other apps",
+        tab = SettingsGroup.ACTIVITY,
+        section = "Nearby",
+        text = "Show over other apps Granted once in Android's settings. Without it, a send " +
+            "asks with a notification. Not granted: sends ask with a notification",
+    ),
+    SettingsEntry(
         key = Prefs.K_UPD_OFF,
         title = "Update notifications",
         tab = SettingsGroup.MAINTENANCE,

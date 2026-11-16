@@ -157,38 +157,6 @@ fun FastShareSheet(vm: BrowserViewModel, nodes: List<VNode>, onClose: () -> Unit
     }
 }
 
-/**
- * Another Filet's push: Accept, Decline, and Always accept from this phone, offered only for a
- * paired phone. Closing it without an answer leaves the push in the Devices list.
- */
-@Composable
-fun PushAsk(vm: BrowserViewModel, offer: PushOffer) {
-    val inbox = vm.nearby.inbox
-    var always by remember(offer.id) { mutableStateOf(false) }
-    Dlg({ inbox.later() }) {
-        DlgHeader(
-            FiletIcons.Download,
-            "${offer.name} wants to send you " + if (offer.files.size == 1) "a file" else "${offer.files.size} files",
-            sub = "A Filet on this network",
-            onClose = { inbox.later() },
-        )
-        DlgBody {
-            OfferedFiles(offer.files)
-            DlgTick(
-                on = always && offer.paired,
-                label = "Always accept from this phone",
-                sub = if (offer.paired) "Next time it arrives without asking. Undo on the Share page."
-                else "Pair with this phone on the Share page first.",
-                enabled = offer.paired,
-            ) { always = !always }
-        }
-        DlgFooter {
-            DlgBtn("Decline") { inbox.decline(offer) }
-            DlgBtn("Accept", BtnKind.PRIMARY) { inbox.accept(offer, always) }
-        }
-    }
-}
-
 /** The files a push or a scanned share offers: the first six, and where they will land. */
 @Composable
 private fun OfferedFiles(files: List<PushFile>) {
@@ -282,11 +250,12 @@ fun PairAskDialog(vm: BrowserViewModel, ask: PairAsk) {
     }
 }
 
-/** The share's pop-ups, wherever Filet is: a push asking, another Filet asking to pair. */
+/**
+ * Another Filet asking to pair, wherever Filet is. A push asking is not here: it is the incoming
+ * card, drawn by [IncomingHost] in the same look as over other apps.
+ */
 @Composable
 fun NearbyPopups(vm: BrowserViewModel) {
-    val inbox = vm.nearby.inbox
-    val asking by inbox.asking.collectAsState()
-    val pairing by inbox.pairing.collectAsState()
-    pairing?.let { PairAskDialog(vm, it) } ?: asking?.let { PushAsk(vm, it) }
+    val pairing by vm.nearby.inbox.pairing.collectAsState()
+    pairing?.let { PairAskDialog(vm, it) }
 }

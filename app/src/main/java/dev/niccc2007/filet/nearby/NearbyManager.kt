@@ -129,22 +129,22 @@ class NearbyManager(
             noticed = null
             return
         }
-        when (val surface = IncomingRules.surface(inFront, overlay.canDraw(), settings, offer.files.size)) {
-            // Filet's own dialogue asks; see NearbyPopups.
-            AskSurface.IN_APP -> {
+        when (IncomingRules.place(inFront, overlay.canDraw(), settings)) {
+            // Drawn over Filet's own screen by IncomingHost, in the same look.
+            AskPlace.IN_FILET -> {
                 overlay.hide()
                 IncomingNotice.cancel(context)
                 noticed = null
             }
-            AskSurface.NOTIFICATION -> {
+            AskPlace.NOTIFICATION -> {
                 overlay.hide()
                 if (noticed != offer.id) IncomingNotice.show(context, offer)
                 noticed = offer.id
             }
-            AskSurface.SIDE_CARD, AskSurface.MINI_CARD -> {
+            AskPlace.OVER_APPS -> {
                 IncomingNotice.cancel(context)
                 noticed = null
-                overlay.show(offer, surface, inbox)
+                overlay.show(offer, IncomingRules.look(settings, offer.files.size), settings, inbox)
             }
         }
     }

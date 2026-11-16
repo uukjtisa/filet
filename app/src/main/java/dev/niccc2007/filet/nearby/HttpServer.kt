@@ -317,8 +317,14 @@ class NearbyHttpServer(
             param(query, "k") != null && path.startsWith("/f/") -> {
                 val token = path.removePrefix("/f/")
                 if (!shared.keyOpens(param(query, "k"), token)) { respond(out, 404, "text/plain", "not found".toByteArray()); return }
-                onFastHit(param(query, "k")!!, address, true)
-                marking(address, ClientActivity.DOWNLOADING) { serveFile(out, token, headers, address, keyOk = true) }
+                // `peek=1`: the phone it was pushed to looking before it accepts - a picture
+                // shown, a video played, the top of a text. Served like any read, never counted
+                // as the download: a one-time share must not be used up by somebody deciding
+                // whether to take it, and the push's row must not read as taken.
+                val peek = param(query, "peek") == "1"
+                onFastHit(param(query, "k")!!, address, !peek)
+                if (peek) serveFile(out, token, headers, address, keyOk = true, peek = true)
+                else marking(address, ClientActivity.DOWNLOADING) { serveFile(out, token, headers, address, keyOk = true) }
             }
             param(query, "k") != null && path.startsWith("/zd/") -> {
                 val token = path.removePrefix("/zd/")
@@ -659,6 +665,8 @@ class NearbyHttpServer(
         address: String,
         lockOk: Boolean = false,
         keyOk: Boolean = false,
+        /** A look before accepting: sent, and neither tracked nor counted. See the `/f/` route. */
+        peek: Boolean = false,
     ) {
         val path = shared.resolve(token)
         if (path == null) { respond(out, 404, "text/plain", "unknown token".toByteArray()); return }
@@ -694,7 +702,7 @@ class NearbyHttpServer(
         val shown = shared.governing(token)?.takeIf { it.path == path }?.alias ?: node.name
         // A large download from the start gets its row as it begins, with how far it has got;
         // a small one, and a player asking for a stretch in the middle, only when it ends.
-        val row = if (start == 0L && total >= TRACK_FROM) onSending(shown, who, total) else null
+        val row = if (!peek && start == 0L && total >= TRACK_FROM) onSending(shown, who, total) else null
         var sent = 0L
         runCatching {
             runBlocking { vfs.openRead(path) }.use { input ->
@@ -718,8 +726,9 @@ class NearbyHttpServer(
             }
             out.flush()
         }
-        clients[address]?.let { it.downloads++; it.state = "downloaded ${it.downloads} file(s)" }
         lastActivity.set(System.currentTimeMillis())
+        if (peek) return
+        clients[address]?.let { it.downloads++; it.state = "downloaded ${it.downloads} file(s)" }
         onEvent(state())
         // Counted once, for a download that went out whole from its start: a player seeking
         // through a video asks for many ranges, and none of those is a download.

@@ -1,6 +1,15 @@
 package dev.niccc2007.filet.nearby
 
 import android.content.Context
+import kotlin.math.hypot
+import android.window.OnBackInvokedDispatcher
+import android.window.OnBackInvokedCallback
+import android.widget.FrameLayout
+import android.view.ViewConfiguration
+import android.view.View
+import android.view.MotionEvent
+import android.view.KeyEvent
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.graphics.PixelFormat
 import android.os.Build
@@ -92,12 +101,17 @@ import java.net.URLEncoder
 import kotlin.math.roundToInt
 
 /**
- * A send from another Filet, asked about over whatever app is open: the side card, or the
- * one-line mini card for a single file. Drawn in a window of its own above other apps, so nothing
- * of Filet's full screen comes up and the app underneath stays usable around it.
+ * A send from another Filet, asked about over whatever app is open, in the look
+ * [IncomingRules.look] picks - the side card, the mini card or the full dialog - and the file
+ * viewed before accepting, full screen or in a floating window. Drawn in windows of Filet's own
+ * above other apps, so nothing of Filet's full screen comes up.
+ *
+ * Two windows, never more: the ask, and the look (the viewer). Opening the look takes the ask
+ * down; closing it puts the ask back while the send still waits. Inside Filet the same pieces are
+ * drawn by [IncomingHost].
  *
  * Needs Android's "display over other apps" permission, granted once in its settings; without it
- * the same send asks with a notification instead (see [IncomingRules.surface]).
+ * the same send asks with a notification instead (see [IncomingRules.place]).
  *
  * Always drawn on the dark side of the palette, as the viewers are: it floats over an app whose
  * colours are unknown, and the mock's card is a dark panel in either theme.
@@ -105,9 +119,17 @@ import kotlin.math.roundToInt
 class IncomingOverlay(private val context: Context, private val prefs: Prefs) {
 
     private val wm = context.getSystemService(WindowManager::class.java)
-    private var view: ComposeView? = null
-    private var owner: OverlayOwner? = null
+
+    private class Shown(val view: View, val owner: OverlayOwner)
+
+    private var ask: Shown? = null
+    private var lookWin: Shown? = null
     private var visible: MutableTransitionState<Boolean>? = null
+
+    private var offer: PushOffer? = null
+    private var look: AskLook = AskLook.CARD
+    private var settings = IncomingSettings()
+    private var inbox: PushInbox? = null
 
     /** The offer on screen now, or null. */
     var showing: String? = null
@@ -115,12 +137,147 @@ class IncomingOverlay(private val context: Context, private val prefs: Prefs) {
 
     fun canDraw(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
 
-    /** Shows [offer] as [surface], replacing whatever card was up. Main thread. */
-    fun show(offer: PushOffer, surface: AskSurface, inbox: PushInbox) {
-        if (showing == offer.id && view != null) return
-        removeNow()
+    /**
+     * Shows [offer] as [look], replacing whatever was up. Main thread.
+     *
+     * Called again for the same send whenever anything about it is re-read; that leaves it as it
+     * is - an open viewer included - unless the look itself changed.
+     */
+    fun show(offer: PushOffer, look: AskLook, settings: IncomingSettings, inbox: PushInbox) {
+        this.settings = settings
+        if (showing == offer.id && this.look == look && (ask != null || lookWin != null)) return
+        removeAll()
         if (!canDraw()) return
+        this.offer = offer
+        this.look = look
+        this.inbox = inbox
+        showing = offer.id
+        addAsk()
+    }
+
+    /** Takes it all down: the card slides out, a dialog or a viewer goes at once. Main thread. */
+    fun hide() {
+        lookWin?.let { remove(it) }
+        lookWin = null
+        val s = visible
+        if (ask != null && s != null && look != AskLook.DIALOG) {
+            s.targetState = false
+        } else {
+            removeAll()
+        }
+    }
+
+    private fun addAsk() {
+        val offer = offer ?: return
+        val inbox = inbox ?: return
+        if (look == AskLook.DIALOG) {
+            val v = compose(back = { inbox.later() }) {
+                FullDialog(
+                    offer, settings, rememberThumbs(offer),
+                    onAccept = { inbox.accept(offer, always = false) },
+                    onDecline = { inbox.decline(offer) },
+                    onClose = { inbox.later() },
+                    onView = { openLook(it) },
+                )
+            }
+            ask = add(v, fullScreen(focusable = true))
+            return
+        }
         val state = MutableTransitionState(false).apply { targetState = true }
+        val v = compose(back = null) {
+            // Gone once it has slid out: the window goes with it.
+            LaunchedEffect(state.isIdle, state.currentState) {
+                if (state.isIdle && !state.currentState) removeAll()
+            }
+            AnimatedVisibility(
+                visibleState = state,
+                enter = slideInHorizontally(tween(SLIDE_MS, easing = SLIDE)) { (it * 1.2f).roundToInt() } +
+                    fadeIn(tween(SLIDE_MS, easing = SLIDE)),
+                exit = slideOutHorizontally(tween(EXIT_MS)) { (it * 1.2f).roundToInt() } + fadeOut(tween(EXIT_MS)),
+            ) {
+                AskCard(offer, look, inbox) { openLook(it) }
+            }
+        }
+        val px = context.resources.displayMetrics.density
+        val lp = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, focusable = false).apply {
+            gravity = Gravity.TOP or Gravity.END
+            // Flush with the edge, so the card slides in from the screen's edge rather than from
+            // a margin; the card's own end padding is the gap. Under the status bar.
+            x = 0
+            y = statusBar() + (8 * px).roundToInt()
+        }
+        ask = add(v, lp)
+        visible = state
+    }
+
+    /** The viewer, in the style the settings ask for; [full] forces full screen. */
+    private fun openLook(index: Int, full: Boolean = false) {
+        val offer = offer ?: return
+        val inbox = inbox ?: return
+        ask?.let { remove(it) }
+        ask = null
+        visible = null
+        lookWin?.let { remove(it) }
+        lookWin = null
+        if (full || settings.view == ViewStyle.FULL) {
+            val v = compose(back = { closeLook() }) {
+                FullViewer(
+                    offer, index, settings, rememberThumbs(offer),
+                    onClose = { closeLook() },
+                    onSave = { inbox.accept(offer, always = false) },
+                    onOpenFilet = { openFilet() },
+                    onDecline = { inbox.decline(offer) },
+                )
+            }
+            lookWin = add(v, fullScreen(focusable = true))
+        } else {
+            val m = context.resources.displayMetrics
+            val w = (FLOAT_W.value * m.density).roundToInt()
+            val h = (FLOAT_H.value * m.density).roundToInt()
+            val margin = (12 * m.density).roundToInt()
+            val lp = params(w, h, focusable = false).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = (m.widthPixels - w - margin).coerceAtLeast(0)
+                // Above the navigation bar, roughly: the first drag puts it anywhere.
+                y = (m.heightPixels - h - margin - (48 * m.density).roundToInt()).coerceAtLeast(0)
+            }
+            val content = compose(back = null) {
+                FloatViewer(
+                    offer, index, settings, rememberThumbs(offer),
+                    onClose = { closeLook() },
+                    onFull = { openLook(index, full = true) },
+                    // The window is moved by FloatFrame, by the screen's own coordinates.
+                    onMove = { _, _ -> },
+                    onResize = { _, _ -> },
+                )
+            }
+            val frame = FloatFrame(
+                context, wm, lp,
+                minW = (FLOAT_MIN_W.value * m.density).roundToInt(),
+                minH = (FLOAT_MIN_H.value * m.density).roundToInt(),
+                grip = (32 * m.density).roundToInt(),
+            )
+            frame.addView(content.view)
+            lookWin = add(Shown(frame, content.owner), lp)
+        }
+    }
+
+    /** Back from the viewer: the ask returns while the send still waits. */
+    private fun closeLook() {
+        lookWin?.let { remove(it) }
+        lookWin = null
+        if (showing != null && ask == null) addAsk()
+    }
+
+    /** Filet comes up; being on screen, it takes the question over (see [IncomingHost]). */
+    private fun openFilet() {
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
+        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { context.startActivity(launch) }
+    }
+
+    /** A ComposeView in Filet's dark card palette, inside a [BackFrame] when Back should answer. */
+    private fun compose(back: (() -> Unit)?, content: @Composable () -> Unit): Shown {
         val o = OverlayOwner().also { it.start() }
         val v = ComposeView(context).apply {
             setViewTreeLifecycleOwner(o)
@@ -128,292 +285,175 @@ class IncomingOverlay(private val context: Context, private val prefs: Prefs) {
             setViewTreeViewModelStoreOwner(o)
             setContent {
                 FiletTheme(theme = prefs.theme.value, accent = prefs.accent.value) {
-                    DarkGround(CARD_BOTTOM) {
-                        // Gone once it has slid out: the window goes with it.
-                        LaunchedEffect(state.isIdle, state.currentState) {
-                            if (state.isIdle && !state.currentState) removeNow()
-                        }
-                        AnimatedVisibility(
-                            visibleState = state,
-                            enter = slideInHorizontally(tween(SLIDE_MS, easing = SLIDE)) { (it * 1.2f).roundToInt() } +
-                                fadeIn(tween(SLIDE_MS, easing = SLIDE)),
-                            exit = slideOutHorizontally(tween(EXIT_MS)) { (it * 1.2f).roundToInt() } + fadeOut(tween(EXIT_MS)),
-                        ) {
-                            val later = { inbox.later() }
-                            Swipeable(onGone = later) {
-                                when (surface) {
-                                    AskSurface.MINI_CARD -> MiniCard(
-                                        offer,
-                                        onGet = { inbox.accept(offer, always = false) },
-                                        onClose = later,
-                                    )
-                                    else -> SideCard(
-                                        offer,
-                                        onAccept = { always -> inbox.accept(offer, always) },
-                                        onDecline = { inbox.decline(offer) },
-                                        onClose = later,
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    DarkGround(CARD_BOTTOM) { content() }
                 }
             }
         }
-        val px = context.resources.displayMetrics.density
-        val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            } else {
-                @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
-            },
-            // Never takes the keyboard or the touches beside it: the app underneath stays usable.
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT,
-        ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            // Flush with the edge, so the card slides in from the screen's edge rather than from
-            // a margin; the card's own end padding is the gap. Under the status bar.
-            x = 0
-            y = statusBar() + (8 * px).roundToInt()
-        }
-        if (runCatching { wm.addView(v, lp) }.isFailure) {
-            o.stop()
-            return
-        }
-        view = v
-        owner = o
-        visible = state
-        showing = offer.id
+        if (back == null) return Shown(v, o)
+        val frame = BackFrame(context, back)
+        frame.addView(v)
+        return Shown(frame, o)
     }
 
-    /** Slides the card out, if one is up. Main thread. */
-    fun hide() {
-        val s = visible ?: return
-        if (view == null) return
-        s.targetState = false
+    private fun add(s: Shown, lp: WindowManager.LayoutParams): Shown? {
+        if (runCatching { wm.addView(s.view, lp) }.isFailure) {
+            s.owner.stop()
+            return null
+        }
+        return s
     }
 
-    private fun removeNow() {
-        view?.let { runCatching { wm.removeViewImmediate(it) } }
-        owner?.stop()
-        view = null
-        owner = null
+    private fun remove(s: Shown) {
+        runCatching { wm.removeViewImmediate(s.view) }
+        s.owner.stop()
+    }
+
+    private fun removeAll() {
+        ask?.let { remove(it) }
+        lookWin?.let { remove(it) }
+        ask = null
+        lookWin = null
         visible = null
         showing = null
+        offer = null
+        inbox = null
+    }
+
+    private fun params(w: Int, h: Int, focusable: Boolean) = WindowManager.LayoutParams(
+        w, h,
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+        },
+        // A card never takes the keyboard or the touches beside it: the app underneath stays
+        // usable. A dialog or a full viewer takes focus, which is what lets Back reach it.
+        (if (focusable) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+        PixelFormat.TRANSLUCENT,
+    )
+
+    /** The whole screen, under the bars and the camera hole; the content keeps clear of them. */
+    private fun fullScreen(focusable: Boolean) = params(
+        WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT, focusable,
+    ).apply {
+        flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) fitInsetsTypes = 0
     }
 
     private fun statusBar(): Int {
         val id = context.resources.getIdentifier("status_bar_height", "dimen", "android")
         return if (id > 0) context.resources.getDimensionPixelSize(id) else (24 * context.resources.displayMetrics.density).roundToInt()
     }
+}
 
-    private companion object {
-        /** `.card{animation:slide .32s cubic-bezier(.2,.9,.25,1)}` */
-        const val SLIDE_MS = 320
-        const val EXIT_MS = 200
-        val SLIDE = CubicBezierEasing(0.2f, 0.9f, 0.25f, 1f)
-        val CARD_TOP = Color(0xFF22262A)
-        val CARD_BOTTOM = Color(0xFF1C1F21)
-        val CARD_LINE = Color(0xFF39444A)
-    }
+/**
+ * Answers Back in a window that is not an activity's.
+ *
+ * Bug identified here: the full dialog and the viewer over other apps had no way back but their
+ * own buttons. With predictive back on (the manifest opts in), Android no longer delivers the Back
+ * key to a view at all; it asks the window's back dispatcher, which a bare window has no callback
+ * in. So the callback is registered on this window's dispatcher while attached, and the key is
+ * still caught for the versions before it.
+ */
+private class BackFrame(context: Context, private val onBack: () -> Unit) : FrameLayout(context) {
+    private var callback: Any? = null
 
-    /**
-     * Swiped toward the edge it came from, it goes, and the send waits on the Share page as the
-     * close button leaves it. A short drag springs back.
-     */
-    @Composable
-    private fun Swipeable(onGone: () -> Unit, content: @Composable () -> Unit) {
-        var dx by remember { mutableFloatStateOf(0f) }
-        var width by remember { mutableFloatStateOf(1f) }
-        Box(
-            Modifier
-                .offset { IntOffset(dx.roundToInt(), 0) }
-                .draggable(
-                    rememberDraggableState { d -> dx = (dx + d).coerceAtLeast(0f) },
-                    Orientation.Horizontal,
-                    onDragStopped = { if (dx > width * 0.35f) onGone() else dx = 0f },
-                )
-                .onSizeChanged { width = it.width.toFloat().coerceAtLeast(1f) },
-        ) { content() }
-    }
-
-    @Composable
-    private fun SideCard(offer: PushOffer, onAccept: (Boolean) -> Unit, onDecline: () -> Unit, onClose: () -> Unit) {
-        val colors = Filet.colors
-        var always by remember(offer.id) { mutableStateOf(false) }
-        val thumbs = rememberThumbs(offer)
-        Column(
-            Modifier
-                .padding(end = 8.dp, bottom = 16.dp, start = 16.dp)
-                .width(256.dp)
-                .shadow(14.dp, RoundedCornerShape(20.dp))
-                .clip(RoundedCornerShape(20.dp))
-                .background(Brush.verticalGradient(listOf(CARD_TOP, CARD_BOTTOM)))
-                .border(1.dp, CARD_LINE, RoundedCornerShape(20.dp))
-                .padding(12.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Brush.radialGradient(listOf(Color(0xFF9CC3D2), Color(0xFF4E7787)))),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(IncomingRules.initial(offer.name), color = Color(0xFF0E1418), fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(offer.name, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(IncomingRules.wants(offer.files.size), fontSize = 11.sp, color = colors.fg2)
-                }
-                Icon(
-                    FiletIcons.Close, "Later",
-                    tint = colors.fg3,
-                    modifier = Modifier.align(Alignment.Top).size(22.dp).clip(CircleShape).clickable(onClick = onClose).padding(4.dp),
-                )
-            }
-            Row(Modifier.padding(top = 10.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                val n = IncomingRules.tiles(offer.files.size)
-                for (i in 0 until n) {
-                    val more = if (i == n - 1) IncomingRules.moreOnLast(offer.files.size) else 0
-                    Tile(offer.files[i], thumbs[offer.files[i].name], more, Modifier.weight(1f))
-                }
-                // One or two files keep their tiles the size three would have.
-                for (i in n until 3) Spacer(Modifier.weight(1f))
-            }
-            Text(
-                IncomingRules.summary(offer.files) { humanSize(it) },
-                fontSize = 11.sp, color = colors.fg2, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(bottom = 10.dp),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CardButton("Decline", primary = false, Modifier.weight(1f), onDecline)
-                CardButton("Accept", primary = true, Modifier.weight(1f)) { onAccept(always) }
-            }
-            // A phone that has not paired cannot be trusted by name, so the tick is not offered.
-            if (offer.paired) {
-                Row(
-                    Modifier.padding(top = 9.dp).clip(RoundedCornerShape(6.dp)).clickable { always = !always }.padding(vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        Modifier
-                            .size(14.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(if (always) colors.accent else Color.Transparent)
-                            .border(1.5.dp, if (always) colors.accent else colors.fg3, RoundedCornerShape(4.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (always) Icon(FiletIcons.Check, null, tint = Color(0xFF10100F), modifier = Modifier.size(10.dp))
-                    }
-                    Spacer(Modifier.width(7.dp))
-                    Text("Always accept from this phone", fontSize = 11.sp, color = colors.fg2)
-                }
-            }
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val c = OnBackInvokedCallback { onBack() }
+            findOnBackInvokedDispatcher()?.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, c)
+            callback = c
         }
     }
 
-    /** `.mini`: one line, one tile, Get or dismiss. */
-    @Composable
-    private fun MiniCard(offer: PushOffer, onGet: () -> Unit, onClose: () -> Unit) {
-        val colors = Filet.colors
-        val f = offer.files.first()
-        val thumbs = rememberThumbs(offer)
-        Row(
-            Modifier
-                .padding(end = 8.dp, bottom = 12.dp, start = 12.dp)
-                .width(256.dp)
-                .shadow(10.dp, RoundedCornerShape(16.dp))
-                .clip(RoundedCornerShape(16.dp))
-                .background(Brush.verticalGradient(listOf(CARD_TOP, CARD_BOTTOM)))
-                .border(1.dp, CARD_LINE, RoundedCornerShape(16.dp))
-                .padding(horizontal = 10.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Tile(f, thumbs[f.name], 0, Modifier.size(40.dp))
-            Spacer(Modifier.width(9.dp))
-            Column(Modifier.weight(1f)) {
-                Text(f.name + if (f.dir) ".zip" else "", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    buildString {
-                        append(offer.name).append(" · fast share")
-                        if (!f.dir && f.size > 0) append(" · ").append(humanSize(f.size))
-                    },
-                    fontSize = 10.5.sp, color = colors.fg2, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.width(9.dp))
-            Text(
-                "Get",
-                fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF0E1418),
-                modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(colors.accent).clickable(onClick = onGet).padding(horizontal = 10.dp, vertical = 6.dp),
-            )
-            Icon(
-                FiletIcons.Close, "Later",
-                tint = colors.fg3,
-                modifier = Modifier.padding(start = 4.dp).size(24.dp).clip(CircleShape).clickable(onClick = onClose).padding(4.dp),
-            )
+    override fun onDetachedFromWindow() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            (callback as? OnBackInvokedCallback)?.let { findOnBackInvokedDispatcher()?.unregisterOnBackInvokedCallback(it) }
         }
+        callback = null
+        super.onDetachedFromWindow()
     }
 
-    @Composable
-    private fun CardButton(label: String, primary: Boolean, modifier: Modifier, onClick: () -> Unit) {
-        val colors = Filet.colors
-        Box(
-            modifier
-                .clip(RoundedCornerShape(10.dp))
-                .background(if (primary) colors.accent else colors.raised)
-                .clickable(onClick = onClick)
-                .padding(vertical = 8.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                label, fontSize = 13.sp,
-                fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (primary) Color(0xFF0E1418) else MaterialTheme.colorScheme.onSurface,
-            )
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+            if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) onBack()
+            return true
         }
+        return super.dispatchKeyEvent(event)
+    }
+}
+
+/**
+ * The floating viewer's window: dragged by its body, sized by its corner, by the screen's own
+ * coordinates.
+ *
+ * Bug identified here: a window moved by a drag measured inside it reports each new touch against
+ * where the window now is, so every step partly undoes the last and the window crawls behind the
+ * finger, then shakes. Raw coordinates are the screen's and do not move with the window. A tap is
+ * left to the viewer's own buttons: the drag is taken only once the finger has moved past the
+ * touch slop.
+ */
+private class FloatFrame(
+    context: Context,
+    private val wm: WindowManager,
+    private val lp: WindowManager.LayoutParams,
+    private val minW: Int,
+    private val minH: Int,
+    private val grip: Int,
+) : FrameLayout(context) {
+    private val slop = ViewConfiguration.get(context).scaledTouchSlop
+    private var downX = 0f
+    private var downY = 0f
+    private var startX = 0
+    private var startY = 0
+    private var startW = 0
+    private var startH = 0
+    private var resizing = false
+    private var dragging = false
+
+    private fun down(e: MotionEvent) {
+        downX = e.rawX
+        downY = e.rawY
+        startX = lp.x
+        startY = lp.y
+        startW = width
+        startH = height
+        resizing = e.x > width - grip && e.y > height - grip
+        dragging = false
     }
 
-    /** `.th`: the picture when the sender gave one, else the file's kind; ▶ on a video, "+N" for the rest. */
-    @Composable
-    private fun Tile(f: PushFile, art: ImageBitmap?, more: Int, modifier: Modifier) {
-        val colors = Filet.colors
-        Box(
-            modifier.aspectRatio(1f).clip(RoundedCornerShape(10.dp)).background(colors.high),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (art != null) {
-                Image(art, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            } else {
-                val icon = if (f.dir) FiletIcons.Folder else FileKind.of(VNode(VPath.of("local", "/" + f.name), isDir = false, size = f.size, mtime = 0)).icon
-                Icon(icon, null, tint = colors.fg2, modifier = Modifier.size(18.dp))
-            }
-            if (more == 0 && IncomingRules.isVideo(f.name)) {
-                Icon(FiletIcons.Play, null, tint = Color.White, modifier = Modifier.size(18.dp))
-            }
-            if (more > 0) {
-                Box(Modifier.fillMaxSize().background(Color(0xAA000000)), contentAlignment = Alignment.Center) {
-                    Text("+$more", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+    override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> down(e)
+            MotionEvent.ACTION_MOVE -> if (!dragging && hypot(e.rawX - downX, e.rawY - downY) > slop) dragging = true
+        }
+        return dragging
+    }
+
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> down(e)
+            MotionEvent.ACTION_MOVE -> {
+                val dx = (e.rawX - downX).roundToInt()
+                val dy = (e.rawY - downY).roundToInt()
+                val m = resources.displayMetrics
+                if (resizing) {
+                    lp.width = (startW + dx).coerceIn(minW, (m.widthPixels - lp.x).coerceAtLeast(minW))
+                    lp.height = (startH + dy).coerceIn(minH, (m.heightPixels - lp.y).coerceAtLeast(minH))
+                } else {
+                    lp.x = (startX + dx).coerceIn(0, (m.widthPixels - width).coerceAtLeast(0))
+                    lp.y = (startY + dy).coerceIn(0, (m.heightPixels - height).coerceAtLeast(0))
                 }
+                runCatching { wm.updateViewLayout(this, lp) }
             }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> dragging = false
         }
-    }
-
-    /** Thumbnails asked of the sending phone, by file name; empty until they arrive. */
-    @Composable
-    private fun rememberThumbs(offer: PushOffer): Map<String, ImageBitmap> {
-        val px = (64 * context.resources.displayMetrics.density).roundToInt()
-        val state = produceState<Map<String, ImageBitmap>>(emptyMap(), offer.id) {
-            val wanted = offer.files.take(3).filter { !it.dir && IncomingRules.hasThumb(it.name) }
-            if (wanted.isEmpty()) return@produceState
-            value = withContext(Dispatchers.IO) { IncomingPeek.thumbs(offer.base, offer.key, wanted.map { it.name }.toSet(), px) }
-        }
-        return state.value
+        return true
     }
 }
 
@@ -424,42 +464,97 @@ class IncomingOverlay(private val context: Context, private val prefs: Prefs) {
  */
 internal object IncomingPeek {
 
+    /** One offered file and the token the sending phone serves it by. */
+    data class Peeked(val token: String, val file: PushFile)
+
     /** Thumbnails for the files named in [names], by name. Blocking. */
     fun thumbs(base: String, key: String, names: Set<String>, px: Int): Map<String, ImageBitmap> {
-        val tokens = tokens(base, key) ?: return emptyMap()
+        val files = files(base, key) ?: return emptyMap()
         val out = HashMap<String, ImageBitmap>()
-        for ((name, token) in tokens) {
-            if (name !in names) continue
-            thumb(base, key, token, px)?.let { out[name] = it }
+        for (p in files) {
+            if (p.file.name !in names) continue
+            thumb(base, key, p.token, px)?.let { out[p.file.name] = it }
         }
         return out
     }
 
-    /** Each offered file's token, by name, or null when the share has gone. */
-    private fun tokens(base: String, key: String): Map<String, String>? = runCatching {
+    /** The offered files in the order sent, each with its token, or null when the share has gone. Blocking. */
+    fun files(base: String, key: String): List<Peeked>? = runCatching {
         val (code, text) = PushInbox.get("$base/api/fast?k=${enc(key)}")
         if (code != 200) return null
         val arr = JSONObject(text).optJSONArray("files") ?: JSONArray()
-        (0 until arr.length()).associate { i -> arr.getJSONObject(i).let { it.optString("name") to it.optString("token") } }
+        (0 until arr.length()).map { i ->
+            arr.getJSONObject(i).let {
+                Peeked(it.optString("token"), PushFile(it.optString("name"), it.optLong("size", 0L), it.optBoolean("dir", false)))
+            }
+        }
     }.getOrNull()
 
-    private fun thumb(base: String, key: String, token: String, px: Int): ImageBitmap? = runCatching {
-        val conn = (URL("$base/t/${enc(token)}?k=${enc(key)}").openConnection() as HttpURLConnection).apply {
-            connectTimeout = 4_000
-            readTimeout = 8_000
-        }
+    /** The address a player streams a file from. A look, so the sender does not count it as taken. */
+    fun url(base: String, key: String, token: String): String = "$base/f/${enc(token)}?k=${enc(key)}&peek=1"
+
+    /**
+     * The top of a text file, at most [MAX_TEXT] bytes: enough to read what it is. A range is
+     * asked for, and the read stops at the limit even when the sender ignores it. Blocking.
+     */
+    fun text(base: String, key: String, token: String): String? = runCatching {
+        val conn = open(url(base, key, token)).apply { setRequestProperty("Range", "bytes=0-${MAX_TEXT - 1}") }
         try {
-            if (conn.responseCode != 200) return null
-            val bytes = conn.inputStream.use { it.readNBytesCompat(MAX_THUMB) } ?: return null
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-            var sample = 1
-            while (bounds.outWidth / (sample * 2) >= px && bounds.outHeight / (sample * 2) >= px) sample *= 2
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
+            if (conn.responseCode !in 200..206) return null
+            val bytes = conn.inputStream.use { it.readUpTo(MAX_TEXT) }
+            String(bytes, Charsets.UTF_8)
         } finally {
             conn.disconnect()
         }
     }.getOrNull()
+
+    /** A picture decoded no larger than [maxPx] on its short side, or null past [MAX_PICTURE]. Blocking. */
+    fun picture(base: String, key: String, token: String, maxPx: Int): ImageBitmap? = runCatching {
+        val conn = open(url(base, key, token))
+        try {
+            if (conn.responseCode != 200) return null
+            val bytes = conn.inputStream.use { it.readNBytesCompat(MAX_PICTURE) } ?: return null
+            decode(bytes, maxPx)
+        } finally {
+            conn.disconnect()
+        }
+    }.getOrNull()
+
+    private fun open(url: String) = (URL(url).openConnection() as HttpURLConnection).apply {
+        connectTimeout = 4_000
+        readTimeout = 8_000
+    }
+
+    private fun decode(bytes: ByteArray, px: Int): ImageBitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= px && bounds.outHeight / (sample * 2) >= px) sample *= 2
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
+    }
+
+    private fun thumb(base: String, key: String, token: String, px: Int): ImageBitmap? = runCatching {
+        val conn = open("$base/t/${enc(token)}?k=${enc(key)}")
+        try {
+            if (conn.responseCode != 200) return null
+            val bytes = conn.inputStream.use { it.readNBytesCompat(MAX_THUMB) } ?: return null
+            decode(bytes, px)
+        } finally {
+            conn.disconnect()
+        }
+    }.getOrNull()
+
+    /** At most [max] bytes from the start of the stream; the rest is never read. */
+    private fun java.io.InputStream.readUpTo(max: Int): ByteArray {
+        val buf = ByteArray(max)
+        var got = 0
+        while (got < max) {
+            val n = read(buf, got, max - got)
+            if (n < 0) break
+            got += n
+        }
+        return buf.copyOf(got)
+    }
 
     /** The whole stream when it is at most [max] bytes, else null: a thumbnail is never large. */
     private fun java.io.InputStream.readNBytesCompat(max: Int): ByteArray? {
@@ -475,6 +570,8 @@ internal object IncomingPeek {
     }
 
     private const val MAX_THUMB = 2 * 1024 * 1024
+    private const val MAX_TEXT = 64 * 1024
+    private const val MAX_PICTURE = 40 * 1024 * 1024
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 }
 

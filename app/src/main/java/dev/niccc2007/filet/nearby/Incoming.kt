@@ -12,6 +12,9 @@ enum class AskStyle(val stored: String, val label: String) {
     /** A card sliding in from the right edge over the app in use. The default. */
     CARD("card", "Side card"),
 
+    /** A dialog in the middle of the screen with the files previewed: seen and played before accepting. */
+    DIALOG("dialog", "Full dialog"),
+
     /** A notification with Accept and Decline: no drawing over other apps at all. */
     NOTICE("notice", "Notification"),
     ;
@@ -32,41 +35,143 @@ enum class OneFileStyle(val stored: String, val label: String) {
     }
 }
 
+/** How a file is viewed before it is accepted: over the whole screen, or in a window over the app. */
+enum class ViewStyle(val stored: String, val label: String) {
+    FULL("full", "Full screen"),
+    FLOAT("float", "Floating window"),
+    ;
+
+    companion object {
+        fun of(stored: String?): ViewStyle = entries.firstOrNull { it.stored == stored } ?: FULL
+    }
+}
+
 /** The options of Share › Incoming files, as they are now. */
 data class IncomingSettings(
     /** The inbox stays open with Filet in the background. Off unless turned on. */
     val ready: Boolean = false,
     val ask: AskStyle = AskStyle.CARD,
     val oneFile: OneFileStyle = OneFileStyle.MINI,
+    /** Video and sound in the full dialog and the viewer start without sound. */
+    val muted: Boolean = true,
+    val view: ViewStyle = ViewStyle.FULL,
 )
 
 /** Where a send that asks is shown. */
-enum class AskSurface {
-    /** Filet is on screen: its own dialogue, as before. */
-    IN_APP,
-    SIDE_CARD,
-    MINI_CARD,
+enum class AskPlace {
+    /** Filet is on screen: the card is drawn over Filet's own screen. */
+    IN_FILET,
+
+    /** Over whatever app is open, in a window of Filet's own. */
+    OVER_APPS,
+
+    /** A notification with Accept and Decline. */
     NOTIFICATION,
+}
+
+/** How a send that asks looks, wherever it is shown. */
+enum class AskLook { CARD, MINI, DIALOG }
+
+/** What the full dialog and the viewer can show of a file before it is accepted. */
+enum class PreviewKind { PICTURE, VIDEO, SOUND, TEXT, NONE }
+
+/** One line of a text preview, with the little of Markdown that changes how it reads. */
+data class PreviewLine(val text: String, val style: Style) {
+    enum class Style { HEADING, BULLET, PLAIN }
 }
 
 /** The incoming rules, apart from Android so they can be tested. */
 object IncomingRules {
 
     /**
-     * Where a send of [files] files asks.
+     * Where a send asks.
+     *
+     * Decision: one card, two places. Filet on screen used to ask with a dialogue of its own, a
+     * second design for the same question that showed less - no previews, nothing to play. Now
+     * the card is drawn over Filet's screen exactly as it is over another app's, and [look] is the
+     * same answer for both.
+     *
+     * Without permission to draw over other apps the answer is a notification whatever the
+     * setting says: a card that cannot be drawn is a send that waits unseen, which is the failure
+     * this exists to end. Inside Filet nothing needs that permission, and Notification as the
+     * setting means "do not draw over my apps" - it does not reach Filet's own screen.
+     */
+    fun place(inFront: Boolean, canOverlay: Boolean, s: IncomingSettings): AskPlace = when {
+        inFront -> AskPlace.IN_FILET
+        !canOverlay || s.ask == AskStyle.NOTICE -> AskPlace.NOTIFICATION
+        else -> AskPlace.OVER_APPS
+    }
+
+    /**
+     * How a send of [files] files looks, in either place.
      *
      * Every push comes from a fast share, so the one-line card is for a push of one file and the
      * side card for several - the mini card has no room to show more than one, and a single file
-     * gains nothing from the larger one. Without permission to draw over other apps the answer
-     * is a notification whatever the setting says: a card that cannot be drawn is a send that
-     * waits unseen, which is the failure this exists to end.
+     * gains nothing from the larger one. Notification as the setting draws the side card inside
+     * Filet (see [place]).
      */
-    fun surface(inFront: Boolean, canOverlay: Boolean, s: IncomingSettings, files: Int): AskSurface = when {
-        inFront -> AskSurface.IN_APP
-        !canOverlay || s.ask == AskStyle.NOTICE -> AskSurface.NOTIFICATION
-        files == 1 && s.oneFile == OneFileStyle.MINI -> AskSurface.MINI_CARD
-        else -> AskSurface.SIDE_CARD
+    fun look(s: IncomingSettings, files: Int): AskLook = when {
+        files == 1 && s.oneFile == OneFileStyle.MINI -> AskLook.MINI
+        s.ask == AskStyle.DIALOG -> AskLook.DIALOG
+        else -> AskLook.CARD
     }
+
+    /**
+     * What a file can be shown as before it is accepted. Pictures shown, video and sound played,
+     * text read; anything else shows its kind. A folder is a zip made on the other phone and has
+     * nothing to show until it arrives.
+     */
+    fun preview(name: String, dir: Boolean): PreviewKind {
+        if (dir) return PreviewKind.NONE
+        val ext = FileTypes.extensionOf(name)
+        return when (FileTypes.kindOf(ext)) {
+            TypeKind.IMAGE -> PreviewKind.PICTURE
+            TypeKind.VIDEO -> PreviewKind.VIDEO
+            TypeKind.AUDIO -> PreviewKind.SOUND
+            TypeKind.CODE -> PreviewKind.TEXT
+            TypeKind.DOC -> if (FileTypes.mime(ext)?.startsWith("text/") == true) PreviewKind.TEXT else PreviewKind.NONE
+            else -> PreviewKind.NONE
+        }
+    }
+
+    /**
+     * A text preview as lines. For Markdown, a heading is drawn as one and a list item gets its
+     * bullet; the rest of Markdown is left as typed, which still reads. Everything else is plain.
+     * At most [max] lines: the preview is a look, the file is what Accept brings.
+     */
+    fun previewLines(text: String, markdown: Boolean, max: Int = 200): List<PreviewLine> =
+        text.lineSequence().take(max).map { raw ->
+            val line = raw.trimEnd()
+            when {
+                !markdown -> PreviewLine(line, PreviewLine.Style.PLAIN)
+                HEADING.matches(line) -> PreviewLine(line.trimStart('#').trim(), PreviewLine.Style.HEADING)
+                BULLET.matches(line) -> PreviewLine(line.trimStart().drop(1).trim(), PreviewLine.Style.BULLET)
+                else -> PreviewLine(line, PreviewLine.Style.PLAIN)
+            }
+        }.toList()
+
+    fun isMarkdown(name: String): Boolean = FileTypes.extensionOf(name).let { it == "md" || it == "markdown" }
+
+    /** "2 of 3", for the dialog's stage. */
+    fun pager(index: Int, count: Int): String = "${index + 1} of $count"
+
+    /** The line under the file's name in the dialog: who, how big, what kind. */
+    fun detail(from: String, f: PushFile, size: (Long) -> String): String = buildList {
+        add(from)
+        if (!f.dir && f.size > 0) add(size(f.size))
+        add(if (f.dir) "folder, arrives as a zip" else kindName(f.name))
+    }.joinToString(" · ")
+
+    private fun kindName(name: String): String = when (preview(name, false)) {
+        PreviewKind.PICTURE -> "picture"
+        PreviewKind.VIDEO -> "video"
+        PreviewKind.SOUND -> "sound"
+        PreviewKind.TEXT -> if (isMarkdown(name)) "Markdown" else "text"
+        PreviewKind.NONE -> FileTypes.extensionOf(name).uppercase().ifEmpty { "file" }
+    }
+
+    private val HEADING = Regex("^#{1,6}\\s+.*")
+    private val BULLET = Regex("^\\s*[-*+]\\s+.*")
 
     /**
      * The card's one line about what is coming: the first file by name, the rest by kind, and the
@@ -135,17 +240,23 @@ class IncomingStore(private val prefs: Prefs) {
     fun setReady(on: Boolean) = write(_settings.value.copy(ready = on))
     fun setAsk(a: AskStyle) = write(_settings.value.copy(ask = a))
     fun setOneFile(o: OneFileStyle) = write(_settings.value.copy(oneFile = o))
+    fun setMuted(on: Boolean) = write(_settings.value.copy(muted = on))
+    fun setView(v: ViewStyle) = write(_settings.value.copy(view = v))
 
     private fun read() = IncomingSettings(
         ready = prefs.getBool(KEY_READY, false),
         ask = AskStyle.of(prefs.getString(KEY_ASK)),
         oneFile = OneFileStyle.of(prefs.getString(KEY_ONE_FILE)),
+        muted = prefs.getBool(KEY_MUTED, true),
+        view = ViewStyle.of(prefs.getString(KEY_VIEW)),
     )
 
     private fun write(s: IncomingSettings) {
         prefs.putBool(KEY_READY, s.ready)
         prefs.putString(KEY_ASK, s.ask.stored)
         prefs.putString(KEY_ONE_FILE, s.oneFile.stored)
+        prefs.putBool(KEY_MUTED, s.muted)
+        prefs.putString(KEY_VIEW, s.view.stored)
         _settings.value = s
     }
 
@@ -154,5 +265,7 @@ class IncomingStore(private val prefs: Prefs) {
         const val KEY_READY = "nearby.incoming.ready"
         const val KEY_ASK = "nearby.incoming.ask"
         const val KEY_ONE_FILE = "nearby.incoming.oneFile"
+        const val KEY_MUTED = "nearby.incoming.muted"
+        const val KEY_VIEW = "nearby.incoming.view"
     }
 }

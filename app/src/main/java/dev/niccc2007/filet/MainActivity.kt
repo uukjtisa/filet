@@ -206,6 +206,8 @@ class MainActivity : ComponentActivity() {
                     // install the queue was usually empty anyway, so an empty screen looked
                     // like the right answer.
                     dev.niccc2007.filet.notice.NoticeHost(browser)
+                    // A send from another Filet: the incoming card, over everything above.
+                    dev.niccc2007.filet.nearby.IncomingHost(browser)
 
                     DisposableEffect(Unit) {
                         graph.onFirstScreen()

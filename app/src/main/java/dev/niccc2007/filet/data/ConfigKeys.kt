@@ -243,6 +243,8 @@ object ConfigKeys {
         sharing("nearby.incoming.ready", ConfigType.BOOL),
         sharing("nearby.incoming.ask", ConfigType.STRING),
         sharing("nearby.incoming.oneFile", ConfigType.STRING),
+        sharing("nearby.incoming.muted", ConfigType.BOOL),
+        sharing("nearby.incoming.view", ConfigType.STRING),
         sharing("portal.hosts", ConfigType.STRING),
         sharing("portal.keep", ConfigType.STRING),
         sharing("portal.scatter", ConfigType.STRING),

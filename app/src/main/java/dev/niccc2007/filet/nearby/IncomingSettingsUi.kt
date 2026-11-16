@@ -45,79 +45,29 @@ import dev.niccc2007.filet.ui.tabs.NRow
 import dev.niccc2007.filet.ui.theme.Filet
 
 /**
- * Share › Incoming files: one row under Pop-ups saying how a send asks with Filet closed, and the
- * options together behind it - the mock's "Incoming files" group.
- *
- * Here and not in Settings because Settings has no sharing room: the sharing options all live on
- * the pages they govern (Pop-ups beside this, Portal's on Portal), and a group parked in an
- * unrelated Settings tab is one nobody would look for.
+ * Share > Pop-ups and incoming files: one row saying how a send asks, which opens Settings >
+ * Activity > Nearby on Pop-ups. The options themselves live there, beside the other things that
+ * pop up; see the decision at that group.
  */
 @Composable
-internal fun IncomingRow(store: IncomingStore) {
-    val s by store.settings.collectAsState()
+internal fun IncomingRow(vm: dev.niccc2007.filet.browser.BrowserViewModel) {
+    val s by vm.nearby.incoming.settings.collectAsState()
+    val popups by vm.nearby.inbox.popups.collectAsState()
     val overlay = rememberOverlayAllowed()
-    var open by remember { mutableStateOf(false) }
     NRow(
-        title = "Incoming files",
-        sub = IncomingWords.row(s, overlay),
+        title = "Pop-ups and incoming files",
+        sub = IncomingWords.row(s, overlay, popups),
         lead = NLead.Glyph(FiletIcons.Tune),
-        onClick = { open = true },
+        onClick = {
+            dev.niccc2007.filet.settings.SettingsJump.request(PushInbox.KEY_POPUPS)
+            vm.focusedPane()?.openSpecial(dev.niccc2007.filet.browser.PaneKind.SETTINGS, "Settings")
+        },
     )
-    if (open) IncomingDialog(store, overlay) { open = false }
-}
-
-@Composable
-private fun IncomingDialog(store: IncomingStore, overlay: Boolean, onClose: () -> Unit) {
-    val context = LocalContext.current
-    val s by store.settings.collectAsState()
-    Dlg(onClose) {
-        DlgHeader(FiletIcons.Download, "Incoming files", sub = "How another Filet's send asks while Filet is closed", onClose = onClose)
-        DlgBody {
-            DlgTick(
-                on = s.ready,
-                label = "Ready while Filet is closed",
-                sub = "Hears a send with Filet in the background. Its notification sits folded and swipes away.",
-            ) { store.setReady(!s.ready) }
-            Spacer(Modifier.height(10.dp))
-            DlgSection("How a send asks")
-            Choices(AskStyle.entries.map { it.label }, s.ask.ordinal) { store.setAsk(AskStyle.entries[it]) }
-            Spacer(Modifier.height(10.dp))
-            DlgSection("One file asks with")
-            Choices(OneFileStyle.entries.map { it.label }, s.oneFile.ordinal) { store.setOneFile(OneFileStyle.entries[it]) }
-            Spacer(Modifier.height(10.dp))
-            DlgTick(
-                on = overlay,
-                label = "Show over other apps",
-                sub = if (overlay) "Granted. Turn it off in Android's settings." else "Granted once in Android's settings. Without it, a send asks with a notification.",
-            ) { openOverlaySettings(context) }
-        }
-        DlgFooter { DlgBtn("Done", BtnKind.PRIMARY, onClick = onClose) }
-    }
-}
-
-/** `.seg`: the choices in a row, the one in force lit. */
-@Composable
-private fun Choices(labels: List<String>, on: Int, pick: (Int) -> Unit) {
-    val colors = Filet.colors
-    Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        labels.forEachIndexed { i, label ->
-            Text(
-                label,
-                fontSize = 11.5.sp,
-                color = if (i == on) MaterialTheme.colorScheme.onPrimary else colors.fg2,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (i == on) colors.accent else colors.high)
-                    .clickable { pick(i) }
-                    .padding(horizontal = 11.dp, vertical = 6.dp),
-            )
-        }
-    }
 }
 
 /** Whether Filet may draw over other apps, read again each time the screen comes back. */
 @Composable
-private fun rememberOverlayAllowed(): Boolean {
+internal fun rememberOverlayAllowed(): Boolean {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     var allowed by remember { mutableStateOf(canOverlay(context)) }
@@ -134,7 +84,7 @@ private fun rememberOverlayAllowed(): Boolean {
 private fun canOverlay(context: Context) = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
 
 /** Android's own page for Filet's "display over other apps"; there is no asking for it in place. */
-private fun openOverlaySettings(context: Context) {
+internal fun openOverlaySettings(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
     val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + context.packageName))
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -143,8 +93,13 @@ private fun openOverlaySettings(context: Context) {
 
 /** What the Share page's row says. Pure. */
 internal object IncomingWords {
-    fun row(s: IncomingSettings, overlay: Boolean): String {
-        val how = if (s.ask == AskStyle.NOTICE || !overlay) "a notification" else "a side card"
+    fun row(s: IncomingSettings, overlay: Boolean, popups: Popups = Popups.ON): String {
+        if (popups != Popups.ON) return "Pop-ups off · sends wait here"
+        val how = when {
+            s.ask == AskStyle.NOTICE || !overlay -> "a notification"
+            s.ask == AskStyle.DIALOG -> "the full dialog"
+            else -> "a side card"
+        }
         val ready = if (s.ready) "Ready while closed" else "Only while Filet is open"
         return "$ready · asks with $how"
     }

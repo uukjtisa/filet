@@ -313,6 +313,16 @@ fun SettingsPage(vm: BrowserViewModel) {
     val listState = dev.niccc2007.filet.browser.rememberKeptListState("settings:" + group.name)
     val marks = remember { HashMap<String, Int>() }
     var target by remember { mutableStateOf<Pair<String, Long>?>(null) }
+    // A row asked for from elsewhere in Filet: its tab, then the row, as a search result is.
+    val jump by SettingsJump.to.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(jump) {
+        val wanted = jump ?: return@LaunchedEffect
+        SETTINGS_INDEX.firstOrNull { it.key == wanted }?.let { e ->
+            group = e.tab
+            target = e.key to System.nanoTime()
+        }
+        SettingsJump.taken()
+    }
     androidx.compose.runtime.LaunchedEffect(target) {
         val (key, _) = target ?: return@LaunchedEffect
         // The tab's list is rebuilt for the switch on the next frame, and its anchors with it.
@@ -1891,6 +1901,107 @@ fun SettingsPage(vm: BrowserViewModel) {
                 hint = "Cards on screen at once. One more pushes the oldest out early.",
                 key = ActivityKeys.STACK,
             ) { prefs.setNotices(notices.copy(stack = stacks[it])) }
+        }
+        // ── a send from another Filet ──
+        //
+        // Decision: here, beside the other things that pop up, rather than on the Share page or in
+        // a tab of its own. Five options do not earn a tab, and the Share page held them behind a
+        // dialogue while Pop-ups sat on the page beside it - two places for one question, how a
+        // send asks. The Share page keeps one row that jumps here (see SettingsJump).
+        item {
+            SettingsSection(
+                "Nearby",
+                "How a send from another Filet asks: the same card inside Filet and over other apps.",
+            )
+        }
+        anchor(dev.niccc2007.filet.nearby.PushInbox.KEY_POPUPS)
+        item {
+            val inbox = vm.nearby.inbox
+            val popups by inbox.popups.collectAsState()
+            SegmentRow(
+                "Pop-ups",
+                listOf("On", "Off for an hour", "Off"),
+                popups.ordinal,
+                hint = "Whether another Filet's send asks at all. While off, sends wait on the Share page.",
+                status = if (popups == dev.niccc2007.filet.nearby.Popups.OFF_HOUR) {
+                    "Back on at " + dev.niccc2007.filet.nearby.backAt(inbox.popupsBackAt())
+                } else {
+                    null
+                },
+                key = dev.niccc2007.filet.nearby.PushInbox.KEY_POPUPS,
+            ) { inbox.setPopups(dev.niccc2007.filet.nearby.Popups.entries[it]) }
+        }
+        anchor(dev.niccc2007.filet.nearby.IncomingStore.KEY_READY)
+        item {
+            val store = vm.nearby.incoming
+            val s by store.settings.collectAsState()
+            ToggleRow(
+                "Ready while Filet is closed",
+                "Hears a send with Filet in the background. Its notification sits folded and swipes away.",
+                checked = s.ready,
+                key = dev.niccc2007.filet.nearby.IncomingStore.KEY_READY,
+            ) { store.setReady(it) }
+        }
+        anchor(dev.niccc2007.filet.nearby.IncomingStore.KEY_ASK)
+        item {
+            val store = vm.nearby.incoming
+            val s by store.settings.collectAsState()
+            SegmentRow(
+                "How a send asks",
+                dev.niccc2007.filet.nearby.AskStyle.entries.map { it.label },
+                s.ask.ordinal,
+                hint = "Side card: in the corner, the screen stays usable. Full dialog: in the middle, " +
+                    "each file previewed. Notification: never drawn over other apps.",
+                key = dev.niccc2007.filet.nearby.IncomingStore.KEY_ASK,
+            ) { store.setAsk(dev.niccc2007.filet.nearby.AskStyle.entries[it]) }
+        }
+        anchor(dev.niccc2007.filet.nearby.IncomingStore.KEY_ONE_FILE)
+        item {
+            val store = vm.nearby.incoming
+            val s by store.settings.collectAsState()
+            SegmentRow(
+                "One file asks with",
+                dev.niccc2007.filet.nearby.OneFileStyle.entries.map { it.label },
+                s.oneFile.ordinal,
+                hint = "A send of a single file: the one-line mini card, or the look chosen above.",
+                key = dev.niccc2007.filet.nearby.IncomingStore.KEY_ONE_FILE,
+            ) { store.setOneFile(dev.niccc2007.filet.nearby.OneFileStyle.entries[it]) }
+        }
+        anchor(dev.niccc2007.filet.nearby.IncomingStore.KEY_MUTED)
+        item {
+            val store = vm.nearby.incoming
+            val s by store.settings.collectAsState()
+            ToggleRow(
+                "Play media muted at first",
+                "Video and sound viewed before accepting start without sound. A tap turns it on.",
+                checked = s.muted,
+                key = dev.niccc2007.filet.nearby.IncomingStore.KEY_MUTED,
+            ) { store.setMuted(it) }
+        }
+        anchor(dev.niccc2007.filet.nearby.IncomingStore.KEY_VIEW)
+        item {
+            val store = vm.nearby.incoming
+            val s by store.settings.collectAsState()
+            SegmentRow(
+                "View opens",
+                dev.niccc2007.filet.nearby.ViewStyle.entries.map { it.label },
+                s.view.ordinal,
+                hint = "A file viewed before accepting: over the whole screen, or in a window that can " +
+                    "be dragged and sized while the app beneath stays in use.",
+                key = dev.niccc2007.filet.nearby.IncomingStore.KEY_VIEW,
+            ) { store.setView(dev.niccc2007.filet.nearby.ViewStyle.entries[it]) }
+        }
+        anchor(ActivityKeys.OVERLAY)
+        item {
+            val ctx = LocalContext.current
+            val overlay = dev.niccc2007.filet.nearby.rememberOverlayAllowed()
+            ToggleRow(
+                "Show over other apps",
+                "Granted once in Android's settings. Without it, a send asks with a notification.",
+                checked = overlay,
+                status = if (overlay) null else "Not granted: sends ask with a notification",
+                key = ActivityKeys.OVERLAY,
+            ) { dev.niccc2007.filet.nearby.openOverlaySettings(ctx) }
         }
         }
         if (group == SettingsGroup.MAINTENANCE) {

@@ -112,7 +112,6 @@ fun NearbyScreen(vm: BrowserViewModel) {
     var editingPin by remember { mutableStateOf<String?>(null) }
     val grants by nearby.grants.all.collectAsState()
     val offers by nearby.inbox.offers.collectAsState()
-    val popups by nearby.inbox.popups.collectAsState()
     val blocked by nearby.inbox.blocked.collectAsState()
     val always by nearby.inbox.always.collectAsState()
     var selecting by remember { mutableStateOf(false) }
@@ -289,26 +288,8 @@ fun NearbyScreen(vm: BrowserViewModel) {
         }
 
         item { SectionRow("Devices") }
-        item {
-            Column(Modifier.padding(start = 15.dp, end = 15.dp, bottom = 6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Pop-ups", fontSize = 12.sp, color = colors.fg2, modifier = Modifier.padding(end = 4.dp))
-                    Chip("On", popups == Popups.ON) { nearby.inbox.setPopups(Popups.ON) }
-                    Chip("Off for 1 hour", popups == Popups.OFF_HOUR) { nearby.inbox.setPopups(Popups.OFF_HOUR) }
-                    Chip("Off", popups == Popups.OFF) { nearby.inbox.setPopups(Popups.OFF) }
-                }
-                Text(
-                    when (popups) {
-                        Popups.ON -> "A push from another Filet pops up while Filet is open."
-                        Popups.OFF_HOUR -> "Back on at ${backAt(nearby.inbox.popupsBackAt())}. Pushes wait here."
-                        Popups.OFF -> "Pushes wait here until you open them."
-                    },
-                    fontSize = 10.5.sp, color = colors.fg3, lineHeight = 14.sp,
-                )
-            }
-        }
-        // How a send asks while Filet is closed: the card over other apps, or the shade.
-        item { IncomingRow(nearby.incoming) }
+        // Pop-ups and how a send asks live in Settings > Activity > Nearby; this row goes there.
+        item { IncomingRow(vm) }
         items(offers, key = { it.id }) { o ->
             NRow(
                 title = o.name,
@@ -936,5 +917,5 @@ private fun PairingDialog(pairing: Pairing, onConfirm: () -> Unit, onDismiss: ()
 }
 
 /** The time an hour's Off ends, as the phone writes times. */
-private fun backAt(at: Long): String =
+internal fun backAt(at: Long): String =
     java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(at))

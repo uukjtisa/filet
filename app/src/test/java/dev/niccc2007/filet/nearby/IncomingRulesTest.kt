@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Where a send from another Filet asks, and what its card says. */
+/** Where a send from another Filet asks, how it looks, and what its card says. */
 class IncomingRulesTest {
 
     private val card = IncomingSettings()
@@ -13,23 +13,32 @@ class IncomingRulesTest {
     private fun f(name: String, size: Long = 10, dir: Boolean = false) = PushFile(name, size, dir)
 
     @Test
-    fun `on screen it is Filet's own dialogue whatever the setting`() {
-        assertEquals(AskSurface.IN_APP, IncomingRules.surface(inFront = true, canOverlay = true, card, 3))
-        assertEquals(AskSurface.IN_APP, IncomingRules.surface(inFront = true, canOverlay = false, card.copy(ask = AskStyle.NOTICE), 1))
+    fun `on screen the card is drawn inside Filet whatever the setting or the permission`() {
+        assertEquals(AskPlace.IN_FILET, IncomingRules.place(inFront = true, canOverlay = true, card))
+        assertEquals(AskPlace.IN_FILET, IncomingRules.place(inFront = true, canOverlay = false, card.copy(ask = AskStyle.NOTICE)))
     }
 
     @Test
-    fun `away, several files get the side card and one file the mini card`() {
-        assertEquals(AskSurface.SIDE_CARD, IncomingRules.surface(false, true, card, 3))
-        assertEquals(AskSurface.MINI_CARD, IncomingRules.surface(false, true, card, 1))
-        assertEquals(AskSurface.SIDE_CARD, IncomingRules.surface(false, true, card.copy(oneFile = OneFileStyle.SAME), 1))
+    fun `away it is drawn over other apps, or a notification without leave to draw or when asked for one`() {
+        assertEquals(AskPlace.OVER_APPS, IncomingRules.place(false, true, card))
+        assertEquals(AskPlace.OVER_APPS, IncomingRules.place(false, true, card.copy(ask = AskStyle.DIALOG)))
+        assertEquals(AskPlace.NOTIFICATION, IncomingRules.place(false, canOverlay = false, card))
+        assertEquals(AskPlace.NOTIFICATION, IncomingRules.place(false, true, card.copy(ask = AskStyle.NOTICE)))
     }
 
     @Test
-    fun `without leave to draw over other apps it is a notification, never a card that cannot show`() {
-        assertEquals(AskSurface.NOTIFICATION, IncomingRules.surface(false, canOverlay = false, card, 3))
-        assertEquals(AskSurface.NOTIFICATION, IncomingRules.surface(false, canOverlay = false, card, 1))
-        assertEquals(AskSurface.NOTIFICATION, IncomingRules.surface(false, true, card.copy(ask = AskStyle.NOTICE), 1))
+    fun `several files get the side card and one file the mini card, in either place`() {
+        assertEquals(AskLook.CARD, IncomingRules.look(card, 3))
+        assertEquals(AskLook.MINI, IncomingRules.look(card, 1))
+        assertEquals(AskLook.CARD, IncomingRules.look(card.copy(oneFile = OneFileStyle.SAME), 1))
+    }
+
+    @Test
+    fun `the full dialog is a look of its own, and Notification draws the side card inside Filet`() {
+        assertEquals(AskLook.DIALOG, IncomingRules.look(card.copy(ask = AskStyle.DIALOG), 3))
+        assertEquals(AskLook.MINI, IncomingRules.look(card.copy(ask = AskStyle.DIALOG), 1))
+        assertEquals(AskLook.DIALOG, IncomingRules.look(card.copy(ask = AskStyle.DIALOG, oneFile = OneFileStyle.SAME), 1))
+        assertEquals(AskLook.CARD, IncomingRules.look(card.copy(ask = AskStyle.NOTICE), 3))
     }
 
     @Test
@@ -75,7 +84,8 @@ class IncomingRulesTest {
     fun `stored values read back, and anything unknown is the default`() {
         assertEquals(AskStyle.NOTICE, AskStyle.of("notice"))
         assertEquals(AskStyle.CARD, AskStyle.of(null))
-        assertEquals(AskStyle.CARD, AskStyle.of("dialog"))
+        assertEquals(AskStyle.DIALOG, AskStyle.of("dialog"))
+        assertEquals(AskStyle.CARD, AskStyle.of("sheet"))
         assertEquals(OneFileStyle.SAME, OneFileStyle.of("same"))
         assertEquals(OneFileStyle.MINI, OneFileStyle.of("?"))
     }
@@ -84,5 +94,8 @@ class IncomingRulesTest {
     fun `the Share page row says whether it is ready and how it asks`() {
         assertEquals("Only while Filet is open · asks with a side card", IncomingWords.row(card, overlay = true))
         assertEquals("Ready while closed · asks with a notification", IncomingWords.row(card.copy(ready = true), overlay = false))
+        assertEquals("Only while Filet is open · asks with the full dialog", IncomingWords.row(card.copy(ask = AskStyle.DIALOG), overlay = true))
+        assertEquals("Pop-ups off · sends wait here", IncomingWords.row(card, overlay = true, popups = Popups.OFF_HOUR))
+        assertEquals("Pop-ups off · sends wait here", IncomingWords.row(card, overlay = true, popups = Popups.OFF))
     }
 }

@@ -80,6 +80,7 @@ export const KNOWN = {
   "browser/ExtractSheet.kt": [{ n: 1, kind: "host", why: "a card inside a pane like PickDock (it has no caller today)" }],
   "browser/PickDock.kt": [{ n: 1, kind: "host", why: "the pick card, inside a pane: the browser's strip is under it" }],
   "browser/RowViews.kt": [{ n: 1, kind: "inner", why: "the select mark on a row's icon" }],
+  "nearby/IncomingViews.kt": [{ n: 4, kind: "inner", why: "the floating window's corner grip, a player's track row and a tile's View label: inside a small window, a preview stage or a 64 dp tile, never at the screen's edge" }],
   "browser/ThumbIcon.kt": [{ n: 1, kind: "inner", why: "a badge on a thumbnail" }],
   "ui/dialogs/DlgKit.kt": [{ n: 1, kind: "host", why: "a dialogue drawn as a sheet, inside the room Dlg has already cleared by safeDrawing" }],
   "docs/DocCode.kt": [{ n: 1, kind: "inner", why: "the chip row inside a code block" }],
