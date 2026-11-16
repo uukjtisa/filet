@@ -90,8 +90,8 @@ fun HScroll(
         // is more to the right" flashes a chevron on the first frame of every screen that has
         // one of these.
         val measured = state.maxValue != Int.MAX_VALUE && state.maxValue > 0
-        Cue(visible = measured && state.value > EDGE_SLOP, ground = ground, atStart = true)
-        Cue(
+        ScrollEdgeCue(visible = measured && state.value > EDGE_SLOP, ground = ground, atStart = true)
+        ScrollEdgeCue(
             visible = measured && state.maxValue - state.value > EDGE_SLOP,
             ground = ground,
             atStart = false,
@@ -105,8 +105,12 @@ private const val EDGE_SLOP = 2
 /** Wide enough to dissolve a chip rather than clip it, narrow enough not to hide one. */
 private val CUE_WIDTH = 38.dp
 
+/**
+ * One edge's cue: the dissolve and the chevron. Shared with the tree's sideways slide, which is
+ * not a `Row` and so cannot be an [HScroll], but must look like one.
+ */
 @Composable
-private fun BoxScope.Cue(visible: Boolean, ground: Color, atStart: Boolean) {
+internal fun BoxScope.ScrollEdgeCue(visible: Boolean, ground: Color, atStart: Boolean) {
     val alpha by animateFloatAsState(if (visible) 1f else 0f, label = "scroll cue")
     if (alpha <= 0.01f) return
 

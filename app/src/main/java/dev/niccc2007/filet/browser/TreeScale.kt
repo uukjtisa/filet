@@ -1,95 +1,121 @@
 package dev.niccc2007.filet.browser
 
+import dev.niccc2007.filet.data.ViewStep
+import kotlin.math.abs
+import kotlin.math.floor
+
 /**
- * How far a tree steps in per level, and how far from the edge it starts.
+ * How far a tree steps in per level, where level zero starts, and how far the tree may slide
+ * sideways to show a row that runs deeper than the pane is wide.
  *
- * ## Why this is not a constant
+ * ## A deep tree slides; it no longer squeezes
  *
- * It was, and a fixed 26dp step is wrong in both directions. Four levels deep in a split
- * pane the indent had eaten half the width and every name was an ellipsis; one level deep on
- * a tablet it was needlessly timid. So it gives way when the pane is cramped - a smaller
- * step, and then a smaller left margin - under one condition that is not negotiable: the
- * guide lines stay connected the whole way down.
+ * This used to shrink the step, and then the left margin, until the deepest open row fitted the
+ * pane. Twenty folders deep that left every name an ellipsis and the ladder too tight to read,
+ * which was the complaint: a deep tree became a cramped list. Now the step is fixed per view
+ * size, and a row that needs more room than the pane has is laid out at its full width and the
+ * whole tree drags sideways to reach it, with a cue at the edge that hides something.
+ *
+ * ## The step follows the view size
+ *
+ * Twelve dp a level in Compact list, sixteen in List, twenty in Comfortable: the bigger the row,
+ * the bigger the step, so a level reads as a level at every size.
+ *
+ * ## Two screen widths, then it stops stepping in
+ *
+ * The tree may grow sideways to twice the screen's width, no further. Levels past that sit at
+ * the last column instead of stepping in again, so an absurdly deep tree costs a long drag at
+ * worst, never miles of it. At 360 dp and List that is thirty levels before it bites.
  *
  * ## Connected is structural here, not something to be careful about
  *
- * The guide lines are drawn from the same two numbers the row's own padding is built from -
- * one [Steps] goes to both - so a spine cannot land in a different column from the chevron
- * it hangs off. That is the whole reason this is a value rather than two constants read in
- * two places: two places is how they drift.
- *
- * ## It is computed from the DEEPEST row, not per row
- *
- * Every row in a pane uses the same step. Sizing each row to its own depth would give level
- * three a different column from level two, which is the one thing a tree may not do. So the
- * question is what step lets the deepest row OPEN RIGHT NOW still show a usable name, and
- * the answer applies to all of them. Fold that branch away and the tree opens back out.
- *
- * ## The order things give way in
- *
- * The indent shrinks first, because a narrower step costs nothing but a slightly tighter
- * ladder. Only once it is at its floor does the whole tree slide toward the edge, which
- * costs the left margin the rest of the app has - so it is the last thing spent, not the
- * first.
+ * The guide lines are drawn from the same [Steps] the row's own padding is built from, through
+ * [Steps.at], so a spine cannot land in a different column from the chevron it hangs off.
  */
 object TreeScale {
 
     /**
      * @param startDp the left margin before level zero.
      * @param indentDp how much further in each level sits.
+     * @param levels how many levels step in before deeper ones stop: see [at].
      */
-    data class Steps(val startDp: Float, val indentDp: Float)
+    data class Steps(val startDp: Float, val indentDp: Float, val levels: Int = Int.MAX_VALUE) {
+        /** Where a row at [depth] starts, and where the guide for that level runs. */
+        fun at(depth: Int): Float = startDp + minOf(depth, levels).coerceAtLeast(0) * indentDp
+    }
 
-    /**
-     * @param widthDp the pane's own width, not the screen's.
-     * @param deepest the depth of the deepest row currently in the list. 0 for a flat list.
-     */
-    fun of(widthDp: Int, deepest: Int): Steps {
-        if (deepest <= 0) return Steps(START, INDENT)
-        val room = widthDp - KEEP
-        // Enough for the full step: nothing to do, and a wide pane never pays for this.
-        if (room >= START + deepest * INDENT) return Steps(START, INDENT)
-
-        val fits = (room - START) / deepest
-        if (fits >= INDENT_MIN) return Steps(START, fits.coerceAtMost(INDENT))
-
-        // The step is as small as it may go, so the margin gives way instead. Below the
-        // floor on both, nothing more can be recovered and rows simply run out of name -
-        // which is honest: a tree twelve deep in a hundred-dp pane has no good answer.
-        val start = (room - deepest * INDENT_MIN).coerceIn(START_MIN, START)
-        return Steps(start, INDENT_MIN)
+    /** The step for one view size. Grid steps never draw a tree; they get the List step. */
+    fun indentFor(step: ViewStep): Float = when (step) {
+        ViewStep.COMPACT_LIST -> 12f
+        ViewStep.COMFORTABLE -> 20f
+        else -> 16f
     }
 
     /**
-     * What a row needs after the indent: the chevron, the icon, the gap, and enough name to
-     * be worth reading. Under this the tree stops taking room for its ladder.
+     * The steps for a tree in [step], on a screen [screenWidthDp] wide, whose rows carry an icon
+     * [iconDp] across.
+     *
+     * The cap is the SCREEN's width, not the pane's: in a split the pane is half a screen, and
+     * the rule is about how far anyone should have to drag, which the screen decides.
      */
-    const val KEEP = 124f
+    fun of(step: ViewStep, screenWidthDp: Int, iconDp: Int): Steps {
+        val indent = indentFor(step)
+        val room = 2f * screenWidthDp - START - afterIndent(iconDp)
+        return Steps(START, indent, floor(room / indent).toInt().coerceAtLeast(0))
+    }
+
+    /** What a row needs after its indent: the chevron, the icon, the gap, and a name worth reading. */
+    fun afterIndent(iconDp: Int): Float = CHEVRON + iconDp + GAP + NAME_MIN
+
+    /** How wide the sliding part of a row at [depth] has to be. */
+    fun needDp(depth: Int, steps: Steps, iconDp: Int): Float = steps.at(depth) + afterIndent(iconDp)
+
+    /**
+     * How far the tree may slide: what the deepest row on screen needs, less the width the
+     * sliding part of a row has. Zero when everything fits, which switches the drag off and
+     * leaves the gesture to the tab swipe.
+     */
+    fun maxSlideDp(deepest: Int, steps: Steps, iconDp: Int, slidingDp: Float): Float =
+        (needDp(deepest, steps, iconDp) - slidingDp).coerceAtLeast(0f)
+
+    /** The offset after moving by [delta], held inside 0..[max]. */
+    fun slid(offset: Float, delta: Float, max: Float): Float = (offset + delta).coerceIn(0f, max.coerceAtLeast(0f))
+
+    /** Who a sideways-ish touch belongs to. See [claim]. */
+    enum class Claim { UNDECIDED, SLIDE, LEAVE }
+
+    /**
+     * Whether a touch that has travelled [dx], [dy] is the tree's to slide.
+     *
+     * Sideways and past the slop, and only if the tree can move that way: a tree already at its
+     * end leaves the touch alone, so the tab swipe can have it. Down or up first, a long press,
+     * or a second finger, and it is somebody else's for the rest of the gesture.
+     *
+     * @param offset where the tree is now, and [max] how far it can go, both in pixels.
+     */
+    fun claim(dx: Float, dy: Float, slop: Float, offset: Float, max: Float, held: Boolean, fingers: Int): Claim {
+        if (held || fingers > 1) return Claim.LEAVE
+        val across = abs(dx)
+        val down = abs(dy)
+        if (down >= slop && down >= across) return Claim.LEAVE
+        if (across < slop || across <= down) return Claim.UNDECIDED
+        // A finger moving left shows what is to the right, so the offset grows.
+        val canMove = if (dx < 0f) offset < max - EDGE_PX else offset > EDGE_PX
+        return if (canMove) Claim.SLIDE else Claim.LEAVE
+    }
 
     /** The ordinary left margin, matching every other list in the app. */
     const val START = 10f
 
-    /** And the least it may become. Zero would put the first chevron against the frame. */
-    const val START_MIN = 2f
+    /** The chevron's box, reserved on every tree row whether or not it has an arrow. */
+    const val CHEVRON = 26f
 
-    /**
-     * The full step.
-     *
-     * Twenty, not a chevron's twenty-six. The first version made the step exactly one
-     * chevron wide so a child's arrow began where its parent's ended, which is tidy and
-     * costs a quarter more width per level than it needs to - X-plore, which is where the
-     * tree came from, steps in by well under its own arrow and the levels are still plainly
-     * distinct. The elbow still runs arrow to arrow either way; it is simply shorter.
-     */
-    const val INDENT = 20f
+    /** Between the icon and the name. */
+    const val GAP = 10f
 
-    /**
-     * The smallest step that still reads as a step.
-     *
-     * The elbow runs `indent - 6` dp from the parent's spine to the child's arrow, so at
-     * ten there are four dp of horizontal line: thin, but a visible join. Below that the
-     * corner and the run are the same pixel and the levels stop being distinguishable from
-     * one another, which is worse than a cut-off name.
-     */
-    const val INDENT_MIN = 10f
+    /** The least name a row is laid out with before the tree slides rather than squeezes. */
+    const val NAME_MIN = 160f
+
+    /** Within half a pixel of an end, call it the end. */
+    private const val EDGE_PX = 0.5f
 }

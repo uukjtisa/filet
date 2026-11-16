@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -50,12 +51,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -93,6 +96,7 @@ import dev.niccc2007.filet.storage.DiskTotals
 import dev.niccc2007.filet.storage.DiskShareBar
 import dev.niccc2007.filet.storage.DiskStrip
 import dev.niccc2007.filet.storage.DiskView
+import kotlin.math.roundToInt
 
 /**
  * One pane: header with its own search, scope chips, and the listing.
@@ -1052,11 +1056,12 @@ private fun FolderBody(
             first..last
         }
     }
-    // How far this tree may step in, given how wide the pane is and how deep it is open
-    // RIGHT NOW. One value for every row - see `TreeScale` for why it cannot be per row,
-    // and why the guides read it rather than a constant of their own.
-    val steps = remember(metrics.widthDp, treeRows) {
-        TreeScale.of(metrics.widthDp, treeRows.maxOfOrNull { it.depth } ?: 0)
+    // How far this tree steps in per level: fixed by the view size, and stopping at two screen
+    // widths. A deep tree slides sideways instead of squeezing - see `TreeScale` and
+    // `TreeSlide`. One value for every row, read by the padding and the guides alike.
+    val screenDp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
+    val steps = remember(metrics.step, screenDp, metrics.icon) {
+        TreeScale.of(metrics.step, screenDp, metrics.icon)
     }
     if (rows.isEmpty()) {
         EmptyNote(
@@ -1294,6 +1299,25 @@ private fun FolderBody(
     // Zero: the band overlays rather than reserving. See PaneInsets.end for why both of the
     // alternatives were worse.
     val padEnd = PaneInsets.end(app.split != SplitMode.OFF).dp
+    // The tree's sideways slide, one per pane like the list's own scroll. Its limit comes from
+    // the deepest row ON SCREEN, so a branch opened far down the list does not leave the rows
+    // here slid off to the left; scrolling back up from a deep branch brings them home.
+    val slide = remember(pane.id) { TreeSlide() }
+    val slideEnd = treeTrailingDp(display, metrics)
+    val depthOf = remember(treeRows, listKeys, tree) {
+        if (!tree) emptyMap() else HashMap<Any, Int>(treeRows.size).also { m ->
+            treeRows.forEachIndexed { i, r -> listKeys.getOrNull(i)?.let { m[it] = r.depth } }
+        }
+    }
+    val deepest by remember(listState, depthOf) {
+        derivedStateOf { listState.layoutInfo.visibleItemsInfo.maxOfOrNull { depthOf[it.key] ?: 0 } ?: 0 }
+    }
+    val slideScope = rememberCoroutineScope()
+    val slideMax = if (!tree) 0f else with(androidx.compose.ui.platform.LocalDensity.current) {
+        TreeScale.maxSlideDp(deepest, steps, metrics.icon, metrics.widthDp - padEnd.value - slideEnd).dp.toPx()
+    }
+    LaunchedEffect(slide, slideMax) { slide.limit(slideMax, slideScope) }
+    LaunchedEffect(slide, s.cwd) { slide.reset() }
 
     // Reach mode's empty top. See `ThumbReach` for why this is a gap and not a reversed list.
     //
@@ -1490,8 +1514,9 @@ private fun FolderBody(
         }
 
         FollowBackToTop(listState)
+        Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            Modifier.fillMaxSize().then(measure).then(pull),
+            Modifier.fillMaxSize().then(measure).then(pull).then(if (tree) Modifier.treeDrag(slide) else Modifier),
             state = listState,
             verticalArrangement = anchor,
             // The pick card's height is added to the bottom inset rather than drawn over the
@@ -1551,9 +1576,9 @@ private fun FolderBody(
                 // What this row opens into in a tree: a folder, or an archive's mount.
                 val branch = if (tree) TreeBranch.keyOf(node) else null
                 if (row?.loading == true) {
-                    BranchLoading(row.depth, steps, dropZone(registry, "branch-${row.node.path}", branch ?: row.node.path))
+                    BranchLoading(row.depth, steps, slide, dropZone(registry, "branch-${row.node.path}", branch ?: row.node.path))
                 } else if (row?.empty == true) {
-                    BranchEmpty(row.depth, steps, dropZone(registry, "branch-${row.node.path}", branch ?: row.node.path))
+                    BranchEmpty(row.depth, steps, slide, dropZone(registry, "branch-${row.node.path}", branch ?: row.node.path))
                 } else if (s.search.active) {
                     hitRow(node)
                 } else {
@@ -1590,6 +1615,7 @@ private fun FolderBody(
                         ),
                         treeRow = tree,
                         steps = steps,
+                        slide = if (tree) slide else null,
                         edge = frame?.let {
                             when {
                                 i !in it -> null
@@ -1645,6 +1671,8 @@ private fun FolderBody(
                     }
                 }
             }
+        }
+        if (tree) TreeSlideCues(slide, ground = MaterialTheme.colorScheme.background, endDp = slideEnd)
         }
     }
 
@@ -2166,12 +2194,15 @@ private fun dropZone(registry: DropRegistry, key: String, into: VPath): Modifier
 
 /** A branch that has been opened and is still being read. */
 @Composable
-private fun BranchLoading(depth: Int, steps: TreeScale.Steps, modifier: Modifier = Modifier) {
+private fun BranchLoading(depth: Int, steps: TreeScale.Steps, slide: TreeSlide, modifier: Modifier = Modifier) {
     Row(
         modifier
             .fillMaxWidth()
+            // Slides with the rows it sits among, clipped at the row's own edges.
+            .clipToBounds()
+            .offset { androidx.compose.ui.unit.IntOffset(-slide.offsetPx.roundToInt(), 0) }
             .padding(
-                start = (steps.startDp + depth * steps.indentDp).dp,
+                start = steps.at(depth).dp,
                 top = 6.dp,
                 bottom = 6.dp,
             ),
@@ -2198,12 +2229,15 @@ private fun BranchLoading(depth: Int, steps: TreeScale.Steps, modifier: Modifier
  * recognise the other without reading it.
  */
 @Composable
-private fun BranchEmpty(depth: Int, steps: TreeScale.Steps, modifier: Modifier = Modifier) {
+private fun BranchEmpty(depth: Int, steps: TreeScale.Steps, slide: TreeSlide, modifier: Modifier = Modifier) {
     Row(
         modifier
             .fillMaxWidth()
+            // Slides with the rows it sits among, clipped at the row's own edges.
+            .clipToBounds()
+            .offset { androidx.compose.ui.unit.IntOffset(-slide.offsetPx.roundToInt(), 0) }
             .padding(
-                start = (steps.startDp + depth * steps.indentDp).dp,
+                start = steps.at(depth).dp,
                 top = 6.dp,
                 bottom = 6.dp,
             ),

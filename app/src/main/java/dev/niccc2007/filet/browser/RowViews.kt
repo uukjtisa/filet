@@ -1,5 +1,9 @@
 package dev.niccc2007.filet.browser
 
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -190,6 +194,12 @@ fun FileRow(
      * deleted, and a row that looked unselected would hide that.
      */
     included: Boolean = false,
+    /**
+     * The pane's sideways slide, for a row in a tree. The names, icons, chevrons and guide lines
+     * move with it; the row's fill, its outline and the column at its end stay put. Null
+     * everywhere else. See [TreeSlide].
+     */
+    slide: TreeSlide? = null,
 ) {
     // The rows' own long-press timing - see RowTaps. Provided here so the drag detector that
     // arrives in `modifier` reads it too, which is the press that starts every selection.
@@ -199,7 +209,7 @@ fun FileRow(
         FileRowBody(
             node, metrics, selected, dropTarget, modifier, thumbnails, display, count, depth, spines,
             lastOfSiblings, treeRow, edge, steps, openInPlace, onOpenInPlace, selecting, onIconClick,
-            onClick, onLongClick, onDoubleClick, onTaps, listensFor, included,
+            onClick, onLongClick, onDoubleClick, onTaps, listensFor, included, slide,
         )
     }
 }
@@ -231,6 +241,7 @@ private fun FileRowBody(
     onTaps: ((Int, Offset) -> Unit)?,
     listensFor: Int,
     included: Boolean,
+    slide: TreeSlide?,
 ) {
     val colors = Filet.colors
     val accent = colors.accent
@@ -301,71 +312,26 @@ private fun FileRowBody(
                 // block, under the guides, fading with the rail.
                 val head = heldEdge == ActiveEdge.TOP || (heldEdge == ActiveEdge.ONLY && openInPlace == true)
                 if (treeRow && head && lit > 0.01f) drawRect(accent.copy(alpha = 0.12f * lit))
-                if (treeRow) treeGuides(depth, spines, lastOfSiblings, openInPlace, steps, accent)
+                if (treeRow) {
+                    // The guides slide with the names they lead to; the fill above and the
+                    // outline below stay put. Read here, in draw, so a slide recomposes nothing.
+                    val slid = slide?.offsetPx ?: 0f
+                    if (slid == 0f) {
+                        treeGuides(depth, spines, lastOfSiblings, openInPlace, steps, accent)
+                    } else {
+                        clipRect { translate(left = -slid) { treeGuides(depth, spines, lastOfSiblings, openInPlace, steps, accent) } }
+                    }
+                }
                 heldEdge?.takeIf { lit > 0.01f }?.let { activeRail(it, accent, lit) }
             }
             .padding(
-                start = (steps.startDp + depth * steps.indentDp).dp,
+                // A sliding row carries its indent inside the part that slides. See below.
+                start = if (slide != null) 0.dp else steps.at(depth).dp,
                 end = 10.dp,
                 top = if (step.twoLine) 6.dp else 3.dp,
                 bottom = if (step.twoLine) 6.dp else 3.dp,
             ),
     ) {
-        // The chevron, and only where it can do something.
-        //
-        // Its own target, separate from the row: tapping a folder's NAME still navigates
-        // into it, which is what keeps the path bar at the top meaning what it has always
-        // meant. A tree where the only way in is a chevron is a tree that has quietly
-        // replaced the browser instead of sitting inside it.
-        if (openInPlace != null && onOpenInPlace != null) {
-            // Draw-phase read, for the reason given on `bg`: a chevron turning must not
-            // recompose the row it sits in.
-            val turn = animateFloatAsState(
-                if (openInPlace) 0f else -90f,
-                animationSpec = Motion.fast(),
-                label = "branch",
-            )
-            Icon(
-                FiletIcons.Down, if (openInPlace) "Close" else "Open here",
-                tint = colors.fg3,
-                modifier = Modifier
-                    .size(26.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable(onClick = onOpenInPlace)
-                    .padding(7.dp)
-                    .graphicsLayer { rotationZ = turn.value },
-            )
-        } else if (treeRow || depth > 0) {
-            // The chevron's width is reserved whether or not there is one. Without this a
-            // file, or a folder with nothing in it, sat a chevron to the left of everything
-            // around it - which reads as the list being broken rather than as that row being
-            // different.
-            Spacer(Modifier.width(26.dp))
-        }
-        // The icon is its own target when the row can be selected: a tap on it toggles the
-        // selection, and the tick on its corner says so.
-        Box(
-            if (onIconClick != null) {
-                Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onIconClick)
-            } else {
-                Modifier
-            },
-        ) {
-            FileThumb(
-                node = node,
-                size = metrics.icon.dp,
-                fallbackTint = iconTint(kind, colors.accent, MaterialTheme.colorScheme.onSurfaceVariant, colors.fg2),
-                enabled = thumbnails,
-            )
-            SelectMark(
-                (selected || included) && onIconClick != null,
-                Modifier
-                    .align(Alignment.BottomEnd)
-                    .graphicsLayer { if (included && !selected) alpha = INCLUDED_ALPHA },
-                side = (metrics.icon * 0.5f).coerceIn(12f, 18f).dp,
-            )
-        }
-        Spacer(Modifier.width(10.dp))
         // ── everything inside this folder, if anything already knows it ───────────────────
         //
         // Hoisted above both surfaces that can ask for it. The line under the name and the
@@ -420,37 +386,110 @@ private fun FileRowBody(
                 delay(SETTLE_POLL_MS)
             }
         }
-        Column(Modifier.weight(1f)) {
-            // Whole, never dotted: it gives up size down to 11sp, then fades before its
-            // extension. See ListName.
-            ListNameText(
-                name = node.name,
-                color = MaterialTheme.colorScheme.onSurface,
-                startSp = step.nameSize.toFloat(),
-                lines = nameLineCount(step.twoLine, metrics.oneLineName, metrics.nameLines),
-                isDir = node.isDir,
-                fontWeight = if (node.isDir) FontWeight.Medium else FontWeight.Normal,
-            )
-            if (step.twoLine && display.parts.isNotEmpty()) {
-                // Remembered, not recomputed. Formatting a date is cheap once and expensive four
-                // hundred times a second: this is a list row, so the body below runs for every
-                // visible row on every recomposition, and a fling recomposes constantly. The
-                // keys are everything the line is derived from, so a row whose file has not
-                // changed formats its line exactly once.
-                val pieces = remember(node.isDir, node.size, node.mtime, display, count, node.name, total) {
-                    RowDetails.pieces(
-                        parts = display.parts,
-                        isDir = node.isDir,
-                        size = node.size,
-                        at = node.mtime,
-                        count = count,
-                        name = node.name,
-                        display = display,
-                        total = total,
-                    )
-                }
-                DetailLine(pieces = pieces, total = total, size = step.metaSize, colour = colors.fg3)
+        // The row's own part: chevron, icon and name. Held as one piece so a tree can slide it
+        // sideways without moving the column at the row's end.
+        val own: @Composable RowScope.() -> Unit = {
+            // The chevron, and only where it can do something.
+            //
+            // Its own target, separate from the row: tapping a folder's NAME still navigates
+            // into it, which is what keeps the path bar at the top meaning what it has always
+            // meant. A tree where the only way in is a chevron is a tree that has quietly
+            // replaced the browser instead of sitting inside it.
+            if (openInPlace != null && onOpenInPlace != null) {
+                // Draw-phase read, for the reason given on `bg`: a chevron turning must not
+                // recompose the row it sits in.
+                val turn = animateFloatAsState(
+                    if (openInPlace) 0f else -90f,
+                    animationSpec = Motion.fast(),
+                    label = "branch",
+                )
+                Icon(
+                    FiletIcons.Down, if (openInPlace) "Close" else "Open here",
+                    tint = colors.fg3,
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(onClick = onOpenInPlace)
+                        .padding(7.dp)
+                        .graphicsLayer { rotationZ = turn.value },
+                )
+            } else if (treeRow || depth > 0) {
+                // The chevron's width is reserved whether or not there is one. Without this a
+                // file, or a folder with nothing in it, sat a chevron to the left of everything
+                // around it - which reads as the list being broken rather than as that row being
+                // different.
+                Spacer(Modifier.width(26.dp))
             }
+            // The icon is its own target when the row can be selected: a tap on it toggles the
+            // selection, and the tick on its corner says so.
+            Box(
+                if (onIconClick != null) {
+                    Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onIconClick)
+                } else {
+                    Modifier
+                },
+            ) {
+                FileThumb(
+                    node = node,
+                    size = metrics.icon.dp,
+                    fallbackTint = iconTint(kind, colors.accent, MaterialTheme.colorScheme.onSurfaceVariant, colors.fg2),
+                    enabled = thumbnails,
+                )
+                SelectMark(
+                    (selected || included) && onIconClick != null,
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .graphicsLayer { if (included && !selected) alpha = INCLUDED_ALPHA },
+                    side = (metrics.icon * 0.5f).coerceIn(12f, 18f).dp,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                // Whole, never dotted: it gives up size down to 11sp, then fades before its
+                // extension. See ListName.
+                ListNameText(
+                    name = node.name,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    startSp = step.nameSize.toFloat(),
+                    lines = nameLineCount(step.twoLine, metrics.oneLineName, metrics.nameLines),
+                    isDir = node.isDir,
+                    fontWeight = if (node.isDir) FontWeight.Medium else FontWeight.Normal,
+                )
+                if (step.twoLine && display.parts.isNotEmpty()) {
+                    // Remembered, not recomputed. Formatting a date is cheap once and expensive four
+                    // hundred times a second: this is a list row, so the body below runs for every
+                    // visible row on every recomposition, and a fling recomposes constantly. The
+                    // keys are everything the line is derived from, so a row whose file has not
+                    // changed formats its line exactly once.
+                    val pieces = remember(node.isDir, node.size, node.mtime, display, count, node.name, total) {
+                        RowDetails.pieces(
+                            parts = display.parts,
+                            isDir = node.isDir,
+                            size = node.size,
+                            at = node.mtime,
+                            count = count,
+                            name = node.name,
+                            display = display,
+                            total = total,
+                        )
+                    }
+                    DetailLine(pieces = pieces, total = total, size = step.metaSize, colour = colors.fg3)
+                }
+            }
+        }
+        // In a tree, the part that slides: laid out at the width it needs rather than squeezed,
+        // and clipped where the column at the row's end begins. See TreeSlide.
+        if (slide != null) {
+            Box(Modifier.weight(1f).clipToBounds()) {
+                Row(
+                    Modifier
+                        .treeSlid(slide, TreeScale.needDp(depth, steps, metrics.icon))
+                        .padding(start = steps.at(depth).dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) { own() }
+            }
+        } else {
+            own()
         }
         // The column beside the name: one thing, or nothing. See `SideColumn` for why it is one
         // slot rather than the two independent booleans it replaced, and why a file and a folder
@@ -479,6 +518,22 @@ private fun FileRowBody(
             )
         }
     }
+}
+
+/**
+ * What a tree row keeps pinned at its end: its end margin and, where it shows, the column beside
+ * the name. The widest of a file's and a folder's, so the tree's right-hand cue and its slide
+ * limit never reach under a size or a date.
+ */
+@Composable
+internal fun treeTrailingDp(display: EntryDisplay, metrics: PaneMetrics): Float {
+    var widest = 0
+    for (isDir in booleanArrayOf(true, false)) {
+        val side = SideColumn.slotFor(display, isDir) ?: continue
+        if (!SideColumn.fits(side, metrics)) continue
+        widest = maxOf(widest, 8 + sideWidthDp(side, isDir, display, metrics.step.metaSize))
+    }
+    return 10f + widest
 }
 
 /**
@@ -1063,7 +1118,7 @@ private const val FRAME_IN_MS = 150
 private const val CHEVRON_HALF = 13
 
 /** A list that is not a tree: the full step, and nothing drawn. */
-private val FLAT = TreeScale.Steps(TreeScale.START, TreeScale.INDENT)
+private val FLAT = TreeScale.Steps(TreeScale.START, TreeScale.indentFor(ViewStep.LIST))
 
 /**
  * How far into its 26dp box the arrow glyph actually starts.
@@ -1105,7 +1160,6 @@ private fun DrawScope.treeGuides(
     accent: Color,
 ) {
     val indent = steps.indentDp.dp.toPx()
-    val start = steps.startDp.dp.toPx()
     val middle = size.height * 0.5f
     val width = 1.2.dp.toPx()
     // A generous corner, but not so generous that it eats the whole run. At 0.46 the arc
@@ -1134,7 +1188,7 @@ private fun DrawScope.treeGuides(
     // supposed to be hanging from, with a gap in between. A parent now draws from its own
     // middle down to its bottom edge, in its children's column, and the two meet.
     if (openInPlace == true) {
-        val childX = start + depth * indent + CHEVRON_HALF.dp.toPx()
+        val childX = steps.at(depth).dp.toPx() + CHEVRON_HALF.dp.toPx()
         drawLine(
             color = levelColour(accent, depth),
             start = Offset(childX, middle),
@@ -1150,7 +1204,7 @@ private fun DrawScope.treeGuides(
         // of the chevron it belonged to, so it pointed at nothing at the top and arrived
         // beside the icon at the bottom. A guide that does not start at the thing it is
         // guiding from is worse than no guide.
-        val x = start + level * indent + CHEVRON_HALF.dp.toPx()
+        val x = steps.at(level).dp.toPx() + CHEVRON_HALF.dp.toPx()
         val colour = levelColour(accent, level)
 
         if (level < depth - 1) {
