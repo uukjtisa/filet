@@ -143,10 +143,14 @@
   <button data-s="viewFull">View: full screen</button>
   <button data-s="viewFloat">View: floating window</button>
 </div>
+<div class="bar" id="where">
+  <button data-w="app" class="on">Over another app</button>
+  <button data-w="filet">Inside Filet (new: the same card)</button>
+</div>
 
 <div class="row">
   <div class="col">
-    <h2>Today - only while Filet is open</h2>
+    <h2>Today - only while Filet is open (replaced)</h2>
     <div class="phone">
       <div class="scrim">
         <div class="dlg">
@@ -163,15 +167,16 @@
   </div>
 
   <div class="col">
-    <h2>Proposal - over the app in use</h2>
+    <h2 id="ptitle">Proposal - over the app in use</h2>
     <div class="phone" id="stage"></div>
   </div>
 
   <div class="col">
-    <h2>Settings &rsaquo; Nearby &rsaquo; Incoming files</h2>
+    <h2>Settings &rsaquo; Activity &rsaquo; Nearby</h2>
     <div class="set">
-      <h3>Incoming files</h3>
-      <div class="it"><div>Ready while Filet is closed<small>Hears a send with Filet in the background. Android shows a minimised notification for it, which can be swiped away.</small></div><span class="sw"></span></div>
+      <h3>Nearby (under Cards and messages)</h3>
+      <div class="it"><div>Pop-ups<small>Moved here from the Share page: whether another Filet's send asks at all</small><div class="seg"><span class="on">On</span><span>Off for an hour</span><span>Off</span></div></div></div>
+      <div class="it"><div>Ready while Filet is closed<small>Hears a send with Filet in the background. Its notification sits folded and swipes away.</small></div><span class="sw"></span></div>
       <div class="it"><div>How a send asks<div class="seg"><span class="on">Side card</span><span>Full dialog</span><span>Notification</span></div></div></div>
       <div class="it"><div>Fast share asks with<div class="seg"><span class="on">Mini card</span><span>Same as above</span></div></div></div>
       <div class="it"><div>Play media muted at first<small>In the full dialog, before accepting</small></div><span class="sw"></span></div>
@@ -187,6 +192,8 @@
   <li><b>Full dialog</b> (optional, the "How a send asks" setting) sits in the centre with the preview: pictures shown, video and audio playable (muted at first when that is on), text and Markdown readable. Any other file shows its type icon. Swipe the stage or tap the strip to move between files.</li>
   <li>Viewing before accepting streams from the sender and saves nothing. Accept saves to Filet/Received, and after that View opens the saved copy.</li>
   <li><b>View</b> opens full screen over the app (Back returns to it) or in a floating window that can be dragged and resized, with a video still playing while the app underneath is used.</li>
+  <li><b>New, 2026-11-15: one design, one pipeline.</b> Inside Filet the send asks with the same side card, mini card or full dialog as over another app, previews included, drawn over Filet's own screen. Today's in-app dialogue goes. Whatever "How a send asks" says holds everywhere; the notification is used only when Filet is closed and cannot draw over other apps.</li>
+  <li><b>New, 2026-11-15: the settings live in Settings &rsaquo; Activity, as a Nearby group under Cards and messages</b>, beside the other things that pop up. Pop-ups moves there from the Share page too, so every option about how a send asks sits in one place. The Share page keeps a single row that opens this group. Chosen over the first proposal, a Settings tab of its own: five options do not earn a tab, and Activity already owns "what pops up and when".</li>
 </ul>
 
 <script>
@@ -197,6 +204,9 @@ const thumbs = `<div class="thumbs">
   <div class="th g1"><span class="eye">View</span></div>
   <div class="th g3"><div class="play">&#9654;</div><span class="eye">View</span></div>
   <div class="th g2"><div class="more">+1</div></div></div>`;
+const filetBg = `<div class="other"><div class="top">&#9679; Filet &middot; Internal storage</div>
+  <div class="bub">DCIM</div><div class="bub">Download</div><div class="bub">Filet</div><div class="bub">Music</div></div>`;
+let where = "app";
 const views = {
   card: other + `<div class="card"><div class="who"><div class="av">N</div><div><b>Nova 10</b><small>wants to send you 3 files</small></div><span class="x">&#10005;</span></div>
     ${thumbs}<div class="meta"><b>IMG_20251115_101010.jpg</b>, a video and notes.md &middot; 51 MB</div>
@@ -233,11 +243,16 @@ const views = {
     <div class="bot"><span>&#8595;<br>Save</span><span>&#8599;<br>Share</span><span>&#9707;<br>Open in Filet</span><span>&#10005;<br>Decline</span></div></div>`,
   viewFloat: other + `<div class="float g3"><div class="bar2"><span>&#10005;</span><span>VID_20251115&hellip;</span><span>&#9744;</span></div><div class="play" style="position:absolute;inset:0;display:grid;place-items:center;font-size:26px">&#10074;&#10074;</div><div class="grip"></div></div>`,
 };
+let shown = "card";
 function show(k) {
-  S.innerHTML = views[k];
+  shown = k;
+  S.innerHTML = where === "app" ? views[k] : views[k].replace(other, filetBg);
+  document.getElementById("ptitle").textContent = where === "app" ? "Proposal - over the app in use" : "Proposal - inside Filet, the same card";
+  document.querySelectorAll("#where button").forEach(b => b.classList.toggle("on", b.dataset.w === where));
   document.querySelectorAll("#bar button").forEach(b => b.classList.toggle("on", b.dataset.s === k));
 }
 document.getElementById("bar").addEventListener("click", e => { if (e.target.dataset.s) show(e.target.dataset.s); });
+document.getElementById("where").addEventListener("click", e => { if (e.target.dataset.w) { where = e.target.dataset.w; show(shown); } });
 show("card");
 </script>
 </body>
