@@ -66,6 +66,8 @@ data class SelectionShape(
      * that runs and produces nothing anybody asked for.
      */
     val audio: Int = 0,
+    /** How many are PDFs, by name, as the reader is chosen. */
+    val pdf: Int = 0,
 ) {
     /** How many are files rather than folders. */
     val files: Int get() = count - folders
@@ -76,14 +78,16 @@ data class SelectionShape(
             var playable = 0
             var media = 0
             var audio = 0
+            var pdf = 0
             for (n in nodes) {
                 val kind = FileKind.of(n)
                 if (kind == FileKind.FOLDER) folders++
                 if (kind == FileKind.AUDIO) audio++
                 if (kind == FileKind.AUDIO || kind == FileKind.VIDEO) playable++
                 if (kind == FileKind.AUDIO || kind == FileKind.VIDEO || kind == FileKind.IMAGE) media++
+                if (kind != FileKind.FOLDER && n.extension.equals("pdf", ignoreCase = true)) pdf++
             }
-            return SelectionShape(nodes.size, folders, playable, media, audio)
+            return SelectionShape(nodes.size, folders, playable, media, audio, pdf)
         }
 
         /** [count] plain files, none of them media. What a caller with no nodes in hand means. */
@@ -244,6 +248,22 @@ fun selectionActions(
                     group = SelectionAction.Group.EDIT, run = on.openWith,
                 ),
             )
+        }
+        // PDF password: one PDF. Whether it has one is read when the row is pressed, so the row
+        // names the subject rather than a verb - see `PdfPasswordFlow`. Blocked on a read-only
+        // volume, since the file is saved over; never in the Locker (not in IN_LOCKER), whose
+        // files are not rewritten in place.
+        if (oneFile && shape.pdf == 1) {
+            on.pdfPassword?.let { run ->
+                add(
+                    SelectionAction(
+                        "pdfpassword", "PDF password", icons.lock ?: icons.cog,
+                        blocked = readOnly, group = SelectionAction.Group.EDIT,
+                        detail = "Lock it, or change or remove the one it has",
+                        run = run,
+                    ),
+                )
+            }
         }
         // Change icon: folders only, any number of them, and nothing but folders. The look is kept
         // in Filet rather than in the folder, so a read-only volume does not block it.
@@ -465,4 +485,6 @@ data class SelectionCallbacks(
     val toLocker: (() -> Unit)? = null,
     /** Release, from inside the Locker. */
     val release: (() -> Unit)? = null,
+    /** Lock, change or remove a PDF's password; null where a surface has its own (the reader). */
+    val pdfPassword: (() -> Unit)? = null,
 )

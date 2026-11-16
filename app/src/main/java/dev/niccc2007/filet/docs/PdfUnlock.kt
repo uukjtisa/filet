@@ -64,6 +64,19 @@ object PdfUnlock {
         Result.Unsupported(e.message ?: "This PDF is damaged.")
     }
 
+    /**
+     * Whether [password] opens [src], reading only its lock and writing nothing. [Result.Unlocked]
+     * here means it would: the check made before a password is changed or taken off from the
+     * file list, so a wrong one is said at once rather than after a rewrite.
+     */
+    fun check(src: PdfSource, password: String): Result = try {
+        Unlocker(Bytes(src)).check(password)
+    } catch (e: Unreadable) {
+        Result.Unsupported(e.message ?: "This PDF is damaged.")
+    } catch (e: Exception) {
+        Result.Unsupported("This PDF could not be read.")
+    }
+
     /** Whether [src] is encrypted at all: what the reader refusing it is about. */
     fun isLocked(src: PdfSource): Boolean = runCatching { Unlocker(Bytes(src)).encryptDict() != null }.getOrDefault(false)
 
@@ -297,15 +310,23 @@ internal class Unlocker(val b: Bytes) {
     }
 
     fun run(password: String, out: OutputStream): PdfUnlock.Result {
-        val enc = encryptDict() ?: return PdfUnlock.Result.NotLocked
+        val (sec, result) = opened(password)
+        if (sec != null) write(sec, (trailer!!["Encrypt"] as? PRef)?.num, out)
+        return result
+    }
+
+    /** [run] without the writing: whether [password] opens the lock. */
+    fun check(password: String): PdfUnlock.Result = opened(password).second
+
+    /** The lock opened with [password], or null and why not. */
+    private fun opened(password: String): Pair<Security?, PdfUnlock.Result> {
+        val enc = encryptDict() ?: return null to PdfUnlock.Result.NotLocked
         if (enc.name("Filter") != "Standard") {
-            return PdfUnlock.Result.Unsupported("This PDF is locked to a certificate, not a password.")
+            return null to PdfUnlock.Result.Unsupported("This PDF is locked to a certificate, not a password.")
         }
         val sec = Security.of(enc, trailer!!)
-            ?: return PdfUnlock.Result.Unsupported("This PDF is locked in a way Filet cannot open.")
-        if (!sec.open(password)) return PdfUnlock.Result.WrongPassword
-        write(sec, (trailer!!["Encrypt"] as? PRef)?.num, out)
-        return PdfUnlock.Result.Unlocked
+            ?: return null to PdfUnlock.Result.Unsupported("This PDF is locked in a way Filet cannot open.")
+        return if (sec.open(password)) sec to PdfUnlock.Result.Unlocked else null to PdfUnlock.Result.WrongPassword
     }
 
     /** Open whatever lock it has with [current], then write it out locked by [lock] instead. */

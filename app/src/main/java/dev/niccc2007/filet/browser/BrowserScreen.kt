@@ -1614,6 +1614,12 @@ private fun SelectionBar(
                     p.clearSelection()
                 }
             },
+            pdfPassword = {
+                vm.focusedPane()?.let { p ->
+                    dev.niccc2007.filet.docs.PdfPasswordAsk.open(p.selectedNodes())
+                    p.clearSelection()
+                }
+            },
         ),
         archive = vm.selectionIsArchive(),
         otherPane = vm.isSplit(),

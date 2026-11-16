@@ -2125,6 +2125,10 @@ private fun PaneContextMenu(
                 dev.niccc2007.filet.icons.FolderIconAsk.open(pane.selectedNodes())
                 pane.clearSelection()
             },
+            pdfPassword = {
+                dev.niccc2007.filet.docs.PdfPasswordAsk.open(pane.selectedNodes())
+                pane.clearSelection()
+            },
         ),
         archive = vm.selectionIsArchive(),
         otherPane = vm.isSplit(),

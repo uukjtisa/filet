@@ -63,7 +63,6 @@ import dev.niccc2007.filet.ui.dialogs.BtnKind
 import dev.niccc2007.filet.ui.dialogs.Dlg
 import dev.niccc2007.filet.ui.dialogs.DlgBody
 import dev.niccc2007.filet.ui.dialogs.DlgBtn
-import dev.niccc2007.filet.ui.dialogs.DlgCaption
 import dev.niccc2007.filet.ui.dialogs.DlgField
 import dev.niccc2007.filet.ui.dialogs.DlgFooter
 import dev.niccc2007.filet.ui.dialogs.DlgHeader
@@ -283,59 +282,6 @@ fun PdfScreen(vm: BrowserViewModel, node: VNode) {
                 }
             },
         )
-    }
-}
-
-private enum class PasswordChange(val title: String, val action: String, val done: String) {
-    LOCK("Lock with a password", "Lock", "Locked with a password"),
-    CHANGE("Change password", "Change", "Password changed"),
-    REMOVE("Remove password", "Remove", "Password removed"),
-}
-
-/**
- * A new password twice, or a removal confirmed. The file is saved over while this is open, so
- * it cannot be dismissed until that is done, and a failure is shown in it rather than lost.
- */
-@Composable
-private fun PasswordChangeDialog(
-    what: PasswordChange,
-    name: String,
-    working: Boolean,
-    failed: String?,
-    onGo: (String?) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var first by remember { mutableStateOf("") }
-    var again by remember { mutableStateOf("") }
-    val differs = again.isNotEmpty() && again != first
-    val ready = what == PasswordChange.REMOVE || (first.isNotEmpty() && again == first)
-    Dlg(onDismiss = onDismiss, dismissOnScrim = false) {
-        DlgHeader(if (what == PasswordChange.CHANGE) FiletIcons.Key else FiletIcons.Lock, what.title, sub = name, onClose = onDismiss)
-        DlgBody {
-            // One banner: what went wrong when something did, else what this change costs.
-            DlgWarn(
-                when {
-                    failed != null -> failed
-                    what == PasswordChange.REMOVE -> "Anyone who has the file will be able to open it."
-                    else -> "Without it the file will not open, and there is no way to get it back if it is forgotten."
-                },
-                bad = failed != null,
-            )
-            if (what != PasswordChange.REMOVE) {
-                DlgField("New password", first, { first = it }, password = true, enabled = !working)
-                DlgField("Type it again", again, { again = it }, password = true, enabled = !working)
-                if (differs) DlgCaption("The two do not match.")
-            }
-        }
-        DlgFooter {
-            DlgSpacer()
-            DlgBtn("Cancel", enabled = !working, onClick = onDismiss)
-            DlgBtn(
-                if (working) "Saving" else what.action,
-                kind = if (what == PasswordChange.REMOVE) BtnKind.DANGER else BtnKind.PRIMARY,
-                enabled = ready && !working,
-            ) { onGo(if (what == PasswordChange.REMOVE) null else first) }
-        }
     }
 }
 

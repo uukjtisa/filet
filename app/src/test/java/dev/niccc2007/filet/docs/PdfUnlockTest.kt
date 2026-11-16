@@ -27,6 +27,18 @@ class PdfUnlockTest {
     }
 
     @Test
+    fun `the check says whether a password opens the lock, and writes nothing`() {
+        for (name in locked) {
+            val src = ByteArrayPdf(fixture(name))
+            assertEquals(name, PdfUnlock.Result.Unlocked, PdfUnlock.check(src, "filet"))
+            assertEquals(name, PdfUnlock.Result.WrongPassword, PdfUnlock.check(src, "nope"))
+        }
+        assertEquals(PdfUnlock.Result.NotLocked, PdfUnlock.check(ByteArrayPdf(fixture("plain.pdf")), "filet"))
+        // Not a PDF at all: whatever it says, never that the password opened it, and no throw.
+        assertTrue(PdfUnlock.check(ByteArrayPdf("not a pdf".toByteArray()), "filet") != PdfUnlock.Result.Unlocked)
+    }
+
+    @Test
     fun `every kind opens with the user password into a plain PDF`() {
         val keep = File("build/pdfunlock").apply { mkdirs() }
         for (name in locked) {

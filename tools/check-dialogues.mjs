@@ -59,6 +59,7 @@ const SINCE_THE_MOCK = {
   Release: "the Locker came after the mock; drawn in the Locker mock",
   "Filet Portal": "Portal came after the mock; drawn in the submenus mock, under Share",
   "Add to nearby share": "Nearby renamed when it went under Share; drawn in the submenus mock",
+  "PDF password": "came after the mock; the file list's way to the PDF reader's own Lock, Change and Remove rows",
 };
 
 /** Things the redesign adds that the app has no action for yet. Not failures; new work. */

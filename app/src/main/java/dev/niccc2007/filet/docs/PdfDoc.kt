@@ -308,6 +308,35 @@ class PdfDoc private constructor(
         const val MAX_REWRITE = 64L * 1024 * 1024
 
         /**
+         * Whether [node] has a password, from its trailer, without opening it. Null when it
+         * could not be copied out of where it is or read at all.
+         */
+        suspend fun isLocked(
+            copy: dev.niccc2007.filet.ops.LocalCopy,
+            node: dev.niccc2007.filet.vfs.VNode,
+        ): Boolean? {
+            val file = copy.of(node) ?: return null
+            return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { java.io.RandomAccessFile(file, "r").use { PdfUnlock.isLocked(FileSource(it)) } }.getOrNull()
+            }
+        }
+
+        /**
+         * Whether [password] opens [node]'s lock, reading only the lock. See [PdfUnlock.check].
+         */
+        suspend fun checkPassword(
+            copy: dev.niccc2007.filet.ops.LocalCopy,
+            node: dev.niccc2007.filet.vfs.VNode,
+            password: String,
+        ): PdfUnlock.Result {
+            val file = copy.of(node) ?: return PdfUnlock.Result.Unsupported("This PDF could not be copied out of where it is.")
+            return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { java.io.RandomAccessFile(file, "r").use { PdfUnlock.check(FileSource(it), password) } }
+                    .getOrElse { PdfUnlock.Result.Unsupported("This PDF could not be read.") }
+            }
+        }
+
+        /**
          * Lock [node] with [password], or take its lock off when [password] is null; [current]
          * opens the lock it has now. The new file is built in memory, checked by
          * [PdfLock.verify], and handed to [replace] - which swaps it in only once it reads back
