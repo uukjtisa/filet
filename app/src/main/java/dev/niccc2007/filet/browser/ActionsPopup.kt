@@ -29,7 +29,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -102,9 +107,12 @@ fun ActionsPopup(
     // Destructive last and separated - the one instruction the redesign spec gives this surface
     // beyond the grouping.
     val destructive = actions.filter { it.danger }
+    // Share and any other row with rows of its own open them beside this card. See SubMenu.kt.
+    val subs = rememberSubMenus()
 
     Dialog(
-        onDismissRequest = onDismiss,
+        // Back closes the newest submenu first, then the card.
+        onDismissRequest = { if (!subs.back()) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.52f))) {
@@ -132,6 +140,7 @@ fun ActionsPopup(
                         // pill's own shape and colour, so the two read as one control.
                         .padding(end = 8.dp, bottom = above?.let { it + 8.dp } ?: 56.dp)
                         .widthIn(max = minOf(268.dp, room - 20.dp))
+                        .onGloballyPositioned { subs.panels[0] = it.boundsInRoot() }
                         .shadow(6.dp, PillShape)
                         .clip(PillShape)
                         .background(colors.raised)
@@ -147,19 +156,20 @@ fun ActionsPopup(
                 ) {
                     if (onThis.isNotEmpty()) {
                         ActionGroupLabel("This file")
-                        for (a in onThis) ActionRow(a, onBlocked, onDismiss)
+                        for (a in onThis) ActionRow(a, subs, onBlocked, onDismiss)
                     }
                     if (putSomewhere.isNotEmpty()) {
                         if (onThis.isNotEmpty()) ActionSeparator()
                         ActionGroupLabel("Put somewhere")
-                        for (a in putSomewhere) ActionRow(a, onBlocked, onDismiss)
+                        for (a in putSomewhere) ActionRow(a, subs, onBlocked, onDismiss)
                     }
                     if (destructive.isNotEmpty()) {
                         ActionSeparator()
-                        for (a in destructive) ActionRow(a, onBlocked, onDismiss)
+                        for (a in destructive) ActionRow(a, subs, onBlocked, onDismiss)
                     }
                 }
             }
+            SubMenuStack(subs, onBlocked, onDismiss)
         }
     }
 }
@@ -212,10 +222,13 @@ private fun ActionSeparator() {
 @Composable
 private fun ActionRow(
     action: SelectionAction,
+    subs: SubMenus,
     onBlocked: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = Filet.colors
+    var at by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    val open = subs.isOpen(0, action.id)
     val ink = when {
         action.blocked != null -> colors.fg3
         action.danger -> colors.bad
@@ -224,12 +237,10 @@ private fun ActionRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .onGloballyPositioned { at = it.boundsInRoot() }
             .clip(RoundedCornerShape(9.dp))
-            .clickable {
-                val why = action.blocked
-                if (why != null) onBlocked(why) else action.run()
-                onDismiss()
-            }
+            .background(if (open) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+            .clickable { pressed(action, 0, at, subs, onBlocked, onDismiss) }
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Start,
@@ -256,6 +267,14 @@ private fun ActionRow(
                 Spacer(Modifier.height(1.dp))
                 Text(it, fontSize = 11.sp, lineHeight = 14.sp, color = colors.fg3)
             }
+        }
+        if (action.children.isNotEmpty()) {
+            Icon(
+                FiletIcons.Chevron,
+                if (open) "Close ${action.label}" else "Open ${action.label}",
+                tint = if (open) colors.accent else colors.fg3,
+                modifier = Modifier.size(14.dp),
+            )
         }
     }
 }

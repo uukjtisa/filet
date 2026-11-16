@@ -57,6 +57,8 @@ const SINCE_THE_MOCK = {
   "Fast share": "came after the mock; drawn in the share page mock's ways in",
   "Move to Locker": "the Locker came after the mock; drawn in the Locker mock",
   Release: "the Locker came after the mock; drawn in the Locker mock",
+  "Filet Portal": "Portal came after the mock; drawn in the submenus mock, under Share",
+  "Add to nearby share": "Nearby renamed when it went under Share; drawn in the submenus mock",
 };
 
 /** Things the redesign adds that the app has no action for yet. Not failures; new work. */

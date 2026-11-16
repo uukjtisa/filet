@@ -216,6 +216,8 @@ object FiletIcons {
     /** Disk map: four bars, longest first - what takes the space, ranked. */
     val DiskMap = stroke("diskmap", "M4 5h16", "M4 10h11", "M4 15h7", "M4 20h3")
     val Share = stroke("share", "M12 15V4", "m8 8 4-4 4 4", "M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5")
+    /** Filet's own ways to share, apart from Send's arrow out of a box. */
+    val ShareNodes = stroke("sharenodes", "M20.5 5a2.5 2.5 0 1 1-5 0a2.5 2.5 0 1 1 5 0", "M8.5 12a2.5 2.5 0 1 1-5 0a2.5 2.5 0 1 1 5 0", "M20.5 19a2.5 2.5 0 1 1-5 0a2.5 2.5 0 1 1 5 0", "M8.2 10.8l7.6-4.4", "M8.2 13.2l7.6 4.4")
     val Eye = stroke("eye", "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12", "M14.5 12a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0")
     // The same eye with the slash through it, for "stop showing me this". Drawn as the open eye
     // plus a stroke rather than as a separate shape, so the pair reads as one control in two

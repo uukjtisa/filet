@@ -29,6 +29,15 @@ data class SelectionAction(
     val danger: Boolean = false,
     /** Actions are grouped; a divider is drawn where the group changes. */
     val group: Group = Group.FILE,
+    /** A line under the label saying what it does, where the label alone does not. */
+    val detail: String? = null,
+    /** The heading this row sits under inside its parent's submenu. */
+    val section: String? = null,
+    /**
+     * The rows of a submenu, or empty for a row that just runs. A menu opens them beside itself
+     * (see SubMenu.kt), a bar as a dialogue, so the parent's [run] is never called.
+     */
+    val children: List<SelectionAction> = emptyList(),
     val run: () -> Unit,
 ) {
     enum class Group { FILE, EDIT, PLACE }
@@ -299,29 +308,53 @@ fun selectionActions(
         on.invert?.let { run ->
             add(SelectionAction("invert", "Invert selection", icons.invert, group = SelectionAction.Group.EDIT, run = run))
         }
-        // Bookmark and Nearby take any number of files and folders.
+        // Bookmark and Share take any number of files and folders.
         add(
             SelectionAction(
                 "bookmark", "Bookmark", icons.star,
                 group = SelectionAction.Group.PLACE, run = on.bookmark,
             ),
         )
-        add(
-            SelectionAction(
-                "nearby", "Nearby", icons.wifi,
-                group = SelectionAction.Group.PLACE, run = on.nearby,
-            ),
-        )
-        // Beside Nearby: the same share, as a QR or a push to a Filet nearby, at once. Only where
-        // the surface has wired it, so it is never a button that does nothing.
-        on.fastShare?.let { fast ->
+        // Filet's own ways to share, under one entry rather than scattered: over the internet
+        // with Portal, or to phones nearby. Send, which hands files to another app, stays apart.
+        // Portal and Fast share only where the surface has wired them, so neither is ever a row
+        // that does nothing.
+        val ways = buildList {
+            on.portal?.let { run ->
+                add(
+                    SelectionAction(
+                        "portal", "Filet Portal", icons.link ?: icons.share,
+                        group = SelectionAction.Group.PLACE,
+                        detail = "A link that works anywhere, for a while",
+                        section = SHARE_INTERNET, run = run,
+                    ),
+                )
+            }
+            on.fastShare?.let { run ->
+                add(
+                    SelectionAction(
+                        "fastshare", "Fast share", icons.fast ?: icons.share,
+                        group = SelectionAction.Group.PLACE,
+                        detail = "A QR, or straight to a Filet nearby",
+                        section = SHARE_NEARBY, run = run,
+                    ),
+                )
+            }
             add(
                 SelectionAction(
-                    "fastshare", "Fast share", icons.fast ?: icons.share,
-                    group = SelectionAction.Group.PLACE, run = fast,
+                    "nearby", "Add to nearby share", icons.wifi,
+                    group = SelectionAction.Group.PLACE,
+                    detail = "On the Share page for phones nearby",
+                    section = SHARE_NEARBY, run = on.nearby,
                 ),
             )
         }
+        add(
+            SelectionAction(
+                "share", "Share", icons.nodes ?: icons.wifi,
+                group = SelectionAction.Group.PLACE, children = ways, run = {},
+            ),
+        )
         // Into the Locker, from anywhere outside it. Blocked where the files cannot be taken
         // away, since a move that cannot delete is a copy left in the open.
         if (!picking && !locker) {
@@ -363,6 +396,10 @@ fun selectionActions(
     }.let { all -> if (locker) all.filter { it.id in IN_LOCKER } else all }
 }
 
+/** The Share submenu's two headings. */
+const val SHARE_INTERNET = "Over the internet"
+const val SHARE_NEARBY = "Nearby"
+
 /** The rows a selection inside the Locker keeps. See the `locker` parameter of [selectionActions]. */
 val IN_LOCKER = setOf("reveal", "copy", "move", "rename", "details", "copypath", "invert", "release", "delete")
 
@@ -387,6 +424,10 @@ data class SelectionIcons(
     val invert: ImageVector = rows,
     val fast: ImageVector? = null,
     val lock: ImageVector? = null,
+    /** Filet Portal. */
+    val link: ImageVector? = null,
+    /** The Share entry: Filet's own ways, apart from Send's glyph. */
+    val nodes: ImageVector? = null,
 )
 
 /** What each action does. Separate from the list so the list can be built in a test. */
@@ -404,6 +445,8 @@ data class SelectionCallbacks(
     val shortcut: () -> Unit,
     /** Fast share: null where the surface does not offer it. */
     val fastShare: (() -> Unit)? = null,
+    /** Send with Filet Portal: null where the surface does not offer it. */
+    val portal: (() -> Unit)? = null,
     val extractHere: () -> Unit = {},
     val extractToOtherPane: () -> Unit = {},
     val install: () -> Unit = {},

@@ -1551,6 +1551,9 @@ private fun SelectionBar(
     val colors = Filet.colors
     val onBar = SelectionBarConfig.normalise(vm.prefs.selectionBar.collectAsState().value)
     var moreOpen by remember { mutableStateOf(false) }
+    // A bar button with rows of its own (Share) opens them as a dialogue: a bar at the bottom of
+    // the screen has no menu to sit beside.
+    var choice by remember { mutableStateOf<SelectionAction?>(null) }
     // How far up from the bottom of the window the pill's top edge is: More's card opens there,
     // over the pill, wherever the bars under it have put it.
     var above by remember { mutableStateOf(0.dp) }
@@ -1567,6 +1570,7 @@ private fun SelectionBar(
             apk = FiletIcons.Apk, cog = FiletIcons.Cog,
             audio = FiletIcons.Audio, rows = FiletIcons.Rows,
             folder = FiletIcons.FolderOpen, invert = FiletIcons.Check, lock = FiletIcons.Lock,
+            link = FiletIcons.Link, nodes = FiletIcons.ShareNodes,
         ),
         on = SelectionCallbacks(
             copy = { vm.copySelection() },
@@ -1580,6 +1584,13 @@ private fun SelectionBar(
             bookmark = { vm.bookmarkSelection() },
             nearby = { vm.shareSelectionNearby() },
             fastShare = { vm.fastShareSelection() },
+            portal = {
+                vm.focusedPane()?.let { p ->
+                    val items = p.selectedNodes()
+                    p.clearSelection()
+                    vm.portalSend(items)
+                }
+            },
             toLocker = { vm.moveToLockerSelection() },
             release = { vm.releaseSelection() },
             shortcut = { vm.shortcutSelection() },
@@ -1701,7 +1712,7 @@ private fun SelectionBar(
                             if (action.danger) colors.bad else colors.fg2,
                             blocked = action.blocked,
                             onBlocked = vm::toast,
-                            onClick = action.run,
+                            onClick = if (action.children.isEmpty()) action.run else ({ choice = action }),
                         )
                     }
                 }
@@ -1734,6 +1745,10 @@ private fun SelectionBar(
                 BarGlyph(FiletIcons.More, "More actions") { moreOpen = true }
             }
         }
+    }
+
+    choice?.let { a ->
+        ActionChoiceDialog(a, if (a.id == "share") SHARE_SUB else null, vm::toast) { choice = null }
     }
 
     if (moreOpen) {

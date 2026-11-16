@@ -29,8 +29,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import dev.niccc2007.filet.ui.dialogs.DlgCtxHead
 import dev.niccc2007.filet.ui.dialogs.DlgIconBar
 import dev.niccc2007.filet.ui.dialogs.DlgIconBtn
@@ -51,8 +55,9 @@ import dev.niccc2007.filet.ui.theme.Filet
  * ## Why this is not a DropdownMenu
  *
  * `DropdownMenu` anchors to a composable, and this anchors to a **finger**: the menu should open
- * where the press landed, the way a right-click does. So it is a `Popup` positioned from the
- * press coordinates, with the caller clamping it on screen.
+ * where the press landed, the way a right-click does. So it is placed from the press
+ * coordinates, in a full-window layer (see SubMenu.kt) that pushes it in from any edge it would
+ * cross and lets a submenu open beside it.
  */
 @Composable
 fun ContextMenu(
@@ -70,13 +75,21 @@ fun ContextMenu(
     offsetY: Int,
 ) {
     val colors = Filet.colors
-    Popup(
-        offset = androidx.compose.ui.unit.IntOffset(offsetX, offsetY),
-        onDismissRequest = onDismiss,
-        properties = PopupProperties(focusable = true),
-    ) {
+    val subs = rememberSubMenus()
+    // The press is measured in the app's window; the layer is a window of its own.
+    val host = androidx.compose.ui.platform.LocalView.current
+    val hostOnScreen = remember(host) { IntArray(2).also(host::getLocationOnScreen) }
+    MenuLayer(subs = subs, onDismiss = onDismiss, onBlocked = onBlocked) { room, layerOnScreen ->
         Column(
             Modifier
+                // At the press, pushed in from any edge it would cross. The layer is the whole
+                // window, so a submenu can sit beside this wherever it is.
+                .atPress(
+                    offsetX + hostOnScreen[0] - layerOnScreen.x,
+                    offsetY + hostOnScreen[1] - layerOnScreen.y,
+                    room,
+                )
+                .onGloballyPositioned { subs.panels[0] = it.boundsInRoot() }
                 // Wider than it was. The header now carries a path, and 300dp ellipsised a
                 // path down to almost nothing on the screen where the path matters most.
                 .widthIn(min = 248.dp, max = 330.dp)
@@ -85,6 +98,7 @@ fun ContextMenu(
                 // A hairline, not a shadow. The palette is warm and nearly flat, and a drop
                 // shadow on a dark ground reads as a smudge rather than as elevation.
                 .border(1.dp, colors.lineSoft, RoundedCornerShape(14.dp))
+                .keepTaps()
                 .padding(bottom = 6.dp),
         ) {
             // The name, the path, and how many when it is a selection. DlgCtxHead, so this
@@ -97,18 +111,18 @@ fun ContextMenu(
             if (quick.isNotEmpty()) {
                 DlgIconBar {
                     for (action in quick) {
-                        DlgIconBtn(
-                            icon = action.icon,
-                            label = action.label,
-                            // Blocked stays TAPPABLE and answers with the reason. A phone has
-                            // no hover, so a dimmed glyph that also ignores the tap tells
-                            // nobody anything - the same rule the selection bar follows.
-                            enabled = true,
-                            danger = action.danger,
-                        ) {
-                            val why = action.blocked
-                            if (why != null) onBlocked(why) else action.run()
-                            onDismiss()
+                        var at by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+                        // A row of its own, for the button's weight and to know where it is.
+                        Row(Modifier.weight(1f).onGloballyPositioned { at = it.boundsInRoot() }) {
+                            DlgIconBtn(
+                                icon = action.icon,
+                                label = action.label,
+                                // Blocked stays TAPPABLE and answers with the reason. A phone has
+                                // no hover, so a dimmed glyph that also ignores the tap tells
+                                // nobody anything - the same rule the selection bar follows.
+                                enabled = true,
+                                danger = action.danger,
+                            ) { pressed(action, 0, at, subs, onBlocked, onDismiss) }
                         }
                     }
                 }
@@ -124,40 +138,8 @@ fun ContextMenu(
                         )
                     }
                     previous = action.group
-                    MenuRow(action, onDismiss, onBlocked)
+                    MenuEntry(action, level = 0, subs = subs, onBlocked = onBlocked, onDone = onDismiss)
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MenuRow(action: SelectionAction, onDismiss: () -> Unit, onBlocked: (String) -> Unit) {
-    val colors = Filet.colors
-    val tint = when {
-        action.blocked != null -> colors.fg3
-        action.danger -> colors.bad
-        else -> colors.fg2
-    }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable {
-                val why = action.blocked
-                if (why != null) onBlocked(why) else action.run()
-                onDismiss()
-            }
-            .padding(horizontal = 14.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(action.icon, null, tint = tint, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(action.label, fontSize = 13.sp, color = tint)
-            // The reason lives in the menu rather than in a toast after the tap, so somebody
-            // can see why a row is dim without committing to it.
-            action.blocked?.let {
-                Text(it, fontSize = 9.5.sp, lineHeight = 12.sp, color = colors.fg3)
             }
         }
     }

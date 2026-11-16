@@ -26,10 +26,12 @@
   .menu { position:absolute; width:262px; background:var(--high); border:1px solid var(--lineSoft); border-radius:14px; padding-bottom:6px; box-shadow:0 8px 24px #0008; }
   .head { display:flex; gap:10px; padding:12px 14px 8px; align-items:center; }
   .head i { width:34px; height:34px; border-radius:8px; background:#3a4a52; flex:none; }
+  .head > div { min-width:0; }
   .head b { display:block; font-weight:600; font-size:13.5px; }
-  .head small { color:var(--fg3); font-size:11px; }
+  .head small { display:block; color:var(--fg3); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .quick { display:flex; justify-content:space-around; padding:4px 6px 8px; border-bottom:1px solid var(--lineSoft); margin-bottom:4px; }
   .quick span { width:36px; height:32px; border-radius:9px; display:grid; place-items:center; color:var(--fg2); }
+  .quick svg { width:17px; height:17px; }
   .row { display:flex; gap:12px; align-items:center; padding:9px 14px; color:var(--fg2); cursor:pointer; border-radius:0; }
   .row:hover { background:#ffffff08; }
   .row svg { width:16px; height:16px; flex:none; }
@@ -39,7 +41,7 @@
   .row.open { background:var(--accentDim); color:var(--fg); }
   .row.open .chev { color:var(--accent); }
   .rule { height:1px; background:var(--lineSoft); margin:4px 0; }
-  .sub { position:absolute; width:236px; background:var(--high); border:1px solid var(--lineSoft); border-radius:14px; padding:4px 0 6px; box-shadow:0 10px 28px #000a; }
+  .sub { position:absolute; width:236px; overflow:auto; z-index:2; background:var(--high); border:1px solid var(--lineSoft); border-radius:14px; padding:4px 0 6px; box-shadow:0 10px 28px #000a; }
   .sub .back { display:flex; align-items:center; gap:8px; padding:8px 10px 6px; color:var(--fg); font-weight:600; font-size:13px; border-bottom:1px solid var(--lineSoft); margin-bottom:2px; cursor:pointer; }
   .sub .back svg { width:16px; height:16px; color:var(--accent); }
   .sec { font-size:10px; letter-spacing:1px; font-weight:600; color:var(--fg3); padding:8px 14px 3px; text-transform:uppercase; }
@@ -51,6 +53,7 @@
   .pill b { color:var(--accent); padding:0 6px; }
   .pill .fb { display:flex; flex-direction:column; align-items:center; font-size:9.5px; padding:2px 7px; border-radius:9px; cursor:pointer; }
   .pill .fb svg { width:18px; height:18px; }
+  .pill > span svg { width:18px; height:18px; }
   .pill .fb.on { background:var(--accentDim); color:var(--fg); }
   .dscrim { position:absolute; inset:0; background:#0009; display:none; align-items:center; justify-content:center; }
   .dlg { width:300px; background:var(--high); border:1px solid var(--lineSoft); border-radius:16px; overflow:hidden; }
@@ -119,7 +122,7 @@
   <h3>How a submenu behaves</h3>
   <ul>
     <li><b>Where it opens.</b> Beside the menu, its top level with the row that opened it, overlapping the menu's edge by 4 dp so the two read as one. Right of the menu when there is room, left of it when there is not.</li>
-    <li><b>Never off the screen.</b> With no room on either side it is pushed in from the screen edge and covers part of the menu it came from. It moves up rather than run off the bottom. Taller than the screen, it scrolls.</li>
+    <li><b>Never off the screen, at any depth.</b> With no room on either side, as on a phone, it covers part of the panels behind it, from whichever screen edge leaves more of its parent showing. So a third level lands across from the second rather than on top of it, and each level keeps a strip in view. It moves up rather than run off the bottom. Taller than the screen, it scrolls. The rule is <code>MenuPlace.land</code> in SubMenu.kt, and this page runs the same arithmetic.</li>
     <li><b>Closing.</b> Its own back row closes it. Back closes the newest submenu first, then the menu. Tapping the row that opened it closes it again. Tapping outside closes everything.</li>
     <li><b>Nesting.</b> A row inside a submenu can open another, by the same rules against the submenu it came from. Only one submenu is open per level: opening another row's submenu closes the first.</li>
     <li><b>The open row is lit</b> in the menu below it, so it is clear what the submenu belongs to while it covers part of the menu.</li>
@@ -167,15 +170,22 @@ const LEVELS = {
   ]},
 };
 
-function place(anchor, w, h){
-  // anchor: {left,right,top} of the row that opens it, in phone coordinates.
-  let x = anchor.right - OVER;
-  if (x + w > W - M) x = anchor.left - w + OVER;          // flip to the left
-  if (x < M) x = W - M - w;                               // no room either side: in from the edge, over the menu
-  let y = anchor.top - 4;
-  let maxH = H - 2*M;
-  if (y + Math.min(h, maxH) > H - M) y = H - M - Math.min(h, maxH);
-  return {x, y: Math.max(M, y), maxH};
+// The same rule as MenuPlace.land in SubMenu.kt: beside the parent when it fits (right, then
+// left); otherwise over the panels behind, from the edge that leaves more of the parent showing.
+const ROOM = {left:M, top:M, right:W-M, bottom:H-M};
+function land(parent, rowTop, w, h){
+  w = Math.min(w, ROOM.right-ROOM.left); h = Math.min(h, ROOM.bottom-ROOM.top);
+  const right = parent.right - OVER, left = parent.left - w + OVER;
+  let x;
+  if (right + w <= ROOM.right) x = right;
+  else if (left >= ROOM.left) x = left;
+  else {
+    const atRight = ROOM.right - w;
+    const showsIfRight = atRight - parent.left, showsIfLeft = parent.right - (ROOM.left + w);
+    x = showsIfLeft > showsIfRight ? ROOM.left : atRight;
+  }
+  const y = Math.max(ROOM.top, Math.min(rowTop, ROOM.bottom - h));
+  return {x, y, w, h};
 }
 
 function renderProp(){
@@ -186,18 +196,24 @@ function renderProp(){
       ${row("info","Details")}<div class="rule"></div>
       ${row("star","Bookmark")}${row("share","Share",{sub:true,id:"share",open:open[0]==="share"})}${row("lock","Move to Locker")}${row("home","Shortcut")}</div>`;
   let parent = el.querySelector("#m0");
+  const p = el.getBoundingClientRect();
+  const box = n => { const r = n.getBoundingClientRect(); return {left:r.left-p.left-1, right:r.right-p.left-1, top:r.top-p.top-1}; };
   open.forEach((id, level) => {
     const def = LEVELS[id];
-    const r = parent.querySelector(`[data-id="${id}"]`).getBoundingClientRect(), p = el.getBoundingClientRect();
-    const anchor = {left:r.left-p.left-1, right:r.right-p.left+1, top:r.top-p.top};
+    const rowEl = parent.querySelector(`[data-id="${id}"]`);
+    if (!rowEl) { open = open.slice(0, level); return; }
+    const at0 = box(rowEl), par = box(parent);
     const sub = document.createElement("div");
     sub.className = "sub";
     sub.innerHTML = `<div class="back" data-back="${level}">${ic("back")}${def.title}</div>` +
-      def.rows.filter(x => nest || !x.demo || !x.sub || true).map(x => x.sec ? `<div class="sec">${x.sec}</div>` :
-        row(x.icon, x.label, {small:x.small, sub: x.sub && nest, id: x.sub && nest ? x.id : null, open: open[level+1]===x.id})).join("");
+      def.rows.map(x => {
+        if (x.sec) return `<div class="sec">${x.sec}</div>`;
+        const opens = !!x.sub && nest;
+        return row(x.icon, x.label, {small:x.small, sub:opens, id:opens ? x.id : null, open:opens && open[level+1] === x.id});
+      }).join("");
     el.appendChild(sub);
-    const pos = place(anchor, sub.offsetWidth, sub.offsetHeight);
-    sub.style.left = pos.x + "px"; sub.style.top = pos.y + "px"; sub.style.maxHeight = pos.maxH + "px"; sub.style.overflow = "auto";
+    const at = land(par, at0.top - 1, sub.offsetWidth, sub.offsetHeight);
+    Object.assign(sub.style, {left:at.x+"px", top:at.y+"px", maxHeight:at.h+"px"});
     parent = sub;
   });
   el.querySelectorAll(".row[data-id]").forEach(r => r.onclick = e => {
@@ -217,6 +233,11 @@ document.querySelectorAll("#where button").forEach(b => b.onclick = () => {
 document.getElementById("nest").onclick = e => { nest = !nest; e.target.classList.toggle("on", nest); open = open.slice(0,1); renderProp(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape" || e.key === "Backspace") { open = open.slice(0, -1); renderProp(); } });
 open = ["share"];
+// #deep opens the third level; #tr, #br or #bl picks where the file was held. #deep-br does both.
+for (const part of location.hash.slice(1).split("-")) {
+  if (part === "deep") { nest = true; open = ["share", "near"]; document.getElementById("nest").classList.add("on"); }
+  if (SPOTS[part]) { where = part; document.querySelectorAll("#where button").forEach(x => x.classList.toggle("on", x.dataset.w === part)); }
+}
 renderProp();
 
 // Selection bar

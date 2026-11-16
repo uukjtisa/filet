@@ -18,7 +18,7 @@ class SelectionBarConfigTest {
 
     private val live = listOf(
         "copy", "move", "send", "compress", "rename", "openwith",
-        "details", "bookmark", "nearby", "shortcut", "delete",
+        "details", "bookmark", "share", "shortcut", "delete",
     ).map(::action)
 
     @Test
@@ -28,7 +28,7 @@ class SelectionBarConfigTest {
         for (bar in listOf(
             SelectionBarConfig.DEFAULT,
             listOf("copy"),
-            listOf("delete", "copy", "nearby"),
+            listOf("delete", "copy", "share"),
             emptyList(),
         )) {
             val (onBar, more) = SelectionBarConfig.split(live, bar)
@@ -72,7 +72,7 @@ class SelectionBarConfigTest {
 
     @Test
     fun `encode and normalise round trip`() {
-        val ids = listOf("delete", "copy", "nearby")
+        val ids = listOf("delete", "copy", "share")
         assertEquals(ids, SelectionBarConfig.normalise(SelectionBarConfig.encode(ids)))
     }
 
@@ -164,6 +164,12 @@ class SelectionBarConfigTest {
         // Never a duplicate, and never longer than the row has room for.
         assertEquals(row.distinct(), row)
         assertEquals(QUICK_IDS.size, SelectionBarConfig.contextQuick(SelectionBarConfig.IDS.joinToString(",")).size)
+    }
+
+    @Test
+    fun `a bar that held Nearby or Fast share holds Share in that place`() {
+        assertEquals(listOf("copy", "share", "delete"), SelectionBarConfig.normalise("copy,nearby,fastshare,delete"))
+        assertEquals(listOf("share"), SelectionBarConfig.normalise("fastshare"))
     }
 
     @Test

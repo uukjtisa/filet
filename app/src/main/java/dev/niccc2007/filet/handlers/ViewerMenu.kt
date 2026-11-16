@@ -132,24 +132,47 @@ internal fun ColumnScope.ViewerFilePopRows(
 private fun ColumnScope.FileRows(actions: List<SelectionAction>, close: () -> Unit, say: (String) -> Unit) {
     val colors = Filet.colors
     var last: SelectionAction.Group? = null
+    // A row with rows of its own (Share) opens them under itself, inside the panel: a panel is
+    // anchored to its bar and has no menu edge for a submenu to sit beside.
+    var expanded by remember { mutableStateOf<String?>(null) }
     for (a in actions) {
         if (last != null && a.group != last) PanelRule()
         last = a.group
+        val open = expanded == a.id
         PanelRow(
             a.label,
             tint = colors.accent,
             on = null,
             icon = a.icon,
-            ink = if (a.danger) colors.bad else null,
+            ink = if (a.danger) colors.bad else if (open) colors.accent else null,
             dim = a.blocked != null,
         ) {
             // A blocked row answers with its reason and leaves the panel open.
             val why = a.blocked
-            if (why != null) {
-                say(why)
-            } else {
-                close()
-                a.run()
+            when {
+                why != null -> say(why)
+                a.children.isNotEmpty() -> expanded = if (open) null else a.id
+                else -> {
+                    close()
+                    a.run()
+                }
+            }
+        }
+        if (open) {
+            var heading: String? = null
+            for (child in a.children) {
+                val section = child.section
+                if (section != null && section != heading) PanelHeading(section, first = false)
+                heading = section
+                PanelRow(child.label, tint = colors.accent, on = null, icon = child.icon, dim = child.blocked != null) {
+                    val why = child.blocked
+                    if (why != null) {
+                        say(why)
+                    } else {
+                        close()
+                        child.run()
+                    }
+                }
             }
         }
     }
@@ -190,6 +213,7 @@ internal fun viewerActions(
             nearby = { vm.shareNearby(one) },
             shortcut = { vm.shortcutOne(node) },
             fastShare = { vm.openFastShare(one) },
+            portal = { vm.portalSend(one) },
             install = { vm.installApk(node) },
             metadata = { vm.openWith(node, HandlerId.METADATA, remember = false) },
             announce = { vm.announceToMedia(one) },
@@ -254,4 +278,5 @@ private val VIEWER_ICONS = SelectionIcons(
     audio = FiletIcons.Audio, rows = FiletIcons.Rows,
     folder = FiletIcons.FolderOpen, invert = FiletIcons.Check,
     fast = FiletIcons.Scan, lock = FiletIcons.Lock,
+    link = FiletIcons.Link, nodes = FiletIcons.ShareNodes,
 )

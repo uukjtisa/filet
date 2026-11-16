@@ -172,15 +172,28 @@ class SelectionActionsTest {
     @Test fun each_action_runs_its_own_callback() {
         // The failure this catches is a copy-paste in the list: two entries wired to the same
         // lambda, which in a menu of eleven is genuinely hard to see by reading.
-        for (action in actions(1)) {
+        for (action in leaves(actions(1))) {
             ran = ""
             action.run()
             assertTrue("${action.id} ran nothing", ran.isNotEmpty())
         }
     }
 
+    /** The rows that run: a row with a submenu runs nothing itself, its rows do. */
+    private fun leaves(all: List<SelectionAction>) = all.flatMap { if (it.children.isEmpty()) listOf(it) else it.children }
+
+    @Test fun share_holds_filets_own_ways_under_two_headings() {
+        val wired = callbacks.copy(portal = { ran = "portal" }, fastShare = { ran = "fastShare" })
+        val share = selectionActions(count = 1, readOnly = null, icons = icons, on = wired).single { it.id == "share" }
+        assertEquals(listOf("portal", "fastshare", "nearby"), share.children.map { it.id })
+        assertEquals(listOf(SHARE_INTERNET, SHARE_NEARBY, SHARE_NEARBY), share.children.map { it.section })
+        // One entry, not three scattered: none of its rows is also a row of the menu.
+        val top = selectionActions(count = 1, readOnly = null, icons = icons, on = wired).map { it.id }
+        for (child in share.children) assertTrue(child.id !in top)
+    }
+
     @Test fun no_two_actions_share_a_callback() {
-        val fired = actions(1).map { action ->
+        val fired = leaves(actions(1)).map { action ->
             ran = ""
             action.run()
             ran

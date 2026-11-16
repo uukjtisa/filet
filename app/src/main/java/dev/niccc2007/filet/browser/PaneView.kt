@@ -2060,6 +2060,7 @@ private fun PaneContextMenu(
             audio = FiletIcons.Audio, rows = FiletIcons.Rows,
             folder = FiletIcons.FolderOpen, invert = FiletIcons.Check,
             fast = FiletIcons.Scan, lock = FiletIcons.Lock,
+            link = FiletIcons.Link, nodes = FiletIcons.ShareNodes,
         ),
         on = SelectionCallbacks(
             copy = { vm.copySelection() },
@@ -2073,6 +2074,11 @@ private fun PaneContextMenu(
             bookmark = { vm.bookmarkSelection() },
             nearby = { vm.shareSelectionNearby() },
             fastShare = { vm.fastShareSelection() },
+            portal = {
+                val items = pane.selectedNodes()
+                pane.clearSelection()
+                vm.portalSend(items)
+            },
             toLocker = { vm.moveToLockerSelection() },
             release = { vm.releaseSelection() },
             shortcut = { vm.shortcutSelection() },

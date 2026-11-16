@@ -827,51 +827,17 @@ fun SettingsPage(vm: BrowserViewModel) {
                 "${bar.size} of ${dev.niccc2007.filet.browser.SelectionBarConfig.MAX_ON_BAR} on the bar",
             )
         }
-        // The bottom bar's editor rather than a second kind: the bar in its own order with up,
-        // down and remove, then everything behind More with an add. The list of switches this
-        // replaces could not show an order at all, and the order was whatever things had been
-        // switched on in - putting Delete first meant switching off everything ahead of it.
+        // The bottom bar's editor, not a second kind: the pill as it will look, the buttons on it
+        // with their icons and a grip to slide them, then everything behind More with an add. The
+        // list of up and down buttons this replaces had no icons, and moving a button to the front
+        // took one press per place. See SelectionBarPicker.
         anchor(Prefs.K_SELECTION_BAR)
         item {
             val sel = dev.niccc2007.filet.browser.SelectionBarConfig
             val bar = sel.normalise(selectionBar)
-            fun write(ids: List<String>) = prefs.setSelectionBar(sel.encode(ids))
-            Column {
-                for ((i, id) in bar.withIndex()) {
-                    BarRow(
-                        label = sel.labelFor(id) ?: id,
-                        detail = "Position ${i + 1}",
-                        what = "the selection bar",
-                        onUp = if (i > 0) ({ write(sel.moved(bar, i, i - 1)) }) else null,
-                        onDown = if (i < bar.size - 1) ({ write(sel.moved(bar, i, i + 1)) }) else null,
-                        // The last one stays. A bar holding only More and a count reads as a
-                        // failure to load rather than as a choice.
-                        onRemove = if (bar.size > 1) ({ write(sel.toggled(bar, id)) }) else null,
-                    )
-                }
-                val off = sel.CHOOSABLE.filterNot { it.first in bar }
-                if (off.isNotEmpty()) {
-                    Text(
-                        "In More",
-                        fontSize = 9.sp,
-                        letterSpacing = 1.3.sp,
-                        color = Filet.colors.fg3,
-                        modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 4.dp),
-                    )
-                    // Full means no add at all, and the row says why: an add that silently
-                    // pushed the first one off would be a switch that turns another one off.
-                    val full = sel.full(bar)
-                    for ((id, label) in off) {
-                        BarRow(
-                            label = label,
-                            detail = if (full) "Bar full · take one off to add this" else null,
-                            hint = "Adds it to the end of the bar. Everything not on the bar is behind More.",
-                            what = "the selection bar",
-                            key = Prefs.K_SELECTION_BAR,
-                            onAdd = if (full) null else ({ write(sel.toggled(bar, id)) }),
-                        )
-                    }
-                }
+            // No hint text: a hint opens on a hold, and a hold on a grip lifts a row to slide it.
+            HoldHint(null, key = Prefs.K_SELECTION_BAR) {
+                dev.niccc2007.filet.browser.SelectionBarPicker(bar) { ids -> prefs.setSelectionBar(sel.encode(ids)) }
             }
         }
         }
@@ -2694,83 +2660,6 @@ fun SmallButton(text: String, onClick: () -> Unit) {
             .clickable(onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 6.dp),
     )
-}
-
-/**
- * One entry in the bottom-bar editor.
- *
- * Arrows rather than a drag. A drag inside a `LazyColumn` that is itself scrolling needs a
- * nested-scroll dance to tell "move this row" from "scroll the page", and it is the gesture
- * that most often fights a scroll on a phone; two buttons are unambiguous, reachable with a
- * thumb, and work with a screen reader - which a drag does not without a second,
- * accessibility-only path that would then be the thing nobody tests.
- */
-@Composable
-internal fun BarRow(
-    label: String,
-    /** A live value - the position on the bar - printed under the label. Null for none. */
-    detail: String?,
-    /** What it is, shown on hold. See [HoldHint]. */
-    hint: String? = null,
-    /**
-     * What the thing is being added to or taken off, for the content descriptions.
-     *
-     * Parameterised because this row is no longer only the bottom bar's: the row-detail card
-     * reuses it, and a screen reader announcing "Take Date off the bar" on the Rows screen
-     * would be describing a control that does not exist.
-     */
-    what: String = "the bar",
-    onUp: (() -> Unit)? = null,
-    onDown: (() -> Unit)? = null,
-    onRemove: (() -> Unit)? = null,
-    onAdd: (() -> Unit)? = null,
-    /** The preference this row writes, shown last in its hint. */
-    key: String? = null,
-) = HoldHint(hint, key) {
-    val colors = Filet.colors
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .then(if (onAdd != null) Modifier.clickable(onClick = onAdd) else Modifier)
-            .padding(start = 16.dp, end = 6.dp, top = 9.dp, bottom = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
-                HintInfo()
-            }
-            if (detail != null) Text(detail, fontSize = 10.sp, color = colors.fg3)
-        }
-        if (onAdd != null) {
-            Icon(
-                FiletIcons.Plus, "Add $label to $what",
-                tint = colors.accent,
-                modifier = Modifier.size(32.dp).padding(8.dp),
-            )
-        }
-        onUp?.let {
-            Icon(
-                FiletIcons.Up, "Move $label up",
-                tint = colors.fg2,
-                modifier = Modifier.size(32.dp).clip(CircleShape).clickable(onClick = it).padding(8.dp),
-            )
-        }
-        onDown?.let {
-            Icon(
-                FiletIcons.Down, "Move $label down",
-                tint = colors.fg2,
-                modifier = Modifier.size(32.dp).clip(CircleShape).clickable(onClick = it).padding(8.dp),
-            )
-        }
-        onRemove?.let {
-            Icon(
-                FiletIcons.Close, "Take $label off $what",
-                tint = colors.fg3,
-                modifier = Modifier.size(32.dp).clip(CircleShape).clickable(onClick = it).padding(9.dp),
-            )
-        }
-    }
 }
 
 /** The app volume as the row says it, with the boost's read-back rule where there is a boost. */

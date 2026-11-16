@@ -46,7 +46,7 @@ object SelectionBarConfig {
         "foldericon" to "Change icon",
         "details" to "Details",
         "bookmark" to "Bookmark",
-        "nearby" to "Nearby",
+        "share" to "Share",
         "shortcut" to "Shortcut",
         "install" to "Install",
         "metadata" to "Metadata",
@@ -78,6 +78,7 @@ object SelectionBarConfig {
         val parsed = stored.orEmpty()
             .split(',')
             .map { it.trim() }
+            .map { RENAMED[it] ?: it }
             .filter { it.isNotEmpty() }
             .filter { it in IDS }
             .distinct()
@@ -86,6 +87,12 @@ object SelectionBarConfig {
         // having been renamed. Falling back beats a strip with nothing in it.
         return parsed.ifEmpty { DEFAULT }
     }
+
+    /**
+     * Ids that became another. Nearby and Fast share went under one Share entry, so a bar
+     * that held either holds Share in that place rather than losing the button.
+     */
+    private val RENAMED = mapOf("nearby" to "share", "fastshare" to "share")
 
     fun encode(ids: List<String>): String = ids.joinToString(",")
 

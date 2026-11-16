@@ -37,7 +37,9 @@ class ViewerMenuTest {
     fun `a viewer drops what means nothing for one open file`() {
         val ids = forViewer(one(), unsaved = false).map { it.id }
         for (gone in NOT_IN_VIEWERS) assertFalse(gone, gone in ids)
-        assertTrue("send" in ids && "details" in ids && "delete" in ids && "fastshare" in ids)
+        assertTrue("send" in ids && "details" in ids && "delete" in ids && "share" in ids)
+        val share = forViewer(one(), unsaved = false).single { it.id == "share" }
+        assertTrue("fastshare" in share.children.map { it.id })
     }
 
     @Test

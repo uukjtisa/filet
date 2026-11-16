@@ -212,8 +212,7 @@ internal val SETTINGS_INDEX: List<SettingsEntry> = listOf(
         title = "Selection bar",
         tab = SettingsGroup.CONTROLS,
         section = "Selection bar",
-        text = "Bar full · take one off to add this Adds it to the end of the bar. " +
-            "Everything not on the bar is behind More. the selection bar",
+        text = "",
     ),
     SettingsEntry(
         key = Prefs.K_DEVICE_TIER,

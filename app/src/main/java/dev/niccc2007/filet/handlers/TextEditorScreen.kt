@@ -122,6 +122,9 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
     // Whether the page on screen was reached from the editor, so back returns to it. A file that
     // opened on its page has no editor behind it to return to, and back leaves.
     var cameFromEdit by remember(node.path) { mutableStateOf(false) }
+    // The same the other way: the source on screen was reached from the page, so back returns
+    // to the page, drawn again from the buffer, edits and saves included.
+    var cameFromPage by remember(node.path) { mutableStateOf(false) }
     // The text the page is drawn from: the buffer as it was at the flip.
     var renderSource by remember(node.path) { mutableStateOf<String?>(null) }
     val context = LocalContext.current
@@ -160,14 +163,20 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
         }
     }
 
-    /** Page to source or back. The keyboard goes with the source: there is nothing to type into. */
-    fun flip() {
+    /**
+     * Page to source or back. The keyboard goes with the source: there is nothing to type into.
+     * A flip made by Back is the return itself, so it leaves nothing behind for the next Back,
+     * which then leaves the screen rather than flipping again.
+     */
+    fun flip(viaBack: Boolean = false) {
         if (rendering) {
             rendering = false
             cameFromEdit = false
+            cameFromPage = !viaBack
             return
         }
-        cameFromEdit = true
+        cameFromPage = false
+        cameFromEdit = !viaBack
         val ed = editor
         renderSource = ed?.text?.toString() ?: text
         if (ed != null) {
@@ -260,7 +269,8 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
     // Back from the page goes to the editor behind it, as it was - the editor stays composed under
     // the page, so its cursor and scroll are still there. Declared after the guard, so a page
     // reached from the editor answers back before the question about leaving does.
-    androidx.activity.compose.BackHandler(enabled = rendering && cameFromEdit) { flip() }
+    val backFlips = if (rendering) cameFromEdit else cameFromPage
+    androidx.activity.compose.BackHandler(enabled = backFlips) { flip(viaBack = true) }
 
     LaunchedEffect(node.path) {
         loading = true
@@ -292,7 +302,7 @@ fun TextEditorScreen(vm: BrowserViewModel, node: VNode, startRendered: Boolean =
                 // The one fact that explains a page that looks incomplete - see `HtmlScreen`.
                 if (rendering && webPage) append("  ·  offline")
             },
-            onClose = { if (rendering && cameFromEdit) flip() else leave() },
+            onClose = { if (backFlips) flip(viaBack = true) else leave() },
         ) {
             // The tools that act on the text hide while the page is up: they would act on an
             // editor nobody can see, and the page's own controls take their place. Save stays -
