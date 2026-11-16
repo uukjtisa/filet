@@ -415,6 +415,7 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
             password.fill(' ')
             if (ok) {
                 withContext(Dispatchers.IO) { runCatching { graph.locker.sweep() } }
+                graph.locker.takeNotice()?.let(::toast)
                 afterUnlock()
             }
             done(ok)
@@ -430,11 +431,24 @@ class BrowserViewModel(private val graph: FiletGraph) : ViewModel() {
                 runCatching { graph.locker.unlockWith(key) }.getOrDefault(false).also { if (it) runCatching { graph.locker.sweep() } }
             }
             key.fill(0)
-            if (ok) afterUnlock() else toast("The fingerprint key no longer opens this Locker. Use the password.")
+            if (ok) {
+                graph.locker.takeNotice()?.let(::toast)
+                afterUnlock()
+            } else {
+                toast("The fingerprint key no longer opens this Locker. Use the password.")
+            }
         }
     }
 
     fun lockLocker() = graph.locker.lock()
+
+    /**
+     * Erases a Locker whose key is missing: its sealed files, which nothing can open. Asked only by
+     * the screen that says so, after the erase word is typed.
+     */
+    fun eraseLocker() {
+        viewModelScope.launch(Dispatchers.IO) { runCatching { graph.locker.erase() } }
+    }
 
     /** What was waiting on the Locker opening: a move into it, asked for while it was locked. */
     private var lockerThen: (() -> Unit)? = null

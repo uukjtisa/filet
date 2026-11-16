@@ -43,6 +43,14 @@ class StreamTokens(
     @Synchronized
     fun resolve(token: String): Entry? = byToken[token]
 
+    /** Drops every token for a Locker file, and returns them, so what they named goes too. */
+    @Synchronized
+    fun forgetPrivate(): Set<String> {
+        val gone = byToken.filterValues { dev.niccc2007.filet.locker.LockerPaths.isPrivate(it.path) }.keys.toSet()
+        for (t in gone) byToken.remove(t)?.let { byPath.remove(it.path) }
+        return gone
+    }
+
     companion object {
         private val random = SecureRandom()
 

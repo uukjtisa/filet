@@ -69,19 +69,60 @@ fun LockerGate(vm: BrowserViewModel) {
         Column(Modifier.widthIn(max = 440.dp).padding(horizontal = 20.dp, vertical = 28.dp)) {
             Icon(FiletIcons.Lock, null, tint = colors.accent, modifier = Modifier.size(34.dp))
             Spacer(Modifier.height(10.dp))
-            val made = vm.locker.made
+            // Read again after an erase, which moves the revision.
+            val rev by vm.locker.revision.collectAsState()
+            val health = remember(rev) { vm.locker.health() }
             Text(
-                if (made) "The Locker is locked" else "Set up the Locker",
+                when (health) {
+                    LockerVault.Health.OK -> "The Locker is locked"
+                    LockerVault.Health.NONE -> "Set up the Locker"
+                    LockerVault.Health.KEY_MISSING -> "The Locker's key is missing"
+                },
                 fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                if (made) "Its files are sealed with your password." else
-                    "Files moved here are sealed with your password, and leave only when you release them.",
+                when (health) {
+                    LockerVault.Health.OK -> "Its files are sealed with your password."
+                    LockerVault.Health.NONE -> "Files moved here are sealed with your password, and leave only when you release them."
+                    LockerVault.Health.KEY_MISSING -> "Its sealed files are still here, but the file that opens them is gone."
+                },
                 fontSize = 13.sp, color = colors.fg2,
             )
             Spacer(Modifier.height(16.dp))
-            if (made) LockerUnlockForm(vm) else LockerSetupForm(vm)
+            when (health) {
+                LockerVault.Health.OK -> LockerUnlockForm(vm)
+                LockerVault.Health.NONE -> LockerSetupForm(vm)
+                LockerVault.Health.KEY_MISSING -> LockerKeyMissing(vm)
+            }
+        }
+    }
+}
+
+/**
+ * Sealed files with no key to open them. Said plainly, and nothing is done about it on its own:
+ * a new Locker would orphan them for good, so the only way on is to erase them, by typing a word.
+ */
+@Composable
+private fun LockerKeyMissing(vm: BrowserViewModel) {
+    val colors = Filet.colors
+    var typed by remember { mutableStateOf("") }
+    val n = remember { vm.locker.sealedCount() }
+    DlgWarn(
+        "$n sealed file${if (n == 1) " is" else "s are"} here. Without the key file nothing can open " +
+            "${if (n == 1) "it" else "them"}, and a new Locker set up over ${if (n == 1) "it" else "them"} " +
+            "would lose ${if (n == 1) "it" else "them"} for good, so Filet will not make one on its own.",
+        bad = true,
+    )
+    Text(
+        "Type \"${LockerVault.ERASE_WORD}\" to erase them and start again.",
+        fontSize = 12.sp, color = colors.fg2, modifier = Modifier.padding(bottom = 10.dp),
+    )
+    DlgField("Type ${LockerVault.ERASE_WORD}", typed, { typed = it })
+    Row(Modifier.fillMaxWidth()) {
+        DlgBtn("Erase the sealed files", kind = BtnKind.PRIMARY, enabled = LockerVault.eraseConfirmed(typed)) {
+            typed = ""
+            vm.eraseLocker()
         }
     }
 }
@@ -140,7 +181,15 @@ fun LockerUnlockForm(vm: BrowserViewModel, onCancel: (() -> Unit)? = null) {
     var wrong by remember { mutableStateOf(false) }
     val bio = remember { LockerBio.ready(context, vm.locker) }
     DlgField("Password", pw, { pw = it; wrong = false }, password = true)
-    if (wrong) Text("That is not the password.", fontSize = 12.sp, color = colors.bad, modifier = Modifier.padding(bottom = 10.dp))
+    if (wrong) {
+        Text(
+            when (vm.locker.failure) {
+                LockerVault.Failure.KEY_DAMAGED -> "The Locker's key file is damaged, and so is its copy, so no password can be checked."
+                else -> "That is not the password."
+            },
+            fontSize = 12.sp, color = colors.bad, modifier = Modifier.padding(bottom = 10.dp),
+        )
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (onCancel != null) DlgBtn("Cancel", onClick = onCancel)
         if (bio) {
@@ -263,19 +312,26 @@ fun LockerTile(
     onHide: () -> Unit,
 ) {
     val open by vm.locker.open.collectAsState()
+    val pending by vm.locker.pending.collectAsState()
     val rev by vm.locker.revision.collectAsState()
     val count = remember(rev, open) { if (open) runCatching { vm.locker.read { it.files().size } }.getOrNull() else null }
+    val health = remember(rev, open) { vm.locker.health() }
     dev.niccc2007.filet.ui.tabs.StorageTile(
         icon = FiletIcons.Lock,
         kind = "Locker",
         value = when {
             open -> "Open"
-            vm.locker.made -> "Locked"
+            health == LockerVault.Health.OK -> "Locked"
+            health == LockerVault.Health.KEY_MISSING -> "Key missing"
             else -> "Set up"
         },
         caption = when {
+            // Bug identified here: a lock waiting on a copy left the card reading Open, as though
+            // the button had done nothing.
+            open && pending -> "Locks when the copy finishes"
             open -> "${count ?: 0} file${if (count == 1) "" else "s"} · locks when you leave"
-            vm.locker.made -> "Files sealed with your password"
+            health == LockerVault.Health.OK -> "Files sealed with your password"
+            health == LockerVault.Health.KEY_MISSING -> "Its sealed files cannot be opened"
             else -> "Keep files sealed with a password"
         },
         onHide = onHide,

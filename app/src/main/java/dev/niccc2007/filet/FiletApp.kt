@@ -144,6 +144,7 @@ class FiletGraph(context: Context) {
         v.onLocked = {
             dev.niccc2007.filet.media.Thumbnails.forgetPrivate()
             ledger.forgetPrivate()
+            dev.niccc2007.filet.stream.StreamServer.forgetPrivateIfRunning()
         }
     }
 
@@ -166,7 +167,12 @@ class FiletGraph(context: Context) {
     /** SD cards and USB drives: plugged in now, remembered, and watched. See [dev.niccc2007.filet.storage.Drives]. */
     val drives = dev.niccc2007.filet.storage.Drives(app, prefs, scope)
 
-    val ops = FileOperations(vfs, ledger, relaunch = { block -> scope.launch { block() } }) { touched ->
+    val ops = FileOperations(
+        vfs, ledger,
+        relaunch = { block -> scope.launch { block() } },
+        // A copy into or out of the Locker keeps it open until the copy ends: see LockerVault.hold.
+        holdOpen = { paths -> if (paths.any(dev.niccc2007.filet.locker.LockerPaths::isPrivate)) locker.hold() else null },
+    ) { touched ->
         // Everything Filet writes or removes is announced to the media index. Without it a
         // file is on the disk and invisible to every gallery on the phone.
         dev.niccc2007.filet.media.MediaAnnounce.announce(app, touched)

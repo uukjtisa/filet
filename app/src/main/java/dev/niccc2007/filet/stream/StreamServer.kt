@@ -65,6 +65,24 @@ class StreamServer private constructor(private val vfs: Vfs) {
 
     private class Parked(val reader: ReadAhead, val expiry: Job)
 
+    /**
+     * Forgets everything it holds of the Locker: the links, the pieces kept for a jump back and
+     * the readers kept for a seek.
+     *
+     * Bug identified here: none of the three was touched by a lock. Up to 24 MB of a Locker
+     * video's plain bytes stayed in [cache] after the Locker was locked, and were served from
+     * memory - with no look at the Locker at all - to any request still holding the link.
+     */
+    fun forgetPrivate() {
+        val gone = tokens.forgetPrivate()
+        if (gone.isEmpty()) return
+        cache.forget(gone)
+        val readers = synchronized(this) {
+            gone.flatMap { t -> parked.remove(t).orEmpty().onEach { it.expiry.cancel() }.map { it.reader } }
+        }
+        readers.forEach { runCatching { it.close() } }
+    }
+
     /** A link a player can stream [node] from, for as long as the app runs. */
     fun linkFor(node: VNode): Uri {
         val token = tokens.mint(StreamTokens.Entry(node.path, node.size, mimeOf(node)))
@@ -317,6 +335,11 @@ class StreamServer private constructor(private val vfs: Vfs) {
 
         @Volatile private var instance: StreamServer? = null
 
+        /** [forgetPrivate] on the server, when one has been made. Called at every lock. */
+        fun forgetPrivateIfRunning() {
+            instance?.forgetPrivate()
+        }
+
         /** The one server, over [vfs]. */
         fun of(vfs: Vfs): StreamServer =
             instance ?: synchronized(this) { instance ?: StreamServer(vfs).also { instance = it } }
@@ -459,4 +482,17 @@ internal class PieceCache(private val maxBytes: Long) {
 
     @Synchronized
     fun size(): Long = bytes
+
+    /** Drops every piece of [tokens]. */
+    @Synchronized
+    fun forget(tokens: Set<String>) {
+        val i = map.entries.iterator()
+        while (i.hasNext()) {
+            val e = i.next()
+            if (e.key.substringBefore('@') in tokens) {
+                bytes -= e.value.size
+                i.remove()
+            }
+        }
+    }
 }

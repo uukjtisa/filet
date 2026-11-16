@@ -72,6 +72,13 @@ class FileOperations(
      */
     private val relaunch: ((suspend () -> Unit) -> Unit)? = null,
     /**
+     * Asked before a copy or move with the paths it reads and writes; what it hands back is
+     * closed when the batch ends. The app holds the Locker open this way for a batch that touches
+     * it, so a lock asked for half way through waits for the batch instead of failing the rest of
+     * it. Null for a batch that needs nothing held, and always in tests.
+     */
+    private val holdOpen: (List<VPath>) -> AutoCloseable? = { null },
+    /**
      * Told about every path this class writes or removes.
      *
      * A callback rather than a Context, because what has to happen is an Android media-index
@@ -544,7 +551,26 @@ class FileOperations(
      * @param retryOnly offer only Retry, over what failed - for an operation whose successes
      *   cannot be done twice.
      */
+    /** [batchHeld], with whatever [holdOpen] holds for these paths held until it ends. */
     private suspend fun batch(
+        items: List<VPath>,
+        verb: String,
+        into: VPath,
+        action: FileAction,
+        kind: JobKind,
+        again: suspend (List<VPath>) -> OpResult,
+        retryOnly: Boolean = false,
+        each: suspend (VPath, ((Progress) -> Unit), Pending?) -> VPath?,
+    ): OpResult {
+        val held = holdOpen(items + into)
+        try {
+            return batchHeld(items, verb, into, action, kind, again, retryOnly, each)
+        } finally {
+            runCatching { held?.close() }
+        }
+    }
+
+    private suspend fun batchHeld(
         items: List<VPath>,
         verb: String,
         into: VPath,

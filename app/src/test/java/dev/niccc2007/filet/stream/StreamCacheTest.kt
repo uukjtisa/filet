@@ -10,6 +10,30 @@ import org.junit.Test
 class StreamCacheTest {
 
     @Test
+    fun `a lock forgets the Locker's links and their pieces, and nothing else`() {
+        var n = 0
+        val tokens = StreamTokens { "t" + ++n }
+        val locker = tokens.mint(StreamTokens.Entry(dev.niccc2007.filet.vfs.VPath("locker", "/v.mp4"), 10, "video/mp4"))
+        val plain = tokens.mint(StreamTokens.Entry(dev.niccc2007.filet.vfs.VPath("local", "/sdcard/v.mp4"), 10, "video/mp4"))
+        val cache = PieceCache(1024)
+        cache.put(locker, 0, ByteArray(100))
+        cache.put(locker, 256, ByteArray(100))
+        cache.put(plain, 0, ByteArray(100))
+
+        val gone = tokens.forgetPrivate()
+        cache.forget(gone)
+
+        assertEquals(setOf(locker), gone)
+        assertNull(tokens.resolve(locker))
+        assertNull(cache.get(locker, 0))
+        assertNull(cache.get(locker, 256))
+        assertEquals(plain, tokens.resolve(plain)?.let { plain })
+        assertEquals(100L, cache.size())
+        // Minted again after the lock, the file gets a new token rather than the old one back.
+        assertTrue(tokens.mint(StreamTokens.Entry(dev.niccc2007.filet.vfs.VPath("locker", "/v.mp4"), 10, "video/mp4")) != locker)
+    }
+
+    @Test
     fun `a piece read once is found again by its link and offset`() {
         val cache = PieceCache(1024)
         val piece = ByteArray(100) { it.toByte() }
